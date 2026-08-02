@@ -76,6 +76,7 @@ export default function Home() {
         </Link>
         <div className="top-actions">
           <span className="knowledge-state"><i /> 教材知識庫準備中</span>
+          <Link href="/plan" className="admin-link">讀書計畫</Link>
           <Link href="/admin" className="admin-link">管理後台</Link>
         </div>
       </header>

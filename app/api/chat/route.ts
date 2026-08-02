@@ -1,9 +1,9 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appSettings, usageLogs } from "../../../db/schema";
+import { appSettings, studyPlans, studyTasks, usageLogs } from "../../../db/schema";
 
-const instructions = `你是「司律導師」，專門協助台灣律師與司法官考試的主動式 AI 學習教練。
+const baseInstructions = `你是「司律導師」，專門協助台灣律師與司法官考試的主動式 AI 學習教練。
 你的任務是教會學生思考，不是立刻交付完整答案。
 
 對話規則：
@@ -15,7 +15,9 @@ const instructions = `你是「司律導師」，專門協助台灣律師與司�
 6. 不要使用僵硬的「教學卡、步驟一、步驟二」口吻，不要一次問很多問題。
 7. 若資訊不足或法律內容不確定，要直接說明，不得捏造法條、判決或教材來源。
 8. 回覆通常控制在 80 至 220 個中文字；必要時可稍長。
-9. 若檔案搜尋工具找到教材內容，必須以教材為優先依據；找不到時才使用一般模型知識，且不得捏造教材來源。`;
+9. 若檔案搜尋工具找到教材內容，必須以教材為優先依據；找不到時才使用一般模型知識，且不得捏造教材來源。
+10. 當你已經知道學生的考試目標、每日可用時間與目前學習需求後，主動呼叫 save_study_plan，建立接下來 7 天可執行的讀書計畫。不要只把計畫寫在聊天裡。
+11. 行事曆任務必須使用真實 YYYY-MM-DD 日期；不得把尚未公布的考試日期編造成確切日期。`;
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
@@ -60,6 +62,39 @@ function readUsage(payload: unknown) {
   return { inputTokens, outputTokens, cachedTokens };
 }
 
+type PlanCall = { title: string; target_label: string; daily_minutes: number; tasks: Array<{ date: string; subject: string; title: string; duration_minutes: number; details: string }> };
+
+function readPlanCall(payload: unknown): PlanCall | null {
+  if (!payload || typeof payload !== "object") return null;
+  const output = (payload as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return null;
+  const call = output.find((item) => item && typeof item === "object" && (item as { type?: string; name?: string }).type === "function_call" && (item as { name?: string }).name === "save_study_plan") as { arguments?: string } | undefined;
+  if (!call?.arguments) return null;
+  try { return JSON.parse(call.arguments) as PlanCall; } catch { return null; }
+}
+
+async function savePlan(plan: PlanCall) {
+  const db = await getDb();
+  await db.update(studyPlans).set({ active: false }).where(eq(studyPlans.active, true));
+  const [created] = await db.insert(studyPlans).values({
+    title: plan.title.slice(0, 120),
+    targetLabel: plan.target_label.slice(0, 120),
+    dailyMinutes: Math.max(15, Math.min(720, Number(plan.daily_minutes) || 120)),
+  }).returning();
+  const tasks = plan.tasks.slice(0, 14).filter((task) => /^\d{4}-\d{2}-\d{2}$/.test(task.date));
+  for (const task of tasks) {
+    await db.insert(studyTasks).values({
+      planId: created.id,
+      taskDate: task.date,
+      subject: task.subject.slice(0, 40),
+      title: task.title.slice(0, 120),
+      durationMinutes: Math.max(10, Math.min(480, Number(task.duration_minutes) || 30)),
+      details: (task.details ?? "").slice(0, 500),
+    });
+  }
+  return tasks.length;
+}
+
 export async function POST(request: Request) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -78,7 +113,52 @@ export async function POST(request: Request) {
       vectorStoreId = setting?.value ?? "";
     } catch { /* answer from model knowledge until the index is ready */ }
 
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    let planContext = "目前尚未建立讀書計畫。";
+    try {
+      const db = await getDb();
+      const [plan] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
+      if (plan) {
+        const tasks = await db.select().from(studyTasks).where(eq(studyTasks.planId, plan.id)).orderBy(asc(studyTasks.taskDate)).limit(30);
+        planContext = `目前計畫：${plan.title}；目標：${plan.targetLabel}；每日 ${plan.dailyMinutes} 分鐘。任務：${tasks.map((task) => `${task.taskDate} ${task.subject}/${task.title}/${task.durationMinutes}分鐘/${task.status}`).join("；") || "尚無任務"}`;
+      }
+    } catch { /* the tutor can continue before plan storage is ready */ }
+    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n你必須根據學生實際完成狀態、延誤與新弱點調整後續計畫；不要重複已完成任務。`;
     const selectedModel = process.env.OPENAI_MODEL || chooseModel(messages);
+    const tools: Array<Record<string, unknown>> = [{
+      type: "function",
+      name: "save_study_plan",
+      description: "將已確認的司律備考安排寫入學生讀書計畫與行事曆",
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          target_label: { type: "string", description: "例如 116年律師考試；日期未公布時只寫目標月份" },
+          daily_minutes: { type: "integer" },
+          tasks: {
+            type: "array",
+            minItems: 1,
+            maxItems: 14,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                date: { type: "string", description: "YYYY-MM-DD" },
+                subject: { type: "string" },
+                title: { type: "string" },
+                duration_minutes: { type: "integer" },
+                details: { type: "string" },
+              },
+              required: ["date", "subject", "title", "duration_minutes", "details"],
+            },
+          },
+        },
+        required: ["title", "target_label", "daily_minutes", "tasks"],
+      },
+    }];
+    if (vectorStoreId) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -92,7 +172,7 @@ export async function POST(request: Request) {
           role: message.role === "mentor" ? "assistant" : "user",
           content: message.text,
         })),
-        ...(vectorStoreId ? { tools: [{ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 }] } : {}),
+        tools,
       }),
     });
 
@@ -100,7 +180,18 @@ export async function POST(request: Request) {
     if (!response.ok) {
       return Response.json({ error: "AI 服務暫時無法回應" }, { status: 502 });
     }
-    const reply = extractText(payload);
+    let reply = extractText(payload);
+    const planCall = readPlanCall(payload);
+    let planSaved = false;
+    if (planCall) {
+      try {
+        const count = await savePlan(planCall);
+        if (count) {
+          planSaved = true;
+          reply = `${reply ? `${reply}\n\n` : ""}我已經把接下來 ${count} 項任務寫入你的讀書計畫。你可以打開行事曆查看，也可以隨時告訴我調整。`;
+        }
+      } catch { /* keep the conversation available */ }
+    }
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
     const fromFiles = usedFileSearch(payload);
@@ -127,6 +218,7 @@ export async function POST(request: Request) {
       reply,
       source: fromFiles ? "教材" : "AI 補充",
       usage: { model: selectedModel, ...usage, fileSearchCalls: fromFiles ? 1 : 0, estimatedCostUsd },
+      planSaved,
     });
   } catch {
     return Response.json({ error: "對話處理失敗" }, { status: 500 });

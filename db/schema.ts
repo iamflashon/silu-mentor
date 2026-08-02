@@ -31,3 +31,24 @@ export const usageLogs = sqliteTable("usage_logs", {
   estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const studyPlans = sqliteTable("study_plans", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  targetLabel: text("target_label").notNull(),
+  dailyMinutes: integer("daily_minutes").notNull(),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const studyTasks = sqliteTable("study_tasks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  planId: integer("plan_id").notNull().references(() => studyPlans.id, { onDelete: "cascade" }),
+  taskDate: text("task_date").notNull(),
+  subject: text("subject").notNull(),
+  title: text("title").notNull(),
+  durationMinutes: integer("duration_minutes").notNull(),
+  details: text("details").notNull().default(""),
+  status: text("status").notNull().default("pending"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
