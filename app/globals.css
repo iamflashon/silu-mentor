@@ -105,6 +105,7 @@ a { color:inherit; text-decoration:none; }
 .field input,.field select { border:1px solid #d5e1e9; border-radius:11px; padding:11px 12px; background:white; outline:0; color:var(--ink); }
 .primary-btn { width:100%; margin-top:14px; padding:13px; border:0; border-radius:12px; background:var(--navy); color:white; font-weight:750; cursor:pointer; }
 .file-list { display:flex; flex-direction:column; gap:11px; }
+.document-panel { display:flex; flex-direction:column; min-height:100%; }
 .file-card { display:flex; gap:12px; align-items:center; padding:14px; border:1px solid #e0e8ee; border-radius:14px; }
 .file-type { width:38px; height:42px; display:grid; place-items:center; border-radius:9px; background:#eef3f6; color:#46677f; font-size:11px; font-weight:800; }
 .file-info { flex:1; min-width:0; }
@@ -115,6 +116,17 @@ a { color:inherit; text-decoration:none; }
 .index-btn { border:1px solid #bfd0dc; background:#f5f9fb; color:#315b79; border-radius:999px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; }
 .empty-state { text-align:center; color:#8b9aa5; padding:55px 10px; font-size:14px; }
 .notice { margin-top:18px; border-radius:13px; padding:13px 15px; background:#edf5fa; color:#587387; font-size:12px; line-height:1.6; }
+.index-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-top:16px; }
+.index-metrics>div { min-width:0; padding:10px; border-radius:11px; background:#f1f6f9; }
+.index-metrics span,.index-metrics strong { display:block; }
+.index-metrics span { color:#78909f; font-size:9px; }
+.index-metrics strong { margin-top:5px; color:#274b64; font-size:13px; white-space:nowrap; }
+.index-metrics .index-version { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.index-metrics .index-version strong { margin:0; font-size:11px; }
+.document-pagination { display:flex; align-items:center; justify-content:center; gap:12px; margin-top:auto; padding-top:17px; }
+.document-pagination button { padding:7px 11px; border:1px solid #cfdee7; border-radius:9px; background:white; color:#315d7b; font-size:10px; font-weight:750; cursor:pointer; }
+.document-pagination button:disabled { opacity:.35; cursor:default; }
+.document-pagination span { color:#728897; font-size:10px; }
 .cost-panel { margin-bottom:22px; }
 .cost-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
 .cost-heading .panel-sub { margin-bottom:18px; }

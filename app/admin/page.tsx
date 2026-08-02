@@ -11,6 +11,8 @@ type UsageData = {
   showCosts: boolean;
 };
 type ExamSource = { id: number; url: string; label: string; examType: string; sourceKind: string; status: string };
+type DocumentStats = { total: number; ready: number; indexedBytes: number; citations: number; misses: number; indexVersion: string };
+const DOCUMENTS_PER_PAGE = 5;
 
 async function readJson(response: Response) {
   const text = await response.text();
@@ -28,6 +30,8 @@ export default function AdminPage() {
   const [subject, setSubject] = useState("刑法");
   const [type, setType] = useState("教科書");
   const [files, setFiles] = useState<Uploaded[]>([]);
+  const [documentPage, setDocumentPage] = useState(1);
+  const [documentStats, setDocumentStats] = useState<DocumentStats>({ total: 0, ready: 0, indexedBytes: 0, citations: 0, misses: 0, indexVersion: "待建立" });
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
@@ -41,7 +45,7 @@ export default function AdminPage() {
   useEffect(() => {
     fetch("/api/documents").then(async (response) => {
       if (!response.ok) return;
-      const result = await response.json() as { documents?: Array<{ id: number; name: string; subject: string; type: string; sizeBytes: number; status: string; error?: string | null }> };
+      const result = await response.json() as { documents?: Array<{ id: number; name: string; subject: string; type: string; sizeBytes: number; status: string; error?: string | null }>; stats?: DocumentStats };
       setFiles((result.documents ?? []).map((item) => ({
         id: item.id,
         name: item.name,
@@ -50,6 +54,7 @@ export default function AdminPage() {
         status: item.status,
         error: item.error,
       })));
+      if (result.stats) setDocumentStats(result.stats);
     }).catch(() => undefined);
     fetch("/api/usage").then(async (response) => {
       if (response.ok) setUsage(await response.json() as UsageData);
@@ -150,6 +155,7 @@ export default function AdminPage() {
     if (!completeResponse.ok || !completed.document?.id) throw new Error(completed.error ?? "無法完成文件上傳");
     const newId = completed.document.id;
     setFiles((current) => [{ id: newId, name: selected.name, subject, size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`, status: "uploaded" }, ...current]);
+    setDocumentPage(1);
     patchQueue(item.key, { status: "indexing", progress: 92 });
 
     const indexResponse = await fetch("/api/documents/index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: newId }) });
@@ -175,6 +181,9 @@ export default function AdminPage() {
     if (fileRef.current) fileRef.current.value = "";
     setNotice(failed ? `批次處理完成：${pending.length - failed} 本成功，${failed} 本失敗，可按下方按鈕重試失敗項目。` : `${pending.length} 本 PDF 已依序上傳，索引服務正在處理。`);
   }
+
+  const documentPageCount = Math.max(1, Math.ceil(files.length / DOCUMENTS_PER_PAGE));
+  const visibleFiles = files.slice((documentPage - 1) * DOCUMENTS_PER_PAGE, documentPage * DOCUMENTS_PER_PAGE);
 
   return (
     <main className="admin-shell">
@@ -219,18 +228,29 @@ export default function AdminPage() {
             <button className="primary-btn" type="submit" disabled={!queue.some((item) => item.status === "queued" || item.status === "failed") || uploading}>{uploading ? "批次處理中，請勿關閉頁面…" : queue.some((item) => item.status === "failed") ? "重試失敗項目" : `依序上傳 ${queue.length || ""} 份並建立索引`}</button>
             {notice && <div className="notice">{notice}</div>}
           </form>
-          <section className="panel">
+          <section className="panel document-panel">
             <h2>文件處理狀態</h2>
             <p className="panel-sub">只有完成索引的內容，才會進入教材優先檢索。</p>
             {files.length === 0 ? <div className="empty-state">尚未上傳教材<br />第一份 PDF 會顯示在這裡</div> : (
-              <div className="file-list">{files.map((file) => {
+              <div className="file-list">{visibleFiles.map((file) => {
                 const ready = file.status === "completed";
                 const failed = file.status === "failed";
                 const waiting = file.status === "uploaded";
                 return <div className="file-card" key={file.id}><span className="file-type">PDF</span><div className="file-info"><strong>{file.name}</strong><span>{file.subject} · {file.size}{file.error ? ` · ${file.error}` : ""}</span></div>{waiting || failed ? <button className="index-btn" onClick={() => startIndex(file.id)}>{failed ? "重新索引" : "開始索引"}</button> : <span className={`status ${ready ? "" : "pending"}`}>{ready ? "可供搜尋" : "建立索引中"}</span>}</div>;
               })}</div>
             )}
-            <div className="notice">正式接入後，這裡會顯示頁數、切分段落數、索引版本、被引用次數，以及「教材找不到」的使用者問題。</div>
+            <div className="index-metrics" aria-label="教材索引即時統計">
+              <div><span>可搜尋</span><strong>{documentStats.ready} / {documentStats.total}</strong></div>
+              <div><span>索引容量</span><strong>{(documentStats.indexedBytes / 1024 / 1024).toFixed(1)} MB</strong></div>
+              <div><span>教材引用</span><strong>{documentStats.citations}</strong></div>
+              <div><span>未命中問題</span><strong>{documentStats.misses}</strong></div>
+              <div className="index-version"><span>索引版本</span><strong>{documentStats.indexVersion}</strong></div>
+            </div>
+            {files.length > DOCUMENTS_PER_PAGE && <nav className="document-pagination" aria-label="文件清單分頁">
+              <button type="button" disabled={documentPage === 1} onClick={() => setDocumentPage((page) => Math.max(1, page - 1))}>上一頁</button>
+              <span>第 {documentPage} / {documentPageCount} 頁</span>
+              <button type="button" disabled={documentPage === documentPageCount} onClick={() => setDocumentPage((page) => Math.min(documentPageCount, page + 1))}>下一頁</button>
+            </nav>}
           </section>
         </div>
         <section className="panel exam-source-panel"><div className="cost-heading"><div><h2>真題、法條與參考來源網址</h2><p className="panel-sub">真題拆成題目；法條建立法規名稱與條號索引；一般網站切成可引用段落。所有來源都要人工確認後才發布。</p></div><span className="source-count">{examSources.length} 個來源</span></div><form className="source-form source-form-wide" onSubmit={addExamSource}><label className="field">來源類型<select value={sourceKind} onChange={(event) => setSourceKind(event.target.value)}><option value="exam">歷屆真題</option><option value="regulation">法條資料庫</option><option value="reference">參考網站</option></select></label><label className="field">來源名稱<input value={sourceLabel} onChange={(event) => setSourceLabel(event.target.value)} placeholder={sourceKind === "regulation" ? "例如：全國法規資料庫" : "來源名稱"} /></label>{sourceKind === "exam" && <label className="field">題型<select value={sourceExamType} onChange={(event) => setSourceExamType(event.target.value)}><option value="mcq">一試選擇題</option><option value="essay">二試申論題</option></select></label>}<label className="field source-url">網址<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" /></label><button className="primary-btn" type="submit" disabled={!sourceLabel.trim() || !sourceUrl.trim()}>加入資料處理清單</button></form>{examSources.length ? <div className="source-list">{examSources.map((source) => <div key={source.id}><span>{source.sourceKind === "regulation" ? "法條" : source.sourceKind === "reference" ? "參考" : source.examType === "mcq" ? "一試" : "二試"}</span><div><strong>{source.label}</strong><small>{source.url}</small></div><em>{source.status === "waiting" ? "等待處理" : source.status}</em></div>)}</div> : <p className="usage-empty">尚未加入來源網址。</p>}</section>

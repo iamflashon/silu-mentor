@@ -1,6 +1,6 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { documents } from "../../../db/schema";
+import { chatMessages, documents } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
 import { openAIJson } from "../../../lib/openai";
 
@@ -26,6 +26,16 @@ export async function GET() {
         rows = await db.select().from(documents).where(inArray(documents.id, rows.map((row) => row.id))).orderBy(desc(documents.createdAt));
       }
     }
+    const [documentStats] = await db.select({
+      total: sql<number>`count(*)`,
+      ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
+      indexedBytes: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then ${documents.sizeBytes} else 0 end), 0)`,
+    }).from(documents);
+    const [usageStats] = await db.select({
+      citations: sql<number>`coalesce(sum(case when ${chatMessages.source} = '教材' then 1 else 0 end), 0)`,
+      misses: sql<number>`coalesce(sum(case when ${chatMessages.source} = 'AI 補充' then 1 else 0 end), 0)`,
+    }).from(chatMessages).where(eq(chatMessages.role, "mentor"));
+    const [indexSetting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     return Response.json({ documents: rows.map((row) => ({
       id: row.id,
       name: row.fileName,
@@ -35,7 +45,14 @@ export async function GET() {
       status: row.status,
       error: row.indexError,
       createdAt: row.createdAt,
-    })) });
+    })), stats: {
+      total: Number(documentStats?.total ?? 0),
+      ready: Number(documentStats?.ready ?? 0),
+      indexedBytes: Number(documentStats?.indexedBytes ?? 0),
+      citations: Number(usageStats?.citations ?? 0),
+      misses: Number(usageStats?.misses ?? 0),
+      indexVersion: indexSetting ? `VS-${new Date(indexSetting.updatedAt).toISOString().slice(0, 10).replaceAll("-", "")}` : "待建立",
+    } });
   } catch {
     return Response.json({ error: "教材資料庫尚未就緒" }, { status: 503 });
   }
