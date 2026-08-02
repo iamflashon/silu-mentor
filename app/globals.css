@@ -176,13 +176,13 @@ a { color:inherit; text-decoration:none; }
 .calendar-toolbar { display:flex; justify-content:center; align-items:center; gap:20px; margin-bottom:14px; }
 .calendar-toolbar button { width:34px; height:34px; border:1px solid #d4e0e8; background:white; border-radius:10px; color:var(--navy); font-size:22px; cursor:pointer; }
 .calendar-toolbar strong { min-width:150px; text-align:center; color:#28465d; }
-.calendar-grid { display:grid; grid-template-columns:repeat(7,1fr); background:white; border:1px solid #dce6ed; border-radius:18px; overflow:hidden; box-shadow:0 10px 30px rgba(31,63,86,.05); }
+.calendar-grid { width:100%; min-width:0; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); background:white; border:1px solid #dce6ed; border-radius:18px; overflow:hidden; box-shadow:0 10px 30px rgba(31,63,86,.05); }
 .weekday { padding:12px; text-align:center; background:#edf3f7; color:#657b8b; font-size:12px; font-weight:800; border-right:1px solid #dce6ed; }
-.calendar-day { min-height:145px; padding:9px; border-top:1px solid #e1e9ee; border-right:1px solid #e1e9ee; position:relative; }
+.calendar-day { min-width:0; min-height:145px; padding:9px; overflow:hidden; border-top:1px solid #e1e9ee; border-right:1px solid #e1e9ee; position:relative; }
 .calendar-day.blank { background:#fafcfd; }
 .day-number { color:#62798a; font-size:12px; font-weight:800; }
 .day-tasks { display:flex; flex-direction:column; gap:5px; margin-top:7px; }
-.calendar-task { display:flex; gap:6px; padding:7px; border-radius:8px; background:#edf4f8; color:#31566f; cursor:pointer; }
+.calendar-task { width:100%; min-width:0; display:flex; gap:6px; padding:7px; overflow:hidden; border-radius:8px; background:#edf4f8; color:#31566f; cursor:pointer; }
 .calendar-task>button { width:16px; height:16px; padding:0; flex:0 0 auto; border:1px solid #9fb6c6; border-radius:5px; background:white; color:#2b7655; font-size:10px; }
 .calendar-task div { min-width:0; }
 .calendar-task strong,.calendar-task span,.calendar-task small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
