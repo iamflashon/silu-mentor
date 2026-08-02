@@ -107,6 +107,14 @@ export default function AdminPage() {
     setNotice(`已建立 ${result.resource.title}，擷取 ${result.articles ?? 0} 筆試讀／文章資料，預設為草稿等待確認。`);
   }
 
+  async function bindBookDocument(resource: LearningResource, documentId: string) {
+    const response = await fetch("/api/resources", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...resource, documentId: documentId || null }) });
+    const result = await readJson(response) as { resource?: LearningResource; error?: string };
+    if (!response.ok || !result.resource) { setNotice(result.error ?? "教材綁定失敗"); return; }
+    setResources((current) => current.map((item) => item.id === resource.id ? { ...item, documentId: result.resource!.documentId } : item));
+    setNotice(`${resource.title} 已${documentId ? "綁定教材 PDF" : "解除教材綁定"}。`);
+  }
+
   async function addExamSource(event: FormEvent) {
     event.preventDefault();
     const response = await fetch("/api/exam-sources", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: sourceUrl, label: sourceLabel, examType: sourceExamType, sourceKind }) });
@@ -347,14 +355,14 @@ export default function AdminPage() {
             <label className="field">資源類型<select value={activeTab === "courses" ? "course" : "book"} onChange={(e) => setResourceType(e.target.value)} disabled><option value="book">書籍</option><option value="course">影音課程</option></select></label>
             <label className="field">名稱<input value={resourceTitle} onChange={(e) => setResourceTitle(e.target.value)} placeholder="例如：透明的刑法－總則編" /></label>
             <label className="field">作者／老師<input value={resourceCreator} onChange={(e) => setResourceCreator(e.target.value)} placeholder="張鏡榮律師" /></label>
-            {resourceType === "book" ? <label className="field">綁定教材 PDF<select value={resourceDocumentId} onChange={(e) => setResourceDocumentId(e.target.value)}><option value="">稍後綁定</option>{files.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}</select></label> : <label className="field">課程／來源網址<input type="url" value={resourceUrl} onChange={(e) => setResourceUrl(e.target.value)} placeholder="https://…" /></label>}
+            {activeTab === "courses" ? <label className="field">課程／來源網址<input type="url" value={resourceUrl} onChange={(e) => setResourceUrl(e.target.value)} placeholder="https://…" /></label> : <div className="field resource-create-hint"><span>教材 PDF</span><strong>建立後在書卡上選擇</strong></div>}
             <button className="primary-btn" disabled={!resourceTitle.trim()}>建立資源</button>
           </form>
           {notice && <div className="notice">{notice}</div>}
           <div className="resource-grid">{resources.filter((resource) => activeTab === "courses" ? resource.resourceType === "course" : resource.resourceType === "book").map((resource) => <article className="resource-card" key={resource.id}>
             <div className="resource-cover">{resource.hasCover ? <img src={`/api/resources/cover?id=${resource.id}`} alt={`${resource.title}書封`} /> : <span>{resource.resourceType === "course" ? "課" : resource.resourceType === "magazine" ? "刊" : "書"}</span>}</div>
             <div className="resource-info"><span>{resource.resourceType === "course" ? "影音課程" : resource.resourceType === "magazine" ? "期刊" : "書籍"} · {resource.subject}</span><h3>{resource.title}</h3><p>{resource.creator || "尚未設定作者／老師"}</p><small>{resource.documentId ? "已綁定教材 PDF" : resource.sourceUrl ? "已設定來源網址" : "尚未綁定內容"} · {resource.segmentCount} 個學習片段</small></div>
-            <div className="resource-actions"><label>上傳書封<input type="file" accept="image/*" hidden onChange={(e) => uploadResourceAsset(resource.id, "cover", e.target.files?.[0])} /></label>{resource.resourceType === "course" && <label>上傳 SRT<input type="file" accept=".srt" hidden onChange={(e) => uploadResourceAsset(resource.id, "subtitle", e.target.files?.[0])} /></label>}</div>
+            <div className="resource-actions">{resource.resourceType === "book" && <select aria-label={`${resource.title}綁定教材 PDF`} value={resource.documentId ?? ""} onChange={(e) => bindBookDocument(resource, e.target.value)}><option value="">選擇教材 PDF</option>{files.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}</select>}<label>上傳書封<input type="file" accept="image/*" hidden onChange={(e) => uploadResourceAsset(resource.id, "cover", e.target.files?.[0])} /></label>{resource.resourceType === "course" && <label>上傳 SRT<input type="file" accept=".srt" hidden onChange={(e) => uploadResourceAsset(resource.id, "subtitle", e.target.files?.[0])} /></label>}</div>
           </article>)}</div>
         </section>}
         {activeTab === "magazine" && <section className="panel resource-manager"><div className="cost-heading"><div><h2>月旦法學教室</h2><p className="panel-sub">貼入歷期或單期網址後，分析期別、出刊日、試讀文章、作者與可用連結；資料先進草稿，確認後再供前台推薦。</p></div><span className="source-count">{resources.filter((item) => item.resourceType === "magazine").length} 期</span></div><div className="magazine-import"><label className="field">月旦法學教室網址<input type="url" value={magazineUrl} onChange={(e) => setMagazineUrl(e.target.value)} /></label><button type="button" className="primary-btn" onClick={analyzeMagazine}>分析並建立最新一期</button></div>{notice && <div className="notice">{notice}</div>}<div className="resource-grid">{resources.filter((item) => item.resourceType === "magazine").map((resource) => <article className="resource-card" key={resource.id}><div className="resource-cover"><span>刊</span></div><div className="resource-info"><span>{resource.status === "draft" ? "待確認" : "前台顯示"}</span><h3>{resource.title}</h3><p>{resource.creator}</p><small>{resource.description || "尚未取得出刊資料"} · {resource.segmentCount} 篇內容</small></div><div className="resource-actions"><a href={resource.sourceUrl} target="_blank" rel="noreferrer">檢視來源</a></div></article>)}</div></section>}

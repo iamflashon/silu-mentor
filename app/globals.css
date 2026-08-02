@@ -99,6 +99,8 @@ a { color:inherit; text-decoration:none; }
 .resource-cover img { width:100%; height:100%; object-fit:cover; }
 .resource-info { min-width:0; }.resource-info>span { color:#6d8798; font-size:11px; }.resource-info h3 { margin:4px 0; color:#173852; font-size:15px; }.resource-info p,.resource-info small { display:block; margin:0; color:#738896; font-size:11px; }
 .resource-actions { display:flex; flex-direction:column; gap:7px; }.resource-actions label,.resource-actions a { padding:7px 9px; border:1px solid #bdd0dd; border-radius:8px; color:#2d6387; font-size:10px; font-weight:750; cursor:pointer; text-decoration:none; }
+.resource-actions select { width:210px; max-width:24vw; padding:7px 9px; border:1px solid #bdd0dd; border-radius:8px; background:white; color:#31566f; font-size:10px; }
+.resource-create-hint { justify-content:flex-end; }.resource-create-hint strong { min-height:42px; display:flex; align-items:center; padding:0 11px; border:1px dashed #c8d7e1; border-radius:9px; color:#718695; font-size:11px; }
 .magazine-import { display:grid; grid-template-columns:1fr 210px; gap:12px; align-items:end; }
 .back-link { color:#526c7e; font-size:14px; }
 .admin-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:22px; }
@@ -219,6 +221,7 @@ a { color:inherit; text-decoration:none; }
   .composer-wrap.rail-left { left:0; }
   .admin-grid { grid-template-columns:1fr; }
   .resource-form,.resource-grid,.magazine-import { grid-template-columns:1fr; }
+  .resource-actions select { width:100%; max-width:none; }
   .admin-main { width:calc(100% - 28px); padding-top:30px; }
   .admin-title { align-items:flex-start; }
   .meta-fields { grid-template-columns:1fr; }

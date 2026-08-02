@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     const groups = parseSrt(await file.text());
     await db.delete(resourceSegments).where(and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.lessonLabel, lessonLabel)));
     const rows = groups.map((group, index) => ({ resourceId, segmentType: "subtitle", lessonLabel, title: `${Math.floor(group.start / 60)}:${String(group.start % 60).padStart(2, "0")}－${Math.floor(group.end / 60)}:${String(group.end % 60).padStart(2, "0")}`, startSeconds: group.start, endSeconds: group.end, text: group.text, sequence: index + 1 }));
-    for (let index = 0; index < rows.length; index += 20) await db.insert(resourceSegments).values(rows.slice(index, index + 20));
+    for (let index = 0; index < rows.length; index += 8) await db.insert(resourceSegments).values(rows.slice(index, index + 8));
     await db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, resourceId));
     return Response.json({ ok: true, segments: groups.length, lessonLabel });
   }
