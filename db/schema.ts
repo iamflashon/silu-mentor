@@ -164,3 +164,35 @@ export const examSourceItems = sqliteTable("exam_source_items", {
   processedAt: integer("processed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const learningResources = sqliteTable("learning_resources", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  resourceType: text("resource_type").notNull(),
+  title: text("title").notNull(),
+  subject: text("subject").notNull().default("刑法"),
+  creator: text("creator").notNull().default(""),
+  description: text("description").notNull().default(""),
+  documentId: integer("document_id").references(() => documents.id, { onDelete: "set null" }),
+  coverStorageKey: text("cover_storage_key"),
+  sourceUrl: text("source_url").notNull().default(""),
+  accessType: text("access_type").notNull().default("owned"),
+  status: text("status").notNull().default("active"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const resourceSegments = sqliteTable("resource_segments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  resourceId: integer("resource_id").notNull().references(() => learningResources.id, { onDelete: "cascade" }),
+  segmentType: text("segment_type").notNull(),
+  lessonLabel: text("lesson_label").notNull().default(""),
+  title: text("title").notNull(),
+  pageStart: integer("page_start"),
+  pageEnd: integer("page_end"),
+  startSeconds: integer("start_seconds"),
+  endSeconds: integer("end_seconds"),
+  text: text("text").notNull().default(""),
+  sequence: integer("sequence").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});

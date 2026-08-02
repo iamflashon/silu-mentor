@@ -13,6 +13,7 @@ type UsageData = {
 type ExamSource = { id: number; url: string; label: string; examType: string; sourceKind: string; status: string; discoveredCount: number; processedCount: number; questionCount: number; lastError?: string | null };
 type ExamProcessResult = { status?: string; processedCount?: number; discoveredCount?: number; questionCount?: number; message?: string; error?: string };
 type DocumentStats = { total: number; ready: number; indexedBytes: number; citations: number; misses: number; indexVersion: string };
+type LearningResource = { id: number; resourceType: string; title: string; subject: string; creator: string; description: string; documentId: number | null; sourceUrl: string; accessType: string; status: string; hasCover: number; segmentCount: number };
 const DOCUMENTS_PER_PAGE = 5;
 const USAGE_PER_PAGE = 10;
 
@@ -27,6 +28,7 @@ async function readJson(response: Response) {
 }
 
 export default function AdminPage() {
+  const [activeTab, setActiveTab] = useState<"documents" | "resources" | "courses" | "magazine" | "sources" | "costs">("documents");
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [subject, setSubject] = useState("刑法");
@@ -47,6 +49,13 @@ export default function AdminPage() {
   const [processingSourceId, setProcessingSourceId] = useState<number | null>(null);
   const [batchSourceId, setBatchSourceId] = useState<number | null>(null);
   const batchStopRef = useRef(false);
+  const [resources, setResources] = useState<LearningResource[]>([]);
+  const [resourceType, setResourceType] = useState("book");
+  const [resourceTitle, setResourceTitle] = useState("");
+  const [resourceCreator, setResourceCreator] = useState("");
+  const [resourceUrl, setResourceUrl] = useState("");
+  const [resourceDocumentId, setResourceDocumentId] = useState("");
+  const [magazineUrl, setMagazineUrl] = useState("https://www.angle.com.tw/magazine/m_search.asp?KindID=12");
 
   useEffect(() => {
     fetch("/api/documents").then(async (response) => {
@@ -66,7 +75,37 @@ export default function AdminPage() {
       if (response.ok) setUsage(await response.json() as UsageData);
     }).catch(() => undefined);
     fetch("/api/exam-sources").then(async (response) => { if (response.ok) setExamSources(((await response.json()) as { sources?: ExamSource[] }).sources ?? []); }).catch(() => undefined);
+    fetch("/api/resources").then(async (response) => { if (response.ok) setResources(((await response.json()) as { resources?: LearningResource[] }).resources ?? []); }).catch(() => undefined);
   }, []);
+
+  async function addResource(event: FormEvent) {
+    event.preventDefault();
+    const selectedType = activeTab === "courses" ? "course" : activeTab === "resources" ? "book" : resourceType;
+    const response = await fetch("/api/resources", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resourceType: selectedType, title: resourceTitle, subject: "刑法", creator: resourceCreator, sourceUrl: resourceUrl, documentId: resourceDocumentId || null, accessType: selectedType === "course" ? "full" : "owned" }) });
+    const result = await readJson(response) as { resource?: LearningResource; error?: string };
+    if (!response.ok || !result.resource) { setNotice(result.error ?? "無法建立學習資源"); return; }
+    setResources((current) => [result.resource!, ...current]); setResourceTitle(""); setResourceCreator(""); setResourceUrl(""); setResourceDocumentId(""); setNotice("學習資源已建立，可繼續上傳書封或字幕。");
+  }
+
+  async function uploadResourceAsset(resourceId: number, assetType: "cover" | "subtitle", file?: File) {
+    if (!file) return;
+    const form = new FormData(); form.set("resourceId", String(resourceId)); form.set("assetType", assetType); form.set("file", file);
+    setNotice(assetType === "cover" ? "正在上傳書封…" : "正在解析字幕並建立可搜尋時間片段…");
+    const response = await fetch("/api/resources/assets", { method: "POST", body: form });
+    const result = await readJson(response) as { segments?: number; error?: string };
+    if (!response.ok) { setNotice(result.error ?? "檔案處理失敗"); return; }
+    setResources((current) => current.map((item) => item.id === resourceId ? { ...item, hasCover: assetType === "cover" ? 1 : item.hasCover, segmentCount: assetType === "subtitle" ? item.segmentCount + Number(result.segments ?? 0) : item.segmentCount } : item));
+    setNotice(assetType === "cover" ? "書封已更新。" : `字幕已完成，建立 ${result.segments ?? 0} 個可搜尋時間片段。`);
+  }
+
+  async function analyzeMagazine() {
+    setNotice("正在分析最新一期、試讀文章與可用連結…");
+    const response = await fetch("/api/resources/magazine-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: magazineUrl }) });
+    const result = await readJson(response) as { resource?: LearningResource; articles?: number; error?: string };
+    if (!response.ok || !result.resource) { setNotice(result.error ?? "月旦法學教室分析失敗"); return; }
+    setResources((current) => current.some((item) => item.id === result.resource!.id) ? current : [result.resource!, ...current]);
+    setNotice(`已建立 ${result.resource.title}，擷取 ${result.articles ?? 0} 筆試讀／文章資料，預設為草稿等待確認。`);
+  }
 
   async function addExamSource(event: FormEvent) {
     event.preventDefault();
@@ -234,9 +273,17 @@ export default function AdminPage() {
       </header>
       <div className="admin-main">
         <div className="admin-title">
-          <div><p>CONTENT MANAGEMENT</p><h1>教材知識庫</h1></div>
+          <div><p>MANAGEMENT WORKSPACE</p><h1>司律導師管理後台</h1></div>
         </div>
-        <section className="cost-panel panel">
+        <nav className="admin-tabs" aria-label="後台功能切換">
+          <button className={activeTab === "documents" ? "active" : ""} onClick={() => setActiveTab("documents")}>教材知識庫</button>
+          <button className={activeTab === "resources" ? "active" : ""} onClick={() => setActiveTab("resources")}>書籍管理</button>
+          <button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音／試聽課</button>
+          <button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>月旦法學教室</button>
+          <button className={activeTab === "sources" ? "active" : ""} onClick={() => setActiveTab("sources")}>真題與外部來源</button>
+          <button className={activeTab === "costs" ? "active" : ""} onClick={() => setActiveTab("costs")}>模型與成本</button>
+        </nav>
+        {activeTab === "costs" && <section className="cost-panel panel">
           <div className="cost-heading">
             <div><h2>AI 使用成本</h2><p className="panel-sub">依實際 API usage 記錄，供未來方案與收費評估。</p></div>
             <label className="cost-toggle"><input type="checkbox" checked={usage?.showCosts ?? false} onChange={toggleFrontendCosts} /><span />前台顯示成本</label>
@@ -250,8 +297,8 @@ export default function AdminPage() {
             <div className="cost-total"><span>估算總成本</span><strong>US$ {(Number(usage?.totals.costMicros ?? 0) / 1_000_000).toFixed(4)}</strong></div>
           </div>
           {usage?.recent?.length ? <><div className="usage-table-wrap"><table className="usage-table"><thead><tr><th>時間</th><th>模型</th><th>依據</th><th>輸入</th><th>快取</th><th>輸出</th><th>搜尋</th><th>成本</th></tr></thead><tbody>{visibleUsage.map((row) => <tr key={row.id}><td>{new Date(row.createdAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>{row.model.replace("gpt-5.6-", "")}</td><td>{row.source}</td><td>{row.inputTokens.toLocaleString()}</td><td>{row.cachedTokens.toLocaleString()}</td><td>{row.outputTokens.toLocaleString()}</td><td>{row.fileSearchCalls}</td><td>US$ {(row.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</td></tr>)}</tbody></table></div>{(usage?.recent.length ?? 0) > USAGE_PER_PAGE && <nav className="document-pagination usage-pagination" aria-label="AI 成本明細分頁"><button type="button" disabled={usagePage === 1} onClick={() => setUsagePage((page) => Math.max(1, page - 1))}>上一頁</button><span>第 {usagePage} / {usagePageCount} 頁 · 每頁 10 筆</span><button type="button" disabled={usagePage === usagePageCount} onClick={() => setUsagePage((page) => Math.min(usagePageCount, page + 1))}>下一頁</button></nav>}</> : <p className="usage-empty">新版本發布後產生的 AI 對話，會開始記錄在這裡。</p>}
-        </section>
-        <div className="admin-grid">
+        </section>}
+        {activeTab === "documents" && <div className="admin-grid">
           <form className="panel" onSubmit={submit}>
             <h2>上傳教材</h2>
             <p className="panel-sub">PDF 將自動解析、切分並建立搜尋索引，供司律導師回答與教學。</p>
@@ -293,8 +340,25 @@ export default function AdminPage() {
               <button type="button" disabled={documentPage === documentPageCount} onClick={() => setDocumentPage((page) => Math.min(documentPageCount, page + 1))}>下一頁</button>
             </nav>}
           </section>
-        </div>
-        <section className="panel exam-source-panel"><div className="cost-heading"><div><h2>真題、法條與參考來源網址</h2><p className="panel-sub">真題拆成題目；法條建立法規名稱與條號索引；一般網站切成可引用段落。所有來源都要人工確認後才發布。</p></div><span className="source-count">{examSources.length} 個來源</span></div><form className="source-form source-form-wide" onSubmit={addExamSource}><label className="field">來源類型<select value={sourceKind} onChange={(event) => setSourceKind(event.target.value)}><option value="exam">歷屆真題</option><option value="regulation">法條資料庫</option><option value="reference">參考網站</option></select></label><label className="field">來源名稱<input value={sourceLabel} onChange={(event) => setSourceLabel(event.target.value)} placeholder={sourceKind === "regulation" ? "例如：全國法規資料庫" : "來源名稱"} /></label>{sourceKind === "exam" && <label className="field">題型<select value={sourceExamType} onChange={(event) => setSourceExamType(event.target.value)}><option value="mcq">一試選擇題</option><option value="essay">二試申論題</option></select></label>}<label className="field source-url">網址<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" /></label><button className="primary-btn" type="submit" disabled={!sourceLabel.trim() || !sourceUrl.trim()}>加入資料處理清單</button></form>{examSources.length ? <div className="source-list">{examSources.map((source) => { const statusLabel = source.status === "waiting" ? "等待處理" : source.status === "discovering" ? "搜尋 PDF 中" : source.status === "extracting" ? "AI 拆題中" : source.status === "review" ? "待人工確認" : source.status === "failed" ? "處理失敗" : source.status; return <div key={source.id}><span>{source.sourceKind === "regulation" ? "法條" : source.sourceKind === "reference" ? "參考" : source.examType === "mcq" ? "一試" : "二試"}</span><div><strong>{source.label}</strong><small>{source.url}</small>{source.sourceKind === "exam" && <small className="source-progress">已處理 {source.processedCount ?? 0} / {source.discoveredCount ?? 0} 份 PDF · 拆出 {source.questionCount ?? 0} 題{source.lastError ? ` · ${source.lastError}` : ""}</small>}</div><em>{statusLabel}</em>{source.sourceKind === "exam" && <div className="source-actions">{batchSourceId === source.id ? <button className="source-stop" type="button" onClick={() => { batchStopRef.current = true; setNotice("收到停止指令；完成目前這份 PDF 後停止。"); }}>停止批次</button> : <><button className="source-process" type="button" disabled={processingSourceId !== null || source.status === "review"} onClick={() => processExamSource(source.id)}>{processingSourceId === source.id ? "處理中…" : source.status === "failed" ? "重試" : source.status === "review" ? "已完成" : source.discoveredCount ? "處理下一份" : "立即處理"}</button><button className="source-batch" type="button" disabled={processingSourceId !== null || source.status === "review"} onClick={() => processAllExamSource(source.id)}>批次全部</button></>}</div>}</div>; })}</div> : <p className="usage-empty">尚未加入來源網址。</p>}</section>
+        </div>}
+        {(activeTab === "resources" || activeTab === "courses") && <section className="panel resource-manager">
+          <div className="cost-heading"><div><h2>書籍與課程管理</h2><p className="panel-sub">書籍綁定教材 PDF 並管理書封；課程綁定網址與 SRT 字幕，字幕會自動拆成可搜尋的時間片段。</p></div><span className="source-count">{resources.length} 項資源</span></div>
+          <form className="resource-form" onSubmit={addResource}>
+            <label className="field">資源類型<select value={activeTab === "courses" ? "course" : "book"} onChange={(e) => setResourceType(e.target.value)} disabled><option value="book">書籍</option><option value="course">影音課程</option></select></label>
+            <label className="field">名稱<input value={resourceTitle} onChange={(e) => setResourceTitle(e.target.value)} placeholder="例如：透明的刑法－總則編" /></label>
+            <label className="field">作者／老師<input value={resourceCreator} onChange={(e) => setResourceCreator(e.target.value)} placeholder="張鏡榮律師" /></label>
+            {resourceType === "book" ? <label className="field">綁定教材 PDF<select value={resourceDocumentId} onChange={(e) => setResourceDocumentId(e.target.value)}><option value="">稍後綁定</option>{files.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}</select></label> : <label className="field">課程／來源網址<input type="url" value={resourceUrl} onChange={(e) => setResourceUrl(e.target.value)} placeholder="https://…" /></label>}
+            <button className="primary-btn" disabled={!resourceTitle.trim()}>建立資源</button>
+          </form>
+          {notice && <div className="notice">{notice}</div>}
+          <div className="resource-grid">{resources.filter((resource) => activeTab === "courses" ? resource.resourceType === "course" : resource.resourceType === "book").map((resource) => <article className="resource-card" key={resource.id}>
+            <div className="resource-cover">{resource.hasCover ? <img src={`/api/resources/cover?id=${resource.id}`} alt={`${resource.title}書封`} /> : <span>{resource.resourceType === "course" ? "課" : resource.resourceType === "magazine" ? "刊" : "書"}</span>}</div>
+            <div className="resource-info"><span>{resource.resourceType === "course" ? "影音課程" : resource.resourceType === "magazine" ? "期刊" : "書籍"} · {resource.subject}</span><h3>{resource.title}</h3><p>{resource.creator || "尚未設定作者／老師"}</p><small>{resource.documentId ? "已綁定教材 PDF" : resource.sourceUrl ? "已設定來源網址" : "尚未綁定內容"} · {resource.segmentCount} 個學習片段</small></div>
+            <div className="resource-actions"><label>上傳書封<input type="file" accept="image/*" hidden onChange={(e) => uploadResourceAsset(resource.id, "cover", e.target.files?.[0])} /></label>{resource.resourceType === "course" && <label>上傳 SRT<input type="file" accept=".srt" hidden onChange={(e) => uploadResourceAsset(resource.id, "subtitle", e.target.files?.[0])} /></label>}</div>
+          </article>)}</div>
+        </section>}
+        {activeTab === "magazine" && <section className="panel resource-manager"><div className="cost-heading"><div><h2>月旦法學教室</h2><p className="panel-sub">貼入歷期或單期網址後，分析期別、出刊日、試讀文章、作者與可用連結；資料先進草稿，確認後再供前台推薦。</p></div><span className="source-count">{resources.filter((item) => item.resourceType === "magazine").length} 期</span></div><div className="magazine-import"><label className="field">月旦法學教室網址<input type="url" value={magazineUrl} onChange={(e) => setMagazineUrl(e.target.value)} /></label><button type="button" className="primary-btn" onClick={analyzeMagazine}>分析並建立最新一期</button></div>{notice && <div className="notice">{notice}</div>}<div className="resource-grid">{resources.filter((item) => item.resourceType === "magazine").map((resource) => <article className="resource-card" key={resource.id}><div className="resource-cover"><span>刊</span></div><div className="resource-info"><span>{resource.status === "draft" ? "待確認" : "前台顯示"}</span><h3>{resource.title}</h3><p>{resource.creator}</p><small>{resource.description || "尚未取得出刊資料"} · {resource.segmentCount} 篇內容</small></div><div className="resource-actions"><a href={resource.sourceUrl} target="_blank" rel="noreferrer">檢視來源</a></div></article>)}</div></section>}
+        {activeTab === "sources" && <section className="panel exam-source-panel"><div className="cost-heading"><div><h2>真題、法條與參考來源網址</h2><p className="panel-sub">真題拆成題目；法條建立法規名稱與條號索引；一般網站切成可引用段落。所有來源都要人工確認後才發布。</p></div><span className="source-count">{examSources.length} 個來源</span></div><form className="source-form source-form-wide" onSubmit={addExamSource}><label className="field">來源類型<select value={sourceKind} onChange={(event) => setSourceKind(event.target.value)}><option value="exam">歷屆真題</option><option value="regulation">法條資料庫</option><option value="reference">參考網站</option></select></label><label className="field">來源名稱<input value={sourceLabel} onChange={(event) => setSourceLabel(event.target.value)} placeholder={sourceKind === "regulation" ? "例如：全國法規資料庫" : "來源名稱"} /></label>{sourceKind === "exam" && <label className="field">題型<select value={sourceExamType} onChange={(event) => setSourceExamType(event.target.value)}><option value="mcq">一試選擇題</option><option value="essay">二試申論題</option></select></label>}<label className="field source-url">網址<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" /></label><button className="primary-btn" type="submit" disabled={!sourceLabel.trim() || !sourceUrl.trim()}>加入資料處理清單</button></form>{examSources.length ? <div className="source-list">{examSources.map((source) => { const statusLabel = source.status === "waiting" ? "等待處理" : source.status === "discovering" ? "搜尋 PDF 中" : source.status === "extracting" ? "AI 拆題中" : source.status === "review" ? "待人工確認" : source.status === "failed" ? "處理失敗" : source.status; return <div key={source.id}><span>{source.sourceKind === "regulation" ? "法條" : source.sourceKind === "reference" ? "參考" : source.examType === "mcq" ? "一試" : "二試"}</span><div><strong>{source.label}</strong><small>{source.url}</small>{source.sourceKind === "exam" && <small className="source-progress">已處理 {source.processedCount ?? 0} / {source.discoveredCount ?? 0} 份 PDF · 拆出 {source.questionCount ?? 0} 題{source.lastError ? ` · ${source.lastError}` : ""}</small>}</div><em>{statusLabel}</em>{source.sourceKind === "exam" && <div className="source-actions">{batchSourceId === source.id ? <button className="source-stop" type="button" onClick={() => { batchStopRef.current = true; setNotice("收到停止指令；完成目前這份 PDF 後停止。"); }}>停止批次</button> : <><button className="source-process" type="button" disabled={processingSourceId !== null || source.status === "review"} onClick={() => processExamSource(source.id)}>{processingSourceId === source.id ? "處理中…" : source.status === "failed" ? "重試" : source.status === "review" ? "已完成" : source.discoveredCount ? "處理下一份" : "立即處理"}</button><button className="source-batch" type="button" disabled={processingSourceId !== null || source.status === "review"} onClick={() => processAllExamSource(source.id)}>批次全部</button></>}</div>}</div>; })}</div> : <p className="usage-empty">尚未加入來源網址。</p>}</section>}
       </div>
     </main>
   );
