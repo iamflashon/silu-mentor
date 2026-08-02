@@ -60,7 +60,7 @@ export default function Home() {
         const pending = (data.todayTasks ?? []).filter((task) => task.status !== "completed");
         setMessages([{ role: "mentor", text: pending.length ? `早安，今天已經安排好 ${pending.length} 項任務。我們從第一項「${pending[0].title}」開始，好嗎？` : "今天的任務都完成了。要不要趁狀態正好，先預習明天的內容？" }]);
       } else {
-        setMessages([{ role: "mentor", text: "早安，我是你的司律導師。今天還沒有安排任務，我可以先根據你的目標與可用時間，幫你建立第一份讀書計畫。" }]);
+        setMessages([{ role: "mentor", text: "早安，我是你的司律導師。今天還沒有安排任務，我可以先根據你的目標與可用時間，幫你建立第一份學習計畫。" }]);
       }
     }).catch(() => {
       setMessages([{ role: "mentor", text: "早安，我是你的司律導師。今天想從哪一科開始？" }]);
@@ -208,7 +208,7 @@ export default function Home() {
         </Link>
         <div className="top-actions">
           <span className="knowledge-state"><i /> 教材知識庫準備中</span>
-          <Link href="/plan" className="admin-link">讀書計畫</Link>
+          <Link href="/plan" className="admin-link">我的學習專區</Link>
           <Link href="/admin" className="admin-link">管理後台</Link>
         </div>
       </header>
@@ -221,12 +221,13 @@ export default function Home() {
           <h1>今天，照計畫前進。</h1>
           <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
         </div>
+        <section className="learning-focus-strip"><div className="focus-heading"><strong>今日學習主軸</strong><span className="compact-countdown">距目標約 {dashboard?.monthsRemaining ?? "—"} 個月</span></div><div className="focus-items">{homeFeed?.course && <a href={homeFeed.course.sourceUrl} target="_blank" rel="noreferrer"><span>課程</span><b>{homeFeed.course.title}</b><small>{homeFeed.recommended[0]?.summary || "依照今日進度觀看重點片段"}</small></a>}{homeFeed?.book && <div><img src={`/api/resources/cover?id=${homeFeed.book.id}`} alt="今日推薦書封" /><p><span>書籍</span><b>{homeFeed.book.title}</b><small>{homeFeed.book.creator}</small></p></div>}{homeFeed?.magazine && <a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer"><span>月旦法學教室</span><b>{homeFeed.magazine.title}</b><small>本期試讀與文章</small></a>}<div><p><span>每日一法條</span><b>刑法第 271 條</b><small>殺人罪的基本構成要件</small></p></div></div></section>
 
         {practiceQuestion && <section className="practice-card"><div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year} · {practiceQuestion.subject} · 第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div><p className="practice-stem">{practiceQuestion.stem}</p>{practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid">{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={() => { const question = practiceQuestion; setPracticeQuestion(null); send(`請用申論題審題方式帶我分析這題；先從人物、行為、時間與法律關係開始提問，不要直接給完整答案：\n${question.stem}`); }}>開始學審題</button>}{practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。完整解析暫不展開，先回答導師接下來的問題。</span></div>}</section>}
 
         {todayTasks.length > 0 && <details className="today-plan-card">
           <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.status !== "completed")?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
-          <div className="today-plan-head"><div><p>今日讀書計畫</p><strong>{today || "今天"}</strong></div><Link href="/plan">查看行事曆 →</Link></div>
+          <div className="today-plan-head"><div><p>今日學習計畫</p><strong>{today || "今天"}</strong></div><Link href="/plan">查看行事曆 →</Link></div>
           <div className="today-task-list">{todayTasks.map((task) => <div className={`today-task ${task.status === "completed" ? "done" : ""}`} key={task.id}><span>{task.status === "completed" ? "✓" : ""}</span><div><strong>{task.subject} · {task.title}</strong><small>{task.durationMinutes} 分鐘{task.details ? ` · ${task.details}` : ""}</small></div></div>)}</div>
           {todayTasks.some((task) => task.status !== "completed") && <button onClick={() => send(`請直接帶我開始今天第一個尚未完成的任務：${todayTasks.find((task) => task.status !== "completed")?.title}`)}>開始今日第一項</button>}
         </details>}
@@ -261,13 +262,9 @@ export default function Home() {
 
       <aside className="command-rail">
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
-        <section className="countdown-card"><span>司律目標</span><strong>{dashboard?.monthsRemaining ?? "—"}<small>個月</small></strong><p>{dashboard?.targetLabel ?? "2027 年 8 月"}</p><em>正式日期待公布</em></section>
         <section className="rail-card rail-practice"><div className="rail-title"><strong>練真題</strong><span>在對話中引導</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
         <section className="rail-card progress-card"><div className="rail-title"><strong>今日戰況</strong><Link href="/plan">行事曆</Link></div><div className="progress-number"><b>{dashboard?.todayProgress.completed ?? 0}</b><span>／{dashboard?.todayProgress.total ?? 0} 項</span></div><div className="progress-track"><i style={{ width: `${dashboard?.todayProgress.total ? Math.round(dashboard.todayProgress.completed / dashboard.todayProgress.total * 100) : 0}%` }} /></div><p>{dashboard?.encouragement ?? "把專注留給今天。"}</p></section>
-        <section className="rail-card"><div className="rail-title"><strong>學習紀錄</strong></div><div className="record-grid"><div><b>{dashboard?.record.completedTasks ?? 0}</b><span>完成任務</span></div><div><b>{Math.round((dashboard?.record.completedMinutes ?? 0) / 60 * 10) / 10}</b><span>累計小時</span></div></div></section>
         <section className="rail-card"><div className="rail-title"><strong>優先補強</strong></div>{dashboard?.priorities.length ? <div className="priority-list">{dashboard.priorities.map((item) => <div key={item.subject}><span>{item.subject}</span><small>{item.reason}</small></div>)}</div> : <p className="rail-empty">目前沒有逾期任務。完成更多練習後，這裡會進一步分析爭點弱項。</p>}</section>
-        <section className="rail-card resource-recommend"><div className="rail-title"><strong>今日學習資源</strong><Link href="/admin">更多</Link></div>{homeFeed?.course && <a href={homeFeed.course.sourceUrl} target="_blank" rel="noreferrer"><span>推薦課程</span><b>{homeFeed.course.title}</b><small>{homeFeed.recommended[0]?.summary || "搭配今日進度觀看課程重點"}</small></a>}{homeFeed?.book && <div className="recommended-book"><img src={`/api/resources/cover?id=${homeFeed.book.id}`} alt="推薦書封" /><div><span>推薦書籍</span><b>{homeFeed.book.title}</b><small>{homeFeed.book.creator}</small></div></div>}{homeFeed?.magazine && <a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer"><span>月旦法學教室</span><b>{homeFeed.magazine.title}</b><small>查看本期試讀與文章</small></a>}</section>
-        <section className="rail-card daily-legal"><div className="rail-title"><strong>每日法律情報</strong></div><div><span>每日一法條</span><b>刑法第 271 條</b><small>殺人者，處死刑、無期徒刑或十年以上有期徒刑。</small></div><div><span>每日一判決</span><b>司法院裁判資料接入中</b><small>完成正式 API 同步後，將依今日科目推薦最新裁判。</small></div></section>
         <section className="memo-card"><div className="memo-tape" /><strong>給今天的自己</strong><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="記下提醒、老師交代或今天一定要完成的事…" rows={4} /><button onClick={saveMemo}>{memoSaved ? "已儲存 ✓" : "儲存 MEMO"}</button></section>
       </aside>
       </div>

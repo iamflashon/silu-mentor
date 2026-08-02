@@ -115,7 +115,7 @@ export default function StudyPlanPage() {
     </header>
     <div className="plan-main">
       <div className="plan-header">
-        <div><p>AI STUDY PLAN</p><h1>我的讀書計畫</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律導師聊完後，AI 會把任務寫到這裡"}</span></div>
+        <div><p>MY LEARNING CENTER</p><h1>我的學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律導師聊完後，AI 會把任務寫到這裡"}</span></div>
         {activeTab === "calendar" && <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>}
       </div>
       <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
