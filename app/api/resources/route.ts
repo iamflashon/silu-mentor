@@ -60,3 +60,17 @@ export async function PUT(request: Request) {
   }).where(eq(learningResources.id, id)).returning();
   return Response.json({ resource: row });
 }
+
+export async function DELETE(request: Request) {
+  const id = Number(new URL(request.url).searchParams.get("id"));
+  if (!id) return Response.json({ error: "缺少資源編號" }, { status: 400 });
+  const db = await getDb();
+  const [resource] = await db.select().from(learningResources).where(eq(learningResources.id, id)).limit(1);
+  if (!resource) return Response.json({ error: "找不到資源" }, { status: 404 });
+  await db.delete(learningResources).where(eq(learningResources.id, id));
+  if (resource.coverStorageKey) {
+    const { env } = await import("cloudflare:workers");
+    await env.BUCKET.delete(resource.coverStorageKey);
+  }
+  return Response.json({ ok: true });
+}
