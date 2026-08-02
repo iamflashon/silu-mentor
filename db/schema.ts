@@ -143,5 +143,24 @@ export const examSources = sqliteTable("exam_sources", {
   examType: text("exam_type").notNull(),
   sourceKind: text("source_kind").notNull().default("exam"),
   status: text("status").notNull().default("waiting"),
+  discoveredCount: integer("discovered_count").notNull().default(0),
+  processedCount: integer("processed_count").notNull().default(0),
+  questionCount: integer("question_count").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const examSourceItems = sqliteTable("exam_source_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sourceId: integer("source_id").notNull().references(() => examSources.id, { onDelete: "cascade" }),
+  fileUrl: text("file_url").notNull().unique(),
+  title: text("title").notNull(),
+  year: text("year").notNull().default(""),
+  subject: text("subject").notNull().default("綜合"),
+  status: text("status").notNull().default("waiting"),
+  questionCount: integer("question_count").notNull().default(0),
+  error: text("error"),
+  processedAt: integer("processed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });

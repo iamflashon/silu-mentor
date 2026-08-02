@@ -10,7 +10,7 @@ type UsageData = {
   recent: Array<{ id: number; model: string; source: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsdMicros: number; createdAt: string }>;
   showCosts: boolean;
 };
-type ExamSource = { id: number; url: string; label: string; examType: string; sourceKind: string; status: string };
+type ExamSource = { id: number; url: string; label: string; examType: string; sourceKind: string; status: string; discoveredCount: number; processedCount: number; questionCount: number; lastError?: string | null };
 type DocumentStats = { total: number; ready: number; indexedBytes: number; citations: number; misses: number; indexVersion: string };
 const DOCUMENTS_PER_PAGE = 5;
 const USAGE_PER_PAGE = 10;
@@ -43,6 +43,7 @@ export default function AdminPage() {
   const [sourceLabel, setSourceLabel] = useState("");
   const [sourceExamType, setSourceExamType] = useState("mcq");
   const [sourceKind, setSourceKind] = useState("exam");
+  const [processingSourceId, setProcessingSourceId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/documents").then(async (response) => {
@@ -70,6 +71,21 @@ export default function AdminPage() {
     const result = await readJson(response) as { source?: ExamSource; error?: string };
     if (!response.ok || !result.source) { setNotice(result.error ?? "無法儲存真題來源"); return; }
     setExamSources((current) => [result.source!, ...current]); setSourceUrl(""); setSourceLabel(""); setNotice("真題來源已加入等待清單；下載、拆題及人工確認功能會依來源規則接續處理。");
+  }
+
+  async function processExamSource(sourceId: number) {
+    setProcessingSourceId(sourceId); setNotice("正在讀取來源、下載下一份 PDF 並拆解題目；請勿關閉頁面…");
+    setExamSources((current) => current.map((source) => source.id === sourceId ? { ...source, status: "extracting", lastError: null } : source));
+    try {
+      const response = await fetch("/api/exam-sources/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId }) });
+      const result = await readJson(response) as { status?: string; processedCount?: number; discoveredCount?: number; questionCount?: number; message?: string; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "真題處理失敗");
+      setExamSources((current) => current.map((source) => source.id === sourceId ? { ...source, status: result.status ?? "waiting", processedCount: result.processedCount ?? source.processedCount, discoveredCount: result.discoveredCount ?? source.discoveredCount, questionCount: result.questionCount ?? source.questionCount, lastError: null } : source));
+      setNotice(`${result.message ?? "真題處理完成"}。若仍有待處理 PDF，可再次按「處理下一份」。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "真題處理失敗";
+      setExamSources((current) => current.map((source) => source.id === sourceId ? { ...source, status: "failed", lastError: message } : source)); setNotice(message);
+    } finally { setProcessingSourceId(null); }
   }
 
   async function toggleFrontendCosts() {
@@ -257,7 +273,7 @@ export default function AdminPage() {
             </nav>}
           </section>
         </div>
-        <section className="panel exam-source-panel"><div className="cost-heading"><div><h2>真題、法條與參考來源網址</h2><p className="panel-sub">真題拆成題目；法條建立法規名稱與條號索引；一般網站切成可引用段落。所有來源都要人工確認後才發布。</p></div><span className="source-count">{examSources.length} 個來源</span></div><form className="source-form source-form-wide" onSubmit={addExamSource}><label className="field">來源類型<select value={sourceKind} onChange={(event) => setSourceKind(event.target.value)}><option value="exam">歷屆真題</option><option value="regulation">法條資料庫</option><option value="reference">參考網站</option></select></label><label className="field">來源名稱<input value={sourceLabel} onChange={(event) => setSourceLabel(event.target.value)} placeholder={sourceKind === "regulation" ? "例如：全國法規資料庫" : "來源名稱"} /></label>{sourceKind === "exam" && <label className="field">題型<select value={sourceExamType} onChange={(event) => setSourceExamType(event.target.value)}><option value="mcq">一試選擇題</option><option value="essay">二試申論題</option></select></label>}<label className="field source-url">網址<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" /></label><button className="primary-btn" type="submit" disabled={!sourceLabel.trim() || !sourceUrl.trim()}>加入資料處理清單</button></form>{examSources.length ? <div className="source-list">{examSources.map((source) => <div key={source.id}><span>{source.sourceKind === "regulation" ? "法條" : source.sourceKind === "reference" ? "參考" : source.examType === "mcq" ? "一試" : "二試"}</span><div><strong>{source.label}</strong><small>{source.url}</small></div><em>{source.status === "waiting" ? "等待處理" : source.status}</em></div>)}</div> : <p className="usage-empty">尚未加入來源網址。</p>}</section>
+        <section className="panel exam-source-panel"><div className="cost-heading"><div><h2>真題、法條與參考來源網址</h2><p className="panel-sub">真題拆成題目；法條建立法規名稱與條號索引；一般網站切成可引用段落。所有來源都要人工確認後才發布。</p></div><span className="source-count">{examSources.length} 個來源</span></div><form className="source-form source-form-wide" onSubmit={addExamSource}><label className="field">來源類型<select value={sourceKind} onChange={(event) => setSourceKind(event.target.value)}><option value="exam">歷屆真題</option><option value="regulation">法條資料庫</option><option value="reference">參考網站</option></select></label><label className="field">來源名稱<input value={sourceLabel} onChange={(event) => setSourceLabel(event.target.value)} placeholder={sourceKind === "regulation" ? "例如：全國法規資料庫" : "來源名稱"} /></label>{sourceKind === "exam" && <label className="field">題型<select value={sourceExamType} onChange={(event) => setSourceExamType(event.target.value)}><option value="mcq">一試選擇題</option><option value="essay">二試申論題</option></select></label>}<label className="field source-url">網址<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" /></label><button className="primary-btn" type="submit" disabled={!sourceLabel.trim() || !sourceUrl.trim()}>加入資料處理清單</button></form>{examSources.length ? <div className="source-list">{examSources.map((source) => { const statusLabel = source.status === "waiting" ? "等待處理" : source.status === "discovering" ? "搜尋 PDF 中" : source.status === "extracting" ? "AI 拆題中" : source.status === "review" ? "待人工確認" : source.status === "failed" ? "處理失敗" : source.status; return <div key={source.id}><span>{source.sourceKind === "regulation" ? "法條" : source.sourceKind === "reference" ? "參考" : source.examType === "mcq" ? "一試" : "二試"}</span><div><strong>{source.label}</strong><small>{source.url}</small>{source.sourceKind === "exam" && <small className="source-progress">已處理 {source.processedCount ?? 0} / {source.discoveredCount ?? 0} 份 PDF · 拆出 {source.questionCount ?? 0} 題{source.lastError ? ` · ${source.lastError}` : ""}</small>}</div><em>{statusLabel}</em>{source.sourceKind === "exam" && <button className="source-process" type="button" disabled={processingSourceId !== null} onClick={() => processExamSource(source.id)}>{processingSourceId === source.id ? "處理中…" : source.status === "failed" ? "重試" : source.status === "review" ? "已完成" : source.discoveredCount ? "處理下一份" : "立即處理"}</button>}</div>; })}</div> : <p className="usage-empty">尚未加入來源網址。</p>}</section>
       </div>
     </main>
   );
