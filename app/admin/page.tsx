@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 type Uploaded = { id: number; name: string; subject: string; size: string; status: string; error?: string | null };
+type QueueItem = { key: string; file: File; status: "queued" | "uploading" | "indexing" | "done" | "failed"; progress: number; error?: string };
 type UsageData = {
   totals: { requests: number; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; costMicros: number };
   recent: Array<{ id: number; model: string; source: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsdMicros: number; createdAt: string }>;
@@ -22,7 +23,7 @@ async function readJson(response: Response) {
 
 export default function AdminPage() {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [selected, setSelected] = useState<File | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
   const [subject, setSubject] = useState("刑法");
   const [type, setType] = useState("教科書");
   const [files, setFiles] = useState<Uploaded[]>([]);
@@ -79,64 +80,78 @@ export default function AdminPage() {
     }
   }
 
+  function chooseFiles(list: FileList | null) {
+    const pdfs = Array.from(list ?? []).filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+    setQueue(pdfs.map((file, index) => ({ key: `${file.name}-${file.size}-${file.lastModified}-${index}`, file, status: "queued", progress: 0 })));
+    setNotice(pdfs.length ? `已加入 ${pdfs.length} 份 PDF，將依序逐本上傳。` : "請選擇 PDF 文件");
+  }
+
+  function patchQueue(key: string, patch: Partial<QueueItem>) {
+    setQueue((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
+  }
+
+  async function uploadOne(item: QueueItem, position: number, total: number) {
+    const selected = item.file;
+    patchQueue(item.key, { status: "uploading", progress: 0, error: undefined });
+    setNotice(`正在處理第 ${position}／${total} 本：${selected.name}`);
+
+    const initResponse = await fetch("/api/documents/multipart", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "init", fileName: selected.name, contentType: "application/pdf" }),
+    });
+    const init = await readJson(initResponse) as { key?: string; uploadId?: string; error?: string };
+    if (!initResponse.ok || !init.key || !init.uploadId) throw new Error(init.error ?? "無法開始上傳");
+
+    const chunkSize = 5 * 1024 * 1024;
+    const totalParts = Math.ceil(selected.size / chunkSize);
+    const parts: Array<{ partNumber: number; etag: string }> = [];
+    for (let start = 0, partNumber = 1; start < selected.size; start += chunkSize, partNumber += 1) {
+      const chunk = selected.slice(start, Math.min(start + chunkSize, selected.size));
+      const partResponse = await fetch(`/api/documents/multipart?key=${encodeURIComponent(init.key)}&uploadId=${encodeURIComponent(init.uploadId)}&partNumber=${partNumber}`, {
+        method: "PUT",
+        headers: { "content-type": "application/octet-stream" },
+        body: chunk,
+      });
+      const part = await readJson(partResponse) as { partNumber?: number; etag?: string; error?: string };
+      if (!partResponse.ok || !part.partNumber || !part.etag) throw new Error(part.error ?? `第 ${partNumber} 段上傳失敗`);
+      parts.push({ partNumber: part.partNumber, etag: part.etag });
+      patchQueue(item.key, { progress: Math.round(partNumber / totalParts * 85) });
+    }
+
+    const completeResponse = await fetch("/api/documents/multipart", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "complete", key: init.key, uploadId: init.uploadId, parts, fileName: selected.name, contentType: "application/pdf", sizeBytes: selected.size, subject, documentType: type }),
+    });
+    const completed = await readJson(completeResponse) as { document?: { id: number }; error?: string };
+    if (!completeResponse.ok || !completed.document?.id) throw new Error(completed.error ?? "無法完成文件上傳");
+    const newId = completed.document.id;
+    setFiles((current) => [{ id: newId, name: selected.name, subject, size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`, status: "uploaded" }, ...current]);
+    patchQueue(item.key, { status: "indexing", progress: 92 });
+
+    const indexResponse = await fetch("/api/documents/index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: newId }) });
+    const indexed = await readJson(indexResponse) as { status?: string; error?: string };
+    if (!indexResponse.ok) throw new Error(indexed.error ?? "建立索引失敗");
+    setFiles((current) => current.map((file) => file.id === newId ? { ...file, status: indexed.status ?? "in_progress" } : file));
+    patchQueue(item.key, { status: "done", progress: 100 });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!selected) return;
+    const pending = queue.filter((item) => item.status === "queued" || item.status === "failed");
+    if (!pending.length) return;
     setUploading(true);
     setNotice("");
-    try {
-      const initResponse = await fetch("/api/documents/multipart", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "init", fileName: selected.name, contentType: selected.type }),
-      });
-      const init = await readJson(initResponse) as { key?: string; uploadId?: string; error?: string };
-      if (!initResponse.ok || !init.key || !init.uploadId) throw new Error(init.error ?? "無法開始上傳");
-
-      const chunkSize = 5 * 1024 * 1024;
-      const parts: Array<{ partNumber: number; etag: string }> = [];
-      for (let start = 0, partNumber = 1; start < selected.size; start += chunkSize, partNumber += 1) {
-        setNotice(`正在上傳第 ${partNumber} 段，共 ${Math.ceil(selected.size / chunkSize)} 段…`);
-        const chunk = selected.slice(start, Math.min(start + chunkSize, selected.size));
-        const partResponse = await fetch(`/api/documents/multipart?key=${encodeURIComponent(init.key)}&uploadId=${encodeURIComponent(init.uploadId)}&partNumber=${partNumber}`, {
-          method: "PUT",
-          headers: { "content-type": "application/octet-stream" },
-          body: chunk,
-        });
-        const part = await readJson(partResponse) as { partNumber?: number; etag?: string; error?: string };
-        if (!partResponse.ok || !part.partNumber || !part.etag) throw new Error(part.error ?? `第 ${partNumber} 段上傳失敗`);
-        parts.push({ partNumber: part.partNumber, etag: part.etag });
-      }
-
-      const completeResponse = await fetch("/api/documents/multipart", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "complete",
-          key: init.key,
-          uploadId: init.uploadId,
-          parts,
-          fileName: selected.name,
-          contentType: selected.type,
-          sizeBytes: selected.size,
-          subject,
-          documentType: type,
-        }),
-      });
-      const completed = await readJson(completeResponse) as { document?: { id: number }; error?: string };
-      if (!completeResponse.ok) throw new Error(completed.error ?? "無法完成文件上傳");
-      if (!completed.document?.id) throw new Error("文件已上傳，但未取得索引編號");
-      const newId = completed.document.id;
-      setFiles((current) => [{ id: newId, name: selected.name, subject, size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`, status: "uploaded" }, ...current]);
-      setSelected(null);
-      if (fileRef.current) fileRef.current.value = "";
-      setNotice("PDF 已安全保存，正在開始建立索引…");
-      void startIndex(newId);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "文件上傳失敗");
-    } finally {
-      setUploading(false);
+    let failed = 0;
+    for (let index = 0; index < pending.length; index += 1) {
+      const item = pending[index];
+      try { await uploadOne(item, index + 1, pending.length); }
+      catch (error) { failed += 1; patchQueue(item.key, { status: "failed", error: error instanceof Error ? error.message : "文件上傳失敗" }); }
     }
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = "";
+    setNotice(failed ? `批次處理完成：${pending.length - failed} 本成功，${failed} 本失敗，可按下方按鈕重試失敗項目。` : `${pending.length} 本 PDF 已依序上傳，索引服務正在處理。`);
   }
 
   return (
@@ -169,16 +184,17 @@ export default function AdminPage() {
             <h2>上傳教材</h2>
             <p className="panel-sub">PDF 將自動解析、切分並建立搜尋索引，供司律導師回答與教學。</p>
             <label className="upload-zone">
-              <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={(e) => setSelected(e.target.files?.[0] ?? null)} />
+              <input ref={fileRef} type="file" accept="application/pdf" multiple hidden onChange={(e) => chooseFiles(e.target.files)} />
               <span className="upload-icon">＋</span>
-              <strong>{selected ? selected.name : "選擇或拖曳 PDF 文件"}</strong>
-              <span>{selected ? `${(selected.size / 1024 / 1024).toFixed(1)} MB` : "支援書籍、講義、解題書與擬答"}</span>
+              <strong>{queue.length ? `已選擇 ${queue.length} 份 PDF` : "選擇或拖曳多份 PDF 文件"}</strong>
+              <span>{queue.length ? `共 ${(queue.reduce((sum, item) => sum + item.file.size, 0) / 1024 / 1024).toFixed(1)} MB · 將逐本處理` : "可批次選取，系統會逐本上傳與送出索引"}</span>
             </label>
+            {queue.length > 0 && <div className="upload-queue">{queue.map((item, index) => <div className="queue-row" key={item.key}><div className="queue-index">{index + 1}</div><div className="queue-main"><div><strong>{item.file.name}</strong><span>{item.status === "queued" ? "等待上傳" : item.status === "uploading" ? `上傳中 ${item.progress}%` : item.status === "indexing" ? "送入索引中" : item.status === "done" ? "已送出索引" : `失敗 · ${item.error ?? "請重試"}`}</span></div><div className="queue-progress"><i style={{ width: `${item.progress}%` }} /></div></div></div>)}</div>}
             <div className="meta-fields">
               <label className="field">科目<select value={subject} onChange={(e) => setSubject(e.target.value)}><option>刑法</option><option>刑事訴訟法</option><option>民法</option><option>民事訴訟法</option><option>憲法</option><option>行政法</option><option>商事法</option></select></label>
               <label className="field">文件類型<select value={type} onChange={(e) => setType(e.target.value)}><option>教科書</option><option>解題書</option><option>講義</option><option>歷屆試題</option><option>老師擬答</option></select></label>
             </div>
-            <button className="primary-btn" type="submit" disabled={!selected || uploading}>{uploading ? "上傳中…" : "上傳並建立索引"}</button>
+            <button className="primary-btn" type="submit" disabled={!queue.some((item) => item.status === "queued" || item.status === "failed") || uploading}>{uploading ? "批次處理中，請勿關閉頁面…" : queue.some((item) => item.status === "failed") ? "重試失敗項目" : `依序上傳 ${queue.length || ""} 份並建立索引`}</button>
             {notice && <div className="notice">{notice}</div>}
           </form>
           <section className="panel">

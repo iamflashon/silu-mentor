@@ -7,6 +7,8 @@ type Message = { role: "mentor" | "student"; text: string };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ subject: string; count: number; reason: string }>; memo: string; encouragement: string };
+type CropPoint = { x: number; y: number };
+type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 
@@ -19,12 +21,17 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [memo, setMemo] = useState("");
   const [memoSaved, setMemoSaved] = useState(false);
+  const [railSide, setRailSide] = useState<"left" | "right">("right");
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
   const [showCosts, setShowCosts] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
+  const [editingImage, setEditingImage] = useState(false);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,18 +78,65 @@ export default function Home() {
     }).catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    const saved = window.localStorage.getItem("silu-command-rail-side");
+    if (saved === "left" || saved === "right") setRailSide(saved);
+  }, []);
+
+  function toggleRailSide() {
+    const next = railSide === "right" ? "left" : "right";
+    setRailSide(next);
+    window.localStorage.setItem("silu-command-rail-side", next);
+  }
+
+  function chooseQuestionImage(file: File | undefined) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => { setImageDraft({ url: String(reader.result), name: file.name, rotation: 0, enhance: false, points: [{ x: 4, y: 4 }, { x: 50, y: 4 }, { x: 96, y: 4 }, { x: 96, y: 96 }, { x: 50, y: 96 }, { x: 4, y: 96 }] }); setEditingImage(true); };
+    reader.readAsDataURL(file);
+  }
+
+  function moveCropPoint(index: number, clientX: number, clientY: number) {
+    const rect = editorRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const point = { x: Math.max(0, Math.min(100, (clientX - rect.left) / rect.width * 100)), y: Math.max(0, Math.min(100, (clientY - rect.top) / rect.height * 100)) };
+    setImageDraft((current) => current ? { ...current, points: current.points.map((item, itemIndex) => itemIndex === index ? point : item) } : current);
+  }
+
+  async function prepareQuestionImage(draft: ImageDraft) {
+    const source = await new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = draft.url; });
+    const xs = draft.points.map((point) => point.x / 100 * source.naturalWidth);
+    const ys = draft.points.map((point) => point.y / 100 * source.naturalHeight);
+    const minX = Math.max(0, Math.min(...xs)); const maxX = Math.min(source.naturalWidth, Math.max(...xs));
+    const minY = Math.max(0, Math.min(...ys)); const maxY = Math.min(source.naturalHeight, Math.max(...ys));
+    const cropWidth = Math.max(1, maxX - minX); const cropHeight = Math.max(1, maxY - minY);
+    const scale = Math.min(1, 1600 / Math.max(cropWidth, cropHeight));
+    const cropped = document.createElement("canvas"); cropped.width = Math.round(cropWidth * scale); cropped.height = Math.round(cropHeight * scale);
+    const context = cropped.getContext("2d")!; context.fillStyle = "white"; context.fillRect(0, 0, cropped.width, cropped.height); context.save(); context.beginPath();
+    draft.points.forEach((point, index) => { const x = (point.x / 100 * source.naturalWidth - minX) * scale; const y = (point.y / 100 * source.naturalHeight - minY) * scale; index ? context.lineTo(x, y) : context.moveTo(x, y); });
+    context.closePath(); context.clip(); context.filter = draft.enhance ? "contrast(1.28) brightness(1.06) saturate(.82)" : "none"; context.drawImage(source, -minX * scale, -minY * scale, source.naturalWidth * scale, source.naturalHeight * scale); context.restore();
+    const turns = ((draft.rotation % 360) + 360) % 360; if (!turns) return cropped.toDataURL("image/jpeg", .78);
+    const rotated = document.createElement("canvas"); const swap = turns === 90 || turns === 270; rotated.width = swap ? cropped.height : cropped.width; rotated.height = swap ? cropped.width : cropped.height;
+    const rotatedContext = rotated.getContext("2d")!; rotatedContext.fillStyle = "white"; rotatedContext.fillRect(0, 0, rotated.width, rotated.height); rotatedContext.translate(rotated.width / 2, rotated.height / 2); rotatedContext.rotate(turns * Math.PI / 180); rotatedContext.drawImage(cropped, -cropped.width / 2, -cropped.height / 2);
+    return rotated.toDataURL("image/jpeg", .78);
+  }
+
   async function send(text: string) {
     const value = text.trim();
-    if (!value || thinking) return;
-    const nextMessages: Message[] = [...messages, { role: "student", text: value }];
+    if ((!value && !imageDraft) || thinking) return;
+    const question = value || "請先辨識這張圖片中的題目，帶我一步一步審題。";
+    const attachedImage = imageDraft ? await prepareQuestionImage(imageDraft) : undefined;
+    const nextMessages: Message[] = [...messages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
     setMessages(nextMessages);
     setInput("");
+    setImageDraft(null);
+    setEditingImage(false);
     setThinking(true);
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId }),
+        body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage }),
       });
       const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; usage?: ReplyUsage; sessionId?: number; error?: string };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
@@ -119,7 +173,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="command-layout">
+      <div className={`command-layout rail-${railSide}`}>
       <section className="conversation" aria-live="polite">
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
@@ -162,6 +216,7 @@ export default function Home() {
       </section>
 
       <aside className="command-rail">
+        <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
         <section className="countdown-card"><span>司律目標</span><strong>{dashboard?.monthsRemaining ?? "—"}<small>個月</small></strong><p>{dashboard?.targetLabel ?? "2027 年 8 月"}</p><em>正式日期待公布</em></section>
         <section className="rail-card progress-card"><div className="rail-title"><strong>今日戰況</strong><Link href="/plan">行事曆</Link></div><div className="progress-number"><b>{dashboard?.todayProgress.completed ?? 0}</b><span>／{dashboard?.todayProgress.total ?? 0} 項</span></div><div className="progress-track"><i style={{ width: `${dashboard?.todayProgress.total ? Math.round(dashboard.todayProgress.completed / dashboard.todayProgress.total * 100) : 0}%` }} /></div><p>{dashboard?.encouragement ?? "把專注留給今天。"}</p></section>
         <section className="rail-card"><div className="rail-title"><strong>學習紀錄</strong></div><div className="record-grid"><div><b>{dashboard?.record.completedTasks ?? 0}</b><span>完成任務</span></div><div><b>{Math.round((dashboard?.record.completedMinutes ?? 0) / 60 * 10) / 10}</b><span>累計小時</span></div></div></section>
@@ -170,8 +225,11 @@ export default function Home() {
       </aside>
       </div>
 
-      <div className="composer-wrap">
+      <div className={`composer-wrap rail-${railSide}`}>
+        {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit}>
+          <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+          <button className="attach-image" type="button" aria-label="上傳圖片問問題" onClick={() => imageInputRef.current?.click()}>＋</button>
           <textarea
             aria-label="輸入你想學習的內容"
             placeholder="告訴我你想學什麼，或直接貼上一道題目……"
@@ -185,10 +243,12 @@ export default function Home() {
             }}
             rows={1}
           />
-          <button type="submit" aria-label="送出" disabled={!input.trim() || thinking}>↑</button>
+          <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
         </form>
         <p>教材優先檢索 · 找不到時由 AI 補充並清楚標示</p>
       </div>
+
+      {imageDraft && editingImage && <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="編輯題目圖片"><section className="image-editor"><div className="image-editor-head"><div><strong>調整題目圖片</strong><span>拖曳六個控制點，保留要詢問的範圍</span></div><button onClick={() => setImageDraft(null)} aria-label="關閉">×</button></div><div className={`crop-stage ${imageDraft.enhance ? "enhanced" : ""}`} ref={editorRef}><img src={imageDraft.url} alt="圖片裁切預覽" style={{ transform: `rotate(${imageDraft.rotation}deg)` }} />{imageDraft.points.map((point, index) => <button key={index} className="crop-handle" style={{ left: `${point.x}%`, top: `${point.y}%` }} aria-label={`裁切控制點 ${index + 1}`} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropPoint(index, event.clientX, event.clientY); }} />)}</div><div className="image-tools"><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation - 90 } : current)}>↶ 左轉</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation + 90 } : current)}>↷ 右轉</button><button className={imageDraft.enhance ? "active" : ""} onClick={() => setImageDraft((current) => current ? { ...current, enhance: !current.enhance } : current)}>✦ 加強圖片</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: 0, enhance: false, points: [{ x: 4, y: 4 }, { x: 50, y: 4 }, { x: 96, y: 4 }, { x: 96, y: 96 }, { x: 50, y: 96 }, { x: 4, y: 96 }] } : current)}>重設</button></div><div className="image-editor-actions"><button className="secondary" onClick={() => setImageDraft(null)}>取消</button><button onClick={() => setEditingImage(false)}>使用這張圖片</button></div><p>送出時自動縮至最長邊 1600px，並壓縮為 JPEG。</p></section></div>}
     </main>
   );
 }

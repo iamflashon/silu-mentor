@@ -115,9 +115,10 @@ export async function POST(request: Request) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律導師的伺服器環境" }, { status: 503 });
     }
 
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string };
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
+    const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
     const latestStudent = [...messages].reverse().find((message) => message.role === "student");
     const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律導師對話");
     if (latestStudent) {
@@ -188,9 +189,12 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: selectedModel,
         instructions,
-        input: messages.map((message) => ({
+        input: messages.map((message, index) => ({
           role: message.role === "mentor" ? "assistant" : "user",
-          content: message.text,
+          content: imageDataUrl && message.role === "student" && index === messages.length - 1 ? [
+            { type: "input_text", text: message.text },
+            { type: "input_image", image_url: imageDataUrl, detail: "high" },
+          ] : message.text,
         })),
         tools,
       }),
