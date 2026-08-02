@@ -1,6 +1,8 @@
-import { desc } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { documents } from "../../../db/schema";
+import { appSettings } from "../../../db/schema";
+import { openAIJson } from "../../../lib/openai";
 
 function safeName(value: string) {
   return value.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
@@ -9,7 +11,21 @@ function safeName(value: string) {
 export async function GET() {
   try {
     const db = await getDb();
-    const rows = await db.select().from(documents).orderBy(desc(documents.createdAt)).limit(50);
+    let rows = await db.select().from(documents).orderBy(desc(documents.createdAt)).limit(50);
+    const processing = rows.filter((row) => row.openaiFileId && ["in_progress", "uploading_to_index"].includes(row.status));
+    if (processing.length) {
+      const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
+      if (setting?.value) {
+        await Promise.all(processing.map(async (row) => {
+          try {
+            const result = await openAIJson(`/vector_stores/${setting.value}/files/${row.openaiFileId}`);
+            const status = typeof result.status === "string" ? result.status : row.status;
+            await db.update(documents).set({ status, indexError: status === "failed" ? "索引服務未能處理此文件" : null }).where(eq(documents.id, row.id));
+          } catch { /* keep last known status */ }
+        }));
+        rows = await db.select().from(documents).where(inArray(documents.id, rows.map((row) => row.id))).orderBy(desc(documents.createdAt));
+      }
+    }
     return Response.json({ documents: rows.map((row) => ({
       id: row.id,
       name: row.fileName,
@@ -17,6 +33,7 @@ export async function GET() {
       type: row.documentType,
       sizeBytes: row.sizeBytes,
       status: row.status,
+      error: row.indexError,
       createdAt: row.createdAt,
     })) });
   } catch {

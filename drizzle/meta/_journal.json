@@ -8,6 +8,13 @@
       "when": 1785684592072,
       "tag": "0000_big_next_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785685712155,
+      "tag": "0001_tiny_rick_jones",
+      "breakpoints": true
     }
   ]
 }

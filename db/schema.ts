@@ -9,5 +9,13 @@ export const documents = sqliteTable("documents", {
   subject: text("subject").notNull(),
   documentType: text("document_type").notNull(),
   status: text("status").notNull().default("uploaded"),
+  openaiFileId: text("openai_file_id"),
+  indexError: text("index_error"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });

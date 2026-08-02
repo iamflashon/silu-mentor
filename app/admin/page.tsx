@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-type Uploaded = { name: string; subject: string; size: string; pending: boolean };
+type Uploaded = { id: number; name: string; subject: string; size: string; status: string; error?: string | null };
 
 async function readJson(response: Response) {
   const text = await response.text();
@@ -27,15 +27,37 @@ export default function AdminPage() {
   useEffect(() => {
     fetch("/api/documents").then(async (response) => {
       if (!response.ok) return;
-      const result = await response.json() as { documents?: Array<{ name: string; subject: string; type: string; sizeBytes: number; status: string }> };
+      const result = await response.json() as { documents?: Array<{ id: number; name: string; subject: string; type: string; sizeBytes: number; status: string; error?: string | null }> };
       setFiles((result.documents ?? []).map((item) => ({
+        id: item.id,
         name: item.name,
         subject: item.subject,
         size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
-        pending: item.status !== "indexed",
+        status: item.status,
+        error: item.error,
       })));
     }).catch(() => undefined);
   }, []);
+
+  async function startIndex(documentId: number) {
+    setFiles((current) => current.map((item) => item.id === documentId ? { ...item, status: "uploading_to_index", error: null } : item));
+    setNotice("正在把 PDF 送入教材索引服務…");
+    try {
+      const response = await fetch("/api/documents/index", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ documentId }),
+      });
+      const result = await readJson(response) as { status?: string; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "建立索引失敗");
+      setFiles((current) => current.map((item) => item.id === documentId ? { ...item, status: result.status ?? "in_progress" } : item));
+      setNotice("索引服務已接收文件，完成後會自動改為「可供搜尋」。");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "建立索引失敗";
+      setFiles((current) => current.map((item) => item.id === documentId ? { ...item, status: "failed", error: message } : item));
+      setNotice(message);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -81,12 +103,15 @@ export default function AdminPage() {
           documentType: type,
         }),
       });
-      const completed = await readJson(completeResponse) as { error?: string };
+      const completed = await readJson(completeResponse) as { document?: { id: number }; error?: string };
       if (!completeResponse.ok) throw new Error(completed.error ?? "無法完成文件上傳");
-      setFiles((current) => [{ name: selected.name, subject, size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`, pending: true }, ...current]);
+      if (!completed.document?.id) throw new Error("文件已上傳，但未取得索引編號");
+      const newId = completed.document.id;
+      setFiles((current) => [{ id: newId, name: selected.name, subject, size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`, status: "uploaded" }, ...current]);
       setSelected(null);
       if (fileRef.current) fileRef.current.value = "";
-      setNotice("PDF 已安全保存，等待文字解析與索引作業。");
+      setNotice("PDF 已安全保存，正在開始建立索引…");
+      void startIndex(newId);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "文件上傳失敗");
     } finally {
@@ -125,7 +150,12 @@ export default function AdminPage() {
             <h2>文件處理狀態</h2>
             <p className="panel-sub">只有完成索引的內容，才會進入教材優先檢索。</p>
             {files.length === 0 ? <div className="empty-state">尚未上傳教材<br />第一份 PDF 會顯示在這裡</div> : (
-              <div className="file-list">{files.map((file, index) => <div className="file-card" key={`${file.name}-${index}`}><span className="file-type">PDF</span><div className="file-info"><strong>{file.name}</strong><span>{file.subject} · {file.size}</span></div><span className={`status ${file.pending ? "pending" : ""}`}>{file.pending ? "等待建立索引" : "可供搜尋"}</span></div>)}</div>
+              <div className="file-list">{files.map((file) => {
+                const ready = file.status === "completed";
+                const failed = file.status === "failed";
+                const waiting = file.status === "uploaded";
+                return <div className="file-card" key={file.id}><span className="file-type">PDF</span><div className="file-info"><strong>{file.name}</strong><span>{file.subject} · {file.size}{file.error ? ` · ${file.error}` : ""}</span></div>{waiting || failed ? <button className="index-btn" onClick={() => startIndex(file.id)}>{failed ? "重新索引" : "開始索引"}</button> : <span className={`status ${ready ? "" : "pending"}`}>{ready ? "可供搜尋" : "建立索引中"}</span>}</div>;
+              })}</div>
             )}
             <div className="notice">正式接入後，這裡會顯示頁數、切分段落數、索引版本、被引用次數，以及「教材找不到」的使用者問題。</div>
           </section>

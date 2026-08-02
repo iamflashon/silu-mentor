@@ -1,4 +1,7 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
+import { eq } from "drizzle-orm";
+import { getDb } from "../../../db";
+import { appSettings } from "../../../db/schema";
 
 const instructions = `你是「司律導師」，專門協助台灣律師與司法官考試的主動式 AI 學習教練。
 你的任務是教會學生思考，不是立刻交付完整答案。
@@ -12,8 +15,7 @@ const instructions = `你是「司律導師」，專門協助台灣律師與司�
 6. 不要使用僵硬的「教學卡、步驟一、步驟二」口吻，不要一次問很多問題。
 7. 若資訊不足或法律內容不確定，要直接說明，不得捏造法條、判決或教材來源。
 8. 回覆通常控制在 80 至 220 個中文字；必要時可稍長。
-
-目前教材檢索尚未提供命中文字，因此本次只能使用一般模型知識。不要宣稱內容來自平台教材。`;
+9. 若檔案搜尋工具找到教材內容，必須以教材為優先依據；找不到時才使用一般模型知識，且不得捏造教材來源。`;
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
@@ -30,6 +32,12 @@ function extractText(payload: unknown) {
   }).join("").trim();
 }
 
+function usedFileSearch(payload: unknown) {
+  if (!payload || typeof payload !== "object") return false;
+  const output = (payload as { output?: unknown[] }).output;
+  return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "file_search_call");
+}
+
 export async function POST(request: Request) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -40,6 +48,13 @@ export async function POST(request: Request) {
     const body = await request.json() as { messages?: ClientMessage[] };
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
+
+    let vectorStoreId = "";
+    try {
+      const db = await getDb();
+      const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
+      vectorStoreId = setting?.value ?? "";
+    } catch { /* answer from model knowledge until the index is ready */ }
 
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -54,6 +69,7 @@ export async function POST(request: Request) {
           role: message.role === "mentor" ? "assistant" : "user",
           content: message.text,
         })),
+        ...(vectorStoreId ? { tools: [{ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 }] } : {}),
       }),
     });
 
@@ -64,7 +80,7 @@ export async function POST(request: Request) {
     const reply = extractText(payload);
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
-    return Response.json({ reply, source: "AI 補充" });
+    return Response.json({ reply, source: usedFileSearch(payload) ? "教材" : "AI 補充" });
   } catch {
     return Response.json({ error: "對話處理失敗" }, { status: 500 });
   }
