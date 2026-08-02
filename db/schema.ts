@@ -200,3 +200,13 @@ export const resourceSegments = sqliteTable("resource_segments", {
   sequence: integer("sequence").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const messageFeedback = sqliteTable("message_feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  sessionId: integer("session_id").references(() => chatSessions.id, { onDelete: "set null" }),
+  messageIndex: integer("message_index").notNull().default(0),
+  feedbackType: text("feedback_type").notNull(),
+  messageText: text("message_text").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});

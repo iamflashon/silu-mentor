@@ -14,6 +14,7 @@ type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?:
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
+function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/尚未匯入|尚未準備|暫時無法|沒有連上|API|錯誤|請稍後|管理者/.test(clean)) return false; return /法條|爭點|要件|涵攝|解題|判斷|原則|例外|學說|實務|教材|刑法|民法|訴訟法|憲法|行政法/.test(clean); }
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -40,6 +41,7 @@ export default function Home() {
   const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
   const [savedMessage, setSavedMessage] = useState<number | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -192,6 +194,11 @@ export default function Home() {
     if (response.ok) { setSavedMessage(index); window.setTimeout(() => setSavedMessage(null), 1600); }
   }
 
+  async function sendFeedback(message: Message, index: number, feedbackType: "helpful" | "incorrect" | "not_learning" | "unclear") {
+    const response = await fetch("/api/chat/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messageIndex: index, feedbackType, messageText: cleanMessageText(message.text) }) });
+    if (response.ok) { setFeedbackMessage(index); window.setTimeout(() => setFeedbackMessage(null), 1600); }
+  }
+
   return (
     <main className="coach-shell">
       <header className="topbar">
@@ -215,22 +222,21 @@ export default function Home() {
           <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
         </div>
 
-        <section className="practice-launch"><div><strong>練真題</strong><span>選擇題先判斷選項；申論題先學審題，不直接看完整答案。</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
-
         {practiceQuestion && <section className="practice-card"><div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year} · {practiceQuestion.subject} · 第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div><p className="practice-stem">{practiceQuestion.stem}</p>{practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid">{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={() => { const question = practiceQuestion; setPracticeQuestion(null); send(`請用申論題審題方式帶我分析這題；先從人物、行為、時間與法律關係開始提問，不要直接給完整答案：\n${question.stem}`); }}>開始學審題</button>}{practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。完整解析暫不展開，先回答導師接下來的問題。</span></div>}</section>}
 
-        {todayTasks.length > 0 && <section className="today-plan-card">
+        {todayTasks.length > 0 && <details className="today-plan-card">
+          <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.status !== "completed")?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
           <div className="today-plan-head"><div><p>今日讀書計畫</p><strong>{today || "今天"}</strong></div><Link href="/plan">查看行事曆 →</Link></div>
           <div className="today-task-list">{todayTasks.map((task) => <div className={`today-task ${task.status === "completed" ? "done" : ""}`} key={task.id}><span>{task.status === "completed" ? "✓" : ""}</span><div><strong>{task.subject} · {task.title}</strong><small>{task.durationMinutes} 分鐘{task.details ? ` · ${task.details}` : ""}</small></div></div>)}</div>
           {todayTasks.some((task) => task.status !== "completed") && <button onClick={() => send(`請直接帶我開始今天第一個尚未完成的任務：${todayTasks.find((task) => task.status !== "completed")?.title}`)}>開始今日第一項</button>}
-        </section>}
+        </details>}
 
         <div className="message-list">
           {!historyLoaded && <div className="message-row mentor"><span className="mentor-avatar">律</span><div className="message-bubble typing"><i /><i /><i /></div></div>}
           {messages.map((message, index) => (
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
-              <div className="message-bubble"><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")}</small> : null}{message.role === "mentor" && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}</div>
+              <div className="message-bubble"><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")}</small> : null}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
             </div>
           ))}
           {thinking && (
@@ -256,6 +262,7 @@ export default function Home() {
       <aside className="command-rail">
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
         <section className="countdown-card"><span>司律目標</span><strong>{dashboard?.monthsRemaining ?? "—"}<small>個月</small></strong><p>{dashboard?.targetLabel ?? "2027 年 8 月"}</p><em>正式日期待公布</em></section>
+        <section className="rail-card rail-practice"><div className="rail-title"><strong>練真題</strong><span>在對話中引導</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
         <section className="rail-card progress-card"><div className="rail-title"><strong>今日戰況</strong><Link href="/plan">行事曆</Link></div><div className="progress-number"><b>{dashboard?.todayProgress.completed ?? 0}</b><span>／{dashboard?.todayProgress.total ?? 0} 項</span></div><div className="progress-track"><i style={{ width: `${dashboard?.todayProgress.total ? Math.round(dashboard.todayProgress.completed / dashboard.todayProgress.total * 100) : 0}%` }} /></div><p>{dashboard?.encouragement ?? "把專注留給今天。"}</p></section>
         <section className="rail-card"><div className="rail-title"><strong>學習紀錄</strong></div><div className="record-grid"><div><b>{dashboard?.record.completedTasks ?? 0}</b><span>完成任務</span></div><div><b>{Math.round((dashboard?.record.completedMinutes ?? 0) / 60 * 10) / 10}</b><span>累計小時</span></div></div></section>
         <section className="rail-card"><div className="rail-title"><strong>優先補強</strong></div>{dashboard?.priorities.length ? <div className="priority-list">{dashboard.priorities.map((item) => <div key={item.subject}><span>{item.subject}</span><small>{item.reason}</small></div>)}</div> : <p className="rail-empty">目前沒有逾期任務。完成更多練習後，這裡會進一步分析爭點弱項。</p>}</section>
