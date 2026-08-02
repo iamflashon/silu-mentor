@@ -10,6 +10,7 @@ type UsageData = {
   recent: Array<{ id: number; model: string; source: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsdMicros: number; createdAt: string }>;
   showCosts: boolean;
 };
+type ExamSource = { id: number; url: string; label: string; examType: string; status: string };
 
 async function readJson(response: Response) {
   const text = await response.text();
@@ -31,6 +32,10 @@ export default function AdminPage() {
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [examSources, setExamSources] = useState<ExamSource[]>([]);
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceLabel, setSourceLabel] = useState("");
+  const [sourceExamType, setSourceExamType] = useState("mcq");
 
   useEffect(() => {
     fetch("/api/documents").then(async (response) => {
@@ -48,7 +53,16 @@ export default function AdminPage() {
     fetch("/api/usage").then(async (response) => {
       if (response.ok) setUsage(await response.json() as UsageData);
     }).catch(() => undefined);
+    fetch("/api/exam-sources").then(async (response) => { if (response.ok) setExamSources(((await response.json()) as { sources?: ExamSource[] }).sources ?? []); }).catch(() => undefined);
   }, []);
+
+  async function addExamSource(event: FormEvent) {
+    event.preventDefault();
+    const response = await fetch("/api/exam-sources", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: sourceUrl, label: sourceLabel, examType: sourceExamType }) });
+    const result = await readJson(response) as { source?: ExamSource; error?: string };
+    if (!response.ok || !result.source) { setNotice(result.error ?? "無法儲存真題來源"); return; }
+    setExamSources((current) => [result.source!, ...current]); setSourceUrl(""); setSourceLabel(""); setNotice("真題來源已加入等待清單；下載、拆題及人工確認功能會依來源規則接續處理。");
+  }
 
   async function toggleFrontendCosts() {
     if (!usage) return;
@@ -218,6 +232,7 @@ export default function AdminPage() {
             <div className="notice">正式接入後，這裡會顯示頁數、切分段落數、索引版本、被引用次數，以及「教材找不到」的使用者問題。</div>
           </section>
         </div>
+        <section className="panel exam-source-panel"><div className="cost-heading"><div><h2>歷屆真題庫與來源網址</h2><p className="panel-sub">先保存官方或公司授權來源；下載後須拆成一題一筆並人工確認，才會發布到前台。</p></div><span className="source-count">{examSources.length} 個來源</span></div><form className="source-form" onSubmit={addExamSource}><label className="field">來源名稱<input value={sourceLabel} onChange={(event) => setSourceLabel(event.target.value)} placeholder="例如：司律一試歷屆試題" /></label><label className="field">題型<select value={sourceExamType} onChange={(event) => setSourceExamType(event.target.value)}><option value="mcq">一試選擇題</option><option value="essay">二試申論題</option></select></label><label className="field source-url">網址<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" /></label><button className="primary-btn" type="submit" disabled={!sourceLabel.trim() || !sourceUrl.trim()}>加入下載與拆題清單</button></form>{examSources.length ? <div className="source-list">{examSources.map((source) => <div key={source.id}><span>{source.examType === "mcq" ? "一試" : "二試"}</span><div><strong>{source.label}</strong><small>{source.url}</small></div><em>{source.status === "waiting" ? "等待處理" : source.status}</em></div>)}</div> : <p className="usage-empty">尚未加入真題來源。之後貼入網址即可建立匯入工作。</p>}</section>
       </div>
     </main>
   );

@@ -17,7 +17,10 @@ const baseInstructions = `你是「司律導師」，專門協助台灣律師與
 8. 回覆通常控制在 80 至 220 個中文字；必要時可稍長。
 9. 若檔案搜尋工具找到教材內容，必須以教材為優先依據；找不到時才使用一般模型知識，且不得捏造教材來源。
 10. 當你已經知道學生的考試目標、每日可用時間與目前學習需求，而且目前尚無計畫，才主動呼叫 save_study_plan，建立接下來 7 天可執行的讀書計畫。
-11. 行事曆任務必須使用真實 YYYY-MM-DD 日期；不得把尚未公布的考試日期編造成確切日期。`;
+11. 行事曆任務必須使用真實 YYYY-MM-DD 日期；不得把尚未公布的考試日期編造成確切日期。
+12. 選擇題作答後先確認正誤，再引導學生說明其選項與其他選項的對錯理由；不要立刻傾倒完整解析。
+13. 申論題先帶學生審題：辨識人物、行為、時間、法律關係與可能爭點，再形成答題骨架；除非學生明確要求或已完成作答，不要直接提供完整擬答。
+14. 不得把模型自行生成的題目冒充歷屆真題；只有題庫或教材中具有明確年度、題號與來源的內容，才能稱為真題。`;
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
@@ -38,6 +41,29 @@ function usedFileSearch(payload: unknown) {
   if (!payload || typeof payload !== "object") return false;
   const output = (payload as { output?: unknown[] }).output;
   return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "file_search_call");
+}
+
+function extractSources(payload: unknown) {
+  if (!payload || typeof payload !== "object") return [] as string[];
+  const output = (payload as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return [] as string[];
+  const names: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const content = (item as { content?: unknown[] }).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const annotations = (part as { annotations?: unknown[] }).annotations;
+      if (!Array.isArray(annotations)) continue;
+      for (const annotation of annotations) {
+        if (!annotation || typeof annotation !== "object" || (annotation as { type?: string }).type !== "file_citation") continue;
+        const filename = (annotation as { filename?: unknown }).filename;
+        if (typeof filename === "string" && filename.trim()) names.push(filename.trim());
+      }
+    }
+  }
+  return [...new Set(names)].slice(0, 5);
 }
 
 function chooseModel(messages: ClientMessage[]) {
@@ -219,6 +245,7 @@ export async function POST(request: Request) {
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
     const fromFiles = usedFileSearch(payload);
+    const sources = fromFiles ? extractSources(payload) : [];
     const usage = readUsage(payload);
     const rates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
     const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens);
@@ -241,6 +268,7 @@ export async function POST(request: Request) {
         role: "mentor",
         text: reply,
         source: fromFiles ? "教材" : "AI 補充",
+        citationsJson: sources.length ? JSON.stringify(sources) : null,
         model: selectedModel,
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
@@ -252,6 +280,7 @@ export async function POST(request: Request) {
       source: fromFiles ? "教材" : "AI 補充",
       usage: { model: selectedModel, ...usage, fileSearchCalls: fromFiles ? 1 : 0, estimatedCostUsd },
       planSaved,
+      sources,
       sessionId: session.id,
     });
   } catch {

@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       : [];
     return Response.json({
       sessionId: session?.id ?? null,
-      messages: messages.map((message) => ({ role: message.role, text: message.text, source: message.source, model: message.model })),
+      messages: messages.map((message) => { let sources: string[] = []; try { sources = message.citationsJson ? JSON.parse(message.citationsJson) as string[] : []; } catch { sources = []; } return { role: message.role, text: message.text, source: message.source, model: message.model, sources }; }),
       today,
       plan: activePlan ? { id: activePlan.id, title: activePlan.title, targetLabel: activePlan.targetLabel, dailyMinutes: activePlan.dailyMinutes } : null,
       todayTasks,

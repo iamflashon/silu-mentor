@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-type Message = { role: "mentor" | "student"; text: string };
+type Message = { role: "mentor" | "student"; text: string; sources?: string[] };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ subject: string; count: number; reason: string }>; memo: string; encouragement: string };
 type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
+type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 
@@ -32,6 +33,9 @@ export default function Home() {
   const editorRef = useRef<HTMLDivElement>(null);
   const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
   const [editingImage, setEditingImage] = useState(false);
+  const [practiceQuestion, setPracticeQuestion] = useState<PracticeQuestion | null>(null);
+  const [practiceLoading, setPracticeLoading] = useState(false);
+  const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -89,6 +93,24 @@ export default function Home() {
     window.localStorage.setItem("silu-command-rail-side", next);
   }
 
+  async function startPractice(examType: "mcq" | "essay") {
+    setPracticeLoading(true); setPracticeAnswer(null);
+    try {
+      const response = await fetch(`/api/practice?type=${examType}`); const result = await response.json() as { question?: PracticeQuestion | null; message?: string };
+      if (result.question) setPracticeQuestion(result.question);
+      else { setPracticeQuestion(null); setMessages((current) => [...current, { role: "mentor", text: result.message ?? "真題庫尚未準備完成。管理者匯入並確認題目後，我就能從這裡開始帶你練習。" }]); }
+    } finally { setPracticeLoading(false); }
+  }
+
+  async function answerMcq(answer: string) {
+    if (!practiceQuestion || practiceAnswer) return;
+    const response = await fetch("/api/practice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, answer }) });
+    const result = await response.json() as { correct?: boolean; correctAnswer?: string; guidance?: string; error?: string };
+    if (!response.ok || typeof result.correct !== "boolean" || !result.correctAnswer) return;
+    setPracticeAnswer({ selected: answer, correct: result.correct, correctAnswer: result.correctAnswer });
+    setMessages((current) => [...current, { role: "mentor", text: result.guidance ?? "先說說你的判斷理由，我們再逐一檢查其他選項。" }]);
+  }
+
   function chooseQuestionImage(file: File | undefined) {
     if (!file || !file.type.startsWith("image/")) return;
     const reader = new FileReader();
@@ -138,9 +160,9 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage }),
       });
-      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; usage?: ReplyUsage; sessionId?: number; error?: string };
+      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; usage?: ReplyUsage; sessionId?: number; error?: string };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
-      setMessages((current) => [...current, { role: "mentor", text: result.reply! }]);
+      setMessages((current) => [...current, { role: "mentor", text: result.reply!, sources: result.sources ?? [] }]);
       setSource(result.source ?? "AI 補充");
       setLastUsage(result.usage ?? null);
       if (result.sessionId) setSessionId(result.sessionId);
@@ -181,6 +203,10 @@ export default function Home() {
           <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
         </div>
 
+        <section className="practice-launch"><div><strong>練真題</strong><span>選擇題先判斷選項；申論題先學審題，不直接看完整答案。</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
+
+        {practiceQuestion && <section className="practice-card"><div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year} · {practiceQuestion.subject} · 第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div><p className="practice-stem">{practiceQuestion.stem}</p>{practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid">{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={() => { const question = practiceQuestion; setPracticeQuestion(null); send(`請用申論題審題方式帶我分析這題；先從人物、行為、時間與法律關係開始提問，不要直接給完整答案：\n${question.stem}`); }}>開始學審題</button>}{practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。完整解析暫不展開，先回答導師接下來的問題。</span></div>}</section>}
+
         {todayTasks.length > 0 && <section className="today-plan-card">
           <div className="today-plan-head"><div><p>今日讀書計畫</p><strong>{today || "今天"}</strong></div><Link href="/plan">查看行事曆 →</Link></div>
           <div className="today-task-list">{todayTasks.map((task) => <div className={`today-task ${task.status === "completed" ? "done" : ""}`} key={task.id}><span>{task.status === "completed" ? "✓" : ""}</span><div><strong>{task.subject} · {task.title}</strong><small>{task.durationMinutes} 分鐘{task.details ? ` · ${task.details}` : ""}</small></div></div>)}</div>
@@ -192,7 +218,7 @@ export default function Home() {
           {messages.map((message, index) => (
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
-              <div className="message-bubble">{message.text}</div>
+              <div className="message-bubble"><span className="message-text">{message.text}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")}</small> : null}</div>
             </div>
           ))}
           {thinking && (

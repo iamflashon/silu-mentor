@@ -67,6 +67,7 @@ export const chatMessages = sqliteTable("chat_messages", {
   role: text("role").notNull(),
   text: text("text").notNull(),
   source: text("source"),
+  citationsJson: text("citations_json"),
   model: text("model"),
   estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
@@ -77,4 +78,37 @@ export const studentMemos = sqliteTable("student_memos", {
   userKey: text("user_key").notNull().unique(),
   content: text("content").notNull().default(""),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const examQuestions = sqliteTable("exam_questions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  examType: text("exam_type").notNull(),
+  year: text("year").notNull(),
+  subject: text("subject").notNull(),
+  questionNumber: text("question_number").notNull(),
+  stem: text("stem").notNull(),
+  optionsJson: text("options_json"),
+  correctAnswer: text("correct_answer"),
+  explanation: text("explanation").notNull().default(""),
+  sourceUrl: text("source_url").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const examAttempts = sqliteTable("exam_attempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  questionId: integer("question_id").notNull().references(() => examQuestions.id, { onDelete: "cascade" }),
+  selectedAnswer: text("selected_answer"),
+  correct: integer("correct", { mode: "boolean" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const examSources = sqliteTable("exam_sources", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  url: text("url").notNull().unique(),
+  label: text("label").notNull(),
+  examType: text("exam_type").notNull(),
+  status: text("status").notNull().default("waiting"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
