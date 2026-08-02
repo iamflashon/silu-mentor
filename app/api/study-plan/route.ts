@@ -1,6 +1,8 @@
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { studyPlans, studyTasks } from "../../../db/schema";
+import { studyPlans, studyRecords, studyTasks } from "../../../db/schema";
+
+function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
 export async function GET(request: Request) {
   try {
@@ -23,7 +25,13 @@ export async function PATCH(request: Request) {
     const status = body.status === "completed" ? "completed" : "pending";
     if (!Number.isInteger(taskId) || taskId < 1) return Response.json({ error: "任務編號不正確" }, { status: 400 });
     const db = await getDb();
+    const [task] = await db.select().from(studyTasks).where(eq(studyTasks.id, taskId)).limit(1);
+    if (!task) return Response.json({ error: "找不到讀書任務" }, { status: 404 });
     await db.update(studyTasks).set({ status }).where(eq(studyTasks.id, taskId));
+    if (status === "completed") {
+      const [existing] = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, userKey(request)), eq(studyRecords.taskId, taskId))).limit(1);
+      if (!existing) await db.insert(studyRecords).values({ userKey: userKey(request), taskId, recordDate: task.taskDate, subject: task.subject, title: task.title, activityType: "讀書任務", plannedMinutes: task.durationMinutes, actualMinutes: task.durationMinutes, nextStep: "由司律導師依完成進度安排下一步" });
+    }
     return Response.json({ taskId, status });
   } catch {
     return Response.json({ error: "任務狀態無法更新" }, { status: 500 });
@@ -76,6 +84,11 @@ export async function PUT(request: Request) {
       details: body.details?.trim() ?? "",
       status: body.status === "completed" ? "completed" : "pending",
     }).where(eq(studyTasks.id, taskId));
+    if (body.status === "completed") {
+      const [task] = await db.select().from(studyTasks).where(eq(studyTasks.id, taskId)).limit(1);
+      const [existing] = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, userKey(request)), eq(studyRecords.taskId, taskId))).limit(1);
+      if (task && !existing) await db.insert(studyRecords).values({ userKey: userKey(request), taskId, recordDate: task.taskDate, subject: task.subject, title: task.title, activityType: "讀書任務", plannedMinutes: task.durationMinutes, actualMinutes: task.durationMinutes, nextStep: "由司律導師依完成進度安排下一步" });
+    }
     return Response.json({ taskId });
   } catch {
     return Response.json({ error: "無法更新讀書任務" }, { status: 500 });

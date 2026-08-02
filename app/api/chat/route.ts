@@ -1,7 +1,7 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
 import { asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appSettings, chatMessages, chatSessions, studyPlans, studyTasks, usageLogs } from "../../../db/schema";
+import { appSettings, chatMessages, chatSessions, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
 const baseInstructions = `你是「司律導師」，專門協助台灣律師與司法官考試的主動式 AI 學習教練。
 你的任務是教會學生思考，不是立刻交付完整答案。
@@ -21,7 +21,10 @@ const baseInstructions = `你是「司律導師」，專門協助台灣律師與
 12. 選擇題作答後先確認正誤，再引導學生說明其選項與其他選項的對錯理由；不要立刻傾倒完整解析。
 13. 申論題先帶學生審題：辨識人物、行為、時間、法律關係與可能爭點，再形成答題骨架；除非學生明確要求或已完成作答，不要直接提供完整擬答。
 14. 不得把模型自行生成的題目冒充歷屆真題；只有題庫或教材中具有明確年度、題號與來源的內容，才能稱為真題。
-15. 回覆使用純文字與自然換行，不要輸出 Markdown 星號、井號標題或反引號。`;
+15. 回覆使用純文字與自然換行，不要輸出 Markdown 星號、井號標題或反引號。
+16. 維持學生信心：更正時先肯定學生察覺或已掌握的部分，再用一至兩句澄清並立即帶回下一個可完成的小步驟。不要長篇自責、反覆強調「我錯了／誤導你」，也不要把系統或檢索問題的焦慮丟給學生。
+17. 教材搜尋結果必須同時符合「目前科目、今日任務、學生正在問的爭點」才可作為答案依據。僅有相同詞彙但屬於別科、別章或例外規定時，必須忽略，不得因搜尋到教材就硬套。
+18. 學生質疑來源時，先重新核對問題與教材的直接關聯；若不直接相關，就簡短說明該段不適用，停止引用並回到正確主題。不要用不相關教材替先前說法辯護。`;
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
@@ -163,6 +166,7 @@ export async function POST(request: Request) {
 
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     let planContext = "目前尚未建立讀書計畫。";
+    let recordContext = "目前尚無學習紀錄。";
     try {
       const db = await getDb();
       const [plan] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
@@ -171,7 +175,13 @@ export async function POST(request: Request) {
         planContext = `目前計畫：${plan.title}；目標：${plan.targetLabel}；每日 ${plan.dailyMinutes} 分鐘。任務：${tasks.map((task) => `${task.taskDate} ${task.subject}/${task.title}/${task.durationMinutes}分鐘/${task.status}`).join("；") || "尚無任務"}`;
       }
     } catch { /* the tutor can continue before plan storage is ready */ }
-    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n你必須根據學生實際完成狀態、延誤與新弱點調整後續計畫；不要重複已完成任務。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。`;
+    try {
+      const db = await getDb();
+      const key = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
+      const records = await db.select().from(studyRecords).where(eq(studyRecords.userKey, key)).orderBy(desc(studyRecords.createdAt)).limit(20);
+      if (records.length) recordContext = `近期學習紀錄：${records.map((record) => `${record.recordDate} ${record.subject}/${record.title}/${record.activityType}/${record.actualMinutes}分鐘${record.correct === null ? "" : record.correct ? "/答對" : "/答錯"}${record.weakness ? `/弱點:${record.weakness}` : ""}${record.nextStep ? `/接續:${record.nextStep}` : ""}`).join("；")}`;
+    } catch { /* continue without record context */ }
+    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n${recordContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。`;
     const selectedModel = process.env.OPENAI_MODEL || chooseModel(messages);
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
@@ -245,13 +255,14 @@ export async function POST(request: Request) {
     }
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
-    const fromFiles = usedFileSearch(payload);
-    const sources = fromFiles ? extractSources(payload) : [];
+    const searchedFiles = usedFileSearch(payload);
+    const sources = searchedFiles ? extractSources(payload) : [];
+    const fromFiles = sources.length > 0;
     const usage = readUsage(payload);
     const rates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
     const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens);
     const tokenCost = (nonCachedInput * rates.input + usage.cachedTokens * rates.cached + usage.outputTokens * rates.output) / 1_000_000;
-    const fileSearchCost = fromFiles ? 0.0025 : 0;
+    const fileSearchCost = searchedFiles ? 0.0025 : 0;
     const estimatedCostUsd = tokenCost + fileSearchCost;
     try {
       const db = await getDb();
@@ -261,7 +272,7 @@ export async function POST(request: Request) {
         inputTokens: usage.inputTokens,
         cachedTokens: usage.cachedTokens,
         outputTokens: usage.outputTokens,
-        fileSearchCalls: fromFiles ? 1 : 0,
+        fileSearchCalls: searchedFiles ? 1 : 0,
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
       await db.insert(chatMessages).values({
@@ -279,7 +290,7 @@ export async function POST(request: Request) {
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
-      usage: { model: selectedModel, ...usage, fileSearchCalls: fromFiles ? 1 : 0, estimatedCostUsd },
+      usage: { model: selectedModel, ...usage, fileSearchCalls: searchedFiles ? 1 : 0, estimatedCostUsd },
       planSaved,
       sources,
       sessionId: session.id,

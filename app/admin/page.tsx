@@ -13,6 +13,7 @@ type UsageData = {
 type ExamSource = { id: number; url: string; label: string; examType: string; sourceKind: string; status: string };
 type DocumentStats = { total: number; ready: number; indexedBytes: number; citations: number; misses: number; indexVersion: string };
 const DOCUMENTS_PER_PAGE = 5;
+const USAGE_PER_PAGE = 10;
 
 async function readJson(response: Response) {
   const text = await response.text();
@@ -36,6 +37,7 @@ export default function AdminPage() {
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [usagePage, setUsagePage] = useState(1);
   const [examSources, setExamSources] = useState<ExamSource[]>([]);
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceLabel, setSourceLabel] = useState("");
@@ -184,6 +186,8 @@ export default function AdminPage() {
 
   const documentPageCount = Math.max(1, Math.ceil(files.length / DOCUMENTS_PER_PAGE));
   const visibleFiles = files.slice((documentPage - 1) * DOCUMENTS_PER_PAGE, documentPage * DOCUMENTS_PER_PAGE);
+  const usagePageCount = Math.max(1, Math.ceil((usage?.recent.length ?? 0) / USAGE_PER_PAGE));
+  const visibleUsage = usage?.recent.slice((usagePage - 1) * USAGE_PER_PAGE, usagePage * USAGE_PER_PAGE) ?? [];
 
   return (
     <main className="admin-shell">
@@ -208,7 +212,7 @@ export default function AdminPage() {
             <div><span>教材搜尋</span><strong>{Number(usage?.totals.fileSearchCalls ?? 0).toLocaleString()}</strong></div>
             <div className="cost-total"><span>估算總成本</span><strong>US$ {(Number(usage?.totals.costMicros ?? 0) / 1_000_000).toFixed(4)}</strong></div>
           </div>
-          {usage?.recent?.length ? <div className="usage-table-wrap"><table className="usage-table"><thead><tr><th>時間</th><th>模型</th><th>依據</th><th>輸入</th><th>快取</th><th>輸出</th><th>搜尋</th><th>成本</th></tr></thead><tbody>{usage.recent.map((row) => <tr key={row.id}><td>{new Date(row.createdAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>{row.model.replace("gpt-5.6-", "")}</td><td>{row.source}</td><td>{row.inputTokens.toLocaleString()}</td><td>{row.cachedTokens.toLocaleString()}</td><td>{row.outputTokens.toLocaleString()}</td><td>{row.fileSearchCalls}</td><td>US$ {(row.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</td></tr>)}</tbody></table></div> : <p className="usage-empty">新版本發布後產生的 AI 對話，會開始記錄在這裡。</p>}
+          {usage?.recent?.length ? <><div className="usage-table-wrap"><table className="usage-table"><thead><tr><th>時間</th><th>模型</th><th>依據</th><th>輸入</th><th>快取</th><th>輸出</th><th>搜尋</th><th>成本</th></tr></thead><tbody>{visibleUsage.map((row) => <tr key={row.id}><td>{new Date(row.createdAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>{row.model.replace("gpt-5.6-", "")}</td><td>{row.source}</td><td>{row.inputTokens.toLocaleString()}</td><td>{row.cachedTokens.toLocaleString()}</td><td>{row.outputTokens.toLocaleString()}</td><td>{row.fileSearchCalls}</td><td>US$ {(row.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</td></tr>)}</tbody></table></div>{(usage?.recent.length ?? 0) > USAGE_PER_PAGE && <nav className="document-pagination usage-pagination" aria-label="AI 成本明細分頁"><button type="button" disabled={usagePage === 1} onClick={() => setUsagePage((page) => Math.max(1, page - 1))}>上一頁</button><span>第 {usagePage} / {usagePageCount} 頁 · 每頁 10 筆</span><button type="button" disabled={usagePage === usagePageCount} onClick={() => setUsagePage((page) => Math.min(usagePageCount, page + 1))}>下一頁</button></nav>}</> : <p className="usage-empty">新版本發布後產生的 AI 對話，會開始記錄在這裡。</p>}
         </section>
         <div className="admin-grid">
           <form className="panel" onSubmit={submit}>

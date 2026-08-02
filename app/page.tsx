@@ -37,6 +37,7 @@ export default function Home() {
   const [practiceQuestion, setPracticeQuestion] = useState<PracticeQuestion | null>(null);
   const [practiceLoading, setPracticeLoading] = useState(false);
   const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
+  const [savedMessage, setSavedMessage] = useState<number | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -182,6 +183,11 @@ export default function Home() {
     send(input);
   }
 
+  async function saveMessageNote(message: Message, index: number) {
+    const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceType: "conversation", sourceId: sessionId ? `${sessionId}-${index}` : String(index), title: cleanMessageText(message.text).slice(0, 32), content: cleanMessageText(message.text), subject: todayTasks.find((task) => task.status !== "completed")?.subject ?? "綜合", tags: "AI對話", sourceLabel: message.sources?.join("、") ?? "" }) });
+    if (response.ok) { setSavedMessage(index); window.setTimeout(() => setSavedMessage(null), 1600); }
+  }
+
   return (
     <main className="coach-shell">
       <header className="topbar">
@@ -219,7 +225,7 @@ export default function Home() {
           {messages.map((message, index) => (
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
-              <div className="message-bubble"><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")}</small> : null}</div>
+              <div className="message-bubble"><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")}</small> : null}{message.role === "mentor" && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}</div>
             </div>
           ))}
           {thinking && (

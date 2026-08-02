@@ -80,6 +80,38 @@ export const studentMemos = sqliteTable("student_memos", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
+export const studyRecords = sqliteTable("study_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  taskId: integer("task_id").references(() => studyTasks.id, { onDelete: "set null" }),
+  questionId: integer("question_id"),
+  recordDate: text("record_date").notNull(),
+  subject: text("subject").notNull(),
+  title: text("title").notNull(),
+  activityType: text("activity_type").notNull(),
+  plannedMinutes: integer("planned_minutes").notNull().default(0),
+  actualMinutes: integer("actual_minutes").notNull().default(0),
+  correct: integer("correct", { mode: "boolean" }),
+  reflection: text("reflection").notNull().default(""),
+  weakness: text("weakness").notNull().default(""),
+  nextStep: text("next_step").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const savedNotes = sqliteTable("saved_notes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  sourceType: text("source_type").notNull().default("manual"),
+  sourceId: text("source_id"),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  subject: text("subject").notNull().default("綜合"),
+  tags: text("tags").notNull().default(""),
+  sourceLabel: text("source_label").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const examQuestions = sqliteTable("exam_questions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   examType: text("exam_type").notNull(),
