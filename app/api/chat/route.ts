@@ -1,7 +1,7 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appSettings, studyPlans, studyTasks, usageLogs } from "../../../db/schema";
+import { appSettings, chatMessages, chatSessions, studyPlans, studyTasks, usageLogs } from "../../../db/schema";
 
 const baseInstructions = `你是「司律導師」，專門協助台灣律師與司法官考試的主動式 AI 學習教練。
 你的任務是教會學生思考，不是立刻交付完整答案。
@@ -16,7 +16,7 @@ const baseInstructions = `你是「司律導師」，專門協助台灣律師與
 7. 若資訊不足或法律內容不確定，要直接說明，不得捏造法條、判決或教材來源。
 8. 回覆通常控制在 80 至 220 個中文字；必要時可稍長。
 9. 若檔案搜尋工具找到教材內容，必須以教材為優先依據；找不到時才使用一般模型知識，且不得捏造教材來源。
-10. 當你已經知道學生的考試目標、每日可用時間與目前學習需求後，主動呼叫 save_study_plan，建立接下來 7 天可執行的讀書計畫。不要只把計畫寫在聊天裡。
+10. 當你已經知道學生的考試目標、每日可用時間與目前學習需求，而且目前尚無計畫，才主動呼叫 save_study_plan，建立接下來 7 天可執行的讀書計畫。
 11. 行事曆任務必須使用真實 YYYY-MM-DD 日期；不得把尚未公布的考試日期編造成確切日期。`;
 
 function extractText(payload: unknown) {
@@ -95,6 +95,19 @@ async function savePlan(plan: PlanCall) {
   return tasks.length;
 }
 
+async function getOrCreateSession(request: Request, requestedId: number | null, firstText: string) {
+  const db = await getDb();
+  const key = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
+  if (requestedId) {
+    const [existing] = await db.select().from(chatSessions).where(eq(chatSessions.id, requestedId)).limit(1);
+    if (existing?.userKey === key) return existing;
+  }
+  const [latest] = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(1);
+  if (latest) return latest;
+  const [created] = await db.insert(chatSessions).values({ userKey: key, title: firstText.slice(0, 60) || "司律導師對話" }).returning();
+  return created;
+}
+
 export async function POST(request: Request) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -102,9 +115,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律導師的伺服器環境" }, { status: 503 });
     }
 
-    const body = await request.json() as { messages?: ClientMessage[] };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null };
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
+    const latestStudent = [...messages].reverse().find((message) => message.role === "student");
+    const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律導師對話");
+    if (latestStudent) {
+      const db = await getDb();
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text });
+      await db.update(chatSessions).set({ updatedAt: new Date() }).where(eq(chatSessions.id, session.id));
+    }
 
     let vectorStoreId = "";
     try {
@@ -123,12 +143,12 @@ export async function POST(request: Request) {
         planContext = `目前計畫：${plan.title}；目標：${plan.targetLabel}；每日 ${plan.dailyMinutes} 分鐘。任務：${tasks.map((task) => `${task.taskDate} ${task.subject}/${task.title}/${task.durationMinutes}分鐘/${task.status}`).join("；") || "尚無任務"}`;
       }
     } catch { /* the tutor can continue before plan storage is ready */ }
-    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n你必須根據學生實際完成狀態、延誤與新弱點調整後續計畫；不要重複已完成任務。`;
+    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n你必須根據學生實際完成狀態、延誤與新弱點調整後續計畫；不要重複已完成任務。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。`;
     const selectedModel = process.env.OPENAI_MODEL || chooseModel(messages);
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
       name: "save_study_plan",
-      description: "將已確認的司律備考安排寫入學生讀書計畫與行事曆",
+      description: "僅在學生明確要求建立、重排、修改或調整計畫時，將已確認的安排寫入行事曆；查詢目前計畫時禁止使用",
       strict: true,
       parameters: {
         type: "object",
@@ -212,6 +232,15 @@ export async function POST(request: Request) {
         fileSearchCalls: fromFiles ? 1 : 0,
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
+      await db.insert(chatMessages).values({
+        sessionId: session.id,
+        role: "mentor",
+        text: reply,
+        source: fromFiles ? "教材" : "AI 補充",
+        model: selectedModel,
+        estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
+      });
+      await db.update(chatSessions).set({ updatedAt: new Date() }).where(eq(chatSessions.id, session.id));
     } catch { /* usage logging must not block the learner */ }
 
     return Response.json({
@@ -219,6 +248,7 @@ export async function POST(request: Request) {
       source: fromFiles ? "教材" : "AI 補充",
       usage: { model: selectedModel, ...usage, fileSearchCalls: fromFiles ? 1 : 0, estimatedCostUsd },
       planSaved,
+      sessionId: session.id,
     });
   } catch {
     return Response.json({ error: "對話處理失敗" }, { status: 500 });
