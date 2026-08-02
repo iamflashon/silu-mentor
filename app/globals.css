@@ -136,6 +136,7 @@ a { color:inherit; text-decoration:none; }
 .usage-table th { text-align:left; color:#718493; background:#f5f8fa; padding:10px 12px; }
 .usage-table td { color:#425d70; padding:11px 12px; border-top:1px solid #e8eef2; }
 .usage-empty { margin:18px 0 0; color:#8797a2; font-size:12px; }
+.source-form-wide { grid-template-columns:150px 1fr 150px 1.5fr 200px; }
 .exam-source-panel { margin-top:22px; }.source-count { padding:7px 10px; border-radius:999px; background:#edf4f8; color:#55778e; font-size:11px; font-weight:800; }.source-form { display:grid; grid-template-columns:1fr 170px 1.7fr 210px; gap:10px; align-items:end; }.source-form .primary-btn { margin:0; }.source-list { display:flex; flex-direction:column; gap:8px; margin-top:18px; }.source-list>div { display:flex; align-items:center; gap:11px; padding:11px 12px; border:1px solid #e0e8ee; border-radius:12px; }.source-list>div>span { padding:5px 7px; border-radius:7px; background:#e9f1f6; color:#3c6682; font-size:9px; font-weight:800; }.source-list>div>div { min-width:0; flex:1; }.source-list strong,.source-list small { display:block; }.source-list strong { color:#315168; font-size:12px; }.source-list small { margin-top:3px; overflow:hidden; color:#82939e; font-size:9px; white-space:nowrap; text-overflow:ellipsis; }.source-list em { color:#966c27; font-size:10px; font-style:normal; }
 .plan-shell { min-height:100vh; background:#f5f8fa; }
 .plan-main { width:min(1240px,calc(100% - 36px)); margin:0 auto; padding:42px 0 80px; }

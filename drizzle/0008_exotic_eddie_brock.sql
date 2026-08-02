@@ -1,0 +1,1 @@
+ALTER TABLE `exam_sources` ADD `source_kind` text DEFAULT 'exam' NOT NULL;

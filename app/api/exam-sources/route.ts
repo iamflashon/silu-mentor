@@ -9,10 +9,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { url?: string; label?: string; examType?: string };
-    const url = String(body.url ?? "").trim(); const label = String(body.label ?? "").trim(); const examType = body.examType === "essay" ? "essay" : "mcq";
+    const body = await request.json() as { url?: string; label?: string; examType?: string; sourceKind?: string };
+    const url = String(body.url ?? "").trim(); const label = String(body.label ?? "").trim(); const examType = body.examType === "essay" ? "essay" : "mcq"; const sourceKind = ["exam", "regulation", "reference"].includes(String(body.sourceKind)) ? String(body.sourceKind) : "exam";
     if (!/^https:\/\//i.test(url) || !label) return Response.json({ error: "請填寫 HTTPS 網址與來源名稱" }, { status: 400 });
-    const db = await getDb(); const [source] = await db.insert(examSources).values({ url, label, examType }).returning();
+    const db = await getDb(); const [source] = await db.insert(examSources).values({ url, label, examType, sourceKind }).returning();
     return Response.json({ source }, { status: 201 });
   } catch { return Response.json({ error: "網址已存在或暫時無法儲存" }, { status: 409 }); }
 }

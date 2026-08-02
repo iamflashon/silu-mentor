@@ -57,6 +57,13 @@
       "when": 1785688350760,
       "tag": "0007_calm_sharon_ventura",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785688575137,
+      "tag": "0008_exotic_eddie_brock",
+      "breakpoints": true
     }
   ]
 }

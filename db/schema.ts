@@ -109,6 +109,7 @@ export const examSources = sqliteTable("exam_sources", {
   url: text("url").notNull().unique(),
   label: text("label").notNull(),
   examType: text("exam_type").notNull(),
+  sourceKind: text("source_kind").notNull().default("exam"),
   status: text("status").notNull().default("waiting"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
