@@ -5,6 +5,16 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 type Uploaded = { name: string; subject: string; size: string; pending: boolean };
 
+async function readJson(response: Response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    if (response.status === 413) return { error: "檔案超過單次上傳限制，請重新選擇文件" };
+    return { error: "伺服器暫時無法處理這份文件" };
+  }
+}
+
 export default function AdminPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<File | null>(null);
@@ -32,14 +42,47 @@ export default function AdminPage() {
     if (!selected) return;
     setUploading(true);
     setNotice("");
-    const form = new FormData();
-    form.set("file", selected);
-    form.set("subject", subject);
-    form.set("documentType", type);
     try {
-      const response = await fetch("/api/documents", { method: "POST", body: form });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "上傳失敗");
+      const initResponse = await fetch("/api/documents/multipart", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "init", fileName: selected.name, contentType: selected.type }),
+      });
+      const init = await readJson(initResponse) as { key?: string; uploadId?: string; error?: string };
+      if (!initResponse.ok || !init.key || !init.uploadId) throw new Error(init.error ?? "無法開始上傳");
+
+      const chunkSize = 5 * 1024 * 1024;
+      const parts: Array<{ partNumber: number; etag: string }> = [];
+      for (let start = 0, partNumber = 1; start < selected.size; start += chunkSize, partNumber += 1) {
+        setNotice(`正在上傳第 ${partNumber} 段，共 ${Math.ceil(selected.size / chunkSize)} 段…`);
+        const chunk = selected.slice(start, Math.min(start + chunkSize, selected.size));
+        const partResponse = await fetch(`/api/documents/multipart?key=${encodeURIComponent(init.key)}&uploadId=${encodeURIComponent(init.uploadId)}&partNumber=${partNumber}`, {
+          method: "PUT",
+          headers: { "content-type": "application/octet-stream" },
+          body: chunk,
+        });
+        const part = await readJson(partResponse) as { partNumber?: number; etag?: string; error?: string };
+        if (!partResponse.ok || !part.partNumber || !part.etag) throw new Error(part.error ?? `第 ${partNumber} 段上傳失敗`);
+        parts.push({ partNumber: part.partNumber, etag: part.etag });
+      }
+
+      const completeResponse = await fetch("/api/documents/multipart", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "complete",
+          key: init.key,
+          uploadId: init.uploadId,
+          parts,
+          fileName: selected.name,
+          contentType: selected.type,
+          sizeBytes: selected.size,
+          subject,
+          documentType: type,
+        }),
+      });
+      const completed = await readJson(completeResponse) as { error?: string };
+      if (!completeResponse.ok) throw new Error(completed.error ?? "無法完成文件上傳");
       setFiles((current) => [{ name: selected.name, subject, size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`, pending: true }, ...current]);
       setSelected(null);
       if (fileRef.current) fileRef.current.value = "";
