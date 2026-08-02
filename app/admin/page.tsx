@@ -28,6 +28,7 @@ export default function AdminPage() {
   const [type, setType] = useState("教科書");
   const [files, setFiles] = useState<Uploaded[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
   const [usage, setUsage] = useState<UsageData | null>(null);
 
@@ -80,10 +81,16 @@ export default function AdminPage() {
     }
   }
 
-  function chooseFiles(list: FileList | null) {
-    const pdfs = Array.from(list ?? []).filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
-    setQueue(pdfs.map((file, index) => ({ key: `${file.name}-${file.size}-${file.lastModified}-${index}`, file, status: "queued", progress: 0 })));
-    setNotice(pdfs.length ? `已加入 ${pdfs.length} 份 PDF，將依序逐本上傳。` : "請選擇 PDF 文件");
+  function chooseFiles(list: FileList | File[] | null) {
+    const incoming = Array.from(list ?? []);
+    const pdfs = incoming.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+    const rejected = incoming.length - pdfs.length;
+    setQueue((current) => {
+      const known = new Set(current.map((item) => `${item.file.name}-${item.file.size}-${item.file.lastModified}`));
+      const additions = pdfs.filter((file) => !known.has(`${file.name}-${file.size}-${file.lastModified}`)).map((file, index) => ({ key: `${file.name}-${file.size}-${file.lastModified}-${Date.now()}-${index}`, file, status: "queued" as const, progress: 0 }));
+      return [...current, ...additions];
+    });
+    setNotice(pdfs.length ? `已加入 ${pdfs.length} 份 PDF${rejected ? `，另排除 ${rejected} 個非 PDF 檔案` : ""}。確認科目與類型後即可依序上傳。` : "拖入的檔案沒有 PDF，請重新選擇。");
   }
 
   function patchQueue(key: string, patch: Partial<QueueItem>) {
@@ -183,11 +190,11 @@ export default function AdminPage() {
           <form className="panel" onSubmit={submit}>
             <h2>上傳教材</h2>
             <p className="panel-sub">PDF 將自動解析、切分並建立搜尋索引，供司律導師回答與教學。</p>
-            <label className="upload-zone">
+            <label className={`upload-zone ${dragActive ? "drag-active" : ""}`} onDragEnter={(event) => { event.preventDefault(); if (!uploading) setDragActive(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; if (!uploading) setDragActive(true); }} onDragLeave={(event) => { event.preventDefault(); if (event.currentTarget === event.target) setDragActive(false); }} onDrop={(event) => { event.preventDefault(); setDragActive(false); if (!uploading) chooseFiles(Array.from(event.dataTransfer.files)); }}>
               <input ref={fileRef} type="file" accept="application/pdf" multiple hidden onChange={(e) => chooseFiles(e.target.files)} />
               <span className="upload-icon">＋</span>
-              <strong>{queue.length ? `已選擇 ${queue.length} 份 PDF` : "選擇或拖曳多份 PDF 文件"}</strong>
-              <span>{queue.length ? `共 ${(queue.reduce((sum, item) => sum + item.file.size, 0) / 1024 / 1024).toFixed(1)} MB · 將逐本處理` : "可批次選取，系統會逐本上傳與送出索引"}</span>
+              <strong>{dragActive ? "放開滑鼠，加入批次佇列" : queue.length ? `已選擇 ${queue.length} 份 PDF` : "拖曳大量 PDF 到這裡"}</strong>
+              <span>{queue.length ? `共 ${(queue.reduce((sum, item) => sum + item.file.size, 0) / 1024 / 1024).toFixed(1)} MB · 還可以繼續拖入更多檔案` : "或點此批次選取；系統將逐本上傳與建立索引"}</span>
             </label>
             {queue.length > 0 && <div className="upload-queue">{queue.map((item, index) => <div className="queue-row" key={item.key}><div className="queue-index">{index + 1}</div><div className="queue-main"><div><strong>{item.file.name}</strong><span>{item.status === "queued" ? "等待上傳" : item.status === "uploading" ? `上傳中 ${item.progress}%` : item.status === "indexing" ? "送入索引中" : item.status === "done" ? "已送出索引" : `失敗 · ${item.error ?? "請重試"}`}</span></div><div className="queue-progress"><i style={{ width: `${item.progress}%` }} /></div></div></div>)}</div>}
             <div className="meta-fields">
