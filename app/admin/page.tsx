@@ -4,6 +4,11 @@ import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 type Uploaded = { id: number; name: string; subject: string; size: string; status: string; error?: string | null };
+type UsageData = {
+  totals: { requests: number; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; costMicros: number };
+  recent: Array<{ id: number; model: string; source: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsdMicros: number; createdAt: string }>;
+  showCosts: boolean;
+};
 
 async function readJson(response: Response) {
   const text = await response.text();
@@ -23,6 +28,7 @@ export default function AdminPage() {
   const [files, setFiles] = useState<Uploaded[]>([]);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [usage, setUsage] = useState<UsageData | null>(null);
 
   useEffect(() => {
     fetch("/api/documents").then(async (response) => {
@@ -37,7 +43,21 @@ export default function AdminPage() {
         error: item.error,
       })));
     }).catch(() => undefined);
+    fetch("/api/usage").then(async (response) => {
+      if (response.ok) setUsage(await response.json() as UsageData);
+    }).catch(() => undefined);
   }, []);
+
+  async function toggleFrontendCosts() {
+    if (!usage) return;
+    const next = !usage.showCosts;
+    const response = await fetch("/api/usage", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ showCosts: next }),
+    });
+    if (response.ok) setUsage({ ...usage, showCosts: next });
+  }
 
   async function startIndex(documentId: number) {
     setFiles((current) => current.map((item) => item.id === documentId ? { ...item, status: "uploading_to_index", error: null } : item));
@@ -129,6 +149,21 @@ export default function AdminPage() {
         <div className="admin-title">
           <div><p>CONTENT MANAGEMENT</p><h1>教材知識庫</h1></div>
         </div>
+        <section className="cost-panel panel">
+          <div className="cost-heading">
+            <div><h2>AI 使用成本</h2><p className="panel-sub">依實際 API usage 記錄，供未來方案與收費評估。</p></div>
+            <label className="cost-toggle"><input type="checkbox" checked={usage?.showCosts ?? false} onChange={toggleFrontendCosts} /><span />前台顯示成本</label>
+          </div>
+          <div className="cost-metrics">
+            <div><span>累計對話</span><strong>{Number(usage?.totals.requests ?? 0).toLocaleString()}</strong></div>
+            <div><span>輸入 Token</span><strong>{Number(usage?.totals.inputTokens ?? 0).toLocaleString()}</strong></div>
+            <div><span>輸出 Token</span><strong>{Number(usage?.totals.outputTokens ?? 0).toLocaleString()}</strong></div>
+            <div><span>快取 Token</span><strong>{Number(usage?.totals.cachedTokens ?? 0).toLocaleString()}</strong></div>
+            <div><span>教材搜尋</span><strong>{Number(usage?.totals.fileSearchCalls ?? 0).toLocaleString()}</strong></div>
+            <div className="cost-total"><span>估算總成本</span><strong>US$ {(Number(usage?.totals.costMicros ?? 0) / 1_000_000).toFixed(4)}</strong></div>
+          </div>
+          {usage?.recent?.length ? <div className="usage-table-wrap"><table className="usage-table"><thead><tr><th>時間</th><th>模型</th><th>依據</th><th>輸入</th><th>快取</th><th>輸出</th><th>搜尋</th><th>成本</th></tr></thead><tbody>{usage.recent.map((row) => <tr key={row.id}><td>{new Date(row.createdAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td><td>{row.model.replace("gpt-5.6-", "")}</td><td>{row.source}</td><td>{row.inputTokens.toLocaleString()}</td><td>{row.cachedTokens.toLocaleString()}</td><td>{row.outputTokens.toLocaleString()}</td><td>{row.fileSearchCalls}</td><td>US$ {(row.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</td></tr>)}</tbody></table></div> : <p className="usage-empty">新版本發布後產生的 AI 對話，會開始記錄在這裡。</p>}
+        </section>
         <div className="admin-grid">
           <form className="panel" onSubmit={submit}>
             <h2>上傳教材</h2>

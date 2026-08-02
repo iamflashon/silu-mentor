@@ -15,6 +15,13 @@
       "when": 1785685712155,
       "tag": "0001_tiny_rick_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785685944413,
+      "tag": "0002_thick_captain_cross",
+      "breakpoints": true
     }
   ]
 }

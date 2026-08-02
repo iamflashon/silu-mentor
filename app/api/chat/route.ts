@@ -1,7 +1,7 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appSettings } from "../../../db/schema";
+import { appSettings, usageLogs } from "../../../db/schema";
 
 const instructions = `你是「司律導師」，專門協助台灣律師與司法官考試的主動式 AI 學習教練。
 你的任務是教會學生思考，不是立刻交付完整答案。
@@ -38,6 +38,28 @@ function usedFileSearch(payload: unknown) {
   return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "file_search_call");
 }
 
+function chooseModel(messages: ClientMessage[]) {
+  const latest = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
+  if (/完整批改|申論批改|評分|逐段改寫|模擬閱卷/.test(latest)) return "gpt-5.6-sol";
+  if (latest.length > 500 || /深入分析|學說比較|實務見解|判決分析|完整涵攝|爭點整理/.test(latest)) return "gpt-5.6-terra";
+  return "gpt-5.6-luna";
+}
+
+const modelRates: Record<string, { input: number; cached: number; output: number }> = {
+  "gpt-5.6-luna": { input: 0.10, cached: 0.01, output: 0.60 },
+  "gpt-5.6-terra": { input: 1.00, cached: 0.10, output: 6.00 },
+  "gpt-5.6-sol": { input: 2.50, cached: 0.25, output: 15.00 },
+};
+
+function readUsage(payload: unknown) {
+  const usage = payload && typeof payload === "object" ? (payload as { usage?: Record<string, unknown> }).usage : null;
+  const inputTokens = Number(usage?.input_tokens ?? 0);
+  const outputTokens = Number(usage?.output_tokens ?? 0);
+  const details = usage?.input_tokens_details && typeof usage.input_tokens_details === "object" ? usage.input_tokens_details as Record<string, unknown> : null;
+  const cachedTokens = Number(details?.cached_tokens ?? 0);
+  return { inputTokens, outputTokens, cachedTokens };
+}
+
 export async function POST(request: Request) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -56,6 +78,7 @@ export async function POST(request: Request) {
       vectorStoreId = setting?.value ?? "";
     } catch { /* answer from model knowledge until the index is ready */ }
 
+    const selectedModel = process.env.OPENAI_MODEL || chooseModel(messages);
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -63,7 +86,7 @@ export async function POST(request: Request) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-5-mini",
+        model: selectedModel,
         instructions,
         input: messages.map((message) => ({
           role: message.role === "mentor" ? "assistant" : "user",
@@ -80,7 +103,31 @@ export async function POST(request: Request) {
     const reply = extractText(payload);
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
-    return Response.json({ reply, source: usedFileSearch(payload) ? "教材" : "AI 補充" });
+    const fromFiles = usedFileSearch(payload);
+    const usage = readUsage(payload);
+    const rates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
+    const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens);
+    const tokenCost = (nonCachedInput * rates.input + usage.cachedTokens * rates.cached + usage.outputTokens * rates.output) / 1_000_000;
+    const fileSearchCost = fromFiles ? 0.0025 : 0;
+    const estimatedCostUsd = tokenCost + fileSearchCost;
+    try {
+      const db = await getDb();
+      await db.insert(usageLogs).values({
+        model: selectedModel,
+        source: fromFiles ? "教材" : "AI 補充",
+        inputTokens: usage.inputTokens,
+        cachedTokens: usage.cachedTokens,
+        outputTokens: usage.outputTokens,
+        fileSearchCalls: fromFiles ? 1 : 0,
+        estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
+      });
+    } catch { /* usage logging must not block the learner */ }
+
+    return Response.json({
+      reply,
+      source: fromFiles ? "教材" : "AI 補充",
+      usage: { model: selectedModel, ...usage, fileSearchCalls: fromFiles ? 1 : 0, estimatedCostUsd },
+    });
   } catch {
     return Response.json({ error: "對話處理失敗" }, { status: 500 });
   }

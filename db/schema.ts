@@ -19,3 +19,15 @@ export const appSettings = sqliteTable("app_settings", {
   value: text("value").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const usageLogs = sqliteTable("usage_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  model: text("model").notNull(),
+  source: text("source").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  cachedTokens: integer("cached_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  fileSearchCalls: integer("file_search_calls").notNull().default(0),
+  estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});

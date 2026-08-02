@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 type Message = { role: "mentor" | "student"; text: string };
+type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 
@@ -17,11 +18,21 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
+  const [showCosts, setShowCosts] = useState(false);
+  const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, thinking]);
+
+  useEffect(() => {
+    fetch("/api/usage").then(async (response) => {
+      if (!response.ok) return;
+      const data = await response.json() as { showCosts?: boolean };
+      setShowCosts(Boolean(data.showCosts));
+    }).catch(() => undefined);
+  }, []);
 
   async function send(text: string) {
     const value = text.trim();
@@ -36,10 +47,11 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ messages: nextMessages.slice(-12) }),
       });
-      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; error?: string };
+      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; usage?: ReplyUsage; error?: string };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
       setMessages((current) => [...current, { role: "mentor", text: result.reply! }]);
       setSource(result.source ?? "AI 補充");
+      setLastUsage(result.usage ?? null);
     } catch {
       setMessages((current) => [...current, {
         role: "mentor",
@@ -91,7 +103,7 @@ export default function Home() {
           <div ref={endRef} />
         </div>
 
-        {source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}</div>}
+        {source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)}</span> : null}</div>}
 
         {messages.length === 1 && (
           <div className="quick-starts">
