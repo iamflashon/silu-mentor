@@ -193,6 +193,10 @@ export const resourceSegments = sqliteTable("resource_segments", {
   startSeconds: integer("start_seconds"),
   endSeconds: integer("end_seconds"),
   text: text("text").notNull().default(""),
+  summary: text("summary").notNull().default(""),
+  importance: integer("importance").notNull().default(0),
+  recommended: integer("recommended", { mode: "boolean" }).notNull().default(false),
+  reviewStatus: text("review_status").notNull().default("draft"),
   sequence: integer("sequence").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });

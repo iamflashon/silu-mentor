@@ -10,6 +10,7 @@ type DashboardData = { targetLabel: string; monthsRemaining: number; officialDat
 type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
+type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string } | null; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: string[] };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
@@ -38,6 +39,7 @@ export default function Home() {
   const [practiceLoading, setPracticeLoading] = useState(false);
   const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
   const [savedMessage, setSavedMessage] = useState<number | null>(null);
+  const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -62,6 +64,8 @@ export default function Home() {
       setMessages([{ role: "mentor", text: "早安，我是你的司律導師。今天想從哪一科開始？" }]);
     }).finally(() => setHistoryLoaded(true));
   }, []);
+
+  useEffect(() => { fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed(await response.json() as HomeFeed); }).catch(() => undefined); }, []);
 
   useEffect(() => {
     fetch("/api/dashboard").then(async (response) => {
@@ -201,6 +205,7 @@ export default function Home() {
           <Link href="/admin" className="admin-link">管理後台</Link>
         </div>
       </header>
+      <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker ?? ["距離目標再前進一小步"]).join("　◆　")}</span></div></div>
 
       <div className={`command-layout rail-${railSide}`}>
       <section className="conversation" aria-live="polite">
@@ -254,6 +259,8 @@ export default function Home() {
         <section className="rail-card progress-card"><div className="rail-title"><strong>今日戰況</strong><Link href="/plan">行事曆</Link></div><div className="progress-number"><b>{dashboard?.todayProgress.completed ?? 0}</b><span>／{dashboard?.todayProgress.total ?? 0} 項</span></div><div className="progress-track"><i style={{ width: `${dashboard?.todayProgress.total ? Math.round(dashboard.todayProgress.completed / dashboard.todayProgress.total * 100) : 0}%` }} /></div><p>{dashboard?.encouragement ?? "把專注留給今天。"}</p></section>
         <section className="rail-card"><div className="rail-title"><strong>學習紀錄</strong></div><div className="record-grid"><div><b>{dashboard?.record.completedTasks ?? 0}</b><span>完成任務</span></div><div><b>{Math.round((dashboard?.record.completedMinutes ?? 0) / 60 * 10) / 10}</b><span>累計小時</span></div></div></section>
         <section className="rail-card"><div className="rail-title"><strong>優先補強</strong></div>{dashboard?.priorities.length ? <div className="priority-list">{dashboard.priorities.map((item) => <div key={item.subject}><span>{item.subject}</span><small>{item.reason}</small></div>)}</div> : <p className="rail-empty">目前沒有逾期任務。完成更多練習後，這裡會進一步分析爭點弱項。</p>}</section>
+        <section className="rail-card resource-recommend"><div className="rail-title"><strong>今日學習資源</strong><Link href="/admin">更多</Link></div>{homeFeed?.course && <a href={homeFeed.course.sourceUrl} target="_blank" rel="noreferrer"><span>推薦課程</span><b>{homeFeed.course.title}</b><small>{homeFeed.recommended[0]?.summary || "搭配今日進度觀看課程重點"}</small></a>}{homeFeed?.book && <div className="recommended-book"><img src={`/api/resources/cover?id=${homeFeed.book.id}`} alt="推薦書封" /><div><span>推薦書籍</span><b>{homeFeed.book.title}</b><small>{homeFeed.book.creator}</small></div></div>}{homeFeed?.magazine && <a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer"><span>月旦法學教室</span><b>{homeFeed.magazine.title}</b><small>查看本期試讀與文章</small></a>}</section>
+        <section className="rail-card daily-legal"><div className="rail-title"><strong>每日法律情報</strong></div><div><span>每日一法條</span><b>刑法第 271 條</b><small>殺人者，處死刑、無期徒刑或十年以上有期徒刑。</small></div><div><span>每日一判決</span><b>司法院裁判資料接入中</b><small>完成正式 API 同步後，將依今日科目推薦最新裁判。</small></div></section>
         <section className="memo-card"><div className="memo-tape" /><strong>給今天的自己</strong><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="記下提醒、老師交代或今天一定要完成的事…" rows={4} /><button onClick={saveMemo}>{memoSaved ? "已儲存 ✓" : "儲存 MEMO"}</button></section>
       </aside>
       </div>
