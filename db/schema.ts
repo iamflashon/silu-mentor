@@ -71,3 +71,10 @@ export const chatMessages = sqliteTable("chat_messages", {
   estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const studentMemos = sqliteTable("student_memos", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull().unique(),
+  content: text("content").notNull().default(""),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});

@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 type Message = { role: "mentor" | "student"; text: string };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
+type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ subject: string; count: number; reason: string }>; memo: string; encouragement: string };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 
@@ -15,6 +16,9 @@ export default function Home() {
   const [todayTasks, setTodayTasks] = useState<TodayTask[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [today, setToday] = useState("");
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [memo, setMemo] = useState("");
+  const [memoSaved, setMemoSaved] = useState(false);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
@@ -45,6 +49,19 @@ export default function Home() {
       setMessages([{ role: "mentor", text: "早安，我是你的司律導師。今天想從哪一科開始？" }]);
     }).finally(() => setHistoryLoaded(true));
   }, []);
+
+  useEffect(() => {
+    fetch("/api/dashboard").then(async (response) => {
+      if (!response.ok) return;
+      const data = await response.json() as DashboardData;
+      setDashboard(data); setMemo(data.memo ?? "");
+    }).catch(() => undefined);
+  }, []);
+
+  async function saveMemo() {
+    const response = await fetch("/api/dashboard", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ memo }) });
+    if (response.ok) { setMemoSaved(true); window.setTimeout(() => setMemoSaved(false), 1500); }
+  }
 
   useEffect(() => {
     fetch("/api/usage").then(async (response) => {
@@ -102,11 +119,12 @@ export default function Home() {
         </div>
       </header>
 
+      <div className="command-layout">
       <section className="conversation" aria-live="polite">
         <div className="conversation-heading">
-          <p>AI 司律考試教練</p>
-          <h1>我們今天從哪裡開始？</h1>
-          <span>我會參考公司教材，依你的回答一步一步帶你學。</span>
+          <p>AI 司律作戰中心</p>
+          <h1>今天，照計畫前進。</h1>
+          <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
         </div>
 
         {todayTasks.length > 0 && <section className="today-plan-card">
@@ -142,6 +160,15 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      <aside className="command-rail">
+        <section className="countdown-card"><span>司律目標</span><strong>{dashboard?.monthsRemaining ?? "—"}<small>個月</small></strong><p>{dashboard?.targetLabel ?? "2027 年 8 月"}</p><em>正式日期待公布</em></section>
+        <section className="rail-card progress-card"><div className="rail-title"><strong>今日戰況</strong><Link href="/plan">行事曆</Link></div><div className="progress-number"><b>{dashboard?.todayProgress.completed ?? 0}</b><span>／{dashboard?.todayProgress.total ?? 0} 項</span></div><div className="progress-track"><i style={{ width: `${dashboard?.todayProgress.total ? Math.round(dashboard.todayProgress.completed / dashboard.todayProgress.total * 100) : 0}%` }} /></div><p>{dashboard?.encouragement ?? "把專注留給今天。"}</p></section>
+        <section className="rail-card"><div className="rail-title"><strong>學習紀錄</strong></div><div className="record-grid"><div><b>{dashboard?.record.completedTasks ?? 0}</b><span>完成任務</span></div><div><b>{Math.round((dashboard?.record.completedMinutes ?? 0) / 60 * 10) / 10}</b><span>累計小時</span></div></div></section>
+        <section className="rail-card"><div className="rail-title"><strong>優先補強</strong></div>{dashboard?.priorities.length ? <div className="priority-list">{dashboard.priorities.map((item) => <div key={item.subject}><span>{item.subject}</span><small>{item.reason}</small></div>)}</div> : <p className="rail-empty">目前沒有逾期任務。完成更多練習後，這裡會進一步分析爭點弱項。</p>}</section>
+        <section className="memo-card"><div className="memo-tape" /><strong>給今天的自己</strong><textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="記下提醒、老師交代或今天一定要完成的事…" rows={4} /><button onClick={saveMemo}>{memoSaved ? "已儲存 ✓" : "儲存 MEMO"}</button></section>
+      </aside>
+      </div>
 
       <div className="composer-wrap">
         <form className="composer" onSubmit={submit}>

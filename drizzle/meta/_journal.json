@@ -36,6 +36,13 @@
       "when": 1785686611740,
       "tag": "0004_heavy_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785686889479,
+      "tag": "0005_abandoned_ricochet",
+      "breakpoints": true
     }
   ]
 }
