@@ -210,3 +210,19 @@ export const messageFeedback = sqliteTable("message_feedback", {
   messageText: text("message_text").notNull().default(""),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const listeningSolutions = sqliteTable("listening_solutions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  questionId: integer("question_id").references(() => examQuestions.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  year: text("year").notNull().default(""),
+  subject: text("subject").notNull().default("刑法"),
+  questionText: text("question_text").notNull(),
+  narrationScript: text("narration_script").notNull().default(""),
+  sourceUrl: text("source_url").notNull().default(""),
+  audioStorageKey: text("audio_storage_key"),
+  audioFileName: text("audio_file_name"),
+  status: text("status").notNull().default("draft"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
