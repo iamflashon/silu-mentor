@@ -238,6 +238,9 @@ export default function AdminPage() {
   const [listeningTitle, setListeningTitle] = useState("");
   const [listeningQuestionText, setListeningQuestionText] = useState("");
   const [listeningFile, setListeningFile] = useState<File | null>(null);
+  const [listeningPackageFile, setListeningPackageFile] = useState<File | null>(
+    null,
+  );
   const [preparedTxt, setPreparedTxt] = useState<File | null>(null);
   const [generatingListening, setGeneratingListening] = useState(false);
   const [editingListening, setEditingListening] =
@@ -602,19 +605,54 @@ export default function AdminPage() {
     setNotice("分段配音已依順序上傳，系統已建立連續時間軸。");
   }
 
-  async function replaceListeningSegment(segment: ListeningSegment, file?: File) {
+  async function replaceListeningSegment(
+    segment: ListeningSegment,
+    file?: File,
+  ) {
     if (!editingListening || !file) return;
-    const form = new FormData(); form.set("action", "audio"); form.set("listeningId", String(editingListening.id)); form.set("replaceId", String(segment.id)); form.set("file", file); form.set("durationSeconds", String(await audioDuration(file))); setNotice(`正在取代第 ${segment.sequence + 1} 段…`);
-    const response = await fetch("/api/listening/segments", { method: "POST", body: form }); const result = await readJson(response); if (!response.ok) { setNotice(String(result.error || "音檔取代失敗")); return; } await openListeningEditor(editingListening); setNotice(`第 ${segment.sequence + 1} 段已取代，後續時間軸已自動調整。`);
+    const form = new FormData();
+    form.set("action", "audio");
+    form.set("listeningId", String(editingListening.id));
+    form.set("replaceId", String(segment.id));
+    form.set("file", file);
+    form.set("durationSeconds", String(await audioDuration(file)));
+    setNotice(`正在取代第 ${segment.sequence + 1} 段…`);
+    const response = await fetch("/api/listening/segments", {
+      method: "POST",
+      body: form,
+    });
+    const result = await readJson(response);
+    if (!response.ok) {
+      setNotice(String(result.error || "音檔取代失敗"));
+      return;
+    }
+    await openListeningEditor(editingListening);
+    setNotice(`第 ${segment.sequence + 1} 段已取代，後續時間軸已自動調整。`);
   }
 
   async function saveListeningCue(cue: ListeningCue) {
-    const response = await fetch("/api/listening/segments", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cueId: cue.id, text: cue.text, startSeconds: cue.startSeconds, endSeconds: cue.endSeconds }) });
-    if (!response.ok) { setNotice("字幕儲存失敗"); return; } setNotice("此段字幕文字已校正。");
+    const response = await fetch("/api/listening/segments", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        cueId: cue.id,
+        text: cue.text,
+        startSeconds: cue.startSeconds,
+        endSeconds: cue.endSeconds,
+      }),
+    });
+    if (!response.ok) {
+      setNotice("字幕儲存失敗");
+      return;
+    }
+    setNotice("此段字幕文字已校正。");
   }
 
-  async function uploadListeningZip(file?: File) {
-    if (!editingListening || !file) return;
+  async function uploadListeningZip(
+    file?: File,
+    targetItem: ListeningItem | null = editingListening,
+  ) {
+    if (!targetItem || !file) return;
     setNotice("正在解析 ZIP 並依檔名排列音檔…");
     try {
       const entries = unzipSync(new Uint8Array(await file.arrayBuffer()));
@@ -648,7 +686,7 @@ export default function AdminPage() {
         );
         const form = new FormData();
         form.set("action", "audio");
-        form.set("listeningId", String(editingListening.id));
+        form.set("listeningId", String(targetItem.id));
         form.set("file", audioFile);
         form.set("durationSeconds", String(await audioDuration(audioFile)));
         const response = await fetch("/api/listening/segments", {
@@ -667,6 +705,8 @@ export default function AdminPage() {
             srtName.split("/").pop() || "subtitles.srt",
             { type: "application/x-subrip" },
           ),
+          undefined,
+          targetItem,
         );
       const txtNames = Object.keys(entries).filter((name) =>
         name.toLowerCase().endsWith(".txt"),
@@ -689,13 +729,13 @@ export default function AdminPage() {
           )
         ) {
           const updated = {
-            ...editingListening,
+            ...targetItem,
             narrationScript: selected.text.trim(),
           };
           await saveListening(updated, updated.status);
         }
       }
-      await openListeningEditor(editingListening);
+      await openListeningEditor(targetItem);
       setNotice(
         `ZIP 已完成：匯入 ${names.length} 段音檔${srtName ? "與 SRT 字幕" : ""}；已忽略重複的完整合併音檔。`,
       );
@@ -704,11 +744,73 @@ export default function AdminPage() {
     }
   }
 
-  async function uploadListeningSrt(file?: File, segmentId?: number) {
-    if (!editingListening || !file) return;
+  async function importListeningPackage() {
+    if (!listeningPackageFile) return;
+    setNotice("正在讀取聽解題 ZIP 套件…");
+    try {
+      const entries = unzipSync(
+        new Uint8Array(await listeningPackageFile.arrayBuffer()),
+      );
+      const txtNames = Object.keys(entries).filter((name) =>
+        name.toLowerCase().endsWith(".txt"),
+      );
+      if (!txtNames.length) {
+        setNotice("這個 ZIP 沒有 TXT 聞稿，請先在下方建立聞稿再匯入 ZIP。");
+        return;
+      }
+      const decoder = new TextDecoder();
+      const candidates = txtNames.map((name) => ({
+        name,
+        text: decoder.decode(entries[name]),
+      }));
+      const selected = candidates.sort(
+        (a, b) =>
+          (b.text.match(/[為與臺條題應將]/g) || []).length -
+          (a.text.match(/[為與臺條題應將]/g) || []).length,
+      )[0];
+      const txtFile = new File(
+        [new TextEncoder().encode(selected.text)],
+        selected.name.split("/").pop() || "聞稿.txt",
+        { type: "text/plain" },
+      );
+      const form = new FormData();
+      form.set("preparedTxt", txtFile);
+      form.set("title", listeningTitle || selected.name.replace(/\.txt$/i, ""));
+      form.set("questionText", listeningQuestionText || "ZIP 套件匯入題目");
+      form.set("subject", "刑法");
+      const response = await fetch("/api/listening", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await readJson(response)) as {
+        item?: ListeningItem;
+        error?: string;
+      };
+      if (!response.ok || !result.item) {
+        setNotice(String(result.error || "ZIP 題目建立失敗"));
+        return;
+      }
+      setListeningItems((current) => [result.item!, ...current]);
+      setEditingListening(result.item);
+      setListeningPackageFile(null);
+      setListeningTitle("");
+      setListeningQuestionText("");
+      await uploadListeningZip(listeningPackageFile, result.item);
+      setNotice("ZIP 已建立為一道聽解題，音檔、SRT 與 TXT 已開始配對。");
+    } catch {
+      setNotice("ZIP 解析失敗，請確認檔案未加密且包含 TXT、音檔或 SRT。");
+    }
+  }
+
+  async function uploadListeningSrt(
+    file?: File,
+    segmentId?: number,
+    targetItem: ListeningItem | null = editingListening,
+  ) {
+    if (!targetItem || !file) return;
     const form = new FormData();
     form.set("action", "subtitle");
-    form.set("listeningId", String(editingListening.id));
+    form.set("listeningId", String(targetItem.id));
     form.set("file", file);
     if (segmentId) form.set("segmentId", String(segmentId));
     const response = await fetch("/api/listening/segments", {
@@ -720,7 +822,7 @@ export default function AdminPage() {
       setNotice(String(result.error || "字幕上傳失敗"));
       return;
     }
-    await openListeningEditor(editingListening);
+    await openListeningEditor(targetItem);
     setNotice(
       segmentId
         ? "此段 SRT 已加上音檔累計時間並完成對齊。"
@@ -872,7 +974,9 @@ export default function AdminPage() {
         ? current
         : [result.resource!, ...current],
     );
-    setNotice(`已分析 ${result.articles ?? 0} 個試讀入口，${result.indexed ?? 0} 篇 PDF 已完成解析並可供 AI 搜尋${result.failures?.length ? `；${result.failures.length} 篇暫時失敗，可再次按「自動分析」重試` : ""}。`);
+    setNotice(
+      `已分析 ${result.articles ?? 0} 個試讀入口，${result.indexed ?? 0} 篇 PDF 已完成解析並可供 AI 搜尋${result.failures?.length ? `；${result.failures.length} 篇暫時失敗，可再次按「自動分析」重試` : ""}。`,
+    );
   }
 
   async function bindBookDocument(
@@ -2088,6 +2192,33 @@ export default function AdminPage() {
                 {generatingListening ? "AI 正在生成聞稿…" : "AI 生成解題聞稿"}
               </button>
             </form>
+            <div className="listening-package-card">
+              <div>
+                <strong>直接匯入聽解題 ZIP</strong>
+                <span>
+                  ZIP 內放 TXT
+                  聞稿、001.mp3～、SRT；系統會自動建立為一道題並分段對齊。
+                </span>
+              </div>
+              <label>
+                {listeningPackageFile?.name || "選擇 ZIP 套件"}
+                <input
+                  type="file"
+                  accept=".zip,application/zip"
+                  hidden
+                  onChange={(e) =>
+                    setListeningPackageFile(e.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                disabled={!listeningPackageFile}
+                onClick={importListeningPackage}
+              >
+                匯入 ZIP
+              </button>
+            </div>
             {notice && <div className="notice">{notice}</div>}
             <div className="listening-list">
               {listeningItems.map((item) => (
@@ -2730,9 +2861,137 @@ export default function AdminPage() {
             </div>
             <div className="audio-segment-list">
               {listeningSegments.map((segment) => {
-                const segmentEnd = segment.startOffsetSeconds + segment.durationSeconds;
-                const segmentCues = listeningCues.filter((cue) => cue.startSeconds >= segment.startOffsetSeconds && cue.startSeconds < segmentEnd);
-                return <details key={segment.id}><summary><b>第 {segment.sequence + 1} 段 · {segment.fileName}</b><span>{segment.startOffsetSeconds}s–{segmentEnd}s · {segmentCues.length} 段文字</span><i>展開校正</i></summary><div className="segment-detail"><audio controls preload="none" src={`/api/listening/segments/audio?id=${segment.id}`} /><div className="segment-buttons"><label>取代此段音檔<input type="file" accept="audio/*,.mp3,.m4a,.wav" hidden onChange={(e) => replaceListeningSegment(segment, e.target.files?.[0])} /></label><label>重傳此段 SRT<input type="file" accept=".srt" hidden onChange={(e) => uploadListeningSrt(e.target.files?.[0], segment.id)} /></label><button type="button" onClick={() => removeListeningSegment(segment.id)}>移除</button></div><div className="segment-cues">{segmentCues.length ? segmentCues.map((cue) => <article key={cue.id}><div><input type="number" value={cue.startSeconds} onChange={(e) => setListeningCues((current) => current.map((item) => item.id === cue.id ? { ...item, startSeconds: Number(e.target.value) } : item))} /><span>至</span><input type="number" value={cue.endSeconds} onChange={(e) => setListeningCues((current) => current.map((item) => item.id === cue.id ? { ...item, endSeconds: Number(e.target.value) } : item))} /></div><textarea value={cue.text} onChange={(e) => setListeningCues((current) => current.map((item) => item.id === cue.id ? { ...item, text: e.target.value } : item))} /><button type="button" onClick={() => saveListeningCue(cue)}>儲存文字</button></article>) : <p>這段尚未配對字幕，可上傳此段 SRT。</p>}</div></div></details>;
+                const segmentEnd =
+                  segment.startOffsetSeconds + segment.durationSeconds;
+                const segmentCues = listeningCues.filter(
+                  (cue) =>
+                    cue.startSeconds >= segment.startOffsetSeconds &&
+                    cue.startSeconds < segmentEnd,
+                );
+                return (
+                  <details key={segment.id}>
+                    <summary>
+                      <b>
+                        第 {segment.sequence + 1} 段 · {segment.fileName}
+                      </b>
+                      <span>
+                        {segment.startOffsetSeconds}s–{segmentEnd}s ·{" "}
+                        {segmentCues.length} 段文字
+                      </span>
+                      <i>展開校正</i>
+                    </summary>
+                    <div className="segment-detail">
+                      <audio
+                        controls
+                        preload="none"
+                        src={`/api/listening/segments/audio?id=${segment.id}`}
+                      />
+                      <div className="segment-buttons">
+                        <label>
+                          取代此段音檔
+                          <input
+                            type="file"
+                            accept="audio/*,.mp3,.m4a,.wav"
+                            hidden
+                            onChange={(e) =>
+                              replaceListeningSegment(
+                                segment,
+                                e.target.files?.[0],
+                              )
+                            }
+                          />
+                        </label>
+                        <label>
+                          重傳此段 SRT
+                          <input
+                            type="file"
+                            accept=".srt"
+                            hidden
+                            onChange={(e) =>
+                              uploadListeningSrt(
+                                e.target.files?.[0],
+                                segment.id,
+                              )
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeListeningSegment(segment.id)}
+                        >
+                          移除
+                        </button>
+                      </div>
+                      <div className="segment-cues">
+                        {segmentCues.length ? (
+                          segmentCues.map((cue) => (
+                            <article key={cue.id}>
+                              <div>
+                                <input
+                                  type="number"
+                                  value={cue.startSeconds}
+                                  onChange={(e) =>
+                                    setListeningCues((current) =>
+                                      current.map((item) =>
+                                        item.id === cue.id
+                                          ? {
+                                              ...item,
+                                              startSeconds: Number(
+                                                e.target.value,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                                <span>至</span>
+                                <input
+                                  type="number"
+                                  value={cue.endSeconds}
+                                  onChange={(e) =>
+                                    setListeningCues((current) =>
+                                      current.map((item) =>
+                                        item.id === cue.id
+                                          ? {
+                                              ...item,
+                                              endSeconds: Number(
+                                                e.target.value,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    )
+                                  }
+                                />
+                              </div>
+                              <textarea
+                                value={cue.text}
+                                onChange={(e) =>
+                                  setListeningCues((current) =>
+                                    current.map((item) =>
+                                      item.id === cue.id
+                                        ? { ...item, text: e.target.value }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                              />
+                              <button
+                                type="button"
+                                onClick={() => saveListeningCue(cue)}
+                              >
+                                儲存文字
+                              </button>
+                            </article>
+                          ))
+                        ) : (
+                          <p>這段尚未配對字幕，可上傳此段 SRT。</p>
+                        )}
+                      </div>
+                    </div>
+                  </details>
+                );
               })}
             </div>
             <p className="subtitle-summary">
