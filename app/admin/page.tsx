@@ -1270,11 +1270,26 @@ export default function AdminPage() {
           : item,
       ),
     );
-    setNotice(
-      assetType === "cover"
-        ? "書封已更新。"
-        : `字幕已完成，建立 ${result.segments ?? 0} 個可搜尋時間片段。`,
-    );
+    if (assetType === "cover") {
+      setNotice("書封已更新。");
+      return;
+    }
+
+    setNotice(`字幕已解析，建立 ${result.segments ?? 0} 個時間片段；正在交給 AI 判讀考點…`);
+    const analysisResponse = await fetch("/api/resources/segments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ resourceId }),
+    });
+    const analysis = (await readJson(analysisResponse)) as {
+      analyzed?: number;
+      error?: string;
+    };
+    if (analysisResponse.ok) {
+      setNotice(`字幕已完成：${result.segments ?? 0} 段已建立，AI 已解析 ${analysis.analyzed ?? 0} 段考點。`);
+    } else {
+      setNotice(`字幕已建立 ${result.segments ?? 0} 段，但 AI 分析未完成：${analysis.error ?? "請稍後在字幕校正視窗重新分析。"}`);
+    }
   }
 
   async function repairResourceSubtitles(resourceId: number, silent = false) {

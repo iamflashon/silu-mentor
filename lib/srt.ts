@@ -48,6 +48,10 @@ export function parseSrtCues(raw: string): ParsedSrtSegment[] {
   while (index < lines.length) {
     const line = lines[index].trim();
     const match = line.match(timestampLine);
+    if (!match && /^\d+$/.test(line) && timestampLine.test(lines[index + 1] ?? "")) {
+      index += 1;
+      continue;
+    }
     if (!match) {
       index += 1;
       continue;
@@ -58,6 +62,7 @@ export function parseSrtCues(raw: string): ParsedSrtSegment[] {
     const textLines: string[] = [];
     while (index < lines.length && !timestampLine.test(lines[index])) {
       const next = lines[index];
+      if (/^\s*\d+\s*$/.test(next) && timestampLine.test(lines[index + 1] ?? "")) break;
       if (next.trim()) textLines.push(next);
       index += 1;
     }

@@ -77,7 +77,8 @@ export async function POST(request: Request) {
   }
 
   let analyzed = 0;
-  for (let index = 0; index < rows.length; index += 12) {
+  try {
+    for (let index = 0; index < rows.length; index += 12) {
     const batch = rows.slice(index, index + 12);
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
@@ -85,12 +86,16 @@ export async function POST(request: Request) {
       input: JSON.stringify(batch.map((item) => ({ id: item.id, start: item.startSeconds, end: item.endSeconds, text: item.text }))),
       text: { format: { type: "json_schema", name: "segment_analysis", strict: true, schema: { type: "object", additionalProperties: false, properties: { items: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "integer" }, summary: { type: "string" }, importance: { type: "integer" }, recommended: { type: "boolean" } }, required: ["id", "summary", "importance", "recommended"] } } }, required: ["items"] } } },
     }) });
-    const raw = outputText(payload).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(raw) as { items?: Array<{ id: number; summary: string; importance: number; recommended: boolean }> };
-    for (const item of parsed.items ?? []) {
-      await db.update(resourceSegments).set({ summary: item.summary.slice(0, 160), importance: Math.max(0, Math.min(5, item.importance)), recommended: item.recommended, reviewStatus: "ai_reviewed" }).where(eq(resourceSegments.id, item.id));
-      analyzed += 1;
+      const raw = outputText(payload).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      const parsed = JSON.parse(raw) as { items?: Array<{ id: number; summary: string; importance: number; recommended: boolean }> };
+      for (const item of parsed.items ?? []) {
+        await db.update(resourceSegments).set({ summary: item.summary.slice(0, 160), importance: Math.max(0, Math.min(5, item.importance)), recommended: item.recommended, reviewStatus: "ai_reviewed" }).where(eq(resourceSegments.id, item.id));
+        analyzed += 1;
+      }
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 220) : "AI 回覆格式無法辨識";
+    return Response.json({ error: `字幕已建立，但 AI 分析未完成：${message}`, analyzed }, { status: 502 });
   }
   return Response.json({ analyzed });
 }

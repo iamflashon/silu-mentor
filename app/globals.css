@@ -2864,10 +2864,13 @@ a {
 .home-editorial-card > strong { margin-top: 15px; }
 .home-date-line { display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 40px)); margin: 12px auto 0; color: #6e8797; font-size: 11px; line-height: 1.4; }
 .home-date-line > span:first-child { flex: 0 0 auto; }
+.daily-law-actions { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .daily-law-button { display: inline-flex; align-items: center; min-width: 0; max-width: min(620px, 70vw); padding: 6px 10px; border: 1px solid #bfd7e2; border-radius: 999px; background: #eef7f9; color: #315e75; cursor: pointer; }
 .daily-law-button b { flex: 0 0 auto; margin-right: 7px; color: #26728c; font-size: 11px; }
 .daily-law-button span { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .daily-law-button:hover { border-color: #75a8bd; background: #e6f3f6; }
+.daily-law-swap { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #c5dbe4; border-radius: 999px; background: #fff; color: #36738c; font-size: 10px; font-weight: 800; cursor: pointer; }
+.daily-law-swap:hover { border-color: #75a8bd; background: #eef7f9; }
 .daily-law-pending { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px dashed #c5d8e2; border-radius: 999px; color: #6e8797; background: #f8fbfc; font-size: 10px; }
 .daily-law-pending b { color: #26728c; font-size: 11px; }
 .pulse-luck > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -2967,7 +2970,7 @@ a {
 .magazine-article-summary b { color: #6b8796; }
 .magazine-article-issue { padding: 9px 10px; border-radius: 9px; background: #edf6f8; color: #214f68; font-size: 15px; font-weight: 650; line-height: 1.7; }
 .magazine-article-issue b { color: #25718a; }
-.rail-magazine-card .magazine-article-row button { min-width: 64px; min-height: 40px; padding: 8px 10px; border-radius: 9px; font-size: 12px; }
+.rail-magazine-card .magazine-article-row button { min-width: 58px; min-height: 34px; padding: 6px 8px; border-radius: 8px; font-size: 10px; }
 .rail-magazine-card > a { margin-top: 16px; font-size: 14px; }
 .magazine-empty-analysis { margin-top: 13px; padding: 12px; border: 1px dashed #d8e4e9; border-radius: 10px; color: #718591; background: #fbfcfd; font-size: 12px; line-height: 1.6; }
 .tab-hub {
