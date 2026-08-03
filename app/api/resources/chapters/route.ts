@@ -4,11 +4,13 @@ import { appSettings, documents, learningResources, resourceSegments } from "../
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
-// D1 limits the number of bound parameters in a single statement. Each
-// chapter currently uses ten bound values, so twelve chapters can exceed the
-// limit and surface only the generated INSERT SQL in the UI. Keep this below
-// the limit so future optional fields still have some headroom.
-const CHAPTER_INSERT_BATCH_SIZE = 8;
+// D1 limits the number of bound parameters in a single statement. The chapter
+// INSERT currently binds 15 values per row (not ten: Drizzle also binds the
+// defaulted fields we set explicitly), so eight chapters would bind about 120
+// parameters and fail before D1 can execute the statement. Four rows keeps the
+// statement safely below the limit while avoiding one network round-trip per
+// chapter.
+const CHAPTER_INSERT_BATCH_SIZE = 4;
 
 type ChapterPayload = {
   chapters?: Array<{
@@ -236,11 +238,23 @@ export async function POST(request: Request) {
       reviewStatus: "ai_reviewed",
     }));
     const inserted: typeof resourceSegments.$inferSelect[] = [];
-    for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
-      inserted.push(...await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE)).returning());
+    try {
+      for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
+        inserted.push(...await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE)).returning());
+      }
+      await writeChapterStatus(resourceId, "completed");
+      return Response.json({ chapters: inserted, generated: true, reused: false, status: "completed" });
+    } catch (insertError) {
+      // A failed later batch must not leave a partial outline that a retry
+      // would mistake for a completed chapter index.
+      if (inserted.length) {
+        await db.delete(resourceSegments).where(and(
+          eq(resourceSegments.resourceId, resourceId),
+          inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
+        ));
+      }
+      throw insertError;
     }
-    await writeChapterStatus(resourceId, "completed");
-    return Response.json({ chapters: inserted, generated: true, reused: false, status: "completed" });
   } catch (error) {
     if (resourceId) {
       try { await writeChapterStatus(resourceId, "failed"); } catch { /* preserve original error */ }
