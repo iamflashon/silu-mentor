@@ -15,7 +15,7 @@ export async function GET() {
   const db = await getDb();
   const [items, questions] = await Promise.all([
     db.select().from(listeningSolutions).orderBy(desc(listeningSolutions.updatedAt)),
-    db.select({ id: examQuestions.id, year: examQuestions.year, subject: examQuestions.subject, questionNumber: examQuestions.questionNumber, stem: examQuestions.stem, sourceUrl: examQuestions.sourceUrl }).from(examQuestions).where(eq(examQuestions.examType, "essay")).orderBy(desc(examQuestions.id)).limit(100),
+    db.select({ id: examQuestions.id, year: examQuestions.year, subject: examQuestions.subject, questionNumber: examQuestions.questionNumber, stem: examQuestions.stem, sourceUrl: examQuestions.sourceUrl, hasTeacherAnswer: examQuestions.teacherAnswer }).from(examQuestions).where(eq(examQuestions.examType, "essay")).orderBy(desc(examQuestions.id)).limit(100),
   ]);
   return Response.json({ items, questions });
 }
@@ -42,6 +42,7 @@ export async function POST(request: Request) {
   const prompt = question?.stem || pasted;
   const content: Array<Record<string, unknown>> = [];
   if (prompt) content.push({ type: "input_text", text: `題目內容：\n${prompt}` });
+  if (question?.teacherAnswer?.trim()) content.push({ type: "input_text", text: `已核對的高點名師參考擬答（僅供解題依據，不得稱為官方擬答）：\n${question.teacherAnswer}` });
   if (file instanceof File) {
     const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
     if (file.type.startsWith("image/")) content.push({ type: "input_image", image_url: `data:${file.type};base64,${base64}`, detail: "high" });
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
   }
   const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
     model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
-    instructions: "你是台灣律師司法官二試解題節目編輯。先忠實辨識題目，不可補造事實；再寫成可直接錄音的繁體中文聞稿。語氣清楚、鼓勵、像老師陪學生審題。結構必須包含：開場定位、事實拆解、爭點清單、法規範、逐點涵攝、常見失分提醒、作答架構與收尾複習。不得聲稱唯一正解；不得加入AI漫畫或畫面指令。narration_script使用自然口語段落，不使用Markdown星號。",
+    instructions: "你是台灣律師司法官二試解題節目編輯。先忠實辨識題目，不可補造事實；若輸入包含已核對的高點名師參考擬答，必須以它校準爭點、法規範、涵攝與失分提醒，但不要逐字朗讀，也不能稱為官方擬答；再寫成可直接錄音的繁體中文聞稿。語氣清楚、鼓勵、像老師陪學生審題。結構必須包含：開場定位、事實拆解、爭點清單、法規範、逐點涵攝、常見失分提醒、作答架構與收尾複習。不得聲稱唯一正解；不得加入AI漫畫或畫面指令。narration_script使用自然口語段落，不使用Markdown星號。",
     input: [{ role: "user", content }],
     text: { format: { type: "json_schema", name: "listening_solution", strict: true, schema: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, year: { type: "string" }, subject: { type: "string" }, question_text: { type: "string" }, narration_script: { type: "string" } }, required: ["title", "year", "subject", "question_text", "narration_script"] } } },
   }) });

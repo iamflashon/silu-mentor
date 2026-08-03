@@ -134,6 +134,11 @@ type ExamQuestion = {
   stem: string;
   status: string;
   sourceUrl: string;
+  teacherAnswer?: string;
+  teacherNotes?: string;
+  rubricJson?: string;
+  answerSource?: string;
+  answerStatus?: string;
 };
 type QuestionFilterOptions = { years: string[]; subjects: string[] };
 type EssayQuestion = {
@@ -143,6 +148,7 @@ type EssayQuestion = {
   questionNumber: string;
   stem: string;
   sourceUrl: string;
+  hasTeacherAnswer?: string;
 };
 type LegalSource = {
   id: number;
@@ -266,10 +272,11 @@ export default function AdminPage() {
     {},
   );
   const [questionTypeTotals, setQuestionTypeTotals] = useState<Record<string, number>>({});
-  const [questionExamType, setQuestionExamType] = useState<"all" | "mcq" | "essay">("all");
+  const [questionExamType, setQuestionExamType] = useState<"mcq" | "essay">("mcq");
   const [questionYear, setQuestionYear] = useState("all");
   const [questionSubject, setQuestionSubject] = useState("all");
   const [questionFilterOptions, setQuestionFilterOptions] = useState<QuestionFilterOptions>({ years: [], subjects: [] });
+  const [fetchingTeacherAnswers, setFetchingTeacherAnswers] = useState(false);
   const [legalSources, setLegalSources] = useState<LegalSource[]>([]);
   const [syncingLegal, setSyncingLegal] = useState<string | null>(null);
   const [legalZipFiles, setLegalZipFiles] = useState<Record<string, File | null>>({});
@@ -1015,8 +1022,19 @@ export default function AdminPage() {
       ),
     });
     const result = await readJson(response);
-    setNotice(`已發布 ${result.updated ?? 0} 題，前台練真題現在可直接讀取。`);
+    setNotice(response.ok ? `已發布 ${result.updated ?? 0} 題，前台練真題現在可直接讀取。` : result.error ?? "題目發布失敗");
     await loadExamQuestions(questionPage);
+  }
+
+  async function fetchTeacherAnswers(ids: number[]) {
+    if (!ids.length || fetchingTeacherAnswers) return;
+    setFetchingTeacherAnswers(true);
+    setNotice("正在從高點真題 PDF 核對老師參考擬答；完成後會回到本頁更新狀態…");
+    const response = await fetch("/api/exam-questions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "fetch-teacher-answers", ids }) });
+    const result = await readJson(response) as { updated?: number; requested?: number; failures?: string[]; error?: string };
+    setNotice(response.ok ? `本次已抓到 ${result.updated ?? 0} / ${result.requested ?? ids.length} 題老師擬答${result.failures?.length ? `；${result.failures[0]}` : ""}` : result.error ?? "老師擬答抓取失敗");
+    await loadExamQuestions(questionPage);
+    setFetchingTeacherAnswers(false);
   }
 
   async function removeListening(item: ListeningItem) {
@@ -2420,7 +2438,7 @@ export default function AdminPage() {
                   {essayQuestions.map((question) => (
                     <option value={question.id} key={question.id}>
                       {question.year} · {question.subject} · 第{" "}
-                      {question.questionNumber} 題
+                      {question.questionNumber} 題{question.hasTeacherAnswer?.trim() ? " · 已核對擬答" : " · 尚無擬答"}
                     </option>
                   ))}
                 </select>
@@ -2800,14 +2818,15 @@ export default function AdminPage() {
                 {questionTotals.published ?? 0}
               </span>
             </div>
-            <div className="question-filters" aria-label="真題分類篩選">
-              <div className="question-type-switch" role="tablist" aria-label="題型分類">
-                <button type="button" className={questionExamType === "all" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("all"); }}>全部草稿 <span>{questionTotals.draft ?? 0}</span></button>
-                <button type="button" className={questionExamType === "mcq" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("mcq"); }}>一試選擇題 <span>{questionTypeTotals.mcq ?? 0}</span></button>
-                <button type="button" className={questionExamType === "essay" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("essay"); }}>二試申論題 <span>{questionTypeTotals.essay ?? 0}</span></button>
-              </div>
-              <label>年度<select value={questionYear} onChange={(event) => { setQuestionPage(1); setQuestionYear(event.target.value); }}><option value="all">全部年度</option>{questionFilterOptions.years.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
-              <label>類科<select value={questionSubject} onChange={(event) => { setQuestionPage(1); setQuestionSubject(event.target.value); }}><option value="all">全部類科</option>{questionFilterOptions.subjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>
+            <div className="question-category-tabs" aria-label="真題題型分類">
+              <button type="button" className={questionExamType === "mcq" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("mcq"); setQuestionYear("all"); setQuestionSubject("all"); }}><strong>一試選擇題</strong><span>{questionTypeTotals.mcq ?? 0} 題</span><small>獨立題庫／答案與選項</small></button>
+              <button type="button" className={questionExamType === "essay" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("essay"); setQuestionYear("all"); setQuestionSubject("all"); }}><strong>二試申論題</strong><span>{questionTypeTotals.essay ?? 0} 題</span><small>獨立題庫／老師擬答與評分點</small></button>
+            </div>
+            <div className="question-taxonomy" aria-label="考科年度篩選">
+              <div><span>目前分類</span><strong>{questionExamType === "mcq" ? "一試選擇題" : "二試申論題"}</strong></div>
+              <label><span>考科</span><select value={questionSubject} onChange={(event) => { setQuestionPage(1); setQuestionSubject(event.target.value); }}><option value="all">全部考科</option>{questionFilterOptions.subjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>
+              <label><span>年度</span><select value={questionYear} onChange={(event) => { setQuestionPage(1); setQuestionYear(event.target.value); }}><option value="all">全部年度</option>{questionFilterOptions.years.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
+              {questionExamType === "essay" && <button type="button" className="answer-fetch-button" disabled={fetchingTeacherAnswers || !examQuestions.length} onClick={() => void fetchTeacherAnswers(examQuestions.map((item) => item.id))}>{fetchingTeacherAnswers ? "擬答抓取中…" : "補抓本頁老師擬答"}</button>}
             </div>
             <div className="question-review-actions">
               <button
@@ -2857,10 +2876,12 @@ export default function AdminPage() {
                         檢視來源
                       </a>
                     )}
-                    <button onClick={() => publishQuestions([question.id])}>
+                    {question.examType === "essay" && <span className={`teacher-answer-badge ${question.teacherAnswer?.trim() ? "ready" : "missing"}`}>{question.teacherAnswer?.trim() ? "老師擬答已抓取" : "尚無老師擬答"}</span>}
+                    <button disabled={question.examType === "essay" && !question.teacherAnswer?.trim()} title={question.examType === "essay" && !question.teacherAnswer?.trim() ? "先補抓並核對老師擬答" : undefined} onClick={() => publishQuestions([question.id])}>
                       發布前台
                     </button>
                   </footer>
+                  {question.examType === "essay" && question.teacherAnswer?.trim() && <details className="teacher-answer-preview"><summary>查看老師參考擬答與評分依據</summary><p>{question.teacherAnswer}</p>{question.teacherNotes && <small>試題評析／考點命中：{question.teacherNotes}</small>}</details>}
                 </article>
               ))}
             </div>

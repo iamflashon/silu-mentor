@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     if (!question) return Response.json({ question: null, message: examType === "mcq" ? "一試真題庫尚未匯入可用題目" : "二試申論真題庫尚未匯入可用題目" });
     let options: Record<string, string> | null = null;
     try { options = question.optionsJson ? JSON.parse(question.optionsJson) as Record<string, string> : null; } catch { options = null; }
-    return Response.json({ question: { id: question.id, examType: question.examType, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options } });
+    return Response.json({ question: { id: question.id, examType: question.examType, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource, answerStatus: question.answerStatus } });
   } catch { return Response.json({ error: "真題庫暫時無法讀取" }, { status: 503 }); }
 }
 

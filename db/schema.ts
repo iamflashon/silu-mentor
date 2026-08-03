@@ -156,6 +156,11 @@ export const examQuestions = sqliteTable("exam_questions", {
   optionsJson: text("options_json"),
   correctAnswer: text("correct_answer"),
   explanation: text("explanation").notNull().default(""),
+  teacherAnswer: text("teacher_answer").notNull().default(""),
+  teacherNotes: text("teacher_notes").notNull().default(""),
+  rubricJson: text("rubric_json").notNull().default("[]"),
+  answerSource: text("answer_source").notNull().default(""),
+  answerStatus: text("answer_status").notNull().default("missing"),
   sourceUrl: text("source_url").notNull().default(""),
   status: text("status").notNull().default("draft"),
   createdAt: integer("created_at", { mode: "timestamp" })
@@ -171,6 +176,8 @@ export const examAttempts = sqliteTable("exam_attempts", {
     .references(() => examQuestions.id, { onDelete: "cascade" }),
   selectedAnswer: text("selected_answer"),
   correct: integer("correct", { mode: "boolean" }),
+  answerText: text("answer_text"),
+  gradingJson: text("grading_json").notNull().default(""),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

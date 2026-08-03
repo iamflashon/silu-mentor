@@ -10,6 +10,19 @@ type PracticeQuestion = {
   questionNumber: string;
   stem: string;
   options: Record<string, string> | null;
+  hasTeacherAnswer?: boolean;
+  answerSource?: string;
+  answerStatus?: string;
+};
+
+type EssayGrading = {
+  score: number;
+  overall: string;
+  dimensions: Array<{ criterion: string; score: number; max_score: number; result: string; evidence: string; missing: string }>;
+  strengths: string[];
+  priority_fixes: string[];
+  next_step: string;
+  source_used: string;
 };
 
 type Props = { initialType: "mcq" | "essay" };
@@ -22,6 +35,7 @@ export function PracticeLab({ initialType }: Props) {
   const [feedback, setFeedback] = useState("");
   const [essay, setEssay] = useState("");
   const [essayFeedback, setEssayFeedback] = useState("");
+  const [essayGrading, setEssayGrading] = useState<EssayGrading | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function loadQuestion(type = examType) {
@@ -29,6 +43,7 @@ export function PracticeLab({ initialType }: Props) {
     setSelected(null);
     setFeedback("");
     setEssayFeedback("");
+    setEssayGrading(null);
     setEssay("");
     try {
       const response = await fetch(`/api/practice?type=${type}`);
@@ -66,14 +81,18 @@ export function PracticeLab({ initialType }: Props) {
     if (!question || !essay.trim() || submitting) return;
     setSubmitting(true);
     setEssayFeedback("");
+    setEssayGrading(null);
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch("/api/essay-grading", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "student", text: `這是司律二試申論題，請先做審題引導，不要直接給完整擬答。\n\n題目：${question.stem}\n\n我的答案：${essay}\n\n請依序指出我是否抓到人物、行為、法律關係與主要爭點，先給一個下一步可修正的小提示。` }] }),
+        body: JSON.stringify({ questionId: question.id, answer: essay }),
       });
-      const result = await response.json() as { reply?: string; error?: string };
-      setEssayFeedback(response.ok ? result.reply ?? "AI 尚未產生回饋" : result.error ?? "申論審題暫時無法使用");
+      const result = await response.json() as { grading?: EssayGrading; source?: { label?: string }; error?: string };
+      if (response.ok && result.grading) {
+        setEssayGrading(result.grading);
+        setEssayFeedback(`本次依${result.source?.label ?? "老師參考擬答"}批改。`);
+      } else setEssayFeedback(result.error ?? "申論批改暫時無法使用");
     } catch {
       setEssayFeedback("申論審題暫時無法使用，請稍後再試。");
     } finally {
@@ -87,6 +106,6 @@ export function PracticeLab({ initialType }: Props) {
       <div className="practice-switch"><button className={examType === "mcq" ? "active" : ""} onClick={() => { setExamType("mcq"); void loadQuestion("mcq"); }}>一試選擇題</button><button className={examType === "essay" ? "active" : ""} onClick={() => { setExamType("essay"); void loadQuestion("essay"); }}>二試申論題</button></div>
     </div>
     <div className="practice-lab-note"><b>{examType === "mcq" ? "一試" : "二試"}</b><span>{examType === "mcq" ? "先作答，再說明其他選項為什麼不對。" : "先寫出你的審題與答題骨架，再讓 AI 帶你修正。"}</span><button onClick={() => void loadQuestion()}>換一題</button></div>
-    {loading ? <div className="practice-empty">正在從已審核題庫取題…</div> : question ? <article className="practice-question-panel"><div className="practice-question-meta"><span>{examType === "mcq" ? "一試" : "二試"}</span><b>{question.year} · {question.subject} · 第 {question.questionNumber} 題</b></div><p className="practice-question-stem">{question.stem}</p>{examType === "mcq" && question.options ? <div className="practice-option-list">{["A", "B", "C", "D"].filter((key) => question.options?.[key]).map((key) => <button key={key} disabled={Boolean(selected)} className={selected === key ? "chosen" : ""} onClick={() => void answer(key)}><b>{key}</b><span>{question.options?.[key]}</span></button>)}</div> : <div className="essay-practice"><textarea value={essay} onChange={(event) => setEssay(event.target.value)} placeholder="先寫出：人物／行為／法律關係／爭點／你的初步結論" rows={9} /><button className="primary-btn" disabled={!essay.trim() || submitting} onClick={() => void submitEssay()}>{submitting ? "AI 審題中…" : "送出審題"}</button>{essayFeedback && <div className="essay-feedback"><strong>AI 審題回饋</strong><p>{essayFeedback}</p></div>}</div>}{feedback && <div className="practice-feedback"><strong>教練提醒</strong><p>{feedback}</p></div>}</article> : <div className="practice-empty">{feedback || "目前沒有可練習的題目。"}</div>}
+    {loading ? <div className="practice-empty">正在從已審核題庫取題…</div> : question ? <article className="practice-question-panel"><div className="practice-question-meta"><span>{examType === "mcq" ? "一試" : "二試"}</span><b>{question.year} · {question.subject} · 第 {question.questionNumber} 題</b></div><p className="practice-question-stem">{question.stem}</p>{examType === "mcq" && question.options ? <div className="practice-option-list">{["A", "B", "C", "D"].filter((key) => question.options?.[key]).map((key) => <button key={key} disabled={Boolean(selected)} className={selected === key ? "chosen" : ""} onClick={() => void answer(key)}><b>{key}</b><span>{question.options?.[key]}</span></button>)}</div> : <div className="essay-practice"><div className="essay-source-note">{question.hasTeacherAnswer ? `已核對${question.answerSource || "老師參考擬答"}，AI 將依評分點批改。` : "這題尚未完成老師擬答核對，暫不能進行依擬答批改。"}</div><textarea value={essay} onChange={(event) => setEssay(event.target.value)} placeholder="先寫出：人物／行為／法律關係／爭點／你的初步結論" rows={9} /><button className="primary-btn" disabled={!essay.trim() || submitting || !question.hasTeacherAnswer} onClick={() => void submitEssay()}>{submitting ? "AI 分項批改中…" : "送出 AI 分項批改"}</button>{essayFeedback && <div className="essay-feedback"><strong>AI 申論批改</strong><p>{essayFeedback}</p></div>}{essayGrading && <div className="essay-grading-result"><div className="essay-score"><b>{essayGrading.score}</b><span>/ 100</span></div><p>{essayGrading.overall}</p><div className="essay-dimensions">{essayGrading.dimensions.map((item) => <article key={item.criterion}><strong>{item.criterion}　{item.score}/{item.max_score}</strong><p>{item.result}</p>{item.evidence && <small>你的作答依據：{item.evidence}</small>}{item.missing && <small>待補強：{item.missing}</small>}</article>)}</div>{essayGrading.priority_fixes.length > 0 && <div><strong>優先修正</strong><ul>{essayGrading.priority_fixes.map((item) => <li key={item}>{item}</li>)}</ul></div>}<div className="essay-next-step"><strong>下一步</strong><p>{essayGrading.next_step}</p></div></div>}</div>}{feedback && <div className="practice-feedback"><strong>教練提醒</strong><p>{feedback}</p></div>}</article> : <div className="practice-empty">{feedback || "目前沒有可練習的題目。"}</div>}
   </section>;
 }
