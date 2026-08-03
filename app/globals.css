@@ -339,11 +339,12 @@ a {
 }
 .message-list {
   min-height: 250px;
-  max-height: calc(100vh - 430px);
+  height: calc(100dvh - 330px);
+  max-height: none;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 8px 6px 120px 0;
+  padding: 8px 6px 145px 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
@@ -886,6 +887,64 @@ a {
   margin-top: 3px;
   color: #82939e;
   font-size: 7px;
+}
+.listening-column {
+  margin-top: 8px;
+}
+.listening-column .rail-title {
+  margin-bottom: 7px;
+}
+.listening-column .rail-title span {
+  color: #82939e;
+  font-size: 7px;
+}
+.listening-title-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 0;
+  border-radius: 9px;
+  background: #f2f7fa;
+  text-align: left;
+  cursor: pointer;
+}
+.listening-title-button > i {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #1e506f;
+  color: white;
+  font-size: 9px;
+  font-style: normal;
+}
+.listening-title-button div {
+  min-width: 0;
+}
+.listening-title-button b,
+.listening-title-button small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.listening-title-button b {
+  color: #2a516b;
+  font-size: 10px;
+}
+.listening-title-button small {
+  margin-top: 3px;
+  color: #82939e;
+  font-size: 8px;
+}
+.listening-column audio {
+  width: 100%;
+  height: 28px;
+  margin-top: 6px;
 }
 .resource-recommend > a,
 .daily-legal > div {
@@ -2823,6 +2882,10 @@ a {
   .conversation {
     padding-top: 38px;
     width: 100%;
+  }
+  .message-list {
+    height: auto;
+    max-height: calc(100dvh - 250px);
   }
   .command-rail {
     position: static;
