@@ -1,6 +1,6 @@
 import { asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { documents, learningResources, resourceSegments } from "../../../../db/schema";
+import { appSettings, documents, learningResources, resourceSegments } from "../../../../db/schema";
 import { openAIJson } from "../../../../lib/openai";
 
 type ChapterPayload = {
@@ -13,6 +13,7 @@ type ChapterPayload = {
 };
 
 function outputText(payload: Record<string, unknown>) {
+  if (typeof payload.output_text === "string") return payload.output_text.trim();
   const output = Array.isArray(payload.output) ? payload.output : [];
   return output.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
@@ -27,20 +28,25 @@ function outputText(payload: Record<string, unknown>) {
   }).join("").trim();
 }
 
-async function generateChapters(resource: typeof learningResources.$inferSelect, document: typeof documents.$inferSelect) {
-  if (!document.openaiFileId) return [] as ChapterPayload["chapters"];
+function parseChapterPayload(payload: Record<string, unknown>) {
+  const raw = outputText(payload).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try {
+    const parsed = JSON.parse(raw) as ChapterPayload;
+    return (parsed.chapters ?? []).filter((chapter) => String(chapter.title ?? "").trim()).slice(0, 60);
+  } catch {
+    return [] as ChapterPayload["chapters"];
+  }
+}
+
+async function generateChapters(resource: typeof learningResources.$inferSelect, vectorStoreId: string) {
+  if (!vectorStoreId) return [] as ChapterPayload["chapters"];
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
       instructions: "你是台灣司律考試教材編輯。只能根據提供的教材檔案目錄與章節標題整理章節，不得自行創造不存在的章名。保留原有章節順序。若頁碼無法確認就填 null。每一章標題最多 80 字，summary 用 20 至 60 字說明該章在教材中的學習範圍。最多回傳 60 章。",
-      input: [{
-        role: "user",
-        content: [
-          { type: "input_file", file_id: document.openaiFileId },
-          { type: "input_text", text: `請整理《${resource.title}》的目錄章節。只回傳教材中明確出現的章、節或篇名，不要把頁眉、頁碼或一般段落當成章節。` },
-        ],
-      }],
+      input: `請從教材索引中搜尋《${resource.title}》的目錄、篇、章與節。只回傳這本書中明確出現且能在索引內容找到的章節，不要把頁眉、頁碼或一般段落當成章節。`,
+      tools: [{ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 20 }],
       text: {
         format: {
           type: "json_schema",
@@ -72,12 +78,7 @@ async function generateChapters(resource: typeof learningResources.$inferSelect,
       },
     }),
   });
-  try {
-    const parsed = JSON.parse(outputText(payload)) as ChapterPayload;
-    return (parsed.chapters ?? []).filter((chapter) => String(chapter.title ?? "").trim()).slice(0, 60);
-  } catch {
-    return [] as ChapterPayload["chapters"];
-  }
+  return parseChapterPayload(payload);
 }
 
 export async function GET(request: Request) {
@@ -94,12 +95,17 @@ export async function GET(request: Request) {
     const chapters = existing.filter((chapter) => chapter.resourceId === resourceId);
     if (chapters.length) return Response.json({ chapters, generated: false });
 
-    if (!resource.documentId) return Response.json({ chapters: [], generated: false, message: "這本書尚未完成教材索引。" });
+    if (!resource.documentId) return Response.json({ chapters: [], generated: false, ready: false, message: "這本書尚未綁定後台教材。" }, { status: 200 });
     const [document] = await db.select().from(documents).where(eq(documents.id, resource.documentId)).limit(1);
-    if (!document?.openaiFileId) return Response.json({ chapters: [], generated: false, message: "這本書尚未完成教材索引。" });
+    if (!document?.openaiFileId) return Response.json({ chapters: [], generated: false, ready: false, message: "這本書尚未完成教材索引。" }, { status: 200 });
+    if (document.status === "failed") {
+      return Response.json({ chapters: [], generated: false, ready: false, message: document.indexError || "教材索引失敗，請到後台重新建立索引。" }, { status: 200 });
+    }
+    const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
+    if (!setting?.value) return Response.json({ chapters: [], generated: false, ready: false, message: "教材索引資料庫尚未建立。" }, { status: 200 });
 
-    const generated = await generateChapters(resource, document);
-    if (!generated?.length) return Response.json({ chapters: [], generated: false, message: "目前還找不到可辨識的教材章節，請先確認索引完成。" });
+    const generated = await generateChapters(resource, setting.value);
+    if (!generated?.length) return Response.json({ chapters: [], generated: false, ready: true, message: "教材已完成索引，但目前還找不到可辨識的目錄章節；可稍後重新整理。" }, { status: 200 });
     const rows = generated.map((chapter, index) => ({
       resourceId,
       segmentType: "book_chapter",
@@ -113,8 +119,8 @@ export async function GET(request: Request) {
       reviewStatus: "ai_reviewed",
     }));
     for (let index = 0; index < rows.length; index += 12) await db.insert(resourceSegments).values(rows.slice(index, index + 12));
-    return Response.json({ chapters: rows, generated: true });
-  } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "章節整理失敗" }, { status: 500 });
+    return Response.json({ chapters: rows, generated: true, ready: true });
+  } catch {
+    return Response.json({ chapters: [], generated: false, ready: false, error: "教材章節暫時無法讀取，請稍後再試。" }, { status: 503 });
   }
 }

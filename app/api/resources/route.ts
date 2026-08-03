@@ -1,6 +1,6 @@
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { learningResources, resourceSegments } from "../../../db/schema";
+import { documents, learningResources, resourceSegments } from "../../../db/schema";
 
 export async function GET() {
   const db = await getDb();
@@ -17,6 +17,8 @@ export async function GET() {
       sourceUrl: learningResources.sourceUrl,
       accessType: learningResources.accessType,
       status: learningResources.status,
+      documentStatus: documents.status,
+      documentError: documents.indexError,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
       segmentCount: sql<number>`count(${resourceSegments.id})`,
       updatedAt: learningResources.updatedAt,
@@ -26,7 +28,8 @@ export async function GET() {
       resourceSegments,
       eq(resourceSegments.resourceId, learningResources.id),
     )
-    .groupBy(learningResources.id)
+    .leftJoin(documents, eq(learningResources.documentId, documents.id))
+    .groupBy(learningResources.id, documents.status, documents.indexError)
     .orderBy(desc(learningResources.updatedAt));
   const articleRows = await db
     .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
