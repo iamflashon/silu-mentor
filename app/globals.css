@@ -1305,8 +1305,8 @@ a {
   background: #f5f8fa;
 }
 .admin-main {
-  width: min(1120px, calc(100% - 40px));
-  margin: 0 auto;
+  width: min(960px, calc(100% - 250px));
+  margin: 0 24px 0 220px;
   padding: 46px 0 80px;
 }
 .admin-title {
@@ -1328,17 +1328,26 @@ a {
   color: var(--navy);
 }
 .admin-tabs {
+  position: fixed;
+  z-index: 20;
+  top: 88px;
+  left: 22px;
+  width: 172px;
+  max-height: calc(100vh - 112px);
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin: -10px 0 24px;
+  margin: 0;
   padding: 6px;
-  overflow-x: auto;
+  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #eaf1f5;
 }
 .admin-tabs button {
   flex: 0 0 auto;
+  width: 100%;
+  text-align: left;
   padding: 11px 16px;
   border: 0;
   border-radius: 11px;
@@ -1352,6 +1361,8 @@ a {
   color: white;
   box-shadow: 0 5px 14px rgba(25, 59, 88, 0.18);
 }
+@media (min-width:1220px) { .admin-main { margin-left:calc((100vw - 1180px) / 2 + 200px); } .admin-tabs { left:calc((100vw - 1180px) / 2); } }
+@media (max-width:800px) { .admin-main { width:calc(100% - 28px); margin:0 auto; }.admin-tabs { position:static; width:100%; max-height:none; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:18px; }.admin-tabs button { text-align:center; padding:9px 7px; font-size:11px; } }
 .resource-form {
   display: grid;
   grid-template-columns: 150px 1.4fr 1fr 1.5fr 150px;
