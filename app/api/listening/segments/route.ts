@@ -1,4 +1,4 @@
-import { asc, eq, max } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../db/schema";
 
@@ -32,13 +32,20 @@ export async function POST(request: Request) {
   const db = await getDb(); const [parent] = await db.select().from(listeningSolutions).where(eq(listeningSolutions.id, listeningId)).limit(1);
   if (!parent) return Response.json({ error: "找不到聽解題項目" }, { status: 404 });
   if (action === "audio") {
-    const file = form.get("file"); const durationSeconds = Math.max(0, Math.round(Number(form.get("durationSeconds")) || 0));
+    const file = form.get("file"); const durationSeconds = Math.max(0, Math.round(Number(form.get("durationSeconds")) || 0)); const replaceId = Number(form.get("replaceId")) || null;
     if (!(file instanceof File) || !file.type.startsWith("audio/")) return Response.json({ error: "請選擇音檔" }, { status: 400 });
     if (file.size > 120 * 1024 * 1024) return Response.json({ error: "每段音檔請控制在 120MB 以下" }, { status: 400 });
     const existing = await db.select().from(listeningAudioSegments).where(eq(listeningAudioSegments.listeningId, listeningId)).orderBy(asc(listeningAudioSegments.sequence));
     const startOffsetSeconds = existing.reduce((sum, item) => sum + item.durationSeconds, 0); const sequence = existing.length;
     const { env } = await import("cloudflare:workers"); const key = `listening/${listeningId}/segments/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
     await env.BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    if (replaceId) {
+      const old = existing.find((item) => item.id === replaceId); if (!old) return Response.json({ error: "找不到要取代的段落" }, { status: 404 });
+      await env.BUCKET.delete(old.storageKey); const delta = durationSeconds - old.durationSeconds;
+      const [segment] = await db.update(listeningAudioSegments).set({ storageKey: key, fileName: file.name, contentType: file.type, durationSeconds }).where(eq(listeningAudioSegments.id, replaceId)).returning();
+      if (delta) { for (const later of existing.filter((item) => item.sequence > old.sequence)) await db.update(listeningAudioSegments).set({ startOffsetSeconds: later.startOffsetSeconds + delta }).where(eq(listeningAudioSegments.id, later.id)); const cues = await db.select().from(listeningSubtitleCues).where(eq(listeningSubtitleCues.listeningId, listeningId)); for (const cue of cues.filter((item) => item.startSeconds >= old.startOffsetSeconds + old.durationSeconds)) await db.update(listeningSubtitleCues).set({ startSeconds: cue.startSeconds + delta, endSeconds: cue.endSeconds + delta }).where(eq(listeningSubtitleCues.id, cue.id)); }
+      return Response.json({ segment, replaced: true });
+    }
     const [segment] = await db.insert(listeningAudioSegments).values({ listeningId, storageKey: key, fileName: file.name, contentType: file.type, durationSeconds, startOffsetSeconds, sequence }).returning();
     return Response.json({ segment }, { status: 201 });
   }
@@ -53,9 +60,11 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const body = await request.json() as { listeningId?: number; offsetSeconds?: number };
+  const body = await request.json() as { listeningId?: number; offsetSeconds?: number; cueId?: number; text?: string; startSeconds?: number; endSeconds?: number };
+  const db = await getDb();
+  if (body.cueId) { const [cue] = await db.update(listeningSubtitleCues).set({ text: String(body.text ?? "").trim(), startSeconds: Math.max(0, Number(body.startSeconds) || 0), endSeconds: Math.max(0, Number(body.endSeconds) || 0) }).where(eq(listeningSubtitleCues.id, body.cueId)).returning(); return Response.json({ cue }); }
   if (!body.listeningId || !Number.isFinite(body.offsetSeconds)) return Response.json({ error: "缺少偏移秒數" }, { status: 400 });
-  const db = await getDb(); const cues = await db.select().from(listeningSubtitleCues).where(eq(listeningSubtitleCues.listeningId, body.listeningId));
+  const cues = await db.select().from(listeningSubtitleCues).where(eq(listeningSubtitleCues.listeningId, body.listeningId));
   await db.batch(cues.map((cue) => db.update(listeningSubtitleCues).set({ startSeconds: Math.max(0, cue.startSeconds + body.offsetSeconds!), endSeconds: Math.max(0, cue.endSeconds + body.offsetSeconds!) }).where(eq(listeningSubtitleCues.id, cue.id))));
   return Response.json({ updated: cues.length });
 }
