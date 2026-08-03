@@ -93,6 +93,7 @@ function readUsage(payload: unknown) {
 }
 
 type PlanCall = { title: string; target_label: string; daily_minutes: number; tasks: Array<{ date: string; subject: string; title: string; duration_minutes: number; details: string }> };
+type DeletePlanCall = { mode: "duplicates" | "title"; title: string; date: string; subject: string };
 
 function readPlanCall(payload: unknown): PlanCall | null {
   if (!payload || typeof payload !== "object") return null;
@@ -101,6 +102,41 @@ function readPlanCall(payload: unknown): PlanCall | null {
   const call = output.find((item) => item && typeof item === "object" && (item as { type?: string; name?: string }).type === "function_call" && (item as { name?: string }).name === "save_study_plan") as { arguments?: string } | undefined;
   if (!call?.arguments) return null;
   try { return JSON.parse(call.arguments) as PlanCall; } catch { return null; }
+}
+
+function readDeleteCall(payload: unknown): DeletePlanCall | null {
+  if (!payload || typeof payload !== "object") return null;
+  const output = (payload as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return null;
+  const call = output.find((item) => item && typeof item === "object" && (item as { type?: string; name?: string }).type === "function_call" && (item as { name?: string }).name === "delete_study_tasks") as { arguments?: string } | undefined;
+  if (!call?.arguments) return null;
+  try { return JSON.parse(call.arguments) as DeletePlanCall; } catch { return null; }
+}
+
+function normalizedTaskPart(value: string) {
+  return value.normalize("NFKC").toLowerCase().replace(/\s+/g, "").replace(/[，。,、:：·・\-_—]/g, "");
+}
+
+async function deletePlanTasks(command: DeletePlanCall) {
+  const db = await getDb();
+  const [plan] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
+  if (!plan) return { count: 0, titles: [] as string[] };
+  const tasks = await db.select().from(studyTasks).where(eq(studyTasks.planId, plan.id)).orderBy(asc(studyTasks.id));
+  let targets = tasks;
+  if (command.mode === "duplicates") {
+    const seen = new Set<string>();
+    targets = tasks.filter((task) => {
+      const key = `${task.taskDate}|${normalizedTaskPart(task.subject)}|${normalizedTaskPart(task.title)}`;
+      if (seen.has(key)) return true;
+      seen.add(key);
+      return false;
+    });
+  } else {
+    const title = normalizedTaskPart(command.title);
+    targets = tasks.filter((task) => normalizedTaskPart(task.title) === title && (!command.date || task.taskDate === command.date) && (!command.subject || normalizedTaskPart(task.subject) === normalizedTaskPart(command.subject)));
+  }
+  for (const task of targets) await db.delete(studyTasks).where(eq(studyTasks.id, task.id));
+  return { count: targets.length, titles: targets.slice(0, 5).map((task) => `${task.taskDate} ${task.subject}／${task.title}`) };
 }
 
 async function savePlan(plan: PlanCall) {
@@ -112,7 +148,11 @@ async function savePlan(plan: PlanCall) {
     dailyMinutes: Math.max(15, Math.min(720, Number(plan.daily_minutes) || 120)),
   }).returning();
   const tasks = plan.tasks.slice(0, 14).filter((task) => /^\d{4}-\d{2}-\d{2}$/.test(task.date));
+  const seen = new Set<string>();
   for (const task of tasks) {
+    const key = `${task.date}|${normalizedTaskPart(task.subject)}|${normalizedTaskPart(task.title)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     await db.insert(studyTasks).values({
       planId: created.id,
       taskDate: task.date,
@@ -181,7 +221,7 @@ export async function POST(request: Request) {
       const records = await db.select().from(studyRecords).where(eq(studyRecords.userKey, key)).orderBy(desc(studyRecords.createdAt)).limit(20);
       if (records.length) recordContext = `近期學習紀錄：${records.map((record) => `${record.recordDate} ${record.subject}/${record.title}/${record.activityType}/${record.actualMinutes}分鐘${record.correct === null ? "" : record.correct ? "/答對" : "/答錯"}${record.weakness ? `/弱點:${record.weakness}` : ""}${record.nextStep ? `/接續:${record.nextStep}` : ""}`).join("；")}`;
     } catch { /* continue without record context */ }
-    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n${recordContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。`;
+    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n${recordContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。`;
     const selectedModel = process.env.OPENAI_MODEL || chooseModel(messages);
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
@@ -216,6 +256,23 @@ export async function POST(request: Request) {
         required: ["title", "target_label", "daily_minutes", "tasks"],
       },
     }];
+    tools.push({
+      type: "function",
+      name: "delete_study_tasks",
+      description: "只有學生明確要求刪除、移除或清理行事曆時使用。mode=duplicates 會判斷同一天、同科目、同任務名稱的重複項目，保留最早建立的一項；mode=title 刪除指定名稱，可再用日期與科目縮小範圍。",
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          mode: { type: "string", enum: ["duplicates", "title"] },
+          title: { type: "string", description: "mode=title 時填寫完整任務名稱，其他模式填空字串" },
+          date: { type: "string", description: "可填 YYYY-MM-DD；不指定時填空字串" },
+          subject: { type: "string", description: "可填科目；不指定時填空字串" },
+        },
+        required: ["mode", "title", "date", "subject"],
+      },
+    });
     if (vectorStoreId) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -243,6 +300,7 @@ export async function POST(request: Request) {
     }
     let reply = extractText(payload);
     const planCall = readPlanCall(payload);
+    const deleteCall = readDeleteCall(payload);
     let planSaved = false;
     if (planCall) {
       try {
@@ -251,6 +309,14 @@ export async function POST(request: Request) {
           planSaved = true;
           reply = `${reply ? `${reply}\n\n` : ""}我已經把接下來 ${count} 項任務寫入你的讀書計畫。你可以打開行事曆查看，也可以隨時告訴我調整。`;
         }
+      } catch { /* keep the conversation available */ }
+    }
+    let tasksDeleted = 0;
+    if (deleteCall) {
+      try {
+        const result = await deletePlanTasks(deleteCall);
+        tasksDeleted = result.count;
+        reply = `${reply ? `${reply}\n\n` : ""}${result.count ? `已刪除 ${result.count} 項行事曆任務。${result.titles.length ? `\n${result.titles.join("\n")}` : ""}` : "目前沒有找到符合條件的行事曆任務。"}`;
       } catch { /* keep the conversation available */ }
     }
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
@@ -292,6 +358,7 @@ export async function POST(request: Request) {
       source: fromFiles ? "教材" : "AI 補充",
       usage: { model: selectedModel, ...usage, fileSearchCalls: searchedFiles ? 1 : 0, estimatedCostUsd },
       planSaved,
+      tasksDeleted,
       sources,
       sessionId: session.id,
     });

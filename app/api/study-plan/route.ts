@@ -4,6 +4,11 @@ import { studyPlans, studyRecords, studyTasks } from "../../../db/schema";
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
+function taskKey(date: string, subject: string, title: string) {
+  const clean = (value: string) => value.normalize("NFKC").toLowerCase().replace(/\s+/g, "").replace(/[，。,、:：·・\-_—]/g, "");
+  return `${date}|${clean(subject)}|${clean(title)}`;
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -54,11 +59,16 @@ export async function POST(request: Request) {
         planId = created.id;
       }
     }
+    const subject = body.subject?.trim() || "綜合";
+    const title = body.title.trim();
+    const sameDay = await db.select().from(studyTasks).where(and(eq(studyTasks.planId, planId), eq(studyTasks.taskDate, body.date!)));
+    const duplicate = sameDay.find((task) => taskKey(task.taskDate, task.subject, task.title) === taskKey(body.date!, subject, title));
+    if (duplicate) return Response.json({ error: `這天已經有相同任務：「${duplicate.title}」，沒有重複新增。`, duplicateTaskId: duplicate.id }, { status: 409 });
     const [task] = await db.insert(studyTasks).values({
       planId,
       taskDate: body.date!,
-      subject: body.subject?.trim() || "綜合",
-      title: body.title.trim(),
+      subject,
+      title,
       durationMinutes: Math.max(10, Math.min(480, Number(body.durationMinutes) || 30)),
       details: body.details?.trim() ?? "",
     }).returning();
@@ -76,10 +86,17 @@ export async function PUT(request: Request) {
       return Response.json({ error: "讀書任務資料不完整" }, { status: 400 });
     }
     const db = await getDb();
+    const [current] = await db.select().from(studyTasks).where(eq(studyTasks.id, taskId)).limit(1);
+    if (!current) return Response.json({ error: "找不到讀書任務" }, { status: 404 });
+    const subject = body.subject?.trim() || "綜合";
+    const title = body.title.trim();
+    const sameDay = await db.select().from(studyTasks).where(and(eq(studyTasks.planId, current.planId), eq(studyTasks.taskDate, body.date!)));
+    const duplicate = sameDay.find((task) => task.id !== taskId && taskKey(task.taskDate, task.subject, task.title) === taskKey(body.date!, subject, title));
+    if (duplicate) return Response.json({ error: `這天已經有相同任務：「${duplicate.title}」，沒有覆蓋成重複任務。`, duplicateTaskId: duplicate.id }, { status: 409 });
     await db.update(studyTasks).set({
       taskDate: body.date!,
-      subject: body.subject?.trim() || "綜合",
-      title: body.title.trim(),
+      subject,
+      title,
       durationMinutes: Math.max(10, Math.min(480, Number(body.durationMinutes) || 30)),
       details: body.details?.trim() ?? "",
       status: body.status === "completed" ? "completed" : "pending",
@@ -97,9 +114,17 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const taskId = Number(new URL(request.url).searchParams.get("taskId"));
-    if (!Number.isInteger(taskId) || taskId < 1) return Response.json({ error: "任務編號不正確" }, { status: 400 });
+    const params = new URL(request.url).searchParams;
+    const taskId = Number(params.get("taskId"));
     const db = await getDb();
+    if (params.get("duplicates") === "1") {
+      const tasks = await db.select().from(studyTasks).orderBy(asc(studyTasks.id));
+      const seen = new Set<string>(); const duplicateIds: number[] = [];
+      for (const task of tasks) { const key = taskKey(task.taskDate, task.subject, task.title); if (seen.has(key)) duplicateIds.push(task.id); else seen.add(key); }
+      for (const id of duplicateIds) await db.delete(studyTasks).where(eq(studyTasks.id, id));
+      return Response.json({ deleted: duplicateIds });
+    }
+    if (!Number.isInteger(taskId) || taskId < 1) return Response.json({ error: "任務編號不正確" }, { status: 400 });
     await db.delete(studyTasks).where(eq(studyTasks.id, taskId));
     return Response.json({ deleted: taskId });
   } catch {

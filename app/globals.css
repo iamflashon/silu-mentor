@@ -2383,24 +2383,26 @@ a {
   font-size: 14px;
 }
 .plan-tabs {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(7, 108px);
+  justify-content: center;
   gap: 8px;
   margin: 0 0 20px;
   padding: 0;
   width: 100%;
 }
 .plan-tabs button {
-  flex: 0 0 auto;
+  position: relative;
+  width: 108px;
   min-height: 54px;
-  padding: 12px 13px;
+  padding: 12px 9px;
   border: 1px solid #d8e4eb;
   border-radius: 10px;
   background: #fff;
   color: #587387;
   font-size: 13px;
   font-weight: 800;
-  text-align: left;
+  text-align: center;
   white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 6px 18px rgba(31, 63, 86, 0.04);
@@ -2412,8 +2414,10 @@ a {
   box-shadow: 0 8px 18px rgba(25, 61, 90, 0.16);
 }
 .plan-tabs span {
-  float: right;
-  margin-left: 8px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin-left: 0;
   padding: 2px 5px;
   border-radius: 999px;
   background: #eaf1f5;
@@ -2451,7 +2455,8 @@ a {
 .exam-gateway article:last-child button { background: #8a6842; }
 .practice-lab,
 .legal-search-panel {
-  margin: 0 0 20px;
+  width: min(100%, 1120px);
+  margin: 0 auto 20px;
   padding: 20px;
   border: 1px solid #d6e3eb;
   border-radius: 18px;
@@ -2479,7 +2484,7 @@ a {
 .practice-question-meta b { color: #527287; font-size: 12px; }
 .practice-question-stem { margin: 16px 0; color: #29475b; font-size: 16px; line-height: 1.9; white-space: pre-wrap; }
 .practice-option-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
-.practice-option-list { width: min(100%, 960px); }
+.practice-option-list { width: 100%; }
 .practice-option-list button { display: flex; align-items: flex-start; gap: 9px; min-width: 0; min-height: 86px; padding: 11px; border: 1px solid #d8e4eb; border-radius: 10px; background: #fff; color: #466578; text-align: left; cursor: pointer; }
 .practice-option-list button:hover:not(:disabled), .practice-option-list button.chosen { border-color: #6c9bb4; background: #eef6f9; }
 .practice-option-list button:disabled { cursor: default; }
@@ -2510,6 +2515,13 @@ a {
 .legal-result footer a, .legal-result footer button { padding: 6px 8px; border-radius: 7px; font-size: 9px; font-weight: 800; cursor: pointer; }
 .legal-result footer a { color: #5b7e91; text-decoration: none; }
 .legal-result footer button { border: 0; background: #285d7f; color: #fff; }
+.legal-note-picker { display: grid; gap: 9px; margin-top: 11px; padding: 11px; border: 1px solid #d8e6ed; border-radius: 10px; background: #f5fafc; }
+.legal-note-picker label { display: grid; gap: 5px; color: #527488; font-size: 9px; font-weight: 800; }
+.legal-note-picker select, .legal-note-picker input { min-width: 0; padding: 8px 9px; border: 1px solid #cfdee6; border-radius: 8px; background: #fff; color: #3c6175; font: inherit; font-size: 10px; }
+.legal-note-picker > div { display: flex; justify-content: flex-end; gap: 7px; }
+.legal-note-picker > div button { padding: 7px 9px; border: 1px solid #cddfe7; border-radius: 8px; background: #fff; color: #527488; font-size: 9px; font-weight: 800; cursor: pointer; }
+.legal-note-picker > div .primary-btn { border: 0; background: #285d7f; color: #fff; }
+.legal-note-message { margin: 10px 0 0; color: #3d7b63; font-size: 10px; font-weight: 800; }
 .learning-overview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2593,7 +2605,7 @@ a {
   margin: 0 0 20px;
 }
 .learning-single-column {
-  width: min(880px, 100%);
+  width: min(100%, 1120px);
   margin: 0 auto 20px;
 }
 .supplement-card,
@@ -2653,6 +2665,7 @@ a {
 .home-editorial-card > strong { display: block; overflow: hidden; margin-top: 14px; color: #31566f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .column-card > p,
 .home-editorial-card > p { margin: 8px 0 0; color: #718594; font-size: 10px; line-height: 1.6; }
+.column-notice { padding: 8px 9px; border-radius: 8px; background: #fff8eb; color: #8a6b42 !important; font-size: 9px !important; }
 .column-card audio,
 .home-editorial-card audio { width: 100%; height: 30px; margin-top: 11px; }
 .listening-player { margin-top: 10px; }
@@ -2762,6 +2775,9 @@ a {
   cursor: pointer;
 }
 .calendar-toolbar {
+  width: min(100%, 1120px);
+  margin-left: auto;
+  margin-right: auto;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -2784,7 +2800,9 @@ a {
   color: #28465d;
 }
 .calendar-grid {
-  width: 100%;
+  width: min(100%, 1120px);
+  margin-left: auto;
+  margin-right: auto;
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -2961,6 +2979,9 @@ a {
   font-size: 12px;
 }
 .learning-hub {
+  width: min(100%, 1120px);
+  margin-left: auto;
+  margin-right: auto;
   margin-top: 24px;
   padding: 24px;
   border: 1px solid #dce6ed;
@@ -2999,6 +3020,8 @@ a {
   font-size: 10px;
   white-space: nowrap;
 }
+.hub-heading-actions { display: flex; align-items: center; gap: 8px; }
+.hub-heading-actions .secondary-btn { padding: 8px 10px; border: 1px solid #c8dbe5; border-radius: 9px; background: #fff; color: #41677f; font-size: 10px; font-weight: 800; cursor: pointer; }
 .record-list {
   display: flex;
   flex-direction: column;
@@ -3280,6 +3303,7 @@ a {
     gap: 8px;
   }
   .plan-tabs button {
+    width: 100%;
     min-height: 52px;
     padding: 10px 11px;
     font-size: 11px;

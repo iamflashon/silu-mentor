@@ -15,14 +15,15 @@ export async function GET() {
       break;
     }
   }
-  const magazine = resources.find((item) => item.resourceType === "magazine" && item.status === "active") ?? null;
+  const magazine = resources.find((item) => item.resourceType === "magazine" && item.status === "active") ?? resources.find((item) => item.resourceType === "magazine") ?? null;
+  const magazineIsDraft = Boolean(magazine && magazine.status !== "active");
   const magazineArticles = magazine ? await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4) : [];
   const recommended = await db.select({ id: resourceSegments.id, resourceId: resourceSegments.resourceId, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds, importance: resourceSegments.importance }).from(resourceSegments).where(eq(resourceSegments.recommended, true)).orderBy(desc(resourceSegments.importance)).limit(5);
   const [musicSetting] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "focus_music_url")).limit(1);
   return Response.json({
     book: resources.find((item) => item.resourceType === "book") ?? null,
     course: resources.find((item) => item.resourceType === "course") ?? null,
-    magazine: magazine ? { ...magazine, articles: magazineArticles } : null,
+    magazine: magazine ? { ...magazine, isDraft: magazineIsDraft, articles: magazineArticles } : null,
     listening: listening ? { id: listening.id, title: listening.title, year: listening.year, subject: listening.subject, questionText: listening.questionText, subtitles: listening.subtitles, audioUrl: listening.audioStorageKey ? `/api/listening/audio?id=${listening.id}` : "", audioSegments: listening.segments.map((segment) => ({ ...segment, audioUrl: `/api/listening/segments/audio?id=${segment.id}` })) } : null,
     focusMusicUrl: musicSetting?.value ?? "",
     recommended,

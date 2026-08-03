@@ -16,8 +16,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { sourceType?: string; sourceId?: string; title?: string; content?: string; subject?: string; tags?: string; sourceLabel?: string };
-    if (!body.content?.trim()) return Response.json({ error: "沒有可收藏的內容" }, { status: 400 });
-    const db = await getDb(); const [note] = await db.insert(savedNotes).values({ userKey: userKey(request), sourceType: body.sourceType?.trim() || "manual", sourceId: body.sourceId?.trim() || null, title: body.title?.trim() || "我的筆記", content: body.content.trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", sourceLabel: body.sourceLabel?.trim() || "" }).returning();
+    const db = await getDb(); const [note] = await db.insert(savedNotes).values({ userKey: userKey(request), sourceType: body.sourceType?.trim() || "manual", sourceId: body.sourceId?.trim() || null, title: body.title?.trim() || "我的筆記", content: (body.content ?? "").trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", sourceLabel: body.sourceLabel?.trim() || "" }).returning();
     return Response.json({ note }, { status: 201 });
   } catch { return Response.json({ error: "無法收藏筆記" }, { status: 500 }); }
 }
@@ -25,8 +24,8 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json() as { id?: number; title?: string; content?: string; subject?: string; tags?: string }; const id = Number(body.id);
-    if (!Number.isInteger(id) || !body.content?.trim()) return Response.json({ error: "筆記資料不完整" }, { status: 400 });
-    const db = await getDb(); await db.update(savedNotes).set({ title: body.title?.trim() || "我的筆記", content: body.content.trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", updatedAt: new Date() }).where(and(eq(savedNotes.id, id), eq(savedNotes.userKey, userKey(request))));
+    if (!Number.isInteger(id)) return Response.json({ error: "筆記資料不完整" }, { status: 400 });
+    const db = await getDb(); await db.update(savedNotes).set({ title: body.title?.trim() || "我的筆記", content: (body.content ?? "").trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", updatedAt: new Date() }).where(and(eq(savedNotes.id, id), eq(savedNotes.userKey, userKey(request))));
     return Response.json({ id });
   } catch { return Response.json({ error: "無法更新筆記" }, { status: 500 }); }
 }
