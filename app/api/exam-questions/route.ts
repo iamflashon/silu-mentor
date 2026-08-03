@@ -66,15 +66,17 @@ export async function GET(request: Request) {
   const examType = url.searchParams.get("examType") || "all";
   const year = url.searchParams.get("year") || "all";
   const subject = url.searchParams.get("subject") || "all";
-  const filters = [eq(examQuestions.status, status)];
+  const filters = [];
+  if (status !== "all") filters.push(eq(examQuestions.status, status));
   if (examType !== "all") filters.push(eq(examQuestions.examType, examType));
   if (year !== "all") filters.push(eq(examQuestions.year, year));
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
   const db = await getDb();
-  const where = and(...filters);
-  const facetFilters = [eq(examQuestions.status, status)];
+  const where = filters.length ? and(...filters) : undefined;
+  const facetFilters = [];
+  if (status !== "all") facetFilters.push(eq(examQuestions.status, status));
   if (examType !== "all") facetFilters.push(eq(examQuestions.examType, examType));
-  const facetWhere = and(...facetFilters);
+  const facetWhere = facetFilters.length ? and(...facetFilters) : undefined;
   const [items, countRows, totals, typeTotals, years, subjects] = await Promise.all([
     db.select().from(examQuestions).where(where).orderBy(desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
     db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(where),
@@ -119,8 +121,41 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const body = await request.json() as { id?: number; ids?: number[]; status?: string; publishAllDrafts?: boolean };
+  const body = await request.json() as {
+    action?: "update";
+    id?: number;
+    ids?: number[];
+    status?: string;
+    publishAllDrafts?: boolean;
+    year?: string;
+    subject?: string;
+    questionNumber?: string;
+    stem?: string;
+    teacherAnswer?: string;
+    teacherNotes?: string;
+    rubricJson?: string;
+  };
   const db = await getDb();
+  if (body.action === "update") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
+    const [current] = await db.select().from(examQuestions).where(eq(examQuestions.id, id)).limit(1);
+    if (!current) return Response.json({ error: "找不到要編輯的題目" }, { status: 404 });
+    const teacherAnswer = typeof body.teacherAnswer === "string" ? body.teacherAnswer.trim() : current.teacherAnswer;
+    const update = {
+      year: typeof body.year === "string" && body.year.trim() ? body.year.trim() : current.year,
+      subject: typeof body.subject === "string" && body.subject.trim() ? body.subject.trim() : current.subject,
+      questionNumber: typeof body.questionNumber === "string" && body.questionNumber.trim() ? body.questionNumber.trim() : current.questionNumber,
+      stem: typeof body.stem === "string" && body.stem.trim() ? body.stem.trim() : current.stem,
+      teacherAnswer,
+      teacherNotes: typeof body.teacherNotes === "string" ? body.teacherNotes.trim() : current.teacherNotes,
+      rubricJson: typeof body.rubricJson === "string" ? body.rubricJson : current.rubricJson,
+      answerSource: teacherAnswer ? current.answerSource || "高點名師參考擬答" : "",
+      answerStatus: teacherAnswer ? "source_matched" : "missing",
+    };
+    const [updated] = await db.update(examQuestions).set(update).where(eq(examQuestions.id, id)).returning();
+    return Response.json({ question: updated });
+  }
   if (body.publishAllDrafts) {
     const rows = await db.update(examQuestions).set({ status: "published" }).where(sql`${examQuestions.status} = 'draft' AND (${examQuestions.examType} = 'mcq' OR ${examQuestions.teacherAnswer} <> '')`).returning({ id: examQuestions.id });
     return Response.json({ updated: rows.length });

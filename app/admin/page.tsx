@@ -140,6 +140,19 @@ type ExamQuestion = {
   answerSource?: string;
   answerStatus?: string;
 };
+type QuestionEditorDraft = {
+  id: number;
+  examType: string;
+  year: string;
+  subject: string;
+  questionNumber: string;
+  stem: string;
+  teacherAnswer: string;
+  teacherNotes: string;
+  rubricJson: string;
+  status: string;
+  sourceUrl: string;
+};
 type QuestionFilterOptions = { years: string[]; subjects: string[] };
 type EssayQuestion = {
   id: number;
@@ -267,6 +280,7 @@ export default function AdminPage() {
   const [subtitleOffset, setSubtitleOffset] = useState(0);
   const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
   const [questionPage, setQuestionPage] = useState(1);
+  const [questionStatus, setQuestionStatus] = useState<"draft" | "published" | "all">("draft");
   const [questionTotal, setQuestionTotal] = useState(0);
   const [questionTotals, setQuestionTotals] = useState<Record<string, number>>(
     {},
@@ -277,6 +291,8 @@ export default function AdminPage() {
   const [questionSubject, setQuestionSubject] = useState("all");
   const [questionFilterOptions, setQuestionFilterOptions] = useState<QuestionFilterOptions>({ years: [], subjects: [] });
   const [fetchingTeacherAnswers, setFetchingTeacherAnswers] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<QuestionEditorDraft | null>(null);
+  const [savingQuestion, setSavingQuestion] = useState(false);
   const [legalSources, setLegalSources] = useState<LegalSource[]>([]);
   const [syncingLegal, setSyncingLegal] = useState<string | null>(null);
   const [legalZipFiles, setLegalZipFiles] = useState<Record<string, File | null>>({});
@@ -396,7 +412,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (activeTab === "questions") loadExamQuestions(questionPage);
-  }, [activeTab, questionPage, questionExamType, questionYear, questionSubject]);
+  }, [activeTab, questionPage, questionExamType, questionStatus, questionYear, questionSubject]);
 
   async function syncLegal(sourceKey: string, restart = false) {
     setSyncingLegal(sourceKey);
@@ -993,7 +1009,7 @@ export default function AdminPage() {
   }
 
   async function loadExamQuestions(page = questionPage) {
-    const params = new URLSearchParams({ page: String(page), status: "draft", examType: questionExamType });
+    const params = new URLSearchParams({ page: String(page), status: questionStatus, examType: questionExamType });
     if (questionYear !== "all") params.set("year", questionYear);
     if (questionSubject !== "all") params.set("subject", questionSubject);
     const response = await fetch(
@@ -1035,6 +1051,51 @@ export default function AdminPage() {
     setNotice(response.ok ? `本次已抓到 ${result.updated ?? 0} / ${result.requested ?? ids.length} 題老師擬答${result.failures?.length ? `；${result.failures[0]}` : ""}` : result.error ?? "老師擬答抓取失敗");
     await loadExamQuestions(questionPage);
     setFetchingTeacherAnswers(false);
+  }
+
+  function openQuestionEditor(question: ExamQuestion) {
+    setEditingQuestion({
+      id: question.id,
+      examType: question.examType,
+      year: question.year,
+      subject: question.subject,
+      questionNumber: question.questionNumber,
+      stem: question.stem,
+      teacherAnswer: question.teacherAnswer ?? "",
+      teacherNotes: question.teacherNotes ?? "",
+      rubricJson: question.rubricJson ?? "[]",
+      status: question.status,
+      sourceUrl: question.sourceUrl,
+    });
+  }
+
+  async function saveQuestion() {
+    if (!editingQuestion || savingQuestion) return;
+    setSavingQuestion(true);
+    let rubricJson = editingQuestion.rubricJson || "[]";
+    try {
+      const parsed = JSON.parse(rubricJson);
+      if (!Array.isArray(parsed)) throw new Error("評分依據必須是陣列");
+      rubricJson = JSON.stringify(parsed);
+    } catch {
+      setNotice("評分依據格式不正確，請保留 JSON 陣列格式。");
+      setSavingQuestion(false);
+      return;
+    }
+    const response = await fetch("/api/exam-questions", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "update", ...editingQuestion, rubricJson }),
+    });
+    const result = (await readJson(response)) as { question?: ExamQuestion; error?: string };
+    if (!response.ok || !result.question) {
+      setNotice(result.error ?? "申論題儲存失敗");
+    } else {
+      setNotice("申論題、老師擬答與評分依據已儲存。");
+      setEditingQuestion(null);
+      await loadExamQuestions(questionPage);
+    }
+    setSavingQuestion(false);
   }
 
   async function removeListening(item: ListeningItem) {
@@ -1795,7 +1856,7 @@ export default function AdminPage() {
             className={activeTab === "questions" ? "active" : ""}
             onClick={() => setActiveTab("questions")}
           >
-            真題審核
+            真題審核／編輯
           </button>
           <button
             className={activeTab === "costs" ? "active" : ""}
@@ -2824,6 +2885,7 @@ export default function AdminPage() {
             </div>
             <div className="question-taxonomy" aria-label="考科年度篩選">
               <div><span>目前分類</span><strong>{questionExamType === "mcq" ? "一試選擇題" : "二試申論題"}</strong></div>
+              <label><span>顯示狀態</span><select value={questionStatus} onChange={(event) => { setQuestionPage(1); setQuestionStatus(event.target.value as "draft" | "published" | "all"); }}><option value="draft">待審核草稿</option><option value="published">已發布</option><option value="all">全部題目</option></select></label>
               <label><span>考科</span><select value={questionSubject} onChange={(event) => { setQuestionPage(1); setQuestionSubject(event.target.value); }}><option value="all">全部考科</option>{questionFilterOptions.subjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>
               <label><span>年度</span><select value={questionYear} onChange={(event) => { setQuestionPage(1); setQuestionYear(event.target.value); }}><option value="all">全部年度</option>{questionFilterOptions.years.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
               {questionExamType === "essay" && <button type="button" className="answer-fetch-button" disabled={fetchingTeacherAnswers || !examQuestions.length} onClick={() => void fetchTeacherAnswers(examQuestions.map((item) => item.id))}>{fetchingTeacherAnswers ? "擬答抓取中…" : "補抓本頁老師擬答"}</button>}
@@ -2877,6 +2939,7 @@ export default function AdminPage() {
                       </a>
                     )}
                     {question.examType === "essay" && <span className={`teacher-answer-badge ${question.teacherAnswer?.trim() ? "ready" : "missing"}`}>{question.teacherAnswer?.trim() ? "老師擬答已抓取" : "尚無老師擬答"}</span>}
+                    <button type="button" className="question-edit-button" onClick={() => openQuestionEditor(question)}>編輯題目／擬答</button>
                     <button disabled={question.examType === "essay" && !question.teacherAnswer?.trim()} title={question.examType === "essay" && !question.teacherAnswer?.trim() ? "先補抓並核對老師擬答" : undefined} onClick={() => publishQuestions([question.id])}>
                       發布前台
                     </button>
@@ -2907,6 +2970,29 @@ export default function AdminPage() {
           </section>
         )}
       </div>
+      {editingQuestion && (
+        <div className="question-editor-backdrop" role="presentation" onClick={() => setEditingQuestion(null)}>
+          <section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div><span>{editingQuestion.examType === "essay" ? "二試申論題編輯" : "一試選擇題編輯"}</span><h2 id="question-editor-title">{editingQuestion.year} · {editingQuestion.subject} · 第 {editingQuestion.questionNumber} 題</h2></div>
+              <button type="button" onClick={() => setEditingQuestion(null)} aria-label="關閉編輯">×</button>
+            </header>
+            <div className="question-editor-grid">
+              <label>年度<input value={editingQuestion.year} onChange={(event) => setEditingQuestion({ ...editingQuestion, year: event.target.value })} /></label>
+              <label>考科<input value={editingQuestion.subject} onChange={(event) => setEditingQuestion({ ...editingQuestion, subject: event.target.value })} /></label>
+              <label>題號<input value={editingQuestion.questionNumber} onChange={(event) => setEditingQuestion({ ...editingQuestion, questionNumber: event.target.value })} /></label>
+            </div>
+            <label className="question-editor-field">完整題目<textarea rows={9} value={editingQuestion.stem} onChange={(event) => setEditingQuestion({ ...editingQuestion, stem: event.target.value })} /></label>
+            {editingQuestion.examType === "essay" && <>
+              <label className="question-editor-field">老師參考擬答<textarea rows={14} value={editingQuestion.teacherAnswer} onChange={(event) => setEditingQuestion({ ...editingQuestion, teacherAnswer: event.target.value })} placeholder="補抓後會顯示在這裡，也可以人工修正。" /></label>
+              <label className="question-editor-field">試題評析／考點命中<textarea rows={7} value={editingQuestion.teacherNotes} onChange={(event) => setEditingQuestion({ ...editingQuestion, teacherNotes: event.target.value })} /></label>
+              <label className="question-editor-field">評分依據 JSON<textarea rows={7} value={editingQuestion.rubricJson} onChange={(event) => setEditingQuestion({ ...editingQuestion, rubricJson: event.target.value })} placeholder='例如：[{"criterion":"爭點","points":"10","must_include":"..."}]' /></label>
+              <p className="question-editor-hint">補抓本頁後，先在這個視窗檢查老師擬答與評分依據，再儲存；儲存內容會提供給 AI 申論批改。</p>
+            </>}
+            <footer><button type="button" onClick={() => setEditingQuestion(null)}>取消</button><button type="button" className="primary-btn" onClick={() => void saveQuestion()} disabled={savingQuestion}>{savingQuestion ? "儲存中…" : "儲存編輯內容"}</button></footer>
+          </section>
+        </div>
+      )}
       {subtitleCourse && (
         <div className="subtitle-editor-backdrop">
           <section className="subtitle-editor">
