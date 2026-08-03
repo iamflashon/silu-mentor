@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
+import { PracticeLab } from "./practice-lab";
+import { LegalSearch } from "./legal-search";
 
 type Plan = { id: number; title: string; targetLabel: string; dailyMinutes: number };
 type Task = { id: number; planId: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
@@ -33,7 +35,8 @@ export default function StudyPlanPage() {
   const [notePage, setNotePage] = useState(1);
   const [noteQuery, setNoteQuery] = useState("");
   const [recordDraft, setRecordDraft] = useState({ subject: "刑法", title: "", actualMinutes: 60, weakness: "", nextStep: "" });
-  const [activeTab, setActiveTab] = useState<"calendar" | "records" | "notes">("calendar");
+  const [activeTab, setActiveTab] = useState<"calendar" | "practice" | "laws" | "records" | "notes">("calendar");
+  const [practiceType, setPracticeType] = useState<"mcq" | "essay">("mcq");
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
@@ -162,13 +165,16 @@ export default function StudyPlanPage() {
         <div><p>MY LEARNING CENTER</p><h1>學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律備考聊完後，AI 會把任務寫到這裡"}</span></div>
         {activeTab === "calendar" && <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>}
       </div>
-      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      <section className="exam-gateway" aria-label="一試與二試主動練習入口"><article><div><span>第一試 · 選擇題</span><h2>一試主動刷題</h2><p>從已審核的一試題庫開始作答，留下答對率與待補強觀念。</p></div><button onClick={() => { setPracticeType("mcq"); setActiveTab("practice"); }}>開始一試</button></article><article><div><span>第二試 · 申論題</span><h2>二試主動寫題</h2><p>先自己審題、列爭點與答題骨架，再由 AI 引導修正。</p></div><button onClick={() => { setPracticeType("essay"); setActiveTab("practice"); }}>開始二試</button></article></section>
       <section className="learning-overview" aria-label="學習專區摘要">
         <article className="overview-card battle-card"><div className="overview-card-heading"><strong>今日戰況</strong><span>{today}</span></div><b>{todayProgress.completed} <small>/ {todayProgress.total} 項完成</small></b><div className="overview-progress"><i style={{ width: `${todayProgress.total ? Math.round(todayProgress.completed / todayProgress.total * 100) : 0}%` }} /></div><p>{todayProgress.answered ? `今日作答 ${todayProgress.answered} 題，答對 ${todayProgress.correct} 題。` : todayProgress.delayed ? `有 ${todayProgress.delayed} 項延誤，先完成今天第一項。` : dashboard?.encouragement || "先完成今天第一項，節奏就會開始。"}</p></article>
         <article className="overview-card priority-card"><div className="overview-card-heading"><strong>優先補強</strong><span>依學習紀錄</span></div>{dashboard?.priorities.length ? <ul>{dashboard.priorities.map((item) => <li key={item.topic}><b>{item.topic}</b><small>{item.reason}</small></li>)}</ul> : <p>目前尚無學習紀錄，因此今日優先補強會先以「罪刑法定原則：法律保留與禁止類推適用」為主。</p>}</article>
         <article className="overview-card mini-calendar-card"><div className="overview-card-heading"><strong>今日小型行事曆</strong><span>{today.replace("-", "年 ").replace("-", "月 ")}日</span></div><div className="mini-week-grid">{weeklyFocus.map((item) => <div className={item.dateText === today ? "today" : ""} key={item.dateText}><time>{item.weekday}</time><b>{item.day}</b>{item.hasTask && <i />}</div>)}</div>{todayTasks.length ? todayTasks.slice(0, 2).map((task) => <div className="mini-task" key={task.id}><b>{task.subject}</b><span>{task.title}</span><small>預計學習：{task.durationMinutes}分鐘 · {task.status === "completed" ? "已完成" : "待開始"}</small></div>) : <div className="mini-task"><b>刑法總則</b><span>罪刑法定原則：法律保留與禁止類推適用</span><small>預計學習：120分鐘 · 待開始</small></div>}</article>
         <article className="overview-card weekly-card"><div className="overview-card-heading"><strong>本週 AI 重點課程</strong><span>每日一段</span></div><div className="weekly-focus-list">{weeklyFocus.map((item) => <div key={item.date}><time>{item.date}</time><span>{item.title}</span></div>)}</div></article>
       </section>
+      {activeTab === "practice" && <PracticeLab initialType={practiceType} />}
+      {activeTab === "laws" && <LegalSearch />}
       <section className="study-supplement-grid" aria-label="學習專區每日補給">
         <article className="supplement-card weather-card"><div className="supplement-heading"><div><span>今日環境</span><strong>台北天氣</strong></div><b>☼</b></div>{extras?.weather.temperature != null ? <><div className="weather-reading"><strong>{extras.weather.temperature}°</strong><span>{extras.weather.label}</span></div><p>體感 {extras.weather.apparentTemperature ?? "—"}° · 降雨機率 {extras.weather.rainProbability ?? "—"}%</p></> : <p className="supplement-muted">正在取得今天的天氣…</p>}</article>
         <article className="supplement-card luck-card"><div className="supplement-heading"><div><span>AI 考試分析</span><strong>今日運試</strong></div><b>✦</b></div><div className="luck-controls"><select aria-label="選擇星座" value={zodiac} onChange={(event) => { const value = event.target.value; setZodiac(value); window.localStorage.setItem("silu-exam-zodiac", value); }}><option value="">選擇你的星座</option>{zodiacOptions.map((item) => <option key={item}>{item}</option>)}</select>{extras?.luck && <strong className="luck-score">{extras.luck.score}<small>/100</small></strong>}</div>{extras?.luck ? <><b className="luck-headline">{extras.luck.headline}</b><p>{extras.luck.analysis}</p><div className="luck-action">今日聚焦：{extras.luck.focus} · {extras.luck.action}</div><small className="luck-source">由 {extras.luck.model === "fallback" ? "司律備考規則" : "AI"} 依今日學習狀態分析</small></> : <p className="supplement-muted">選擇星座後，AI 會把運試轉成今天可完成的考試準備提醒。</p>}</article>

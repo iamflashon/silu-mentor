@@ -49,6 +49,7 @@ export default function Home() {
   const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
   const [extras, setExtras] = useState<StudyExtras | null>(null);
   const [zodiac, setZodiac] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-exam-zodiac") ?? "");
+  const handoffHandled = useRef(false);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -210,6 +211,15 @@ export default function Home() {
     event.preventDefault();
     send(input);
   }
+
+  useEffect(() => {
+    if (!historyLoaded || handoffHandled.current) return;
+    const prompt = new URLSearchParams(window.location.search).get("prompt")?.trim();
+    if (!prompt) return;
+    handoffHandled.current = true;
+    window.history.replaceState({}, "", "/");
+    void send(prompt);
+  }, [historyLoaded]);
 
   async function saveMessageNote(message: Message, index: number) {
     const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceType: "conversation", sourceId: sessionId ? `${sessionId}-${index}` : String(index), title: cleanMessageText(message.text).slice(0, 32), content: cleanMessageText(message.text), subject: todayTasks.find((task) => task.status !== "completed")?.subject ?? "綜合", tags: "AI對話", sourceLabel: message.sources?.join("、") ?? "" }) });
