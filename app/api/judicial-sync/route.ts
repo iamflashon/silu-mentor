@@ -7,7 +7,9 @@ const LIST_URL = "https://data.judicial.gov.tw/jdg/api/JList";
 const DOC_URL = "https://data.judicial.gov.tw/jdg/api/JDoc";
 
 async function auth() {
-  const user = process.env.JUDICIAL_API_USER; const password = process.env.JUDICIAL_API_PASSWORD;
+  const { env } = await import("cloudflare:workers");
+  const user = env.JUDICIAL_API_USER ?? process.env.JUDICIAL_API_USER;
+  const password = env.JUDICIAL_API_PASSWORD ?? process.env.JUDICIAL_API_PASSWORD;
   if (!user || !password) throw new Error("尚未設定 JUDICIAL_API_USER 或 JUDICIAL_API_PASSWORD");
   const response = await fetch(AUTH_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user, password }) }); const payload = await response.json() as { Token?: string; error?: string };
   if (!response.ok || !payload.Token) throw new Error(payload.error || "司法院帳密驗證失敗"); return payload.Token;
@@ -16,7 +18,15 @@ async function setting(key: string, value: string) { const db = await getDb(); a
 
 export async function GET() {
   const db = await getDb(); const [count] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases); const settings = await db.select().from(appSettings).where(sql`${appSettings.key} like 'judicial_%'`).orderBy(desc(appSettings.updatedAt));
-  return Response.json({ configured: Boolean(process.env.JUDICIAL_API_USER && process.env.JUDICIAL_API_PASSWORD), caseCount: Number(count.value || 0), settings: Object.fromEntries(settings.map((item) => [item.key, item.value])) });
+  const { env } = await import("cloudflare:workers");
+  const configured = Boolean(env.JUDICIAL_API_USER ?? process.env.JUDICIAL_API_USER)
+    && Boolean(env.JUDICIAL_API_PASSWORD ?? process.env.JUDICIAL_API_PASSWORD);
+  return Response.json({
+    configured,
+    caseCount: Number(count.value || 0),
+    settings: Object.fromEntries(settings.map((item) => [item.key, item.value])),
+    schedule: { enabled: true, time: "00:30", timezone: "Asia/Taipei", cron: "30 16 * * *" },
+  });
 }
 
 export async function POST(request: Request) {

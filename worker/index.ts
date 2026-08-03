@@ -5,6 +5,9 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  BUCKET: R2Bucket;
+  JUDICIAL_API_USER?: string;
+  JUDICIAL_API_PASSWORD?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -41,6 +44,30 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+
+  async scheduled(
+    controller: { cron: string; scheduledTime: number },
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    if (controller.cron !== "30 16 * * *") return;
+    ctx.waitUntil(
+      (async () => {
+        const response = await handler.fetch(
+          new Request("https://silu-mentor.internal/api/judicial-sync", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-scheduled-sync": "1" },
+            body: JSON.stringify({ action: "sync", limit: 30 }),
+          }),
+          env,
+          ctx,
+        );
+        if (!response.ok) {
+          console.error("Scheduled judicial sync failed", controller.scheduledTime, response.status, await response.text());
+        }
+      })(),
+    );
   },
 };
 

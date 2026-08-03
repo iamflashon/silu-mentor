@@ -182,6 +182,7 @@ type JudicialStatus = {
   configured: boolean;
   caseCount: number;
   settings: Record<string, string>;
+  schedule?: { enabled: boolean; time: string; timezone: string };
 };
 const DOCUMENTS_PER_PAGE = 5;
 const USAGE_PER_PAGE = 10;
@@ -495,28 +496,88 @@ export default function AdminPage() {
       return;
     }
     setUploadingLegalZip(sourceKey);
-    setNotice("正在保存 ZIP，完成後會自動分批分類法規與條文…");
-    const form = new FormData();
-    form.append("sourceKey", sourceKey);
-    form.append("file", file);
-    const response = await fetch("/api/legal-sources/upload", {
-      method: "POST",
-      body: form,
-    });
-    const result = (await readJson(response)) as { error?: string };
-    setUploadingLegalZip(null);
-    if (!response.ok) {
-      setNotice(result.error ?? "ZIP 上傳失敗");
-      return;
-    }
-    setLegalZipFiles((current) => ({ ...current, [sourceKey]: null }));
-    await fetch("/api/legal-sources").then(async (refreshed) => {
-      if (refreshed.ok)
-        setLegalSources(
-          ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
+    const partSize = 8 * 1024 * 1024;
+    let key = "";
+    let uploadId = "";
+    try {
+      setNotice(`正在建立 R2 分段上傳：0 / ${Math.ceil(file.size / partSize)} 段…`);
+      const initResponse = await fetch("/api/legal-sources/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "init",
+          sourceKey,
+          fileName: file.name,
+          contentType: file.type || "application/zip",
+          sizeBytes: file.size,
+        }),
+      });
+      const init = (await readJson(initResponse)) as {
+        key?: string;
+        uploadId?: string;
+        partSize?: number;
+        error?: string;
+      };
+      if (!initResponse.ok || !init.key || !init.uploadId) {
+        throw new Error(init.error ?? "無法建立 ZIP 分段上傳");
+      }
+      key = init.key;
+      uploadId = init.uploadId;
+      const actualPartSize = Number(init.partSize) || partSize;
+      const parts: Array<{ partNumber: number; etag: string }> = [];
+      const totalParts = Math.ceil(file.size / actualPartSize);
+      for (let index = 0; index < totalParts; index += 1) {
+        const partNumber = index + 1;
+        const partResponse = await fetch(
+          `/api/legal-sources/upload?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
+          {
+            method: "PUT",
+            headers: { "content-type": "application/octet-stream" },
+            body: file.slice(index * actualPartSize, Math.min(file.size, (index + 1) * actualPartSize)),
+          },
         );
-    });
-    await importAllLegal(sourceKey);
+        const part = (await readJson(partResponse)) as { partNumber?: number; etag?: string; error?: string };
+        if (!partResponse.ok || !part.etag) {
+          throw new Error(part.error ?? `第 ${partNumber} 段上傳失敗`);
+        }
+        parts.push({ partNumber, etag: part.etag });
+        setNotice(`正在上傳全國法規 ZIP：${partNumber} / ${totalParts} 段（每段約 8MB）…`);
+      }
+
+      const completeResponse = await fetch("/api/legal-sources/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "complete",
+          sourceKey,
+          key,
+          uploadId,
+          fileName: file.name,
+          contentType: file.type || "application/zip",
+          sizeBytes: file.size,
+          parts,
+        }),
+      });
+      const completed = (await readJson(completeResponse)) as { error?: string };
+      if (!completeResponse.ok) throw new Error(completed.error ?? "ZIP 組合失敗");
+      uploadId = "";
+      setNotice("ZIP 已組合完成，開始解析並分類法律／命令，接著建立索引…");
+      setLegalZipFiles((current) => ({ ...current, [sourceKey]: null }));
+      await fetch("/api/legal-sources").then(async (refreshed) => {
+        if (refreshed.ok)
+          setLegalSources(
+            ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
+          );
+      });
+      await importAllLegal(sourceKey);
+    } catch (error) {
+      if (key && uploadId) {
+        await fetch(`/api/legal-sources/upload?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}`, { method: "DELETE" }).catch(() => undefined);
+      }
+      setNotice(error instanceof Error ? error.message : "ZIP 上傳失敗");
+    } finally {
+      setUploadingLegalZip(null);
+    }
   }
 
   async function runJudicial(action: "test" | "sync") {
@@ -3570,9 +3631,9 @@ export default function AdminPage() {
               <small>已保存裁判</small>
             </article>
             <article>
-              <span>今晚排程</span>
-              <strong>00:30</strong>
-              <small>官方服務時間內執行</small>
+              <span>{judicialStatus?.schedule?.enabled ? "實際排程" : "排程狀態"}</span>
+              <strong>{judicialStatus?.schedule?.time ?? "00:30"}</strong>
+              <small>{judicialStatus?.schedule?.enabled ? "每日自動執行（台灣時間）" : "尚未啟用"}</small>
             </article>
             <article>
               <span>待下載</span>

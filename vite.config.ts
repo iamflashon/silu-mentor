@@ -14,6 +14,8 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
+  // Cloudflare Cron uses UTC. 16:30 UTC is 00:30 the next day in Taiwan.
+  triggers: { crons: ["30 16 * * *"] },
   d1_databases: d1
     ? [
         {
