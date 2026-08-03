@@ -3,7 +3,13 @@ import { getDb } from "../../../../db";
 import { learningResources, resourceSegments } from "../../../../db/schema";
 import { decodeSubtitle, parseSrtCues } from "../../../../lib/srt";
 
+function timeLabel(value: number) {
+  const total = Math.max(0, Math.floor(value));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
 export async function POST(request: Request) {
+  let stage = "讀取上傳檔案";
   try {
     const form = await request.formData();
     const resourceId = Number(form.get("resourceId"));
@@ -41,6 +47,7 @@ export async function POST(request: Request) {
     }
 
     if (assetType === "subtitle") {
+      stage = "辨識 SRT 字幕";
       if (
         !file.name.toLowerCase().endsWith(".srt") ||
         file.size > 8 * 1024 * 1024
@@ -61,6 +68,7 @@ export async function POST(request: Request) {
         );
       // A course has one authoritative SRT timeline. Remove malformed or
       // previously imported timelines before rebuilding it from this file.
+      stage = "清除舊字幕片段";
       await db
         .delete(resourceSegments)
         .where(
@@ -73,15 +81,19 @@ export async function POST(request: Request) {
         resourceId,
         segmentType: "subtitle",
         lessonLabel,
-        title: `${Math.floor(group.start / 60)}:${String(group.start % 60).padStart(2, "0")}－${Math.floor(group.end / 60)}:${String(group.end % 60).padStart(2, "0")}`,
+        title: `${timeLabel(group.start)}－${timeLabel(group.end)}`,
         startSeconds: group.start,
         endSeconds: group.end,
         text: group.text,
         reviewStatus: "pending",
         sequence: index + 1,
       }));
-      for (let index = 0; index < rows.length; index += 8)
-        await db.insert(resourceSegments).values(rows.slice(index, index + 8));
+      stage = `寫入 ${rows.length} 段字幕片段`;
+      // Keep batches small for D1/SQLite bind-variable limits. A long SRT
+      // must not fail as one oversized INSERT statement.
+      for (let index = 0; index < rows.length; index += 4)
+        await db.insert(resourceSegments).values(rows.slice(index, index + 4));
+      stage = "更新課程字幕狀態";
       await db
         .update(learningResources)
         .set({ updatedAt: new Date() })
@@ -90,12 +102,12 @@ export async function POST(request: Request) {
     }
     return Response.json({ error: "不支援的檔案類型" }, { status: 400 });
   } catch (error) {
+    const detail = error instanceof Error ? error.message : "未知錯誤";
+    console.error(`[resources/assets] ${stage}: ${detail.slice(0, 500)}`);
     return Response.json(
       {
-        error:
-          error instanceof Error
-            ? `SRT 處理失敗：${error.message}`
-            : "SRT 處理失敗",
+        error: `字幕${stage}失敗，請按「重新整理字幕」再試一次。`,
+        stage,
       },
       { status: 500 },
     );

@@ -2,7 +2,12 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { learningResources, resourceSegments } from "../../../../db/schema";
 import { openAIJson } from "../../../../lib/openai";
-import { decodeSubtitle, looksLikeRawSrt, parseSrtCues } from "../../../../lib/srt";
+import { decodeSubtitle, looksLikeRawSrt, parseSrt, parseSrtCues } from "../../../../lib/srt";
+
+function timeLabel(value: number) {
+  const total = Math.max(0, Math.floor(value));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 export async function GET(request: Request) {
   const resourceId = Number(new URL(request.url).searchParams.get("resourceId"));
@@ -64,14 +69,14 @@ export async function POST(request: Request) {
       resourceId,
       segmentType: "subtitle",
       lessonLabel: rows[0]?.lessonLabel ?? "",
-      title: `${Math.floor(group.start / 60)}:${String(group.start % 60).padStart(2, "0")}－${Math.floor(group.end / 60)}:${String(group.end % 60).padStart(2, "0")}`,
+      title: `${timeLabel(group.start)}－${timeLabel(group.end)}`,
       startSeconds: group.start,
       endSeconds: group.end,
       text: group.text,
       sequence: index + 1,
     }));
-    for (let index = 0; index < rebuilt.length; index += 8)
-      await db.insert(resourceSegments).values(rebuilt.slice(index, index + 8));
+    for (let index = 0; index < rebuilt.length; index += 4)
+      await db.insert(resourceSegments).values(rebuilt.slice(index, index + 4));
     await db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, resourceId));
     return Response.json({ repaired: true, segments: rebuilt.length });
   }
@@ -94,8 +99,9 @@ export async function POST(request: Request) {
       }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message.slice(0, 220) : "AI 回覆格式無法辨識";
-    return Response.json({ error: `字幕已建立，但 AI 分析未完成：${message}`, analyzed }, { status: 502 });
+    const message = error instanceof Error ? error.message : "AI 回覆格式無法辨識";
+    console.error(`[resources/segments] AI subtitle analysis failed after ${analyzed} segments: ${message.slice(0, 500)}`);
+    return Response.json({ error: `字幕已建立 ${rows.length} 段，但 AI 分析暫時未完成；可稍後按「校正字幕／重點」再分析。`, analyzed }, { status: 502 });
   }
   return Response.json({ analyzed });
 }

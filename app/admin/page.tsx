@@ -210,7 +210,7 @@ async function readJson(response: Response) {
   try {
     const result = JSON.parse(text) as Record<string, unknown>;
     if (typeof result.error === "string" && result.error.length > 320)
-      result.error = "伺服器回傳了過長的錯誤內容，請重新上傳字幕或按「重新整理字幕」。";
+      result.error = `${result.error.slice(0, 300).trim()}…`;
     return result;
   } catch {
     if (response.status === 413)

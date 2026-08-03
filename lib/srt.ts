@@ -9,8 +9,8 @@ function seconds(value: string) {
   const parts = normalized.split(":");
   const numeric = parts.map(Number);
   if (!numeric.every(Number.isFinite)) return NaN;
-  if (parts.length === 3) return Math.round(numeric[0] * 3600 + numeric[1] * 60 + numeric[2]);
-  if (parts.length === 2) return Math.round(numeric[0] * 60 + numeric[1]);
+  if (parts.length === 3) return numeric[0] * 3600 + numeric[1] * 60 + numeric[2];
+  if (parts.length === 2) return numeric[0] * 60 + numeric[1];
   return NaN;
 }
 
@@ -95,6 +95,17 @@ export function decodeSubtitle(bytes: ArrayBuffer) {
   if (data[0] === 0xff && data[1] === 0xfe) return new TextDecoder("utf-16le").decode(data.slice(2));
   if (data[0] === 0xfe && data[1] === 0xff) return new TextDecoder("utf-16be").decode(data.slice(2));
   if (data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) return new TextDecoder("utf-8").decode(data.slice(3));
+  // Windows editors sometimes save UTF-16 SRT without a BOM. Detect the
+  // characteristic NUL-byte pattern before falling back to UTF-8.
+  let evenNuls = 0;
+  let oddNuls = 0;
+  for (let index = 0; index < Math.min(data.length, 4096); index += 1) {
+    if (data[index] !== 0) continue;
+    if (index % 2 === 0) evenNuls += 1;
+    else oddNuls += 1;
+  }
+  if (oddNuls > 20 && oddNuls > evenNuls * 2) return new TextDecoder("utf-16le").decode(data);
+  if (evenNuls > 20 && evenNuls > oddNuls * 2) return new TextDecoder("utf-16be").decode(data);
   return new TextDecoder("utf-8").decode(data);
 }
 
