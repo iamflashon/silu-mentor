@@ -2447,6 +2447,120 @@ a {
 .weekly-focus-list div { display: flex; gap: 7px; min-width: 0; align-items: baseline; }
 .weekly-focus-list time { flex: 0 0 auto; color: #6e8ca0; font-size: 9px; }
 .weekly-focus-list span { min-width: 0; overflow: hidden; color: #31566f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.mini-week-grid,
+.home-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+  margin: 3px 0 10px;
+}
+.mini-week-grid > div,
+.home-week-grid > div {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 6px 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: #f4f8fa;
+}
+.mini-week-grid > div.today,
+.home-week-grid > div.today {
+  border-color: #9fc1d3;
+  background: #e8f3f7;
+}
+.mini-week-grid time,
+.home-week-grid time { color: #8093a0; font-size: 8px; }
+.mini-week-grid b,
+.home-week-grid b { color: #315d77; font-size: 13px; }
+.mini-week-grid i,
+.home-week-grid i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #3b9773;
+}
+.study-supplement-grid,
+.learning-columns,
+.home-editorial-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 20px;
+}
+.supplement-card,
+.column-card,
+.home-editorial-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #dce6ed;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(31, 63, 86, 0.04);
+}
+.supplement-heading,
+.column-heading,
+.home-editorial-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.supplement-heading div,
+.column-heading div,
+.home-editorial-head div { min-width: 0; }
+.supplement-heading span,
+.column-kicker { display: block; color: #6a8ca1; font-size: 8px; font-weight: 850; letter-spacing: 0.11em; }
+.supplement-heading strong { display: block; margin-top: 4px; color: #294d66; font-size: 14px; }
+.supplement-heading > b,
+.column-heading > i,
+.home-editorial-head > i { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; background: #eaf2f6; color: #2e6b8c; font-style: normal; }
+.weather-reading { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; }
+.weather-reading strong { color: #295d80; font-size: 31px; letter-spacing: -0.06em; }
+.weather-reading span { color: #54778b; font-size: 11px; font-weight: 750; }
+.supplement-card p { margin: 9px 0 0; color: #718594; font-size: 10px; line-height: 1.65; }
+.supplement-muted { color: #8b9da8 !important; }
+.luck-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.luck-controls select,
+.music-form input { min-width: 0; border: 1px solid #cfdee6; border-radius: 8px; background: #f8fbfc; color: #4b6b7e; font-size: 10px; }
+.luck-controls select { padding: 7px 8px; }
+.luck-score { color: #bd7734; font-size: 24px; letter-spacing: -0.05em; }
+.luck-score small { margin-left: 2px; color: #9a8c7e; font-size: 9px; letter-spacing: 0; }
+.luck-headline { display: block; margin-top: 9px; color: #4e6675; font-size: 11px; line-height: 1.5; }
+.luck-action { margin-top: 9px; padding: 8px 9px; border-radius: 8px; background: #fff6e8; color: #8b6535; font-size: 9px; line-height: 1.5; }
+.luck-source,
+.music-note { display: block; margin-top: 8px; color: #93a1aa; font-size: 8px; line-height: 1.45; }
+.music-form { display: flex; gap: 6px; margin-top: 13px; }
+.music-form input { flex: 1; padding: 8px 9px; }
+.music-form button { border: 0; border-radius: 8px; padding: 0 10px; background: #285d7f; color: white; font-size: 10px; font-weight: 750; cursor: pointer; }
+.music-card iframe { width: 100%; height: 86px; margin-top: 10px; border: 0; border-radius: 9px; background: #edf4f7; }
+.column-card { min-height: 180px; }
+.column-heading h2,
+.home-editorial-head h2 { margin: 4px 0 0; color: #264d67; font-size: 19px; letter-spacing: -0.04em; }
+.column-heading span,
+.home-editorial-head span { display: block; margin-top: 4px; color: #8497a3; font-size: 9px; }
+.column-card > strong,
+.home-editorial-card > strong { display: block; overflow: hidden; margin-top: 14px; color: #31566f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.column-card > p,
+.home-editorial-card > p { margin: 8px 0 0; color: #718594; font-size: 10px; line-height: 1.6; }
+.column-card audio,
+.home-editorial-card audio { width: 100%; height: 30px; margin-top: 11px; }
+.column-card a,
+.home-editorial-card a { display: inline-block; margin-top: 12px; color: #2a6a91; font-size: 10px; font-weight: 800; }
+.column-empty { color: #8a9ca7 !important; }
+.home-editorial-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(1180px, calc(100% - 40px)); margin: 20px auto 0; }
+.home-editorial-card { min-height: 158px; }
+.home-editorial-head { margin-top: 5px; }
+.home-editorial-card > strong { margin-top: 15px; }
+.home-week-grid { margin-top: 4px; }
+.home-week-grid > div { padding: 5px 2px 6px; }
+.home-week-grid i { display: grid; place-items: center; width: auto; min-width: 13px; height: 13px; margin-top: -2px; border-radius: 999px; color: white; background: #4c9a79; font-size: 7px; font-style: normal; }
+.home-mini-calendar p { margin: 8px 0 0; color: #718594; font-size: 10px; line-height: 1.55; }
+.home-focus-row { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-bottom: 1px solid #edf2f5; }
+.home-focus-row:last-child { border-bottom: 0; }
+.home-focus-row time { flex: 0 0 auto; color: #6c8ba0; font-size: 9px; }
+.home-focus-row span { overflow: hidden; color: #31566f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .tab-hub {
   margin-top: 0;
 }
@@ -3006,7 +3120,11 @@ a {
   .record-entry {
     grid-template-columns: 1fr;
   }
-  .learning-overview { grid-template-columns: 1fr; }
+  .learning-overview,
+  .study-supplement-grid,
+  .learning-columns,
+  .home-editorial-grid { grid-template-columns: 1fr; }
+  .home-editorial-grid { width: calc(100% - 28px); }
 }
 
 .listening-segment-tools {

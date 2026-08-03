@@ -9,9 +9,12 @@ type Draft = { id?: number; date: string; subject: string; title: string; durati
 type StudyRecord = { id: number; recordDate: string; subject: string; title: string; activityType: string; plannedMinutes: number; actualMinutes: number; correct: boolean | null; reflection: string; weakness: string; nextStep: string };
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
 type Dashboard = { today: string; todayProgress: { completed: number; total: number; delayed: number; records: number; correct: number; answered: number }; priorities: Array<{ topic: string; count: number; reason: string }>; hasRecords: boolean; encouragement: string };
+type HomeFeed = { magazine: { id: number; title: string; sourceUrl: string } | null; listening: { id: number; title: string; year: string; subject: string; audioUrl: string } | null };
+type StudyExtras = { today: string; weather: { location: string; temperature: number | null; apparentTemperature: number | null; label: string; rainProbability: number | null }; luck: { score: number; headline: string; analysis: string; action: string; focus: string; model: string } };
 
 const subjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法", "綜合"];
 const fallbackWeeklyFocus = ["罪刑法定原則", "犯罪成立要件", "行為與不作為犯、保證人地位", "因果關係", "客觀歸責", "故意、過失與事實錯誤", "正當防衛與緊急避難"];
+const zodiacOptions = ["牡羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座", "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"];
 
 function monthValue(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).format(date).slice(0, 7);
@@ -32,6 +35,12 @@ export default function StudyPlanPage() {
   const [activeTab, setActiveTab] = useState<"calendar" | "records" | "notes">("calendar");
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
+  const [extras, setExtras] = useState<StudyExtras | null>(null);
+  const [zodiac, setZodiac] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-exam-zodiac") ?? "");
+  const [musicUrl, setMusicUrl] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-focus-music-url") ?? "");
+  const [musicDraft, setMusicDraft] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-focus-music-url") ?? "");
+  const [musicSaved, setMusicSaved] = useState(false);
 
   async function load() {
     const response = await fetch(`/api/study-plan?month=${month}`);
@@ -42,7 +51,12 @@ export default function StudyPlanPage() {
   }
 
   useEffect(() => { void load(); }, [month]);
-  useEffect(() => { fetch("/api/learning-records").then(async (response) => { if (response.ok) setRecords(((await response.json()) as { records?: StudyRecord[] }).records ?? []); }); fetch("/api/notes").then(async (response) => { if (response.ok) setNotes(((await response.json()) as { notes?: SavedNote[] }).notes ?? []); }); fetch("/api/dashboard").then(async (response) => { if (response.ok) setDashboard((await response.json()) as Dashboard); }); }, []);
+  useEffect(() => {
+    fetch("/api/learning-records").then(async (response) => { if (response.ok) setRecords(((await response.json()) as { records?: StudyRecord[] }).records ?? []); });
+    fetch("/api/notes").then(async (response) => { if (response.ok) setNotes(((await response.json()) as { notes?: SavedNote[] }).notes ?? []); });
+    fetch("/api/dashboard").then(async (response) => { if (response.ok) setDashboard((await response.json()) as Dashboard); });
+    fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed((await response.json()) as HomeFeed); });
+  }, []);
 
   const days = useMemo(() => {
     const [year, monthNumber] = month.split("-").map(Number);
@@ -99,8 +113,32 @@ export default function StudyPlanPage() {
     date.setDate(date.getDate() + index);
     const dateText = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(date);
     const task = tasks.find((item) => item.taskDate === dateText);
-    return { date: dateText.slice(5).replace("-", "/"), title: task?.title || fallbackWeeklyFocus[index], subject: task?.subject || "刑法總則" };
+    return { date: dateText.slice(5).replace("-", "/"), dateText, day: date.getDate(), weekday: ["日", "一", "二", "三", "四", "五", "六"][date.getDay()], title: task?.title || fallbackWeeklyFocus[index], subject: task?.subject || "刑法總則", hasTask: Boolean(task) };
   });
+
+  useEffect(() => {
+    const focus = todayTasks[0]?.title ?? dashboard?.encouragement ?? "先完成今日第一項任務";
+    const subject = todayTasks[0]?.subject ?? "刑法";
+    const cacheKey = `silu-exam-luck-${today}-${zodiac}-${subject}`;
+    fetch(`/api/study-extras?zodiac=${encodeURIComponent(zodiac)}&subject=${encodeURIComponent(subject)}&progress=${encodeURIComponent(focus)}`)
+      .then(async (response) => { if (!response.ok) return; const result = await response.json() as StudyExtras; setExtras(result); window.localStorage.setItem(cacheKey, JSON.stringify(result)); })
+      .catch(() => undefined);
+  }, [today, zodiac, dashboard?.encouragement, todayTasks.length, todayTasks[0]?.title, todayTasks[0]?.subject]);
+
+  function youtubeEmbedUrl(value: string) {
+    try {
+      const url = new URL(value.trim());
+      let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? "");
+      id = id.split(/[?&]/)[0];
+      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}?rel=0` : "";
+    } catch { return ""; }
+  }
+
+  function saveMusic() {
+    const value = musicDraft.trim();
+    if (value && !youtubeEmbedUrl(value)) return;
+    setMusicUrl(value); window.localStorage.setItem("silu-focus-music-url", value); setMusicSaved(true); window.setTimeout(() => setMusicSaved(false), 1600);
+  }
 
   async function addRecord() {
     if (!recordDraft.title.trim()) return;
@@ -136,8 +174,17 @@ export default function StudyPlanPage() {
       <section className="learning-overview" aria-label="學習專區摘要">
         <article className="overview-card battle-card"><div className="overview-card-heading"><strong>今日戰況</strong><span>{today}</span></div><b>{todayProgress.completed} <small>/ {todayProgress.total} 項完成</small></b><div className="overview-progress"><i style={{ width: `${todayProgress.total ? Math.round(todayProgress.completed / todayProgress.total * 100) : 0}%` }} /></div><p>{todayProgress.answered ? `今日作答 ${todayProgress.answered} 題，答對 ${todayProgress.correct} 題。` : todayProgress.delayed ? `有 ${todayProgress.delayed} 項延誤，先完成今天第一項。` : dashboard?.encouragement || "先完成今天第一項，節奏就會開始。"}</p></article>
         <article className="overview-card priority-card"><div className="overview-card-heading"><strong>優先補強</strong><span>依學習紀錄</span></div>{dashboard?.priorities.length ? <ul>{dashboard.priorities.map((item) => <li key={item.topic}><b>{item.topic}</b><small>{item.reason}</small></li>)}</ul> : <p>目前尚無學習紀錄，因此今日優先補強會先以「罪刑法定原則：法律保留與禁止類推適用」為主。</p>}</article>
-        <article className="overview-card mini-calendar-card"><div className="overview-card-heading"><strong>今日小型行事曆</strong><span>{today.replace("-", "年 ").replace("-", "月 ")}日</span></div>{todayTasks.length ? todayTasks.slice(0, 2).map((task) => <div className="mini-task" key={task.id}><b>{task.subject}</b><span>{task.title}</span><small>預計學習：{task.durationMinutes}分鐘 · {task.status === "completed" ? "已完成" : "待開始"}</small></div>) : <div className="mini-task"><b>刑法總則</b><span>罪刑法定原則：法律保留與禁止類推適用</span><small>預計學習：120分鐘 · 待開始</small></div>}</article>
+        <article className="overview-card mini-calendar-card"><div className="overview-card-heading"><strong>今日小型行事曆</strong><span>{today.replace("-", "年 ").replace("-", "月 ")}日</span></div><div className="mini-week-grid">{weeklyFocus.map((item) => <div className={item.dateText === today ? "today" : ""} key={item.dateText}><time>{item.weekday}</time><b>{item.day}</b>{item.hasTask && <i />}</div>)}</div>{todayTasks.length ? todayTasks.slice(0, 2).map((task) => <div className="mini-task" key={task.id}><b>{task.subject}</b><span>{task.title}</span><small>預計學習：{task.durationMinutes}分鐘 · {task.status === "completed" ? "已完成" : "待開始"}</small></div>) : <div className="mini-task"><b>刑法總則</b><span>罪刑法定原則：法律保留與禁止類推適用</span><small>預計學習：120分鐘 · 待開始</small></div>}</article>
         <article className="overview-card weekly-card"><div className="overview-card-heading"><strong>本週 AI 重點課程</strong><span>每日一段</span></div><div className="weekly-focus-list">{weeklyFocus.map((item) => <div key={item.date}><time>{item.date}</time><span>{item.title}</span></div>)}</div></article>
+      </section>
+      <section className="study-supplement-grid" aria-label="學習專區每日補給">
+        <article className="supplement-card weather-card"><div className="supplement-heading"><div><span>今日環境</span><strong>台北天氣</strong></div><b>☼</b></div>{extras?.weather.temperature != null ? <><div className="weather-reading"><strong>{extras.weather.temperature}°</strong><span>{extras.weather.label}</span></div><p>體感 {extras.weather.apparentTemperature ?? "—"}° · 降雨機率 {extras.weather.rainProbability ?? "—"}%</p></> : <p className="supplement-muted">正在取得今天的天氣…</p>}</article>
+        <article className="supplement-card luck-card"><div className="supplement-heading"><div><span>AI 考試分析</span><strong>今日運試</strong></div><b>✦</b></div><div className="luck-controls"><select aria-label="選擇星座" value={zodiac} onChange={(event) => { const value = event.target.value; setZodiac(value); window.localStorage.setItem("silu-exam-zodiac", value); }}><option value="">選擇你的星座</option>{zodiacOptions.map((item) => <option key={item}>{item}</option>)}</select>{extras?.luck && <strong className="luck-score">{extras.luck.score}<small>/100</small></strong>}</div>{extras?.luck ? <><b className="luck-headline">{extras.luck.headline}</b><p>{extras.luck.analysis}</p><div className="luck-action">今日聚焦：{extras.luck.focus} · {extras.luck.action}</div><small className="luck-source">由 {extras.luck.model === "fallback" ? "司律導師規則" : "AI"} 依今日學習狀態分析</small></> : <p className="supplement-muted">選擇星座後，AI 會把運試轉成今天可完成的考試準備提醒。</p>}</article>
+        <article className="supplement-card music-card"><div className="supplement-heading"><div><span>專注模式</span><strong>自訂讀書音樂</strong></div><b>♫</b></div><div className="music-form"><input value={musicDraft} onChange={(event) => setMusicDraft(event.target.value)} placeholder="貼上 YouTube 音樂網址" aria-label="YouTube 音樂網址" /><button onClick={saveMusic}>{musicSaved ? "已儲存" : "套用"}</button></div>{youtubeEmbedUrl(musicUrl) ? <iframe title="自訂讀書音樂" src={youtubeEmbedUrl(musicUrl)} allow="autoplay; encrypted-media" loading="lazy" /> : <p className="supplement-muted">可貼上自己確認可使用的 YouTube 無版權／創作者授權音樂；未設定時不播放。</p>}<small className="music-note">平台只提供自訂播放，請同學自行確認影片說明欄的授權條件。</small></article>
+      </section>
+      <section className="learning-columns" aria-label="學習內容專欄">
+        <article className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>▶</i></div>{homeFeed?.listening ? <><strong>{homeFeed.listening.title}</strong><p>先聽老師如何抓爭點，再回到學習專區留下自己的答題接續點。</p><audio controls preload="none" src={homeFeed.listening.audioUrl} /></> : <p className="column-empty">後台發布第一份聽解題後，最新內容會出現在這裡。</p>}</article>
+        <article className="column-card law-column"><div className="column-kicker">LAW CLASSROOM</div><div className="column-heading"><div><h2>法教專欄</h2><span>從最新法學教室內容找考試切入點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><p>AI 會把合法試讀內容轉成爭點、法條與司律答題價值，先讀懂再決定是否深入。</p><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入法學教室試讀內容後，最新專欄會出現在這裡。</p>}</article>
       </section>
       {activeTab === "calendar" && <><div className="calendar-toolbar"><button onClick={() => moveMonth(-1)}>‹</button><strong>{month.replace("-", " 年 ")} 月</strong><button onClick={() => moveMonth(1)}>›</button></div>
       <div className="calendar-grid">
