@@ -859,6 +859,8 @@ export default function AdminPage() {
     const result = (await readJson(response)) as {
       resource?: LearningResource;
       articles?: number;
+      indexed?: number;
+      failures?: string[];
       error?: string;
     };
     if (!response.ok || !result.resource) {
@@ -870,9 +872,7 @@ export default function AdminPage() {
         ? current
         : [result.resource!, ...current],
     );
-    setNotice(
-      `已建立 ${result.resource.title}，擷取 ${result.articles ?? 0} 筆試讀／文章資料，預設為草稿等待確認。`,
-    );
+    setNotice(`已分析 ${result.articles ?? 0} 個試讀入口，${result.indexed ?? 0} 篇 PDF 已完成解析並可供 AI 搜尋${result.failures?.length ? `；${result.failures.length} 篇暫時失敗，可再次按「自動分析」重試` : ""}。`);
   }
 
   async function bindBookDocument(
