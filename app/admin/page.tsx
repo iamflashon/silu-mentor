@@ -154,6 +154,7 @@ type LegalSource = {
   totalAvailable: number;
   lastError?: string | null;
   lastDownloadedAt?: string | null;
+  categoryCounts?: Record<string, number>;
 };
 type JudicialStatus = {
   configured: boolean;
@@ -404,17 +405,22 @@ export default function AdminPage() {
         next?: number;
         total?: number;
         error?: string;
+        categoryCounts?: Record<string, number>;
       };
       if (!response.ok) {
         setNotice(result.error ?? "資料匯入失敗，已停在目前進度");
         break;
       }
       setNotice(
-        `正在分批分類 ${sourceKey === "moj-laws" ? "法律" : "命令"}：${result.next ?? 0} / ${result.total ?? 0}`,
+        `正在匯入全國法規：${result.next ?? 0} / ${result.total ?? 0}`,
       );
       if (result.status === "ready") {
         completed = true;
-        setNotice(`已完成 ${result.total ?? 0} 部${sourceKey === "moj-laws" ? "法律" : "命令"}，條文已可供 AI 導師搜尋`);
+        const categoryCounts = result.categoryCounts as Record<string, number> | undefined;
+        const breakdown = categoryCounts
+          ? `法律 ${categoryCounts["法律"] ?? 0}、命令 ${categoryCounts["命令"] ?? 0}`
+          : `共 ${result.total ?? 0} 部`;
+        setNotice(`全國法規匯入完成：${breakdown}，條文已可供 AI 導師搜尋`);
         break;
       }
       nextRestart = false;
@@ -444,7 +450,7 @@ export default function AdminPage() {
       method: "POST",
       body: form,
     });
-    const result = (await readJson(response)) as { error?: string; sourceKeys?: string[] };
+    const result = (await readJson(response)) as { error?: string };
     setUploadingLegalZip(null);
     if (!response.ok) {
       setNotice(result.error ?? "ZIP 上傳失敗");
@@ -457,8 +463,7 @@ export default function AdminPage() {
           ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
         );
     });
-    for (const targetKey of result.sourceKeys ?? [sourceKey])
-      await importAllLegal(targetKey);
+    await importAllLegal(sourceKey);
   }
 
   async function runJudicial(action: "test" | "sync") {
@@ -3222,7 +3227,7 @@ export default function AdminPage() {
             <div>
               <h2>法規與憲法法庭資料</h2>
               <p className="panel-sub">
-                每個官方來源獨立下載與管理；完成解析後才供 AI 導師引用。
+                全國法規 ZIP 會自動讀取法律與命令，再分批建立索引；完成解析後才供 AI 導師引用。
               </p>
             </div>
             <span className="source-count">
@@ -3254,8 +3259,8 @@ export default function AdminPage() {
                 </header>
                 <h3>{source.label}</h3>
                 <p>
-                  {source.sourceKey.startsWith("moj-")
-                    ? "法務部官方開放資料，每月更新"
+                  {source.sourceKey === "moj-regulations"
+                    ? "法務部官方全國法規資料，內含法律與命令"
                     : "司法院憲法法庭官方資料"}
                 </p>
                 <div className="data-metrics">
@@ -3276,15 +3281,24 @@ export default function AdminPage() {
                     <small>批次進度</small>
                   </div>
                 </div>
+                {source.sourceKey === "moj-regulations" && (
+                  <div className="data-category-summary">
+                    <span>法律 {source.categoryCounts?.["法律"]?.toLocaleString() ?? "0"}</span>
+                    <span>命令 {source.categoryCounts?.["命令"]?.toLocaleString() ?? "0"}</span>
+                    <strong>
+                      合計 {source.documentCount.toLocaleString()}
+                    </strong>
+                  </div>
+                )}
                 {source.lastError && (
                   <small className="data-error">{source.lastError}</small>
                 )}
-                {source.sourceKey.startsWith("moj-") && (
+                {source.sourceKey === "moj-regulations" && (
                   <div className="legal-zip-upload">
                     <label>
                       <span>
                         {legalZipFiles[source.sourceKey]?.name ??
-                          "選擇官方法規 ZIP（可取代目前資料）"}
+                          "選擇全國法規 ZIP（內含法律與命令）"}
                       </span>
                       <input
                         type="file"
@@ -3314,7 +3328,7 @@ export default function AdminPage() {
                   <button
                     disabled={syncingLegal !== null}
                     onClick={() =>
-                      source.sourceKey.startsWith("moj-")
+                      source.sourceKey === "moj-regulations"
                         ? importAllLegal(source.sourceKey, source.status === "ready")
                         : syncLegal(source.sourceKey, source.status === "ready")
                     }
@@ -3325,9 +3339,9 @@ export default function AdminPage() {
                         ? "開始自動匯入"
                       : source.status === "importing"
                         ? "繼續自動匯入"
-                        : source.status === "ready"
+                      : source.status === "ready"
                           ? "重新同步"
-                          : source.sourceKey.startsWith("moj-")
+                          : source.sourceKey === "moj-regulations"
                             ? "開始下載並匯入"
                             : "開始下載"}
                   </button>
