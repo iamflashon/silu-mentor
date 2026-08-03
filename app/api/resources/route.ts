@@ -31,7 +31,7 @@ export async function GET() {
   const articleRows = await db
     .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
     .from(resourceSegments)
-    .where(inArray(resourceSegments.segmentType, ["article_trial", "article_link"]))
+    .where(inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))
     .orderBy(resourceSegments.sequence);
   const articlesByResource = new Map<number, typeof articleRows>();
   for (const article of articleRows) {

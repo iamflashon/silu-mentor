@@ -197,7 +197,7 @@ async function readJson(response: Response) {
   } catch {
     if (response.status === 413)
       return { error: "檔案超過單次上傳限制，請重新選擇文件" };
-    return { error: `伺服器暫時無法處理這份文件（HTTP ${response.status}），請查看資料卡上的處理錯誤` };
+    return { error: `伺服器暫時無法處理這項操作（HTTP ${response.status}），請查看資料卡上的處理錯誤` };
   }
 }
 
@@ -378,11 +378,12 @@ export default function AdminPage() {
       .catch(() => undefined);
     fetch("/api/legal-sources")
       .then(async (response) => {
-        if (response.ok)
-          setLegalSources(
-            ((await response.json()) as { sources?: LegalSource[] }).sources ??
-              [],
-          );
+        const result = (await readJson(response)) as {
+          sources?: LegalSource[];
+          error?: string;
+        };
+        if (response.ok) setLegalSources(result.sources ?? []);
+        else setNotice(result.error ?? "法規資料狀態暫時無法讀取");
       })
       .catch(() => undefined);
     fetch("/api/judicial-sync")

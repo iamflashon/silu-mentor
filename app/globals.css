@@ -268,14 +268,16 @@ a {
 }
 .option-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
+  width: min(100%, 960px);
 }
 .option-grid button {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px;
+  min-height: 82px;
+  padding: 10px;
   text-align: left;
   border: 1px solid #dce6ec;
   border-radius: 12px;
@@ -2381,14 +2383,15 @@ a {
   font-size: 14px;
 }
 .plan-tabs {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 20px;
   padding: 0;
   width: 100%;
 }
 .plan-tabs button {
+  flex: 0 0 auto;
   min-height: 54px;
   padding: 12px 13px;
   border: 1px solid #d8e4eb;
@@ -2476,7 +2479,8 @@ a {
 .practice-question-meta b { color: #527287; font-size: 12px; }
 .practice-question-stem { margin: 16px 0; color: #29475b; font-size: 16px; line-height: 1.9; white-space: pre-wrap; }
 .practice-option-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
-.practice-option-list button { display: flex; align-items: flex-start; gap: 9px; min-width: 0; min-height: 108px; padding: 13px; border: 1px solid #d8e4eb; border-radius: 10px; background: #fff; color: #466578; text-align: left; cursor: pointer; }
+.practice-option-list { width: min(100%, 960px); }
+.practice-option-list button { display: flex; align-items: flex-start; gap: 9px; min-width: 0; min-height: 86px; padding: 11px; border: 1px solid #d8e4eb; border-radius: 10px; background: #fff; color: #466578; text-align: left; cursor: pointer; }
 .practice-option-list button:hover:not(:disabled), .practice-option-list button.chosen { border-color: #6c9bb4; background: #eef6f9; }
 .practice-option-list button:disabled { cursor: default; }
 .practice-option-list b { display: grid; place-items: center; width: 26px; height: 26px; flex: 0 0 auto; border-radius: 6px; background: #e9f1f5; color: #2f6684; font-size: 12px; }
@@ -2640,6 +2644,7 @@ a {
 .music-form button { border: 0; border-radius: 8px; padding: 0 10px; background: #285d7f; color: white; font-size: 10px; font-weight: 750; cursor: pointer; }
 .music-card iframe { width: 100%; height: 170px; margin-top: 10px; border: 0; border-radius: 9px; background: #edf4f7; }
 .column-card { min-height: 180px; }
+.law-column { min-height: 0; }
 .column-heading h2,
 .home-editorial-head h2 { margin: 4px 0 0; color: #264d67; font-size: 19px; letter-spacing: -0.04em; }
 .column-heading span,
@@ -3270,6 +3275,7 @@ a {
     gap: 15px;
   }
   .plan-tabs {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }

@@ -1,5 +1,5 @@
 import { asc, eq, sql } from "drizzle-orm";
-import { unzipSync } from "fflate";
+import { Unzip, UnzipInflate, UnzipPassThrough, unzipSync } from "fflate";
 import { XMLParser } from "fast-xml-parser";
 import { getDb } from "../../../db";
 import { legalArticles, legalDataSources, legalDocuments } from "../../../db/schema";
@@ -39,7 +39,7 @@ type LegalArchiveEntry = { record: Record<string, unknown>; category: "法律" |
 // batch prepares small JSON objects in R2; later requests read only the batch
 // they need.  This is important for large MOJ archives because a Worker can
 // otherwise time out while repeatedly decompressing the same ZIP.
-const legalImportBatchSize = 40;
+const legalImportBatchSize = 10;
 type PreparedLegalManifest = {
   version: 1;
   batchSize: number;
@@ -53,6 +53,37 @@ function preparedManifestKey(archiveKey: string) {
 
 function preparedBatchKey(archiveKey: string, index: number) {
   return `${archiveKey}.prepared-batches/${String(index).padStart(5, "0")}.json`;
+}
+
+function isMojJsonFile(name: string, sourceKey?: string) {
+  if (!/\.json$/i.test(name)) return false;
+  return sourceKey !== "moj-regulations" || /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name);
+}
+
+function compactLawRecord(record: Record<string, unknown>) {
+  const compact: Record<string, unknown> = {};
+  for (const name of [
+    "LawName",
+    "法規名稱",
+    "LawModifiedDate",
+    "ModifiedDate",
+    "最新異動日期",
+    "LawEffectiveDate",
+    "EffectiveDate",
+    "生效日期",
+    "LawHistories",
+    "Histories",
+    "沿革內容",
+    "LawURL",
+    "Url",
+    "法規網址",
+    "LawArticles",
+    "Articles",
+    "條文",
+  ]) {
+    if (record[name] !== undefined) compact[name] = record[name];
+  }
+  return compact;
 }
 
 function parseLegalArchive(bytes: Uint8Array, sourceKey?: string): LegalArchiveEntry[] {
@@ -78,6 +109,92 @@ function parseLegalArchive(bytes: Uint8Array, sourceKey?: string): LegalArchiveE
   return collectLawObjects(new XMLParser({ ignoreAttributes: false, trimValues: true }).parse(decodeArchive(bytes))).map((record) => ({ record, category: "法律" }));
 }
 
+/**
+ * Parse an R2 ZIP body without materialising the whole archive or every file
+ * in it. The previous unzipSync path duplicated a large archive in Worker
+ * memory and caused POST /api/legal-sources to be terminated by Cloudflare.
+ */
+async function prepareLegalZipStream(
+  bucket: R2Bucket,
+  archiveKey: string,
+  body: ReadableStream<Uint8Array>,
+  sourceKey: string,
+) {
+  const batchKeys: string[] = [];
+  const pendingWrites: Promise<unknown>[] = [];
+  let pendingEntries: LegalArchiveEntry[] = [];
+  let total = 0;
+
+  const flush = () => {
+    if (!pendingEntries.length) return;
+    const batch = pendingEntries;
+    pendingEntries = [];
+    total += batch.length;
+    const key = preparedBatchKey(archiveKey, batchKeys.length);
+    batchKeys.push(key);
+    pendingWrites.push(
+      bucket.put(key, JSON.stringify(batch), {
+        httpMetadata: { contentType: "application/json" },
+      }),
+    );
+  };
+
+  const unzip = new Unzip((file) => {
+    if (!isMojJsonFile(file.name, sourceKey)) return;
+
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    file.ondata = (error, data, final) => {
+      if (error) throw error;
+      if (data?.byteLength) {
+        chunks.push(data);
+        byteLength += data.byteLength;
+      }
+      if (!final) return;
+
+      const jsonBytes = new Uint8Array(byteLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        jsonBytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      const raw = new TextDecoder("utf-8").decode(jsonBytes).replace(/^\uFEFF/, "");
+      const records: Record<string, unknown>[] = [];
+      collectLawObjects(JSON.parse(raw), records);
+      const category = /(^|\/)ChOrder\.json$/i.test(file.name) ? "命令" : "法律";
+      for (const record of records) {
+        pendingEntries.push({ record: compactLawRecord(record), category });
+        if (pendingEntries.length >= legalImportBatchSize) flush();
+      }
+    };
+    file.start();
+  });
+  unzip.register(UnzipInflate);
+  unzip.register(UnzipPassThrough);
+
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      unzip.push(next.value, false);
+    }
+    unzip.push(new Uint8Array(0), true);
+  } finally {
+    reader.releaseLock();
+  }
+  flush();
+  await Promise.all(pendingWrites);
+
+  if (!batchKeys.length) throw new Error("ZIP 內沒有找到可辨識的 ChLaw／ChOrder 法規資料");
+  return {
+    version: 1 as const,
+    batchSize: legalImportBatchSize,
+    total,
+    batchKeys,
+  };
+}
+
 async function getPreparedManifest(bucket: R2Bucket, archiveKey: string, sourceKey: string) {
   const manifestKey = preparedManifestKey(archiveKey);
   const existing = await bucket.get(manifestKey);
@@ -88,6 +205,19 @@ async function getPreparedManifest(bucket: R2Bucket, archiveKey: string, sourceK
 
   const archive = await bucket.get(archiveKey);
   if (!archive) throw new Error("找不到已上傳的全國法規 ZIP，請重新上傳");
+
+  const contentType = archive.httpMetadata?.contentType?.toLowerCase() ?? "";
+  const looksLikeZip = contentType.includes("zip") ||
+    (!contentType.includes("xml") && /\.zip$/i.test(archiveKey));
+  if (looksLikeZip && archive.body) {
+    const streamed = await prepareLegalZipStream(bucket, archiveKey, archive.body, sourceKey);
+    const manifest = streamed;
+    await bucket.put(manifestKey, JSON.stringify(manifest), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    return manifest;
+  }
+
   const entries = parseLegalArchive(new Uint8Array(await archive.arrayBuffer()), sourceKey);
   if (!entries.length) throw new Error("ZIP 內沒有找到可辨識的法規資料（需要 ChLaw／ChOrder JSON 或官方 XML）");
 
@@ -124,16 +254,21 @@ async function readPreparedBatch(bucket: R2Bucket, manifest: PreparedLegalManife
 }
 
 export async function GET() {
-  const db = await seedSources();
-  const allSources = await db.select().from(legalDataSources).orderBy(asc(legalDataSources.id));
-  for (const source of allSources) if (["downloading", "importing"].includes(source.status) && Date.now() - new Date(source.updatedAt).getTime() > 3 * 60 * 1000) await db.update(legalDataSources).set({ status: "failed", lastError: "上次處理逾時，請按「重新下載」續傳", updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
-  const visibleKeys = new Set(seeds.map((seed) => seed.sourceKey));
-  const sources = allSources.filter((source) => visibleKeys.has(source.sourceKey));
-  const withCounts = await Promise.all(sources.map(async (source) => {
-    const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, source.sourceKey)).groupBy(legalDocuments.category);
-    return { ...source, categoryCounts: Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])) };
-  }));
-  return Response.json({ sources: withCounts });
+  try {
+    const db = await seedSources();
+    const allSources = await db.select().from(legalDataSources).orderBy(asc(legalDataSources.id));
+    for (const source of allSources) if (["downloading", "importing"].includes(source.status) && Date.now() - new Date(source.updatedAt).getTime() > 3 * 60 * 1000) await db.update(legalDataSources).set({ status: "failed", lastError: "上次處理逾時，請按「重新下載」續傳", updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
+    const visibleKeys = new Set(seeds.map((seed) => seed.sourceKey));
+    const sources = allSources.filter((source) => visibleKeys.has(source.sourceKey));
+    const withCounts = await Promise.all(sources.map(async (source) => {
+      const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, source.sourceKey)).groupBy(legalDocuments.category);
+      return { ...source, categoryCounts: Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])) };
+    }));
+    return Response.json({ sources: withCounts });
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 240) : "法規資料狀態暫時無法讀取";
+    return Response.json({ error: message, sources: [] }, { status: 503 });
+  }
 }
 
 export async function POST(request: Request) {

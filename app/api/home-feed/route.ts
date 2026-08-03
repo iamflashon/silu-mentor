@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings, learningResources, listeningAudioSegments, listeningSolutions, listeningSubtitleCues, resourceSegments } from "../../../db/schema";
 
@@ -16,7 +16,7 @@ export async function GET() {
     }
   }
   const magazine = resources.find((item) => item.resourceType === "magazine" && item.status === "active") ?? null;
-  const magazineArticles = magazine ? await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), eq(resourceSegments.segmentType, "article_trial"))).orderBy(asc(resourceSegments.sequence)).limit(4) : [];
+  const magazineArticles = magazine ? await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4) : [];
   const recommended = await db.select({ id: resourceSegments.id, resourceId: resourceSegments.resourceId, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds, importance: resourceSegments.importance }).from(resourceSegments).where(eq(resourceSegments.recommended, true)).orderBy(desc(resourceSegments.importance)).limit(5);
   const [musicSetting] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "focus_music_url")).limit(1);
   return Response.json({
