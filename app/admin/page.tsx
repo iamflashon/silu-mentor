@@ -83,6 +83,7 @@ type LearningResource = {
   status: string;
   hasCover: number;
   segmentCount: number;
+  articlePreviews?: Array<{ id: number; title: string; summary: string; reviewStatus: string; sequence: number }>;
 };
 type SubtitleSegment = {
   id: number;
@@ -1686,7 +1687,7 @@ export default function AdminPage() {
       <header className="topbar">
         <Link href="/" className="brand">
           <span className="brand-mark">律</span>
-          <span>司律導師</span>
+          <span>司律備考</span>
         </Link>
         <Link href="/" className="back-link">
           返回對話首頁 →
@@ -1696,7 +1697,7 @@ export default function AdminPage() {
         <div className="admin-title">
           <div>
             <p>MANAGEMENT WORKSPACE</p>
-            <h1>司律導師管理後台</h1>
+            <h1>司律備考管理後台</h1>
           </div>
         </div>
         <nav className="admin-tabs" aria-label="後台功能切換">
@@ -1781,6 +1782,12 @@ export default function AdminPage() {
               <div className="site-setting-actions"><button type="submit" className="primary-btn" disabled={savingFocusMusic}>{savingFocusMusic ? "儲存中…" : "儲存並發布到前台"}</button><button type="button" onClick={() => setFocusMusicDraft("")}>清除</button></div>
             </form>
             <p className="music-note">前台不會自動播放有聲音的內容，需由同學按下播放；請先確認音樂的 YouTube 授權條件。</p>
+            <div className="homepage-sync-grid">
+              <div><span>讀書音樂</span><strong>{focusMusicUrl ? "已設定，首頁上方可播放" : "尚未設定"}</strong></div>
+              <div><span>法教專區</span><strong>{resources.filter((item) => item.resourceType === "magazine" && item.status === "active").length ? "已發布，首頁列出四篇試讀" : "尚未發布"}</strong></div>
+              <div><span>聽解題</span><strong>{listeningItems.some((item) => item.status === "published" && (item.audioStorageKey || item.audioFileName)) ? "已發布音檔" : "請完成音檔與發布"}</strong></div>
+              <div><span>日期／天氣／運試</span><strong>首頁依台北日期即時同步</strong></div>
+            </div>
           </section>
         )}
         {activeTab === "costs" && (
@@ -1930,7 +1937,7 @@ export default function AdminPage() {
             <form className="panel" onSubmit={submit}>
               <h2>上傳教材</h2>
               <p className="panel-sub">
-                PDF 將自動解析、切分並建立搜尋索引，供司律導師回答與教學。
+                PDF 將自動解析、切分並建立搜尋索引，供司律備考回答與教學。
               </p>
               <label
                 className={`upload-zone ${dragActive ? "drag-active" : ""}`}
@@ -2550,6 +2557,7 @@ export default function AdminPage() {
                         {resource.description || "尚未取得出刊資料"} ·{" "}
                         {resource.segmentCount} 篇內容
                       </small>
+                      {resource.articlePreviews?.length ? <div className="admin-article-previews"><b>AI 已分析試讀文章</b>{resource.articlePreviews.map((article) => <div key={article.id}><span>{article.sequence}. {article.title}</span><small>{article.reviewStatus === "ai_reviewed" ? "已分析" : "待確認"} · {article.summary || "尚無摘要"}</small></div>)}</div> : null}
                     </div>
                     <div className="resource-actions">
                       <a

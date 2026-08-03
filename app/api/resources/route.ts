@@ -28,7 +28,18 @@ export async function GET() {
     )
     .groupBy(learningResources.id)
     .orderBy(desc(learningResources.updatedAt));
-  return Response.json({ resources: rows });
+  const articleRows = await db
+    .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence })
+    .from(resourceSegments)
+    .where(eq(resourceSegments.segmentType, "article_trial"))
+    .orderBy(resourceSegments.sequence);
+  const articlesByResource = new Map<number, typeof articleRows>();
+  for (const article of articleRows) {
+    const current = articlesByResource.get(article.resourceId) ?? [];
+    current.push(article);
+    articlesByResource.set(article.resourceId, current);
+  }
+  return Response.json({ resources: rows.map((row) => ({ ...row, articlePreviews: articlesByResource.get(row.id)?.slice(0, 4) ?? [] })) });
 }
 
 export async function POST(request: Request) {

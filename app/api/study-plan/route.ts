@@ -30,7 +30,7 @@ export async function PATCH(request: Request) {
     await db.update(studyTasks).set({ status }).where(eq(studyTasks.id, taskId));
     if (status === "completed") {
       const [existing] = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, userKey(request)), eq(studyRecords.taskId, taskId))).limit(1);
-      if (!existing) await db.insert(studyRecords).values({ userKey: userKey(request), taskId, recordDate: task.taskDate, subject: task.subject, title: task.title, activityType: "讀書任務", plannedMinutes: task.durationMinutes, actualMinutes: task.durationMinutes, nextStep: "由司律導師依完成進度安排下一步" });
+      if (!existing) await db.insert(studyRecords).values({ userKey: userKey(request), taskId, recordDate: task.taskDate, subject: task.subject, title: task.title, activityType: "讀書任務", plannedMinutes: task.durationMinutes, actualMinutes: task.durationMinutes, nextStep: "由司律備考依完成進度安排下一步" });
     }
     return Response.json({ taskId, status });
   } catch {
@@ -87,7 +87,7 @@ export async function PUT(request: Request) {
     if (body.status === "completed") {
       const [task] = await db.select().from(studyTasks).where(eq(studyTasks.id, taskId)).limit(1);
       const [existing] = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, userKey(request)), eq(studyRecords.taskId, taskId))).limit(1);
-      if (task && !existing) await db.insert(studyRecords).values({ userKey: userKey(request), taskId, recordDate: task.taskDate, subject: task.subject, title: task.title, activityType: "讀書任務", plannedMinutes: task.durationMinutes, actualMinutes: task.durationMinutes, nextStep: "由司律導師依完成進度安排下一步" });
+      if (task && !existing) await db.insert(studyRecords).values({ userKey: userKey(request), taskId, recordDate: task.taskDate, subject: task.subject, title: task.title, activityType: "讀書任務", plannedMinutes: task.durationMinutes, actualMinutes: task.durationMinutes, nextStep: "由司律備考依完成進度安排下一步" });
     }
     return Response.json({ taskId });
   } catch {

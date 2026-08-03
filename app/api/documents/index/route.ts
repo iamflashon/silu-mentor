@@ -10,7 +10,7 @@ async function getVectorStoreId() {
 
   const created = await openAIJson("/vector_stores", {
     method: "POST",
-    body: JSON.stringify({ name: "司律導師教材知識庫" }),
+    body: JSON.stringify({ name: "司律備考教材知識庫" }),
   });
   const id = typeof created.id === "string" ? created.id : "";
   if (!id) throw new Error("無法建立教材向量資料庫");

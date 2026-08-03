@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { ListeningPlayer, ListeningFeed } from "./listening-player";
 
 type Message = { role: "mentor" | "student"; text: string; sources?: string[] };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
@@ -10,11 +11,15 @@ type DashboardData = { targetLabel: string; monthsRemaining: number; officialDat
 type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
-type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string } | null; listening: { id: number; title: string; year: string; subject: string; audioUrl: string } | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: string[] };
+type MagazineArticle = { id: number; title: string; summary: string; reviewStatus: string; sequence: number };
+type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: string[] };
+type StudyExtras = { today: string; weather: { location: string; temperature: number | null; apparentTemperature: number | null; label: string; rainProbability: number | null }; luck: { score: number; headline: string; analysis: string; action: string; focus: string; model: string } };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
 function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/尚未匯入|尚未準備|暫時無法|沒有連上|API|錯誤|請稍後|管理者/.test(clean)) return false; return /法條|爭點|要件|涵攝|解題|判斷|原則|例外|學說|實務|教材|刑法|民法|訴訟法|憲法|行政法/.test(clean); }
+function youtubeEmbedUrl(value: string) { try { const url = new URL(value); let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? ""); id = id.split(/[?&]/)[0]; return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}?rel=0` : ""; } catch { return ""; } }
+function dateLabel(value: string) { return value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1年$2月$3日") : "今天"; }
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -30,6 +35,7 @@ export default function Home() {
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
   const [showCosts, setShowCosts] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -41,10 +47,13 @@ export default function Home() {
   const [savedMessage, setSavedMessage] = useState<number | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
-  const listeningAudioRef = useRef<HTMLAudioElement>(null);
+  const [extras, setExtras] = useState<StudyExtras | null>(null);
+  const [zodiac, setZodiac] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-exam-zodiac") ?? "");
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+    messageList.scrollTo({ top: messageList.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
 
   useEffect(() => {
@@ -60,14 +69,19 @@ export default function Home() {
         const pending = (data.todayTasks ?? []).filter((task) => task.status !== "completed");
         setMessages([{ role: "mentor", text: pending.length ? `早安，今天已經安排好 ${pending.length} 項任務。我們從第一項「${pending[0].title}」開始，好嗎？` : "今天的任務都完成了。要不要趁狀態正好，先預習明天的內容？" }]);
       } else {
-        setMessages([{ role: "mentor", text: "早安，我是你的司律導師。今天還沒有安排任務，我可以先根據你的目標與可用時間，幫你建立第一份學習計畫。" }]);
+        setMessages([{ role: "mentor", text: "早安，我是司律備考的 AI 教練。今天還沒有安排任務，我可以先根據你的目標與可用時間，幫你建立第一份學習計畫。" }]);
       }
     }).catch(() => {
-      setMessages([{ role: "mentor", text: "早安，我是你的司律導師。今天想從哪一科開始？" }]);
+      setMessages([{ role: "mentor", text: "早安，我是司律備考的 AI 教練。今天想從哪一科開始？" }]);
     }).finally(() => setHistoryLoaded(true));
   }, []);
 
   useEffect(() => { fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed(await response.json() as HomeFeed); }).catch(() => undefined); }, []);
+
+  useEffect(() => {
+    const subject = todayTasks.find((task) => task.status !== "completed")?.subject ?? "刑法";
+    fetch(`/api/study-extras?zodiac=${encodeURIComponent(zodiac)}&subject=${encodeURIComponent(subject)}`).then(async (response) => { if (response.ok) setExtras(await response.json() as StudyExtras); }).catch(() => undefined);
+  }, [zodiac, todayTasks]);
 
   useEffect(() => {
     fetch("/api/dashboard").then(async (response) => {
@@ -112,6 +126,10 @@ export default function Home() {
       if (result.question) setPracticeQuestion(result.question);
       else { setPracticeQuestion(null); setMessages((current) => [...current, { role: "mentor", text: result.message ?? "真題庫尚未準備完成。管理者匯入並確認題目後，我就能從這裡開始帶你練習。" }]); }
     } finally { setPracticeLoading(false); }
+  }
+
+  function askMagazineArticle(article: MagazineArticle) {
+    void send(`請帶我學習月旦法學教室的文章「${article.title}」。這是後台已分析的試讀摘要：${article.summary || "目前沒有摘要，請先從文章標題辨認可能的司律考點。"}\n請先說明這篇內容可能對應的司律爭點，再問我一個可以直接回答的小問題。`);
   }
 
   async function answerMcq(answer: string) {
@@ -206,9 +224,9 @@ export default function Home() {
   return (
     <main className="coach-shell">
       <header className="topbar">
-        <Link href="/" className="brand" aria-label="司律導師首頁">
+        <Link href="/" className="brand" aria-label="司律備考首頁">
           <span className="brand-mark">律</span>
-          <span>司律導師</span>
+          <span>司律備考</span>
         </Link>
         <div className="top-actions">
           <span className="knowledge-state"><i /> 教材知識庫準備中</span>
@@ -217,6 +235,13 @@ export default function Home() {
         </div>
       </header>
       <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker ?? ["距離目標再前進一小步"]).join("　◆　")}</span></div></div>
+
+      <section className="home-pulse" aria-label="今日備考資訊">
+        <div className="pulse-date"><span>今天日期</span><strong>{dateLabel(extras?.today || today)}</strong><small>司律備考每日同步</small></div>
+        <div className="pulse-weather"><span>台北天氣</span><strong>{extras?.weather.temperature != null ? `${extras.weather.temperature}° ${extras.weather.label}` : "取得中…"}</strong><small>{extras?.weather.apparentTemperature != null ? `體感 ${extras.weather.apparentTemperature}° · 降雨 ${extras.weather.rainProbability ?? "—"}%` : "天氣資料同步中"}</small></div>
+        <div className="pulse-luck"><div><span>今日運試</span><strong>{extras?.luck ? `${extras.luck.score}/100` : "分析中…"}</strong></div><select aria-label="選擇星座" value={zodiac} onChange={(event) => { const value = event.target.value; setZodiac(value); window.localStorage.setItem("silu-exam-zodiac", value); }}><option value="">選擇星座</option>{["牡羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座", "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"].map((item) => <option key={item}>{item}</option>)}</select><small>{extras?.luck.headline ?? "依今日學習狀態分析考試準備重點"}</small></div>
+        <div className="pulse-music"><span>讀書音樂</span>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <iframe title="司律備考首頁讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="autoplay; encrypted-media" loading="lazy" /> : <small>後台尚未設定播放內容</small>}</div>
+      </section>
 
       <div className={`command-layout rail-${railSide}`}>
       <section className="conversation" aria-live="polite">
@@ -234,7 +259,7 @@ export default function Home() {
           {todayTasks.some((task) => task.status !== "completed") && <button onClick={() => send(`請直接帶我開始今天第一個尚未完成的任務：${todayTasks.find((task) => task.status !== "completed")?.title}`)}>開始今日第一項</button>}
         </details>}
 
-        <div className="message-list">
+        <div className="message-list" ref={messageListRef}>
           {!historyLoaded && <div className="message-row mentor"><span className="mentor-avatar">律</span><div className="message-bubble typing"><i /><i /><i /></div></div>}
           {messages.map((message, index) => (
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
@@ -265,8 +290,8 @@ export default function Home() {
       <aside className="command-rail">
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
         <section className="rail-card rail-practice"><div className="rail-title"><strong>練真題</strong><span>在對話中引導</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
-        <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>▶</i></div>{homeFeed?.listening ? <><strong>{homeFeed.listening.title}</strong><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><audio ref={listeningAudioRef} controls preload="none" src={homeFeed.listening.audioUrl} /></> : <p className="column-empty">後台發布第一份聽解題後，最新內容會出現在這裡。</p>}</article>
-        <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專區</h2><span>最新法學教室內容的司律切入點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><p>把合法試讀內容連到爭點、法條與考題價值，讀完就知道下一步。</p><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
+        <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><strong>{homeFeed.listening.title}</strong><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
+        <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專區</h2><span>最新法學教室內容的司律切入點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><span>{article.title}</span><button type="button" onClick={() => askMagazineArticle(article)}>AI 帶入</button></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
         <section className="rail-card home-weekly-focus"><div className="rail-title"><strong>本週 AI 重點課程</strong><Link href="/plan">查看 →</Link></div>{weekTasks.length ? weekTasks.slice(0, 4).map((task) => <div className="home-focus-row" key={task.id}><time>{task.taskDate.slice(5).replace("-", "/")}</time><span>{task.subject} · {task.title}</span></div>) : <p className="rail-empty">AI 排定的本週重點會隨學習計畫出現在這裡。</p>}</section>
       </aside>
       </div>

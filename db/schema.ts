@@ -70,7 +70,7 @@ export const studyTasks = sqliteTable("study_tasks", {
 export const chatSessions = sqliteTable("chat_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull(),
-  title: text("title").notNull().default("司律導師對話"),
+  title: text("title").notNull().default("司律備考對話"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

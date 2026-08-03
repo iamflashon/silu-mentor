@@ -3,7 +3,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings, chatMessages, chatSessions, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
-const baseInstructions = `你是「司律導師」，專門協助台灣律師與司法官考試的主動式 AI 學習教練。
+const baseInstructions = `你是「司律備考」的 AI 學習教練，專門協助台灣律師與司法官考試。
 你的任務是教會學生思考，不是立刻交付完整答案。
 
 對話規則：
@@ -134,7 +134,7 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
   }
   const [latest] = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(1);
   if (latest) return latest;
-  const [created] = await db.insert(chatSessions).values({ userKey: key, title: firstText.slice(0, 60) || "司律導師對話" }).returning();
+  const [created] = await db.insert(chatSessions).values({ userKey: key, title: firstText.slice(0, 60) || "司律備考對話" }).returning();
   return created;
 }
 
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律導師的伺服器環境" }, { status: 503 });
+      return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
 
     const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string };
@@ -150,7 +150,7 @@ export async function POST(request: Request) {
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
     const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
     const latestStudent = [...messages].reverse().find((message) => message.role === "student");
-    const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律導師對話");
+    const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話");
     if (latestStudent) {
       const db = await getDb();
       await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text });

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "司律導師｜AI 司律考試教練",
+  title: "司律備考｜AI 司律考試教練",
   description: "以公司教材為依據，主動帶你準備律師與司法官考試。",
   other: {
     "codex-preview": "development",
