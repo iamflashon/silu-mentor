@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "fast-xml-parser": "^5.2.5",
+    "fflate": "^0.8.2",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -40,5 +42,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "\u53f8\u5f8b\u5c0e\u5e2b"
+  "displayName": "司律導師"
 }

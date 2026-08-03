@@ -226,3 +226,58 @@ export const listeningSolutions = sqliteTable("listening_solutions", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const legalDataSources = sqliteTable("legal_data_sources", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sourceKey: text("source_key").notNull().unique(),
+  label: text("label").notNull(),
+  category: text("category").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  status: text("status").notNull().default("waiting"),
+  documentCount: integer("document_count").notNull().default(0),
+  articleCount: integer("article_count").notNull().default(0),
+  importCursor: integer("import_cursor").notNull().default(0),
+  totalAvailable: integer("total_available").notNull().default(0),
+  archiveStorageKey: text("archive_storage_key"),
+  lastError: text("last_error"),
+  lastDownloadedAt: integer("last_downloaded_at", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const legalDocuments = sqliteTable("legal_documents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sourceKey: text("source_key").notNull(),
+  externalId: text("external_id").notNull().unique(),
+  title: text("title").notNull(),
+  category: text("category").notNull().default(""),
+  modifiedDate: text("modified_date").notNull().default(""),
+  effectiveDate: text("effective_date").notNull().default(""),
+  history: text("history").notNull().default(""),
+  sourceUrl: text("source_url").notNull().default(""),
+  status: text("status").notNull().default("active"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const legalArticles = sqliteTable("legal_articles", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: integer("document_id").notNull().references(() => legalDocuments.id, { onDelete: "cascade" }),
+  articleNo: text("article_no").notNull(),
+  hierarchy: text("hierarchy").notNull().default(""),
+  content: text("content").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const judicialCases = sqliteTable("judicial_cases", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jid: text("jid").notNull().unique(),
+  court: text("court").notNull().default(""),
+  year: text("year").notNull().default(""),
+  caseType: text("case_type").notNull().default(""),
+  caseNo: text("case_no").notNull().default(""),
+  judgmentDate: text("judgment_date").notNull().default(""),
+  title: text("title").notNull().default(""),
+  fullText: text("full_text").notNull().default(""),
+  rawJson: text("raw_json").notNull().default(""),
+  status: text("status").notNull().default("active"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
