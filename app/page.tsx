@@ -15,6 +15,8 @@ type MagazineArticle = { id: number; title: string; summary: string; issue: stri
 type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: string[] };
 type LegalLesson = { documentId: number; title: string; articleNo: string; hierarchy: string; content: string };
 type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string };
+type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
+type PracticeRecommendation = { type: string; title: string; location: string; url: string; startSeconds: number | null };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
@@ -47,11 +49,20 @@ export default function Home() {
   const [practiceQuestion, setPracticeQuestion] = useState<PracticeQuestion | null>(null);
   const [practiceLoading, setPracticeLoading] = useState(false);
   const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
+  const [practiceCoachInput, setPracticeCoachInput] = useState("");
+  const [practiceCoachMessages, setPracticeCoachMessages] = useState<PracticeCoachMessage[]>([]);
+  const [practiceCoachGap, setPracticeCoachGap] = useState("");
+  const [practiceCoachIssue, setPracticeCoachIssue] = useState("");
+  const [practiceCoachRecommendations, setPracticeCoachRecommendations] = useState<PracticeRecommendation[]>([]);
+  const [practiceCoaching, setPracticeCoaching] = useState(false);
+  const practiceCoachEndRef = useRef<HTMLDivElement>(null);
   const [savedMessage, setSavedMessage] = useState<number | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [legalLesson, setLegalLesson] = useState<LegalLesson | null>(null);
   const [dictionaryTerm, setDictionaryTerm] = useState("");
   const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
+  const [dictionaryFeatured, setDictionaryFeatured] = useState<DictionaryResult | null>(null);
+  const [dictionaryFeaturedLoading, setDictionaryFeaturedLoading] = useState(false);
   const [dictionaryNotice, setDictionaryNotice] = useState("");
   const [dictionaryLoading, setDictionaryLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
@@ -85,6 +96,8 @@ export default function Home() {
 
   useEffect(() => { fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed(await response.json() as HomeFeed); }).catch(() => undefined); }, []);
   useEffect(() => { fetch("/api/legal-learning").then(async (response) => { if (response.ok) setLegalLesson(((await response.json()) as { article?: LegalLesson | null }).article ?? null); }).catch(() => undefined); }, []);
+  useEffect(() => { fetch("/api/legal-dictionary?random=1").then(async (response) => { if (response.ok) setDictionaryFeatured(await response.json() as DictionaryResult); }).catch(() => undefined); }, []);
+  useEffect(() => { practiceCoachEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [practiceCoachMessages, practiceCoaching]);
 
   useEffect(() => {
     fetch("/api/dashboard").then(async (response) => {
@@ -114,7 +127,7 @@ export default function Home() {
   }
 
   async function startPractice(examType: "mcq" | "essay") {
-    setPracticeLoading(true); setPracticeAnswer(null);
+    setPracticeLoading(true); setPracticeAnswer(null); setPracticeCoachInput(""); setPracticeCoachMessages([]); setPracticeCoachGap(""); setPracticeCoachIssue(""); setPracticeCoachRecommendations([]);
     try {
       const response = await fetch(`/api/practice?type=${examType}`); const result = await response.json() as { question?: PracticeQuestion | null; message?: string };
       if (result.question) setPracticeQuestion(result.question);
@@ -145,9 +158,60 @@ export default function Home() {
     setDictionaryLoading(false);
   }
 
+  async function loadRandomDictionary() {
+    setDictionaryFeaturedLoading(true);
+    try {
+      const response = await fetch("/api/legal-dictionary?random=1");
+      if (response.ok) setDictionaryFeatured(await response.json() as DictionaryResult);
+    } finally {
+      setDictionaryFeaturedLoading(false);
+    }
+  }
+
   function teachDictionaryTerm() {
     if (!dictionaryResult) return;
     void send(`請用司律考生能理解的方式教我法律名詞「${dictionaryResult.term}」。\n司法院裁判書用語辭典內容：\n${dictionaryResult.content}\n請先說明白話意思，再補充它常出現在哪一科、容易和什麼概念混淆，最後問我一個判斷題。`);
+  }
+
+  function teachFeaturedDictionaryTerm() {
+    if (!dictionaryFeatured) return;
+    void send(`請用司律考生能理解的方式教我法律名詞「${dictionaryFeatured.term}」。\n司法院裁判書用語辭典內容：\n${dictionaryFeatured.content}\n請先說明白話意思，再補充它常出現在哪一科、容易和什麼概念混淆，最後問我一個判斷題。`);
+  }
+
+  function recommendationUrl(item: PracticeRecommendation) {
+    if (!item.url || item.startSeconds == null) return item.url;
+    try {
+      const url = new URL(item.url);
+      if (url.hostname === "youtu.be") url.searchParams.set("t", String(item.startSeconds));
+      else if (url.hostname.includes("youtube.com")) url.searchParams.set("t", `${item.startSeconds}s`);
+      else url.hash = `t=${item.startSeconds}`;
+      return url.toString();
+    } catch { return item.url; }
+  }
+
+  async function askPracticeCoach() {
+    if (!practiceQuestion || practiceCoaching || !practiceCoachInput.trim()) return;
+    const studentMessage = { role: "student" as const, text: practiceCoachInput.trim() };
+    const messagesForRequest = [...practiceCoachMessages, studentMessage];
+    setPracticeCoachMessages(messagesForRequest);
+    setPracticeCoachInput("");
+    setPracticeCoaching(true);
+    try {
+      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest }) });
+      const result = await response.json() as { reply?: string; diagnosedGap?: string; keyIssue?: string; recommendations?: PracticeRecommendation[]; error?: string };
+      setPracticeCoachMessages((current) => [...current, { role: "mentor", text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" }]);
+      if (response.ok) {
+        setPracticeCoachGap(result.diagnosedGap ?? "");
+        setPracticeCoachIssue(result.keyIssue ?? "");
+        setPracticeCoachRecommendations(result.recommendations ?? []);
+      }
+    } finally {
+      setPracticeCoaching(false);
+    }
+  }
+
+  function beginEssayCoach() {
+    setPracticeCoachMessages([{ role: "mentor", text: "先不要急著寫完整答案。請先說出本題的人物、行為、時間，以及你看到的第一個法律爭點。" }]);
   }
 
   async function answerMcq(answer: string) {
@@ -263,7 +327,7 @@ export default function Home() {
       </header>
       <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker ?? ["距離目標再前進一小步"]).join("　◆　")}</span></div></div>
 
-      <div className="home-date-line" aria-label="今天日期"><span>今天｜{dateLabel(today)}</span>{legalLesson ? <button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button> : <span className="daily-law-pending">法條完成匯入後顯示「法條學習」</span>}</div>
+      <div className="home-date-line" aria-label="今天日期"><span>今天｜{dateLabel(today)}</span>{legalLesson ? <button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}</div>
 
       <div className={`command-layout rail-${railSide}`}>
       <section className="conversation" aria-live="polite">
@@ -272,7 +336,19 @@ export default function Home() {
           <h1>今天，照計畫前進。</h1>
           <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
         </div>
-        {practiceQuestion && <section className="practice-card"><div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year} · {practiceQuestion.subject} · 第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div><p className="practice-stem">{practiceQuestion.stem}</p>{practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid">{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={() => { const question = practiceQuestion; setPracticeQuestion(null); send(`請用申論題審題方式帶我分析這題；先從人物、行為、時間與法律關係開始提問，不要直接給完整答案：\n${question.stem}`); }}>開始學審題</button>}{practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。完整解析暫不展開，先回答導師接下來的問題。</span></div>}</section>}
+        {practiceQuestion && <section className="practice-card" aria-label="對話中的真題教練">
+          <div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year} · {practiceQuestion.subject} · 第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div>
+          <p className="practice-stem">{practiceQuestion.stem}</p>
+          {practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid">{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={beginEssayCoach}>開始學審題</button>}
+          {practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。請在下方直接回答教練。</span></div>}
+          {practiceCoachMessages.length > 0 && <section className="practice-coach home-practice-coach">
+            <header><div><span>真題教練</span><h3>直接在這道題裡回答</h3></div></header>
+            <div className="practice-coach-messages">{practiceCoachMessages.map((message, index) => <div className={message.role} key={`${message.role}-${index}`}><b>{message.role === "mentor" ? "教練" : "我"}</b><p>{message.text}</p></div>)}<div ref={practiceCoachEndRef} /></div>
+            {(practiceCoachIssue || practiceCoachGap) && <div className="practice-diagnosis">{practiceCoachIssue && <p><b>核心爭點</b>{practiceCoachIssue}</p>}{practiceCoachGap && <p><b>需要加強</b>{practiceCoachGap}</p>}</div>}
+            <form onSubmit={(event) => { event.preventDefault(); void askPracticeCoach(); }}><textarea value={practiceCoachInput} onChange={(event) => setPracticeCoachInput(event.target.value)} placeholder="直接回答教練的問題；不知道也可以說卡在哪裡" rows={2} /><button disabled={practiceCoaching || !practiceCoachInput.trim()}>{practiceCoaching ? "教練思考中…" : "送出回答"}</button></form>
+            {practiceCoachRecommendations.length > 0 && <div className="practice-recommendations"><strong>依這題推薦補強</strong><div>{practiceCoachRecommendations.map((item, index) => <article key={`${item.type}-${item.title}-${index}`}><span>{item.type === "law" ? "法條" : item.type === "course" ? "影音" : "教材"}</span><b>{item.title}</b><p>{item.location}</p>{item.url && <a href={recommendationUrl(item)} target="_blank" rel="noreferrer">{item.type === "course" && item.startSeconds != null ? "跳到這個時間點 ↗" : "開啟內容 ↗"}</a>}</article>)}</div></div>}
+          </section>}
+        </section>}
 
         {todayTasks.length > 0 && <details className="today-plan-card">
           <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.status !== "completed")?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
@@ -311,10 +387,10 @@ export default function Home() {
 
       <aside className="command-rail">
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
-        <section className="rail-card rail-practice"><div className="rail-title"><strong>練真題</strong><span>在對話中引導</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
+        <section className="rail-card legal-dictionary-card"><div className="rail-title"><strong>法律辭典</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院來源 ↗</a></div><p>可自己查名詞，也可以讓 AI 隨機抽一個考試常見用語。</p>{dictionaryFeatured && <div className="dictionary-featured"><span>AI 今日隨機</span><strong>{dictionaryFeatured.term}</strong><p>{dictionaryFeatured.content}</p><div><button type="button" onClick={teachFeaturedDictionaryTerm}>讓 AI 教我</button><button type="button" onClick={() => void loadRandomDictionary()} disabled={dictionaryFeaturedLoading}>{dictionaryFeaturedLoading ? "換題中…" : "換一個"}</button></div></div>}<form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="例如：比例原則、抗告、系爭" aria-label="輸入法律名詞" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "查詢中…" : "查辭典"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><strong>{dictionaryResult.term}</strong><p>{dictionaryResult.content}</p><button type="button" onClick={teachDictionaryTerm}>讓 AI 教我</button></div>}</section>
+        <section className="rail-card rail-practice"><div className="rail-title"><strong>練真題</strong><span>真題直接嵌入對話</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
         <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
-        <article className="home-editorial-card rail-editorial-card rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專區</h2><span>摘要與核心爭點分開整理，再進入 AI 學習</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <p className="magazine-article-summary"><b>摘要</b>{article.summary}</p>}<p className="magazine-article-issue"><b>核心爭點</b>{article.issue || (article.reviewStatus === "draft" ? "尚待後台擷取／確認" : "尚未擷取核心爭點")}</p></div><button type="button" onClick={() => askMagazineArticle(article)}>AI 帶入</button></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
-        <section className="rail-card legal-dictionary-card"><div className="rail-title"><strong>法律辭典</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院來源 ↗</a></div><p>查裁判書中的法律名詞，再交給 AI 用考試角度帶你理解。</p><form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="例如：比例原則、抗告、系爭" aria-label="輸入法律名詞" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "查詢中…" : "查辭典"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><strong>{dictionaryResult.term}</strong><p>{dictionaryResult.content}</p><button type="button" onClick={teachDictionaryTerm}>讓 AI 教我</button></div>}</section>
+        <article className="home-editorial-card rail-editorial-card rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專區</h2><span>顯示摘要；按 AI 帶入時會一併分析核心爭點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <p className="magazine-article-summary"><b>摘要</b>{article.summary}</p>}</div><button type="button" onClick={() => askMagazineArticle(article)}>AI 帶入</button></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
         <article className="home-editorial-card rail-editorial-card rail-music-card"><div className="column-kicker">FOCUS MUSIC</div><div className="home-editorial-head"><div><h2>讀書音樂</h2><span>需要時再開啟，不干擾今日學習</span></div><button type="button" className="music-play-button" onClick={(event) => requestYoutubePlay(event.currentTarget.closest(".rail-music-card"))}>▶</button></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen loading="eager" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">無法播放時，在 YouTube 開啟 ↗</a></> : <p className="column-empty">管理後台設定讀書音樂後，會在這裡提供播放。</p>}</article>
       </aside>
       </div>

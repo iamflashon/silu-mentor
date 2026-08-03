@@ -12,7 +12,16 @@ export async function GET(request: Request) {
     const db = await getDb();
     const where = subject ? and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType), eq(examQuestions.subject, subject)) : and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType));
     const [question] = await db.select().from(examQuestions).where(where).orderBy(sql`random()`).limit(1);
-    if (!question) return Response.json({ question: null, message: examType === "mcq" ? "一試真題庫尚未匯入可用題目" : "二試申論真題庫尚未匯入可用題目" });
+    if (!question) {
+      const [published] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(eq(examQuestions.examType, examType), eq(examQuestions.status, "published")));
+      const [drafts] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(eq(examQuestions.examType, examType), eq(examQuestions.status, "draft")));
+      const publishedCount = Number(published?.count ?? 0);
+      const draftCount = Number(drafts?.count ?? 0);
+      const message = examType === "mcq"
+        ? (draftCount ? `後台已有 ${draftCount} 題一試草稿，但尚未發布到前台。` : "一試真題庫尚未匯入可用題目")
+        : (draftCount ? `後台已有 ${draftCount} 題二試申論草稿，但尚未發布到前台；請先完成老師擬答核對，再按「發布前台」。` : "二試申論真題庫尚未匯入可用題目");
+      return Response.json({ question: null, publishedCount, draftCount, message });
+    }
     let options: Record<string, string> | null = null;
     try { options = question.optionsJson ? JSON.parse(question.optionsJson) as Record<string, string> : null; } catch { options = null; }
     return Response.json({ question: { id: question.id, examType: question.examType, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource, answerStatus: question.answerStatus } });

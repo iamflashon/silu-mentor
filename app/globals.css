@@ -233,6 +233,11 @@ a {
   border-radius: 18px;
   background: white;
   box-shadow: 0 12px 30px rgba(30, 63, 88, 0.07);
+  max-height: min(78dvh, 820px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-bottom: 24px;
 }
 .practice-meta {
   display: flex;
@@ -268,7 +273,7 @@ a {
 }
 .option-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 9px;
   width: min(100%, 960px);
 }
@@ -339,6 +344,19 @@ a {
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
+}
+.home-practice-coach {
+  margin-top: 16px;
+}
+.home-practice-coach .practice-coach-messages {
+  max-height: 290px;
+  overflow-y: auto;
+  padding-right: 5px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.home-practice-coach .practice-recommendations > div {
+  grid-template-columns: 1fr;
 }
 .message-list {
   min-height: 250px;
@@ -2384,7 +2402,7 @@ a {
 }
 .plan-tabs {
   display: grid;
-  grid-template-columns: repeat(7, 108px);
+  grid-template-columns: repeat(9, minmax(86px, 108px));
   justify-content: center;
   gap: 8px;
   margin: 0 0 20px;
@@ -2407,6 +2425,58 @@ a {
   cursor: pointer;
   box-shadow: 0 6px 18px rgba(31, 63, 86, 0.04);
 }
+
+.resource-learning-hub {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 22px;
+  border: 1px solid #d8e5eb;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 16px 34px rgba(38, 77, 103, .06);
+}
+.resource-learning-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.resource-learning-head p { margin: 0 0 6px; color: #6a8ca1; font-size: 10px; font-weight: 850; letter-spacing: .14em; }
+.resource-learning-head h2 { margin: 0; color: #264d67; font-size: 25px; }
+.resource-learning-head span:not(.resource-count) { display: block; margin-top: 7px; color: #78909d; font-size: 13px; line-height: 1.6; }
+.resource-count { padding: 7px 10px; border-radius: 9px; background: #edf5f7; color: #39708a; font-size: 12px; font-weight: 850; white-space: nowrap; }
+.resource-learning-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+.resource-list { display: grid; gap: 8px; align-content: start; }
+.resource-list > button { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 9px; width: 100%; padding: 11px; border: 1px solid #dce7ec; border-radius: 11px; background: #fbfdfe; color: #355b70; text-align: left; cursor: pointer; }
+.resource-list > button.active { border-color: #4e8baa; background: #edf7fa; box-shadow: inset 3px 0 #3e7d99; }
+.resource-list > button > span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: #e2eff3; color: #2b6a85; font-size: 13px; font-weight: 850; }
+.resource-list strong { display: block; overflow: hidden; color: #28516a; font-size: 14px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.resource-list small, .resource-list em { display: block; margin-top: 3px; color: #78909d; font-size: 11px; font-style: normal; line-height: 1.45; }
+.resource-list em { color: #4a8399; font-size: 10px; }
+.resource-study-panel { min-width: 0; padding: 16px; border: 1px solid #dce7ec; border-radius: 13px; background: #fbfdfe; }
+.resource-study-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.resource-study-panel > header > div:first-child > span { color: #6a8ca1; font-size: 11px; font-weight: 800; }
+.resource-study-panel h3 { margin: 5px 0 2px; color: #214d67; font-size: 23px; line-height: 1.4; }
+.resource-study-panel header small { color: #718895; font-size: 12px; }
+.resource-panel-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.resource-panel-actions button { white-space: nowrap; }
+.resource-message { margin: 12px 0 0; padding: 9px 10px; border-radius: 8px; background: #eef8f3; color: #39735d; font-size: 12px; line-height: 1.5; }
+.book-reader, .course-reader { margin-top: 15px; }
+.reader-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding: 9px 11px; border-radius: 9px; background: #eef5f8; color: #6e8794; font-size: 11px; }
+.reader-toolbar label { display: flex; align-items: center; gap: 7px; color: #416b80; font-weight: 800; white-space: nowrap; }
+.reader-toolbar input { width: 68px; padding: 6px 7px; border: 1px solid #cbdde5; border-radius: 7px; background: #fff; color: #294e64; font: inherit; }
+.book-reader iframe { display: block; width: 100%; height: 720px; border: 1px solid #d6e3e9; border-radius: 10px; background: #f3f6f8; }
+.reader-fallback { display: grid; place-items: center; min-height: 300px; padding: 25px; border: 1px dashed #cddfe7; border-radius: 10px; background: #f7fafb; color: #718894; text-align: center; }
+.reader-fallback a, .course-study-meta a { color: #2e7898; font-weight: 800; text-decoration: none; }
+.course-player { overflow: hidden; min-height: 260px; border-radius: 10px; background: #142d3d; }
+.course-player iframe, .course-player video { display: block; width: 100%; height: 500px; border: 0; background: #142d3d; }
+.course-study-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; padding: 10px 11px; border-radius: 9px; background: #eef5f8; }
+.course-study-meta strong, .course-study-meta span { display: block; color: #3e6579; font-size: 12px; line-height: 1.5; }
+.course-study-meta span { color: #718895; font-size: 11px; }
+.course-segment-list { display: grid; gap: 7px; max-height: 420px; overflow: auto; padding-right: 3px; }
+.course-segment-list > button { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 9px; width: 100%; padding: 10px; border: 1px solid #dbe7ec; border-radius: 9px; background: #fff; color: #3b6275; text-align: left; cursor: pointer; }
+.course-segment-list > button.active { border-color: #5b98ae; background: #edf7fa; }
+.course-segment-list > button > span { color: #3c829c; font-size: 11px; font-weight: 850; }
+.course-segment-list strong { display: block; color: #315d73; font-size: 13px; line-height: 1.45; }
+.course-segment-list small, .course-segment-list p { display: block; margin: 3px 0 0; color: #708792; font-size: 11px; line-height: 1.55; }
+.course-segment-list p { max-height: 48px; overflow: hidden; }
+.resource-empty { padding: 18px 13px; border: 1px dashed #d2e0e6; border-radius: 10px; background: #f8fafb; color: #7a8e99; font-size: 12px; line-height: 1.6; text-align: center; }
+.resource-empty-large { min-height: 280px; display: grid; place-items: center; }
 .plan-tabs button.active {
   background: #193d5a;
   border-color: #193d5a;
@@ -2483,7 +2553,7 @@ a {
 .practice-question-meta span { padding: 4px 7px; border-radius: 6px; background: #e7f0f5; color: #3b6d88; font-size: 9px; font-weight: 850; }
 .practice-question-meta b { color: #527287; font-size: 12px; }
 .practice-question-stem { margin: 16px 0; color: #29475b; font-size: 16px; line-height: 1.9; white-space: pre-wrap; }
-.practice-option-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.practice-option-list { display: grid; grid-template-columns: 1fr; gap: 9px; }
 .practice-option-list { width: 100%; }
 .practice-option-list button { display: flex; align-items: flex-start; gap: 9px; min-width: 0; min-height: 86px; padding: 11px; border: 1px solid #d8e4eb; border-radius: 10px; background: #fff; color: #466578; text-align: left; cursor: pointer; }
 .practice-option-list button:hover:not(:disabled), .practice-option-list button.chosen { border-color: #6c9bb4; background: #eef6f9; }
@@ -2740,7 +2810,8 @@ a {
 .daily-law-button b { flex: 0 0 auto; margin-right: 7px; color: #26728c; font-size: 11px; }
 .daily-law-button span { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .daily-law-button:hover { border-color: #75a8bd; background: #e6f3f6; }
-.daily-law-pending { color: #8a9ba6; font-size: 10px; }
+.daily-law-pending { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px dashed #c5d8e2; border-radius: 999px; color: #6e8797; background: #f8fbfc; font-size: 10px; }
+.daily-law-pending b { color: #26728c; font-size: 11px; }
 .pulse-luck > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pulse-luck select { width: 78px; padding: 5px 6px; border: 1px solid #cfdee6; border-radius: 7px; color: #54778b; background: #f8fbfc; font-size: 8px; }
 .pulse-music iframe { width: 100%; height: 96px; margin-top: 6px; border: 0; border-radius: 7px; background: #edf4f7; }
@@ -2761,6 +2832,14 @@ a {
 .home-focus-row time { flex: 0 0 auto; color: #6c8ba0; font-size: 9px; }
 .home-focus-row span { overflow: hidden; color: #31566f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .legal-dictionary-card > p { margin: 8px 0 0; color: #6f8592; font-size: 12px; line-height: 1.6; }
+.dictionary-featured { margin-top: 11px; padding: 11px; border: 1px solid #cfe1e8; border-radius: 10px; background: #f2f8fa; }
+.dictionary-featured > span { display: block; color: #43829a; font-size: 10px; font-weight: 850; letter-spacing: .06em; }
+.dictionary-featured > strong { display: block; margin-top: 5px; color: #245a76; font-size: 18px; }
+.dictionary-featured > p { display: -webkit-box; overflow: hidden; margin: 6px 0 9px; color: #506f80; font-size: 12px; line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.dictionary-featured > div { display: flex; gap: 7px; }
+.dictionary-featured button { flex: 1; padding: 8px 9px; border: 0; border-radius: 8px; background: #285f80; color: #fff; font-size: 11px; font-weight: 800; cursor: pointer; }
+.dictionary-featured button + button { border: 1px solid #bdd2dc; background: #fff; color: #356b83; }
+.dictionary-featured button:disabled { opacity: .55; cursor: wait; }
 .legal-dictionary-card form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 11px; }
 .legal-dictionary-card input { min-width: 0; padding: 10px 11px; border: 1px solid #cbdce5; border-radius: 9px; background: #fbfdfe; color: #31566f; font-size: 13px; outline: 0; }
 .legal-dictionary-card input:focus { border-color: #6e9fb8; box-shadow: 0 0 0 3px rgba(70, 130, 158, .1); }
@@ -2817,16 +2896,16 @@ a {
 .rail-magazine-card { padding: 18px; }
 .rail-magazine-card .column-kicker { font-size: 11px; letter-spacing: .08em; }
 .rail-magazine-card .home-editorial-head h2,
-.rail-magazine-card .column-heading h2 { font-size: 22px; }
+.rail-magazine-card .column-heading h2 { font-size: 19px; }
 .rail-magazine-card .home-editorial-head span,
 .rail-magazine-card .column-heading span { margin-top: 6px; color: #607d8f; font-size: 14px; line-height: 1.55; }
 .rail-magazine-card > strong { margin-top: 16px; color: #214f6c; font-size: 17px; line-height: 1.5; white-space: normal; }
 .rail-magazine-card .magazine-article-list { gap: 2px; margin-top: 12px; }
 .rail-magazine-card .magazine-article-row { align-items: start; padding: 15px 0; gap: 8px 12px; }
-.magazine-article-copy h3 { margin: 0; color: #214f6c; font-size: 16px; font-weight: 850; line-height: 1.55; }
+.magazine-article-copy h3 { margin: 0; color: #214f6c; font-size: 14px; font-weight: 850; line-height: 1.55; }
 .magazine-article-copy p { margin: 8px 0 0; }
 .magazine-article-copy b { display: block; margin-bottom: 3px; font-size: 12px; letter-spacing: .03em; }
-.magazine-article-summary { color: #5e7684; font-size: 14px; line-height: 1.7; }
+.magazine-article-summary { color: #5e7684; font-size: 12px; line-height: 1.7; }
 .magazine-article-summary b { color: #6b8796; }
 .magazine-article-issue { padding: 9px 10px; border-radius: 9px; background: #edf6f8; color: #214f68; font-size: 15px; font-weight: 650; line-height: 1.7; }
 .magazine-article-issue b { color: #25718a; }
@@ -3371,6 +3450,24 @@ a {
   .practice-card {
     margin-left: 0;
   }
+  .home-practice-coach .practice-coach-messages {
+    max-height: 250px;
+  }
+  .rail-magazine-card .home-editorial-head h2 {
+    font-size: 17px;
+  }
+  .rail-magazine-card .home-editorial-head span {
+    font-size: 11px;
+  }
+  .rail-magazine-card > strong {
+    font-size: 14px;
+  }
+  .magazine-article-copy h3 {
+    font-size: 13px;
+  }
+  .magazine-article-summary {
+    font-size: 11px;
+  }
   .option-grid {
     grid-template-columns: 1fr;
   }
@@ -3474,6 +3571,19 @@ a {
     font-size: 11px;
     white-space: normal;
   }
+  .resource-learning-hub { width: calc(100% - 28px); padding: 15px; }
+  .resource-learning-head { align-items: flex-start; }
+  .resource-learning-head h2 { font-size: 22px; }
+  .resource-learning-head span:not(.resource-count) { font-size: 12px; }
+  .resource-learning-layout { grid-template-columns: 1fr; }
+  .resource-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .resource-study-panel > header { flex-direction: column; }
+  .resource-panel-actions { width: 100%; justify-content: flex-start; }
+  .resource-panel-actions button { flex: 1; }
+  .reader-toolbar { align-items: flex-start; flex-direction: column; }
+  .book-reader iframe { height: 560px; }
+  .course-player iframe, .course-player video { height: 250px; }
+  .course-study-meta { align-items: flex-start; flex-direction: column; }
   .exam-gateway { grid-template-columns: 1fr; }
   .exam-gateway article { align-items: flex-start; }
   .practice-lab-head, .legal-search-head { flex-direction: column; }

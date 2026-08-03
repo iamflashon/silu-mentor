@@ -22,7 +22,10 @@ function readableText(html: string) {
 }
 
 export async function GET(request: Request) {
-  const term = (new URL(request.url).searchParams.get("q") ?? "").trim().slice(0, 40);
+  const url = new URL(request.url);
+  const random = url.searchParams.get("random") === "1";
+  const randomTerms = ["比例原則", "信賴保護", "既判力", "抗告", "正當防衛", "不真正不作為", "訴之主觀預備合併"];
+  const term = (url.searchParams.get("q") ?? (random ? randomTerms[Math.floor(Math.random() * randomTerms.length)] : "")).trim().slice(0, 40);
   if (!term) return Response.json({ error: "請輸入法律名詞" }, { status: 400 });
   const sourceUrl = `https://terms.judicial.gov.tw/TermContent.aspx?SYS=V&TRMTERM=${encodeURIComponent(term)}`;
   try {

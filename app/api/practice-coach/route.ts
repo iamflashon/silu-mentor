@@ -37,7 +37,7 @@ function questionText(question: { stem: string; optionsJson: string | null }) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { questionId?: number; selectedAnswer?: string; action?: CoachAction; messages?: CoachMessage[] };
+    const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[] };
     const questionId = Number(body.questionId);
     const action: CoachAction = ["variation_basic", "variation_advanced"].includes(String(body.action)) ? body.action as CoachAction : "coach";
     if (!Number.isInteger(questionId)) return Response.json({ error: "缺少真題資料" }, { status: 400 });
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
       instructions: `你是台灣司律考試真題教練。只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${actionInstruction} 回覆 120 至 260 字。diagnosed_gap 要具體指出是法條記憶、程序階段、爭點辨認、要件理解、選項比較或涵攝哪一種缺口。key_issue 用一句話寫出本題核心法律問題。只推薦與本題直接相關的候選 ID；沒有合適資料就回傳空陣列。不得使用 Markdown 星號。`,
-      input: `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n正確答案：${question.correctAnswer || "申論題"}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生選項：${body.selectedAnswer || "未提供"}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`,
+      input: `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n正確答案：${question.correctAnswer || "申論題"}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生選項：${body.selectedAnswer || "未提供"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`,
       text: { format: { type: "json_schema", name: "practice_coach", strict: true, schema: { type: "object", additionalProperties: false, properties: { reply: { type: "string" }, diagnosed_gap: { type: "string" }, key_issue: { type: "string" }, recommended_resource_ids: { type: "array", items: { type: "integer" } }, recommended_law_ids: { type: "array", items: { type: "integer" } } }, required: ["reply", "diagnosed_gap", "key_issue", "recommended_resource_ids", "recommended_law_ids"] } } },
     }) });
     const parsed = JSON.parse(outputText(payload)) as { reply: string; diagnosed_gap: string; key_issue: string; recommended_resource_ids: number[]; recommended_law_ids: number[] };

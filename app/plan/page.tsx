@@ -11,6 +11,8 @@ type Task = { id: number; planId: number; taskDate: string; subject: string; tit
 type Draft = { id?: number; date: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type StudyRecord = { id: number; recordDate: string; subject: string; title: string; activityType: string; plannedMinutes: number; actualMinutes: number; correct: boolean | null; reflection: string; weakness: string; nextStep: string };
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
+type LearningResource = { id: number; resourceType: "book" | "course" | "magazine"; title: string; subject: string; creator: string; description: string; documentId: number | null; sourceUrl: string; accessType: string; status: string; segmentCount: number; hasCover?: number };
+type ResourceSegment = { id: number; resourceId: number; segmentType: string; lessonLabel: string; title: string; pageStart: number | null; pageEnd: number | null; startSeconds: number | null; endSeconds: number | null; text: string; summary: string; importance: number; recommended: boolean; sequence: number };
 type HomeFeed = { magazine: { id: number; title: string; sourceUrl: string; description?: string; isDraft?: boolean; articles?: Array<{ id: number; title: string; summary: string; issue: string; reviewStatus: string; sequence: number }> } | null; listening: ListeningFeed | null; focusMusicUrl?: string };
 
 const subjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法", "綜合"];
@@ -31,9 +33,18 @@ export default function StudyPlanPage() {
   const [notePage, setNotePage] = useState(1);
   const [noteQuery, setNoteQuery] = useState("");
   const [recordDraft, setRecordDraft] = useState({ subject: "刑法", title: "", actualMinutes: 60, weakness: "", nextStep: "" });
-  const [activeTab, setActiveTab] = useState<"calendar" | "practice" | "laws" | "listening" | "magazine" | "records" | "notes">("calendar");
+  const [activeTab, setActiveTab] = useState<"calendar" | "practice" | "laws" | "books" | "courses" | "listening" | "magazine" | "records" | "notes">("calendar");
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
+  const [resources, setResources] = useState<LearningResource[]>([]);
+  const [selectedResourceId, setSelectedResourceId] = useState<number | null>(null);
+  const [resourceSegments, setResourceSegments] = useState<ResourceSegment[]>([]);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
+  const [resourceProgress, setResourceProgress] = useState<Record<string, { page: number; segmentId: number | null; positionSeconds: number; updatedAt: string }>>(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(window.localStorage.getItem("silu-resource-progress") ?? "{}"); } catch { return {}; }
+  });
+  const [resourceMessage, setResourceMessage] = useState("");
 
   async function load() {
     const response = await fetch(`/api/study-plan?month=${month}`);
@@ -43,12 +54,22 @@ export default function StudyPlanPage() {
     setTasks(result.tasks ?? []);
   }
 
-  useEffect(() => { void load(); }, [month]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [month]);
   useEffect(() => {
     fetch("/api/learning-records").then(async (response) => { if (response.ok) setRecords(((await response.json()) as { records?: StudyRecord[] }).records ?? []); });
     fetch("/api/notes").then(async (response) => { if (response.ok) setNotes(((await response.json()) as { notes?: SavedNote[] }).notes ?? []); });
     fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed((await response.json()) as HomeFeed); });
+    fetch("/api/resources").then(async (response) => { if (response.ok) setResources(((await response.json()) as { resources?: LearningResource[] }).resources ?? []); });
   }, []);
+
+  useEffect(() => {
+    const resource = resources.find((item) => item.id === selectedResourceId);
+    if (!resource || resource.resourceType !== "course") return;
+    fetch(`/api/resources/segments?resourceId=${resource.id}`).then(async (response) => { if (response.ok) setResourceSegments(((await response.json()) as { segments?: ResourceSegment[] }).segments ?? []); });
+  }, [resources, selectedResourceId]);
 
   const days = useMemo(() => {
     const [year, monthNumber] = month.split("-").map(Number);
@@ -64,7 +85,13 @@ export default function StudyPlanPage() {
   function openNew(day?: number) {
     setDraft({ date: day ? dateFor(day) : `${month}-01`, subject: "刑法", title: "", durationMinutes: 60, details: "", status: "pending" });
   }
-  function openTask(task: Task) { setDraft({ id: task.id, date: task.taskDate, subject: task.subject, title: task.title, durationMinutes: task.durationMinutes, details: task.details, status: task.status }); }
+  function openTask(task: Task) {
+    setDraft({ id: task.id, date: task.taskDate, subject: task.subject, title: task.title, durationMinutes: task.durationMinutes, details: task.details, status: task.status });
+    const marker = task.details.match(/\[resource:(\d+)\]/)?.[1];
+    const resourceId = marker ? Number(marker) : null;
+    const resource = resourceId ? resources.find((item) => item.id === resourceId) : resources.find((item) => task.title.includes(item.title));
+    if (resource) { setSelectedResourceId(resource.id); setActiveTab(resource.resourceType === "course" ? "courses" : "books"); }
+  }
 
   async function save() {
     if (!draft?.title.trim()) { setMessage("請輸入任務名稱"); return; }
@@ -96,12 +123,12 @@ export default function StudyPlanPage() {
   const filteredNotes = notes.filter((note) => !noteQuery.trim() || `${note.title} ${note.content} ${note.tags} ${note.subject}`.toLowerCase().includes(noteQuery.trim().toLowerCase()));
   const visibleRecords = records.slice((recordPage - 1) * 10, recordPage * 10);
   const visibleNotes = filteredNotes.slice((notePage - 1) * 10, notePage * 10);
-  function youtubeEmbedUrl(value: string) {
+  function youtubeEmbedUrl(value: string, startSeconds = 0) {
     try {
       const url = new URL(value.trim());
       let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? "");
       id = id.split(/[?&]/)[0];
-      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1&enablejsapi=1` : "";
+      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1&enablejsapi=1${startSeconds > 0 ? `&start=${Math.floor(startSeconds)}` : ""}` : "";
     } catch { return ""; }
   }
 
@@ -113,7 +140,32 @@ export default function StudyPlanPage() {
     } catch { return ""; }
   }
 
-  function requestYoutubePlay(root: Element | null) { const iframe = root?.querySelector<HTMLIFrameElement>("iframe"); iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), "https://www.youtube.com"); }
+  const bookResources = resources.filter((item) => item.resourceType === "book" && item.status !== "archived");
+  const courseResources = resources.filter((item) => item.resourceType === "course" && item.status !== "archived");
+  const selectedResource = resources.find((item) => item.id === selectedResourceId) ?? (activeTab === "courses" ? courseResources[0] : bookResources[0]) ?? null;
+  const selectedProgress = selectedResource ? resourceProgress[String(selectedResource.id)] : undefined;
+  const selectedSegment = resourceSegments.find((segment) => segment.id === (selectedSegmentId ?? selectedProgress?.segmentId)) ?? null;
+
+  function todayValue() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date()); }
+  function updateResourceProgress(resourceId: number, next: Partial<{ page: number; segmentId: number | null; positionSeconds: number }>) {
+    const updated = { page: 1, segmentId: null, positionSeconds: 0, updatedAt: new Date().toISOString(), ...resourceProgress[String(resourceId)], ...next };
+    const nextState = { ...resourceProgress, [String(resourceId)]: updated };
+    setResourceProgress(nextState);
+    window.localStorage.setItem("silu-resource-progress", JSON.stringify(nextState));
+  }
+  async function addResourceTask(resource: LearningResource) {
+    const isCourse = resource.resourceType === "course";
+    const response = await fetch("/api/study-plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: todayValue(), subject: resource.subject || "綜合", title: `${isCourse ? "影音" : "閱讀"}｜${resource.title}`, durationMinutes: isCourse ? 45 : 60, details: `[resource:${resource.id}] ${resource.description || `在學習專區內${isCourse ? "觀看課程與字幕" : "閱讀書籍內容"}，完成後留下接續點。`}` }) });
+    const result = await response.json() as { error?: string };
+    setResourceMessage(response.ok ? "已加入今天的行事曆，完成後會寫入學習紀錄。" : (result.error ?? "加入今日計畫失敗"));
+    if (response.ok) await load();
+  }
+  async function logResourceStudy(resource: LearningResource, actualMinutes: number, nextStep: string) {
+    const segmentLabel = selectedSegment ? `｜${selectedSegment.title}` : "";
+    const response = await fetch("/api/learning-records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordDate: todayValue(), subject: resource.subject || "綜合", title: `${resource.title}${segmentLabel}`, activityType: resource.resourceType === "course" ? "影音課程學習" : "書籍學習", actualMinutes, nextStep }) });
+    setResourceMessage(response.ok ? "已記錄今天的學習內容；AI 導師下次對話會讀取這筆紀錄。" : "學習紀錄暫時無法儲存");
+    if (response.ok) { const result = await response.json() as { record?: StudyRecord }; if (result.record) setRecords((current) => [result.record!, ...current]); }
+  }
 
   async function addRecord() {
     if (!recordDraft.title.trim()) return;
@@ -153,8 +205,17 @@ export default function StudyPlanPage() {
         <div><p>MY LEARNING CENTER</p><h1>學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律備考聊完後，AI 會把任務寫到這裡"}</span></div>
         {activeTab === "calendar" && <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>}
       </div>
-      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>書籍</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
       {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><article className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={homeFeed.listening} /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article></section>}
+      {(activeTab === "books" || activeTab === "courses") && <section className="resource-learning-hub" aria-label={activeTab === "books" ? "書籍學習" : "影音課程學習"}>
+        <div className="resource-learning-head"><div><p>{activeTab === "books" ? "READING ROOM" : "COURSE ROOM"}</p><h2>{activeTab === "books" ? "書籍學習" : "影音課程學習"}</h2><span>留在學習專區內完成；進度、今日計畫與學習紀錄會連在一起。</span></div><span className="resource-count">{(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>
+        <div className="resource-learning-layout"><aside className="resource-list" aria-label="可學習資源">{(activeTab === "books" ? bookResources : courseResources).map((resource) => <button key={resource.id} className={selectedResource?.id === resource.id ? "active" : ""} onClick={() => { setSelectedResourceId(resource.id); setSelectedSegmentId(null); setResourceMessage(""); }}><span>{resource.resourceType === "book" ? "書" : "課"}</span><div><strong>{resource.title}</strong><small>{resource.subject}{resource.creator ? ` · ${resource.creator}` : ""}</small><em>{resourceProgress[String(resource.id)] ? `上次接續：${resourceProgress[String(resource.id)]?.page ? `第 ${resourceProgress[String(resource.id)]?.page} 頁` : "已開始"}` : "尚未開始"}</em></div></button>)}{!(activeTab === "books" ? bookResources : courseResources).length && <div className="resource-empty">後台尚未建立{activeTab === "books" ? "書籍" : "影音課程"}資源。</div>}</aside>
+          {selectedResource ? <article className="resource-study-panel"><header><div><span>{selectedResource.subject} · {selectedResource.resourceType === "book" ? "書籍" : "影音課程"}</span><h3>{selectedResource.title}</h3>{selectedResource.creator && <small>{selectedResource.creator}</small>}</div><div className="resource-panel-actions"><button className="secondary-btn" onClick={() => void addResourceTask(selectedResource)}>＋ 加入今日計畫</button><button className="primary-btn" onClick={() => void logResourceStudy(selectedResource, selectedResource.resourceType === "course" ? 45 : 60, selectedResource.resourceType === "course" ? "下次從上次字幕段落接續" : `下次從第 ${selectedProgress?.page || 1} 頁接續`)}>完成本次學習</button></div></header>
+            {resourceMessage && <p className="resource-message">{resourceMessage}</p>}
+            {selectedResource.resourceType === "book" ? <div className="book-reader"><div className="reader-toolbar"><label>目前頁碼<input type="number" min="1" value={selectedProgress?.page || 1} onChange={(event) => updateResourceProgress(selectedResource.id, { page: Math.max(1, Number(event.target.value) || 1) })} /></label><span>上次接續會保存在這台裝置；完成按鈕會同步寫入學習日誌。</span></div>{selectedResource.documentId ? <iframe key={selectedResource.id} src={`/api/resources/document?resourceId=${selectedResource.id}#page=${selectedProgress?.page || 1}`} title={`${selectedResource.title} PDF 閱讀器`} /> : selectedResource.sourceUrl ? <div className="reader-fallback"><p>這本書尚未綁定平台 PDF，先開啟原始教材來源閱讀。</p><a href={selectedResource.sourceUrl} target="_blank" rel="noreferrer">開啟教材來源 ↗</a></div> : <div className="resource-empty">這本書尚未綁定 PDF，請到管理後台連結教材文件。</div>}</div> : <div className="course-reader"><div className="course-player">{youtubeEmbedUrl(selectedResource.sourceUrl, selectedSegment?.startSeconds || selectedProgress?.positionSeconds || 0) ? <iframe key={`${selectedResource.id}-${selectedSegment?.id || 0}`} src={youtubeEmbedUrl(selectedResource.sourceUrl, selectedSegment?.startSeconds || selectedProgress?.positionSeconds || 0)} title={`${selectedResource.title}影音播放器`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /> : selectedResource.sourceUrl ? <video controls src={selectedResource.sourceUrl} /> : <div className="resource-empty">這堂課尚未設定影片網址。</div>}</div><div className="course-study-meta"><div><strong>字幕與重點</strong><span>{resourceSegments.length ? `共 ${resourceSegments.length} 段，點擊即可從該時間點開始。` : "後台尚未上傳可跳轉的 SRT 字幕。"}</span></div>{selectedResource.sourceUrl && <a href={youtubeWatchUrl(selectedResource.sourceUrl) || selectedResource.sourceUrl} target="_blank" rel="noreferrer">另開課程頁 ↗</a>}</div>{resourceSegments.length > 0 && <div className="course-segment-list">{resourceSegments.map((segment) => <button key={segment.id} className={selectedSegment?.id === segment.id ? "active" : ""} onClick={() => { setSelectedSegmentId(segment.id); updateResourceProgress(selectedResource.id, { segmentId: segment.id, positionSeconds: segment.startSeconds || 0 }); }}><span>{segment.startSeconds != null ? `${Math.floor(segment.startSeconds / 60)}:${String(segment.startSeconds % 60).padStart(2, "0")}` : segment.sequence}</span><div><strong>{segment.title}</strong>{segment.summary && <small>{segment.summary}</small>}{segment.text && <p>{segment.text}</p>}</div></button>)}</div>}</div>}
+          </article> : <div className="resource-empty resource-empty-large">先從左側選擇一項{activeTab === "books" ? "書籍" : "影音課程"}，就在這裡開始。</div>}
+        </div>
+      </section>}
       {activeTab === "magazine" && <section className="learning-single-column" aria-label="法教專區"><article className="column-card law-column rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="column-heading"><div><h2>法教專區</h2><span>摘要與核心爭點分開整理，方便快速複習</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong>{homeFeed.magazine.isDraft && <p className="column-notice">目前先顯示後台匯入的試讀目錄，完整分析仍由後台確認。</p>}<div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <p className="magazine-article-summary"><b>摘要</b>{article.summary}</p>}<p className="magazine-article-issue"><b>核心爭點</b>{article.issue || (article.reviewStatus === "draft" ? "尚待後台分析／發布" : "尚未擷取核心爭點")}</p></div></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台尚未匯入法學教室試讀內容。</p>}</article></section>}
       {activeTab === "calendar" && <><div className="calendar-toolbar"><button onClick={() => moveMonth(-1)}>‹</button><strong>{month.replace("-", " 年 ")} 月</strong><button onClick={() => moveMonth(1)}>›</button></div>
       <div className="calendar-grid">
