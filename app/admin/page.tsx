@@ -1373,6 +1373,31 @@ export default function AdminPage() {
     );
   }
 
+  async function buildBookChapters(resource: LearningResource) {
+    if (!resource.documentId) {
+      setNotice("請先替這本書綁定已完成索引的教材 PDF。");
+      return;
+    }
+    setNotice(`正在從「${resource.title}」已建立的教材索引整理章節；不會重新上傳或讀取整份 PDF…`);
+    const response = await fetch("/api/resources/chapters", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ resourceId: resource.id }),
+    });
+    const result = (await readJson(response)) as {
+      chapters?: unknown[];
+      generated?: boolean;
+      reused?: boolean;
+      error?: string;
+    };
+    if (!response.ok) {
+      setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
+      return;
+    }
+    const count = result.chapters?.length ?? 0;
+    setNotice(result.reused ? `「${resource.title}」已有 ${count} 個已保存章節，這次沒有再次呼叫 AI。` : `「${resource.title}」已建立並保存 ${count} 個章節；之後前台只會讀取這些資料。`);
+  }
+
   async function bindCourseBook(
     resource: LearningResource,
     linkedBookId: string,
@@ -2546,20 +2571,30 @@ export default function AdminPage() {
                     </div>
                     <div className="resource-actions">
                       {resource.resourceType === "book" && (
-                        <select
-                          aria-label={`${resource.title}綁定教材 PDF`}
-                          value={resource.documentId ?? ""}
-                          onChange={(e) =>
-                            bindBookDocument(resource, e.target.value)
-                          }
-                        >
-                          <option value="">選擇教材 PDF</option>
-                          {files.map((file) => (
-                            <option key={file.id} value={file.id}>
-                              {file.name}
-                            </option>
-                          ))}
-                        </select>
+                        <>
+                          <select
+                            aria-label={`${resource.title}綁定教材 PDF`}
+                            value={resource.documentId ?? ""}
+                            onChange={(e) =>
+                              bindBookDocument(resource, e.target.value)
+                            }
+                          >
+                            <option value="">選擇教材 PDF</option>
+                            {files.map((file) => (
+                              <option key={file.id} value={file.id}>
+                                {file.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="subtitle-open"
+                            disabled={!resource.documentId}
+                            onClick={() => void buildBookChapters(resource)}
+                          >
+                            建立章節索引（一次）
+                          </button>
+                        </>
                       )}
                       {resource.resourceType === "course" && (
                         <select

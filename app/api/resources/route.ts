@@ -1,4 +1,4 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { documents, learningResources, resourceSegments } from "../../../db/schema";
 
@@ -129,6 +129,16 @@ export async function PUT(request: Request) {
   const id = Number(body.id);
   if (!id) return Response.json({ error: "缺少資源編號" }, { status: 400 });
   const db = await getDb();
+  const [current] = await db.select().from(learningResources).where(eq(learningResources.id, id)).limit(1);
+  if (!current) return Response.json({ error: "找不到資源" }, { status: 404 });
+  const nextDocumentId = Number(body.documentId) || null;
+  if (current.resourceType === "book" && current.documentId !== nextDocumentId) {
+    await db.delete(resourceSegments).where(and(
+      eq(resourceSegments.resourceId, id),
+      inArray(resourceSegments.segmentType, ["book_chapter", "chapter", "book_outline"]),
+    ));
+    await db.delete(appSettings).where(eq(appSettings.key, `book_chapters_status:${id}`));
+  }
   const [row] = await db
     .update(learningResources)
     .set({
@@ -136,7 +146,7 @@ export async function PUT(request: Request) {
       subject: String(body.subject ?? "刑法"),
       creator: String(body.creator ?? ""),
       description: String(body.description ?? ""),
-      documentId: Number(body.documentId) || null,
+      documentId: nextDocumentId,
       linkedBookId: Number(body.linkedBookId) || null,
       sourceUrl: String(body.sourceUrl ?? ""),
       accessType: String(body.accessType ?? "owned"),
