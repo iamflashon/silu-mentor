@@ -1,20 +1,10 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { chatMessages, chatSessions, studyPlans, studyRecords, studyTasks } from "../../../../db/schema";
+import { taipeiDate, taipeiGreeting } from "../../../../lib/taipei-time";
 
 function userKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
-}
-
-function taipeiDate() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
-
-function taipeiGreeting() {
-  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
-  if (hour >= 5 && hour < 12) return "早安";
-  if (hour >= 12 && hour < 18) return "午安";
-  return "晚安";
 }
 
 export async function GET(request: Request) {

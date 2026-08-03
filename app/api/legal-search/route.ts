@@ -21,6 +21,7 @@ export async function GET(request: Request) {
       eq(legalDocuments.status, "active"),
       or(
         like(legalDocuments.title, pattern),
+        like(legalDocuments.classification, pattern),
         like(legalArticles.articleNo, pattern),
         like(legalArticles.content, pattern),
         like(legalArticles.hierarchy, pattern),
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
         documentId: legalDocuments.id,
         title: legalDocuments.title,
         category: legalDocuments.category,
+        classification: legalDocuments.classification,
         modifiedDate: legalDocuments.modifiedDate,
         sourceUrl: legalDocuments.sourceUrl,
         articleNo: legalArticles.articleNo,

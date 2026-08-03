@@ -1,6 +1,7 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
 import { asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
+import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatMessages, chatSessions, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
 const baseInstructions = `你是「司律備考」的 AI 學習教練，專門協助台灣律師與司法官考試。
@@ -86,13 +87,6 @@ function inferSubject(text: string) {
   if (/行政法/.test(text)) return "行政法";
   if (/公司法|商法|票據法|保險法|證券交易法/.test(text)) return "商事法";
   return "綜合";
-}
-
-function taipeiGreeting() {
-  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
-  if (hour >= 5 && hour < 12) return "早安";
-  if (hour >= 12 && hour < 18) return "午安";
-  return "晚安";
 }
 
 const modelRates: Record<string, { input: number; cached: number; output: number }> = {
@@ -222,7 +216,7 @@ export async function POST(request: Request) {
       vectorStoreId = setting?.value ?? "";
     } catch { /* answer from model knowledge until the index is ready */ }
 
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const today = taipeiDate();
     let planContext = "目前尚未建立讀書計畫。";
     let recordContext = "目前尚無學習紀錄。";
     try {

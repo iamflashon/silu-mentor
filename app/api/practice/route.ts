@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examAttempts, examQuestions, studyRecords } from "../../../db/schema";
+import { taipeiDate } from "../../../lib/taipei-time";
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
     if (!question || question.examType !== "mcq" || !question.correctAnswer) return Response.json({ error: "找不到可作答的選擇題" }, { status: 404 });
     const correctAnswer = question.correctAnswer.toUpperCase(); const correct = answer === correctAnswer;
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId, selectedAnswer: answer, correct });
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
+    const date = taipeiDate();
     await db.insert(studyRecords).values({ userKey: userKey(request), questionId, recordDate: date, subject: question.subject, title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "一試練題", correct, weakness: correct ? "" : "本題觀念或選項判斷待補強", nextStep: correct ? "說明其他選項錯誤理由" : "回顧判斷關鍵並重做本題" });
     return Response.json({ correct, correctAnswer, guidance: correct ? "答對了。先別急著看完整解析：你能說說其他三個選項各錯在哪裡嗎？" : `這題正確答案是 ${correctAnswer}。先不公布完整解析：你當時選 ${answer} 的判斷關鍵是什麼？` });
   } catch { return Response.json({ error: "作答暫時無法儲存" }, { status: 500 }); }

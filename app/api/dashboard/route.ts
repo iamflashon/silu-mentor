@@ -1,9 +1,10 @@
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { studentMemos, studyPlans, studyRecords, studyTasks } from "../../../db/schema";
+import { taipeiDate } from "../../../lib/taipei-time";
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
-function todayTaipei() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
+function todayTaipei() { return taipeiDate(); }
 
 export async function GET(request: Request) {
   try {

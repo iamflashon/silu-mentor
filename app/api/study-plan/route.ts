@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { studyPlans, studyRecords, studyTasks } from "../../../db/schema";
+import { taipeiMonth } from "../../../lib/taipei-time";
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const month = url.searchParams.get("month") ?? "";
-    const validMonth = /^\d{4}-\d{2}$/.test(month) ? month : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).format(new Date()).slice(0, 7);
+    const validMonth = /^\d{4}-\d{2}$/.test(month) ? month : taipeiMonth();
     const db = await getDb();
     const tasks = await db.select().from(studyTasks).where(and(gte(studyTasks.taskDate, `${validMonth}-01`), lte(studyTasks.taskDate, `${validMonth}-31`))).orderBy(asc(studyTasks.taskDate), asc(studyTasks.id));
     const plans = await db.select().from(studyPlans).where(eq(studyPlans.active, true));

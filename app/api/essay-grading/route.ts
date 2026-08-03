@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examAttempts, examQuestions, studyRecords, usageLogs } from "../../../db/schema";
+import { taipeiDate } from "../../../lib/taipei-time";
 
 function userKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     if (!response.ok) return Response.json({ error: payload.error?.message ?? "AI 申論批改失敗" }, { status: 502 });
     const grading = JSON.parse(responseText(payload)) as { score: number; overall: string; dimensions: Array<{ criterion: string; score: number; max_score: number; result: string; evidence: string; missing: string }>; strengths: string[]; priority_fixes: string[]; next_step: string; source_used: string };
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId, selectedAnswer: null, correct: null, answerText: answer, gradingJson: JSON.stringify(grading) });
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
+    const date = taipeiDate();
     await db.insert(studyRecords).values({ userKey: userKey(request), questionId, recordDate: date, subject: question.subject, title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "二試申論批改", correct: null, reflection: grading.overall.slice(0, 1000), weakness: grading.priority_fixes.join("；").slice(0, 500), nextStep: grading.next_step.slice(0, 500) });
     const input = Number(payload.usage?.input_tokens ?? 0); const output = Number(payload.usage?.output_tokens ?? 0); const cached = Number(payload.usage?.input_tokens_details?.cached_tokens ?? 0);
     await db.insert(usageLogs).values({ model: process.env.OPENAI_ESSAY_GRADING_MODEL || "gpt-5.6-sol", source: "二試申論批改", inputTokens: input, cachedTokens: cached, outputTokens: output, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(((Math.max(0, input - cached) * 2.5 + cached * .25 + output * 15) / 1_000_000) * 1_000_000) });

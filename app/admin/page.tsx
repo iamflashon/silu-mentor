@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
+import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
 
 type Uploaded = {
   id: number;
@@ -218,10 +219,7 @@ async function readJson(response: Response) {
   }
 }
 
-type BrowserLegalEntry = {
-  category: "法律" | "命令";
-  record: Record<string, unknown>;
-};
+type BrowserLegalEntry = LegalArchiveEntry;
 
 function unzipArchive(bytes: Uint8Array) {
   return new Promise<Record<string, Uint8Array>>((resolve, reject) => {
@@ -230,38 +228,6 @@ function unzipArchive(bytes: Uint8Array) {
       else resolve(files);
     });
   });
-}
-
-function recordText(record: Record<string, unknown>, names: string[]) {
-  for (const name of names) {
-    const value = record[name];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-
-function collectBrowserLawRecords(value: unknown, rows: Record<string, unknown>[] = []) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectBrowserLawRecords(item, rows);
-  } else if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    if (
-      recordText(record, ["LawName", "法規名稱"]) &&
-      (record.LawArticles || record.Articles || record.條文)
-    ) rows.push(record);
-    else for (const child of Object.values(record)) collectBrowserLawRecords(child, rows);
-  }
-  return rows;
-}
-
-function compactBrowserLawRecord(record: Record<string, unknown>) {
-  const compact: Record<string, unknown> = {};
-  for (const name of [
-    "LawName", "法規名稱", "LawModifiedDate", "ModifiedDate", "最新異動日期",
-    "LawEffectiveDate", "EffectiveDate", "生效日期", "LawHistories", "Histories",
-    "沿革內容", "LawURL", "Url", "法規網址", "LawArticles", "Articles", "條文",
-  ]) if (record[name] !== undefined) compact[name] = record[name];
-  return compact;
 }
 
 function splitLegalEntries(entries: BrowserLegalEntry[], maxJsonBytes = 1_500_000) {
@@ -528,15 +494,14 @@ export default function AdminPage() {
   async function importLegalZipInBrowser(sourceKey: string, archive: Blob) {
     setNotice("正在瀏覽器中解壓全國法規 ZIP；這一步不受雲端處理時間限制…");
     const files = await unzipArchive(new Uint8Array(await archive.arrayBuffer()));
-    const targetFiles = Object.entries(files).filter(([name]) => /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name));
-    if (!targetFiles.length) throw new Error("ZIP 內找不到 ChLaw.json 或 ChOrder.json");
+    const targetFiles = Object.entries(files).filter(([name]) => /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name) || /(^|\/)FalV\.xml$/i.test(name) || /\.xml$/i.test(name));
+    if (!targetFiles.length) throw new Error("ZIP 內找不到 ChLaw.json、ChOrder.json 或 FalV.xml");
     const entries: BrowserLegalEntry[] = [];
     for (const [name, data] of targetFiles) {
       const raw = new TextDecoder("utf-8").decode(data).replace(/^\uFEFF/, "");
-      const records = collectBrowserLawRecords(JSON.parse(raw));
-      const category: "法律" | "命令" = /(^|\/)ChOrder\.json$/i.test(name) ? "命令" : "法律";
-      entries.push(...records.map((record) => ({ category, record: compactBrowserLawRecord(record) })));
-      delete files[name];
+      const records = /\.xml$/i.test(name) ? await parseLegalXml(raw) : collectLawObjects(JSON.parse(raw));
+      const fallback: "法律" | "命令" = /(^|\/)ChOrder\.json$/i.test(name) ? "命令" : "法律";
+      entries.push(...records.map((record) => ({ category: legalCategory(record, fallback), record: compactLegalRecord(record) })));
     }
     if (!entries.length) throw new Error("ZIP 已解壓，但沒有辨識到任何法律或命令");
     const batches = splitLegalEntries(entries);

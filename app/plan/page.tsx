@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import { PracticeLab } from "./practice-lab";
 import { LegalSearch } from "./legal-search";
+import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
 
 type Plan = { id: number; title: string; targetLabel: string; dailyMinutes: number };
 type Task = { id: number; planId: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
@@ -18,7 +19,7 @@ type HomeFeed = { magazine: { id: number; title: string; sourceUrl: string; desc
 const subjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法", "綜合"];
 
 function monthValue(date = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).format(date).slice(0, 7);
+  return taipeiMonth(date);
 }
 
 export default function StudyPlanPage() {
@@ -146,7 +147,7 @@ export default function StudyPlanPage() {
   const selectedProgress = selectedResource ? resourceProgress[String(selectedResource.id)] : undefined;
   const selectedSegment = resourceSegments.find((segment) => segment.id === (selectedSegmentId ?? selectedProgress?.segmentId)) ?? null;
 
-  function todayValue() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date()); }
+  function todayValue() { return taipeiDate(); }
   function updateResourceProgress(resourceId: number, next: Partial<{ page: number; segmentId: number | null; positionSeconds: number }>) {
     const updated = { page: 1, segmentId: null, positionSeconds: 0, updatedAt: new Date().toISOString(), ...resourceProgress[String(resourceId)], ...next };
     const nextState = { ...resourceProgress, [String(resourceId)]: updated };

@@ -1,0 +1,1 @@
+ALTER TABLE `legal_documents` ADD `classification` text DEFAULT '' NOT NULL;

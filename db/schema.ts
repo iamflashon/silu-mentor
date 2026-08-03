@@ -363,6 +363,7 @@ export const legalDocuments = sqliteTable("legal_documents", {
   externalId: text("external_id").notNull().unique(),
   title: text("title").notNull(),
   category: text("category").notNull().default(""),
+  classification: text("classification").notNull().default(""),
   modifiedDate: text("modified_date").notNull().default(""),
   effectiveDate: text("effective_date").notNull().default(""),
   history: text("history").notNull().default(""),

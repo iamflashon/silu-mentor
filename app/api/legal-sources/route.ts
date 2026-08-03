@@ -3,6 +3,16 @@ import { Unzip, UnzipInflate, UnzipPassThrough, unzipSync } from "fflate";
 import { XMLParser } from "fast-xml-parser";
 import { getDb } from "../../../db";
 import { legalArticles, legalDataSources, legalDocuments } from "../../../db/schema";
+import {
+  collectLawObjects,
+  compactLegalRecord,
+  legalCategory,
+  legalClassification,
+  legalTitle,
+  normalizedArticles,
+  pickLegalValue,
+  type LegalArchiveEntry,
+} from "../../../lib/legal-parser";
 
 const seeds = [
   { sourceKey: "moj-regulations", label: "全國法規", category: "法律／命令", sourceUrl: "https://sendlaw.moj.gov.tw/PublicData/GetFile.ashx?AuData=CF&DType=XML" },
@@ -16,52 +26,10 @@ async function seedSources() {
   return db;
 }
 
-function text(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value).trim();
-  if (Array.isArray(value)) return value.map(text).filter(Boolean).join("\n").trim();
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    for (const key of ["#text", "Text", "text", "Content", "content", "Value", "value"]) {
-      const nested = text(record[key]);
-      if (nested) return nested;
-    }
-  }
-  return "";
-}
-function pick(record: Record<string, unknown>, names: string[]) { for (const name of names) { const value = text(record[name]); if (value) return value; } return ""; }
-export function collectLawObjects(value: unknown, rows: Record<string, unknown>[] = []) {
-  if (Array.isArray(value)) for (const item of value) collectLawObjects(item, rows);
-  else if (value && typeof value === "object") { const record = value as Record<string, unknown>; if (pick(record, ["LawName", "法規名稱"]) && (record.LawArticles || record.Articles || record.條文)) rows.push(record); else for (const child of Object.values(record)) collectLawObjects(child, rows); }
-  return rows;
-}
-export function collectArticles(value: unknown, rows: Array<{ no: string; hierarchy: string; content: string }> = []) {
-  if (Array.isArray(value)) for (const item of value) collectArticles(item, rows);
-  else if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const content = pick(record, ["ArticleContent", "ArticleText", "Content", "條文內容", "條文"]);
-    const no = pick(record, ["ArticleNo", "ArticleNumber", "ArticleNum", "條號", "條次"]);
-    if (content && (no || /第\s*[^\s]+\s*條/.test(content))) {
-      rows.push({ no: no || content.match(/第\s*[^\s]+\s*條/)?.[0] || "", hierarchy: pick(record, ["ArticleKind", "Chapter", "Section", "編章節"]), content });
-    } else for (const child of Object.values(record)) collectArticles(child, rows);
-  }
-  return rows;
-}
-
-function normalizedArticles(value: unknown) {
-  return collectArticles(value)
-    .map((item, index) => ({
-      articleNo: item.no || `第${index + 1}條`,
-      hierarchy: item.hierarchy || "",
-      content: item.content.trim(),
-    }))
-    .filter((item) => item.content.length > 0);
-}
-
 async function insertArticles(db: Awaited<ReturnType<typeof getDb>>, documentId: number, value: unknown) {
   const articles = normalizedArticles(value);
   for (let index = 0; index < articles.length; index += 8) {
-    await db.insert(legalArticles).values(articles.slice(index, index + 8).map((item) => ({ documentId, ...item })));
+    await db.insert(legalArticles).values(articles.slice(index, index + 8).map((item) => ({ documentId, ...item, updatedAt: new Date() })));
   }
   return articles.length;
 }
@@ -69,8 +37,6 @@ function decodeArchive(bytes: Uint8Array) {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) { const files = unzipSync(bytes); return Object.entries(files).filter(([name]) => /\.xml$/i.test(name)).map(([, data]) => new TextDecoder("utf-8").decode(data)).join("\n"); }
   return new TextDecoder("utf-8").decode(bytes);
 }
-
-type LegalArchiveEntry = { record: Record<string, unknown>; category: "法律" | "命令" };
 
 // Keep the expensive ZIP decompression out of every import batch.  The first
 // batch prepares small JSON objects in R2; later requests read only the batch
@@ -92,58 +58,33 @@ function preparedBatchKey(archiveKey: string, index: number) {
   return `${archiveKey}.prepared-batches/${String(index).padStart(5, "0")}.json`;
 }
 
-function isMojJsonFile(name: string, sourceKey?: string) {
-  if (!/\.json$/i.test(name)) return false;
-  return sourceKey !== "moj-regulations" || /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name);
-}
-
-function compactLawRecord(record: Record<string, unknown>) {
-  const compact: Record<string, unknown> = {};
-  for (const name of [
-    "LawName",
-    "法規名稱",
-    "LawModifiedDate",
-    "ModifiedDate",
-    "最新異動日期",
-    "LawEffectiveDate",
-    "EffectiveDate",
-    "生效日期",
-    "LawHistories",
-    "Histories",
-    "沿革內容",
-    "LawURL",
-    "Url",
-    "法規網址",
-    "LawArticles",
-    "Articles",
-    "條文",
-  ]) {
-    if (record[name] !== undefined) compact[name] = record[name];
-  }
-  return compact;
+function isMojLawFile(name: string, sourceKey?: string) {
+  if (!/\.(json|xml)$/i.test(name)) return false;
+  return sourceKey !== "moj-regulations" || /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name) || /\.xml$/i.test(name);
 }
 
 function parseLegalArchive(bytes: Uint8Array, sourceKey?: string): LegalArchiveEntry[] {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
     const files = unzipSync(bytes);
-    const jsonEntries = Object.entries(files).filter(([name]) => {
-      if (!/\.json$/i.test(name)) return false;
-      if (sourceKey === "moj-regulations") return /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name);
+    const sourceEntries = Object.entries(files).filter(([name]) => {
+      if (!/\.(json|xml)$/i.test(name)) return false;
+      if (sourceKey === "moj-regulations") return /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name) || /\.xml$/i.test(name);
       return true;
     });
-    if (jsonEntries.length) {
+    if (sourceEntries.length) {
       const rows: LegalArchiveEntry[] = [];
-      for (const [name, data] of jsonEntries) {
+      for (const [name, data] of sourceEntries) {
         const raw = new TextDecoder("utf-8").decode(data).replace(/^\uFEFF/, "");
         const records: Record<string, unknown>[] = [];
-        collectLawObjects(JSON.parse(raw), records);
-        const category = /(^|\/)ChOrder\.json$/i.test(name) ? "命令" : "法律";
-        rows.push(...records.map((record) => ({ record, category })));
+        if (/\.xml$/i.test(name)) collectLawObjects(new XMLParser({ ignoreAttributes: false, trimValues: true, isArray: (tag) => tag === "法規" || tag === "條文" }).parse(raw), records);
+        else collectLawObjects(JSON.parse(raw), records);
+        const fallback = /(^|\/)ChOrder\.json$/i.test(name) ? "命令" : "法律";
+        rows.push(...records.map((record) => ({ record: compactLegalRecord(record), category: legalCategory(record, fallback) })));
       }
       return rows;
     }
   }
-  return collectLawObjects(new XMLParser({ ignoreAttributes: false, trimValues: true }).parse(decodeArchive(bytes))).map((record) => ({ record, category: "法律" }));
+  return collectLawObjects(new XMLParser({ ignoreAttributes: false, trimValues: true, isArray: (name) => name === "法規" || name === "條文" }).parse(decodeArchive(bytes))).map((record) => ({ record: compactLegalRecord(record), category: legalCategory(record) }));
 }
 
 /**
@@ -178,7 +119,7 @@ async function prepareLegalZipStream(
   };
 
   const unzip = new Unzip((file) => {
-    if (!isMojJsonFile(file.name, sourceKey)) return;
+    if (!isMojLawFile(file.name, sourceKey)) return;
 
     const chunks: Uint8Array[] = [];
     let byteLength = 0;
@@ -199,10 +140,11 @@ async function prepareLegalZipStream(
         }
         const raw = new TextDecoder("utf-8").decode(jsonBytes).replace(/^\uFEFF/, "");
         const records: Record<string, unknown>[] = [];
-        collectLawObjects(JSON.parse(raw), records);
-        const category = /(^|\/)ChOrder\.json$/i.test(file.name) ? "命令" : "法律";
+        if (/\.xml$/i.test(file.name)) collectLawObjects(new XMLParser({ ignoreAttributes: false, trimValues: true, isArray: (tag) => tag === "法規" || tag === "條文" }).parse(raw), records);
+        else collectLawObjects(JSON.parse(raw), records);
+        const fallback = /(^|\/)ChOrder\.json$/i.test(file.name) ? "命令" : "法律";
         for (const record of records) {
-          pendingEntries.push({ record: compactLawRecord(record), category });
+          pendingEntries.push({ record: compactLegalRecord(record), category: legalCategory(record, fallback) });
           if (pendingEntries.length >= legalImportBatchSize) flush();
         }
       } catch (caught) {
@@ -332,11 +274,12 @@ export async function POST(request: Request) {
       for (const incoming of entries) {
         if (!incoming || typeof incoming !== "object" || !incoming.record || typeof incoming.record !== "object") continue;
         const category: "法律" | "命令" = incoming.category === "命令" ? "命令" : "法律";
-        const law = compactLawRecord(incoming.record);
-        const title = pick(law, ["LawName", "法規名稱"]);
+        const law = compactLegalRecord(incoming.record);
+        const title = legalTitle(law);
         if (!title) continue;
         const externalId = `${sourceKey}:${category}:${title}`;
-        const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId, title, category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pick(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pick(law, ["LawURL", "Url", "法規網址"]) }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pick(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pick(law, ["LawURL", "Url", "法規網址"]), updatedAt: new Date() } }).returning();
+        const classification = legalClassification(law);
+        const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId, title, category, classification, modifiedDate: pickLegalValue(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pickLegalValue(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pickLegalValue(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pickLegalValue(law, ["LawURL", "Url", "法規網址"]) }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { category, classification, modifiedDate: pickLegalValue(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pickLegalValue(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pickLegalValue(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pickLegalValue(law, ["LawURL", "Url", "法規網址"]), updatedAt: new Date() } }).returning();
         await db.delete(legalArticles).where(eq(legalArticles.documentId, doc.id));
         articleCount += await insertArticles(db, doc.id, law.LawArticles || law.Articles || law.條文);
       }
@@ -364,7 +307,7 @@ export async function POST(request: Request) {
       const start = body.restart ? 0 : source.importCursor;
       const batch = await readPreparedBatch(env.BUCKET, manifest, start);
       let articleCount = 0;
-      for (const entry of batch) { const law = entry.record; const title = pick(law, ["LawName", "法規名稱"]); if (!title) continue; const externalId = `${sourceKey}:${entry.category}:${title}`; const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId, title, category: entry.category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pick(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pick(law, ["LawURL", "Url", "法規網址"]) }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { category: entry.category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pick(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), updatedAt: new Date() } }).returning(); await db.delete(legalArticles).where(eq(legalArticles.documentId, doc.id)); articleCount += await insertArticles(db, doc.id, law.LawArticles || law.Articles || law.條文); }
+      for (const entry of batch) { const law = compactLegalRecord(entry.record); const title = legalTitle(law); if (!title) continue; const externalId = `${sourceKey}:${entry.category}:${title}`; const classification = legalClassification(law); const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId, title, category: entry.category, classification, modifiedDate: pickLegalValue(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pickLegalValue(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pickLegalValue(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pickLegalValue(law, ["LawURL", "Url", "法規網址"]) }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { category: entry.category, classification, modifiedDate: pickLegalValue(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pickLegalValue(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pickLegalValue(law, ["LawHistories", "Histories", "沿革內容"]), updatedAt: new Date() } }).returning(); await db.delete(legalArticles).where(eq(legalArticles.documentId, doc.id)); articleCount += await insertArticles(db, doc.id, law.LawArticles || law.Articles || law.條文); }
       const next = start + batch.length; const done = next >= manifest.total; const [counts] = await db.select({ docs: sql<number>`count(distinct ${legalDocuments.id})`, articles: sql<number>`count(${legalArticles.id})` }).from(legalDocuments).leftJoin(legalArticles, eq(legalDocuments.id, legalArticles.documentId)).where(eq(legalDocuments.sourceKey, sourceKey)); const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey)).groupBy(legalDocuments.category); const categoryCounts = Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])); await db.update(legalDataSources).set({ status: done ? "ready" : "importing", archiveStorageKey: key, importCursor: done ? 0 : next, totalAvailable: manifest.total, documentCount: Number(counts.docs || 0), articleCount: Number(counts.articles || 0), lastDownloadedAt: new Date(), updatedAt: new Date() }).where(eq(legalDataSources.id, source.id)); return Response.json({ sourceKey, status: done ? "ready" : "importing", processed: batch.length, next, total: manifest.total, articleCount, categoryCounts });
     }
     const response = await fetch(source.sourceUrl, { headers: { "user-agent": "司律備考憲法資料同步/1.0" } }); if (!response.ok) throw new Error(`憲法資料頁讀取失敗（${response.status}）`); const html = await response.text(); const matches = [...html.matchAll(/href=["']([^"']*docdata\.aspx\?[^"']*id=(\d+)[^"']*)["'][^>]*>([^<]{4,120})/gi)]; let imported = 0;
