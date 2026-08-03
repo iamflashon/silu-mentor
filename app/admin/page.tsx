@@ -259,6 +259,8 @@ export default function AdminPage() {
   );
   const [legalSources, setLegalSources] = useState<LegalSource[]>([]);
   const [syncingLegal, setSyncingLegal] = useState<string | null>(null);
+  const [legalZipFiles, setLegalZipFiles] = useState<Record<string, File | null>>({});
+  const [uploadingLegalZip, setUploadingLegalZip] = useState<string | null>(null);
   const [judicialStatus, setJudicialStatus] = useState<JudicialStatus | null>(
     null,
   );
@@ -375,6 +377,79 @@ export default function AdminPage() {
         ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
       );
     setSyncingLegal(null);
+  }
+
+  async function importAllLegal(sourceKey: string, restart = false) {
+    setSyncingLegal(sourceKey);
+    let nextRestart = restart;
+    let completed = false;
+    for (let attempt = 0; attempt < 600; attempt++) {
+      const response = await fetch("/api/legal-sources", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sourceKey, restart: nextRestart }),
+      });
+      const result = (await readJson(response)) as {
+        status?: string;
+        processed?: number;
+        next?: number;
+        total?: number;
+        error?: string;
+      };
+      if (!response.ok) {
+        setNotice(result.error ?? "資料匯入失敗，已停在目前進度");
+        break;
+      }
+      setNotice(
+        `正在分批分類 ${sourceKey === "moj-laws" ? "法律" : "命令"}：${result.next ?? 0} / ${result.total ?? 0}`,
+      );
+      if (result.status === "ready") {
+        completed = true;
+        setNotice(`已完成 ${result.total ?? 0} 部${sourceKey === "moj-laws" ? "法律" : "命令"}，條文已可供 AI 導師搜尋`);
+        break;
+      }
+      nextRestart = false;
+    }
+    if (!completed && syncingLegal === sourceKey)
+      setNotice((current) => current || "已完成可處理批次，請稍後繼續");
+    const refreshed = await fetch("/api/legal-sources");
+    if (refreshed.ok)
+      setLegalSources(
+        ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
+      );
+    setSyncingLegal(null);
+  }
+
+  async function uploadLegalZip(sourceKey: string) {
+    const file = legalZipFiles[sourceKey];
+    if (!file) {
+      setNotice("請先選擇官方法規 ZIP 檔案");
+      return;
+    }
+    setUploadingLegalZip(sourceKey);
+    setNotice("正在保存 ZIP，完成後會自動分批分類法規與條文…");
+    const form = new FormData();
+    form.append("sourceKey", sourceKey);
+    form.append("file", file);
+    const response = await fetch("/api/legal-sources/upload", {
+      method: "POST",
+      body: form,
+    });
+    const result = (await readJson(response)) as { error?: string; sourceKeys?: string[] };
+    setUploadingLegalZip(null);
+    if (!response.ok) {
+      setNotice(result.error ?? "ZIP 上傳失敗");
+      return;
+    }
+    setLegalZipFiles((current) => ({ ...current, [sourceKey]: null }));
+    await fetch("/api/legal-sources").then(async (refreshed) => {
+      if (refreshed.ok)
+        setLegalSources(
+          ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
+        );
+    });
+    for (const targetKey of result.sourceKeys ?? [sourceKey])
+      await importAllLegal(targetKey);
   }
 
   async function runJudicial(action: "test" | "sync") {
@@ -3118,6 +3193,8 @@ export default function AdminPage() {
                   <em className={`data-status ${source.status}`}>
                     {source.status === "ready"
                       ? "可供搜尋"
+                      : source.status === "uploaded"
+                        ? "ZIP 已上傳"
                       : source.status === "importing"
                         ? "匯入中"
                         : source.status === "failed"
@@ -3154,6 +3231,34 @@ export default function AdminPage() {
                 {source.lastError && (
                   <small className="data-error">{source.lastError}</small>
                 )}
+                {source.sourceKey.startsWith("moj-") && (
+                  <div className="legal-zip-upload">
+                    <label>
+                      <span>
+                        {legalZipFiles[source.sourceKey]?.name ??
+                          "選擇官方法規 ZIP（可取代目前資料）"}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".zip,application/zip"
+                        onChange={(event) =>
+                          setLegalZipFiles((current) => ({
+                            ...current,
+                            [source.sourceKey]: event.target.files?.[0] ?? null,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      disabled={uploadingLegalZip !== null || syncingLegal !== null}
+                      onClick={() => uploadLegalZip(source.sourceKey)}
+                    >
+                      {uploadingLegalZip === source.sourceKey
+                        ? "上傳中…"
+                        : "上傳並自動匯入"}
+                    </button>
+                  </div>
+                )}
                 <footer>
                   <a href={source.sourceUrl} target="_blank" rel="noreferrer">
                     官方來源
@@ -3161,16 +3266,22 @@ export default function AdminPage() {
                   <button
                     disabled={syncingLegal !== null}
                     onClick={() =>
-                      syncLegal(source.sourceKey, source.status === "ready")
+                      source.sourceKey.startsWith("moj-")
+                        ? importAllLegal(source.sourceKey, source.status === "ready")
+                        : syncLegal(source.sourceKey, source.status === "ready")
                     }
                   >
                     {syncingLegal === source.sourceKey
                       ? "處理中…"
+                      : source.status === "uploaded"
+                        ? "開始自動匯入"
                       : source.status === "importing"
-                        ? "繼續下一批"
+                        ? "繼續自動匯入"
                         : source.status === "ready"
                           ? "重新同步"
-                          : "開始下載"}
+                          : source.sourceKey.startsWith("moj-")
+                            ? "開始下載並匯入"
+                            : "開始下載"}
                   </button>
                 </footer>
               </article>

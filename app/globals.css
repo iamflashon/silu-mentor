@@ -3065,7 +3065,8 @@ a {
   color: #247050;
 }
 .data-status.importing,
-.data-status.downloading {
+.data-status.downloading,
+.data-status.uploaded {
   background: #fff0d6;
   color: #916723;
 }
@@ -3131,6 +3132,53 @@ a {
   margin: 8px 0;
   color: #a44747 !important;
   line-height: 1.5;
+}
+.legal-zip-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 13px 0 12px;
+  padding: 9px;
+  border: 1px dashed #b9cedb;
+  border-radius: 10px;
+  background: #f7fbfd;
+}
+.legal-zip-upload label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+}
+.legal-zip-upload label span {
+  min-width: 0;
+  overflow: hidden;
+  color: #5e7d8f;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.legal-zip-upload input {
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  position: absolute;
+}
+.legal-zip-upload button {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #2c6688;
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.legal-zip-upload button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 .source-count.configured {
   background: #e2f4eb;
