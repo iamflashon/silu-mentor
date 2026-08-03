@@ -32,6 +32,20 @@ function parseSrt(value: string) {
   return cues;
 }
 
+function findSegmentForCue(
+  cue: { startSeconds: number; endSeconds: number },
+  segments: Array<{ id: number; startOffsetSeconds: number; durationSeconds: number }>,
+) {
+  const midpoint = (cue.startSeconds + cue.endSeconds) / 2;
+  return segments.find((segment) => {
+    const end = segment.startOffsetSeconds + segment.durationSeconds;
+    return midpoint >= segment.startOffsetSeconds && midpoint < end;
+  }) ?? segments.find((segment) => {
+    const end = segment.startOffsetSeconds + segment.durationSeconds;
+    return cue.startSeconds < end && cue.endSeconds > segment.startOffsetSeconds;
+  }) ?? null;
+}
+
 export async function GET(request: Request) {
   const listeningId = Number(new URL(request.url).searchParams.get("listeningId"));
   const db = await getDb();
@@ -68,10 +82,25 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) return Response.json({ error: "請選擇 SRT 字幕" }, { status: 400 });
   const cues = parseSrt(await file.text()); if (!cues.length) return Response.json({ error: "SRT 內找不到有效時間碼" }, { status: 400 });
   let offset = 0;
-  if (segmentId) { const [segment] = await db.select().from(listeningAudioSegments).where(eq(listeningAudioSegments.id, segmentId)).limit(1); if (!segment || segment.listeningId !== listeningId) return Response.json({ error: "找不到指定音檔段落" }, { status: 404 }); offset = segment.startOffsetSeconds; await db.delete(listeningSubtitleCues).where(eq(listeningSubtitleCues.segmentId, segmentId)); }
-  else await db.delete(listeningSubtitleCues).where(eq(listeningSubtitleCues.listeningId, listeningId));
-  await db.insert(listeningSubtitleCues).values(cues.map((cue) => ({ ...cue, listeningId, segmentId, startSeconds: cue.startSeconds + offset, endSeconds: cue.endSeconds + offset })));
-  return Response.json({ cues: cues.length, offset });
+  if (segmentId) {
+    const [segment] = await db.select().from(listeningAudioSegments).where(eq(listeningAudioSegments.id, segmentId)).limit(1);
+    if (!segment || segment.listeningId !== listeningId) return Response.json({ error: "找不到指定音檔段落" }, { status: 404 });
+    offset = segment.startOffsetSeconds;
+    await db.delete(listeningSubtitleCues).where(eq(listeningSubtitleCues.segmentId, segmentId));
+    await db.insert(listeningSubtitleCues).values(cues.map((cue) => ({ ...cue, listeningId, segmentId, startSeconds: cue.startSeconds + offset, endSeconds: cue.endSeconds + offset })));
+    return Response.json({ cues: cues.length, offset, mappedSegments: 1, unmapped: 0 });
+  }
+
+  await db.delete(listeningSubtitleCues).where(eq(listeningSubtitleCues.listeningId, listeningId));
+  const segments = await db.select({ id: listeningAudioSegments.id, startOffsetSeconds: listeningAudioSegments.startOffsetSeconds, durationSeconds: listeningAudioSegments.durationSeconds }).from(listeningAudioSegments).where(eq(listeningAudioSegments.listeningId, listeningId)).orderBy(asc(listeningAudioSegments.sequence));
+  const hasUsableTimeline = segments.length > 0 && segments.some((segment) => segment.durationSeconds > 0);
+  const mappedCues = cues.map((cue) => {
+    const segment = hasUsableTimeline ? findSegmentForCue(cue, segments) : null;
+    return { ...cue, listeningId, segmentId: segment?.id ?? null };
+  });
+  await db.insert(listeningSubtitleCues).values(mappedCues);
+  const mappedSegments = new Set(mappedCues.map((cue) => cue.segmentId).filter((id): id is number => id !== null));
+  return Response.json({ cues: cues.length, offset: 0, mappedSegments: mappedSegments.size, unmapped: mappedCues.filter((cue) => cue.segmentId === null).length, autoMapped: hasUsableTimeline });
 }
 
 export async function PATCH(request: Request) {

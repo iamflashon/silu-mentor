@@ -119,6 +119,7 @@ type ListeningSegment = {
 };
 type ListeningCue = {
   id: number;
+  segmentId: number | null;
   startSeconds: number;
   endSeconds: number;
   text: string;
@@ -939,7 +940,7 @@ export default function AdminPage() {
     setNotice(
       segmentId
         ? "此段 SRT 已加上音檔累計時間並完成對齊。"
-        : `整份 SRT 已建立 ${result.cues ?? 0} 段字幕。`,
+        : `整份 SRT 已建立 ${result.cues ?? 0} 段字幕${result.autoMapped ? `，自動分配到 ${result.mappedSegments ?? 0} 段音檔` : ""}${result.unmapped ? `，另有 ${result.unmapped} 段待確認` : ""}。`,
     );
   }
 
