@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { learningResources, resourceSegments } from "../../../db/schema";
 
@@ -29,9 +29,9 @@ export async function GET() {
     .groupBy(learningResources.id)
     .orderBy(desc(learningResources.updatedAt));
   const articleRows = await db
-    .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence })
+    .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
     .from(resourceSegments)
-    .where(eq(resourceSegments.segmentType, "article_trial"))
+    .where(inArray(resourceSegments.segmentType, ["article_trial", "article_link"]))
     .orderBy(resourceSegments.sequence);
   const articlesByResource = new Map<number, typeof articleRows>();
   for (const article of articleRows) {
@@ -39,7 +39,7 @@ export async function GET() {
     current.push(article);
     articlesByResource.set(article.resourceId, current);
   }
-  return Response.json({ resources: rows.map((row) => ({ ...row, articlePreviews: articlesByResource.get(row.id)?.slice(0, 4) ?? [] })) });
+  return Response.json({ resources: rows.map((row) => ({ ...row, articlePreviews: (articlesByResource.get(row.id) ?? []).slice(0, 4).map((article) => { let failure = ""; if (article.segmentType === "article_link") { try { failure = String((JSON.parse(article.text) as { error?: string }).error ?? article.summary ?? "試讀 PDF 尚未完成分析"); } catch { failure = article.summary || "試讀 PDF 尚未完成分析"; } } return { id: article.id, title: article.title, summary: article.summary, reviewStatus: article.reviewStatus, segmentType: article.segmentType, sequence: article.sequence, failure }; }) })) });
 }
 
 export async function POST(request: Request) {

@@ -33,7 +33,7 @@ export default function StudyPlanPage() {
   const [notePage, setNotePage] = useState(1);
   const [noteQuery, setNoteQuery] = useState("");
   const [recordDraft, setRecordDraft] = useState({ subject: "刑法", title: "", actualMinutes: 60, weakness: "", nextStep: "" });
-  const [activeTab, setActiveTab] = useState<"calendar" | "practice" | "laws" | "records" | "notes">("calendar");
+  const [activeTab, setActiveTab] = useState<"calendar" | "overview" | "practice" | "laws" | "listening" | "magazine" | "records" | "notes">("calendar");
   const [practiceType, setPracticeType] = useState<"mcq" | "essay">("mcq");
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -118,7 +118,7 @@ export default function StudyPlanPage() {
       const url = new URL(value.trim());
       let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? "");
       id = id.split(/[?&]/)[0];
-      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1` : "";
+      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1&enablejsapi=1` : "";
     } catch { return ""; }
   }
 
@@ -129,6 +129,8 @@ export default function StudyPlanPage() {
       return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : "";
     } catch { return ""; }
   }
+
+  function requestYoutubePlay(root: Element | null) { const iframe = root?.querySelector<HTMLIFrameElement>("iframe"); iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), "https://www.youtube.com"); }
 
   async function addRecord() {
     if (!recordDraft.title.trim()) return;
@@ -160,8 +162,8 @@ export default function StudyPlanPage() {
         <div><p>MY LEARNING CENTER</p><h1>學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律備考聊完後，AI 會把任務寫到這裡"}</span></div>
         {activeTab === "calendar" && <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>}
       </div>
-      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
-      {activeTab === "calendar" && <>
+      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")}>作戰總覽</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      {activeTab === "overview" && <>
       <section className="exam-gateway" aria-label="一試與二試主動練習入口"><article><div><span>第一試 · 選擇題</span><h2>一試主動刷題</h2><p>從已審核的一試題庫開始作答，留下答對率與待補強觀念。</p></div><button onClick={() => { setPracticeType("mcq"); setActiveTab("practice"); }}>開始一試</button></article><article><div><span>第二試 · 申論題</span><h2>二試主動寫題</h2><p>先自己審題、列爭點與答題骨架，再由 AI 引導修正。</p></div><button onClick={() => { setPracticeType("essay"); setActiveTab("practice"); }}>開始二試</button></article></section>
       <section className="learning-overview" aria-label="學習專區摘要">
         <article className="overview-card battle-card"><div className="overview-card-heading"><strong>今日戰況</strong><span>{today}</span></div><b>{todayProgress.completed} <small>/ {todayProgress.total} 項完成</small></b><div className="overview-progress"><i style={{ width: `${todayProgress.total ? Math.round(todayProgress.completed / todayProgress.total * 100) : 0}%` }} /></div><p>{todayProgress.answered ? `今日作答 ${todayProgress.answered} 題，答對 ${todayProgress.correct} 題。` : todayProgress.delayed ? `有 ${todayProgress.delayed} 項延誤，先完成今天第一項。` : dashboard?.encouragement || "先完成今天第一項，節奏就會開始。"}</p></article>
@@ -169,14 +171,10 @@ export default function StudyPlanPage() {
         <article className="overview-card mini-calendar-card"><div className="overview-card-heading"><strong>今日小型行事曆</strong><span>{today.replace("-", "年 ").replace("-", "月 ")}日</span></div><div className="mini-week-grid">{weeklyFocus.map((item) => <div className={item.dateText === today ? "today" : ""} key={item.dateText}><time>{item.weekday}</time><b>{item.day}</b>{item.hasTask && <i />}</div>)}</div>{todayTasks.length ? todayTasks.slice(0, 2).map((task) => <div className="mini-task" key={task.id}><b>{task.subject}</b><span>{task.title}</span><small>預計學習：{task.durationMinutes}分鐘 · {task.status === "completed" ? "已完成" : "待開始"}</small></div>) : <div className="mini-task"><b>刑法總則</b><span>罪刑法定原則：法律保留與禁止類推適用</span><small>預計學習：120分鐘 · 待開始</small></div>}</article>
         <article className="overview-card weekly-card"><div className="overview-card-heading"><strong>本週 AI 重點課程</strong><span>每日一段</span></div><div className="weekly-focus-list">{weeklyFocus.map((item) => <div key={item.date}><time>{item.date}</time><span>{item.title}</span></div>)}</div></article>
       </section>
-      <section className="learning-columns" aria-label="學習內容專欄">
-        <article className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師如何抓爭點，再回到學習專區留下自己的答題接續點。</p><ListeningPlayer item={homeFeed.listening} /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
-        <article className="column-card law-column"><div className="column-kicker">LAW CLASSROOM</div><div className="column-heading"><div><h2>法教專欄</h2><span>從最新法學教室內容找考試切入點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><span>{article.title}</span><small>{article.summary || "已建立試讀分析"}</small></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專欄會出現在這裡。</p>}</article>
-      </section>
-      <section className="plan-music-dock" aria-label="讀書音樂">
-        <article className="supplement-card music-card"><div className="supplement-heading"><div><span>專注模式</span><strong>讀書音樂</strong></div><b>♫</b></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen loading="eager" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></> : <p className="supplement-muted">管理後台設定讀書音樂後，會在這裡提供播放。</p>}<small className="music-note">播放前請確認影片說明欄的授權條件；瀏覽器會要求同學自行按播放。</small></article>
-      </section>
-      <div className="calendar-toolbar"><button onClick={() => moveMonth(-1)}>‹</button><strong>{month.replace("-", " 年 ")} 月</strong><button onClick={() => moveMonth(1)}>›</button></div>
+      </>}
+      {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><article className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={homeFeed.listening} /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article></section>}
+      {activeTab === "magazine" && <section className="learning-single-column" aria-label="法教專區"><article className="column-card law-column"><div className="column-kicker">LAW CLASSROOM</div><div className="column-heading"><div><h2>法教專區</h2><span>從最新法學教室內容找考試切入點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><span>{article.title}</span><small>{article.summary || "已建立試讀分析"}</small></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article></section>}
+      {activeTab === "calendar" && <><div className="calendar-toolbar"><button onClick={() => moveMonth(-1)}>‹</button><strong>{month.replace("-", " 年 ")} 月</strong><button onClick={() => moveMonth(1)}>›</button></div>
       <div className="calendar-grid">
         {["日", "一", "二", "三", "四", "五", "六"].map((day) => <div className="weekday" key={day}>{day}</div>)}
         {days.map((day, index) => <div className={`calendar-day ${day ? "" : "blank"}`} key={`${day}-${index}`} onDoubleClick={() => day && openNew(day)}>{day && <><span className="day-number">{day}</span><div className="day-tasks">{tasks.filter((task) => task.taskDate === dateFor(day)).map((task) => <div className={`calendar-task ${task.status === "completed" ? "done" : ""}`} key={task.id} onClick={() => openTask(task)}><button onClick={(event) => { event.stopPropagation(); void toggle(task); }} aria-label="切換完成狀態">{task.status === "completed" ? "✓" : ""}</button><div><strong>{task.subject}</strong><span>{task.title}</span><small>{task.durationMinutes} 分鐘</small></div></div>)}</div><button className="day-add" onClick={() => openNew(day)}>＋</button></>}</div>)}

@@ -83,7 +83,7 @@ type LearningResource = {
   status: string;
   hasCover: number;
   segmentCount: number;
-  articlePreviews?: Array<{ id: number; title: string; summary: string; reviewStatus: string; sequence: number }>;
+  articlePreviews?: Array<{ id: number; title: string; summary: string; reviewStatus: string; segmentType?: string; sequence: number; failure?: string }>;
 };
 type SubtitleSegment = {
   id: number;
@@ -135,6 +135,7 @@ type ExamQuestion = {
   status: string;
   sourceUrl: string;
 };
+type QuestionFilterOptions = { years: string[]; subjects: string[] };
 type EssayQuestion = {
   id: number;
   year: string;
@@ -264,6 +265,11 @@ export default function AdminPage() {
   const [questionTotals, setQuestionTotals] = useState<Record<string, number>>(
     {},
   );
+  const [questionTypeTotals, setQuestionTypeTotals] = useState<Record<string, number>>({});
+  const [questionExamType, setQuestionExamType] = useState<"all" | "mcq" | "essay">("all");
+  const [questionYear, setQuestionYear] = useState("all");
+  const [questionSubject, setQuestionSubject] = useState("all");
+  const [questionFilterOptions, setQuestionFilterOptions] = useState<QuestionFilterOptions>({ years: [], subjects: [] });
   const [legalSources, setLegalSources] = useState<LegalSource[]>([]);
   const [syncingLegal, setSyncingLegal] = useState<string | null>(null);
   const [legalZipFiles, setLegalZipFiles] = useState<Record<string, File | null>>({});
@@ -383,7 +389,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (activeTab === "questions") loadExamQuestions(questionPage);
-  }, [activeTab, questionPage]);
+  }, [activeTab, questionPage, questionExamType, questionYear, questionSubject]);
 
   async function syncLegal(sourceKey: string, restart = false) {
     setSyncingLegal(sourceKey);
@@ -980,18 +986,25 @@ export default function AdminPage() {
   }
 
   async function loadExamQuestions(page = questionPage) {
+    const params = new URLSearchParams({ page: String(page), status: "draft", examType: questionExamType });
+    if (questionYear !== "all") params.set("year", questionYear);
+    if (questionSubject !== "all") params.set("subject", questionSubject);
     const response = await fetch(
-      `/api/exam-questions?page=${page}&status=draft`,
+      `/api/exam-questions?${params.toString()}`,
     );
     if (!response.ok) return;
     const result = (await response.json()) as {
       items?: ExamQuestion[];
       total?: number;
       totals?: Record<string, number>;
+      examTypeTotals?: Record<string, number>;
+      filters?: QuestionFilterOptions;
     };
     setExamQuestions(result.items ?? []);
     setQuestionTotal(result.total ?? 0);
     setQuestionTotals(result.totals ?? {});
+    setQuestionTypeTotals(result.examTypeTotals ?? {});
+    setQuestionFilterOptions(result.filters ?? { years: [], subjects: [] });
   }
   async function publishQuestions(ids?: number[], all = false) {
     const response = await fetch("/api/exam-questions", {
@@ -1112,14 +1125,24 @@ export default function AdminPage() {
       setNotice(result.error ?? "月旦法學教室分析失敗");
       return;
     }
-    setResources((current) =>
-      current.some((item) => item.id === result.resource!.id)
-        ? current
-        : [result.resource!, ...current],
-    );
+    const refreshed = await fetch("/api/resources");
+    if (refreshed.ok) {
+      const refreshedResult = (await refreshed.json()) as { resources?: LearningResource[] };
+      setResources(refreshedResult.resources ?? []);
+    } else {
+      setResources((current) => current.some((item) => item.id === result.resource!.id) ? current : [result.resource!, ...current]);
+    }
     setNotice(
       `已分析 ${result.articles ?? 0} 個試讀入口，${result.indexed ?? 0} 篇 PDF 已完成解析並可供 AI 搜尋${result.failures?.length ? `；${result.failures.length} 篇暫時失敗，可再次按「自動分析」重試` : ""}。`,
     );
+  }
+
+  async function publishMagazine(resource: LearningResource) {
+    const response = await fetch("/api/resources", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...resource, status: "active" }) });
+    const result = (await readJson(response)) as { resource?: LearningResource; error?: string };
+    if (!response.ok || !result.resource) { setNotice(result.error ?? "法學教室發布失敗"); return; }
+    setResources((current) => current.map((item) => item.id === resource.id ? { ...item, ...result.resource } : item));
+    setNotice(`${resource.title} 已發布到首頁法教專區。`);
   }
 
   async function bindBookDocument(
@@ -2558,7 +2581,7 @@ export default function AdminPage() {
                         {resource.description || "尚未取得出刊資料"} ·{" "}
                         {resource.segmentCount} 篇內容
                       </small>
-                      {resource.articlePreviews?.length ? <div className="admin-article-previews"><b>AI 已分析試讀文章</b>{resource.articlePreviews.map((article) => <div key={article.id}><span>{article.sequence}. {article.title}</span><small>{article.reviewStatus === "ai_reviewed" ? "已分析" : "待確認"} · {article.summary || "尚無摘要"}</small></div>)}</div> : null}
+                      {resource.resourceType === "magazine" && resource.articlePreviews?.length ? <div className="admin-article-previews"><b>試讀文章匯入狀態</b>{resource.articlePreviews.map((article) => <div key={article.id}><span>{article.sequence}. {article.title}</span><small>{article.reviewStatus === "ai_reviewed" ? "AI 已分析，可供前台使用" : `尚未完成：${article.failure || article.summary || "請重新分析"}`}</small></div>)}</div> : null}
                     </div>
                     <div className="resource-actions">
                       <a
@@ -2569,6 +2592,7 @@ export default function AdminPage() {
                         檢視來源
                       </a>
                       <div className="resource-edit-actions">
+                        {resource.resourceType === "magazine" && resource.status === "draft" && resource.articlePreviews?.some((article) => article.reviewStatus === "ai_reviewed") ? <button type="button" className="primary-btn" onClick={() => publishMagazine(resource)}>發布到首頁</button> : null}
                         <button
                           type="button"
                           onClick={() => editResource(resource)}
@@ -2775,6 +2799,15 @@ export default function AdminPage() {
                 草稿 {questionTotals.draft ?? questionTotal} · 已發布{" "}
                 {questionTotals.published ?? 0}
               </span>
+            </div>
+            <div className="question-filters" aria-label="真題分類篩選">
+              <div className="question-type-switch" role="tablist" aria-label="題型分類">
+                <button type="button" className={questionExamType === "all" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("all"); }}>全部草稿 <span>{questionTotals.draft ?? 0}</span></button>
+                <button type="button" className={questionExamType === "mcq" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("mcq"); }}>一試選擇題 <span>{questionTypeTotals.mcq ?? 0}</span></button>
+                <button type="button" className={questionExamType === "essay" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("essay"); }}>二試申論題 <span>{questionTypeTotals.essay ?? 0}</span></button>
+              </div>
+              <label>年度<select value={questionYear} onChange={(event) => { setQuestionPage(1); setQuestionYear(event.target.value); }}><option value="all">全部年度</option>{questionFilterOptions.years.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
+              <label>類科<select value={questionSubject} onChange={(event) => { setQuestionPage(1); setQuestionSubject(event.target.value); }}><option value="all">全部類科</option>{questionFilterOptions.subjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>
             </div>
             <div className="question-review-actions">
               <button

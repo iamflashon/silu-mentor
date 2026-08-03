@@ -2382,10 +2382,11 @@ a {
 }
 .plan-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(170px, 240px));
   gap: 12px;
   margin: 0 0 20px;
   padding: 0;
+  justify-content: start;
 }
 .plan-tabs button {
   min-height: 58px;
@@ -2586,6 +2587,10 @@ a {
   gap: 12px;
   margin: 0 0 20px;
 }
+.learning-single-column {
+  width: min(880px, 100%);
+  margin: 0 auto 20px;
+}
 .supplement-card,
 .column-card,
 .home-editorial-card {
@@ -2613,6 +2618,7 @@ a {
 .supplement-heading > b,
 .column-heading > i,
 .home-editorial-head > i { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; background: #eaf2f6; color: #2e6b8c; font-style: normal; }
+.music-play-button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 10px; background: #eaf2f6; color: #2e6b8c; font-size: 12px; cursor: pointer; }
 .weather-reading { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; }
 .weather-reading strong { color: #295d80; font-size: 31px; letter-spacing: -0.06em; }
 .weather-reading span { color: #54778b; font-size: 11px; font-weight: 750; }
@@ -3372,6 +3378,59 @@ a {
   gap: 8px;
   margin: 14px 0;
 }
+.question-filters {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin: 18px 0 4px;
+  padding: 12px;
+  border: 1px solid #dfe9ee;
+  border-radius: 12px;
+  background: #f7fafc;
+}
+.question-type-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  flex: 1;
+}
+.question-type-switch button {
+  padding: 8px 11px;
+  border: 1px solid #c7d9e3;
+  border-radius: 8px;
+  background: white;
+  color: #456d83;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.question-type-switch button.active {
+  border-color: #193d59;
+  background: #193d59;
+  color: white;
+}
+.question-type-switch span {
+  margin-left: 4px;
+  opacity: .75;
+  font-size: 9px;
+}
+.question-filters > label {
+  display: grid;
+  gap: 5px;
+  min-width: 130px;
+  color: #638094;
+  font-size: 9px;
+  font-weight: 800;
+}
+.question-filters select {
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid #c7d9e3;
+  border-radius: 8px;
+  background: white;
+  color: #31566f;
+  font-size: 10px;
+}
 .question-review-actions button {
   padding: 10px 14px;
   border: 1px solid #bed1dc;
@@ -3430,6 +3489,10 @@ a {
   background: #245a7c;
   color: white;
   cursor: pointer;
+}
+@media (max-width: 800px) {
+  .question-filters { align-items: stretch; flex-direction: column; }
+  .question-filters > label { min-width: 0; }
 }
 @media (max-width: 800px) {
   .audio-segment-list article {
