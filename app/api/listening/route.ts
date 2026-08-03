@@ -27,6 +27,14 @@ export async function POST(request: Request) {
   const titleInput = String(form.get("title") ?? "").trim();
   const file = form.get("file");
   const db = await getDb();
+  const preparedTxt = form.get("preparedTxt");
+  if (preparedTxt instanceof File) {
+    if (!preparedTxt.name.toLowerCase().endsWith(".txt") || preparedTxt.size > 5 * 1024 * 1024) return Response.json({ error: "請上傳 5MB 以下 TXT 聞稿" }, { status: 400 });
+    const narrationScript = (await preparedTxt.text()).trim();
+    if (!narrationScript) return Response.json({ error: "TXT 聞稿沒有內容" }, { status: 400 });
+    const [row] = await db.insert(listeningSolutions).values({ title: titleInput || preparedTxt.name.replace(/\.txt$/i, ""), year: String(form.get("year") || "自訂"), subject: String(form.get("subject") || "刑法"), questionText: pasted || "自備聞稿", narrationScript }).returning();
+    return Response.json({ item: row }, { status: 201 });
+  }
   const [question] = questionId ? await db.select().from(examQuestions).where(eq(examQuestions.id, questionId)).limit(1) : [];
   if (!question && !pasted && !(file instanceof File)) return Response.json({ error: "請選擇二試真題、貼上題目或上傳題目檔" }, { status: 400 });
   if (file instanceof File && file.size > 12 * 1024 * 1024) return Response.json({ error: "題目檔請控制在 12MB 以下" }, { status: 400 });
