@@ -166,7 +166,10 @@ const USAGE_PER_PAGE = 10;
 async function readJson(response: Response) {
   const text = await response.text();
   try {
-    return JSON.parse(text) as Record<string, unknown>;
+    const result = JSON.parse(text) as Record<string, unknown>;
+    if (typeof result.error === "string" && result.error.length > 320)
+      result.error = "伺服器回傳了過長的錯誤內容，請重新上傳字幕或按「重新整理字幕」。";
+    return result;
   } catch {
     if (response.status === 413)
       return { error: "檔案超過單次上傳限制，請重新選擇文件" };
@@ -311,11 +314,17 @@ export default function AdminPage() {
       .catch(() => undefined);
     fetch("/api/resources")
       .then(async (response) => {
-        if (response.ok)
-          setResources(
-            ((await response.json()) as { resources?: LearningResource[] })
-              .resources ?? [],
-          );
+        if (!response.ok) return;
+        const loaded =
+          ((await response.json()) as { resources?: LearningResource[] })
+            .resources ?? [];
+        setResources(loaded);
+        // 修復早期版本把整段 SRT 當成一筆文字保存的舊資料。
+        await Promise.all(
+          loaded
+            .filter((item) => item.resourceType === "course" && item.segmentCount > 0)
+            .map((item) => repairResourceSubtitles(item.id, true)),
+        );
       })
       .catch(() => undefined);
     fetch("/api/listening")
@@ -1025,6 +1034,35 @@ export default function AdminPage() {
         ? "書封已更新。"
         : `字幕已完成，建立 ${result.segments ?? 0} 個可搜尋時間片段。`,
     );
+  }
+
+  async function repairResourceSubtitles(resourceId: number, silent = false) {
+    const response = await fetch("/api/resources/segments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ resourceId, action: "repair" }),
+    });
+    const result = (await readJson(response)) as {
+      repaired?: boolean;
+      segments?: number;
+      error?: string;
+    };
+    if (!response.ok) {
+      if (!silent) setNotice(result.error ?? "字幕整理失敗");
+      return;
+    }
+    if (result.repaired) {
+      setResources((current) =>
+        current.map((item) =>
+          item.id === resourceId
+            ? { ...item, segmentCount: Number(result.segments ?? item.segmentCount) }
+            : item,
+        ),
+      );
+      if (!silent) setNotice(`字幕已重新整理，建立 ${result.segments ?? 0} 個時間片段。`);
+    } else if (!silent) {
+      setNotice("目前字幕已是時間片段格式，不需要重新整理。");
+    }
   }
 
   async function analyzeMagazine() {
@@ -2164,12 +2202,15 @@ export default function AdminPage() {
                       <h3>{resource.title}</h3>
                       <p>{resource.creator || "尚未設定作者／老師"}</p>
                       <small>
-                        {resource.documentId
-                          ? "已綁定教材 PDF"
+                        {resource.resourceType === "book"
+                          ? resource.documentId
+                            ? "已綁定教材 PDF，AI 將從文件索引搜尋"
+                            : "尚未綁定教材 PDF"
                           : resource.sourceUrl
-                            ? "已設定來源網址"
-                            : "尚未綁定內容"}{" "}
-                        · {resource.segmentCount} 個學習片段
+                            ? "已設定課程來源網址"
+                            : "尚未設定課程來源網址"}
+                        {resource.resourceType === "course" &&
+                          ` · ${resource.segmentCount} 個字幕學習片段`}
                       </small>
                     </div>
                     <div className="resource-actions">
@@ -2245,6 +2286,13 @@ export default function AdminPage() {
                             onClick={() => openSubtitleEditor(resource)}
                           >
                             校正字幕／重點
+                          </button>
+                          <button
+                            type="button"
+                            className="subtitle-repair"
+                            onClick={() => repairResourceSubtitles(resource.id)}
+                          >
+                            重新整理字幕
                           </button>
                         </>
                       )}

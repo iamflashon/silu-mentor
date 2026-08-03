@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { learningResources, resourceSegments } from "../../../../db/schema";
 import { openAIJson } from "../../../../lib/openai";
+import { looksLikeRawSrt, parseSrt } from "../../../../lib/srt";
 
 export async function GET(request: Request) {
   const resourceId = Number(new URL(request.url).searchParams.get("resourceId"));
@@ -40,13 +41,37 @@ function outputText(payload: Record<string, unknown>) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json() as { resourceId?: number };
+  const body = await request.json() as { resourceId?: number; action?: string };
   const resourceId = Number(body.resourceId);
   const db = await getDb();
   const [resource] = await db.select().from(learningResources).where(eq(learningResources.id, resourceId)).limit(1);
   if (!resource) return Response.json({ error: "找不到課程" }, { status: 404 });
   const rows = await db.select().from(resourceSegments).where(and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, "subtitle"))).orderBy(asc(resourceSegments.sequence));
   if (!rows.length) return Response.json({ error: "此課程尚未上傳字幕" }, { status: 400 });
+
+  if (body.action === "repair") {
+    const raw = rows.map((row) => row.text).join("\n\n");
+    if (!looksLikeRawSrt(raw)) return Response.json({ repaired: false, segments: rows.length });
+    const groups = parseSrt(raw);
+    if (!groups.length)
+      return Response.json({ error: "找不到可重建的 SRT 時間碼" }, { status: 422 });
+    await db.delete(resourceSegments).where(and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, "subtitle")));
+    const rebuilt = groups.map((group, index) => ({
+      resourceId,
+      segmentType: "subtitle",
+      lessonLabel: rows[0]?.lessonLabel ?? "",
+      title: `${Math.floor(group.start / 60)}:${String(group.start % 60).padStart(2, "0")}－${Math.floor(group.end / 60)}:${String(group.end % 60).padStart(2, "0")}`,
+      startSeconds: group.start,
+      endSeconds: group.end,
+      text: group.text,
+      sequence: index + 1,
+    }));
+    for (let index = 0; index < rebuilt.length; index += 8)
+      await db.insert(resourceSegments).values(rebuilt.slice(index, index + 8));
+    await db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, resourceId));
+    return Response.json({ repaired: true, segments: rebuilt.length });
+  }
+
   let analyzed = 0;
   for (let index = 0; index < rows.length; index += 12) {
     const batch = rows.slice(index, index + 12);

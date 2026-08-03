@@ -1529,6 +1529,16 @@ a {
   font-weight: 800;
   cursor: pointer;
 }
+.subtitle-repair {
+  padding: 7px 9px;
+  border: 1px solid #c7d8e2;
+  border-radius: 8px;
+  background: #fff;
+  color: #4f7185;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
 .subtitle-editor-backdrop {
   position: fixed;
   inset: 0;
@@ -1980,6 +1990,9 @@ a {
   color: #587387;
   font-size: 12px;
   line-height: 1.6;
+  max-height: 110px;
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 .index-metrics {
   display: grid;
@@ -2335,6 +2348,46 @@ a {
   background: rgba(255, 255, 255, 0.55);
   font-size: 8px;
 }
+.learning-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 20px;
+}
+.overview-card {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid #dce6ed;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(31, 63, 86, 0.04);
+}
+.overview-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.overview-card-heading strong { color: #294d66; font-size: 12px; }
+.overview-card-heading span { color: #8294a0; font-size: 9px; white-space: nowrap; }
+.overview-card > b { color: #275e85; font-size: 28px; }
+.overview-card > b small { color: #8495a0; font-size: 10px; font-weight: 500; }
+.overview-card p { margin: 8px 0 0; color: #718594; font-size: 10px; line-height: 1.6; }
+.overview-progress { height: 6px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: #eaf1f5; }
+.overview-progress i { display: block; height: 100%; border-radius: inherit; background: #2e6b92; }
+.priority-card ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.priority-card li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border-radius: 8px; background: #f2f7f9; }
+.priority-card li b { min-width: 0; overflow: hidden; color: #31566f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.priority-card li small { color: #8294a0; font-size: 9px; white-space: nowrap; }
+.mini-task { display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border-radius: 9px; background: #eef5f8; }
+.mini-task b { color: #456e86; font-size: 9px; }
+.mini-task span { overflow: hidden; color: #31566f; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.mini-task small { color: #8294a0; font-size: 9px; }
+.weekly-focus-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 10px; }
+.weekly-focus-list div { display: flex; gap: 7px; min-width: 0; align-items: baseline; }
+.weekly-focus-list time { flex: 0 0 auto; color: #6e8ca0; font-size: 9px; }
+.weekly-focus-list span { min-width: 0; overflow: hidden; color: #31566f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .tab-hub {
   margin-top: 0;
 }
@@ -2890,6 +2943,7 @@ a {
   .record-entry {
     grid-template-columns: 1fr;
   }
+  .learning-overview { grid-template-columns: 1fr; }
 }
 
 .listening-segment-tools {

@@ -1,52 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { learningResources, resourceSegments } from "../../../../db/schema";
-
-function seconds(value: string) {
-  const normalized = value.trim().replace(",", ".");
-  const parts = normalized.split(":");
-  if (parts.length === 3) {
-    const [h, m, s] = parts.map(Number);
-    if (![h, m, s].every(Number.isFinite)) return NaN;
-    return Math.round(h * 3600 + m * 60 + s);
-  }
-  if (parts.length === 2) {
-    const [m, s] = parts.map(Number);
-    if (![m, s].every(Number.isFinite)) return NaN;
-    return Math.round(m * 60 + s);
-  }
-  return NaN;
-}
-
-function parseSrt(raw: string) {
-  const normalized = raw.replace(/^\uFEFF/, "").replace(/\r/g, "").trim();
-  const cuePattern = /(?:^|\n)\s*(?:\d+\s*\n)?\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})[^\n]*\n([\s\S]*?)(?=\n\s*(?:\d+\s*\n)?\s*\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}\s*-->|$)/g;
-  const cues: Array<{ start: number; end: number; text: string }> = [];
-  for (const match of normalized.matchAll(cuePattern)) {
-    const start = seconds(match[1]);
-    const end = seconds(match[2]);
-    const text = match[3]
-      .replace(/<[^>]+>/g, "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    if (text && Number.isFinite(start) && Number.isFinite(end) && end >= start)
-      cues.push({ start, end, text });
-  }
-  const groups: Array<{ start: number; end: number; text: string }> = [];
-  for (const cue of cues) {
-    const current = groups.at(-1);
-    if (!current || cue.end - current.start > 90 || current.text.length > 650)
-      groups.push({ ...cue });
-    else {
-      current.end = cue.end;
-      current.text += ` ${cue.text}`;
-    }
-  }
-  return groups;
-}
+import { parseSrt } from "../../../../lib/srt";
 
 export async function POST(request: Request) {
   try {
