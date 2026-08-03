@@ -16,16 +16,19 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const body = await request.json() as Record<string, unknown>;
   const id = Number(body.id);
-  if (!id) return Response.json({ error: "缺少字幕片段" }, { status: 400 });
+  if (!id) return Response.json({ error: "缺少內容片段" }, { status: 400 });
   const db = await getDb();
+  const [current] = await db.select().from(resourceSegments).where(eq(resourceSegments.id, id)).limit(1);
+  if (!current) return Response.json({ error: "找不到內容片段" }, { status: 404 });
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const [segment] = await db.update(resourceSegments).set({
-    startSeconds: Math.max(0, Number(body.startSeconds) || 0),
-    endSeconds: Math.max(0, Number(body.endSeconds) || 0),
-    text: String(body.text ?? "").trim(),
-    summary: String(body.summary ?? "").trim(),
-    importance: Math.max(0, Math.min(5, Number(body.importance) || 0)),
-    recommended: Boolean(body.recommended),
-    reviewStatus: String(body.reviewStatus ?? "reviewed"),
+    startSeconds: has("startSeconds") ? Math.max(0, Number(body.startSeconds) || 0) : current.startSeconds,
+    endSeconds: has("endSeconds") ? Math.max(0, Number(body.endSeconds) || 0) : current.endSeconds,
+    text: has("text") ? String(body.text ?? "").trim() : current.text,
+    summary: has("summary") ? String(body.summary ?? "").trim() : current.summary,
+    importance: has("importance") ? Math.max(0, Math.min(5, Number(body.importance) || 0)) : current.importance,
+    recommended: has("recommended") ? Boolean(body.recommended) : current.recommended,
+    reviewStatus: has("reviewStatus") ? String(body.reviewStatus ?? "reviewed") : current.reviewStatus,
   }).where(eq(resourceSegments.id, id)).returning();
   return Response.json({ segment });
 }

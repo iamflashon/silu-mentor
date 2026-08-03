@@ -2764,6 +2764,18 @@ a {
 .admin-article-issue { display: grid; gap: 3px; margin-top: 4px; padding: 8px 9px; border-left: 3px solid #4a8aa5; border-radius: 0 8px 8px 0; background: #f1f8fa; }
 .admin-article-issue b { color: #2d6b86; font-size: 10px; }
 .admin-article-issue span { color: #476b7a; font-size: 10px; line-height: 1.6; }
+.magazine-issue-edit { width: fit-content; padding: 5px 8px; border: 1px solid #cbdce5; border-radius: 7px; background: white; color: #356b89; font-size: 10px; font-weight: 800; cursor: pointer; }
+.rail-magazine-card { padding: 17px; }
+.rail-magazine-card .column-kicker { font-size: 9px; }
+.rail-magazine-card .home-editorial-head h2 { font-size: 19px; }
+.rail-magazine-card .home-editorial-head span { margin-top: 5px; font-size: 11px; line-height: 1.5; }
+.rail-magazine-card > strong { margin-top: 15px; font-size: 15px; line-height: 1.5; white-space: normal; }
+.rail-magazine-card .magazine-article-list { gap: 2px; margin-top: 12px; }
+.rail-magazine-card .magazine-article-row { padding: 11px 0; gap: 5px 10px; }
+.rail-magazine-card .magazine-article-row span { font-size: 14px; line-height: 1.5; white-space: normal; }
+.rail-magazine-card .magazine-article-row small { margin-top: 3px; color: #607d8f; font-size: 12px; line-height: 1.55; -webkit-line-clamp: 3; }
+.rail-magazine-card .magazine-article-row button { min-width: 58px; min-height: 36px; padding: 7px 9px; border-radius: 9px; font-size: 11px; }
+.rail-magazine-card > a { margin-top: 14px; font-size: 13px; }
 .magazine-empty-analysis { margin-top: 13px; padding: 12px; border: 1px dashed #d8e4e9; border-radius: 10px; color: #718591; background: #fbfcfd; font-size: 12px; line-height: 1.6; }
 .tab-hub {
   margin-top: 0;
@@ -3241,12 +3253,13 @@ a {
     grid-row: 2;
   }
   .conversation {
-    padding-top: 12px;
+    padding-top: 6px;
     width: 100%;
   }
   .message-list {
-    height: auto;
-    max-height: calc(100dvh - 192px);
+    min-height: 280px;
+    height: calc(100dvh - 260px);
+    max-height: calc(100dvh - 260px);
   }
   .command-rail {
     position: static;
@@ -3258,27 +3271,20 @@ a {
     display: none;
   }
   .conversation-heading {
-    margin-bottom: 12px;
-  }
-  .conversation-heading {
-    display: block;
+    display: flex;
+    align-items: center;
+    margin-bottom: 7px;
   }
   .conversation-heading p {
-    font-size: 8px;
-    letter-spacing: 0.1em;
+    display: none;
   }
   .conversation-heading h1 {
-    margin-top: 3px;
-    font-size: 21px;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.3;
   }
   .conversation-heading span {
-    display: block;
-    margin: 3px 0 0;
-    overflow: hidden;
-    font-size: 9px;
-    line-height: 1.35;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    display: none;
   }
   .focus-items {
     display: flex;

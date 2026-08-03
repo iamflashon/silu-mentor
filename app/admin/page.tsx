@@ -100,7 +100,7 @@ type LearningResource = {
     analysisState?: "analyzed" | "captured" | "pending" | "failed";
   }>;
 };
-function magazineIssue(summary: string) { const match = summary.match(/^爭點[:：]\s*(.*?)(?:[｜|]|$)/); return match?.[1]?.trim() || ""; }
+function magazineIssue(summary: string) { const match = summary.match(/^爭點[:：]\s*(.*?)(?:[｜|]|$)/); return match?.[1]?.trim() || summary.trim(); }
 type SubtitleSegment = {
   id: number;
   startSeconds: number;
@@ -1418,6 +1418,57 @@ export default function AdminPage() {
       ),
     );
     setNotice("資源資料已更新。");
+  }
+
+  async function editMagazineIssue(
+    resourceId: number,
+    article: NonNullable<LearningResource["articlePreviews"]>[number],
+  ) {
+    const issue = window.prompt("主要爭點", magazineIssue(article.summary));
+    if (issue === null) return;
+    if (!issue.trim()) {
+      setNotice("主要爭點不能留白。");
+      return;
+    }
+    const response = await fetch("/api/resources/segments", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: article.id,
+        summary: issue.trim(),
+        reviewStatus: "ai_reviewed",
+        importance: 5,
+        recommended: true,
+      }),
+    });
+    const result = (await readJson(response)) as {
+      segment?: { summary: string };
+      error?: string;
+    };
+    if (!response.ok || !result.segment) {
+      setNotice(result.error ?? "主要爭點更新失敗");
+      return;
+    }
+    setResources((current) =>
+      current.map((resource) =>
+        resource.id !== resourceId
+          ? resource
+          : {
+              ...resource,
+              articlePreviews: resource.articlePreviews?.map((item) =>
+                item.id === article.id
+                  ? {
+                      ...item,
+                      summary: result.segment?.summary ?? issue.trim(),
+                      reviewStatus: "ai_reviewed",
+                      analysisState: "analyzed",
+                    }
+                  : item,
+              ),
+            },
+      ),
+    );
+    setNotice("主要爭點已更新，前台與 AI 帶入會使用這段內容。");
   }
 
   async function removeResource(resource: LearningResource) {
@@ -2753,7 +2804,9 @@ export default function AdminPage() {
                           {resource.articlePreviews.map((article) => {
                             const state = article.analysisState ?? (article.reviewStatus === "ai_reviewed" ? "analyzed" : "pending");
                             const stateLabel = state === "analyzed"
-                              ? `AI 已完成分析 · ${article.textLength?.toLocaleString() ?? 0} 字，可供 AI 搜尋`
+                              ? article.textLength
+                                ? `AI 已完成分析 · ${article.textLength.toLocaleString()} 字，可供 AI 搜尋`
+                                : "主要爭點已人工確認 · 正文尚未完成擷取"
                               : state === "captured"
                                 ? `已抓到原始內容 · ${article.textLength?.toLocaleString() ?? 0} 字，尚未完成 AI 重點整理`
                                 : state === "failed"
@@ -2764,7 +2817,8 @@ export default function AdminPage() {
                                 <span>{article.sequence}. {article.title}</span>
                                 <small>{stateLabel}</small>
                                 {article.sourceUrl ? <a href={article.sourceUrl} target="_blank" rel="noreferrer">查看試讀 PDF</a> : null}
-                                {state === "analyzed" && article.summary ? <div className="admin-article-issue"><b>{magazineIssue(article.summary) ? "核心爭點" : "分析摘要"}</b><span>{magazineIssue(article.summary) || article.summary}</span>{!magazineIssue(article.summary) && <small>重新分析後會優先擷取 PDF 中標示的「爭點」段落。</small>}</div> : null}
+                                {state === "analyzed" ? <div className="admin-article-issue"><b>主要爭點</b><span>{magazineIssue(article.summary) || "尚未擷取到爭點，請人工補上。"}</span></div> : null}
+                                <button type="button" className="magazine-issue-edit" onClick={() => editMagazineIssue(resource.id, article)}>編輯主要爭點</button>
                               </div>
                             );
                           })}

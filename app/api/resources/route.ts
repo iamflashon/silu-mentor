@@ -58,7 +58,7 @@ export async function GET() {
           }
         }
         const textLength = article.segmentType === "article_link" ? 0 : article.text.trim().length;
-        const analysisState = article.reviewStatus === "ai_reviewed" && textLength > 0
+        const analysisState = article.reviewStatus === "ai_reviewed" && (textLength > 0 || article.summary.trim().length > 0)
           ? "analyzed"
           : article.reviewStatus === "failed"
             ? "failed"
