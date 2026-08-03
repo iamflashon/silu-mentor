@@ -124,6 +124,7 @@ async function prepareLegalZipStream(
   const pendingWrites: Promise<unknown>[] = [];
   let pendingEntries: LegalArchiveEntry[] = [];
   let total = 0;
+  let streamError: Error | null = null;
 
   const flush = () => {
     if (!pendingEntries.length) return;
@@ -145,29 +146,37 @@ async function prepareLegalZipStream(
     const chunks: Uint8Array[] = [];
     let byteLength = 0;
     file.ondata = (error, data, final) => {
-      if (error) throw error;
-      if (data?.byteLength) {
-        chunks.push(data);
-        byteLength += data.byteLength;
-      }
-      if (!final) return;
+      try {
+        if (error) throw error;
+        if (data?.byteLength) {
+          chunks.push(data);
+          byteLength += data.byteLength;
+        }
+        if (!final) return;
 
-      const jsonBytes = new Uint8Array(byteLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        jsonBytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-      const raw = new TextDecoder("utf-8").decode(jsonBytes).replace(/^\uFEFF/, "");
-      const records: Record<string, unknown>[] = [];
-      collectLawObjects(JSON.parse(raw), records);
-      const category = /(^|\/)ChOrder\.json$/i.test(file.name) ? "命令" : "法律";
-      for (const record of records) {
-        pendingEntries.push({ record: compactLawRecord(record), category });
-        if (pendingEntries.length >= legalImportBatchSize) flush();
+        const jsonBytes = new Uint8Array(byteLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+          jsonBytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        const raw = new TextDecoder("utf-8").decode(jsonBytes).replace(/^\uFEFF/, "");
+        const records: Record<string, unknown>[] = [];
+        collectLawObjects(JSON.parse(raw), records);
+        const category = /(^|\/)ChOrder\.json$/i.test(file.name) ? "命令" : "法律";
+        for (const record of records) {
+          pendingEntries.push({ record: compactLawRecord(record), category });
+          if (pendingEntries.length >= legalImportBatchSize) flush();
+        }
+      } catch (caught) {
+        streamError = caught instanceof Error ? caught : new Error("ZIP 法規資料解析失敗");
       }
     };
-    file.start();
+    try {
+      file.start();
+    } catch (caught) {
+      streamError = caught instanceof Error ? caught : new Error("ZIP 分段解壓失敗");
+    }
   });
   unzip.register(UnzipInflate);
   unzip.register(UnzipPassThrough);
@@ -183,6 +192,7 @@ async function prepareLegalZipStream(
   } finally {
     reader.releaseLock();
   }
+  if (streamError) throw streamError;
   flush();
   await Promise.all(pendingWrites);
 
