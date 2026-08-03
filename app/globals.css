@@ -2477,6 +2477,41 @@ a {
 .course-segment-list p { max-height: 48px; overflow: hidden; }
 .resource-empty { padding: 18px 13px; border: 1px dashed #d2e0e6; border-radius: 10px; background: #f8fafb; color: #7a8e99; font-size: 12px; line-height: 1.6; text-align: center; }
 .resource-empty-large { min-height: 280px; display: grid; place-items: center; }
+.book-learning-room { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 12px; margin-top: 15px; min-height: 560px; }
+.book-chapter-list { display: grid; align-content: start; gap: 7px; max-height: 650px; overflow: auto; padding-right: 3px; }
+.book-chapter-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 4px 8px; color: #315d73; }
+.book-chapter-heading strong { font-size: 14px; }
+.book-chapter-heading span { color: #78909d; font-size: 11px; }
+.book-chapter-list > button { display: grid; grid-template-columns: 29px minmax(0, 1fr); gap: 8px; width: 100%; padding: 9px; border: 1px solid #dbe7ec; border-radius: 9px; background: #fff; color: #315d73; text-align: left; cursor: pointer; }
+.book-chapter-list > button:hover { border-color: #8eb4c5; background: #f8fcfd; }
+.book-chapter-list > button.active { border-color: #4e8baa; background: #eaf6f9; box-shadow: inset 3px 0 #3e7d99; }
+.book-chapter-list > button > span { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 7px; background: #e8f1f4; color: #4b8298; font-size: 10px; font-weight: 850; }
+.book-chapter-list strong { display: block; color: #28516a; font-size: 13px; line-height: 1.45; }
+.book-chapter-list small, .book-chapter-list em { display: block; margin-top: 4px; color: #78909d; font-size: 10px; font-style: normal; line-height: 1.45; }
+.book-chapter-list em { color: #4b8298; }
+.book-chapter-empty { padding: 18px 12px; border: 1px dashed #cedfe6; border-radius: 10px; background: #f8fafb; color: #748b97; font-size: 12px; line-height: 1.7; text-align: center; }
+.book-ai-dialogue { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 560px; border: 1px solid #d9e6eb; border-radius: 12px; background: #fff; overflow: hidden; }
+.book-ai-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #e6eef1; background: #f2f8fa; }
+.book-ai-heading span, .book-ai-heading strong { display: block; }
+.book-ai-heading span { color: #5b8aa0; font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+.book-ai-heading strong { margin-top: 4px; color: #224f68; font-size: 17px; line-height: 1.45; }
+.book-ai-heading small { color: #6e8794; font-size: 11px; line-height: 1.5; text-align: right; }
+.book-dialogue-messages { min-height: 0; overflow: auto; padding: 16px; background: #fcfefe; }
+.book-dialogue-message { max-width: 88%; margin-bottom: 12px; }
+.book-dialogue-message.student { margin-left: auto; }
+.book-dialogue-message > span { display: block; margin-bottom: 4px; color: #6d8794; font-size: 10px; font-weight: 850; }
+.book-dialogue-message p { margin: 0; padding: 11px 13px; border-radius: 12px 12px 12px 3px; background: #eef6f8; color: #31586c; font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
+.book-dialogue-message.student p { border-radius: 12px 12px 3px 12px; background: #1d4763; color: #fff; }
+.book-typing { color: #678491 !important; }
+.book-dialogue-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 11px; border-top: 1px solid #e6eef1; background: #fff; }
+.book-dialogue-form input { min-width: 0; padding: 11px 12px; border: 1px solid #cddfe6; border-radius: 9px; color: #31586c; font: inherit; outline: none; }
+.book-dialogue-form input:focus { border-color: #5a95ae; box-shadow: 0 0 0 3px rgba(90, 149, 174, .12); }
+.book-dialogue-form button { min-width: 62px; padding: 0 15px; border: 0; border-radius: 9px; background: #1b425f; color: #fff; font-weight: 800; cursor: pointer; }
+.book-dialogue-form button:disabled { opacity: .45; cursor: not-allowed; }
+.book-dialogue-empty { display: grid; place-content: center; justify-items: center; padding: 30px; color: #718995; text-align: center; }
+.book-dialogue-empty > div { display: grid; place-items: center; width: 54px; height: 54px; margin-bottom: 14px; border-radius: 16px; background: #e5f1f4; color: #3e7d99; font-size: 18px; font-weight: 900; }
+.book-dialogue-empty strong { color: #315d73; font-size: 17px; }
+.book-dialogue-empty p { max-width: 360px; margin: 8px 0 0; font-size: 13px; line-height: 1.7; }
 .plan-tabs button.active {
   background: #193d5a;
   border-color: #193d5a;
@@ -3585,6 +3620,14 @@ a {
   .resource-panel-actions button { flex: 1; }
   .reader-toolbar { align-items: flex-start; flex-direction: column; }
   .book-reader iframe { height: 560px; }
+  .book-learning-room { grid-template-columns: 1fr; min-height: 0; }
+  .book-chapter-list { max-height: 290px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+  .book-chapter-heading, .book-chapter-empty { grid-column: 1 / -1; }
+  .book-chapter-list > button { min-height: 78px; }
+  .book-ai-dialogue { min-height: 520px; }
+  .book-ai-heading { flex-direction: column; }
+  .book-ai-heading small { text-align: left; }
+  .book-dialogue-message { max-width: 94%; }
   .course-player iframe, .course-player video { height: 250px; }
   .course-study-meta { align-items: flex-start; flex-direction: column; }
   .exam-gateway { grid-template-columns: 1fr; }

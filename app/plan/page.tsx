@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import { PracticeLab } from "./practice-lab";
 import { LegalSearch } from "./legal-search";
@@ -14,6 +14,7 @@ type StudyRecord = { id: number; recordDate: string; subject: string; title: str
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
 type LearningResource = { id: number; resourceType: "book" | "course" | "magazine"; title: string; subject: string; creator: string; description: string; documentId: number | null; sourceUrl: string; accessType: string; status: string; segmentCount: number; hasCover?: number };
 type ResourceSegment = { id: number; resourceId: number; segmentType: string; lessonLabel: string; title: string; pageStart: number | null; pageEnd: number | null; startSeconds: number | null; endSeconds: number | null; text: string; summary: string; importance: number; recommended: boolean; sequence: number };
+type TutorMessage = { role: "mentor" | "student"; text: string };
 type HomeFeed = { magazine: { id: number; title: string; sourceUrl: string; description?: string; isDraft?: boolean; articles?: Array<{ id: number; title: string; summary: string; issue: string; reviewStatus: string; sequence: number }> } | null; listening: ListeningFeed | null; focusMusicUrl?: string };
 
 const subjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法", "綜合"];
@@ -40,7 +41,12 @@ export default function StudyPlanPage() {
   const [resources, setResources] = useState<LearningResource[]>([]);
   const [selectedResourceId, setSelectedResourceId] = useState<number | null>(null);
   const [resourceSegments, setResourceSegments] = useState<ResourceSegment[]>([]);
+  const [bookChapters, setBookChapters] = useState<ResourceSegment[]>([]);
   const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
+  const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null);
+  const [bookMessages, setBookMessages] = useState<TutorMessage[]>([]);
+  const [bookInput, setBookInput] = useState("");
+  const [bookChatLoading, setBookChatLoading] = useState(false);
   const [resourceProgress, setResourceProgress] = useState<Record<string, { page: number; segmentId: number | null; positionSeconds: number; updatedAt: string }>>(() => {
     if (typeof window === "undefined") return {};
     try { return JSON.parse(window.localStorage.getItem("silu-resource-progress") ?? "{}"); } catch { return {}; }
@@ -72,6 +78,16 @@ export default function StudyPlanPage() {
     fetch(`/api/resources/segments?resourceId=${resource.id}`).then(async (response) => { if (response.ok) setResourceSegments(((await response.json()) as { segments?: ResourceSegment[] }).segments ?? []); });
   }, [resources, selectedResourceId]);
 
+  useEffect(() => {
+    const resource = resources.find((item) => item.id === selectedResourceId);
+    if (!resource || resource.resourceType !== "book") return;
+    fetch(`/api/resources/chapters?resourceId=${resource.id}`).then(async (response) => {
+      const result = await response.json() as { chapters?: ResourceSegment[]; message?: string };
+      if (response.ok) setBookChapters(result.chapters ?? []);
+      else setResourceMessage(result.message ?? "教材章節暫時無法讀取");
+    }).catch(() => setResourceMessage("教材章節暫時無法讀取"));
+  }, [resources, selectedResourceId]);
+
   const days = useMemo(() => {
     const [year, monthNumber] = month.split("-").map(Number);
     const first = new Date(year, monthNumber - 1, 1);
@@ -91,7 +107,7 @@ export default function StudyPlanPage() {
     const marker = task.details.match(/\[resource:(\d+)\]/)?.[1];
     const resourceId = marker ? Number(marker) : null;
     const resource = resourceId ? resources.find((item) => item.id === resourceId) : resources.find((item) => task.title.includes(item.title));
-    if (resource) { setSelectedResourceId(resource.id); setActiveTab(resource.resourceType === "course" ? "courses" : "books"); }
+    if (resource) { setSelectedResourceId(resource.id); setSelectedSegmentId(null); setSelectedChapterId(null); setBookMessages([]); setActiveTab(resource.resourceType === "course" ? "courses" : "books"); }
   }
 
   async function save() {
@@ -146,6 +162,7 @@ export default function StudyPlanPage() {
   const selectedResource = resources.find((item) => item.id === selectedResourceId) ?? (activeTab === "courses" ? courseResources[0] : bookResources[0]) ?? null;
   const selectedProgress = selectedResource ? resourceProgress[String(selectedResource.id)] : undefined;
   const selectedSegment = resourceSegments.find((segment) => segment.id === (selectedSegmentId ?? selectedProgress?.segmentId)) ?? null;
+  const selectedChapter = bookChapters.find((chapter) => chapter.id === selectedChapterId) ?? null;
 
   function todayValue() { return taipeiDate(); }
   function updateResourceProgress(resourceId: number, next: Partial<{ page: number; segmentId: number | null; positionSeconds: number }>) {
@@ -162,10 +179,55 @@ export default function StudyPlanPage() {
     if (response.ok) await load();
   }
   async function logResourceStudy(resource: LearningResource, actualMinutes: number, nextStep: string) {
-    const segmentLabel = selectedSegment ? `｜${selectedSegment.title}` : "";
+    const segmentLabel = resource.resourceType === "book"
+      ? (selectedChapter ? `｜${selectedChapter.title}` : "")
+      : (selectedSegment ? `｜${selectedSegment.title}` : "");
     const response = await fetch("/api/learning-records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordDate: todayValue(), subject: resource.subject || "綜合", title: `${resource.title}${segmentLabel}`, activityType: resource.resourceType === "course" ? "影音課程學習" : "書籍學習", actualMinutes, nextStep }) });
     setResourceMessage(response.ok ? "已記錄今天的學習內容；AI 導師下次對話會讀取這筆紀錄。" : "學習紀錄暫時無法儲存");
     if (response.ok) { const result = await response.json() as { record?: StudyRecord }; if (result.record) setRecords((current) => [result.record!, ...current]); }
+  }
+
+  function bookContext(chapter: ResourceSegment) {
+    const pages = chapter.pageStart ? `（第 ${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""} 頁）` : "";
+    return `教材：《${selectedResource?.title ?? ""}》；科目：${selectedResource?.subject ?? "綜合"}；目前章節：${chapter.title}${pages}。${chapter.summary ? `章節摘要：${chapter.summary}` : ""}`;
+  }
+
+  async function startBookChapter(chapter: ResourceSegment) {
+    if (!selectedResource || selectedResource.resourceType !== "book") return;
+    setSelectedChapterId(chapter.id);
+    setBookMessages([]);
+    setBookInput("");
+    setBookChatLoading(true);
+    const prompt = `${bookContext(chapter)}\n請開始教我這一章。先用一小段話說明本章要學會什麼，再提出一個學生可以直接回答的問題；請嚴格以這本教材為優先依據，不要先傾倒完整解答。`;
+    try {
+      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "student", text: prompt }] }) });
+      const result = await response.json() as { reply?: string; error?: string };
+      setBookMessages([{ role: "mentor", text: response.ok ? (result.reply ?? "我們先從這一章開始。") : (result.error ?? "AI 教學暫時無法開始") }]);
+    } catch {
+      setBookMessages([{ role: "mentor", text: "教材章節已開啟，但 AI 暫時沒有回應。請稍後再按一次章節。" }]);
+    } finally {
+      setBookChatLoading(false);
+    }
+  }
+
+  async function sendBookMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = bookInput.trim();
+    if (!text || !selectedChapter || !selectedResource || bookChatLoading) return;
+    const studentMessage = { role: "student" as const, text: `${bookContext(selectedChapter)}\n學生回覆：${text}` };
+    const nextMessages = [...bookMessages, studentMessage].slice(-12);
+    setBookMessages(nextMessages);
+    setBookInput("");
+    setBookChatLoading(true);
+    try {
+      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: nextMessages }) });
+      const result = await response.json() as { reply?: string; error?: string };
+      setBookMessages((current) => [...current, { role: "mentor", text: response.ok ? (result.reply ?? "我們接著往下釐清。") : (result.error ?? "AI 教學暫時無法回應") }]);
+    } catch {
+      setBookMessages((current) => [...current, { role: "mentor", text: "這次回覆沒有送出成功，請再試一次。" }]);
+    } finally {
+      setBookChatLoading(false);
+    }
   }
 
   async function addRecord() {
@@ -209,11 +271,11 @@ export default function StudyPlanPage() {
       <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>書籍</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
       {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><article className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={homeFeed.listening} /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article></section>}
       {(activeTab === "books" || activeTab === "courses") && <section className="resource-learning-hub" aria-label={activeTab === "books" ? "書籍學習" : "影音課程學習"}>
-        <div className="resource-learning-head"><div><p>{activeTab === "books" ? "READING ROOM" : "COURSE ROOM"}</p><h2>{activeTab === "books" ? "書籍學習" : "影音課程學習"}</h2><span>留在學習專區內完成；進度、今日計畫與學習紀錄會連在一起。</span></div><span className="resource-count">{(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>
-        <div className="resource-learning-layout"><aside className="resource-list" aria-label="可學習資源">{(activeTab === "books" ? bookResources : courseResources).map((resource) => <button key={resource.id} className={selectedResource?.id === resource.id ? "active" : ""} onClick={() => { setSelectedResourceId(resource.id); setSelectedSegmentId(null); setResourceMessage(""); }}><span>{resource.resourceType === "book" ? "書" : "課"}</span><div><strong>{resource.title}</strong><small>{resource.subject}{resource.creator ? ` · ${resource.creator}` : ""}</small><em>{resourceProgress[String(resource.id)] ? `上次接續：${resourceProgress[String(resource.id)]?.page ? `第 ${resourceProgress[String(resource.id)]?.page} 頁` : "已開始"}` : "尚未開始"}</em></div></button>)}{!(activeTab === "books" ? bookResources : courseResources).length && <div className="resource-empty">後台尚未建立{activeTab === "books" ? "書籍" : "影音課程"}資源。</div>}</aside>
-          {selectedResource ? <article className="resource-study-panel"><header><div><span>{selectedResource.subject} · {selectedResource.resourceType === "book" ? "書籍" : "影音課程"}</span><h3>{selectedResource.title}</h3>{selectedResource.creator && <small>{selectedResource.creator}</small>}</div><div className="resource-panel-actions"><button className="secondary-btn" onClick={() => void addResourceTask(selectedResource)}>＋ 加入今日計畫</button><button className="primary-btn" onClick={() => void logResourceStudy(selectedResource, selectedResource.resourceType === "course" ? 45 : 60, selectedResource.resourceType === "course" ? "下次從上次字幕段落接續" : `下次從第 ${selectedProgress?.page || 1} 頁接續`)}>完成本次學習</button></div></header>
+            <div className="resource-learning-head"><div><p>{activeTab === "books" ? "READING ROOM" : "COURSE ROOM"}</p><h2>{activeTab === "books" ? "書籍學習" : "影音課程學習"}</h2><span>{activeTab === "books" ? "不開啟 PDF；選章節後由 AI 依教材內容教學。" : "留在學習專區內完成；進度、今日計畫與學習紀錄會連在一起。"}</span></div><span className="resource-count">{(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>
+        <div className="resource-learning-layout"><aside className="resource-list" aria-label="可學習資源">{(activeTab === "books" ? bookResources : courseResources).map((resource) => <button key={resource.id} className={selectedResource?.id === resource.id ? "active" : ""} onClick={() => { setSelectedResourceId(resource.id); setSelectedSegmentId(null); setSelectedChapterId(null); setBookMessages([]); setResourceMessage(""); }}><span>{resource.resourceType === "book" ? "書" : "課"}</span><div><strong>{resource.title}</strong><small>{resource.subject}{resource.creator ? ` · ${resource.creator}` : ""}</small><em>{resourceProgress[String(resource.id)] ? "已有學習紀錄" : "尚未開始"}</em></div></button>)}{!(activeTab === "books" ? bookResources : courseResources).length && <div className="resource-empty">後台尚未建立{activeTab === "books" ? "書籍" : "影音課程"}資源。</div>}</aside>
+          {selectedResource ? <article className="resource-study-panel"><header><div><span>{selectedResource.subject} · {selectedResource.resourceType === "book" ? "書籍" : "影音課程"}</span><h3>{selectedResource.title}</h3>{selectedResource.creator && <small>{selectedResource.creator}</small>}</div><div className="resource-panel-actions"><button className="secondary-btn" onClick={() => void addResourceTask(selectedResource)}>＋ 加入今日計畫</button><button className="primary-btn" onClick={() => void logResourceStudy(selectedResource, selectedResource.resourceType === "course" ? 45 : 60, selectedResource.resourceType === "course" ? "下次從上次字幕段落接續" : `下次從${selectedChapter?.title ? `「${selectedChapter.title}」` : "目前章節"}接續`)}>完成本次學習</button></div></header>
             {resourceMessage && <p className="resource-message">{resourceMessage}</p>}
-            {selectedResource.resourceType === "book" ? <div className="book-reader"><div className="reader-toolbar"><label>目前頁碼<input type="number" min="1" value={selectedProgress?.page || 1} onChange={(event) => updateResourceProgress(selectedResource.id, { page: Math.max(1, Number(event.target.value) || 1) })} /></label><span>上次接續會保存在這台裝置；完成按鈕會同步寫入學習日誌。</span></div>{selectedResource.documentId ? <iframe key={selectedResource.id} src={`/api/resources/document?resourceId=${selectedResource.id}#page=${selectedProgress?.page || 1}`} title={`${selectedResource.title} PDF 閱讀器`} /> : selectedResource.sourceUrl ? <div className="reader-fallback"><p>這本書尚未綁定平台 PDF，先開啟原始教材來源閱讀。</p><a href={selectedResource.sourceUrl} target="_blank" rel="noreferrer">開啟教材來源 ↗</a></div> : <div className="resource-empty">這本書尚未綁定 PDF，請到管理後台連結教材文件。</div>}</div> : <div className="course-reader"><div className="course-player">{youtubeEmbedUrl(selectedResource.sourceUrl, selectedSegment?.startSeconds || selectedProgress?.positionSeconds || 0) ? <iframe key={`${selectedResource.id}-${selectedSegment?.id || 0}`} src={youtubeEmbedUrl(selectedResource.sourceUrl, selectedSegment?.startSeconds || selectedProgress?.positionSeconds || 0)} title={`${selectedResource.title}影音播放器`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /> : selectedResource.sourceUrl ? <video controls src={selectedResource.sourceUrl} /> : <div className="resource-empty">這堂課尚未設定影片網址。</div>}</div><div className="course-study-meta"><div><strong>字幕與重點</strong><span>{resourceSegments.length ? `共 ${resourceSegments.length} 段，點擊即可從該時間點開始。` : "後台尚未上傳可跳轉的 SRT 字幕。"}</span></div>{selectedResource.sourceUrl && <a href={youtubeWatchUrl(selectedResource.sourceUrl) || selectedResource.sourceUrl} target="_blank" rel="noreferrer">另開課程頁 ↗</a>}</div>{resourceSegments.length > 0 && <div className="course-segment-list">{resourceSegments.map((segment) => <button key={segment.id} className={selectedSegment?.id === segment.id ? "active" : ""} onClick={() => { setSelectedSegmentId(segment.id); updateResourceProgress(selectedResource.id, { segmentId: segment.id, positionSeconds: segment.startSeconds || 0 }); }}><span>{segment.startSeconds != null ? `${Math.floor(segment.startSeconds / 60)}:${String(segment.startSeconds % 60).padStart(2, "0")}` : segment.sequence}</span><div><strong>{segment.title}</strong>{segment.summary && <small>{segment.summary}</small>}{segment.text && <p>{segment.text}</p>}</div></button>)}</div>}</div>}
+            {selectedResource.resourceType === "book" ? <div className="book-learning-room"><aside className="book-chapter-list" aria-label="教材章節"><div className="book-chapter-heading"><strong>本書章節</strong><span>{bookChapters.length ? `${bookChapters.length} 章` : "正在整理教材目錄"}</span></div>{bookChapters.length ? bookChapters.map((chapter, index) => <button key={chapter.id} className={selectedChapter?.id === chapter.id ? "active" : ""} onClick={() => void startBookChapter(chapter)}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{chapter.title}</strong>{chapter.summary && <small>{chapter.summary}</small>}{chapter.pageStart && <em>第 {chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""} 頁</em>}</div></button>) : <div className="book-chapter-empty">教材索引完成後，這裡會出現真實章節。<br />目前不提供 PDF 閱讀或下載。</div>}</aside><section className="book-ai-dialogue" aria-label="書籍 AI 教學"><div className="book-ai-heading"><div><span>AI 教材教學</span><strong>{selectedChapter ? selectedChapter.title : "先選一個章節"}</strong></div><small>{selectedChapter ? "依本章內容開始對話" : "點左側章節，AI 會直接開始教你"}</small></div>{selectedChapter ? <><div className="book-dialogue-messages">{bookMessages.map((message, index) => <div key={`${message.role}-${index}`} className={`book-dialogue-message ${message.role}`}><span>{message.role === "mentor" ? "AI 教練" : "你"}</span><p>{message.text}</p></div>)}{bookChatLoading && <div className="book-dialogue-message mentor"><span>AI 教練</span><p className="book-typing">正在整理本章內容…</p></div>}</div><form className="book-dialogue-form" onSubmit={sendBookMessage}><input value={bookInput} onChange={(event) => setBookInput(event.target.value)} placeholder="回覆 AI 教練，繼續這一章…" disabled={bookChatLoading} /><button type="submit" disabled={bookChatLoading || !bookInput.trim()}>送出</button></form></> : <div className="book-dialogue-empty"><div>AI</div><strong>選一個章節，開始學習</strong><p>這裡不顯示 PDF。AI 會依教材內容先教你抓本章重點，再用問題帶你思考。</p></div>}</section></div> : <div className="course-reader"><div className="course-player">{youtubeEmbedUrl(selectedResource.sourceUrl, selectedSegment?.startSeconds || selectedProgress?.positionSeconds || 0) ? <iframe key={`${selectedResource.id}-${selectedSegment?.id || 0}`} src={youtubeEmbedUrl(selectedResource.sourceUrl, selectedSegment?.startSeconds || selectedProgress?.positionSeconds || 0)} title={`${selectedResource.title}影音播放器`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /> : selectedResource.sourceUrl ? <video controls src={selectedResource.sourceUrl} /> : <div className="resource-empty">這堂課尚未設定影片網址。</div>}</div><div className="course-study-meta"><div><strong>字幕與重點</strong><span>{resourceSegments.length ? `共 ${resourceSegments.length} 段，點擊即可從該時間點開始。` : "後台尚未上傳可跳轉的 SRT 字幕。"}</span></div>{selectedResource.sourceUrl && <a href={youtubeWatchUrl(selectedResource.sourceUrl) || selectedResource.sourceUrl} target="_blank" rel="noreferrer">另開課程頁 ↗</a>}</div>{resourceSegments.length > 0 && <div className="course-segment-list">{resourceSegments.map((segment) => <button key={segment.id} className={selectedSegment?.id === segment.id ? "active" : ""} onClick={() => { setSelectedSegmentId(segment.id); updateResourceProgress(selectedResource.id, { segmentId: segment.id, positionSeconds: segment.startSeconds || 0 }); }}><span>{segment.startSeconds != null ? `${Math.floor(segment.startSeconds / 60)}:${String(segment.startSeconds % 60).padStart(2, "0")}` : segment.sequence}</span><div><strong>{segment.title}</strong>{segment.summary && <small>{segment.summary}</small>}{segment.text && <p>{segment.text}</p>}</div></button>)}</div>}</div>}
           </article> : <div className="resource-empty resource-empty-large">先從左側選擇一項{activeTab === "books" ? "書籍" : "影音課程"}，就在這裡開始。</div>}
         </div>
       </section>}
