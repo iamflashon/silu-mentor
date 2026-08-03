@@ -227,6 +227,29 @@ export const listeningSolutions = sqliteTable("listening_solutions", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
+export const listeningAudioSegments = sqliteTable("listening_audio_segments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  listeningId: integer("listening_id").notNull().references(() => listeningSolutions.id, { onDelete: "cascade" }),
+  storageKey: text("storage_key").notNull(),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull().default("audio/mpeg"),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+  startOffsetSeconds: integer("start_offset_seconds").notNull().default(0),
+  sequence: integer("sequence").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const listeningSubtitleCues = sqliteTable("listening_subtitle_cues", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  listeningId: integer("listening_id").notNull().references(() => listeningSolutions.id, { onDelete: "cascade" }),
+  segmentId: integer("segment_id").references(() => listeningAudioSegments.id, { onDelete: "cascade" }),
+  startSeconds: integer("start_seconds").notNull(),
+  endSeconds: integer("end_seconds").notNull(),
+  text: text("text").notNull(),
+  sequence: integer("sequence").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const legalDataSources = sqliteTable("legal_data_sources", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sourceKey: text("source_key").notNull().unique(),
