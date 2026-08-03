@@ -5,43 +5,36 @@ import { learningResources, resourceSegments } from "../../../../db/schema";
 function seconds(value: string) {
   const normalized = value.trim().replace(",", ".");
   const parts = normalized.split(":");
-  if (parts.length !== 3) return NaN;
-  const [h, m, tail] = parts.map(Number);
-  if (![h, m, tail].every(Number.isFinite)) return NaN;
-  return Math.round(h * 3600 + m * 60 + tail);
+  if (parts.length === 3) {
+    const [h, m, s] = parts.map(Number);
+    if (![h, m, s].every(Number.isFinite)) return NaN;
+    return Math.round(h * 3600 + m * 60 + s);
+  }
+  if (parts.length === 2) {
+    const [m, s] = parts.map(Number);
+    if (![m, s].every(Number.isFinite)) return NaN;
+    return Math.round(m * 60 + s);
+  }
+  return NaN;
 }
 
 function parseSrt(raw: string) {
-  const cues = raw
-    .replace(/^\uFEFF/, "")
-    .replaceAll("\r", "")
-    .trim()
-    .split(/\n\s*\n+/)
-    .map((block) => {
-      const lines = block.split("\n");
-      const timeIndex = lines.findIndex((line) => line.includes("-->"));
-      if (timeIndex < 0) return null;
-      const [start, end] = lines[timeIndex]
-        .split("-->")
-        .map((item) => item.trim());
-      return {
-        start: seconds(start),
-        end: seconds(end),
-        text: lines
-          .slice(timeIndex + 1)
-          .join(" ")
-          .replace(/<[^>]+>/g, "")
-          .trim(),
-      };
-    })
-    .filter((cue): cue is { start: number; end: number; text: string } =>
-      Boolean(
-        cue?.text &&
-          Number.isFinite(cue.start) &&
-          Number.isFinite(cue.end) &&
-          cue.end >= cue.start,
-      ),
-    );
+  const normalized = raw.replace(/^\uFEFF/, "").replace(/\r/g, "").trim();
+  const cuePattern = /(?:^|\n)\s*(?:\d+\s*\n)?\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})[^\n]*\n([\s\S]*?)(?=\n\s*(?:\d+\s*\n)?\s*\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}\s*-->|$)/g;
+  const cues: Array<{ start: number; end: number; text: string }> = [];
+  for (const match of normalized.matchAll(cuePattern)) {
+    const start = seconds(match[1]);
+    const end = seconds(match[2]);
+    const text = match[3]
+      .replace(/<[^>]+>/g, "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    if (text && Number.isFinite(start) && Number.isFinite(end) && end >= start)
+      cues.push({ start, end, text });
+  }
   const groups: Array<{ start: number; end: number; text: string }> = [];
   for (const cue of cues) {
     const current = groups.at(-1);
@@ -111,12 +104,14 @@ export async function POST(request: Request) {
           },
           { status: 422 },
         );
+      // A course has one authoritative SRT timeline. Remove malformed or
+      // previously imported timelines before rebuilding it from this file.
       await db
         .delete(resourceSegments)
         .where(
           and(
             eq(resourceSegments.resourceId, resourceId),
-            eq(resourceSegments.lessonLabel, lessonLabel),
+            eq(resourceSegments.segmentType, "subtitle"),
           ),
         );
       const rows = groups.map((group, index) => ({

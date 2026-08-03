@@ -1014,7 +1014,7 @@ export default function AdminPage() {
               hasCover: assetType === "cover" ? 1 : item.hasCover,
               segmentCount:
                 assetType === "subtitle"
-                  ? item.segmentCount + Number(result.segments ?? 0)
+                  ? Number(result.segments ?? 0)
                   : item.segmentCount,
             }
           : item,

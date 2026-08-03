@@ -3,18 +3,33 @@ import { getDb } from "../../../../db";
 import { listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../db/schema";
 
 function timeToSeconds(value: string) {
-  const match = value.trim().replace(".", ",").match(/(\d+):(\d+):(\d+),(\d+)/);
-  if (!match) return 0;
-  return Math.round(Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000);
+  const normalized = value.trim().replace(",", ".");
+  const parts = normalized.split(":");
+  if (parts.length === 3) {
+    const [hours, minutes, seconds] = parts.map(Number);
+    if (![hours, minutes, seconds].every(Number.isFinite)) return NaN;
+    return Math.round(hours * 3600 + minutes * 60 + seconds);
+  }
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts.map(Number);
+    if (![minutes, seconds].every(Number.isFinite)) return NaN;
+    return Math.round(minutes * 60 + seconds);
+  }
+  return NaN;
 }
 
 function parseSrt(value: string) {
-  return value.replace(/\r/g, "").trim().split(/\n\s*\n/).flatMap((block, sequence) => {
-    const lines = block.split("\n"); const timingIndex = lines.findIndex((line) => line.includes("-->"));
-    if (timingIndex < 0) return [];
-    const [start, end] = lines[timingIndex].split("-->");
-    return [{ sequence, startSeconds: timeToSeconds(start), endSeconds: timeToSeconds(end), text: lines.slice(timingIndex + 1).join(" ").trim() }];
-  }).filter((cue) => cue.text);
+  const normalized = value.replace(/^\uFEFF/, "").replace(/\r/g, "").trim();
+  const pattern = /(?:^|\n)\s*(?:\d+\s*\n)?\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})[^\n]*\n([\s\S]*?)(?=\n\s*(?:\d+\s*\n)?\s*\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}\s*-->|$)/g;
+  const cues: Array<{ sequence: number; startSeconds: number; endSeconds: number; text: string }> = [];
+  for (const [sequence, match] of [...normalized.matchAll(pattern)].entries()) {
+    const startSeconds = timeToSeconds(match[1]);
+    const endSeconds = timeToSeconds(match[2]);
+    const text = match[3].replace(/<[^>]+>/g, "").split("\n").map((line) => line.trim()).filter(Boolean).join(" ").trim();
+    if (text && Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds >= startSeconds)
+      cues.push({ sequence, startSeconds, endSeconds, text });
+  }
+  return cues;
 }
 
 export async function GET(request: Request) {
