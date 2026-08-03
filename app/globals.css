@@ -2654,6 +2654,33 @@ a {
 .legal-search-form input, .legal-search-form select { min-width: 0; padding: 11px 12px; border: 1px solid #cfdee6; border-radius: 9px; background: #fbfdfe; color: #3c6175; font: inherit; font-size: 11px; }
 .legal-search-form .primary-btn { border: 0; border-radius: 9px; background: #285d7f; color: #fff; font-size: 10px; font-weight: 850; cursor: pointer; }
 .legal-search-form .primary-btn:disabled { opacity: .55; cursor: wait; }
+.law-browser { margin-top: 17px; padding: 14px; border: 1px solid #dce8ed; border-radius: 12px; background: #f8fbfc; }
+.law-browser-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.law-browser-head div { display: grid; gap: 3px; }
+.law-browser-head b { color: #315d73; font-size: 12px; }
+.law-browser-head span, .law-browser-head small { color: #8195a0; font-size: 9px; }
+.law-category-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.law-category-tabs button { padding: 6px 9px; border: 1px solid #d2e1e7; border-radius: 999px; background: #fff; color: #587d8e; font-size: 9px; font-weight: 800; cursor: pointer; }
+.law-category-tabs button.active { border-color: #2d6d88; background: #2d6d88; color: #fff; }
+.law-category-tabs small { margin-left: 3px; opacity: .75; }
+.law-document-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 11px; }
+.law-document-card { min-width: 0; padding: 10px; border: 1px solid #dce7ec; border-radius: 9px; background: #fff; text-align: left; cursor: pointer; }
+.law-document-card:hover, .law-document-card.active { border-color: #6aa0b6; background: #f0f8fa; }
+.law-document-card span, .law-document-card small { display: block; color: #7c96a2; font-size: 8px; }
+.law-document-card strong { display: block; margin: 4px 0; overflow: hidden; color: #315c72; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.law-browser-empty { grid-column: 1 / -1; padding: 18px; color: #8297a2; font-size: 10px; text-align: center; }
+.law-document-detail { margin-top: 12px; padding: 14px; border: 1px solid #bcd6e0; border-radius: 10px; background: #fff; }
+.law-document-detail > header { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid #e6eef1; }
+.law-document-detail header div:first-child { min-width: 0; }
+.law-document-detail header span, .law-document-detail header small { color: #78909d; font-size: 9px; }
+.law-document-detail h3 { margin: 4px 0; color: #2e5e76; font-size: 15px; }
+.law-document-detail header div:last-child { display: flex; flex: 0 0 auto; align-items: flex-start; gap: 6px; }
+.law-document-detail header a, .law-document-detail header button { padding: 5px 7px; border: 0; border-radius: 6px; background: #edf5f7; color: #47758a; font-size: 9px; font-weight: 800; text-decoration: none; cursor: pointer; }
+.law-document-detail section { padding: 11px 0; border-bottom: 1px solid #edf2f4; }
+.law-document-detail section:last-child { border-bottom: 0; }
+.law-document-detail h4 { margin: 0 0 5px; color: #416d80; font-size: 10px; }
+.law-document-detail h4 small { margin-left: 7px; color: #93a5ae; font-size: 8px; font-weight: 500; }
+.law-document-detail p { margin: 0; color: #536e7c; font-size: 10px; line-height: 1.75; white-space: pre-wrap; }
 .legal-search-suggestions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .legal-search-suggestions span { color: #8a9ca7; font-size: 9px; }
 .legal-search-suggestions button { padding: 5px 7px; border: 1px solid #d7e4ea; border-radius: 7px; background: #f7fafb; color: #527488; font-size: 9px; cursor: pointer; }
@@ -3666,6 +3693,9 @@ a {
   .practice-diagnosis,
   .practice-recommendations > div { grid-template-columns: 1fr; }
   .legal-search-form { grid-template-columns: 1fr; }
+  .law-document-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .law-document-detail > header { align-items: flex-start; flex-direction: column; }
+  .law-document-detail header div:last-child { width: 100%; }
   .legal-result-meta { align-items: flex-start; flex-wrap: wrap; }
   .legal-result-meta small { margin-left: 0; width: 100%; }
   .calendar-grid {

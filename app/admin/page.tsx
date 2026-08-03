@@ -465,30 +465,32 @@ export default function AdminPage() {
 
   async function syncLegal(sourceKey: string, restart = false) {
     setSyncingLegal(sourceKey);
-    setNotice("正在下載官方資料並分批建立法規索引…");
-    const response = await fetch("/api/legal-sources", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceKey, restart }),
-    });
-    const result = (await readJson(response)) as {
-      status?: string;
-      processed?: number;
-      next?: number;
-      total?: number;
-      error?: string;
-    };
-    setNotice(
-      response.ok
-        ? `本批完成 ${result.processed ?? 0} 筆；${result.status === "ready" ? "資料已可供 AI 搜尋" : `進度 ${result.next ?? 0} / ${result.total ?? 0}，請繼續下一批`}`
-        : (result.error ?? "資料同步失敗"),
-    );
-    const refreshed = await fetch("/api/legal-sources");
-    if (refreshed.ok)
-      setLegalSources(
-        ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
-      );
-    setSyncingLegal(null);
+    try {
+      let nextRestart = restart;
+      let status = "importing";
+      let progress = 0;
+      for (let attempt = 0; attempt < 220 && status !== "ready"; attempt += 1) {
+        setNotice(attempt === 0 ? "正在下載官方資料並建立法規索引…" : `正在取得官方內容並建立索引：${progress.toLocaleString()} 筆…`);
+        const response = await fetch("/api/legal-sources", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sourceKey, restart: nextRestart }),
+        });
+        const result = (await readJson(response)) as { status?: string; processed?: number; next?: number; total?: number; error?: string };
+        if (!response.ok) throw new Error(result.error ?? "資料同步失敗");
+        status = result.status ?? "importing";
+        progress = result.next ?? progress + (result.processed ?? 0);
+        nextRestart = false;
+        if (status !== "ready") await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+      setNotice(status === "ready" ? "官方資料、分類與內容已完成索引，現在可以進入查看。" : "資料已部分處理，請稍後再按重新同步繼續。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "資料同步失敗");
+    } finally {
+      const refreshed = await fetch("/api/legal-sources");
+      if (refreshed.ok) setLegalSources(((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? []);
+      setSyncingLegal(null);
+    }
   }
 
   async function importLegalZipInBrowser(sourceKey: string, archive: Blob) {
@@ -3774,6 +3776,7 @@ export default function AdminPage() {
                   <a href={source.sourceUrl} target="_blank" rel="noreferrer">
                     官方來源
                   </a>
+                  <Link href="/plan?tab=laws">查看內容</Link>
                   <button
                     disabled={syncingLegal !== null || (source.sourceKey === "moj-regulations" && !source.hasArchive)}
                     onClick={() =>

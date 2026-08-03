@@ -13,16 +13,21 @@ import {
   pickLegalValue,
   type LegalArchiveEntry,
 } from "../../../lib/legal-parser";
+import {
+  extractConstitutionalContent,
+  extractConstitutionalField,
+  extractConstitutionalListings,
+} from "../../../lib/constitutional-parser";
 
 const seeds = [
   { sourceKey: "moj-regulations", label: "全國法規", category: "法律／命令", sourceUrl: "https://sendlaw.moj.gov.tw/PublicData/GetFile.ashx?AuData=CF&DType=XML" },
-  { sourceKey: "constitutional-court", label: "憲法法庭判決", category: "憲法裁判", sourceUrl: "https://cons.judicial.gov.tw/docdata.aspx?fid=38" },
-  { sourceKey: "constitutional-interpretations", label: "大法官解釋", category: "大法官解釋", sourceUrl: "https://cons.judicial.gov.tw/jcc/zh-tw/jep03" },
+  { sourceKey: "constitutional-court", label: "憲法法庭判決", category: "憲法裁判", sourceUrl: "https://cons.judicial.gov.tw/judcurrentNew1.aspx?fid=38" },
+  { sourceKey: "constitutional-interpretations", label: "大法官解釋", category: "大法官解釋", sourceUrl: "https://cons.judicial.gov.tw/judcurrent.aspx?fid=2195" },
 ] as const;
 
 async function seedSources() {
   const db = await getDb();
-  for (const seed of seeds) await db.insert(legalDataSources).values(seed).onConflictDoNothing();
+  for (const seed of seeds) await db.insert(legalDataSources).values(seed).onConflictDoUpdate({ target: legalDataSources.sourceKey, set: { label: seed.label, category: seed.category, sourceUrl: seed.sourceUrl } });
   return db;
 }
 
@@ -310,8 +315,32 @@ export async function POST(request: Request) {
       for (const entry of batch) { const law = compactLegalRecord(entry.record); const title = legalTitle(law); if (!title) continue; const externalId = `${sourceKey}:${entry.category}:${title}`; const classification = legalClassification(law); const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId, title, category: entry.category, classification, modifiedDate: pickLegalValue(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pickLegalValue(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pickLegalValue(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pickLegalValue(law, ["LawURL", "Url", "法規網址"]) }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { category: entry.category, classification, modifiedDate: pickLegalValue(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pickLegalValue(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pickLegalValue(law, ["LawHistories", "Histories", "沿革內容"]), updatedAt: new Date() } }).returning(); await db.delete(legalArticles).where(eq(legalArticles.documentId, doc.id)); articleCount += await insertArticles(db, doc.id, law.LawArticles || law.Articles || law.條文); }
       const next = start + batch.length; const done = next >= manifest.total; const [counts] = await db.select({ docs: sql<number>`count(distinct ${legalDocuments.id})`, articles: sql<number>`count(${legalArticles.id})` }).from(legalDocuments).leftJoin(legalArticles, eq(legalDocuments.id, legalArticles.documentId)).where(eq(legalDocuments.sourceKey, sourceKey)); const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey)).groupBy(legalDocuments.category); const categoryCounts = Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])); await db.update(legalDataSources).set({ status: done ? "ready" : "importing", archiveStorageKey: key, importCursor: done ? 0 : next, totalAvailable: manifest.total, documentCount: Number(counts.docs || 0), articleCount: Number(counts.articles || 0), lastDownloadedAt: new Date(), updatedAt: new Date() }).where(eq(legalDataSources.id, source.id)); return Response.json({ sourceKey, status: done ? "ready" : "importing", processed: batch.length, next, total: manifest.total, articleCount, categoryCounts });
     }
-    const response = await fetch(source.sourceUrl, { headers: { "user-agent": "司律備考憲法資料同步/1.0" } }); if (!response.ok) throw new Error(`憲法資料頁讀取失敗（${response.status}）`); const html = await response.text(); const matches = [...html.matchAll(/href=["']([^"']*docdata\.aspx\?[^"']*id=(\d+)[^"']*)["'][^>]*>([^<]{4,120})/gi)]; let imported = 0;
-    for (const match of matches) { const title = match[3].replace(/&[^;]+;/g, " ").trim(); if (!title) continue; const externalId = `${sourceKey}:${match[2]}`; await db.insert(legalDocuments).values({ sourceKey, externalId, title, category: source.category, sourceUrl: new URL(match[1], source.sourceUrl).toString() }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { title, updatedAt: new Date() } }); imported++; }
-    const [count] = await db.select({ value: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey)); await db.update(legalDataSources).set({ status: "ready", documentCount: Number(count.value || 0), lastDownloadedAt: new Date(), updatedAt: new Date() }).where(eq(legalDataSources.id, source.id)); return Response.json({ sourceKey, status: "ready", processed: imported });
+    const response = await fetch(source.sourceUrl, { headers: { "user-agent": "司律備考憲法資料同步/1.0" } });
+    if (!response.ok) throw new Error(`憲法資料列表讀取失敗（${response.status}）`);
+    const html = await response.text();
+    const listings = extractConstitutionalListings(html, source.sourceUrl, sourceKey);
+    if (!listings.length) throw new Error("官方列表沒有找到可同步的憲法資料，請確認官方網址或稍後重試");
+    if (body.restart) await db.delete(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey));
+    const cursor = body.restart ? 0 : Math.max(0, source.importCursor);
+    const batchSize = 5;
+    const batch = listings.slice(cursor, cursor + batchSize);
+    let imported = 0;
+    for (const listing of batch) {
+      const detailResponse = await fetch(listing.sourceUrl, { headers: { "user-agent": "司律備考憲法資料同步/1.0" } });
+      if (!detailResponse.ok) continue;
+      const detailHtml = await detailResponse.text();
+      const content = extractConstitutionalContent(detailHtml);
+      const classification = sourceKey === "constitutional-interpretations" ? "解釋" : "判決";
+      const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId: listing.externalId, title: listing.title, category: source.category, classification, modifiedDate: extractConstitutionalField(detailHtml, sourceKey === "constitutional-interpretations" ? "解釋公布院令" : "判決日期"), sourceUrl: listing.sourceUrl }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { title: listing.title, category: source.category, classification, modifiedDate: extractConstitutionalField(detailHtml, sourceKey === "constitutional-interpretations" ? "解釋公布院令" : "判決日期"), sourceUrl: listing.sourceUrl, updatedAt: new Date() } }).returning();
+      await db.delete(legalArticles).where(eq(legalArticles.documentId, doc.id));
+      if (content) await db.insert(legalArticles).values({ documentId: doc.id, articleNo: "全文", hierarchy: classification, content, updatedAt: new Date() });
+      imported++;
+    }
+    const next = Math.min(listings.length, cursor + batch.length);
+    const done = next >= listings.length;
+    const [count] = await db.select({ value: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey));
+    const [articleCount] = await db.select({ value: sql<number>`count(*)` }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(eq(legalDocuments.sourceKey, sourceKey));
+    await db.update(legalDataSources).set({ status: done ? "ready" : "importing", importCursor: done ? 0 : next, totalAvailable: listings.length, documentCount: Number(count.value || 0), articleCount: Number(articleCount.value || 0), lastDownloadedAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
+    return Response.json({ sourceKey, status: done ? "ready" : "importing", processed: imported, next, total: listings.length });
   } catch (error) { const message = error instanceof Error ? error.message.slice(0, 300) : "資料同步失敗"; await db.update(legalDataSources).set({ status: "failed", lastError: message, updatedAt: new Date() }).where(eq(legalDataSources.id, source.id)); return Response.json({ error: message }, { status: 502 }); }
 }

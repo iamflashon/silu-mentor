@@ -23,6 +23,16 @@ function monthValue(date = new Date()) {
   return taipeiMonth(date);
 }
 
+type PlanTab = "calendar" | "practice" | "laws" | "books" | "courses" | "listening" | "magazine" | "records" | "notes";
+
+function requestedPlanTab(): PlanTab {
+  if (typeof window === "undefined") return "calendar";
+  const value = new URLSearchParams(window.location.search).get("tab");
+  return ["calendar", "practice", "laws", "books", "courses", "listening", "magazine", "records", "notes"].includes(value ?? "")
+    ? value as PlanTab
+    : "calendar";
+}
+
 export default function StudyPlanPage() {
   const [month, setMonth] = useState(monthValue());
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -35,7 +45,7 @@ export default function StudyPlanPage() {
   const [notePage, setNotePage] = useState(1);
   const [noteQuery, setNoteQuery] = useState("");
   const [recordDraft, setRecordDraft] = useState({ subject: "刑法", title: "", actualMinutes: 60, weakness: "", nextStep: "" });
-  const [activeTab, setActiveTab] = useState<"calendar" | "practice" | "laws" | "books" | "courses" | "listening" | "magazine" | "records" | "notes">("calendar");
+  const [activeTab, setActiveTab] = useState<PlanTab>(requestedPlanTab);
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [resources, setResources] = useState<LearningResource[]>([]);
