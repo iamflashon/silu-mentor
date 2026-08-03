@@ -1,0 +1,1 @@
+ALTER TABLE `learning_resources` ADD `linked_book_id` integer;

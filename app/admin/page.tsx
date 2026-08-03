@@ -77,6 +77,7 @@ type LearningResource = {
   creator: string;
   description: string;
   documentId: number | null;
+  linkedBookId: number | null;
   sourceUrl: string;
   accessType: string;
   status: string;
@@ -1006,6 +1007,59 @@ export default function AdminPage() {
     setNotice(
       `${resource.title} 已${documentId ? "綁定教材 PDF" : "解除教材綁定"}。`,
     );
+  }
+
+  async function bindCourseBook(
+    resource: LearningResource,
+    linkedBookId: string,
+  ) {
+    const response = await fetch("/api/resources", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...resource, linkedBookId: linkedBookId || null }),
+    });
+    const result = (await readJson(response)) as {
+      resource?: LearningResource;
+      error?: string;
+    };
+    if (!response.ok || !result.resource) {
+      setNotice(result.error ?? "課程綁定書籍失敗");
+      return;
+    }
+    setResources((current) =>
+      current.map((item) =>
+        item.id === resource.id
+          ? { ...item, linkedBookId: result.resource!.linkedBookId }
+          : item,
+      ),
+    );
+    const book = resources.find((item) => item.id === Number(linkedBookId));
+    setNotice(
+      linkedBookId
+        ? `${resource.title} 已綁定「${book?.title ?? "指定書籍"}」。`
+        : `${resource.title} 已解除書籍綁定。`,
+    );
+  }
+
+  async function removeExamSource(source: ExamSource) {
+    if (
+      !window.confirm(
+        `確定刪除來源「${source.label}」？處理清單會移除，已發布真題會保留。`,
+      )
+    )
+      return;
+    const response = await fetch(`/api/exam-sources?id=${source.id}`, {
+      method: "DELETE",
+    });
+    const result = await readJson(response);
+    if (!response.ok) {
+      setNotice(String(result.error || "來源刪除失敗"));
+      return;
+    }
+    setExamSources((current) =>
+      current.filter((item) => item.id !== source.id),
+    );
+    setNotice("考題來源網址已刪除；已發布題目仍保留在真題庫。");
   }
 
   async function editResource(resource: LearningResource) {
@@ -2060,6 +2114,24 @@ export default function AdminPage() {
                           ))}
                         </select>
                       )}
+                      {resource.resourceType === "course" && (
+                        <select
+                          aria-label={`${resource.title}綁定書籍`}
+                          value={resource.linkedBookId ?? ""}
+                          onChange={(e) =>
+                            bindCourseBook(resource, e.target.value)
+                          }
+                        >
+                          <option value="">選擇這堂課對應的書</option>
+                          {resources
+                            .filter((item) => item.resourceType === "book")
+                            .map((book) => (
+                              <option key={book.id} value={book.id}>
+                                {book.title}
+                              </option>
+                            ))}
+                        </select>
+                      )}
                       <label>
                         上傳書封
                         <input
@@ -2493,6 +2565,13 @@ export default function AdminPage() {
                           )}
                         </div>
                       )}
+                      <button
+                        type="button"
+                        className="source-delete"
+                        onClick={() => removeExamSource(source)}
+                      >
+                        刪除
+                      </button>
                     </div>
                   );
                 })}

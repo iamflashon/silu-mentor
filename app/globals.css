@@ -1388,6 +1388,50 @@ a {
     font-size: 11px;
   }
 }
+
+/* Admin workspace: keep every tab panel aligned with the left navigation. */
+.admin-shell > .data-hub,
+.admin-shell > .judicial-hub,
+.admin-shell > .prepared-listening-import {
+  width: min(960px, calc(100% - 250px));
+  margin: 22px 24px 30px 220px;
+  box-sizing: border-box;
+}
+.source-delete {
+  padding: 7px 9px;
+  border: 1px solid #e2bbbb;
+  border-radius: 8px;
+  background: #fff;
+  color: #a34d4d;
+  font-size: 9px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.source-list > div {
+  grid-template-columns: 34px minmax(0, 1fr) auto auto auto;
+}
+@media (min-width: 1220px) {
+  .admin-shell > .data-hub,
+  .admin-shell > .judicial-hub,
+  .admin-shell > .prepared-listening-import {
+    margin-left: calc((100vw - 1180px) / 2 + 200px);
+  }
+}
+@media (max-width: 800px) {
+  .admin-shell > .data-hub,
+  .admin-shell > .judicial-hub,
+  .admin-shell > .prepared-listening-import {
+    width: calc(100% - 28px);
+    margin: 16px auto;
+  }
+  .source-list > div {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+  .source-delete {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
 .resource-form {
   display: grid;
   grid-template-columns: 150px 1.4fr 1fr 1.5fr 150px;
