@@ -83,7 +83,22 @@ type LearningResource = {
   status: string;
   hasCover: number;
   segmentCount: number;
-  articlePreviews?: Array<{ id: number; title: string; summary: string; reviewStatus: string; segmentType?: string; sequence: number; failure?: string }>;
+  articleCount?: number;
+  analyzedArticleCount?: number;
+  failedArticleCount?: number;
+  pendingArticleCount?: number;
+  articlePreviews?: Array<{
+    id: number;
+    title: string;
+    summary: string;
+    reviewStatus: string;
+    segmentType?: string;
+    sequence: number;
+    failure?: string;
+    sourceUrl?: string;
+    textLength?: number;
+    analysisState?: "analyzed" | "captured" | "pending" | "failed";
+  }>;
 };
 type SubtitleSegment = {
   id: number;
@@ -2399,7 +2414,7 @@ export default function AdminPage() {
                     : resource.resourceType === "book",
                 )
                 .map((resource) => (
-                  <article className="resource-card" key={resource.id}>
+                  <article className="resource-card magazine-resource-card" key={resource.id}>
                     <div className="resource-cover">
                       {resource.hasCover ? (
                         <img
@@ -2718,16 +2733,45 @@ export default function AdminPage() {
                       <span>刊</span>
                     </div>
                     <div className="resource-info">
-                      <span>
+                      <span className="magazine-status-label">
                         {resource.status === "draft" ? "待確認" : "前台顯示"}
                       </span>
-                      <h3>{resource.title}</h3>
-                      <p>{resource.creator}</p>
-                      <small>
-                        {resource.description || "尚未取得出刊資料"} ·{" "}
-                        {resource.segmentCount} 篇內容
+                      <h3 className="magazine-resource-title">{resource.title}</h3>
+                      <p className="magazine-resource-creator">{resource.creator}</p>
+                      <small className="magazine-resource-meta">
+                        {resource.description || "尚未取得出刊資料"}
                       </small>
-                      {resource.resourceType === "magazine" && resource.articlePreviews?.length ? <div className="admin-article-previews"><b>試讀文章匯入狀態</b>{resource.articlePreviews.map((article) => <div key={article.id}><span>{article.sequence}. {article.title}</span><small>{article.reviewStatus === "ai_reviewed" ? "AI 已分析，可供前台使用" : `尚未完成：${article.failure || article.summary || "請重新分析"}`}</small></div>)}</div> : null}
+                      <div className="magazine-analysis-summary" aria-label="法學教室分析統計">
+                        <div><strong>{resource.articleCount ?? resource.segmentCount}</strong><span>已抓取</span></div>
+                        <div className="is-ready"><strong>{resource.analyzedArticleCount ?? 0}</strong><span>已完成分析</span></div>
+                        <div className="is-pending"><strong>{resource.pendingArticleCount ?? resource.segmentCount}</strong><span>待處理</span></div>
+                      </div>
+                      {resource.articlePreviews?.length ? (
+                        <div className="admin-article-previews">
+                          <b>試讀文章處理狀態</b>
+                          {resource.articlePreviews.map((article) => {
+                            const state = article.analysisState ?? (article.reviewStatus === "ai_reviewed" ? "analyzed" : "pending");
+                            const stateLabel = state === "analyzed"
+                              ? `AI 已完成分析 · ${article.textLength?.toLocaleString() ?? 0} 字，可供 AI 搜尋`
+                              : state === "captured"
+                                ? `已抓到原始內容 · ${article.textLength?.toLocaleString() ?? 0} 字，尚未完成 AI 重點整理`
+                                : state === "failed"
+                                  ? `分析失敗 · ${article.failure || "請再次執行分析"}`
+                                  : "已抓到試讀 PDF 入口，尚未完成 AI 分析";
+                            return (
+                              <div key={article.id} className={`admin-article-row state-${state}`}>
+                                <span>{article.sequence}. {article.title}</span>
+                                <small>{stateLabel}</small>
+                                {article.sourceUrl ? <a href={article.sourceUrl} target="_blank" rel="noreferrer">查看試讀 PDF</a> : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="magazine-empty-analysis">
+                          尚未建立試讀文章清單。請按「自動分析最新一期」重新抓取；抓取完成後，這裡會逐篇顯示 AI 分析狀態。
+                        </div>
+                      )}
                     </div>
                     <div className="resource-actions">
                       <a

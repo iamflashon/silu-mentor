@@ -39,7 +39,57 @@ export async function GET() {
     current.push(article);
     articlesByResource.set(article.resourceId, current);
   }
-  return Response.json({ resources: rows.map((row) => ({ ...row, articlePreviews: (articlesByResource.get(row.id) ?? []).slice(0, 4).map((article) => { let failure = ""; if (article.segmentType === "article_link") { try { failure = String((JSON.parse(article.text) as { error?: string }).error ?? article.summary ?? "試讀 PDF 尚未完成分析"); } catch { failure = article.summary || "試讀 PDF 尚未完成分析"; } } return { id: article.id, title: article.title, summary: article.summary, reviewStatus: article.reviewStatus, segmentType: article.segmentType, sequence: article.sequence, failure }; }) })) });
+  return Response.json({
+    resources: rows.map((row) => {
+      const articles = (articlesByResource.get(row.id) ?? []).slice(0, 4);
+      const articlePreviews = articles.map((article) => {
+        let failure = "";
+        let sourceUrl = "";
+        if (article.segmentType === "article_link") {
+          try {
+            const source = JSON.parse(article.text) as {
+              error?: string;
+              url?: string;
+            };
+            failure = source.error ?? article.summary ?? "";
+            sourceUrl = source.url ?? "";
+          } catch {
+            failure = article.summary || "";
+          }
+        }
+        const textLength = article.segmentType === "article_link" ? 0 : article.text.trim().length;
+        const analysisState = article.reviewStatus === "ai_reviewed" && textLength > 0
+          ? "analyzed"
+          : article.reviewStatus === "failed"
+            ? "failed"
+            : textLength > 0
+              ? "captured"
+              : "pending";
+        return {
+          id: article.id,
+          title: article.title,
+          summary: article.summary,
+          reviewStatus: article.reviewStatus,
+          segmentType: article.segmentType,
+          sequence: article.sequence,
+          failure,
+          sourceUrl,
+          textLength,
+          analysisState,
+        };
+      });
+      const analyzedArticleCount = articlePreviews.filter((article) => article.analysisState === "analyzed").length;
+      const failedArticleCount = articlePreviews.filter((article) => article.analysisState === "failed").length;
+      return {
+        ...row,
+        articlePreviews,
+        articleCount: articlePreviews.length,
+        analyzedArticleCount,
+        failedArticleCount,
+        pendingArticleCount: articlePreviews.length - analyzedArticleCount - failedArticleCount,
+      };
+    }),
+  });
 }
 
 export async function POST(request: Request) {
