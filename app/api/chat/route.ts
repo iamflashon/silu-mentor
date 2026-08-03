@@ -77,6 +77,24 @@ function chooseModel(messages: ClientMessage[]) {
   return "gpt-5.6-luna";
 }
 
+function inferSubject(text: string) {
+  if (/刑法/.test(text)) return "刑法";
+  if (/刑事訴訟法|刑訴/.test(text)) return "刑事訴訟法";
+  if (/民事訴訟法|民訴/.test(text)) return "民事訴訟法";
+  if (/民法/.test(text)) return "民法";
+  if (/憲法/.test(text)) return "憲法";
+  if (/行政法/.test(text)) return "行政法";
+  if (/公司法|商法|票據法|保險法|證券交易法/.test(text)) return "商事法";
+  return "綜合";
+}
+
+function taipeiGreeting() {
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  if (hour >= 5 && hour < 12) return "早安";
+  if (hour >= 12 && hour < 18) return "午安";
+  return "晚安";
+}
+
 const modelRates: Record<string, { input: number; cached: number; output: number }> = {
   "gpt-5.6-luna": { input: 0.10, cached: 0.01, output: 0.60 },
   "gpt-5.6-terra": { input: 1.00, cached: 0.10, output: 6.00 },
@@ -221,7 +239,7 @@ export async function POST(request: Request) {
       const records = await db.select().from(studyRecords).where(eq(studyRecords.userKey, key)).orderBy(desc(studyRecords.createdAt)).limit(20);
       if (records.length) recordContext = `近期學習紀錄：${records.map((record) => `${record.recordDate} ${record.subject}/${record.title}/${record.activityType}/${record.actualMinutes}分鐘${record.correct === null ? "" : record.correct ? "/答對" : "/答錯"}${record.weakness ? `/弱點:${record.weakness}` : ""}${record.nextStep ? `/接續:${record.nextStep}` : ""}`).join("；")}`;
     } catch { /* continue without record context */ }
-    const instructions = `${baseInstructions}\n\n今天是台北時間 ${today}。所有「今天、明天、明年」都必須以此日期換算。\n${planContext}\n${recordContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。`;
+    const instructions = `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。`;
     const selectedModel = process.env.OPENAI_MODEL || chooseModel(messages);
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
@@ -351,6 +369,19 @@ export async function POST(request: Request) {
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
       await db.update(chatSessions).set({ updatedAt: new Date() }).where(eq(chatSessions.id, session.id));
+      if (latestStudent && latestStudent.text.trim().length >= 6) {
+        const learningMinutes = Math.min(30, Math.max(5, Math.ceil(latestStudent.text.trim().length / 80) * 5));
+        await db.insert(studyRecords).values({
+          userKey: request.headers.get("oai-authenticated-user-email") ?? "default-owner",
+          recordDate: today,
+          subject: inferSubject(latestStudent.text),
+          title: `AI 對話｜${latestStudent.text.trim().slice(0, 72)}`,
+          activityType: "AI 對話學習",
+          actualMinutes: learningMinutes,
+          reflection: "已完成一次 AI 引導學習對話。",
+          nextStep: reply.replace(/\s+/g, " ").slice(0, 180),
+        });
+      }
     } catch { /* usage logging must not block the learner */ }
 
     return Response.json({

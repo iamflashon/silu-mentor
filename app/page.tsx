@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useRef, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "./listening-player";
 
 type Message = { role: "mentor" | "student"; text: string; sources?: string[] };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
+type TodayRecord = { subject: string; title: string; activityType: string; actualMinutes: number; nextStep: string };
 type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
@@ -26,6 +27,12 @@ function youtubeEmbedUrl(value: string) { const id = youtubeId(value); return /^
 function youtubeWatchUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : ""; }
 function requestYoutubePlay(root: Element | null) { const iframe = root?.querySelector<HTMLIFrameElement>("iframe"); iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), "https://www.youtube.com"); }
 function dateLabel(value: string) { return value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1年$2月$3日") : "今天"; }
+function currentTaipeiGreeting() {
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  if (hour >= 5 && hour < 12) return "早安";
+  if (hour >= 12 && hour < 18) return "午安";
+  return "晚安";
+}
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -33,6 +40,7 @@ export default function Home() {
   const [todayTasks, setTodayTasks] = useState<TodayTask[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [today, setToday] = useState("");
+  const [greeting, setGreeting] = useState(currentTaipeiGreeting);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
   const [input, setInput] = useState("");
@@ -65,6 +73,7 @@ export default function Home() {
   const [dictionaryFeaturedLoading, setDictionaryFeaturedLoading] = useState(false);
   const [dictionaryNotice, setDictionaryNotice] = useState("");
   const [dictionaryLoading, setDictionaryLoading] = useState(false);
+  const [musicActivated, setMusicActivated] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
   const handoffHandled = useRef(false);
 
@@ -77,20 +86,25 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/chat/history").then(async (response) => {
       if (!response.ok) throw new Error("history unavailable");
-      const data = await response.json() as { sessionId?: number | null; messages?: Message[]; today?: string; todayTasks?: TodayTask[] };
+      const data = await response.json() as { sessionId?: number | null; messages?: Message[]; today?: string; todayTasks?: TodayTask[]; greeting?: string; todayRecords?: TodayRecord[] };
       setSessionId(data.sessionId ?? null);
       setToday(data.today ?? "");
       setTodayTasks(data.todayTasks ?? []);
+      setGreeting(data.greeting ?? "早安");
       const restored = data.messages ?? [];
       if (restored.length) setMessages(restored);
       else if ((data.todayTasks ?? []).length) {
         const pending = (data.todayTasks ?? []).filter((task) => task.status !== "completed");
-        setMessages([{ role: "mentor", text: pending.length ? `早安，今天已經安排好 ${pending.length} 項任務。我們從第一項「${pending[0].title}」開始，好嗎？` : "今天的任務都完成了。要不要趁狀態正好，先預習明天的內容？" }]);
+        const records = data.todayRecords ?? [];
+        const recordSummary = records.length ? `你今天已經學過：${records.slice(0, 3).map((record) => record.title).join("、")}。` : "";
+        setMessages([{ role: "mentor", text: pending.length ? `${data.greeting ?? "早安"}，${recordSummary}今天已經安排好 ${pending.length} 項任務。我們從第一項「${pending[0].title}」開始，好嗎？` : `${data.greeting ?? "早安"}，${recordSummary}今天的任務都完成了。要不要趁狀態正好，先預習明天的內容？` }]);
       } else {
-        setMessages([{ role: "mentor", text: "早安，我是司律備考的 AI 教練。今天還沒有安排任務，我可以先根據你的目標與可用時間，幫你建立第一份學習計畫。" }]);
+        const records = data.todayRecords ?? [];
+        const recordSummary = records.length ? `你今天已經學過：${records.slice(0, 3).map((record) => record.title).join("、")}。` : "";
+        setMessages([{ role: "mentor", text: `${data.greeting ?? "早安"}，${recordSummary}我是司律備考的 AI 教練。${records.length ? "我們接著把今天的學習往下推進。" : "今天還沒有安排任務，我可以先根據你的目標與可用時間，幫你建立第一份學習計畫。"}` }]);
       }
     }).catch(() => {
-      setMessages([{ role: "mentor", text: "早安，我是司律備考的 AI 教練。今天想從哪一科開始？" }]);
+      setMessages([{ role: "mentor", text: `${currentTaipeiGreeting()}，我是司律備考的 AI 教練。今天想從哪一科開始？` }]);
     }).finally(() => setHistoryLoaded(true));
   }, []);
 
@@ -124,6 +138,11 @@ export default function Home() {
     const next = railSide === "right" ? "left" : "right";
     setRailSide(next);
     window.localStorage.setItem("silu-command-rail-side", next);
+  }
+
+  function activateMusic(event: MouseEvent<HTMLButtonElement>) {
+    setMusicActivated(true);
+    requestYoutubePlay(event.currentTarget.closest(".rail-music-card"));
   }
 
   async function startPractice(examType: "mcq" | "essay") {
@@ -391,7 +410,7 @@ export default function Home() {
         <section className="rail-card rail-practice"><div className="rail-title"><strong>練真題</strong><span>真題直接嵌入對話</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
         <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
         <article className="home-editorial-card rail-editorial-card rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專區</h2><span>顯示摘要；按 AI 帶入時會一併分析核心爭點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <p className="magazine-article-summary"><b>摘要</b>{article.summary}</p>}</div><button type="button" onClick={() => askMagazineArticle(article)}>AI 帶入</button></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
-        <article className="home-editorial-card rail-editorial-card rail-music-card"><div className="column-kicker">FOCUS MUSIC</div><div className="home-editorial-head"><div><h2>讀書音樂</h2><span>需要時再開啟，不干擾今日學習</span></div><button type="button" className="music-play-button" onClick={(event) => requestYoutubePlay(event.currentTarget.closest(".rail-music-card"))}>▶</button></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen loading="eager" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">無法播放時，在 YouTube 開啟 ↗</a></> : <p className="column-empty">管理後台設定讀書音樂後，會在這裡提供播放。</p>}</article>
+        <article className="home-editorial-card rail-editorial-card rail-music-card"><div className="column-kicker">FOCUS MUSIC</div><div className="home-editorial-head"><div><h2>讀書音樂</h2><span>需要時再開啟 · 請點擊「播放音樂」</span></div><button type="button" className="music-play-button" onClick={activateMusic} aria-label="點擊播放讀書音樂"><span>▶</span><b>播放音樂</b></button></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe className={`music-iframe ${musicActivated ? "is-active" : ""}`} title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen loading="eager" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">無法播放時，在 YouTube 開啟 ↗</a></> : <p className="column-empty">管理後台設定讀書音樂後，會在這裡提供播放。</p>}</article>
       </aside>
       </div>
 
