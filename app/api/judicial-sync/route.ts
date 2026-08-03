@@ -7,9 +7,17 @@ const LIST_URL = "https://data.judicial.gov.tw/jdg/api/JList";
 const DOC_URL = "https://data.judicial.gov.tw/jdg/api/JDoc";
 const QUEUE_KEY = "judicial_sync_queue";
 const CURSOR_KEY = "judicial_sync_cursor";
+const FAILURES_KEY = "judicial_sync_failures";
 const DEFAULT_BATCH_SIZE = 30;
+const MAX_RETRY_ATTEMPTS = 3;
 
 type JsonObject = Record<string, unknown>;
+type SyncFailure = {
+  jid: string;
+  reason: string;
+  attempts: number;
+  lastFailedAt: string;
+};
 
 function compact(text: string, limit = 240) {
   return text.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, limit);
@@ -81,6 +89,42 @@ async function getSetting(db: Awaited<ReturnType<typeof getDb>>, key: string) {
   return row?.value ?? "";
 }
 
+async function getFailures(db: Awaited<ReturnType<typeof getDb>>) {
+  const raw = await getSetting(db, FAILURES_KEY);
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [] as SyncFailure[];
+    return parsed.flatMap((item): SyncFailure[] => {
+      if (!item || typeof item !== "object") return [];
+      const value = item as JsonObject;
+      const jid = typeof value.jid === "string" ? value.jid.trim() : "";
+      if (!jid) return [];
+      return [{
+        jid,
+        reason: typeof value.reason === "string" ? compact(value.reason, 300) : "司法院未提供可辨識的錯誤內容",
+        attempts: Math.max(1, Number(value.attempts) || 1),
+        lastFailedAt: typeof value.lastFailedAt === "string" ? value.lastFailedAt : new Date().toISOString(),
+      }];
+    });
+  } catch {
+    return [] as SyncFailure[];
+  }
+}
+
+async function saveFailures(db: Awaited<ReturnType<typeof getDb>>, failures: SyncFailure[]) {
+  await setSetting(db, FAILURES_KEY, JSON.stringify(failures));
+}
+
+function retryableFailures(failures: SyncFailure[]) {
+  return failures.filter((failure) => failure.attempts < MAX_RETRY_ATTEMPTS);
+}
+
+function failureSummary(failures: SyncFailure[]) {
+  const retryable = retryableFailures(failures);
+  const permanent = failures.filter((failure) => failure.attempts >= MAX_RETRY_ATTEMPTS);
+  return { retryable, permanent };
+}
+
 function extractJids(payload: unknown) {
   const jids = new Set<string>();
   const walk = (value: unknown) => {
@@ -103,7 +147,7 @@ function extractJids(payload: unknown) {
   return [...jids];
 }
 
-async function loadQueue(db: Awaited<ReturnType<typeof getDb>>, token: string) {
+async function loadQueue(db: Awaited<ReturnType<typeof getDb>>, token: string, failures: SyncFailure[]) {
   const rawQueue = await getSetting(db, QUEUE_KEY);
   const rawCursor = await getSetting(db, CURSOR_KEY);
   let queue: string[] = [];
@@ -123,7 +167,10 @@ async function loadQueue(db: Awaited<ReturnType<typeof getDb>>, token: string) {
     });
     const payload = await readApiResponse(response, "JList");
     ensureApiSuccess(response, payload, "取得裁判異動清單");
-    queue = extractJids(payload);
+    const permanentlyFailed = new Set(
+      failures.filter((failure) => failure.attempts >= MAX_RETRY_ATTEMPTS).map((failure) => failure.jid),
+    );
+    queue = extractJids(payload).filter((jid) => !permanentlyFailed.has(jid));
     cursor = 0;
     await setSetting(db, QUEUE_KEY, JSON.stringify(queue));
     await setSetting(db, CURSOR_KEY, "0");
@@ -186,11 +233,16 @@ export async function GET() {
   const db = await getDb();
   const [count] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases);
   const settings = await db.select().from(appSettings).where(sql`${appSettings.key} like 'judicial_%'`).orderBy(desc(appSettings.updatedAt));
+  const failures = await getFailures(db);
+  const { retryable, permanent } = failureSummary(failures);
   const { user, password } = await runtimeCredentials();
   return Response.json({
     configured: Boolean(user && password),
     caseCount: Number(count.value || 0),
     settings: Object.fromEntries(settings.map((item) => [item.key, item.value])),
+    failedCount: retryable.length,
+    permanentFailureCount: permanent.length,
+    failedCases: failures,
     schedule: { enabled: true, time: "00:30", timezone: "Asia/Taipei", cron: "30 16 * * *" },
   });
 }
@@ -211,49 +263,75 @@ export async function POST(request: Request) {
       return Response.json({ ok: true, message: "司法院 API 帳密驗證成功；Token 將由系統自動更新" });
     }
 
-    const { queue, cursor: initialCursor } = await loadQueue(db, token);
+    let failures = await getFailures(db);
+    const { queue, cursor: initialCursor } = await loadQueue(db, token, failures);
     const limit = Math.max(1, Math.min(100, Number(body.limit) || DEFAULT_BATCH_SIZE));
     await setSetting(db, "judicial_last_error", "");
     let cursor = initialCursor;
     let imported = 0;
     let removed = 0;
-    let failedJid = "";
-    let failureReason = "";
+    let skipped = 0;
+    const batchFailures: SyncFailure[] = [];
 
     for (const jid of queue.slice(cursor, cursor + limit)) {
       try {
         const result = await downloadDocument(db, token, jid);
         if (result === "imported") imported++;
         if (result === "removed") removed++;
+        failures = failures.filter((failure) => failure.jid !== jid);
+        await saveFailures(db, failures);
         cursor++;
         await setSetting(db, CURSOR_KEY, String(cursor));
       } catch (error) {
-        failedJid = jid;
-        failureReason = error instanceof Error ? compact(error.message) : "司法院未提供可辨識的錯誤內容";
-        break;
+        const failureReason = error instanceof Error ? compact(error.message, 300) : "司法院未提供可辨識的錯誤內容";
+        const previous = failures.find((failure) => failure.jid === jid);
+        const failure: SyncFailure = {
+          jid,
+          reason: failureReason,
+          attempts: (previous?.attempts ?? 0) + 1,
+          lastFailedAt: new Date().toISOString(),
+        };
+        failures = [...failures.filter((item) => item.jid !== jid), failure];
+        batchFailures.push(failure);
+        skipped++;
+        await saveFailures(db, failures);
+        // A malformed or temporarily unavailable official record must not block
+        // the rest of the queue. Keep the JID for a later retry and advance the
+        // cursor immediately so the next batch can continue.
+        cursor++;
+        await setSetting(db, CURSOR_KEY, String(cursor));
       }
     }
 
-    const pending = Math.max(0, queue.length - cursor);
+    const { retryable, permanent } = failureSummary(failures);
+    const pending = Math.max(0, queue.length - cursor) + retryable.length;
     const completed = cursor >= queue.length;
-    const summary = `異動 ${queue.length} 筆；本批下載 ${imported} 筆；移除 ${removed} 筆；目前完成 ${cursor}/${queue.length} 筆`;
+    const summary = `異動 ${queue.length} 筆；本批下載 ${imported} 筆；移除 ${removed} 筆；略過 ${skipped} 筆；目前完成 ${cursor}/${queue.length} 筆`;
     await setSetting(db, "judicial_last_sync_at", new Date().toISOString());
     await setSetting(db, "judicial_last_sync_summary", summary);
     await setSetting(db, "judicial_pending_count", String(pending));
 
     if (completed) {
-      await setSetting(db, QUEUE_KEY, "[]");
-      await setSetting(db, CURSOR_KEY, "0");
-      await setSetting(db, "judicial_last_error", "");
+      if (retryable.length) {
+        // Run failed records as a small retry queue after the main queue is
+        // exhausted. They remain visible and are never silently discarded.
+        await setSetting(db, QUEUE_KEY, JSON.stringify(retryable.map((failure) => failure.jid)));
+        await setSetting(db, CURSOR_KEY, "0");
+      } else {
+        await setSetting(db, QUEUE_KEY, "[]");
+        await setSetting(db, CURSOR_KEY, "0");
+      }
     }
 
-    if (failedJid) {
-      const detail = `本批已完成 ${cursor - initialCursor} 筆；裁判 ${failedJid} 暫時下載失敗：${failureReason}。下次會從這筆繼續。`;
+    if (batchFailures.length) {
+      const first = batchFailures[0];
+      const detail = `本批已完成 ${cursor - initialCursor} 筆；另有 ${batchFailures.length} 筆裁判暫時無法解析，已先跳過並保留待重試。${first ? `代表資料：${first.jid}（第 ${first.attempts}/${MAX_RETRY_ATTEMPTS} 次）：${first.reason}` : ""}${permanent.length ? `目前有 ${permanent.length} 筆已達重試上限，請保留錯誤紀錄後再處理。` : ""}`;
       await setSetting(db, "judicial_last_error", detail);
-      return Response.json({ ok: false, total: queue.length, imported, removed, pending, error: detail }, { status: 502 });
+      return Response.json({ ok: true, partial: true, total: queue.length, imported, removed, skipped, pending, warning: detail, message: `${summary}；待重試 ${retryable.length} 筆` });
     }
 
-    return Response.json({ ok: true, total: queue.length, imported, removed, pending, message: `${summary}${pending ? "；請再次按立即下載一批繼續" : "；本次異動清單已完成"}` });
+    if (!retryable.length && !permanent.length) await setSetting(db, "judicial_last_error", "");
+    return Response.json({ ok: true, total: queue.length, imported, removed, skipped, pending, message: `${summary}${pending ? `；待重試 ${retryable.length} 筆，請再次按立即下載一批` : "；本次異動清單已完成"}` });
   } catch (error) {
     const message = error instanceof Error ? compact(error.message, 300) : "司法院同步失敗";
     await setSetting(db, "judicial_last_error", message);
