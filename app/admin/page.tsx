@@ -142,6 +142,23 @@ type ListeningCue = {
   text: string;
   sequence: number;
 };
+type ResourceEditorDraft = {
+  id: number;
+  resourceType: string;
+  title: string;
+  subject: string;
+  creator: string;
+  description: string;
+  sourceUrl: string;
+  status: string;
+};
+type MagazineIssueEditorDraft = {
+  resourceId: number;
+  articleId: number;
+  title: string;
+  summary: string;
+  issue: string;
+};
 type ExamQuestion = {
   id: number;
   examType: string;
@@ -200,7 +217,15 @@ type JudicialStatus = {
   configured: boolean;
   caseCount: number;
   settings: Record<string, string>;
-  schedule?: { enabled: boolean; time: string; timezone: string };
+  failedCount?: number;
+  permanentFailureCount?: number;
+  schedule?: {
+    enabled: boolean;
+    time: string;
+    timezone: string;
+    intervalMinutes?: number;
+    window?: string;
+  };
 };
 const DOCUMENTS_PER_PAGE = 5;
 const USAGE_PER_PAGE = 10;
@@ -308,6 +333,13 @@ export default function AdminPage() {
   );
   const [segmentPage, setSegmentPage] = useState(1);
   const [analyzingSegments, setAnalyzingSegments] = useState(false);
+  const [resourceEditorDraft, setResourceEditorDraft] = useState<ResourceEditorDraft | null>(null);
+  const [magazineIssueEditorDraft, setMagazineIssueEditorDraft] = useState<MagazineIssueEditorDraft | null>(null);
+  const [magazineIssueTitle, setMagazineIssueTitle] = useState("");
+  const [magazineIssueUrl, setMagazineIssueUrl] = useState("");
+  const [creatingMagazineIssue, setCreatingMagazineIssue] = useState(false);
+  const [coursePreviewTime, setCoursePreviewTime] = useState(0);
+  const coursePreviewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [listeningItems, setListeningItems] = useState<ListeningItem[]>([]);
   const [essayQuestions, setEssayQuestions] = useState<EssayQuestion[]>([]);
   const [listeningQuestionId, setListeningQuestionId] = useState("");
@@ -1323,12 +1355,16 @@ export default function AdminPage() {
     }
   }
 
-  async function analyzeMagazine() {
+  async function analyzeMagazine(url = magazineUrl) {
+    if (!url.trim()) {
+      setNotice("請先填寫法學教室期數網址。");
+      return false;
+    }
     setNotice("正在分析最新一期、試讀文章與可用連結…");
     const response = await fetch("/api/resources/magazine-import", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: magazineUrl }),
+      body: JSON.stringify({ url }),
     });
     const result = (await readJson(response)) as {
       resource?: LearningResource;
@@ -1339,7 +1375,7 @@ export default function AdminPage() {
     };
     if (!response.ok || !result.resource) {
       setNotice(result.error ?? "月旦法學教室分析失敗");
-      return;
+      return false;
     }
     const refreshed = await fetch("/api/resources");
     if (refreshed.ok) {
@@ -1351,6 +1387,40 @@ export default function AdminPage() {
     setNotice(
       `已分析 ${result.articles ?? 0} 個試讀入口，${result.indexed ?? 0} 篇 PDF 已完成解析並可供 AI 搜尋${result.failures?.length ? `；${result.failures.length} 篇暫時失敗，可再次按「自動分析」重試` : ""}。`,
     );
+    return true;
+  }
+
+  async function createMagazineIssue(event: FormEvent) {
+    event.preventDefault();
+    if (!magazineIssueTitle.trim() || !magazineIssueUrl.trim()) {
+      setNotice("請填寫期數名稱與本期來源網址。");
+      return;
+    }
+    setCreatingMagazineIssue(true);
+    const response = await fetch("/api/resources", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        resourceType: "magazine",
+        title: magazineIssueTitle.trim(),
+        subject: "綜合",
+        creator: "元照出版公司",
+        sourceUrl: magazineIssueUrl.trim(),
+        accessType: "external",
+        status: "draft",
+      }),
+    });
+    const result = (await readJson(response)) as { resource?: LearningResource; error?: string };
+    if (!response.ok || !result.resource) {
+      setNotice(result.error ?? "法學教室期數建立失敗");
+      setCreatingMagazineIssue(false);
+      return;
+    }
+    setMagazineUrl(magazineIssueUrl.trim());
+    setMagazineIssueTitle("");
+    setMagazineIssueUrl("");
+    await analyzeMagazine(magazineIssueUrl.trim());
+    setCreatingMagazineIssue(false);
   }
 
   async function publishMagazine(resource: LearningResource) {
@@ -1468,20 +1538,28 @@ export default function AdminPage() {
     setNotice("考題來源網址已刪除；已發布題目仍保留在真題庫。");
   }
 
-  async function editResource(resource: LearningResource) {
-    const title = window.prompt("資源名稱", resource.title);
-    if (title === null || !title.trim()) return;
-    const creator = window.prompt("作者／老師／出版單位", resource.creator);
-    if (creator === null) return;
-    const sourceUrl = window.prompt(
-      "來源網址（書籍可留空）",
-      resource.sourceUrl,
-    );
-    if (sourceUrl === null) return;
+  function editResource(resource: LearningResource) {
+    setResourceEditorDraft({
+      id: resource.id,
+      resourceType: resource.resourceType,
+      title: resource.title,
+      subject: resource.subject,
+      creator: resource.creator,
+      description: resource.description,
+      sourceUrl: resource.sourceUrl,
+      status: resource.status,
+    });
+  }
+
+  async function saveResourceEditor() {
+    if (!resourceEditorDraft?.title.trim()) {
+      setNotice("資源名稱不能留白。");
+      return;
+    }
     const response = await fetch("/api/resources", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...resource, title, creator, sourceUrl }),
+      body: JSON.stringify(resourceEditorDraft),
     });
     const result = (await readJson(response)) as {
       resource?: LearningResource;
@@ -1493,9 +1571,10 @@ export default function AdminPage() {
     }
     setResources((current) =>
       current.map((item) =>
-        item.id === resource.id ? { ...item, ...result.resource } : item,
+        item.id === resourceEditorDraft.id ? { ...item, ...result.resource } : item,
       ),
     );
+    setResourceEditorDraft(null);
     setNotice("資源資料已更新。");
   }
 
@@ -1504,18 +1583,20 @@ export default function AdminPage() {
     article: NonNullable<LearningResource["articlePreviews"]>[number],
   ) {
     const analysis = parseMagazineAnalysis(article.summary);
-    const issue = window.prompt("核心爭點", analysis.issue);
-    if (issue === null) return;
-    if (!issue.trim()) {
-      setNotice("主要爭點不能留白。");
+    setMagazineIssueEditorDraft({ resourceId, articleId: article.id, title: article.title, summary: analysis.summary, issue: analysis.issue });
+  }
+
+  async function saveMagazineIssueEditor() {
+    if (!magazineIssueEditorDraft?.issue.trim()) {
+      setNotice("核心爭點不能留白。");
       return;
     }
     const response = await fetch("/api/resources/segments", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        id: article.id,
-        summary: formatMagazineAnalysis(analysis.summary, issue.trim()),
+        id: magazineIssueEditorDraft.articleId,
+        summary: formatMagazineAnalysis(magazineIssueEditorDraft.summary, magazineIssueEditorDraft.issue.trim()),
         reviewStatus: "ai_reviewed",
         importance: 5,
         recommended: true,
@@ -1531,15 +1612,15 @@ export default function AdminPage() {
     }
     setResources((current) =>
       current.map((resource) =>
-        resource.id !== resourceId
+        resource.id !== magazineIssueEditorDraft.resourceId
           ? resource
           : {
               ...resource,
               articlePreviews: resource.articlePreviews?.map((item) =>
-                item.id === article.id
+                item.id === magazineIssueEditorDraft.articleId
                   ? {
                       ...item,
-                      summary: result.segment?.summary ?? formatMagazineAnalysis(analysis.summary, issue.trim()),
+                      summary: result.segment?.summary ?? formatMagazineAnalysis(magazineIssueEditorDraft.summary, magazineIssueEditorDraft.issue.trim()),
                       reviewStatus: "ai_reviewed",
                       analysisState: "analyzed",
                     }
@@ -1548,6 +1629,7 @@ export default function AdminPage() {
             },
       ),
     );
+    setMagazineIssueEditorDraft(null);
     setNotice("核心爭點已更新，摘要會保留，前台與 AI 帶入會使用這段內容。");
   }
 
@@ -1580,6 +1662,32 @@ export default function AdminPage() {
     setSubtitleCourse(resource);
     setSubtitleSegments(result.segments ?? []);
     setSegmentPage(1);
+    setCoursePreviewTime(0);
+  }
+
+  function youtubeEmbedUrl(value: string, startSeconds = 0) {
+    try {
+      const url = new URL(value.trim());
+      let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/(?:embed|shorts|live)\/([^/]+)/)?.[1] ?? "");
+      id = id.split(/[?&]/)[0];
+      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1${startSeconds > 0 ? `&start=${Math.floor(startSeconds)}` : ""}` : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function directVideoUrl(value: string) {
+    return /\.(?:mp4|webm|ogg|m4v|m3u8)(?:[?#].*)?$/i.test(value.trim());
+  }
+
+  function seekCoursePreview(seconds: number) {
+    const next = Math.max(0, Math.floor(seconds));
+    setCoursePreviewTime(next);
+    const player = coursePreviewVideoRef.current;
+    if (player) {
+      player.currentTime = next;
+      void player.play().catch(() => undefined);
+    }
   }
 
   async function saveSegment(segment: SubtitleSegment) {
@@ -2865,6 +2973,15 @@ export default function AdminPage() {
                 自動分析最新一期
               </button>
             </div>
+            <form className="magazine-add-issue" onSubmit={createMagazineIssue}>
+              <div>
+                <strong>新增指定期數</strong>
+                <span>輸入本期名稱與期刊頁網址，建立後會自動抓取試讀文章與分析。</span>
+              </div>
+              <input value={magazineIssueTitle} onChange={(event) => setMagazineIssueTitle(event.target.value)} placeholder="例如：月旦法學教室第287期" aria-label="新增期數名稱" />
+              <input type="url" value={magazineIssueUrl} onChange={(event) => setMagazineIssueUrl(event.target.value)} placeholder="本期 m_single.asp 網址" aria-label="新增期數網址" />
+              <button type="submit" className="secondary-btn" disabled={creatingMagazineIssue}>{creatingMagazineIssue ? "建立與分析中…" : "新增期數並分析"}</button>
+            </form>
             {notice && <div className="notice">{notice}</div>}
             <div className="resource-grid">
               {resources
@@ -3251,6 +3368,40 @@ export default function AdminPage() {
           </section>
         </div>
       )}
+      {resourceEditorDraft && (
+        <div className="resource-editor-backdrop" role="presentation" onClick={() => setResourceEditorDraft(null)}>
+          <section className="resource-editor" role="dialog" aria-modal="true" aria-labelledby="resource-editor-title" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div><span>{resourceEditorDraft.resourceType === "magazine" ? "法學教室期數" : resourceEditorDraft.resourceType === "course" ? "影音課程" : "書籍"}資料編輯</span><h2 id="resource-editor-title">編輯內容</h2></div>
+              <button type="button" onClick={() => setResourceEditorDraft(null)} aria-label="關閉編輯">×</button>
+            </header>
+            <div className="resource-editor-grid">
+              <label>名稱<input value={resourceEditorDraft.title} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, title: event.target.value })} /></label>
+              <label>作者／老師／出版單位<input value={resourceEditorDraft.creator} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, creator: event.target.value })} /></label>
+              <label>科目<input value={resourceEditorDraft.subject} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, subject: event.target.value })} /></label>
+              <label>發布狀態<select value={resourceEditorDraft.status} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, status: event.target.value })}><option value="draft">草稿／待確認</option><option value="active">發布到學生端</option><option value="archived">封存</option></select></label>
+            </div>
+            <label className="resource-editor-field">來源網址<input type="url" value={resourceEditorDraft.sourceUrl} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, sourceUrl: event.target.value })} /></label>
+            <label className="resource-editor-field">說明<textarea rows={5} value={resourceEditorDraft.description} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, description: event.target.value })} /></label>
+            <p className="resource-editor-hint">這裡只編輯資源資料；影片、SRT、摘要與法教文章請從各自的預覽／校正功能處理。</p>
+            <footer><button type="button" onClick={() => setResourceEditorDraft(null)}>取消</button><button type="button" className="primary-btn" onClick={() => void saveResourceEditor()}>儲存編輯內容</button></footer>
+          </section>
+        </div>
+      )}
+      {magazineIssueEditorDraft && (
+        <div className="resource-editor-backdrop" role="presentation" onClick={() => setMagazineIssueEditorDraft(null)}>
+          <section className="resource-editor magazine-issue-editor" role="dialog" aria-modal="true" aria-labelledby="magazine-issue-editor-title" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div><span>月旦法學教室試讀文章</span><h2 id="magazine-issue-editor-title">編輯摘要與核心爭點</h2></div>
+              <button type="button" onClick={() => setMagazineIssueEditorDraft(null)} aria-label="關閉編輯">×</button>
+            </header>
+            <label className="resource-editor-field">文章標題<input value={magazineIssueEditorDraft.title} readOnly /></label>
+            <label className="resource-editor-field">摘要<textarea rows={8} value={magazineIssueEditorDraft.summary} onChange={(event) => setMagazineIssueEditorDraft({ ...magazineIssueEditorDraft, summary: event.target.value })} /></label>
+            <label className="resource-editor-field">核心爭點<textarea rows={6} value={magazineIssueEditorDraft.issue} onChange={(event) => setMagazineIssueEditorDraft({ ...magazineIssueEditorDraft, issue: event.target.value })} placeholder="請寫出本篇文章真正要處理的法律問題與判斷分岔" /></label>
+            <footer><button type="button" onClick={() => setMagazineIssueEditorDraft(null)}>取消</button><button type="button" className="primary-btn" onClick={() => void saveMagazineIssueEditor()}>儲存文章分析</button></footer>
+          </section>
+        </div>
+      )}
       {subtitleCourse && (
         <div className="subtitle-editor-backdrop">
           <section className="subtitle-editor">
@@ -3263,10 +3414,18 @@ export default function AdminPage() {
             </header>
             <div className="subtitle-workspace">
               <div className="course-reference">
-                <iframe
-                  src={subtitleCourse.sourceUrl}
-                  title={`${subtitleCourse.title}課程畫面`}
-                />
+                <div className="course-reference-player">
+                  {youtubeEmbedUrl(subtitleCourse.sourceUrl, coursePreviewTime) ? (
+                    <iframe key={`${subtitleCourse.id}-${coursePreviewTime}`} src={youtubeEmbedUrl(subtitleCourse.sourceUrl, coursePreviewTime)} title={`${subtitleCourse.title}課程畫面`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                  ) : directVideoUrl(subtitleCourse.sourceUrl) ? (
+                    <video ref={coursePreviewVideoRef} controls preload="metadata" src={subtitleCourse.sourceUrl} />
+                  ) : subtitleCourse.sourceUrl ? (
+                    <iframe key={`${subtitleCourse.id}-${coursePreviewTime}`} src={`${subtitleCourse.sourceUrl}${subtitleCourse.sourceUrl.includes("#") ? "&" : "#"}t=${coursePreviewTime}`} title={`${subtitleCourse.title}課程畫面`} allow="autoplay; fullscreen; picture-in-picture" />
+                  ) : (
+                    <div className="course-preview-empty">尚未設定課程播放網址</div>
+                  )}
+                </div>
+                <div className="course-preview-current">目前預覽時間：{Math.floor(coursePreviewTime / 60)}:{String(coursePreviewTime % 60).padStart(2, "0")}　點選右側「跳到這段」即可對照課程。</div>
                 <a
                   href={subtitleCourse.sourceUrl}
                   target="_blank"
@@ -3326,13 +3485,7 @@ export default function AdminPage() {
                             )
                           }
                         />
-                        <a
-                          href={`${subtitleCourse.sourceUrl}#t=${segment.startSeconds}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          跳到此段
-                        </a>
+                        <button type="button" onClick={() => seekCoursePreview(segment.startSeconds ?? 0)}>跳到這段</button>
                       </div>
                       <textarea
                         value={segment.text}
@@ -3360,6 +3513,7 @@ export default function AdminPage() {
                           )
                         }
                       />
+                      {segment.summary && <div className="segment-summary-preview"><b>重點摘要</b><span>{segment.summary}</span></div>}
                       <footer>
                         <label>
                           重要度
@@ -3829,7 +3983,7 @@ export default function AdminPage() {
             <article>
               <span>{judicialStatus?.schedule?.enabled ? "實際排程" : "排程狀態"}</span>
               <strong>{judicialStatus?.schedule?.time ?? "00:30"}</strong>
-              <small>{judicialStatus?.schedule?.enabled ? "每日自動執行（台灣時間）" : "尚未啟用"}</small>
+              <small>{judicialStatus?.schedule?.enabled ? `每 ${judicialStatus.schedule.intervalMinutes ?? 5} 分鐘自動續傳（台灣時間）` : "尚未啟用"}</small>
             </article>
             <article>
               <span>待下載</span>
@@ -3878,6 +4032,17 @@ export default function AdminPage() {
               {judicialStatus?.settings?.judicial_last_sync_summary ||
                 "今晚首次同步後會顯示下載與移除筆數。"}
             </p>
+            {judicialStatus?.schedule?.enabled && (
+              <p className="sync-auto-note">
+                錯誤或中斷後會在 {judicialStatus.schedule.window ?? "00:30–05:55"} 每 {judicialStatus.schedule.intervalMinutes ?? 5} 分鐘自動恢復；不用整晚開著此頁面。
+              </p>
+            )}
+            {!!judicialStatus?.failedCount && (
+              <p className="data-error">目前待自動重試 {judicialStatus.failedCount} 筆。</p>
+            )}
+            {!!judicialStatus?.permanentFailureCount && (
+              <p className="data-error">已有 {judicialStatus.permanentFailureCount} 筆達重試上限，仍保留錯誤紀錄。</p>
+            )}
             {judicialStatus?.settings?.judicial_last_error && (
               <p className="data-error">
                 {judicialStatus.settings.judicial_last_error}

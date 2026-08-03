@@ -51,7 +51,8 @@ const worker = {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    if (controller.cron !== "30 16 * * *") return;
+    const judicialCrons = new Set(["30-59/5 16 * * *", "*/5 17-21 * * *"]);
+    if (!judicialCrons.has(controller.cron)) return;
     ctx.waitUntil(
       (async () => {
         const response = await handler.fetch(

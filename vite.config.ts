@@ -14,8 +14,10 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
-  // Cloudflare Cron uses UTC. 16:30 UTC is 00:30 the next day in Taiwan.
-  triggers: { crons: ["30 16 * * *"] },
+  // Cloudflare Cron uses UTC. 16:30–21:55 UTC is 00:30–05:55 in Taiwan.
+  // The five-minute cadence lets a failed batch resume while the official API
+  // is still open, without requiring an administrator to keep the page open.
+  triggers: { crons: ["30-59/5 16 * * *", "*/5 17-21 * * *"] },
   d1_databases: d1
     ? [
         {

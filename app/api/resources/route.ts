@@ -131,7 +131,9 @@ export async function PUT(request: Request) {
   const db = await getDb();
   const [current] = await db.select().from(learningResources).where(eq(learningResources.id, id)).limit(1);
   if (!current) return Response.json({ error: "找不到資源" }, { status: 404 });
-  const nextDocumentId = Number(body.documentId) || null;
+  const hasDocumentId = Object.prototype.hasOwnProperty.call(body, "documentId");
+  const hasLinkedBookId = Object.prototype.hasOwnProperty.call(body, "linkedBookId");
+  const nextDocumentId = hasDocumentId ? Number(body.documentId) || null : current.documentId;
   if (current.resourceType === "book" && current.documentId !== nextDocumentId) {
     await db.delete(resourceSegments).where(and(
       eq(resourceSegments.resourceId, id),
@@ -147,7 +149,7 @@ export async function PUT(request: Request) {
       creator: String(body.creator ?? ""),
       description: String(body.description ?? ""),
       documentId: nextDocumentId,
-      linkedBookId: Number(body.linkedBookId) || null,
+      linkedBookId: hasLinkedBookId ? Number(body.linkedBookId) || null : current.linkedBookId,
       sourceUrl: String(body.sourceUrl ?? ""),
       accessType: String(body.accessType ?? "owned"),
       status: String(body.status ?? "active"),

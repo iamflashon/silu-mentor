@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings, judicialCases } from "../../../db/schema";
 
@@ -8,8 +8,19 @@ const DOC_URL = "https://data.judicial.gov.tw/jdg/api/JDoc";
 const QUEUE_KEY = "judicial_sync_queue";
 const CURSOR_KEY = "judicial_sync_cursor";
 const FAILURES_KEY = "judicial_sync_failures";
+const CYCLE_DATE_KEY = "judicial_sync_cycle_date";
+const LOCK_KEY = "judicial_sync_lock_until";
 const DEFAULT_BATCH_SIZE = 30;
 const MAX_RETRY_ATTEMPTS = 3;
+const LOCK_TTL_MS = 15 * 60 * 1000;
+const JUDICIAL_SCHEDULE = {
+  enabled: true,
+  time: "00:30",
+  timezone: "Asia/Taipei",
+  cron: ["30-59/5 16 * * *", "*/5 17-21 * * *"],
+  intervalMinutes: 5,
+  window: "00:30–05:55",
+};
 
 type JsonObject = Record<string, unknown>;
 type SyncFailure = {
@@ -87,6 +98,34 @@ async function setSetting(db: Awaited<ReturnType<typeof getDb>>, key: string, va
 async function getSetting(db: Awaited<ReturnType<typeof getDb>>, key: string) {
   const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, key)).limit(1);
   return row?.value ?? "";
+}
+
+function taipeiDate() {
+  return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+}
+
+async function acquireSyncLock(db: Awaited<ReturnType<typeof getDb>>) {
+  const now = Date.now();
+  const lockUntil = now + LOCK_TTL_MS;
+  await db.insert(appSettings).values({
+    key: LOCK_KEY,
+    value: "0",
+    updatedAt: new Date(0),
+  }).onConflictDoNothing();
+  const acquired = await db.update(appSettings)
+    .set({ value: String(lockUntil), updatedAt: new Date() })
+    .where(and(
+      eq(appSettings.key, LOCK_KEY),
+      sql`CAST(${appSettings.value} AS INTEGER) <= ${now}`,
+    ))
+    .returning({ key: appSettings.key });
+  return acquired.length > 0;
+}
+
+async function releaseSyncLock(db: Awaited<ReturnType<typeof getDb>>) {
+  await db.update(appSettings)
+    .set({ value: "0", updatedAt: new Date() })
+    .where(eq(appSettings.key, LOCK_KEY));
 }
 
 async function getFailures(db: Awaited<ReturnType<typeof getDb>>) {
@@ -243,19 +282,41 @@ export async function GET() {
     failedCount: retryable.length,
     permanentFailureCount: permanent.length,
     failedCases: failures,
-    schedule: { enabled: true, time: "00:30", timezone: "Asia/Taipei", cron: "30 16 * * *" },
+    schedule: JUDICIAL_SCHEDULE,
   });
 }
 
 export async function POST(request: Request) {
   const body = await request.json() as { action?: string; limit?: number };
+  const scheduled = request.headers.get("x-scheduled-sync") === "1";
   const taipeiHour = new Date(Date.now() + 8 * 3600_000).getUTCHours();
   if (taipeiHour >= 6 && body.action !== "test") {
     return Response.json({ error: "司法院 API 僅於每日 00:00 至 06:00 開放，請於服務時間執行" }, { status: 409 });
   }
 
   const db = await getDb();
+  let lockAcquired = false;
   try {
+    if (body.action !== "test") {
+      // Once the current day's queue and retry queue are both complete, the
+      // five-minute cron must stay idle instead of downloading the same JList
+      // repeatedly. A new Taipei date starts a fresh queue automatically.
+      if (scheduled && (await getSetting(db, CYCLE_DATE_KEY)) === taipeiDate()) {
+        return Response.json({
+          ok: true,
+          skipped: true,
+          message: "今日裁判清單已完成，系統將於下一個服務時段自動繼續。",
+        });
+      }
+      lockAcquired = await acquireSyncLock(db);
+      if (!lockAcquired) {
+        return Response.json({
+          ok: true,
+          busy: true,
+          message: "上一批同步仍在處理，系統會在下一個 5 分鐘週期自動續接。",
+        }, { status: 202 });
+      }
+    }
     const token = await auth();
     await setSetting(db, "judicial_auth_status", "驗證成功");
     await setSetting(db, "judicial_last_auth_at", new Date().toISOString());
@@ -320,6 +381,7 @@ export async function POST(request: Request) {
       } else {
         await setSetting(db, QUEUE_KEY, "[]");
         await setSetting(db, CURSOR_KEY, "0");
+        await setSetting(db, CYCLE_DATE_KEY, taipeiDate());
       }
     }
 
@@ -336,5 +398,7 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? compact(error.message, 300) : "司法院同步失敗";
     await setSetting(db, "judicial_last_error", message);
     return Response.json({ error: message }, { status: 502 });
+  } finally {
+    if (lockAcquired) await releaseSyncLock(db);
   }
 }
