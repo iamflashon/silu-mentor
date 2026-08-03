@@ -4,6 +4,11 @@ import { appSettings, documents, learningResources, resourceSegments } from "../
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
+// D1 limits the number of bound parameters in a single statement. Each
+// chapter currently uses ten bound values, so twelve chapters can exceed the
+// limit and surface only the generated INSERT SQL in the UI. Keep this below
+// the limit so future optional fields still have some headroom.
+const CHAPTER_INSERT_BATCH_SIZE = 8;
 
 type ChapterPayload = {
   chapters?: Array<{
@@ -231,8 +236,8 @@ export async function POST(request: Request) {
       reviewStatus: "ai_reviewed",
     }));
     const inserted: typeof resourceSegments.$inferSelect[] = [];
-    for (let index = 0; index < rows.length; index += 12) {
-      inserted.push(...await db.insert(resourceSegments).values(rows.slice(index, index + 12)).returning());
+    for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
+      inserted.push(...await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE)).returning());
     }
     await writeChapterStatus(resourceId, "completed");
     return Response.json({ chapters: inserted, generated: true, reused: false, status: "completed" });
