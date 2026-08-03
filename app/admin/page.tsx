@@ -100,6 +100,7 @@ type LearningResource = {
     analysisState?: "analyzed" | "captured" | "pending" | "failed";
   }>;
 };
+function magazineIssue(summary: string) { const match = summary.match(/^爭點[:：]\s*(.*?)(?:[｜|]|$)/); return match?.[1]?.trim() || ""; }
 type SubtitleSegment = {
   id: number;
   startSeconds: number;
@@ -2763,6 +2764,7 @@ export default function AdminPage() {
                                 <span>{article.sequence}. {article.title}</span>
                                 <small>{stateLabel}</small>
                                 {article.sourceUrl ? <a href={article.sourceUrl} target="_blank" rel="noreferrer">查看試讀 PDF</a> : null}
+                                {state === "analyzed" && article.summary ? <div className="admin-article-issue"><b>{magazineIssue(article.summary) ? "核心爭點" : "分析摘要"}</b><span>{magazineIssue(article.summary) || article.summary}</span>{!magazineIssue(article.summary) && <small>重新分析後會優先擷取 PDF 中標示的「爭點」段落。</small>}</div> : null}
                               </div>
                             );
                           })}
