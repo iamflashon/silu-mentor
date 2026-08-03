@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { appSettings, documents, learningResources, resourceSegments } from "../../../../db/schema";
 import { openAIJson } from "../../../../lib/openai";
@@ -72,9 +72,11 @@ async function writeChapterStatus(resourceId: number, value: string) {
 async function readChapters(resourceId: number) {
   const db = await getDb();
   return db.select().from(resourceSegments)
-    .where(inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]))
+    .where(and(
+      eq(resourceSegments.resourceId, resourceId),
+      inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
+    ))
     .orderBy(asc(resourceSegments.sequence))
-    .then((rows) => rows.filter((chapter) => chapter.resourceId === resourceId));
 }
 
 /**

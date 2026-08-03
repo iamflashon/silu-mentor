@@ -61,6 +61,7 @@ export default function StudyPlanPage() {
   const [bookChatLoading, setBookChatLoading] = useState(false);
   const [bookChaptersLoading, setBookChaptersLoading] = useState(false);
   const [bookChapterMessage, setBookChapterMessage] = useState("");
+  const chapterBuildAttemptedRef = useRef<Set<number>>(new Set());
   const bookDialogueEndRef = useRef<HTMLDivElement | null>(null);
   const [resourceProgress, setResourceProgress] = useState<Record<string, { page: number; segmentId: number | null; positionSeconds: number; updatedAt: string }>>(() => {
     if (typeof window === "undefined") return {};
@@ -93,15 +94,56 @@ export default function StudyPlanPage() {
     fetch(`/api/resources/segments?resourceId=${resource.id}`).then(async (response) => { if (response.ok) setResourceSegments((((await response.json()) as { segments?: ResourceSegment[] }).segments ?? []).filter((segment) => segment.segmentType === "subtitle")); });
   }, [resources, selectedResourceId, activeTab]);
 
-  async function loadBookChapters(resourceId: number) {
+  async function loadBookChapters(resourceId: number, allowBuild = true) {
     setBookChapters([]);
     setBookChapterMessage("");
     setBookChaptersLoading(true);
     try {
       const response = await fetch(`/api/resources/chapters?resourceId=${resourceId}`);
-      const result = await response.json() as { chapters?: ResourceSegment[]; message?: string; error?: string };
-      setBookChapters(result.chapters ?? []);
-      if (!response.ok || !(result.chapters ?? []).length) setBookChapterMessage(result.message ?? result.error ?? "教材章節暫時無法讀取");
+      const result = await response.json() as {
+        chapters?: ResourceSegment[];
+        message?: string;
+        error?: string;
+        status?: string;
+        ready?: boolean;
+      };
+      const chapters = result.chapters ?? [];
+      setBookChapters(chapters);
+      if (chapters.length) return;
+
+      // The student page is the actual entry point for learning. If the PDF
+      // index is ready but the one-time chapter list has not been created,
+      // start that idempotent build here. The saved status prevents a page
+      // refresh from creating another AI request.
+      const canBuild = allowBuild && result.ready && (result.status === "not_started" || result.status === "failed");
+      if (canBuild && !chapterBuildAttemptedRef.current.has(resourceId)) {
+        chapterBuildAttemptedRef.current.add(resourceId);
+        setBookChapterMessage("教材索引已完成，正在建立本書章節目錄…");
+        const buildResponse = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ resourceId }),
+        });
+        const buildResult = await buildResponse.json() as {
+          chapters?: ResourceSegment[];
+          error?: string;
+          status?: string;
+        };
+        if (buildResult.chapters?.length) {
+          setBookChapters(buildResult.chapters);
+          setBookChapterMessage("");
+        } else if (buildResponse.status === 202 || buildResult.status === "building") {
+          setBookChapterMessage("章節目錄正在建立，完成後會自動顯示…");
+          window.setTimeout(() => { void loadBookChapters(resourceId, false); }, 2500);
+        } else if (!buildResponse.ok) {
+          setBookChapterMessage(buildResult.error ?? "章節目錄建立失敗，請再試一次。");
+        }
+      } else if (result.status === "building") {
+        setBookChapterMessage("章節目錄正在建立，完成後會自動顯示…");
+        window.setTimeout(() => { void loadBookChapters(resourceId, false); }, 2500);
+      } else if (!response.ok || !chapters.length) {
+        setBookChapterMessage(result.message ?? result.error ?? "教材章節暫時無法讀取");
+      }
     } catch {
       setBookChapterMessage("教材章節暫時無法讀取，請再試一次。");
     } finally {
@@ -315,7 +357,7 @@ export default function StudyPlanPage() {
           const isExpanded = currentExpandedBookId === resource.id;
           return <div className={`book-resource-card ${isSelected ? "active" : ""}`} key={resource.id}>
             <button className="book-resource-trigger" aria-expanded={isExpanded} onClick={() => { setSelectedResourceId(resource.id); setExpandedBookId(isExpanded ? null : resource.id); setSelectedSegmentId(null); setSelectedChapterId(null); setBookMessages([]); setResourceMessage(""); }}><span>書</span><div><strong>{resource.title}</strong><small>{resource.subject}{resource.creator ? ` · ${resource.creator}` : ""}</small><em>{resourceProgress[String(resource.id)] ? "已有學習紀錄" : resource.documentId ? "教材已綁定，點此展開章節" : "尚未綁定教材"}</em></div><b aria-hidden>{isExpanded ? "−" : "+"}</b></button>
-            {isExpanded && <div className="book-resource-chapters" aria-label={`${resource.title}章節`}><div className="book-chapter-heading"><strong>本書章節</strong><span>{bookChaptersLoading && isSelected ? "正在讀取…" : bookChapters.length && isSelected ? `${bookChapters.length} 章` : isSelected && resource.documentStatus === "completed" ? "等待後台建立章節" : "等待教材索引"}</span></div>{!isSelected ? <div className="book-chapter-empty">選取這本書後載入章節。</div> : bookChaptersLoading ? <div className="book-chapter-empty">正在讀取後台已保存的章節…</div> : bookChapters.length ? bookChapters.map((chapter, index) => <button key={chapter.id} className={selectedChapter?.id === chapter.id ? "active" : ""} onClick={() => void startBookChapter(chapter)}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{chapter.title}</strong>{chapter.summary && <small>{chapter.summary}</small>}{chapter.pageStart && <em>第 {chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""} 頁</em>}</div></button>) : <div className="book-chapter-empty">{bookChapterMessage || "章節尚未建立。請管理員在後台按一次「建立章節索引」。"}<br /><button type="button" className="chapter-retry" onClick={() => void loadBookChapters(resource.id)}>重新讀取已保存章節</button></div>}</div>}
+            {isExpanded && <div className="book-resource-chapters" aria-label={`${resource.title}章節`}><div className="book-chapter-heading"><strong>本書章節</strong><span>{bookChaptersLoading && isSelected ? "正在準備…" : bookChapters.length && isSelected ? `${bookChapters.length} 章` : "尚未建立"}</span></div>{!isSelected ? <div className="book-chapter-empty">選取這本書後載入章節。</div> : bookChaptersLoading ? <div className="book-chapter-empty">正在準備本書章節目錄，完成後會自動顯示…</div> : bookChapters.length ? bookChapters.map((chapter, index) => <button key={chapter.id} className={selectedChapter?.id === chapter.id ? "active" : ""} onClick={() => void startBookChapter(chapter)}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{chapter.title}</strong>{chapter.summary && <small>{chapter.summary}</small>}{chapter.pageStart && <em>第 {chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""} 頁</em>}</div></button>) : <div className="book-chapter-empty">{bookChapterMessage || "教材索引完成後，章節目錄會在這裡建立。"}<br /><button type="button" className="chapter-retry" onClick={() => { chapterBuildAttemptedRef.current.delete(resource.id); void loadBookChapters(resource.id); }}>重新建立章節</button></div>}</div>}
           </div>;
         }) : courseResources.map((resource) => <button key={resource.id} className={selectedResource?.id === resource.id ? "active" : ""} onClick={() => { setSelectedResourceId(resource.id); setSelectedSegmentId(null); setSelectedChapterId(null); setBookMessages([]); setResourceMessage(""); }}><span>課</span><div><strong>{resource.title}</strong><small>{resource.subject}{resource.creator ? ` · ${resource.creator}` : ""}</small><em>{resourceProgress[String(resource.id)] ? "已有學習紀錄" : "尚未開始"}</em></div></button>)}{!(activeTab === "books" ? bookResources : courseResources).length && <div className="resource-empty">後台尚未建立{activeTab === "books" ? "書籍" : "影音課程"}資源。</div>}</aside>
           {selectedResource ? <article className="resource-study-panel"><header><div><span>{selectedResource.subject} · {selectedResource.resourceType === "book" ? "書籍" : "影音課程"}</span><h3>{selectedResource.title}</h3>{selectedResource.creator && <small>{selectedResource.creator}</small>}</div><div className="resource-panel-actions"><button className="secondary-btn" onClick={() => void addResourceTask(selectedResource)}>＋ 加入今日計畫</button><button className="primary-btn" onClick={() => void logResourceStudy(selectedResource, selectedResource.resourceType === "course" ? 45 : 60, selectedResource.resourceType === "course" ? "下次從上次字幕段落接續" : `下次從${selectedChapter?.title ? `「${selectedChapter.title}」` : "目前章節"}接續`)}>完成本次學習</button></div></header>
