@@ -197,7 +197,7 @@ async function readJson(response: Response) {
   } catch {
     if (response.status === 413)
       return { error: "檔案超過單次上傳限制，請重新選擇文件" };
-    return { error: "伺服器暫時無法處理這份文件" };
+    return { error: `伺服器暫時無法處理這份文件（HTTP ${response.status}），請查看資料卡上的處理錯誤` };
   }
 }
 
@@ -575,6 +575,11 @@ export default function AdminPage() {
         await fetch(`/api/legal-sources/upload?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}`, { method: "DELETE" }).catch(() => undefined);
       }
       setNotice(error instanceof Error ? error.message : "ZIP 上傳失敗");
+      const refreshed = await fetch("/api/legal-sources").catch(() => null);
+      if (refreshed?.ok)
+        setLegalSources(
+          ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
+        );
     } finally {
       setUploadingLegalZip(null);
     }

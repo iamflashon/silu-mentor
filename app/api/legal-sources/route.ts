@@ -35,6 +35,26 @@ function decodeArchive(bytes: Uint8Array) {
 
 type LegalArchiveEntry = { record: Record<string, unknown>; category: "法律" | "命令" };
 
+// Keep the expensive ZIP decompression out of every import batch.  The first
+// batch prepares small JSON objects in R2; later requests read only the batch
+// they need.  This is important for large MOJ archives because a Worker can
+// otherwise time out while repeatedly decompressing the same ZIP.
+const legalImportBatchSize = 40;
+type PreparedLegalManifest = {
+  version: 1;
+  batchSize: number;
+  total: number;
+  batchKeys: string[];
+};
+
+function preparedManifestKey(archiveKey: string) {
+  return `${archiveKey}.prepared-manifest.json`;
+}
+
+function preparedBatchKey(archiveKey: string, index: number) {
+  return `${archiveKey}.prepared-batches/${String(index).padStart(5, "0")}.json`;
+}
+
 function parseLegalArchive(bytes: Uint8Array, sourceKey?: string): LegalArchiveEntry[] {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
     const files = unzipSync(bytes);
@@ -58,6 +78,51 @@ function parseLegalArchive(bytes: Uint8Array, sourceKey?: string): LegalArchiveE
   return collectLawObjects(new XMLParser({ ignoreAttributes: false, trimValues: true }).parse(decodeArchive(bytes))).map((record) => ({ record, category: "法律" }));
 }
 
+async function getPreparedManifest(bucket: R2Bucket, archiveKey: string, sourceKey: string) {
+  const manifestKey = preparedManifestKey(archiveKey);
+  const existing = await bucket.get(manifestKey);
+  if (existing) {
+    const manifest = JSON.parse(await existing.text()) as PreparedLegalManifest;
+    if (manifest.version === 1 && manifest.batchSize > 0 && manifest.total >= 0 && manifest.batchKeys.length > 0) return manifest;
+  }
+
+  const archive = await bucket.get(archiveKey);
+  if (!archive) throw new Error("找不到已上傳的全國法規 ZIP，請重新上傳");
+  const entries = parseLegalArchive(new Uint8Array(await archive.arrayBuffer()), sourceKey);
+  if (!entries.length) throw new Error("ZIP 內沒有找到可辨識的法規資料（需要 ChLaw／ChOrder JSON 或官方 XML）");
+
+  const batchKeys: string[] = [];
+  for (let start = 0; start < entries.length; start += legalImportBatchSize) {
+    const index = batchKeys.length;
+    const key = preparedBatchKey(archiveKey, index);
+    await bucket.put(key, JSON.stringify(entries.slice(start, start + legalImportBatchSize)), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    batchKeys.push(key);
+  }
+
+  const manifest: PreparedLegalManifest = {
+    version: 1,
+    batchSize: legalImportBatchSize,
+    total: entries.length,
+    batchKeys,
+  };
+  await bucket.put(manifestKey, JSON.stringify(manifest), {
+    httpMetadata: { contentType: "application/json" },
+  });
+  return manifest;
+}
+
+async function readPreparedBatch(bucket: R2Bucket, manifest: PreparedLegalManifest, start: number) {
+  const batchIndex = Math.floor(start / manifest.batchSize);
+  const key = manifest.batchKeys[batchIndex];
+  if (!key) return [] as LegalArchiveEntry[];
+  const object = await bucket.get(key);
+  if (!object) throw new Error("法規匯入批次暫存資料遺失，請重新上傳 ZIP");
+  const entries = JSON.parse(await object.text()) as LegalArchiveEntry[];
+  return entries.slice(start - batchIndex * manifest.batchSize);
+}
+
 export async function GET() {
   const db = await seedSources();
   const allSources = await db.select().from(legalDataSources).orderBy(asc(legalDataSources.id));
@@ -77,12 +142,22 @@ export async function POST(request: Request) {
   await db.update(legalDataSources).set({ status: "downloading", lastError: null, updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
   try {
     if (sourceKey.startsWith("moj-")) {
-      const { env } = await import("cloudflare:workers"); const archive = source.archiveStorageKey && !body.restart ? await env.BUCKET.get(source.archiveStorageKey) : null;
-      let bytes: Uint8Array; let key = source.archiveStorageKey;
-      if (archive) bytes = new Uint8Array(await archive.arrayBuffer()); else { const response = await fetch(source.sourceUrl, { headers: { "user-agent": "司律備考法規同步/1.0" } }); if (!response.ok) throw new Error(`官方資料下載失敗（${response.status}）`); bytes = new Uint8Array(await response.arrayBuffer()); key = `legal-archives/${sourceKey}-${Date.now()}.zip`; await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: response.headers.get("content-type") || "application/octet-stream" } }); }
-      const entries = parseLegalArchive(bytes, sourceKey); const start = body.restart ? 0 : source.importCursor; const batch = entries.slice(start, start + 40); let articleCount = 0;
+      const { env } = await import("cloudflare:workers");
+      let key = body.restart ? null : source.archiveStorageKey;
+      if (!key) {
+        const response = await fetch(source.sourceUrl, { headers: { "user-agent": "司律備考法規同步/1.0" } });
+        if (!response.ok) throw new Error(`官方資料下載失敗（${response.status}）`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        key = `legal-archives/${sourceKey}-${Date.now()}.zip`;
+        await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: response.headers.get("content-type") || "application/octet-stream" } });
+      }
+      if (!key) throw new Error("法規資料暫存位置不存在");
+      const manifest = await getPreparedManifest(env.BUCKET, key, sourceKey);
+      const start = body.restart ? 0 : source.importCursor;
+      const batch = await readPreparedBatch(env.BUCKET, manifest, start);
+      let articleCount = 0;
       for (const entry of batch) { const law = entry.record; const title = pick(law, ["LawName", "法規名稱"]); if (!title) continue; const externalId = `${sourceKey}:${entry.category}:${title}`; const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId, title, category: entry.category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pick(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pick(law, ["LawURL", "Url", "法規網址"]) }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { category: entry.category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), updatedAt: new Date() } }).returning(); await db.delete(legalArticles).where(eq(legalArticles.documentId, doc.id)); const articles = collectArticles(law.LawArticles || law.Articles || law.條文); for (let i = 0; i < articles.length; i += 40) await db.insert(legalArticles).values(articles.slice(i, i + 40).map((item) => ({ documentId: doc.id, articleNo: item.no, hierarchy: item.hierarchy, content: item.content }))); articleCount += articles.length; }
-      const next = start + batch.length; const done = next >= entries.length; const [counts] = await db.select({ docs: sql<number>`count(distinct ${legalDocuments.id})`, articles: sql<number>`count(${legalArticles.id})` }).from(legalDocuments).leftJoin(legalArticles, eq(legalDocuments.id, legalArticles.documentId)).where(eq(legalDocuments.sourceKey, sourceKey)); const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey)).groupBy(legalDocuments.category); const categoryCounts = Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])); await db.update(legalDataSources).set({ status: done ? "ready" : "importing", archiveStorageKey: key, importCursor: done ? 0 : next, totalAvailable: entries.length, documentCount: Number(counts.docs || 0), articleCount: Number(counts.articles || 0), lastDownloadedAt: new Date(), updatedAt: new Date() }).where(eq(legalDataSources.id, source.id)); return Response.json({ sourceKey, status: done ? "ready" : "importing", processed: batch.length, next, total: entries.length, articleCount, categoryCounts });
+      const next = start + batch.length; const done = next >= manifest.total; const [counts] = await db.select({ docs: sql<number>`count(distinct ${legalDocuments.id})`, articles: sql<number>`count(${legalArticles.id})` }).from(legalDocuments).leftJoin(legalArticles, eq(legalDocuments.id, legalArticles.documentId)).where(eq(legalDocuments.sourceKey, sourceKey)); const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey)).groupBy(legalDocuments.category); const categoryCounts = Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])); await db.update(legalDataSources).set({ status: done ? "ready" : "importing", archiveStorageKey: key, importCursor: done ? 0 : next, totalAvailable: manifest.total, documentCount: Number(counts.docs || 0), articleCount: Number(counts.articles || 0), lastDownloadedAt: new Date(), updatedAt: new Date() }).where(eq(legalDataSources.id, source.id)); return Response.json({ sourceKey, status: done ? "ready" : "importing", processed: batch.length, next, total: manifest.total, articleCount, categoryCounts });
     }
     const response = await fetch(source.sourceUrl, { headers: { "user-agent": "司律備考憲法資料同步/1.0" } }); if (!response.ok) throw new Error(`憲法資料頁讀取失敗（${response.status}）`); const html = await response.text(); const matches = [...html.matchAll(/href=["']([^"']*docdata\.aspx\?[^"']*id=(\d+)[^"']*)["'][^>]*>([^<]{4,120})/gi)]; let imported = 0;
     for (const match of matches) { const title = match[3].replace(/&[^;]+;/g, " ").trim(); if (!title) continue; const externalId = `${sourceKey}:${match[2]}`; await db.insert(legalDocuments).values({ sourceKey, externalId, title, category: source.category, sourceUrl: new URL(match[1], source.sourceUrl).toString() }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { title, updatedAt: new Date() } }); imported++; }
