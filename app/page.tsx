@@ -18,7 +18,9 @@ type StudyExtras = { today: string; weather: { location: string; temperature: nu
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
 function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/尚未匯入|尚未準備|暫時無法|沒有連上|API|錯誤|請稍後|管理者/.test(clean)) return false; return /法條|爭點|要件|涵攝|解題|判斷|原則|例外|學說|實務|教材|刑法|民法|訴訟法|憲法|行政法/.test(clean); }
-function youtubeEmbedUrl(value: string) { try { const url = new URL(value); let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? ""); id = id.split(/[?&]/)[0]; return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}?rel=0` : ""; } catch { return ""; } }
+function youtubeId(value: string) { try { const url = new URL(value); const id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? ""); return id.split(/[?&]/)[0]; } catch { return ""; } }
+function youtubeEmbedUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1` : ""; }
+function youtubeWatchUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : ""; }
 function dateLabel(value: string) { return value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1年$2月$3日") : "今天"; }
 
 export default function Home() {
@@ -250,7 +252,7 @@ export default function Home() {
         <div className="pulse-date"><span>今天日期</span><strong>{dateLabel(extras?.today || today)}</strong><small>司律備考每日同步</small></div>
         <div className="pulse-weather"><span>台北天氣</span><strong>{extras?.weather.temperature != null ? `${extras.weather.temperature}° ${extras.weather.label}` : "取得中…"}</strong><small>{extras?.weather.apparentTemperature != null ? `體感 ${extras.weather.apparentTemperature}° · 降雨 ${extras.weather.rainProbability ?? "—"}%` : "天氣資料同步中"}</small></div>
         <div className="pulse-luck"><div><span>今日運試</span><strong>{extras?.luck ? `${extras.luck.score}/100` : "分析中…"}</strong></div><select aria-label="選擇星座" value={zodiac} onChange={(event) => { const value = event.target.value; setZodiac(value); window.localStorage.setItem("silu-exam-zodiac", value); }}><option value="">選擇星座</option>{["牡羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座", "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"].map((item) => <option key={item}>{item}</option>)}</select><small>{extras?.luck.headline ?? "依今日學習狀態分析考試準備重點"}</small></div>
-        <div className="pulse-music"><span>讀書音樂</span>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <iframe title="司律備考首頁讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="autoplay; encrypted-media" loading="lazy" /> : <small>後台尚未設定播放內容</small>}</div>
+        <div className="pulse-music"><span>讀書音樂</span>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe title="司律備考首頁讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen loading="lazy" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></> : <small>後台尚未設定播放內容</small>}</div>
       </section>
 
       <div className={`command-layout rail-${railSide}`}>

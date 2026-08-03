@@ -131,7 +131,15 @@ export default function StudyPlanPage() {
       const url = new URL(value.trim());
       let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? "");
       id = id.split(/[?&]/)[0];
-      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}?rel=0` : "";
+      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1` : "";
+    } catch { return ""; }
+  }
+
+  function youtubeWatchUrl(value: string) {
+    try {
+      const url = new URL(value.trim());
+      const id = (url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? "")).split(/[?&]/)[0];
+      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : "";
     } catch { return ""; }
   }
 
@@ -178,7 +186,7 @@ export default function StudyPlanPage() {
       <section className="study-supplement-grid" aria-label="學習專區每日補給">
         <article className="supplement-card weather-card"><div className="supplement-heading"><div><span>今日環境</span><strong>台北天氣</strong></div><b>☼</b></div>{extras?.weather.temperature != null ? <><div className="weather-reading"><strong>{extras.weather.temperature}°</strong><span>{extras.weather.label}</span></div><p>體感 {extras.weather.apparentTemperature ?? "—"}° · 降雨機率 {extras.weather.rainProbability ?? "—"}%</p></> : <p className="supplement-muted">正在取得今天的天氣…</p>}</article>
         <article className="supplement-card luck-card"><div className="supplement-heading"><div><span>AI 考試分析</span><strong>今日運試</strong></div><b>✦</b></div><div className="luck-controls"><select aria-label="選擇星座" value={zodiac} onChange={(event) => { const value = event.target.value; setZodiac(value); window.localStorage.setItem("silu-exam-zodiac", value); }}><option value="">選擇你的星座</option>{zodiacOptions.map((item) => <option key={item}>{item}</option>)}</select>{extras?.luck && <strong className="luck-score">{extras.luck.score}<small>/100</small></strong>}</div>{extras?.luck ? <><b className="luck-headline">{extras.luck.headline}</b><p>{extras.luck.analysis}</p><div className="luck-action">今日聚焦：{extras.luck.focus} · {extras.luck.action}</div><small className="luck-source">由 {extras.luck.model === "fallback" ? "司律備考規則" : "AI"} 依今日學習狀態分析</small></> : <p className="supplement-muted">選擇星座後，AI 會把運試轉成今天可完成的考試準備提醒。</p>}</article>
-        <article className="supplement-card music-card"><div className="supplement-heading"><div><span>專注模式</span><strong>讀書音樂</strong></div><b>♫</b></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <iframe title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="autoplay; encrypted-media" loading="lazy" /> : <p className="supplement-muted">管理後台設定讀書音樂後，會在這裡提供播放。</p>}<small className="music-note">播放前請確認影片說明欄的授權條件；瀏覽器會要求同學自行按播放。</small></article>
+        <article className="supplement-card music-card"><div className="supplement-heading"><div><span>專注模式</span><strong>讀書音樂</strong></div><b>♫</b></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen loading="lazy" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></> : <p className="supplement-muted">管理後台設定讀書音樂後，會在這裡提供播放。</p>}<small className="music-note">播放前請確認影片說明欄的授權條件；瀏覽器會要求同學自行按播放。</small></article>
       </section>
       <section className="learning-columns" aria-label="學習內容專欄">
         <article className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><strong>{homeFeed.listening.title}</strong><p>先聽老師如何抓爭點，再回到學習專區留下自己的答題接續點。</p><ListeningPlayer item={homeFeed.listening} /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>

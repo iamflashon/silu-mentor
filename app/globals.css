@@ -2621,7 +2621,7 @@ a {
 .music-form { display: flex; gap: 6px; margin-top: 13px; }
 .music-form input { flex: 1; padding: 8px 9px; }
 .music-form button { border: 0; border-radius: 8px; padding: 0 10px; background: #285d7f; color: white; font-size: 10px; font-weight: 750; cursor: pointer; }
-.music-card iframe { width: 100%; height: 86px; margin-top: 10px; border: 0; border-radius: 9px; background: #edf4f7; }
+.music-card iframe { width: 100%; height: 170px; margin-top: 10px; border: 0; border-radius: 9px; background: #edf4f7; }
 .column-card { min-height: 180px; }
 .column-heading h2,
 .home-editorial-head h2 { margin: 4px 0 0; color: #264d67; font-size: 19px; letter-spacing: -0.04em; }
@@ -2655,7 +2655,8 @@ a {
 .home-pulse small { display: block; margin-top: 5px; color: #8a9ca7; font-size: 8px; line-height: 1.45; }
 .pulse-luck > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pulse-luck select { width: 78px; padding: 5px 6px; border: 1px solid #cfdee6; border-radius: 7px; color: #54778b; background: #f8fbfc; font-size: 8px; }
-.pulse-music iframe { width: 100%; height: 31px; margin-top: 6px; border: 0; border-radius: 7px; background: #edf4f7; }
+.pulse-music iframe { width: 100%; height: 96px; margin-top: 6px; border: 0; border-radius: 7px; background: #edf4f7; }
+.music-open-link { display: inline-block; margin-top: 6px; color: #2a6a91; font-size: 9px; font-weight: 800; text-decoration: none; }
 .magazine-article-list { display: grid; gap: 5px; margin-top: 10px; }
 .magazine-article-row { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 0; border-bottom: 1px solid #edf2f5; }
 .magazine-article-row:last-child { border-bottom: 0; }
