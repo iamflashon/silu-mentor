@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings, learningResources, listeningAudioSegments, listeningSolutions, listeningSubtitleCues, resourceSegments } from "../../../db/schema";
+import { parseMagazineAnalysis } from "../../../lib/magazine";
 
 export async function GET() {
   const db = await getDb();
@@ -17,7 +18,11 @@ export async function GET() {
   }
   const magazine = resources.find((item) => item.resourceType === "magazine" && item.status === "active") ?? resources.find((item) => item.resourceType === "magazine") ?? null;
   const magazineIsDraft = Boolean(magazine && magazine.status !== "active");
-  const magazineArticles = magazine ? await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4) : [];
+  const magazineRows = magazine ? await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4) : [];
+  const magazineArticles = magazineRows.map((article) => {
+    const analysis = parseMagazineAnalysis(article.summary);
+    return { ...article, summary: analysis.summary, issue: analysis.issue };
+  });
   const recommended = await db.select({ id: resourceSegments.id, resourceId: resourceSegments.resourceId, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds, importance: resourceSegments.importance }).from(resourceSegments).where(eq(resourceSegments.recommended, true)).orderBy(desc(resourceSegments.importance)).limit(5);
   const [musicSetting] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "focus_music_url")).limit(1);
   return Response.json({
@@ -27,6 +32,6 @@ export async function GET() {
     listening: listening ? { id: listening.id, title: listening.title, year: listening.year, subject: listening.subject, questionText: listening.questionText, subtitles: listening.subtitles, audioUrl: listening.audioStorageKey ? `/api/listening/audio?id=${listening.id}` : "", audioSegments: listening.segments.map((segment) => ({ ...segment, audioUrl: `/api/listening/segments/audio?id=${segment.id}` })) } : null,
     focusMusicUrl: musicSetting?.value ?? "",
     recommended,
-    ticker: ["距離 116 年司律考試持續累積實力", "每日一法條：刑法第 271 條 殺人罪", "今日任務完成後，記得留下學習接續點"],
+    ticker: ["距離 116 年司律考試持續累積實力", "今日任務完成後，記得留下學習接續點", "每次學習只往前一小步，也是在累積上榜實力"],
   });
 }

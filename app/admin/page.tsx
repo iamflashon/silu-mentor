@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { unzipSync } from "fflate";
+import { unzip, unzipSync } from "fflate";
+import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 
 type Uploaded = {
   id: number;
@@ -100,7 +101,6 @@ type LearningResource = {
     analysisState?: "analyzed" | "captured" | "pending" | "failed";
   }>;
 };
-function magazineIssue(summary: string) { const match = summary.match(/^爭點[:：]\s*(.*?)(?:[｜|]|$)/); return match?.[1]?.trim() || summary.trim(); }
 type SubtitleSegment = {
   id: number;
   startSeconds: number;
@@ -193,6 +193,7 @@ type LegalSource = {
   lastError?: string | null;
   lastDownloadedAt?: string | null;
   categoryCounts?: Record<string, number>;
+  hasArchive?: boolean;
 };
 type JudicialStatus = {
   configured: boolean;
@@ -215,6 +216,70 @@ async function readJson(response: Response) {
       return { error: "檔案超過單次上傳限制，請重新選擇文件" };
     return { error: `伺服器暫時無法處理這項操作（HTTP ${response.status}），請查看資料卡上的處理錯誤` };
   }
+}
+
+type BrowserLegalEntry = {
+  category: "法律" | "命令";
+  record: Record<string, unknown>;
+};
+
+function unzipArchive(bytes: Uint8Array) {
+  return new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+    unzip(bytes, (error, files) => {
+      if (error) reject(error);
+      else resolve(files);
+    });
+  });
+}
+
+function recordText(record: Record<string, unknown>, names: string[]) {
+  for (const name of names) {
+    const value = record[name];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function collectBrowserLawRecords(value: unknown, rows: Record<string, unknown>[] = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectBrowserLawRecords(item, rows);
+  } else if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (
+      recordText(record, ["LawName", "法規名稱"]) &&
+      (record.LawArticles || record.Articles || record.條文)
+    ) rows.push(record);
+    else for (const child of Object.values(record)) collectBrowserLawRecords(child, rows);
+  }
+  return rows;
+}
+
+function compactBrowserLawRecord(record: Record<string, unknown>) {
+  const compact: Record<string, unknown> = {};
+  for (const name of [
+    "LawName", "法規名稱", "LawModifiedDate", "ModifiedDate", "最新異動日期",
+    "LawEffectiveDate", "EffectiveDate", "生效日期", "LawHistories", "Histories",
+    "沿革內容", "LawURL", "Url", "法規網址", "LawArticles", "Articles", "條文",
+  ]) if (record[name] !== undefined) compact[name] = record[name];
+  return compact;
+}
+
+function splitLegalEntries(entries: BrowserLegalEntry[], maxJsonBytes = 1_500_000) {
+  const batches: BrowserLegalEntry[][] = [];
+  let batch: BrowserLegalEntry[] = [];
+  let bytes = 2;
+  for (const entry of entries) {
+    const entryBytes = new Blob([JSON.stringify(entry)]).size + 1;
+    if (batch.length && bytes + entryBytes > maxJsonBytes) {
+      batches.push(batch);
+      batch = [];
+      bytes = 2;
+    }
+    batch.push(entry);
+    bytes += entryBytes;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
 }
 
 export default function AdminPage() {
@@ -460,50 +525,57 @@ export default function AdminPage() {
     setSyncingLegal(null);
   }
 
-  async function importAllLegal(sourceKey: string, restart = false) {
-    setSyncingLegal(sourceKey);
-    let nextRestart = restart;
-    let completed = false;
-    for (let attempt = 0; attempt < 600; attempt++) {
+  async function importLegalZipInBrowser(sourceKey: string, archive: Blob) {
+    setNotice("正在瀏覽器中解壓全國法規 ZIP；這一步不受雲端處理時間限制…");
+    const files = await unzipArchive(new Uint8Array(await archive.arrayBuffer()));
+    const targetFiles = Object.entries(files).filter(([name]) => /(^|\/)(ChLaw|ChOrder)\.json$/i.test(name));
+    if (!targetFiles.length) throw new Error("ZIP 內找不到 ChLaw.json 或 ChOrder.json");
+    const entries: BrowserLegalEntry[] = [];
+    for (const [name, data] of targetFiles) {
+      const raw = new TextDecoder("utf-8").decode(data).replace(/^\uFEFF/, "");
+      const records = collectBrowserLawRecords(JSON.parse(raw));
+      const category: "法律" | "命令" = /(^|\/)ChOrder\.json$/i.test(name) ? "命令" : "法律";
+      entries.push(...records.map((record) => ({ category, record: compactBrowserLawRecord(record) })));
+      delete files[name];
+    }
+    if (!entries.length) throw new Error("ZIP 已解壓，但沒有辨識到任何法律或命令");
+    const batches = splitLegalEntries(entries);
+    let cursor = 0;
+    let categoryCounts: Record<string, number> | undefined;
+    for (let index = 0; index < batches.length; index += 1) {
+      const batch = batches[index];
       const response = await fetch("/api/legal-sources", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sourceKey, restart: nextRestart }),
+        body: JSON.stringify({ sourceKey, entries: batch, cursor, total: entries.length, restart: index === 0, final: index === batches.length - 1 }),
       });
-      const result = (await readJson(response)) as {
-        status?: string;
-        processed?: number;
-        next?: number;
-        total?: number;
-        error?: string;
-        categoryCounts?: Record<string, number>;
-      };
-      if (!response.ok) {
-        setNotice(result.error ?? "資料匯入失敗，已停在目前進度");
-        break;
-      }
-      setNotice(
-        `正在匯入全國法規：${result.next ?? 0} / ${result.total ?? 0}`,
-      );
-      if (result.status === "ready") {
-        completed = true;
-        const categoryCounts = result.categoryCounts as Record<string, number> | undefined;
-        const breakdown = categoryCounts
-          ? `法律 ${categoryCounts["法律"] ?? 0}、命令 ${categoryCounts["命令"] ?? 0}`
-          : `共 ${result.total ?? 0} 部`;
-        setNotice(`全國法規匯入完成：${breakdown}，條文已可供 AI 導師搜尋`);
-        break;
-      }
-      nextRestart = false;
+      const result = (await readJson(response)) as { next?: number; total?: number; categoryCounts?: Record<string, number>; error?: string };
+      if (!response.ok) throw new Error(result.error ?? `第 ${index + 1} 批匯入失敗`);
+      cursor = result.next ?? cursor + batch.length;
+      categoryCounts = result.categoryCounts;
+      setNotice(`正在建立全國法規索引：${cursor.toLocaleString()} / ${entries.length.toLocaleString()} 部`);
     }
-    if (!completed && syncingLegal === sourceKey)
-      setNotice((current) => current || "已完成可處理批次，請稍後繼續");
+    const breakdown = categoryCounts ? `法律 ${categoryCounts["法律"] ?? 0}、命令 ${categoryCounts["命令"] ?? 0}` : `共 ${entries.length} 部`;
+    setNotice(`全國法規匯入完成：${breakdown}，條文已可供搜尋與「法條學習」使用`);
     const refreshed = await fetch("/api/legal-sources");
-    if (refreshed.ok)
-      setLegalSources(
-        ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
-      );
-    setSyncingLegal(null);
+    if (refreshed.ok) setLegalSources(((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? []);
+  }
+
+  async function importExistingLegalZip(sourceKey: string) {
+    setSyncingLegal(sourceKey);
+    try {
+      setNotice("正在讀取已上傳的全國法規 ZIP…");
+      const response = await fetch(`/api/legal-sources/archive?sourceKey=${encodeURIComponent(sourceKey)}`);
+      if (!response.ok) {
+        const result = (await readJson(response)) as { error?: string };
+        throw new Error(result.error ?? "已上傳的 ZIP 無法讀取");
+      }
+      await importLegalZipInBrowser(sourceKey, await response.blob());
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "全國法規匯入失敗");
+    } finally {
+      setSyncingLegal(null);
+    }
   }
 
   async function uploadLegalZip(sourceKey: string) {
@@ -586,7 +658,7 @@ export default function AdminPage() {
             ((await refreshed.json()) as { sources?: LegalSource[] }).sources ?? [],
           );
       });
-      await importAllLegal(sourceKey);
+      await importLegalZipInBrowser(sourceKey, file);
     } catch (error) {
       if (key && uploadId) {
         await fetch(`/api/legal-sources/upload?key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}`, { method: "DELETE" }).catch(() => undefined);
@@ -1424,7 +1496,8 @@ export default function AdminPage() {
     resourceId: number,
     article: NonNullable<LearningResource["articlePreviews"]>[number],
   ) {
-    const issue = window.prompt("主要爭點", magazineIssue(article.summary));
+    const analysis = parseMagazineAnalysis(article.summary);
+    const issue = window.prompt("核心爭點", analysis.issue);
     if (issue === null) return;
     if (!issue.trim()) {
       setNotice("主要爭點不能留白。");
@@ -1435,7 +1508,7 @@ export default function AdminPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         id: article.id,
-        summary: issue.trim(),
+        summary: formatMagazineAnalysis(analysis.summary, issue.trim()),
         reviewStatus: "ai_reviewed",
         importance: 5,
         recommended: true,
@@ -1459,7 +1532,7 @@ export default function AdminPage() {
                 item.id === article.id
                   ? {
                       ...item,
-                      summary: result.segment?.summary ?? issue.trim(),
+                      summary: result.segment?.summary ?? formatMagazineAnalysis(analysis.summary, issue.trim()),
                       reviewStatus: "ai_reviewed",
                       analysisState: "analyzed",
                     }
@@ -1468,7 +1541,7 @@ export default function AdminPage() {
             },
       ),
     );
-    setNotice("主要爭點已更新，前台與 AI 帶入會使用這段內容。");
+    setNotice("核心爭點已更新，摘要會保留，前台與 AI 帶入會使用這段內容。");
   }
 
   async function removeResource(resource: LearningResource) {
@@ -2802,6 +2875,7 @@ export default function AdminPage() {
                         <div className="admin-article-previews">
                           <b>試讀文章處理狀態</b>
                           {resource.articlePreviews.map((article) => {
+                            const analysis = parseMagazineAnalysis(article.summary);
                             const state = article.analysisState ?? (article.reviewStatus === "ai_reviewed" ? "analyzed" : "pending");
                             const stateLabel = state === "analyzed"
                               ? article.textLength
@@ -2817,8 +2891,8 @@ export default function AdminPage() {
                                 <span>{article.sequence}. {article.title}</span>
                                 <small>{stateLabel}</small>
                                 {article.sourceUrl ? <a href={article.sourceUrl} target="_blank" rel="noreferrer">查看試讀 PDF</a> : null}
-                                {state === "analyzed" ? <div className="admin-article-issue"><b>主要爭點</b><span>{magazineIssue(article.summary) || "尚未擷取到爭點，請人工補上。"}</span></div> : null}
-                                <button type="button" className="magazine-issue-edit" onClick={() => editMagazineIssue(resource.id, article)}>編輯主要爭點</button>
+                                {state === "analyzed" ? <><div className="admin-article-issue admin-article-summary"><b>摘要</b><span>{analysis.summary || "舊資料尚未拆出摘要，重新分析後會補上。"}</span></div><div className="admin-article-issue"><b>核心爭點</b><span>{analysis.issue || "尚未擷取到爭點，請人工補上。"}</span></div></> : null}
+                                <button type="button" className="magazine-issue-edit" onClick={() => editMagazineIssue(resource.id, article)}>編輯核心爭點</button>
                               </div>
                             );
                           })}
@@ -3686,24 +3760,22 @@ export default function AdminPage() {
                     官方來源
                   </a>
                   <button
-                    disabled={syncingLegal !== null}
+                    disabled={syncingLegal !== null || (source.sourceKey === "moj-regulations" && !source.hasArchive)}
                     onClick={() =>
                       source.sourceKey === "moj-regulations"
-                        ? importAllLegal(source.sourceKey, source.status === "ready")
+                        ? importExistingLegalZip(source.sourceKey)
                         : syncLegal(source.sourceKey, source.status === "ready")
                     }
                   >
                     {syncingLegal === source.sourceKey
                       ? "處理中…"
-                      : source.status === "uploaded"
-                        ? "開始自動匯入"
-                      : source.status === "importing"
-                        ? "繼續自動匯入"
-                      : source.status === "ready"
+                      : source.sourceKey === "moj-regulations"
+                        ? source.hasArchive
+                          ? "重新處理已上傳 ZIP"
+                          : "請先上傳 ZIP"
+                        : source.status === "ready"
                           ? "重新同步"
-                          : source.sourceKey === "moj-regulations"
-                            ? "開始下載並匯入"
-                            : "開始下載"}
+                          : "開始下載"}
                   </button>
                 </footer>
               </article>

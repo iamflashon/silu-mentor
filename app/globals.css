@@ -2705,7 +2705,13 @@ a {
 .home-editorial-card { min-height: 158px; }
 .home-editorial-head { margin-top: 5px; }
 .home-editorial-card > strong { margin-top: 15px; }
-.home-date-line { width: min(1180px, calc(100% - 40px)); margin: 12px auto 0; color: #6e8797; font-size: 11px; line-height: 1.4; }
+.home-date-line { display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 40px)); margin: 12px auto 0; color: #6e8797; font-size: 11px; line-height: 1.4; }
+.home-date-line > span:first-child { flex: 0 0 auto; }
+.daily-law-button { display: inline-flex; align-items: center; min-width: 0; max-width: min(620px, 70vw); padding: 6px 10px; border: 1px solid #bfd7e2; border-radius: 999px; background: #eef7f9; color: #315e75; cursor: pointer; }
+.daily-law-button b { flex: 0 0 auto; margin-right: 7px; color: #26728c; font-size: 11px; }
+.daily-law-button span { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.daily-law-button:hover { border-color: #75a8bd; background: #e6f3f6; }
+.daily-law-pending { color: #8a9ba6; font-size: 10px; }
 .pulse-luck > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pulse-luck select { width: 78px; padding: 5px 6px; border: 1px solid #cfdee6; border-radius: 7px; color: #54778b; background: #f8fbfc; font-size: 8px; }
 .pulse-music iframe { width: 100%; height: 96px; margin-top: 6px; border: 0; border-radius: 7px; background: #edf4f7; }
@@ -2725,6 +2731,18 @@ a {
 .home-focus-row:last-child { border-bottom: 0; }
 .home-focus-row time { flex: 0 0 auto; color: #6c8ba0; font-size: 9px; }
 .home-focus-row span { overflow: hidden; color: #31566f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.legal-dictionary-card > p { margin: 8px 0 0; color: #6f8592; font-size: 12px; line-height: 1.6; }
+.legal-dictionary-card form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 11px; }
+.legal-dictionary-card input { min-width: 0; padding: 10px 11px; border: 1px solid #cbdce5; border-radius: 9px; background: #fbfdfe; color: #31566f; font-size: 13px; outline: 0; }
+.legal-dictionary-card input:focus { border-color: #6e9fb8; box-shadow: 0 0 0 3px rgba(70, 130, 158, .1); }
+.legal-dictionary-card form button,
+.dictionary-result > button { padding: 9px 11px; border: 0; border-radius: 9px; background: #285f80; color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; }
+.legal-dictionary-card form button:disabled { opacity: .55; cursor: wait; }
+.dictionary-notice { display: block; margin-top: 9px; color: #a16055; font-size: 11px; line-height: 1.55; }
+.dictionary-result { margin-top: 10px; padding: 11px; border-radius: 10px; background: #f0f7f9; }
+.dictionary-result > strong { color: #255a76; font-size: 15px; }
+.dictionary-result > p { display: -webkit-box; overflow: hidden; margin: 6px 0 10px; color: #506f80; font-size: 12px; line-height: 1.65; -webkit-box-orient: vertical; -webkit-line-clamp: 5; }
+.dictionary-result > button { width: 100%; }
 .site-settings-panel { margin-top: 18px; }
 .site-setting-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: end; margin-top: 20px; }
 .site-setting-form .field { display: grid; gap: 7px; color: #496d82; font-size: 11px; font-weight: 800; }
@@ -2762,20 +2780,29 @@ a {
 .admin-article-row.state-captured > small { color: #9a7337; }
 .admin-article-row > a { width: fit-content; color: #327294; font-size: 10px; font-weight: 800; text-decoration: none; }
 .admin-article-issue { display: grid; gap: 3px; margin-top: 4px; padding: 8px 9px; border-left: 3px solid #4a8aa5; border-radius: 0 8px 8px 0; background: #f1f8fa; }
-.admin-article-issue b { color: #2d6b86; font-size: 10px; }
-.admin-article-issue span { color: #476b7a; font-size: 10px; line-height: 1.6; }
+.admin-article-issue b { color: #2d6b86; font-size: 12px; }
+.admin-article-issue span { color: #476b7a; font-size: 13px; line-height: 1.7; }
+.admin-article-summary { border-left-color: #91aab7; background: #f6f9fa; }
+.admin-article-summary b { color: #627f8f; }
 .magazine-issue-edit { width: fit-content; padding: 5px 8px; border: 1px solid #cbdce5; border-radius: 7px; background: white; color: #356b89; font-size: 10px; font-weight: 800; cursor: pointer; }
-.rail-magazine-card { padding: 17px; }
-.rail-magazine-card .column-kicker { font-size: 9px; }
-.rail-magazine-card .home-editorial-head h2 { font-size: 19px; }
-.rail-magazine-card .home-editorial-head span { margin-top: 5px; font-size: 11px; line-height: 1.5; }
-.rail-magazine-card > strong { margin-top: 15px; font-size: 15px; line-height: 1.5; white-space: normal; }
+.rail-magazine-card { padding: 18px; }
+.rail-magazine-card .column-kicker { font-size: 11px; letter-spacing: .08em; }
+.rail-magazine-card .home-editorial-head h2,
+.rail-magazine-card .column-heading h2 { font-size: 22px; }
+.rail-magazine-card .home-editorial-head span,
+.rail-magazine-card .column-heading span { margin-top: 6px; color: #607d8f; font-size: 14px; line-height: 1.55; }
+.rail-magazine-card > strong { margin-top: 16px; color: #214f6c; font-size: 17px; line-height: 1.5; white-space: normal; }
 .rail-magazine-card .magazine-article-list { gap: 2px; margin-top: 12px; }
-.rail-magazine-card .magazine-article-row { padding: 11px 0; gap: 5px 10px; }
-.rail-magazine-card .magazine-article-row span { font-size: 14px; line-height: 1.5; white-space: normal; }
-.rail-magazine-card .magazine-article-row small { margin-top: 3px; color: #607d8f; font-size: 12px; line-height: 1.55; -webkit-line-clamp: 3; }
-.rail-magazine-card .magazine-article-row button { min-width: 58px; min-height: 36px; padding: 7px 9px; border-radius: 9px; font-size: 11px; }
-.rail-magazine-card > a { margin-top: 14px; font-size: 13px; }
+.rail-magazine-card .magazine-article-row { align-items: start; padding: 15px 0; gap: 8px 12px; }
+.magazine-article-copy h3 { margin: 0; color: #214f6c; font-size: 16px; font-weight: 850; line-height: 1.55; }
+.magazine-article-copy p { margin: 8px 0 0; }
+.magazine-article-copy b { display: block; margin-bottom: 3px; font-size: 12px; letter-spacing: .03em; }
+.magazine-article-summary { color: #5e7684; font-size: 14px; line-height: 1.7; }
+.magazine-article-summary b { color: #6b8796; }
+.magazine-article-issue { padding: 9px 10px; border-radius: 9px; background: #edf6f8; color: #214f68; font-size: 15px; font-weight: 650; line-height: 1.7; }
+.magazine-article-issue b { color: #25718a; }
+.rail-magazine-card .magazine-article-row button { min-width: 64px; min-height: 40px; padding: 8px 10px; border-radius: 9px; font-size: 12px; }
+.rail-magazine-card > a { margin-top: 16px; font-size: 14px; }
 .magazine-empty-analysis { margin-top: 13px; padding: 12px; border: 1px dashed #d8e4e9; border-radius: 10px; color: #718591; background: #fbfcfd; font-size: 12px; line-height: 1.6; }
 .tab-hub {
   margin-top: 0;
@@ -3231,9 +3258,17 @@ a {
     display: none;
   }
   .home-date-line {
+    flex-wrap: wrap;
+    gap: 6px 8px;
     margin-top: 5px;
     font-size: 9px;
   }
+  .daily-law-button {
+    max-width: 100%;
+    padding: 6px 9px;
+  }
+  .daily-law-button b,
+  .daily-law-button span { font-size: 11px; }
   .command-layout {
     width: calc(100% - 28px);
     grid-template-columns: 1fr;

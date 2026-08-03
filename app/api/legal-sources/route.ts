@@ -272,7 +272,7 @@ export async function GET() {
     const sources = allSources.filter((source) => visibleKeys.has(source.sourceKey));
     const withCounts = await Promise.all(sources.map(async (source) => {
       const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, source.sourceKey)).groupBy(legalDocuments.category);
-      return { ...source, categoryCounts: Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])) };
+      return { ...source, hasArchive: Boolean(source.archiveStorageKey), archiveStorageKey: undefined, categoryCounts: Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)])) };
     }));
     return Response.json({ sources: withCounts });
   } catch (error) {
@@ -282,10 +282,38 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json() as { sourceKey?: string; restart?: boolean }; const sourceKey = String(body.sourceKey ?? ""); const db = await seedSources(); const [source] = await db.select().from(legalDataSources).where(eq(legalDataSources.sourceKey, sourceKey)).limit(1);
+  const body = await request.json() as { sourceKey?: string; restart?: boolean; entries?: LegalArchiveEntry[]; cursor?: number; total?: number; final?: boolean }; const sourceKey = String(body.sourceKey ?? ""); const db = await seedSources(); const [source] = await db.select().from(legalDataSources).where(eq(legalDataSources.sourceKey, sourceKey)).limit(1);
   if (!source) return Response.json({ error: "找不到資料來源" }, { status: 404 });
-  await db.update(legalDataSources).set({ status: "downloading", lastError: null, updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
   try {
+    if (sourceKey === "moj-regulations" && Array.isArray(body.entries)) {
+      const entries = body.entries.slice(0, 20);
+      const cursor = Math.max(0, Number(body.cursor) || 0);
+      const total = Math.max(entries.length, Number(body.total) || entries.length);
+      if (body.restart) await db.delete(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey));
+      await db.update(legalDataSources).set({ status: "importing", importCursor: cursor, totalAvailable: total, lastError: null, updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
+      let articleCount = 0;
+      for (const incoming of entries) {
+        if (!incoming || typeof incoming !== "object" || !incoming.record || typeof incoming.record !== "object") continue;
+        const category: "法律" | "命令" = incoming.category === "命令" ? "命令" : "法律";
+        const law = compactLawRecord(incoming.record);
+        const title = pick(law, ["LawName", "法規名稱"]);
+        if (!title) continue;
+        const externalId = `${sourceKey}:${category}:${title}`;
+        const [doc] = await db.insert(legalDocuments).values({ sourceKey, externalId, title, category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pick(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pick(law, ["LawURL", "Url", "法規網址"]) }).onConflictDoUpdate({ target: legalDocuments.externalId, set: { category, modifiedDate: pick(law, ["LawModifiedDate", "ModifiedDate", "最新異動日期"]), effectiveDate: pick(law, ["LawEffectiveDate", "EffectiveDate", "生效日期"]), history: pick(law, ["LawHistories", "Histories", "沿革內容"]), sourceUrl: pick(law, ["LawURL", "Url", "法規網址"]), updatedAt: new Date() } }).returning();
+        await db.delete(legalArticles).where(eq(legalArticles.documentId, doc.id));
+        const articles = collectArticles(law.LawArticles || law.Articles || law.條文);
+        for (let index = 0; index < articles.length; index += 40) await db.insert(legalArticles).values(articles.slice(index, index + 40).map((item) => ({ documentId: doc.id, articleNo: item.no, hierarchy: item.hierarchy, content: item.content })));
+        articleCount += articles.length;
+      }
+      const next = Math.min(total, cursor + entries.length);
+      const done = Boolean(body.final) || next >= total;
+      const [counts] = await db.select({ docs: sql<number>`count(distinct ${legalDocuments.id})`, articles: sql<number>`count(${legalArticles.id})` }).from(legalDocuments).leftJoin(legalArticles, eq(legalDocuments.id, legalArticles.documentId)).where(eq(legalDocuments.sourceKey, sourceKey));
+      const grouped = await db.select({ category: legalDocuments.category, count: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.sourceKey, sourceKey)).groupBy(legalDocuments.category);
+      const categoryCounts = Object.fromEntries(grouped.map((item) => [item.category || "其他", Number(item.count || 0)]));
+      await db.update(legalDataSources).set({ status: done ? "ready" : "importing", importCursor: done ? total : next, totalAvailable: total, documentCount: Number(counts.docs || 0), articleCount: Number(counts.articles || 0), lastDownloadedAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
+      return Response.json({ sourceKey, status: done ? "ready" : "importing", processed: entries.length, next, total, articleCount, categoryCounts });
+    }
+    await db.update(legalDataSources).set({ status: "downloading", lastError: null, updatedAt: new Date() }).where(eq(legalDataSources.id, source.id));
     if (sourceKey.startsWith("moj-")) {
       const { env } = await import("cloudflare:workers");
       let key = body.restart ? null : source.archiveStorageKey;
