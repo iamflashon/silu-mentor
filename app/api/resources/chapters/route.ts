@@ -38,15 +38,14 @@ function parseChapterPayload(payload: Record<string, unknown>) {
   }
 }
 
-async function generateChapters(resource: typeof learningResources.$inferSelect, vectorStoreId: string) {
-  if (!vectorStoreId) return [] as ChapterPayload["chapters"];
+async function generateChapters(resource: typeof learningResources.$inferSelect, fileId: string) {
+  if (!fileId) return [] as ChapterPayload["chapters"];
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
-      instructions: "你是台灣司律考試教材編輯。只能根據提供的教材檔案目錄與章節標題整理章節，不得自行創造不存在的章名。保留原有章節順序。若頁碼無法確認就填 null。每一章標題最多 80 字，summary 用 20 至 60 字說明該章在教材中的學習範圍。最多回傳 60 章。",
-      input: `請從教材索引中搜尋《${resource.title}》的目錄、篇、章與節。只回傳這本書中明確出現且能在索引內容找到的章節，不要把頁眉、頁碼或一般段落當成章節。`,
-      tools: [{ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 20 }],
+      model: process.env.OPENAI_EXTRACTION_MODEL || process.env.OPENAI_MODEL || "gpt-5.6-luna",
+      instructions: "你是台灣司律考試教材編輯。只能根據提供的 PDF 目錄與章節標題整理章節，不得自行創造不存在的章名。保留原有順序；可包含篇、章、節，但不要把頁眉、頁碼或一般段落當成章節。若頁碼無法確認就填 null。每一章標題最多 80 字，summary 用 20 至 60 字說明該章的學習範圍。最多回傳 80 個章節。",
+      input: [{ role: "user", content: [{ type: "input_file", file_id: fileId }, { type: "input_text", text: `請從《${resource.title}》的 PDF 中找出目錄、篇、章與節，依原有順序輸出。只回傳檔案中明確出現的章節，不要補造章名。` }] }],
       text: {
         format: {
           type: "json_schema",
@@ -58,7 +57,7 @@ async function generateChapters(resource: typeof learningResources.$inferSelect,
             properties: {
               chapters: {
                 type: "array",
-                maxItems: 60,
+                maxItems: 80,
                 items: {
                   type: "object",
                   additionalProperties: false,
@@ -102,9 +101,21 @@ export async function GET(request: Request) {
       return Response.json({ chapters: [], generated: false, ready: false, message: document.indexError || "教材索引失敗，請到後台重新建立索引。" }, { status: 200 });
     }
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-    if (!setting?.value) return Response.json({ chapters: [], generated: false, ready: false, message: "教材索引資料庫尚未建立。" }, { status: 200 });
+    let documentStatus = document.status;
+    if (setting?.value && document.status !== "completed") {
+      try {
+        const indexed = await openAIJson(`/vector_stores/${setting.value}/files/${document.openaiFileId}`);
+        documentStatus = typeof indexed.status === "string" ? indexed.status : document.status;
+        await db.update(documents).set({ status: documentStatus, indexError: documentStatus === "failed" ? "索引服務未能處理此文件" : null }).where(eq(documents.id, document.id));
+      } catch {
+        // Keep the last known status and let the UI retry after the index service settles.
+      }
+    }
+    if (documentStatus !== "completed") {
+      return Response.json({ chapters: [], generated: false, ready: false, documentStatus, message: documentStatus === "failed" ? (document.indexError || "教材索引失敗，請到後台重新建立索引。") : "教材正在建立索引，完成後即可整理章節；請稍後重新整理。" }, { status: 202 });
+    }
 
-    const generated = await generateChapters(resource, setting.value);
+    const generated = await generateChapters(resource, document.openaiFileId);
     if (!generated?.length) return Response.json({ chapters: [], generated: false, ready: true, message: "教材已完成索引，但目前還找不到可辨識的目錄章節；可稍後重新整理。" }, { status: 200 });
     const rows = generated.map((chapter, index) => ({
       resourceId,
@@ -118,9 +129,13 @@ export async function GET(request: Request) {
       sequence: index + 1,
       reviewStatus: "ai_reviewed",
     }));
-    for (let index = 0; index < rows.length; index += 12) await db.insert(resourceSegments).values(rows.slice(index, index + 12));
-    return Response.json({ chapters: rows, generated: true, ready: true });
-  } catch {
-    return Response.json({ chapters: [], generated: false, ready: false, error: "教材章節暫時無法讀取，請稍後再試。" }, { status: 503 });
+    const inserted: typeof resourceSegments.$inferSelect[] = [];
+    for (let index = 0; index < rows.length; index += 12) {
+      inserted.push(...await db.insert(resourceSegments).values(rows.slice(index, index + 12)).returning());
+    }
+    return Response.json({ chapters: inserted, generated: true, ready: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 240) : "教材章節暫時無法讀取，請稍後再試。";
+    return Response.json({ chapters: [], generated: false, ready: false, error: message }, { status: 503 });
   }
 }
