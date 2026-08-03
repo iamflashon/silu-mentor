@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { learningResources, resourceSegments } from "../../../../db/schema";
-import { parseSrt } from "../../../../lib/srt";
+import { decodeSubtitle, parseSrtCues } from "../../../../lib/srt";
 
 export async function POST(request: Request) {
   try {
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       const lessonLabel = file.name.replace(/\.srt$/i, "");
-      const groups = parseSrt(await file.text());
+      const groups = parseSrtCues(decodeSubtitle(await file.arrayBuffer()));
       if (!groups.length)
         return Response.json(
           {
@@ -77,6 +77,7 @@ export async function POST(request: Request) {
         startSeconds: group.start,
         endSeconds: group.end,
         text: group.text,
+        reviewStatus: "pending",
         sequence: index + 1,
       }));
       for (let index = 0; index < rows.length; index += 8)

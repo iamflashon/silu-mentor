@@ -7,43 +7,77 @@ export type ParsedSrtSegment = {
 function seconds(value: string) {
   const normalized = value.trim().replace(",", ".");
   const parts = normalized.split(":");
-  if (parts.length === 3) {
-    const [hours, minutes, secondsValue] = parts.map(Number);
-    if (![hours, minutes, secondsValue].every(Number.isFinite)) return NaN;
-    return Math.round(hours * 3600 + minutes * 60 + secondsValue);
-  }
-  if (parts.length === 2) {
-    const [minutes, secondsValue] = parts.map(Number);
-    if (![minutes, secondsValue].every(Number.isFinite)) return NaN;
-    return Math.round(minutes * 60 + secondsValue);
-  }
+  const numeric = parts.map(Number);
+  if (!numeric.every(Number.isFinite)) return NaN;
+  if (parts.length === 3) return Math.round(numeric[0] * 3600 + numeric[1] * 60 + numeric[2]);
+  if (parts.length === 2) return Math.round(numeric[0] * 60 + numeric[1]);
   return NaN;
 }
 
-export function parseSrt(raw: string): ParsedSrtSegment[] {
-  const normalized = raw.replace(/^\uFEFF/, "").replace(/\r/g, "").trim();
-  const cuePattern = /(?:^|\n)\s*(?:\d+\s*\n)?\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})[^\n]*\n([\s\S]*?)(?=\n\s*(?:\d+\s*\n)?\s*\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}\s*-->|$)/g;
+function cleanSubtitleText(value: string) {
+  return value
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+const timestamp = String.raw`\d{1,3}:\d{2}(?::\d{2})?(?:[,.]\d{1,3})?`;
+const timestampLine = new RegExp(String.raw`^\s*(${timestamp})\s*-->\s*(${timestamp})(?:\s+.*)?\s*$`);
+
+function normalizeSrt(raw: string) {
+  return raw
+    .replace(/^\uFEFF/, "")
+    .replace(/\u0000/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .trim();
+}
+
+/** Parse individual cues, accepting common SRT variants and WebVTT-style headers. */
+export function parseSrtCues(raw: string): ParsedSrtSegment[] {
+  const lines = normalizeSrt(raw).split("\n");
   const cues: ParsedSrtSegment[] = [];
-  for (const match of normalized.matchAll(cuePattern)) {
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    const match = line.match(timestampLine);
+    if (!match) {
+      index += 1;
+      continue;
+    }
     const start = seconds(match[1]);
     const end = seconds(match[2]);
-    const text = match[3]
-      .replace(/<[^>]+>/g, "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    if (text && Number.isFinite(start) && Number.isFinite(end) && end >= start)
+    index += 1;
+    const textLines: string[] = [];
+    while (index < lines.length && !timestampLine.test(lines[index])) {
+      const next = lines[index];
+      if (next.trim()) textLines.push(next);
+      index += 1;
+    }
+    const text = cleanSubtitleText(textLines.join("\n"));
+    if (text && Number.isFinite(start) && Number.isFinite(end) && end >= start) {
       cues.push({ start, end, text });
+    }
   }
+  return cues;
+}
 
+/** Keep the historical chunking behavior for callers that need larger study segments. */
+export function parseSrt(raw: string): ParsedSrtSegment[] {
+  const cues = parseSrtCues(raw);
   const groups: ParsedSrtSegment[] = [];
   for (const cue of cues) {
     const current = groups.at(-1);
-    if (!current || cue.end - current.start > 90 || current.text.length >= 650)
+    if (!current || cue.end - current.start > 90 || current.text.length >= 650) {
       groups.push({ ...cue });
-    else {
+    } else {
       current.end = cue.end;
       current.text += ` ${cue.text}`;
     }
@@ -51,7 +85,14 @@ export function parseSrt(raw: string): ParsedSrtSegment[] {
   return groups;
 }
 
-export function looksLikeRawSrt(value: string) {
-  return /\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}\s*-->/.test(value);
+export function decodeSubtitle(bytes: ArrayBuffer) {
+  const data = new Uint8Array(bytes);
+  if (data[0] === 0xff && data[1] === 0xfe) return new TextDecoder("utf-16le").decode(data.slice(2));
+  if (data[0] === 0xfe && data[1] === 0xff) return new TextDecoder("utf-16be").decode(data.slice(2));
+  if (data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) return new TextDecoder("utf-8").decode(data.slice(3));
+  return new TextDecoder("utf-8").decode(data);
 }
 
+export function looksLikeRawSrt(value: string) {
+  return new RegExp(`${timestamp}\\s*-->`).test(value);
+}

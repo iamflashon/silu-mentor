@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { learningResources, resourceSegments } from "../../../../db/schema";
 import { openAIJson } from "../../../../lib/openai";
-import { looksLikeRawSrt, parseSrt } from "../../../../lib/srt";
+import { decodeSubtitle, looksLikeRawSrt, parseSrtCues } from "../../../../lib/srt";
 
 export async function GET(request: Request) {
   const resourceId = Number(new URL(request.url).searchParams.get("resourceId"));
@@ -34,6 +34,7 @@ export async function PUT(request: Request) {
 }
 
 function outputText(payload: Record<string, unknown>) {
+  if (typeof payload.output_text === "string" && payload.output_text.trim()) return payload.output_text.trim();
   const output = Array.isArray(payload.output) ? payload.output : [];
   for (const item of output) {
     if (!item || typeof item !== "object") continue;
@@ -84,7 +85,8 @@ export async function POST(request: Request) {
       input: JSON.stringify(batch.map((item) => ({ id: item.id, start: item.startSeconds, end: item.endSeconds, text: item.text }))),
       text: { format: { type: "json_schema", name: "segment_analysis", strict: true, schema: { type: "object", additionalProperties: false, properties: { items: { type: "array", items: { type: "object", additionalProperties: false, properties: { id: { type: "integer" }, summary: { type: "string" }, importance: { type: "integer" }, recommended: { type: "boolean" } }, required: ["id", "summary", "importance", "recommended"] } } }, required: ["items"] } } },
     }) });
-    const parsed = JSON.parse(outputText(payload)) as { items?: Array<{ id: number; summary: string; importance: number; recommended: boolean }> };
+    const raw = outputText(payload).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(raw) as { items?: Array<{ id: number; summary: string; importance: number; recommended: boolean }> };
     for (const item of parsed.items ?? []) {
       await db.update(resourceSegments).set({ summary: item.summary.slice(0, 160), importance: Math.max(0, Math.min(5, item.importance)), recommended: item.recommended, reviewStatus: "ai_reviewed" }).where(eq(resourceSegments.id, item.id));
       analyzed += 1;

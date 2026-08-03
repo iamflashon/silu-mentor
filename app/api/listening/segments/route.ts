@@ -1,36 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../db/schema";
-
-function timeToSeconds(value: string) {
-  const normalized = value.trim().replace(",", ".");
-  const parts = normalized.split(":");
-  if (parts.length === 3) {
-    const [hours, minutes, seconds] = parts.map(Number);
-    if (![hours, minutes, seconds].every(Number.isFinite)) return NaN;
-    return Math.round(hours * 3600 + minutes * 60 + seconds);
-  }
-  if (parts.length === 2) {
-    const [minutes, seconds] = parts.map(Number);
-    if (![minutes, seconds].every(Number.isFinite)) return NaN;
-    return Math.round(minutes * 60 + seconds);
-  }
-  return NaN;
-}
-
-function parseSrt(value: string) {
-  const normalized = value.replace(/^\uFEFF/, "").replace(/\r/g, "").trim();
-  const pattern = /(?:^|\n)\s*(?:\d+\s*\n)?\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})[^\n]*\n([\s\S]*?)(?=\n\s*(?:\d+\s*\n)?\s*\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3}\s*-->|$)/g;
-  const cues: Array<{ sequence: number; startSeconds: number; endSeconds: number; text: string }> = [];
-  for (const [sequence, match] of [...normalized.matchAll(pattern)].entries()) {
-    const startSeconds = timeToSeconds(match[1]);
-    const endSeconds = timeToSeconds(match[2]);
-    const text = match[3].replace(/<[^>]+>/g, "").split("\n").map((line) => line.trim()).filter(Boolean).join(" ").trim();
-    if (text && Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds >= startSeconds)
-      cues.push({ sequence, startSeconds, endSeconds, text });
-  }
-  return cues;
-}
+import { decodeSubtitle, parseSrtCues } from "../../../../lib/srt";
 
 function findSegmentForCue(
   cue: { startSeconds: number; endSeconds: number },
@@ -80,7 +51,9 @@ export async function POST(request: Request) {
   }
   const file = form.get("file"); const segmentId = Number(form.get("segmentId")) || null;
   if (!(file instanceof File)) return Response.json({ error: "請選擇 SRT 字幕" }, { status: 400 });
-  const cues = parseSrt(await file.text()); if (!cues.length) return Response.json({ error: "SRT 內找不到有效時間碼" }, { status: 400 });
+  const parsedCues = parseSrtCues(decodeSubtitle(await file.arrayBuffer()));
+  if (!parsedCues.length) return Response.json({ error: "SRT 內找不到有效時間碼；可接受 00:00:01,000、00:00:01.000 或沒有毫秒的時間格式" }, { status: 400 });
+  const cues = parsedCues.map((cue, sequence) => ({ sequence, startSeconds: cue.start, endSeconds: cue.end, text: cue.text }));
   let offset = 0;
   if (segmentId) {
     const [segment] = await db.select().from(listeningAudioSegments).where(eq(listeningAudioSegments.id, segmentId)).limit(1);

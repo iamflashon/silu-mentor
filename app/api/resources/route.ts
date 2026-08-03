@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { documents, learningResources, resourceSegments } from "../../../db/schema";
+import { appSettings, documents, learningResources, resourceSegments } from "../../../db/schema";
 
 export async function GET() {
   const db = await getDb();
