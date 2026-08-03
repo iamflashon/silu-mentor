@@ -9,7 +9,7 @@ type Draft = { id?: number; date: string; subject: string; title: string; durati
 type StudyRecord = { id: number; recordDate: string; subject: string; title: string; activityType: string; plannedMinutes: number; actualMinutes: number; correct: boolean | null; reflection: string; weakness: string; nextStep: string };
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
 type Dashboard = { today: string; todayProgress: { completed: number; total: number; delayed: number; records: number; correct: number; answered: number }; priorities: Array<{ topic: string; count: number; reason: string }>; hasRecords: boolean; encouragement: string };
-type HomeFeed = { magazine: { id: number; title: string; sourceUrl: string } | null; listening: { id: number; title: string; year: string; subject: string; audioUrl: string } | null };
+type HomeFeed = { magazine: { id: number; title: string; sourceUrl: string } | null; listening: { id: number; title: string; year: string; subject: string; audioUrl: string } | null; focusMusicUrl?: string };
 type StudyExtras = { today: string; weather: { location: string; temperature: number | null; apparentTemperature: number | null; label: string; rainProbability: number | null }; luck: { score: number; headline: string; analysis: string; action: string; focus: string; model: string } };
 
 const subjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法", "綜合"];
@@ -38,9 +38,6 @@ export default function StudyPlanPage() {
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [extras, setExtras] = useState<StudyExtras | null>(null);
   const [zodiac, setZodiac] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-exam-zodiac") ?? "");
-  const [musicUrl, setMusicUrl] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-focus-music-url") ?? "");
-  const [musicDraft, setMusicDraft] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem("silu-focus-music-url") ?? "");
-  const [musicSaved, setMusicSaved] = useState(false);
 
   async function load() {
     const response = await fetch(`/api/study-plan?month=${month}`);
@@ -134,12 +131,6 @@ export default function StudyPlanPage() {
     } catch { return ""; }
   }
 
-  function saveMusic() {
-    const value = musicDraft.trim();
-    if (value && !youtubeEmbedUrl(value)) return;
-    setMusicUrl(value); window.localStorage.setItem("silu-focus-music-url", value); setMusicSaved(true); window.setTimeout(() => setMusicSaved(false), 1600);
-  }
-
   async function addRecord() {
     if (!recordDraft.title.trim()) return;
     const response = await fetch("/api/learning-records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...recordDraft, activityType: "手動補登" }) });
@@ -180,7 +171,7 @@ export default function StudyPlanPage() {
       <section className="study-supplement-grid" aria-label="學習專區每日補給">
         <article className="supplement-card weather-card"><div className="supplement-heading"><div><span>今日環境</span><strong>台北天氣</strong></div><b>☼</b></div>{extras?.weather.temperature != null ? <><div className="weather-reading"><strong>{extras.weather.temperature}°</strong><span>{extras.weather.label}</span></div><p>體感 {extras.weather.apparentTemperature ?? "—"}° · 降雨機率 {extras.weather.rainProbability ?? "—"}%</p></> : <p className="supplement-muted">正在取得今天的天氣…</p>}</article>
         <article className="supplement-card luck-card"><div className="supplement-heading"><div><span>AI 考試分析</span><strong>今日運試</strong></div><b>✦</b></div><div className="luck-controls"><select aria-label="選擇星座" value={zodiac} onChange={(event) => { const value = event.target.value; setZodiac(value); window.localStorage.setItem("silu-exam-zodiac", value); }}><option value="">選擇你的星座</option>{zodiacOptions.map((item) => <option key={item}>{item}</option>)}</select>{extras?.luck && <strong className="luck-score">{extras.luck.score}<small>/100</small></strong>}</div>{extras?.luck ? <><b className="luck-headline">{extras.luck.headline}</b><p>{extras.luck.analysis}</p><div className="luck-action">今日聚焦：{extras.luck.focus} · {extras.luck.action}</div><small className="luck-source">由 {extras.luck.model === "fallback" ? "司律導師規則" : "AI"} 依今日學習狀態分析</small></> : <p className="supplement-muted">選擇星座後，AI 會把運試轉成今天可完成的考試準備提醒。</p>}</article>
-        <article className="supplement-card music-card"><div className="supplement-heading"><div><span>專注模式</span><strong>自訂讀書音樂</strong></div><b>♫</b></div><div className="music-form"><input value={musicDraft} onChange={(event) => setMusicDraft(event.target.value)} placeholder="貼上 YouTube 音樂網址" aria-label="YouTube 音樂網址" /><button onClick={saveMusic}>{musicSaved ? "已儲存" : "套用"}</button></div>{youtubeEmbedUrl(musicUrl) ? <iframe title="自訂讀書音樂" src={youtubeEmbedUrl(musicUrl)} allow="autoplay; encrypted-media" loading="lazy" /> : <p className="supplement-muted">可貼上自己確認可使用的 YouTube 無版權／創作者授權音樂；未設定時不播放。</p>}<small className="music-note">平台只提供自訂播放，請同學自行確認影片說明欄的授權條件。</small></article>
+        <article className="supplement-card music-card"><div className="supplement-heading"><div><span>專注模式</span><strong>讀書音樂</strong></div><b>♫</b></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <iframe title="司律導師讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="autoplay; encrypted-media" loading="lazy" /> : <p className="supplement-muted">管理後台設定讀書音樂後，會在這裡提供播放。</p>}<small className="music-note">播放前請確認影片說明欄的授權條件；瀏覽器會要求同學自行按播放。</small></article>
       </section>
       <section className="learning-columns" aria-label="學習內容專欄">
         <article className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>▶</i></div>{homeFeed?.listening ? <><strong>{homeFeed.listening.title}</strong><p>先聽老師如何抓爭點，再回到學習專區留下自己的答題接續點。</p><audio controls preload="none" src={homeFeed.listening.audioUrl} /></> : <p className="column-empty">後台發布第一份聽解題後，最新內容會出現在這裡。</p>}</article>

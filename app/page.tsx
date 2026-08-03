@@ -10,7 +10,7 @@ type DashboardData = { targetLabel: string; monthsRemaining: number; officialDat
 type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
-type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string } | null; listening: { id: number; title: string; year: string; subject: string; audioUrl: string } | null; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: string[] };
+type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string } | null; listening: { id: number; title: string; year: string; subject: string; audioUrl: string } | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: string[] };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
@@ -203,14 +203,6 @@ export default function Home() {
     if (response.ok) { setFeedbackMessage(index); window.setTimeout(() => setFeedbackMessage(null), 1600); }
   }
 
-  const homeWeekDays = today ? Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(`${today}T00:00:00+08:00`);
-    const mondayOffset = date.getDay() === 0 ? -6 : 1 - date.getDay();
-    date.setDate(date.getDate() + mondayOffset + index);
-    const dateText = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(date);
-    return { dateText, day: date.getDate(), weekday: ["日", "一", "二", "三", "四", "五", "六"][date.getDay()], count: weekTasks.filter((task) => task.taskDate === dateText).length };
-  }) : [];
-
   return (
     <main className="coach-shell">
       <header className="topbar">
@@ -273,16 +265,11 @@ export default function Home() {
       <aside className="command-rail">
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
         <section className="rail-card rail-practice"><div className="rail-title"><strong>練真題</strong><span>在對話中引導</span></div><div><button onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section>
-<section className="rail-card rail-focus"><div className="rail-focus-meta"><span>距目標約 {dashboard?.monthsRemaining ?? "—"} 個月</span></div>{homeFeed?.course && <button type="button" onClick={() => send(`請依平台課程「${homeFeed.course.title}」的字幕與推薦重點開始教學。先告訴我今天適合學哪一段，再用提問方式帶我理解，不要只給外部連結。`)}><i>課</i><div><b>{homeFeed.course.title}</b><small>{homeFeed.recommended[0]?.summary || "依今日進度觀看重點片段"}</small></div></button>}{homeFeed?.book && <button type="button" className="rail-focus-book" onClick={() => send(`我想用平台教材「${homeFeed.book.title}」學習。請先問我想學哪個章節或主題；如果我不知道，就依書本順序開始，標示教材頁碼並用引導提問教我。`)}><img src={`/api/resources/cover?id=${homeFeed.book.id}`} alt="推薦書封" /><div><b>{homeFeed.book.title}</b><small>{homeFeed.book.creator}</small></div></button>}{homeFeed?.magazine && <button type="button" onClick={() => send(`請讀取平台已匯入的「${homeFeed.magazine.title}」合法試讀內容，列出可學習的文章或主題讓我選；若我不知道，就推薦一篇並開始引導講解。不要只把我導向外部網站。`)}><i>刊</i><div><b>{homeFeed.magazine.title}</b><small>本期試讀與文章</small></div></button>}<button type="button" className="rail-focus-law" onClick={() => send("請以最新有效的刑法第271條開始教學：先呈現法條與構成要件，再從平台真題、案例與可用的司法院裁判資料找一則適合的材料，用提問方式帶我分析，並清楚註明資料來源與日期。不要只貼外部連結。")}><i>法</i><div><b>刑法第 271 條</b><small>殺人罪的基本構成要件</small></div></button></section>
-        <section className="rail-card home-mini-calendar"><div className="rail-title"><strong>給今天的自己</strong><Link href="/plan">完整行事曆 →</Link></div><div className="home-week-grid">{homeWeekDays.map((item) => <div className={item.dateText === today ? "today" : ""} key={item.dateText}><time>{item.weekday}</time><b>{item.day}</b>{item.count > 0 && <i>{item.count}</i>}</div>)}</div><p>{todayTasks.length ? `今天安排 ${todayTasks.length} 項任務，先完成「${todayTasks.find((task) => task.status !== "completed")?.title ?? "最後一項任務"}」。` : "本週 AI 重點課程與每日任務，已集中放在學習專區。"}</p></section>
+        <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>▶</i></div>{homeFeed?.listening ? <><strong>{homeFeed.listening.title}</strong><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><audio ref={listeningAudioRef} controls preload="none" src={homeFeed.listening.audioUrl} /></> : <p className="column-empty">後台發布第一份聽解題後，最新內容會出現在這裡。</p>}</article>
+        <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專區</h2><span>最新法學教室內容的司律切入點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><p>把合法試讀內容連到爭點、法條與考題價值，讀完就知道下一步。</p><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
         <section className="rail-card home-weekly-focus"><div className="rail-title"><strong>本週 AI 重點課程</strong><Link href="/plan">查看 →</Link></div>{weekTasks.length ? weekTasks.slice(0, 4).map((task) => <div className="home-focus-row" key={task.id}><time>{task.taskDate.slice(5).replace("-", "/")}</time><span>{task.subject} · {task.title}</span></div>) : <p className="rail-empty">AI 排定的本週重點會隨學習計畫出現在這裡。</p>}</section>
       </aside>
       </div>
-
-      <section className="home-editorial-grid" aria-label="司律學習內容專欄">
-        <article className="home-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專欄</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>▶</i></div>{homeFeed?.listening ? <><strong>{homeFeed.listening.title}</strong><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><audio ref={listeningAudioRef} controls preload="none" src={homeFeed.listening.audioUrl} /></> : <p className="column-empty">後台發布第一份聽解題後，最新內容會出現在這裡。</p>}</article>
-        <article className="home-editorial-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專欄</h2><span>最新法學教室內容的司律切入點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><p>把合法試讀內容連到爭點、法條與考題價值，讀完就知道下一步。</p><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入法學教室試讀內容後，最新專欄會出現在這裡。</p>}</article>
-      </section>
 
       <div className={`composer-wrap rail-${railSide}`}>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}

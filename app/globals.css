@@ -2549,6 +2549,11 @@ a {
 .column-card a,
 .home-editorial-card a { display: inline-block; margin-top: 12px; color: #2a6a91; font-size: 10px; font-weight: 800; }
 .column-empty { color: #8a9ca7 !important; }
+.rail-editorial-card { width: 100%; min-height: 0; padding: 14px; }
+.rail-editorial-card .home-editorial-head h2 { font-size: 16px; }
+.rail-editorial-card > strong { margin-top: 11px; font-size: 11px; }
+.rail-editorial-card > p { font-size: 9px; }
+.rail-editorial-card audio { height: 28px; margin-top: 9px; }
 .home-editorial-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(1180px, calc(100% - 40px)); margin: 20px auto 0; }
 .home-editorial-card { min-height: 158px; }
 .home-editorial-head { margin-top: 5px; }
@@ -2561,6 +2566,14 @@ a {
 .home-focus-row:last-child { border-bottom: 0; }
 .home-focus-row time { flex: 0 0 auto; color: #6c8ba0; font-size: 9px; }
 .home-focus-row span { overflow: hidden; color: #31566f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.site-settings-panel { margin-top: 18px; }
+.site-setting-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: end; margin-top: 20px; }
+.site-setting-form .field { display: grid; gap: 7px; color: #496d82; font-size: 11px; font-weight: 800; }
+.site-setting-form input { width: 100%; padding: 11px 12px; border: 1px solid #cfdee7; border-radius: 10px; color: #31566f; background: #fbfdfe; font: inherit; font-weight: 500; }
+.site-setting-actions { display: flex; gap: 8px; }
+.site-setting-actions button { min-height: 39px; padding: 0 13px; border: 1px solid #c8d9e3; border-radius: 9px; background: #fff; color: #41677f; font-size: 10px; font-weight: 800; cursor: pointer; }
+.site-setting-actions .primary-btn { border: 0; background: #285d7f; color: #fff; }
+.site-setting-actions button:disabled { opacity: .5; cursor: default; }
 .tab-hub {
   margin-top: 0;
 }
@@ -3125,6 +3138,7 @@ a {
   .learning-columns,
   .home-editorial-grid { grid-template-columns: 1fr; }
   .home-editorial-grid { width: calc(100% - 28px); }
+  .site-setting-form { grid-template-columns: 1fr; }
 }
 
 .listening-segment-tools {

@@ -190,6 +190,7 @@ export default function AdminPage() {
     | "sources"
     | "questions"
     | "costs"
+    | "homepage"
   >("documents");
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -269,6 +270,9 @@ export default function AdminPage() {
     null,
   );
   const [syncingJudicial, setSyncingJudicial] = useState(false);
+  const [focusMusicUrl, setFocusMusicUrl] = useState("");
+  const [focusMusicDraft, setFocusMusicDraft] = useState("");
+  const [savingFocusMusic, setSavingFocusMusic] = useState(false);
 
   useEffect(() => {
     fetch("/api/documents")
@@ -355,7 +359,25 @@ export default function AdminPage() {
           setJudicialStatus((await response.json()) as JudicialStatus);
       })
       .catch(() => undefined);
+    fetch("/api/site-settings")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as { focusMusicUrl?: string };
+        setFocusMusicUrl(result.focusMusicUrl ?? "");
+        setFocusMusicDraft(result.focusMusicUrl ?? "");
+      })
+      .catch(() => undefined);
   }, []);
+
+  async function saveFocusMusic(event: FormEvent) {
+    event.preventDefault();
+    setSavingFocusMusic(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ focusMusicUrl: focusMusicDraft }) });
+    const result = (await readJson(response)) as { focusMusicUrl?: string; error?: string };
+    if (response.ok) { setFocusMusicUrl(result.focusMusicUrl ?? ""); setFocusMusicDraft(result.focusMusicUrl ?? ""); setNotice(result.focusMusicUrl ? "讀書音樂已設定，前台現在可以播放。" : "前台讀書音樂已清除。"); }
+    else setNotice(result.error ?? "讀書音樂設定失敗");
+    setSavingFocusMusic(false);
+  }
 
   useEffect(() => {
     if (activeTab === "questions") loadExamQuestions(questionPage);
@@ -1738,7 +1760,29 @@ export default function AdminPage() {
           >
             模型與成本
           </button>
+          <button
+            className={activeTab === "homepage" ? "active" : ""}
+            onClick={() => setActiveTab("homepage")}
+          >
+            首頁與播放
+          </button>
         </nav>
+        {activeTab === "homepage" && (
+          <section className="panel site-settings-panel">
+            <div className="cost-heading">
+              <div>
+                <h2>首頁與播放設定</h2>
+                <p className="panel-sub">在後台設定一支 YouTube 無版權／創作者授權音樂，前台首頁與學習專區會顯示播放器。</p>
+              </div>
+              <span className={`source-count ${focusMusicUrl ? "configured" : ""}`}>{focusMusicUrl ? "已設定" : "尚未設定"}</span>
+            </div>
+            <form className="site-setting-form" onSubmit={saveFocusMusic}>
+              <label className="field">讀書音樂 YouTube 網址<input value={focusMusicDraft} onChange={(event) => setFocusMusicDraft(event.target.value)} placeholder="https://www.youtube.com/watch?v=…" /></label>
+              <div className="site-setting-actions"><button type="submit" className="primary-btn" disabled={savingFocusMusic}>{savingFocusMusic ? "儲存中…" : "儲存並發布到前台"}</button><button type="button" onClick={() => setFocusMusicDraft("")}>清除</button></div>
+            </form>
+            <p className="music-note">前台不會自動播放有聲音的內容，需由同學按下播放；請先確認音樂的 YouTube 授權條件。</p>
+          </section>
+        )}
         {activeTab === "costs" && (
           <section className="cost-panel panel">
             <div className="cost-heading">
