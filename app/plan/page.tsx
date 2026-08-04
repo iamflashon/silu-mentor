@@ -260,7 +260,9 @@ export default function StudyPlanPage() {
           subject: resetPlanDraft.subject,
           scope: resetPlanDraft.scope,
           replaceOnlySubject: resetPlanDraft.clearScope === "subject",
-        } : { mode: "all", subject: "", scope: "", replaceOnlySubject: false },
+          days: resetPlanDraft.days,
+          dailyMinutes: resetPlanDraft.dailyMinutes,
+        } : { mode: "all", subject: "", scope: "", replaceOnlySubject: false, days: resetPlanDraft.days, dailyMinutes: resetPlanDraft.dailyMinutes },
       }) });
       const planResult = await planResponse.json() as { planSaved?: boolean; replacedTasks?: number; error?: string };
       if (!planResponse.ok || !planResult.planSaved) throw new Error(planResult.error ?? "AI 尚未成功建立新計畫，原行程未變動，請再試一次。");

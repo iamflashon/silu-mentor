@@ -4,6 +4,13 @@ import { judicialCases } from "../../../db/schema";
 
 function escapeLike(value: string) { return value.replace(/[\\%_]/g, (character) => `\\${character}`); }
 
+function extractText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(extractText).filter(Boolean).join("\n");
+  if (value && typeof value === "object") return Object.values(value as Record<string, unknown>).map(extractText).filter(Boolean).join("\n");
+  return "";
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const query = (url.searchParams.get("q") ?? "").trim().slice(0, 120);
@@ -24,8 +31,8 @@ export async function GET(request: Request) {
       let fullText = row.fullText;
       if (!fullText && row.rawJson) {
         try {
-          const payload = JSON.parse(row.rawJson) as { data?: { JFULLX?: string; JFULL?: string; JTEXT?: string } };
-          fullText = String(payload.data?.JFULLX || payload.data?.JFULL || payload.data?.JTEXT || "");
+          const payload = JSON.parse(row.rawJson) as { data?: { JFULLX?: unknown; JFULL?: unknown; JTEXT?: unknown } };
+          fullText = extractText(payload.data?.JFULLX || payload.data?.JFULL || payload.data?.JTEXT);
         } catch { fullText = ""; }
       }
       return { id: row.id, jid: row.jid, court: row.court, year: row.year, caseType: row.caseType, caseNo: row.caseNo, judgmentDate: row.judgmentDate, title: row.title || `${row.year}年度${row.caseType}字第${row.caseNo}號`, fullText, excerpt: fullText.length > 260 ? `${fullText.slice(0, 260)}…` : fullText };

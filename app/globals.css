@@ -2836,6 +2836,7 @@ a {
 .judicial-result footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 13px; }
 .judicial-result footer span { color: #78909d; font-size: 12px; }
 .judicial-result footer button { padding: 8px 12px; border: 0; border-radius: 7px; background: #285d7f; color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; }
+.judicial-result footer button:disabled { opacity: .48; cursor: default; }
 @media (max-width: 760px) { .judicial-search-form { grid-template-columns: 1fr 1fr; } .judicial-search-form > :first-child { grid-column: 1 / -1; } .judicial-result footer { align-items: flex-start; flex-direction: column; } }
 .learning-overview {
   display: grid;
