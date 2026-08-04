@@ -4985,6 +4985,7 @@ a {
 .course-preview-external { display: inline-block; margin-top: 9px; color: #2d6b92; font-size: 10px; font-weight: 800; text-decoration: none; }
 .course-preview-error { margin-top: 9px; padding: 9px 10px; border-radius: 8px; background: #fff0ef; color: #a6534c; font-size: 10px; line-height: 1.55; }
 .course-preview-error span { color: #8f716e; }
+.field-hint { display: block; margin-top: 4px; color: #78909b; font-size: 10px; line-height: 1.45; }
 .course-preview-summary-panel { min-width: 0; padding: 13px; border: 1px solid #dce6ed; border-radius: 12px; background: white; }
 .course-preview-summary-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid #e5edf1; }
 .course-preview-summary-heading span, .course-preview-summary-heading small { display: block; color: #648293; font-size: 10px; }

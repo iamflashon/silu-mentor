@@ -2617,7 +2617,7 @@ export default function AdminPage() {
               <div>
                 <h2>書籍與課程管理</h2>
                 <p className="panel-sub">
-                  書籍綁定教材 PDF 並管理書封；課程綁定網址與 SRT
+                  書籍綁定教材 PDF 並管理書封；課程綁定可直接播放的 HLS／影片網址與 SRT
                   字幕，字幕會自動拆成可搜尋的時間片段。
                 </p>
               </div>
@@ -2658,8 +2658,9 @@ export default function AdminPage() {
                     type="url"
                     value={resourceUrl}
                     onChange={(e) => setResourceUrl(e.target.value)}
-                    placeholder="https://…"
+                    placeholder="https://…/playlist.m3u8"
                   />
+                  <small className="field-hint">請填可直接播放的 .m3u8 或 .mp4；ibrain 課程頁網址不能直接嵌入。</small>
                 </label>
               ) : (
                 <div className="field resource-create-hint">
@@ -3421,7 +3422,7 @@ export default function AdminPage() {
             </div>
             <label className="resource-editor-field">來源網址<input type="url" value={resourceEditorDraft.sourceUrl} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, sourceUrl: event.target.value })} /></label>
             <label className="resource-editor-field">說明<textarea rows={5} value={resourceEditorDraft.description} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, description: event.target.value })} /></label>
-            <p className="resource-editor-hint">這裡只編輯資源資料；影片、SRT、摘要與法教文章請從各自的預覽／校正功能處理。</p>
+            <p className="resource-editor-hint">影音課程的來源網址請填可直接播放的 .m3u8 或 .mp4；ibrain 課程頁網址不能直接嵌入。影片、SRT、摘要與法教文章請從各自的預覽／校正功能處理。</p>
             <footer><button type="button" onClick={() => setResourceEditorDraft(null)}>取消</button><button type="button" className="primary-btn" onClick={() => void saveResourceEditor()}>儲存編輯內容</button></footer>
           </section>
         </div>

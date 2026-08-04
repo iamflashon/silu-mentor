@@ -2,6 +2,19 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings, documents, learningResources, resourceSegments } from "../../../db/schema";
 
+function isPlayableCourseUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") return false;
+    return /\.(?:m3u8|mp4|webm|ogg|m4v)(?:[?#].*)?$/i.test(url.pathname + url.search)
+      || url.hostname === "youtu.be"
+      || url.hostname === "youtube.com"
+      || url.hostname.endsWith(".youtube.com");
+  } catch {
+    return false;
+  }
+}
+
 export async function GET() {
   const db = await getDb();
   const rows = await db
@@ -105,6 +118,12 @@ export async function POST(request: Request) {
       { error: "請填寫正確的資源名稱與類型" },
       { status: 400 },
     );
+  const sourceUrl = String(body.sourceUrl ?? "").trim();
+  if (resourceType === "course" && sourceUrl && !isPlayableCourseUrl(sourceUrl))
+    return Response.json(
+      { error: "影音課程請填寫可直接播放的 HLS（.m3u8）或影片網址；ibrain 課程頁網址不能直接嵌入播放器。" },
+      { status: 422 },
+    );
   const db = await getDb();
   const [row] = await db
     .insert(learningResources)
@@ -117,7 +136,7 @@ export async function POST(request: Request) {
       documentId: Number(body.documentId) || null,
       linkedBookId:
         resourceType === "course" ? Number(body.linkedBookId) || null : null,
-      sourceUrl: String(body.sourceUrl ?? ""),
+      sourceUrl,
       accessType: String(body.accessType ?? "owned"),
       status: String(body.status ?? "active"),
     })
@@ -135,6 +154,12 @@ export async function PUT(request: Request) {
   const hasDocumentId = Object.prototype.hasOwnProperty.call(body, "documentId");
   const hasLinkedBookId = Object.prototype.hasOwnProperty.call(body, "linkedBookId");
   const nextDocumentId = hasDocumentId ? Number(body.documentId) || null : current.documentId;
+  const nextSourceUrl = String(body.sourceUrl ?? "").trim();
+  if (current.resourceType === "course" && nextSourceUrl && !isPlayableCourseUrl(nextSourceUrl))
+    return Response.json(
+      { error: "影音課程請填寫可直接播放的 HLS（.m3u8）或影片網址；ibrain 課程頁網址不能直接嵌入播放器。" },
+      { status: 422 },
+    );
   if (current.resourceType === "book" && current.documentId !== nextDocumentId) {
     await db.delete(resourceSegments).where(and(
       eq(resourceSegments.resourceId, id),
@@ -151,7 +176,7 @@ export async function PUT(request: Request) {
       description: String(body.description ?? ""),
       documentId: nextDocumentId,
       linkedBookId: hasLinkedBookId ? Number(body.linkedBookId) || null : current.linkedBookId,
-      sourceUrl: String(body.sourceUrl ?? ""),
+      sourceUrl: nextSourceUrl,
       accessType: String(body.accessType ?? "owned"),
       status: String(body.status ?? "active"),
       updatedAt: new Date(),
