@@ -188,7 +188,8 @@ a {
   color: var(--muted);
 }
 .practice-inline-launch {
-  flex: 0 0 300px;
+  /* Match the right rail's left edge: 800px main column + 34px gap. */
+  flex: 0 0 346px;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -4754,6 +4755,9 @@ a {
   }
   .command-layout.rail-left {
     grid-template-columns: 265px minmax(0, 1fr);
+  }
+  .practice-inline-launch {
+    flex-basis: 265px;
   }
   .composer-wrap {
     right: 285px;
