@@ -3,6 +3,15 @@ import { getDb } from "../../../db";
 import { appSettings, learningResources, listeningAudioSegments, listeningSolutions, listeningSubtitleCues, resourceSegments } from "../../../db/schema";
 import { parseMagazineAnalysis } from "../../../lib/magazine";
 
+function magazineSortValue(resource: { title: string; description?: string | null }) {
+  const text = `${resource.title} ${resource.description ?? ""}`;
+  const issue = Number(text.match(/第\s*(\d+)\s*期/)?.[1] ?? 0);
+  const westernYear = Number(text.match(/(?:^|\D)(20\d{2})(?:\D|$)/)?.[1] ?? 0);
+  const rocYear = Number(text.match(/(?:民國\s*)?(1\d{2})\s*年/)?.[1] ?? 0);
+  const year = westernYear || (rocYear ? rocYear + 1911 : 0);
+  return year * 10_000 + issue;
+}
+
 export async function GET() {
   const db = await getDb();
   const resources = await db.select().from(learningResources).orderBy(desc(learningResources.updatedAt)).limit(20);
@@ -16,14 +25,14 @@ export async function GET() {
     }
   }
   const magazines = await db.select().from(learningResources).where(and(eq(learningResources.resourceType, "magazine"), eq(learningResources.status, "active"))).orderBy(desc(learningResources.updatedAt));
-  const magazineFeeds = await Promise.all(magazines.map(async (magazine) => {
+  const magazineFeeds = (await Promise.all(magazines.map(async (magazine) => {
     const magazineRows = await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4);
     const articles = magazineRows.map((article) => {
       const analysis = parseMagazineAnalysis(article.summary);
       return { ...article, summary: analysis.summary, issue: analysis.issue };
     });
     return { ...magazine, isDraft: false, articles };
-  }));
+  }))).sort((a, b) => magazineSortValue(b) - magazineSortValue(a) || b.id - a.id);
   const recommended = await db.select({ id: resourceSegments.id, resourceId: resourceSegments.resourceId, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds, importance: resourceSegments.importance }).from(resourceSegments).where(eq(resourceSegments.recommended, true)).orderBy(desc(resourceSegments.importance)).limit(5);
   const [musicSetting] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "focus_music_url")).limit(1);
   return Response.json({

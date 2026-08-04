@@ -1,11 +1,12 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 import { PracticeLab } from "./practice-lab";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
+import { coreExamPoints } from "../../lib/core-exam-points";
 
 type Plan = { id: number; title: string; targetLabel: string; dailyMinutes: number };
 type Task = { id: number; planId: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
@@ -21,21 +22,6 @@ type MagazineFeed = { id: number; title: string; sourceUrl: string; description?
 type HomeFeed = { magazines?: MagazineFeed[]; magazine: MagazineFeed | null; listeningItems?: ListeningFeed[]; listening: ListeningFeed | null; focusMusicUrl?: string };
 
 const subjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法", "綜合"];
-
-const coreExamPoints = [
-  { subject: "刑法", title: "不作為犯與保證人地位", level: "核心必會", exams: ["一試", "二試"], summary: "先找作為義務來源，再判斷等價性、可能性與結果歸責。", cue: "看到未救助、監督義務或危險前行為時，先畫出保證人地位。" },
-  { subject: "刑法", title: "因果關係與客觀歸責", level: "核心必會", exams: ["一試", "二試"], summary: "區分條件因果、製造法所不容許風險，以及風險是否在結果中實現。", cue: "題目出現第三人介入、被害人自我負責或異常因果歷程時優先檢查。" },
-  { subject: "刑事訴訟法", title: "搜索、扣押與證據能力", level: "核心必會", exams: ["一試", "二試"], summary: "依令狀原則、例外要件及違法取證的權衡順序作答。", cue: "先確認搜索依據，再處理程序違法與證據排除，避免一步跳到結論。" },
-  { subject: "刑事訴訟法", title: "傳聞法則與例外", level: "重點複習", exams: ["一試", "二試"], summary: "辨認審判外陳述、證明目的與法定例外，最後處理可信性保障。", cue: "先問這句話拿來證明什麼；不是所有審判外陳述都當然屬傳聞。" },
-  { subject: "民法", title: "意思表示瑕疵與代理", level: "核心必會", exams: ["一試", "二試"], summary: "將錯誤、詐欺脅迫、無權代理與表見代理分層判斷。", cue: "題目人物多時先畫法律行為與代理關係，不要只追著事實敘述走。" },
-  { subject: "民法", title: "債務不履行與契約解除", level: "核心必會", exams: ["一試", "二試"], summary: "依給付不能、遲延、不完全給付整理請求權及解除效果。", cue: "先定給付義務與違約型態，再分別檢查損害賠償、解除及返還。" },
-  { subject: "民事訴訟法", title: "訴訟標的與既判力", level: "核心必會", exams: ["一試", "二試"], summary: "掌握訴訟標的識別、既判力客觀範圍與前後訴關係。", cue: "遇到前後兩案時，先並列當事人、聲明、原因事實與判決主文。" },
-  { subject: "民事訴訟法", title: "共同訴訟與訴之變更追加", level: "重點複習", exams: ["一試", "二試"], summary: "辨認合一確定必要性，並檢查變更追加的同一基礎事實。", cue: "先判斷各人法律關係能否分別確定，再談程序效果。" },
-  { subject: "憲法", title: "基本權審查架構", level: "核心必會", exams: ["一試", "二試"], summary: "依保護範圍、干預、法律保留與比例原則完成審查。", cue: "先定基本權主體與保護範圍；不要一開始就直接寫比例原則。" },
-  { subject: "行政法", title: "行政處分與救濟類型", level: "核心必會", exams: ["一試", "二試"], summary: "辨認行政行為性質，再選擇撤銷、課予義務或確認訴訟。", cue: "先問人民要法院消滅、作成，還是確認什麼法律效果。" },
-  { subject: "行政法", title: "行政契約與國家賠償", level: "重點複習", exams: ["一試", "二試"], summary: "區分公法契約、行政處分與事實行為，銜接責任成立要件。", cue: "不要因為政府是當事人就直接認定為公法關係。" },
-  { subject: "商事法", title: "董事責任與股東會決議", level: "核心必會", exams: ["一試", "二試"], summary: "整理召集程序、決議瑕疵、忠實義務與損害賠償責任。", cue: "公司法題先列機關、權限、程序與責任四層，較不容易漏點。" },
-];
 
 const planningSubjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法"];
 const subjectScopes: Record<string, string[]> = {
@@ -87,6 +73,20 @@ function magazineYear(magazine: MagazineFeed) {
 
 function magazineIssueLabel(title: string) {
   return title.match(/第\s*\d+\s*期/)?.[0].replace(/\s+/g, "") ?? title;
+}
+
+function magazineIssueNumber(magazine: MagazineFeed) {
+  return Number(`${magazine.title} ${magazine.description ?? ""}`.match(/第\s*(\d+)\s*期/)?.[1] ?? 0);
+}
+
+function highlightMagazineText(text: string, query: string): ReactNode {
+  const terms = [...new Set(query.trim().split(/\s+/).filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!terms.length || !text) return text;
+  const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const matcher = new RegExp(`(${escaped.join("|")})`, "giu");
+  return text.split(matcher).map((part, index) => terms.some((term) => part.toLocaleLowerCase("zh-Hant") === term.toLocaleLowerCase("zh-Hant"))
+    ? <mark className="magazine-search-highlight" key={`${part}-${index}`}>{part}</mark>
+    : part);
 }
 
 export default function StudyPlanPage() {
@@ -380,7 +380,7 @@ export default function StudyPlanPage() {
     if (!normalizedMagazineQuery) return true;
     const searchable = [magazine.title, magazine.description, ...(magazine.articles ?? []).flatMap((article) => [article.title, article.summary, article.issue])].join(" ").toLocaleLowerCase("zh-Hant");
     return searchable.includes(normalizedMagazineQuery);
-  });
+  }).sort((a, b) => magazineYear(b).localeCompare(magazineYear(a), "zh-Hant", { numeric: true }) || magazineIssueNumber(b) - magazineIssueNumber(a) || b.id - a.id);
   const selectedMagazine = filteredMagazines.find((magazine) => magazine.id === selectedMagazineId) ?? filteredMagazines[0] ?? null;
   const defaultExpandedBookId = selectedResourceId === null ? (bookResources[0]?.id ?? null) : null;
   const currentExpandedBookId = expandedBookId ?? defaultExpandedBookId;
@@ -696,13 +696,13 @@ export default function StudyPlanPage() {
           <aside className="magazine-index">
             <label className="magazine-search"><span>搜尋文章或老師</span><input value={magazineQuery} onChange={(event) => setMagazineQuery(event.target.value)} placeholder="輸入關鍵字、老師名稱…" /></label>
             <nav className="magazine-years" aria-label="法學教室年度"><button className={magazineYearFilter === "全部年度" ? "active" : ""} onClick={() => setMagazineYearFilter("全部年度")}>全部年度 <span>{magazineFeeds.length}</span></button>{magazineYears.map((year) => <button key={year} className={magazineYearFilter === year ? "active" : ""} onClick={() => setMagazineYearFilter(year)}>{year}<span>{magazineFeeds.filter((magazine) => magazineYear(magazine) === year).length}</span></button>)}</nav>
-            <div className="magazine-issues">{filteredMagazines.map((magazine) => <button key={magazine.id} className={selectedMagazine?.id === magazine.id ? "active" : ""} onClick={() => { setSelectedMagazineId(magazine.id); setMagazineMessages([]); setMagazineSessionId(null); setMagazineSelectedText(""); }}><strong>{magazineIssueLabel(magazine.title)}</strong><small>{magazine.title}</small><span>{magazine.articles?.length ?? 0} 篇試讀</span></button>)}{!filteredMagazines.length && <p>找不到符合的期數或文章。</p>}</div>
+            <div className="magazine-issues">{filteredMagazines.map((magazine) => <button key={magazine.id} className={selectedMagazine?.id === magazine.id ? "active" : ""} onClick={() => { setSelectedMagazineId(magazine.id); setMagazineMessages([]); setMagazineSessionId(null); setMagazineSelectedText(""); }}><strong>{highlightMagazineText(magazineIssueLabel(magazine.title), magazineQuery)}</strong><small>{highlightMagazineText(magazine.title, magazineQuery)}</small><span>{magazine.articles?.length ?? 0} 篇試讀</span></button>)}{!filteredMagazines.length && <p>找不到符合的期數或文章。</p>}</div>
           </aside>
           <div className="magazine-reading-panel">
             {selectedMagazine ? <>
-              <header className="magazine-reading-head"><div><span>{magazineYear(selectedMagazine)}</span><h3>{selectedMagazine.title}</h3><small>本期共 {selectedMagazine.articles?.length ?? 0} 篇試讀內容</small></div><a href={selectedMagazine.sourceUrl} target="_blank" rel="noreferrer">查看本期來源 ↗</a></header>
+              <header className="magazine-reading-head"><div><span>{magazineYear(selectedMagazine)}</span><h3>{highlightMagazineText(selectedMagazine.title, magazineQuery)}</h3><small>本期共 {selectedMagazine.articles?.length ?? 0} 篇試讀內容</small></div><a href={selectedMagazine.sourceUrl} target="_blank" rel="noreferrer">查看本期來源 ↗</a></header>
               {selectedMagazine.isDraft && <p className="column-notice">目前先顯示後台匯入的試讀目錄，完整分析仍由後台確認。</p>}
-              <div className="magazine-reading-list" onMouseUp={captureMagazineSelection}>{(selectedMagazine.articles ?? []).map((article, index) => <article className="magazine-reading-article" key={article.id}><div className="magazine-article-number">{String(index + 1).padStart(2, "0")}</div><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <section className="magazine-article-summary"><b>文章摘要</b><p>{article.summary}</p></section>}<section className="magazine-article-issue"><b>核心爭點</b><p>{article.issue || (article.reviewStatus === "draft" ? "尚待後台分析／發布" : "尚未擷取核心爭點")}</p></section></div></article>)}</div>
+              <div className="magazine-reading-list" onMouseUp={captureMagazineSelection}>{(selectedMagazine.articles ?? []).map((article, index) => <article className="magazine-reading-article" key={article.id}><div className="magazine-article-number">{String(index + 1).padStart(2, "0")}</div><div className="magazine-article-copy"><h3>{highlightMagazineText(article.title, magazineQuery)}</h3>{article.summary && <section className="magazine-article-summary"><b>文章摘要</b><p>{highlightMagazineText(article.summary, magazineQuery)}</p></section>}<section className="magazine-article-issue"><b>核心爭點</b><p>{highlightMagazineText(article.issue || (article.reviewStatus === "draft" ? "尚待後台分析／發布" : "尚未擷取核心爭點"), magazineQuery)}</p></section></div></article>)}</div>
               {magazineSelectedText && <div className="magazine-selection"><div><strong>已選取文字</strong><p>{magazineSelectedText}</p></div><button type="button" onClick={useMagazineSelection}>送到對話框問 AI</button></div>}
               <section className="magazine-ai"><header><div><span>AI ARTICLE TUTOR</span><h3>問 AI 解釋本期內容</h3></div><small>回答僅依目前顯示的標題、摘要、爭點與框選文字</small></header>{magazineMessages.length > 0 && <div className="magazine-ai-messages">{magazineMessages.map((message, index) => <div className={`magazine-ai-message ${message.role}`} key={`${message.role}-${index}`}><span>{message.role === "mentor" ? "AI 教練" : "你"}</span><p>{message.text}</p></div>)}{magazineAiLoading && <div className="magazine-ai-message mentor"><span>AI 教練</span><p>正在閱讀本期試讀資料…</p></div>}</div>}<div className="magazine-ai-shortcuts"><button type="button" onClick={() => setMagazineInput("請整理本期四篇文章各自的核心爭點，以及它們可能屬於哪一個法律科目。")}>整理本期爭點</button><button type="button" onClick={() => setMagazineInput("請選一篇最適合司律考生先讀的文章，說明理由，但不要補造試讀資料以外的內容。")}>建議先讀哪篇</button><button type="button" onClick={() => setMagazineInput("請把目前文章的核心爭點轉成二試申論的爭點、規範、涵攝、結論架構。")}>轉成申論架構</button></div><form onSubmit={sendMagazineMessage}><textarea ref={magazineInputRef} rows={3} value={magazineInput} onChange={(event) => setMagazineInput(event.target.value)} placeholder="直接問本期文章，或先框選上方文字…" disabled={magazineAiLoading} /><button type="submit" disabled={magazineAiLoading || !magazineInput.trim()}>{magazineAiLoading ? "AI 思考中…" : "送出問題"}</button></form>{magazineAiNotice && <p className="magazine-ai-notice">{magazineAiNotice}</p>}</section>
             </> : <div className="magazine-empty">後台尚未發布法學教室期數。</div>}

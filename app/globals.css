@@ -5623,6 +5623,7 @@ a {
 .magazine-issues small { margin-top: 3px; overflow: hidden; color: #657f8e; font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .magazine-issues span { margin-top: 5px; color: #8a6b4e; font-size: 9px; font-weight: 800; }
 .magazine-issues > p { color: #718894; font-size: 11px; line-height: 1.6; }
+.magazine-search-highlight { padding: 0 .12em; border-radius: 3px; background: #ffe38a; color: #173f59; font-weight: 900; box-shadow: inset 0 -1px rgba(174, 116, 0, .12); }
 .magazine-reading-panel { min-width: 0; padding: 22px 24px 30px; }
 .magazine-reading-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid #dfe8ec; }
 .magazine-reading-head span { display: inline-block; padding: 4px 8px; border-radius: 6px; background: #eef2e9; color: #647347; font-size: 10px; font-weight: 850; }
