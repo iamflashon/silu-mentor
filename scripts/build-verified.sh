@@ -26,7 +26,8 @@ timeout \
   "${vinext}" build
 
 # Cloudflare now treats the Node compatibility behavior as the default and
-# rejects an explicit empty compatibility_flags field in the generated manifest.
+# rejects an explicit nodejs_compat flag (including an empty compatibility_flags
+# field) in the generated manifest.
 wrangler_config="${SITES_PROJECT_ROOT}/dist/server/wrangler.json"
 if [[ -f "${wrangler_config}" ]]; then
   node - "${wrangler_config}" <<'NODE'
@@ -34,8 +35,10 @@ const fs = require("node:fs");
 
 const path = process.argv[2];
 const config = JSON.parse(fs.readFileSync(path, "utf8"));
-if (Array.isArray(config.compatibility_flags) && config.compatibility_flags.length === 0) {
-  delete config.compatibility_flags;
+if (Array.isArray(config.compatibility_flags)) {
+  const normalized = config.compatibility_flags.filter((flag) => flag !== "nodejs_compat");
+  if (normalized.length === 0) delete config.compatibility_flags;
+  else if (normalized.length !== config.compatibility_flags.length) config.compatibility_flags = normalized;
   fs.writeFileSync(path, `${JSON.stringify(config)}\n`);
 }
 NODE

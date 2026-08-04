@@ -47,8 +47,14 @@ const normalizeGeneratedWranglerConfig = () => ({
     if (!fs.existsSync(configPath)) return;
 
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    if (Array.isArray(config.compatibility_flags) && config.compatibility_flags.length === 0) {
-      delete config.compatibility_flags;
+    if (Array.isArray(config.compatibility_flags)) {
+      const normalized = config.compatibility_flags.filter(
+        (flag: string) => flag !== "nodejs_compat",
+      );
+      if (normalized.length === 0) delete config.compatibility_flags;
+      else if (normalized.length !== config.compatibility_flags.length) {
+        config.compatibility_flags = normalized;
+      }
       fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
     }
   },
