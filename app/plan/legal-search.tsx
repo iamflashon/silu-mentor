@@ -102,12 +102,12 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
     try {
       const response = await fetch(`/api/legal-search?q=${encodeURIComponent(text)}&category=${encodeURIComponent(requestedCategory)}`);
       const result = await response.json() as { results?: LegalResult[]; error?: string };
-      if (!response.ok) throw new Error(result.error ?? "法規搜尋失敗");
+      if (!response.ok) throw new Error(result.error ?? "尋法脈搜尋失敗");
       setResults(result.results ?? []);
       onResultCount?.((result.results ?? []).length);
       setSearchedQuery(text);
     } catch (reason) {
-      setResults([]); onResultCount?.(0); setError(reason instanceof Error ? reason.message : "法規搜尋失敗");
+      setResults([]); onResultCount?.(0); setError(reason instanceof Error ? reason.message : "尋法脈搜尋失敗");
     } finally { setLoading(false); }
   }
 
@@ -168,7 +168,7 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
     setNoteTarget(null);
   }
 
-  return <section className="legal-search-panel" aria-label="全國法規搜尋與內容瀏覽">
+  return <section className="legal-search-panel" aria-label="尋法脈法規搜尋與內容瀏覽">
     <div className="legal-search-head"><div><p>OFFICIAL LAW SEARCH</p><h2>尋法脈</h2><span>輸入法規名稱、條號或關鍵字查詢；搜尋結果可直接查看完整條文與官方來源。</span></div><strong>查法條</strong></div>
     <section className="core-law-guide" aria-label="司律核心六法">
       <div className="core-law-guide-head"><div><b>司律核心六法</b><span>先從最重要的六個法科開始，需要其他法規再直接搜尋。</span></div></div>
