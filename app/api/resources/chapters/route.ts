@@ -1,6 +1,11 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { appSettings, documents, learningResources, resourceSegments } from "../../../../db/schema";
+import {
+  appSettings,
+  documents,
+  learningResources,
+  resourceSegments,
+} from "../../../../db/schema";
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
@@ -15,6 +20,9 @@ const CHAPTER_INSERT_BATCH_SIZE = 4;
 type ChapterPayload = {
   chapters?: Array<{
     title?: string;
+    section?: string;
+    topic?: string;
+    stem?: string;
     summary?: string;
     page_start?: number | null;
     page_end?: number | null;
@@ -26,19 +34,25 @@ function chapterStatusKey(resourceId: number) {
 }
 
 function outputText(payload: Record<string, unknown>) {
-  if (typeof payload.output_text === "string") return payload.output_text.trim();
+  if (typeof payload.output_text === "string")
+    return payload.output_text.trim();
   const output = Array.isArray(payload.output) ? payload.output : [];
-  return output.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const content = Array.isArray((item as { content?: unknown[] }).content)
-      ? (item as { content: unknown[] }).content
-      : [];
-    return content.flatMap((part) =>
-      part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string"
-        ? [(part as { text: string }).text]
-        : [],
-    );
-  }).join("").trim();
+  return output
+    .flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const content = Array.isArray((item as { content?: unknown[] }).content)
+        ? (item as { content: unknown[] }).content
+        : [];
+      return content.flatMap((part) =>
+        part &&
+        typeof part === "object" &&
+        typeof (part as { text?: unknown }).text === "string"
+          ? [(part as { text: string }).text]
+          : [],
+      );
+    })
+    .join("")
+    .trim();
 }
 
 function parseChapterPayload(payload: Record<string, unknown>) {
@@ -68,7 +82,8 @@ async function readChapterStatus(resourceId: number) {
 
 async function writeChapterStatus(resourceId: number, value: string) {
   const db = await getDb();
-  await db.insert(appSettings)
+  await db
+    .insert(appSettings)
     .values({ key: chapterStatusKey(resourceId), value, updatedAt: new Date() })
     .onConflictDoUpdate({
       target: appSettings.key,
@@ -78,12 +93,16 @@ async function writeChapterStatus(resourceId: number, value: string) {
 
 async function readChapters(resourceId: number) {
   const db = await getDb();
-  return db.select().from(resourceSegments)
-    .where(and(
-      eq(resourceSegments.resourceId, resourceId),
-      inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
-    ))
-    .orderBy(asc(resourceSegments.sequence))
+  return db
+    .select()
+    .from(resourceSegments)
+    .where(
+      and(
+        eq(resourceSegments.resourceId, resourceId),
+        inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
+      ),
+    )
+    .orderBy(asc(resourceSegments.sequence));
 }
 
 /**
@@ -94,52 +113,110 @@ async function readChapters(resourceId: number) {
  */
 export async function GET(request: Request) {
   try {
-    const resourceId = Number(new URL(request.url).searchParams.get("resourceId"));
+    const resourceId = Number(
+      new URL(request.url).searchParams.get("resourceId"),
+    );
     if (!Number.isInteger(resourceId) || resourceId < 1)
       return Response.json({ error: "缺少書籍編號" }, { status: 400 });
 
     const db = await getDb();
-    const [resource] = await db.select().from(learningResources)
-      .where(eq(learningResources.id, resourceId)).limit(1);
+    const [resource] = await db
+      .select()
+      .from(learningResources)
+      .where(eq(learningResources.id, resourceId))
+      .limit(1);
     if (!resource || resource.resourceType !== "book")
       return Response.json({ error: "找不到書籍" }, { status: 404 });
 
     const chapters = await readChapters(resourceId);
     const status = await readChapterStatus(resourceId);
     if (chapters.length) {
-      return Response.json({ chapters, generated: false, ready: true, status: "completed" });
+      return Response.json({
+        chapters,
+        generated: false,
+        ready: true,
+        status: "completed",
+      });
     }
 
     if (!resource.documentId) {
-      return Response.json({ chapters: [], generated: false, ready: false, status, message: "這本書尚未綁定後台教材。" });
-    }
-    const [document] = await db.select().from(documents)
-      .where(eq(documents.id, resource.documentId)).limit(1);
-    if (!document?.openaiFileId) {
-      return Response.json({ chapters: [], generated: false, ready: false, status, message: "這本書尚未完成教材索引。" });
-    }
-    if (document.status !== "completed") {
       return Response.json({
         chapters: [],
         generated: false,
         ready: false,
         status,
-        documentStatus: document.status,
-        message: document.status === "failed"
-          ? (document.indexError || "教材索引失敗，請到後台重新建立索引。")
-          : "教材正在建立索引，完成後請再讀取章節。",
-      }, { status: 202 });
+        message: "這本書尚未綁定後台教材。",
+      });
+    }
+    const [document] = await db
+      .select()
+      .from(documents)
+      .where(eq(documents.id, resource.documentId))
+      .limit(1);
+    if (!document?.openaiFileId) {
+      return Response.json({
+        chapters: [],
+        generated: false,
+        ready: false,
+        status,
+        message: "這本書尚未完成教材索引。",
+      });
+    }
+    if (document.status !== "completed") {
+      return Response.json(
+        {
+          chapters: [],
+          generated: false,
+          ready: false,
+          status,
+          documentStatus: document.status,
+          message:
+            document.status === "failed"
+              ? document.indexError || "教材索引失敗，請到後台重新建立索引。"
+              : "教材正在建立索引，完成後請再讀取章節。",
+        },
+        { status: 202 },
+      );
     }
     if (status === "building") {
-      return Response.json({ chapters: [], generated: false, ready: false, status, message: "後台正在建立章節索引，完成後即可讀取。" }, { status: 202 });
+      return Response.json(
+        {
+          chapters: [],
+          generated: false,
+          ready: false,
+          status,
+          message: "後台正在建立章節索引，完成後即可讀取。",
+        },
+        { status: 202 },
+      );
     }
     if (status === "failed") {
-      return Response.json({ chapters: [], generated: false, ready: true, status, message: "章節索引曾建立失敗；請由管理後台明確按下「建立章節索引」再試一次。" });
+      return Response.json({
+        chapters: [],
+        generated: false,
+        ready: true,
+        status,
+        message:
+          "章節索引曾建立失敗；請由管理後台明確按下「建立章節索引」再試一次。",
+      });
     }
-    return Response.json({ chapters: [], generated: false, ready: true, status: "not_started", message: "教材已完成索引，但章節目錄尚未建立；請由管理後台建立一次章節索引。" });
+    return Response.json({
+      chapters: [],
+      generated: false,
+      ready: true,
+      status: "not_started",
+      message:
+        "教材已完成索引，但章節目錄尚未建立；請由管理後台建立一次章節索引。",
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message.slice(0, 240) : "教材章節暫時無法讀取，請稍後再試。";
-    return Response.json({ chapters: [], generated: false, ready: false, error: message }, { status: 503 });
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, 240)
+        : "教材章節暫時無法讀取，請稍後再試。";
+    return Response.json(
+      { chapters: [], generated: false, ready: false, error: message },
+      { status: 503 },
+    );
   }
 }
 
@@ -153,45 +230,96 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   let resourceId = 0;
   try {
-    const body = await request.json() as { resourceId?: number };
+    const body = (await request.json()) as { resourceId?: number };
     resourceId = Number(body.resourceId);
     if (!Number.isInteger(resourceId) || resourceId < 1)
       return Response.json({ error: "缺少書籍編號" }, { status: 400 });
 
     const db = await getDb();
-    const [resource] = await db.select().from(learningResources)
-      .where(eq(learningResources.id, resourceId)).limit(1);
+    const [resource] = await db
+      .select()
+      .from(learningResources)
+      .where(eq(learningResources.id, resourceId))
+      .limit(1);
     if (!resource || resource.resourceType !== "book")
       return Response.json({ error: "找不到書籍" }, { status: 404 });
 
     const existing = await readChapters(resourceId);
-    if (existing.length) return Response.json({ chapters: existing, generated: false, reused: true, status: "completed" });
+    if (existing.length)
+      return Response.json({
+        chapters: existing,
+        generated: false,
+        reused: true,
+        status: "completed",
+      });
 
     const status = await readChapterStatus(resourceId);
-    if (status === "building") return Response.json({ error: "章節索引正在建立中，請稍後再試。", status }, { status: 202 });
+    if (status === "building")
+      return Response.json(
+        { error: "章節索引正在建立中，請稍後再試。", status },
+        { status: 202 },
+      );
 
-    if (!resource.documentId) return Response.json({ error: "這本書尚未綁定後台教材。" }, { status: 400 });
-    const [document] = await db.select().from(documents)
-      .where(eq(documents.id, resource.documentId)).limit(1);
-    if (!document?.openaiFileId) return Response.json({ error: "這本書尚未完成教材索引，請先完成 PDF 索引。" }, { status: 409 });
-    if (document.status !== "completed") return Response.json({ error: "PDF 尚未完成教材索引，完成後才能建立章節。", documentStatus: document.status }, { status: 409 });
+    if (!resource.documentId)
+      return Response.json(
+        { error: "這本書尚未綁定後台教材。" },
+        { status: 400 },
+      );
+    const [document] = await db
+      .select()
+      .from(documents)
+      .where(eq(documents.id, resource.documentId))
+      .limit(1);
+    if (!document?.openaiFileId)
+      return Response.json(
+        { error: "這本書尚未完成教材索引，請先完成 PDF 索引。" },
+        { status: 409 },
+      );
+    if (document.status !== "completed")
+      return Response.json(
+        {
+          error: "PDF 尚未完成教材索引，完成後才能建立章節。",
+          documentStatus: document.status,
+        },
+        { status: 409 },
+      );
 
-    const [setting] = await db.select().from(appSettings)
-      .where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-    if (!setting?.value) return Response.json({ error: "教材向量索引尚未就緒。" }, { status: 409 });
+    const [setting] = await db
+      .select()
+      .from(appSettings)
+      .where(eq(appSettings.key, "openai_vector_store_id"))
+      .limit(1);
+    if (!setting?.value)
+      return Response.json(
+        { error: "教材向量索引尚未就緒。" },
+        { status: 409 },
+      );
 
     await writeChapterStatus(resourceId, "building");
     const payload = await openAIJson("/responses", {
       method: "POST",
       body: JSON.stringify({
-        model: process.env.OPENAI_EXTRACTION_MODEL || process.env.OPENAI_MODEL || "gpt-5.6-luna",
-        instructions: /解題|題庫|題型|案例演習|申論/.test(`${resource.title} ${resource.description}`)
-          ? "你是台灣司律考試解題書編輯。必須先使用 file_search 搜尋已建立的教材索引，只能整理書中明確存在的題目、題號或題型單元；不得把一般刑法體系自行改寫成題目，不得創造題名。title 優先保留原書的年度、考試別、題號或題型名稱；summary 說明題目考查的具體爭點與解題任務，不得寫成『本章介紹某概念』的授課摘要。若索引片段無法證明實際題目存在，就不要回傳。保留原順序，頁碼無法確認填 null，最多 80 筆。"
+        model:
+          process.env.OPENAI_EXTRACTION_MODEL ||
+          process.env.OPENAI_MODEL ||
+          "gpt-5.6-luna",
+        instructions: /解題|題庫|題型|案例演習|申論/.test(
+          `${resource.title} ${resource.description}`,
+        )
+          ? "你是台灣司律考試解題書編輯。必須先使用 file_search 搜尋教材索引，依原書目錄拆成『部分 → 主題 → 題型』，只能整理書中明確存在的實際題目，不得改寫成觀念課程。section 原樣保留例如『第1部分 刑法總則』；topic 原樣保留例如『主題1 刑法ABC』；title 原樣保留例如『題型1.1 罪刑法定原則（105政大轉學考第1題）』；stem 放完整題目本文，不得加入解析或 AI 開場白；summary 只放原書可確認的爭點摘要。無法證明題目及其所屬主題時不要回傳。保留原順序，頁碼無法確認填 null，最多 80 筆。"
           : "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
-        input: /解題|題庫|題型|案例演習|申論/.test(`${resource.title} ${resource.description}`)
-          ? `請從已索引的解題教材《${resource.title}》（原始檔名：${document.fileName}）搜尋實際題目、題號、題型單元及其解題重點，依原書順序輸出。只回傳索引中可確認的真實題目或題型。`
+        input: /解題|題庫|題型|案例演習|申論/.test(
+          `${resource.title} ${resource.description}`,
+        )
+          ? `請從已索引的解題教材《${resource.title}》（原始檔名：${document.fileName}）依原書目錄搜尋每一個部分、主題、題型與完整題目，逐題依原書順序輸出。只回傳索引中可確認的真實題目。`
           : `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節。`,
-        tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 20 }],
+        tools: [
+          {
+            type: "file_search",
+            vector_store_ids: [setting.value],
+            max_num_results: 20,
+          },
+        ],
         text: {
           format: {
             type: "json_schema",
@@ -209,11 +337,22 @@ export async function POST(request: Request) {
                     additionalProperties: false,
                     properties: {
                       title: { type: "string" },
+                      section: { type: "string" },
+                      topic: { type: "string" },
+                      stem: { type: "string" },
                       summary: { type: "string" },
                       page_start: { type: ["integer", "null"] },
                       page_end: { type: ["integer", "null"] },
                     },
-                    required: ["title", "summary", "page_start", "page_end"],
+                    required: [
+                      "title",
+                      "section",
+                      "topic",
+                      "stem",
+                      "summary",
+                      "page_start",
+                      "page_end",
+                    ],
                   },
                 },
               },
@@ -226,44 +365,92 @@ export async function POST(request: Request) {
     const generated = parseChapterPayload(payload);
     if (!generated.length) {
       await writeChapterStatus(resourceId, "failed");
-      return Response.json({ error: "索引中找不到可辨識的目錄章節；請確認 PDF 內有目錄，或稍後由管理後台重新建立。" }, { status: 422 });
+      return Response.json(
+        {
+          error:
+            "索引中找不到可辨識的目錄章節；請確認 PDF 內有目錄，或稍後由管理後台重新建立。",
+        },
+        { status: 422 },
+      );
     }
 
     const rows = generated.map((chapter, index) => ({
       resourceId,
       segmentType: "book_chapter",
-      lessonLabel: "教材章節",
-      title: String(chapter.title ?? "").trim().slice(0, 160),
-      pageStart: chapter.page_start == null ? null : Math.max(1, Number(chapter.page_start) || 1),
-      pageEnd: chapter.page_end == null ? null : Math.max(1, Number(chapter.page_end) || 1),
-      text: "",
+      lessonLabel: /解題|題庫|題型|案例演習|申論/.test(
+        `${resource.title} ${resource.description}`,
+      )
+        ? `${String(chapter.section ?? "").trim()}｜${String(chapter.topic ?? "").trim()}`.slice(
+            0,
+            160,
+          )
+        : "教材章節",
+      title: String(chapter.title ?? "")
+        .trim()
+        .slice(0, 160),
+      pageStart:
+        chapter.page_start == null
+          ? null
+          : Math.max(1, Number(chapter.page_start) || 1),
+      pageEnd:
+        chapter.page_end == null
+          ? null
+          : Math.max(1, Number(chapter.page_end) || 1),
+      text: String(chapter.stem ?? "")
+        .trim()
+        .slice(0, 12000),
       sequence: index + 1,
-      summary: String(chapter.summary ?? "").trim().slice(0, 240),
+      summary: String(chapter.summary ?? "")
+        .trim()
+        .slice(0, 240),
       reviewStatus: "ai_reviewed",
     }));
-    const inserted: typeof resourceSegments.$inferSelect[] = [];
+    const inserted: (typeof resourceSegments.$inferSelect)[] = [];
     try {
-      for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
-        inserted.push(...await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE)).returning());
+      for (
+        let index = 0;
+        index < rows.length;
+        index += CHAPTER_INSERT_BATCH_SIZE
+      ) {
+        inserted.push(
+          ...(await db
+            .insert(resourceSegments)
+            .values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE))
+            .returning()),
+        );
       }
       await writeChapterStatus(resourceId, "completed");
-      return Response.json({ chapters: inserted, generated: true, reused: false, status: "completed" });
+      return Response.json({
+        chapters: inserted,
+        generated: true,
+        reused: false,
+        status: "completed",
+      });
     } catch (insertError) {
       // A failed later batch must not leave a partial outline that a retry
       // would mistake for a completed chapter index.
       if (inserted.length) {
-        await db.delete(resourceSegments).where(and(
-          eq(resourceSegments.resourceId, resourceId),
-          inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
-        ));
+        await db
+          .delete(resourceSegments)
+          .where(
+            and(
+              eq(resourceSegments.resourceId, resourceId),
+              inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
+            ),
+          );
       }
       throw insertError;
     }
   } catch (error) {
     if (resourceId) {
-      try { await writeChapterStatus(resourceId, "failed"); } catch { /* preserve original error */ }
+      try {
+        await writeChapterStatus(resourceId, "failed");
+      } catch {
+        /* preserve original error */
+      }
     }
-    const message = error instanceof Error ? error.message.slice(0, 240) : "建立章節索引失敗";
+    const message =
+      error instanceof Error ? error.message.slice(0, 240) : "建立章節索引失敗";
     return Response.json({ error: message, status: "failed" }, { status: 500 });
   }
 }
