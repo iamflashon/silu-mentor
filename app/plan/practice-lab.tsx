@@ -29,6 +29,8 @@ type CoachMessage = { role: "mentor" | "student"; text: string };
 type CoachRecommendation = { type: string; title: string; location: string; url: string; startSeconds: number | null };
 
 type Props = { initialType: "mcq" | "essay" };
+type PracticeMode = "today" | "custom" | "laws";
+type PracticeFacets = { years: string[]; subjects: string[]; frequentLaws: Array<{ title: string; count: number }> };
 
 export function PracticeLab({ initialType }: Props) {
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
@@ -46,8 +48,14 @@ export function PracticeLab({ initialType }: Props) {
   const [coachIssue, setCoachIssue] = useState("");
   const [coachRecommendations, setCoachRecommendations] = useState<CoachRecommendation[]>([]);
   const [coaching, setCoaching] = useState(false);
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>("today");
+  const [facets, setFacets] = useState<PracticeFacets>({ years: [], subjects: [], frequentLaws: [] });
+  const [filterYear, setFilterYear] = useState("");
+  const [filterSubject, setFilterSubject] = useState("");
+  const [excludeAnswered, setExcludeAnswered] = useState(true);
+  const [selectedLaw, setSelectedLaw] = useState("");
 
-  async function loadQuestion(type = examType) {
+  async function loadQuestion(type = examType, filters?: { year?: string; subject?: string; law?: string; excludeAnswered?: boolean }) {
     setLoading(true);
     setSelected(null);
     setFeedback("");
@@ -60,7 +68,12 @@ export function PracticeLab({ initialType }: Props) {
     setCoachIssue("");
     setCoachRecommendations([]);
     try {
-      const response = await fetch(`/api/practice?type=${type}`);
+      const params = new URLSearchParams({ type });
+      if (filters?.year) params.set("year", filters.year);
+      if (filters?.subject) params.set("subject", filters.subject);
+      if (filters?.law) params.set("law", filters.law);
+      if (filters?.excludeAnswered) params.set("excludeAnswered", "1");
+      const response = await fetch(`/api/practice?${params}`);
       const result = await response.json() as { question?: PracticeQuestion | null; message?: string };
       setQuestion(result.question ?? null);
       if (!result.question) setFeedback(result.message ?? "題庫尚未準備完成");
@@ -78,6 +91,27 @@ export function PracticeLab({ initialType }: Props) {
     // The gateway intentionally loads the selected exam type immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialType]);
+
+  useEffect(() => {
+    if (examType !== "mcq") return;
+    fetch("/api/practice?type=mcq&facets=1").then(async (response) => {
+      if (response.ok) setFacets(await response.json() as PracticeFacets);
+    }).catch(() => undefined);
+  }, [examType]);
+
+  function chooseMode(mode: PracticeMode) {
+    setPracticeMode(mode);
+    setFeedback("");
+  }
+
+  function startCustomPractice() {
+    void loadQuestion("mcq", { year: filterYear, subject: filterSubject, excludeAnswered });
+  }
+
+  function startLawPractice(law: string) {
+    setSelectedLaw(law);
+    void loadQuestion("mcq", { law });
+  }
 
   async function answer(answer: string) {
     if (!question || selected) return;
@@ -153,10 +187,12 @@ export function PracticeLab({ initialType }: Props) {
     {examType === "mcq" ? <section className="practice-feature-guide" aria-label="一試功能解說">
       <header><div><b>一試怎麼練</b><span>從今天該做的題目開始，也可以依自己的需求選題。</span></div><small>作答後自動留下答對、答錯與弱點紀錄</small></header>
       <div className="practice-feature-grid">
-        <button type="button" className="ready" onClick={() => void loadQuestion("mcq")}><span>01</span><strong>今日練習</strong><p>直接從已審核真題出一題，答完由 AI 追問理由，不只背答案。</p><em>現在開始</em></button>
-        <article><span>02</span><strong>自訂練習</strong><p>依年份、科目、章節、題數與是否排除已作答題目建立練習。</p><em>下一階段加入篩選器</em></article>
-        <article><span>03</span><strong>高頻法條</strong><p>用本站真題重新計算法條命題次數，點法條即可練相關題目。</p><em>題庫標註完成後開放</em></article>
+        <button type="button" className={practiceMode === "today" ? "ready active" : "ready"} onClick={() => { chooseMode("today"); void loadQuestion("mcq"); }}><span>01</span><strong>今日練習</strong><p>直接從已審核真題出一題，答完由 AI 追問理由，不只背答案。</p><em>現在開始</em></button>
+        <button type="button" className={practiceMode === "custom" ? "active" : ""} onClick={() => chooseMode("custom")}><span>02</span><strong>自訂練習</strong><p>依年份、科目與是否排除已作答題目建立練習。</p><em>設定練習範圍 →</em></button>
+        <button type="button" className={practiceMode === "laws" ? "active" : ""} onClick={() => chooseMode("laws")}><span>03</span><strong>高頻法條</strong><p>依本站已發布真題計算法條出現次數，點法條即可練相關題目。</p><em>查看高頻法條 →</em></button>
       </div>
+      {practiceMode === "custom" && <section className="practice-mode-panel" aria-label="自訂練習篩選器"><header><b>設定自訂練習</b><span>選好範圍後，系統會從符合條件的已發布真題抽題。</span></header><div className="practice-filter-row"><label>年度<select value={filterYear} onChange={(event) => setFilterYear(event.target.value)}><option value="">全部年度</option>{facets.years.map((year) => <option key={year}>{year}</option>)}</select></label><label>科目<select value={filterSubject} onChange={(event) => setFilterSubject(event.target.value)}><option value="">全部科目</option>{facets.subjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label><label className="practice-checkbox"><input type="checkbox" checked={excludeAnswered} onChange={(event) => setExcludeAnswered(event.target.checked)} />排除已作答題目</label><button type="button" onClick={startCustomPractice}>開始練習</button></div></section>}
+      {practiceMode === "laws" && <section className="practice-mode-panel" aria-label="高頻法條選題"><header><b>高頻法條</b><span>統計目前已發布一試真題題幹中明確出現的法條。</span></header>{facets.frequentLaws.length ? <div className="frequent-law-list">{facets.frequentLaws.map((law) => <button type="button" className={selectedLaw === law.title ? "active" : ""} key={law.title} onClick={() => startLawPractice(law.title)}><strong>{law.title}</strong><span>{law.count} 題</span></button>)}</div> : <p className="practice-mode-empty">目前已發布題目尚未辨識到法條標註；後台補齊題目後，這裡會自動產生排行。</p>}</section>}
     </section> : <section className="practice-feature-guide essay-guide" aria-label="二試批改功能解說">
       <header><div><b>二試怎麼練</b><span>不是交卷後只看總分，而是先審題、再完整作答，最後逐項找出失分位置。</span></div><small>批改依已核對的老師參考擬答與評分點</small></header>
       <ol className="essay-workflow">

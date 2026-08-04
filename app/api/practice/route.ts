@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examAttempts, examQuestions, studyRecords } from "../../../db/schema";
 import { taipeiDate } from "../../../lib/taipei-time";
@@ -10,8 +10,33 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const examType = url.searchParams.get("type") === "essay" ? "essay" : "mcq";
     const subject = (url.searchParams.get("subject") ?? "").trim();
+    const year = (url.searchParams.get("year") ?? "").trim();
+    const law = (url.searchParams.get("law") ?? "").trim();
+    const excludeAnswered = url.searchParams.get("excludeAnswered") === "1";
     const db = await getDb();
-    const where = subject ? and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType), eq(examQuestions.subject, subject)) : and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType));
+    const baseFilters = [eq(examQuestions.status, "published"), eq(examQuestions.examType, examType)];
+    if (subject) baseFilters.push(eq(examQuestions.subject, subject));
+    if (year) baseFilters.push(eq(examQuestions.year, year));
+    if (law) baseFilters.push(sql`${examQuestions.stem} like ${`%${law}%`}`);
+    if (excludeAnswered) {
+      const attempted = await db.selectDistinct({ questionId: examAttempts.questionId }).from(examAttempts).where(eq(examAttempts.userKey, userKey(request)));
+      if (attempted.length) baseFilters.push(notInArray(examQuestions.id, attempted.map((row) => row.questionId)));
+    }
+    const where = and(...baseFilters);
+    if (url.searchParams.get("facets") === "1") {
+      const [years, subjects, stems] = await Promise.all([
+        db.selectDistinct({ value: examQuestions.year }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))).orderBy(sql`${examQuestions.year} desc`),
+        db.selectDistinct({ value: examQuestions.subject }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))).orderBy(examQuestions.subject),
+        db.select({ stem: examQuestions.stem }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))),
+      ]);
+      const counts = new Map<string, number>();
+      for (const row of stems) {
+        const matches = row.stem.match(/(?:刑法|民法|公司法|憲法|行政程序法|刑事訴訟法|民事訴訟法)第\s*\d+(?:\s*之\s*\d+)?\s*條/g) ?? [];
+        for (const match of new Set(matches.map((item) => item.replace(/\s+/g, "")))) counts.set(match, (counts.get(match) ?? 0) + 1);
+      }
+      const frequentLaws = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([title, count]) => ({ title, count }));
+      return Response.json({ years: years.map((row) => row.value).filter(Boolean), subjects: subjects.map((row) => row.value).filter(Boolean), frequentLaws });
+    }
     const [question] = await db.select().from(examQuestions).where(where).orderBy(sql`random()`).limit(1);
     if (!question) {
       const [published] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(eq(examQuestions.examType, examType), eq(examQuestions.status, "published")));
