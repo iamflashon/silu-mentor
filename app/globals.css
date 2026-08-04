@@ -187,31 +187,26 @@ a {
   font-size: 11px;
   color: var(--muted);
 }
-.practice-launch {
-  width: min(1180px, calc(100% - 40px));
-  margin: 10px auto 0;
+.practice-inline-launch {
+  flex: 0 0 300px;
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 18px;
-  margin-bottom: 10px;
-  padding: 10px 16px;
-  border: 1px solid #d6e3eb;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.88);
-}
-.practice-launch strong {
-  flex: 0 0 auto;
-  color: #254a65;
-  font-size: 13px;
-}
-.practice-launch > div:last-child {
-  display: flex;
+  justify-content: space-between;
   gap: 8px;
-  flex: 0 0 auto;
   margin-left: auto;
 }
-.practice-launch button {
+.practice-inline-launch strong {
+  flex: 0 0 auto;
+  color: #254a65;
+  font-size: 12px;
+}
+.practice-inline-launch > div {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.practice-inline-launch button {
   padding: 7px 11px;
   border: 1px solid #b9cedb;
   border-radius: 9px;
@@ -221,7 +216,7 @@ a {
   font-weight: 800;
   cursor: pointer;
 }
-.practice-launch button:hover {
+.practice-inline-launch button:hover {
   border-color: #7fa8be;
   background: #eaf3f7;
 }
@@ -3654,24 +3649,21 @@ a {
   .focus-items > div {
     min-width: 155px;
   }
-  .practice-launch {
-    width: calc(100% - 28px);
-    margin-top: 8px;
+  .practice-inline-launch {
+    flex: 0 0 auto;
     align-items: center;
     gap: 7px;
-    margin-bottom: 8px;
-    padding: 8px 10px;
   }
-  .practice-launch > div:last-child {
+  .practice-inline-launch > div {
     min-width: 0;
     gap: 5px;
   }
-  .practice-launch button {
+  .practice-inline-launch button {
     padding: 7px 8px;
     font-size: 9px;
     white-space: nowrap;
   }
-  .practice-launch strong { font-size: 11px; }
+  .practice-inline-launch strong { font-size: 11px; }
   .practice-card {
     margin-left: 0;
   }
