@@ -13,9 +13,6 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
-  // Sites supplies Node.js compatibility by default from this date. Explicit
-  // compatibility flags are rejected when they duplicate that platform default.
-  compatibility_date: "2026-08-04",
   // Cloudflare Cron uses UTC. 16:30–21:55 UTC is 00:30–05:55 in Taiwan.
   // The five-minute cadence lets a failed batch resume while the official API
   // is still open, without requiring an administrator to keep the page open.
