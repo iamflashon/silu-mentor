@@ -336,6 +336,8 @@ export default function AdminPage() {
   );
   const [magazineYear, setMagazineYear] = useState(() => new Date().getFullYear());
   const [magazineListYear, setMagazineListYear] = useState(() => new Date().getFullYear());
+  const [magazineAdminQuery, setMagazineAdminQuery] = useState("");
+  const [selectedMagazineAdminId, setSelectedMagazineAdminId] = useState<number | null>(null);
   const [subtitleCourse, setSubtitleCourse] = useState<LearningResource | null>(
     null,
   );
@@ -3219,17 +3221,30 @@ export default function AdminPage() {
               <button type="submit" className="secondary-btn" disabled={creatingMagazineIssue}>{creatingMagazineIssue ? "建立與分析中…" : "新增期數並分析"}</button>
             </form>
             {notice && <div className="notice">{notice}</div>}
-            <div className="magazine-year-filter">
-              <div><strong>依年度查看</strong><span>預設只顯示一個年度，避免所有期數一次展開。</span></div>
-              <select value={magazineListYear} onChange={(event) => setMagazineListYear(Number(event.target.value))}>
-                {Array.from(new Set(resources.filter((item) => item.resourceType === "magazine").map((item) => Number(item.description.match(/(20\d{2})[年/]/)?.[1])).filter(Boolean).concat([new Date().getFullYear()]))).sort((a, b) => b - a).map((year) => <option key={year} value={year}>{year} 年</option>)}
-              </select>
-            </div>
-            <div className="resource-grid">
-              {resources
-                .filter((item) => item.resourceType === "magazine")
+            {(() => {
+              const magazines = resources.filter((item) => item.resourceType === "magazine");
+              const years = Array.from(new Set(magazines.map((item) => Number(item.description.match(/(20\d{2})[年/]/)?.[1])).filter(Boolean).concat([new Date().getFullYear()]))).sort((a, b) => b - a);
+              const query = magazineAdminQuery.trim().toLocaleLowerCase("zh-Hant");
+              const visibleIssues = magazines
                 .filter((item) => Number(item.description.match(/(20\d{2})[年/]/)?.[1]) === magazineListYear)
-                .map((resource) => (
+                .filter((item) => !query || [item.title, item.creator, item.description, ...(item.articlePreviews ?? []).map((article) => article.title)].join(" ").toLocaleLowerCase("zh-Hant").includes(query));
+              const selectedResource = visibleIssues.find((item) => item.id === selectedMagazineAdminId) ?? visibleIssues[0] ?? null;
+              return <div className="magazine-admin-browser">
+                <aside className="magazine-admin-index">
+                  <label className="magazine-admin-search">
+                    <span>搜尋期數、文章或老師</span>
+                    <input value={magazineAdminQuery} onChange={(event) => setMagazineAdminQuery(event.target.value)} placeholder="輸入關鍵字、老師名稱…" />
+                  </label>
+                  <nav className="magazine-admin-years" aria-label="後台法學教室年度">
+                    {years.map((year) => <button type="button" key={year} className={magazineListYear === year ? "active" : ""} onClick={() => { setMagazineListYear(year); setSelectedMagazineAdminId(null); }}>{year} 年<span>{magazines.filter((item) => Number(item.description.match(/(20\d{2})[年/]/)?.[1]) === year).length}</span></button>)}
+                  </nav>
+                  <div className="magazine-admin-issues">
+                    {visibleIssues.map((resource) => <button type="button" key={resource.id} className={selectedResource?.id === resource.id ? "active" : ""} onClick={() => setSelectedMagazineAdminId(resource.id)}><strong>{resource.title.match(/第\s*(\d+)\s*期/)?.[0] ?? resource.title}</strong><small>{resource.title}</small><span>{resource.articleCount ?? resource.segmentCount} 篇試讀 · {resource.status === "draft" ? "待確認" : "前台顯示"}</span></button>)}
+                    {!visibleIssues.length && <p>這個年度找不到符合的期數或文章。</p>}
+                  </div>
+                </aside>
+                <div className="magazine-admin-detail">
+                  {selectedResource ? [selectedResource].map((resource) => (
                   <article className="resource-card magazine-resource-card" key={resource.id}>
                     <div className="resource-cover">
                       <span>刊</span>
@@ -3306,8 +3321,10 @@ export default function AdminPage() {
                       </div>
                     </div>
                   </article>
-                ))}
-            </div>
+                  )) : <div className="magazine-admin-empty">請先從左側選擇年度與期數。</div>}
+                </div>
+              </div>;
+            })()}
           </section>
         )}
         {activeTab === "sources" && (

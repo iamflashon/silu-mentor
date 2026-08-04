@@ -1864,6 +1864,27 @@ a {
 .magazine-year-filter strong { color: #285b76; font-size: 12px; }
 .magazine-year-filter span { margin-top: 3px; color: #78909d; font-size: 10px; }
 .magazine-year-filter select { min-width: 120px; padding: 8px 10px; border: 1px solid #cbdde5; border-radius: 8px; background: #fff; color: #315d73; font-weight: 800; }
+.magazine-admin-browser { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 650px; margin-top: 18px; overflow: hidden; border: 1px solid #d9e5eb; border-radius: 14px; background: #fff; }
+.magazine-admin-index { padding: 16px 13px; border-right: 1px solid #dce7ec; background: #f7fafb; }
+.magazine-admin-search span { display: block; margin-bottom: 6px; color: #526d7c; font-size: 11px; font-weight: 800; }
+.magazine-admin-search input { width: 100%; padding: 10px 11px; border: 1px solid #cfdde4; border-radius: 9px; background: #fff; color: #23465b; font-size: 12px; outline: none; }
+.magazine-admin-search input:focus { border-color: #5a8fa6; box-shadow: 0 0 0 3px rgba(70, 126, 151, .12); }
+.magazine-admin-years { display: grid; gap: 5px; margin-top: 14px; padding-bottom: 14px; border-bottom: 1px solid #dfe8ec; }
+.magazine-admin-years button { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: #4b6675; font-size: 12px; font-weight: 800; cursor: pointer; }
+.magazine-admin-years button:hover, .magazine-admin-years button.active { background: #e4f0f4; color: #1e536b; }
+.magazine-admin-years button span { display: grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 10px; background: #fff; color: #65808e; font-size: 9px; }
+.magazine-admin-issues { display: grid; gap: 7px; margin-top: 14px; }
+.magazine-admin-issues > button { padding: 11px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #4e6978; text-align: left; cursor: pointer; }
+.magazine-admin-issues > button:hover { border-color: #cadde5; background: #fff; }
+.magazine-admin-issues > button.active { border-color: #84acbd; background: #fff; box-shadow: 0 5px 14px rgba(30, 75, 98, .08); }
+.magazine-admin-issues strong, .magazine-admin-issues small, .magazine-admin-issues span { display: block; }
+.magazine-admin-issues strong { color: #173f59; font-size: 13px; }
+.magazine-admin-issues small { margin-top: 3px; overflow: hidden; color: #657f8e; font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.magazine-admin-issues span { margin-top: 5px; color: #8a6b4e; font-size: 9px; font-weight: 800; }
+.magazine-admin-issues > p { color: #718894; font-size: 11px; line-height: 1.6; }
+.magazine-admin-detail { min-width: 0; padding: 18px; }
+.magazine-admin-detail .magazine-resource-card { margin: 0; border: 0; box-shadow: none; }
+.magazine-admin-empty { display: grid; min-height: 420px; place-items: center; color: #718894; }
 .back-link {
   color: #526c7e;
   font-size: 14px;
@@ -4002,6 +4023,13 @@ a {
   .magazine-analysis-summary strong { font-size: 16px; }
   .magazine-resource-card { grid-template-columns: 1fr; }
   .magazine-resource-card .resource-cover { display: none; }
+  .magazine-admin-browser { grid-template-columns: 1fr; min-height: 0; }
+  .magazine-admin-index { border-right: 0; border-bottom: 1px solid #dce7ec; }
+  .magazine-admin-years { display: flex; overflow-x: auto; }
+  .magazine-admin-years button { flex: 0 0 auto; min-width: 90px; }
+  .magazine-admin-issues { display: flex; overflow-x: auto; padding-bottom: 4px; }
+  .magazine-admin-issues > button { flex: 0 0 180px; border-color: #d7e3e8; background: #fff; }
+  .magazine-admin-detail { padding: 12px; }
   .admin-article-previews { grid-template-columns: 1fr; padding: 10px; }
   .admin-article-row > span { font-size: 12px; }
   .subtitle-workspace {
