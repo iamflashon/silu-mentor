@@ -188,16 +188,18 @@ a {
   color: var(--muted);
 }
 .practice-inline-launch {
-  /* Keep the two buttons inside the date/law row at every desktop width. */
-  flex: 0 1 346px;
-  width: min(346px, 100%);
-  max-width: 100%;
+  /* The date row is wider than the two-column layout by 46px on desktop.
+     Reserve exactly the right-rail width so the second button cannot escape. */
+  flex: 0 0 300px;
+  width: 300px;
+  max-width: 300px;
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-left: auto;
+  margin-right: max(0px, calc(100% - 1134px));
 }
 .practice-inline-launch strong {
   flex: 0 0 auto;
@@ -210,6 +212,8 @@ a {
   gap: 8px;
   margin-left: auto;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .practice-inline-launch button {
   flex: 0 1 auto;
@@ -3658,6 +3662,9 @@ a {
   }
   .practice-inline-launch {
     flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    margin-right: 0;
     align-items: center;
     gap: 7px;
   }
@@ -4764,6 +4771,9 @@ a {
   }
   .practice-inline-launch {
     flex-basis: 265px;
+    width: 265px;
+    max-width: 100%;
+    margin-right: 0;
   }
   .composer-wrap {
     right: 285px;
