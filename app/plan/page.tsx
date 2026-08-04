@@ -43,6 +43,7 @@ type ResetPlanDraft = {
   days: number;
   goals: string[];
   resources: string[];
+  priorityMode: "adaptive" | "core-first";
   clearScope: "all" | "subject";
   step: "settings" | "preview";
 };
@@ -136,7 +137,7 @@ export default function StudyPlanPage() {
   const [resetPlanOpen, setResetPlanOpen] = useState(false);
   const [resetPlanLoading, setResetPlanLoading] = useState(false);
   const [resetPlanMessage, setResetPlanMessage] = useState("");
-  const [resetPlanDraft, setResetPlanDraft] = useState<ResetPlanDraft>({ mode: "all", subject: "民法", scope: "全科", level: "有基礎", dailyMinutes: 120, days: 14, goals: ["建立體系", "一試刷題", "二試申論"], resources: ["教材", "影音", "法條", "真題", "申論", "錯題複習"], clearScope: "all", step: "settings" });
+  const [resetPlanDraft, setResetPlanDraft] = useState<ResetPlanDraft>({ mode: "all", subject: "民法", scope: "全科", level: "有基礎", dailyMinutes: 120, days: 14, goals: ["建立體系", "一試刷題", "二試申論"], resources: ["教材", "影音", "法條", "真題", "申論", "錯題複習"], priorityMode: "adaptive", clearScope: "all", step: "settings" });
 
   async function load() {
     const response = await fetch(`/api/study-plan?month=${month}`);
@@ -284,7 +285,10 @@ export default function StudyPlanPage() {
     try {
       const clearOnlySubject = resetPlanDraft.mode === "single" && resetPlanDraft.clearScope === "subject";
       const target = resetPlanDraft.mode === "single" ? `${resetPlanDraft.subject}（${resetPlanDraft.scope}）單科專攻` : "司律全科備考";
-      const prompt = `請立即依照我的既有學習紀錄、作答結果、弱點與目前進度，建立一份從今天開始的 ${resetPlanDraft.days} 天「${target}」讀書計畫。程度：${resetPlanDraft.level}；每日可用時間：${resetPlanDraft.dailyMinutes} 分鐘；學習目標：${resetPlanDraft.goals.join("、")}；納入資源：${resetPlanDraft.resources.join("、")}。${resetPlanDraft.mode === "single" ? `所有新任務都必須屬於「${resetPlanDraft.subject}」，並聚焦「${resetPlanDraft.scope}」。` : "請依弱點與考試重要性分配各科比重。"}避免重複已完成內容，安排間隔複習，並直接使用 save_study_plan 寫入行事曆。`;
+      const priorityInstruction = resetPlanDraft.priorityMode === "core-first"
+        ? "以高投報核心考點優先：先安排近年反覆出題、可連回多題真題的考點；但不得只看頻率，仍須補入學生已辨識的重大弱點。"
+        : "採自適應優先序：綜合歷屆出題頻率、近五年趨勢、學生錯題與弱點、距離考試時間安排；弱點相同時先排高頻核心考點。";
+      const prompt = `請立即依照我的既有學習紀錄、作答結果、弱點與目前進度，建立一份從今天開始的 ${resetPlanDraft.days} 天「${target}」讀書計畫。程度：${resetPlanDraft.level}；每日可用時間：${resetPlanDraft.dailyMinutes} 分鐘；學習目標：${resetPlanDraft.goals.join("、")}；納入資源：${resetPlanDraft.resources.join("、")}。${priorityInstruction}${resetPlanDraft.mode === "single" ? `所有新任務都必須屬於「${resetPlanDraft.subject}」，並聚焦「${resetPlanDraft.scope}」。` : "請依弱點與考試重要性分配各科比重。"}每項任務的 details 要簡短標示安排原因（核心高頻／個人弱點／間隔複習）與具體產出。避免重複已完成內容，安排間隔複習，並直接使用 save_study_plan 寫入行事曆。`;
       const planResponse = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
         messages: [{ role: "student", text: prompt }],
         planningConstraint: resetPlanDraft.mode === "single" ? {
