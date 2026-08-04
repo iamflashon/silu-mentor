@@ -1,5 +1,5 @@
 export function openAIHeaders(json = true) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY 尚未設定");
   return {
     authorization: `Bearer ${apiKey}`,

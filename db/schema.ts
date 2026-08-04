@@ -186,6 +186,19 @@ export const examAttempts = sqliteTable("exam_attempts", {
     .$defaultFn(() => new Date()),
 });
 
+export const examCoachMessages = sqliteTable("exam_coach_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  questionId: integer("question_id")
+    .notNull()
+    .references(() => examQuestions.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  text: text("text").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const examSources = sqliteTable("exam_sources", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   url: text("url").notNull().unique(),

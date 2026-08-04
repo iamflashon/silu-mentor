@@ -148,6 +148,13 @@
       "when": 1785811160705,
       "tag": "0020_lying_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1785817797288,
+      "tag": "0021_dry_satana",
+      "breakpoints": true
     }
   ]
 }

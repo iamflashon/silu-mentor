@@ -25,7 +25,7 @@ function parseRubric(raw: string) {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
     if (!apiKey) return Response.json({ error: "OPENAI_API_KEY 尚未設定" }, { status: 503 });
     const body = await request.json() as { questionId?: number; answer?: string };
     const questionId = Number(body.questionId);

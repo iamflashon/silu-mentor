@@ -16,6 +16,7 @@ type LearningResource = { id: number; resourceType: "book" | "course" | "magazin
 type ResourceSegment = { id: number; resourceId: number; segmentType: string; lessonLabel: string; title: string; pageStart: number | null; pageEnd: number | null; startSeconds: number | null; endSeconds: number | null; text: string; summary: string; importance: number; recommended: boolean; sequence: number };
 type TutorMessage = { role: "mentor" | "student"; text: string };
 type ChatDay = { id: number; date: string; title: string; summary: string; progressStatus: string; messageCount: number; messages: Array<{ role: "mentor" | "student"; text: string; sources?: string[] }> };
+type ExamCoachConversation = { questionId: number; year: string; subject: string; questionNumber: string; stem: string; messages: Array<{ id: number; role: string; text: string; createdAt: string }> };
 type MagazineFeed = { id: number; title: string; sourceUrl: string; description?: string; isDraft?: boolean; articles?: Array<{ id: number; title: string; summary: string; issue: string; reviewStatus: string; sequence: number }> };
 type HomeFeed = { magazines?: MagazineFeed[]; magazine: MagazineFeed | null; listeningItems?: ListeningFeed[]; listening: ListeningFeed | null; focusMusicUrl?: string };
 
@@ -25,12 +26,12 @@ function monthValue(date = new Date()) {
   return taipeiMonth(date);
 }
 
-type PlanTab = "calendar" | "practice" | "laws" | "books" | "courses" | "listening" | "magazine" | "records" | "conversations" | "notes";
+type PlanTab = "calendar" | "practice" | "laws" | "books" | "courses" | "listening" | "magazine" | "records" | "conversations" | "exam-conversations" | "notes";
 
 function requestedPlanTab(): PlanTab {
   if (typeof window === "undefined") return "calendar";
   const value = new URLSearchParams(window.location.search).get("tab");
-  return ["calendar", "practice", "laws", "books", "courses", "listening", "magazine", "records", "conversations", "notes"].includes(value ?? "")
+  return ["calendar", "practice", "laws", "books", "courses", "listening", "magazine", "records", "conversations", "exam-conversations", "notes"].includes(value ?? "")
     ? value as PlanTab
     : "calendar";
 }
@@ -43,6 +44,8 @@ export default function StudyPlanPage() {
   const [message, setMessage] = useState("");
   const [records, setRecords] = useState<StudyRecord[]>([]);
   const [chatDays, setChatDays] = useState<ChatDay[]>([]);
+  const [examConversations, setExamConversations] = useState<ExamCoachConversation[]>([]);
+  const [openExamConversation, setOpenExamConversation] = useState<number | null>(null);
   const [openChatDay, setOpenChatDay] = useState<number | null>(null);
   const [notes, setNotes] = useState<SavedNote[]>([]);
   const [recordPage, setRecordPage] = useState(1);
@@ -87,6 +90,7 @@ export default function StudyPlanPage() {
   useEffect(() => {
     fetch("/api/learning-records").then(async (response) => { if (response.ok) setRecords(((await response.json()) as { records?: StudyRecord[] }).records ?? []); });
     fetch("/api/chat/history?archive=1").then(async (response) => { if (response.ok) setChatDays(((await response.json()) as { archive?: ChatDay[] }).archive ?? []); });
+    fetch("/api/exam-coach-history").then(async (response) => { if (response.ok) setExamConversations(((await response.json()) as { conversations?: ExamCoachConversation[] }).conversations ?? []); });
     fetch("/api/notes").then(async (response) => { if (response.ok) setNotes(((await response.json()) as { notes?: SavedNote[] }).notes ?? []); });
     fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed((await response.json()) as HomeFeed); });
     fetch("/api/resources").then(async (response) => { if (response.ok) setResources(((await response.json()) as { resources?: LearningResource[] }).resources ?? []); });
@@ -352,7 +356,7 @@ export default function StudyPlanPage() {
         <div><p>MY LEARNING CENTER</p><h1>學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律備考聊完後，AI 會把任務寫到這裡"}</span></div>
         {activeTab === "calendar" && <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>}
       </div>
-      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>書籍</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>書籍</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "exam-conversations" ? "active" : ""} onClick={() => setActiveTab("exam-conversations")}>試題問答 <span>{examConversations.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
       {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><div className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>已發布的題目都會保留在學習區，方便依序練習</span></div><i>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? "▶" : "聽"}</i></div>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? <div className="listening-feed-list">{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).map((item) => <article className="listening-feed-item" key={item.id}><div className="listening-feed-heading"><div><span>{item.year || "自訂題目"} · {item.subject}</span><h3>{item.title}</h3></div><b>已發布</b></div><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={item} /></article>)}</div> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</div></section>}
       {(activeTab === "books" || activeTab === "courses") && <section className="resource-learning-hub" aria-label={activeTab === "books" ? "書籍學習" : "影音課程學習"}>
             <div className="resource-learning-head"><div><p>{activeTab === "books" ? "READING ROOM" : "COURSE ROOM"}</p><h2>{activeTab === "books" ? "書籍學習" : "影音課程學習"}</h2><span>{activeTab === "books" ? "不開啟 PDF；選章節後由 AI 依教材內容教學。" : "留在學習專區內完成；進度、今日計畫與學習紀錄會連在一起。"}</span></div><span className="resource-count">{(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>
@@ -388,6 +392,10 @@ export default function StudyPlanPage() {
       {activeTab === "conversations" && <section className="learning-hub tab-hub" id="conversations">
         <div className="hub-heading"><div><p>DAILY CONVERSATIONS</p><h2>每日對話</h2><span>每天一個新對話；昨天的內容會保留，並成為今天 AI 教練的接續依據。</span></div><strong>{chatDays.length} 天</strong></div>
         {chatDays.length ? <div className="daily-chat-list">{chatDays.map((day) => <article className="daily-chat-card" key={day.id}><button type="button" className="daily-chat-summary" onClick={() => setOpenChatDay(openChatDay === day.id ? null : day.id)}><span>{day.date}</span><div><strong>{day.title.replace(/^\d{4}-\d{2}-\d{2}｜/, "") || "司律備考學習對話"}</strong><small>{day.messageCount} 則訊息 · {day.progressStatus === "active" ? "已進行" : "已保存"}</small></div><b>{openChatDay === day.id ? "收合" : "查看"}</b></button>{openChatDay === day.id && <div className="daily-chat-messages">{day.messages.map((message, index) => <div className={`daily-chat-message ${message.role}`} key={`${day.id}-${index}`}><span>{message.role === "mentor" ? "AI 教練" : "我"}</span><p>{message.text}</p></div>)}</div>}</article>)}</div> : <div className="hub-empty">今天開始對話後，每日紀錄會自動保留在這裡。</div>}
+      </section>}
+      {activeTab === "exam-conversations" && <section className="learning-hub tab-hub" id="exam-conversations">
+        <div className="hub-heading"><div><p>QUESTION COACH HISTORY</p><h2>試題問答</h2><span>一試、二試在題目內的 AI 對話會依題目保存，之後可回看學習。</span></div><strong>{examConversations.length} 題</strong></div>
+        {examConversations.length ? <div className="daily-chat-list">{examConversations.map((conversation) => <article className="daily-chat-card" key={conversation.questionId}><button type="button" className="daily-chat-summary" onClick={() => setOpenExamConversation(openExamConversation === conversation.questionId ? null : conversation.questionId)}><span>{conversation.year}</span><div><strong>{conversation.subject} · 第 {conversation.questionNumber} 題</strong><small>{conversation.messages.length} 則問答</small></div><b>{openExamConversation === conversation.questionId ? "收合" : "查看"}</b></button>{openExamConversation === conversation.questionId && <div className="daily-chat-messages"><p className="exam-history-stem">{conversation.stem}</p>{conversation.messages.map((message) => <div className={`daily-chat-message ${message.role}`} key={message.id}><span>{message.role === "mentor" ? "AI 教練" : "我"}</span><p>{message.text}</p></div>)}</div>}</article>)}</div> : <div className="hub-empty">在試題卡片內開始 AI 對話後，紀錄會自動保留在這裡。</div>}
       </section>}
       {activeTab === "notes" && <section className="learning-hub tab-hub" id="notes">
         <div className="hub-heading"><div><p>MY COLLECTION</p><h2>筆記收藏</h2><span>從導師對話一鍵收藏，保留教材來源並可依科目、標籤與內容搜尋。</span></div><div className="hub-heading-actions"><strong>{notes.length} 則</strong><button className="secondary-btn" onClick={() => void addBlankNote()}>＋ 空白筆記</button></div></div>

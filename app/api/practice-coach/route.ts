@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { examQuestions, learningResources, legalArticles, legalDocuments, resourceSegments, usageLogs } from "../../../db/schema";
+import { examCoachMessages, examQuestions, learningResources, legalArticles, legalDocuments, resourceSegments, usageLogs } from "../../../db/schema";
 import { openAIJson } from "../../../lib/openai";
 
 type CoachMessage = { role: "mentor" | "student"; text: string };
@@ -34,6 +34,8 @@ function questionText(question: { stem: string; optionsJson: string | null }) {
   } catch { /* keep the stem even when legacy options are malformed */ }
   return `${question.stem}\n${options}`.trim();
 }
+
+function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
 export async function POST(request: Request) {
   try {
@@ -89,6 +91,10 @@ export async function POST(request: Request) {
       text: { format: { type: "json_schema", name: "practice_coach", strict: true, schema: { type: "object", additionalProperties: false, properties: { reply: { type: "string" }, diagnosed_gap: { type: "string" }, key_issue: { type: "string" }, recommended_resource_ids: { type: "array", items: { type: "integer" } }, recommended_law_ids: { type: "array", items: { type: "integer" } } }, required: ["reply", "diagnosed_gap", "key_issue", "recommended_resource_ids", "recommended_law_ids"] } } },
     }) });
     const parsed = JSON.parse(outputText(payload)) as { reply: string; diagnosed_gap: string; key_issue: string; recommended_resource_ids: number[]; recommended_law_ids: number[] };
+    const key = userKey(request);
+    const latestStudent = Array.isArray(body.messages) ? [...body.messages].reverse().find((message) => message.role === "student" && message.text.trim()) : null;
+    if (latestStudent) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "student", text: latestStudent.text.trim() });
+    if (parsed.reply?.trim()) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "mentor", text: parsed.reply.trim() });
     const recommendedResources = resources.filter((item) => parsed.recommended_resource_ids.includes(item.segmentId)).slice(0, 4).map((item) => ({ type: item.resourceType, title: item.resourceTitle, location: item.resourceType === "course" && item.startSeconds != null ? `${item.segmentTitle} · ${Math.floor(item.startSeconds / 60)}:${String(item.startSeconds % 60).padStart(2, "0")}` : [item.lessonLabel, item.pageStart ? `第 ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `–${item.pageEnd}` : ""} 頁` : ""].filter(Boolean).join(" · "), url: item.sourceUrl, startSeconds: item.startSeconds }));
     const recommendedLaws = laws.filter((item) => parsed.recommended_law_ids.includes(item.id)).slice(0, 4).map((item) => ({ type: "law", title: `${item.title} ${item.articleNo}`, location: item.content.slice(0, 140), url: item.sourceUrl, startSeconds: null }));
     const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
