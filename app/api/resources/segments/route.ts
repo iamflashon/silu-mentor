@@ -25,7 +25,7 @@ function makeDigestWindows<T extends { startSeconds: number | null; text: string
   let windowStart = rows[0]?.startSeconds ?? 0;
   for (const row of rows) {
     const start = row.startSeconds ?? windowStart;
-    if (current.length && (start - windowStart >= 360 || current.length >= 45)) {
+    if (current.length && (start - windowStart >= 300 || current.length >= 180)) {
       windows.push(current);
       current = [];
       windowStart = start;
@@ -36,12 +36,36 @@ function makeDigestWindows<T extends { startSeconds: number | null; text: string
   return windows;
 }
 
+function compactCourseSummaries<T extends {
+  startSeconds: number | null;
+  endSeconds: number | null;
+  sequence: number;
+  importance: number;
+  recommended: boolean;
+  summary: string;
+}>(rows: T[], limit = 15) {
+  const candidates = rows
+    .filter((row) => row.summary.trim())
+    .sort((a, b) => a.sequence - b.sequence);
+  if (candidates.length <= limit) return candidates;
+
+  const first = candidates[0]?.startSeconds ?? 0;
+  const last = candidates[candidates.length - 1]?.endSeconds ?? first;
+  const span = Math.max(1, last - first);
+  const selected = new Map<number, T>();
+  for (const row of candidates) {
+    const position = Math.max(0, row.startSeconds ?? first) - first;
+    const bucket = Math.min(limit - 1, Math.floor((position / span) * limit));
+    const previous = selected.get(bucket);
+    if (!previous || (row.recommended ? 1 : 0) + row.importance > (previous.recommended ? 1 : 0) + previous.importance) {
+      selected.set(bucket, row);
+    }
+  }
+  return Array.from(selected.values()).sort((a, b) => a.sequence - b.sequence).slice(0, limit);
+}
+
 function compactExistingSummaries(rows: Array<typeof resourceSegments.$inferSelect>) {
-  return makeDigestWindows(rows.filter((row) => row.segmentType === "subtitle"))
-    .map((window) => window
-      .filter((row) => row.summary.trim() || row.recommended)
-      .sort((a, b) => (b.importance - a.importance) || (a.sequence - b.sequence))[0])
-    .filter((row): row is typeof rows[number] => Boolean(row));
+  return compactCourseSummaries(rows.filter((row) => row.segmentType === "subtitle"));
 }
 
 async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: Array<typeof resourceSegments.$inferSelect>) {
@@ -54,7 +78,7 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
       method: "POST",
       body: JSON.stringify({
         model,
-        instructions: "你是台灣司律考試影音課程編輯。請把這一段連續課程整理成 1 個最值得學生記住的摘要重點；只有在內容確實包含兩個完全不同的考點時才輸出 2 個。不要逐句摘要，不要照抄字幕，不要補造字幕沒有的內容。每個重點要有 8 至 20 字的主題標題、30 至 70 字的繁中摘要，並選出最能代表該重點的字幕 anchorId。輸出 JSON。",
+        instructions: "你是台灣司律考試影音課程編輯。請把這一段連續課程整理成 1 個最值得學生記住的摘要重點。不要逐句摘要，不要照抄字幕，不要補造字幕沒有的內容。每個重點要有 8 至 20 字的主題標題、30 至 70 字的繁中摘要，並選出最能代表該重點的字幕 anchorId。輸出 JSON。",
         input: JSON.stringify(window.map((item) => ({
           anchorId: item.id,
           start: item.startSeconds,
@@ -73,7 +97,7 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
                 items: {
                   type: "array",
                   minItems: 1,
-                  maxItems: 2,
+                  maxItems: 1,
                   items: {
                     type: "object",
                     additionalProperties: false,
@@ -110,6 +134,9 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
   const uniqueDigest = Array.from(new Map(digest.map((item) => [item.anchorId, item])).values())
     .sort((a, b) => a.sourceSequence - b.sourceSequence);
   if (!uniqueDigest.length) throw new Error("AI 沒有產生可用的課程摘要");
+  const limitedDigest = uniqueDigest.length > 15
+    ? uniqueDigest.filter((_item, index) => index % Math.ceil(uniqueDigest.length / 15) === 0).slice(0, 15)
+    : uniqueDigest;
 
   await db.update(resourceSegments).set({
     summary: "",
@@ -118,7 +145,7 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
     reviewStatus: "source",
   }).where(eq(resourceSegments.resourceId, rows[0].resourceId));
 
-  for (const item of uniqueDigest) {
+  for (const item of limitedDigest) {
     await db.update(resourceSegments).set({
       title: item.title,
       summary: item.summary,
@@ -128,7 +155,7 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
     }).where(eq(resourceSegments.id, item.anchorId));
   }
   await db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, rows[0].resourceId));
-  return uniqueDigest.length;
+  return limitedDigest.length;
 }
 
 export async function GET(request: Request) {
@@ -138,12 +165,13 @@ export async function GET(request: Request) {
   const db = await getDb();
   const [resource] = await db.select().from(learningResources).where(eq(learningResources.id, resourceId)).limit(1);
   if (!resource) return Response.json({ error: "找不到課程" }, { status: 404 });
-  let segments = await db.select().from(resourceSegments).where(eq(resourceSegments.resourceId, resourceId)).orderBy(asc(resourceSegments.sequence));
+  const segments = await db.select().from(resourceSegments).where(eq(resourceSegments.resourceId, resourceId)).orderBy(asc(resourceSegments.sequence));
   if (summaryOnly) {
     const digest = segments.filter((segment) => segment.reviewStatus === "ai_digest" && segment.summary.trim());
+    const visibleDigest = compactCourseSummaries(digest.length ? digest : compactExistingSummaries(segments));
     return Response.json({
       resource,
-      segments: digest.length ? digest : compactExistingSummaries(segments),
+      segments: visibleDigest,
       summaryMode: digest.length ? "ai_digest" : "compact_preview",
     });
   }

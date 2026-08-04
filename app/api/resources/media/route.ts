@@ -10,7 +10,17 @@ function isSafeTarget(sourceUrl: string, target: string) {
   try {
     const source = new URL(sourceUrl);
     const candidate = new URL(target);
-    return source.protocol === "https:" && candidate.protocol === "https:" && source.hostname === candidate.hostname;
+    if (source.protocol !== "https:" || candidate.protocol !== "https:") return false;
+    if (source.hostname === candidate.hostname) return true;
+
+    // Some ibrain HLS manifests keep the playlist on one CloudFront
+    // distribution but serve the AES-128 key from another. Both hosts are
+    // still part of the same trusted CloudFront media path; rejecting the
+    // second host makes the browser load metadata but fail to decrypt every
+    // segment, which appears as a black video.
+    return source.hostname.endsWith(".cloudfront.net")
+      && candidate.hostname.endsWith(".cloudfront.net")
+      && source.pathname.split("/").slice(0, 3).join("/") === candidate.pathname.split("/").slice(0, 3).join("/");
   } catch {
     return false;
   }
@@ -98,4 +108,3 @@ export async function GET(request: Request) {
 
   return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 }
-
