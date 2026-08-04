@@ -25,6 +25,14 @@ const RELATED_ARTICLE_NUMBERS: Record<string, string[]> = {
   "刑法:271": ["25", "26", "27", "28", "29", "30", "272", "275"],
 };
 
+const LEGAL_QUERY_EXPANSIONS: Record<string, string[]> = {
+  "舉證責任": ["證明責任", "舉證", "證明"],
+  "正當防衛": ["現在不法侵害", "防衛", "防衛過當"],
+  "行政處分": ["行政行為", "撤銷訴訟", "訴願"],
+  "因果關係": ["相當因果關係", "客觀歸責"],
+  "不作為犯": ["保證人地位", "作為義務"],
+};
+
 function exactCoreLawTitle(lawName: string): SQL | null {
   const titles = CORE_LAW_TITLES[lawName];
   if (!titles?.length) return null;
@@ -39,6 +47,35 @@ function normalizeSearchText(value: string) {
   return value
     .replace(/[０-９]/g, (character) => String.fromCharCode(character.charCodeAt(0) - 0xfee0))
     .replace(/[\s\u3000]+/g, "");
+}
+
+function decomposeLegalQuery(value: string) {
+  const normalized = value
+    .replace(/[，、；;＋+×]/g, " ")
+    .replace(/(?:以及|與|和|及|還有|比較|關係)/g, " ")
+    .replace(/[「」『』()（）]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const terms = [...new Set(normalized.split(" ").map((term) => term.trim()).filter((term) => term.length >= 2))].slice(0, 6);
+  const expandedTerms = [...new Set(terms.flatMap((term) => LEGAL_QUERY_EXPANSIONS[term] ?? []))]
+    .filter((term) => !terms.includes(term))
+    .slice(0, 10);
+  return {
+    terms: terms.length ? terms : [value.trim()],
+    expandedTerms,
+    intent: terms.length > 1 ? "compare" : "lookup",
+  } as const;
+}
+
+function searchConditionFor(term: string) {
+  const pattern = `%${escapeLike(term)}%`;
+  return or(
+    like(legalDocuments.title, pattern),
+    like(legalDocuments.classification, pattern),
+    like(legalArticles.articleNo, pattern),
+    like(legalArticles.content, pattern),
+    like(legalArticles.hierarchy, pattern),
+  );
 }
 
 function parseLawQuery(value: string) {
@@ -74,8 +111,8 @@ export async function GET(request: Request) {
 
   try {
     const db = await getDb();
-    const pattern = `%${escapeLike(query)}%`;
     const parsed = parseLawQuery(query);
+    const analysis = decomposeLegalQuery(query);
     const conditions = [eq(legalDocuments.status, "active")];
     if (parsed.articleNumber) {
       const articlePattern = `%${escapeLike(parsed.articleNumber)}%`;
@@ -92,15 +129,8 @@ export async function GET(request: Request) {
       // the same two characters.
       conditions.push(exactCoreLawTitle(parsed.lawName) ?? like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`));
     } else {
-      conditions.push(
-        or(
-          like(legalDocuments.title, pattern),
-          like(legalDocuments.classification, pattern),
-          like(legalArticles.articleNo, pattern),
-          like(legalArticles.content, pattern),
-          like(legalArticles.hierarchy, pattern),
-        ),
-      );
+      const searchableTerms = [...analysis.terms, ...analysis.expandedTerms];
+      conditions.push(or(...searchableTerms.map(searchConditionFor)));
     }
     if (category && ["法律", "命令"].includes(category)) conditions.push(eq(legalDocuments.category, category));
 
@@ -159,6 +189,16 @@ export async function GET(request: Request) {
       }
     }
 
+    if (!parsed.articleNumber && !parsed.lawName && analysis.terms.length > 1) {
+      selectedRows = [...rows].sort((left, right) => {
+        const leftText = `${left.title} ${left.classification} ${left.hierarchy} ${left.content}`;
+        const rightText = `${right.title} ${right.classification} ${right.hierarchy} ${right.content}`;
+        const score = (text: string) => analysis.terms.reduce((total, term) => total + (text.includes(term) ? 4 : 0), 0)
+          + analysis.expandedTerms.reduce((total, term) => total + (text.includes(term) ? 1 : 0), 0);
+        return score(rightText) - score(leftText);
+      });
+    }
+
     const results = [
       ...selectedRows.map((row) => ({ ...row, matchType: parsed.articleNumber ? "exact" : "content" })),
       ...relatedRows.map((row) => ({ ...row, matchType: "related" })),
@@ -166,7 +206,7 @@ export async function GET(request: Request) {
       ...row,
       excerpt: row.content.length > 220 ? `${row.content.slice(0, 220)}…` : row.content,
     }));
-    return Response.json({ query, results, total: results.length });
+    return Response.json({ query, analysis, results, total: results.length });
   } catch {
     return Response.json({ error: "法規資料尚未就緒，請稍後再搜尋" }, { status: 503 });
   }

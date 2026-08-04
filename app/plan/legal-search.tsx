@@ -5,6 +5,7 @@ import { FormEvent, Fragment, useEffect, useState } from "react";
 type LegalResult = { documentId: number; title: string; category: string; classification: string; modifiedDate: string; sourceUrl: string; articleNo: string; hierarchy: string; content: string; excerpt: string; matchType?: "exact" | "related" | "content" };
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
 type InlineMessage = { role: "mentor" | "student"; text: string };
+type SearchAnalysis = { terms: string[]; expandedTerms: string[]; intent: "compare" | "lookup" };
 
 type LearningDirection = "articles" | "issues" | "questions" | "guide";
 
@@ -66,6 +67,7 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [analysis, setAnalysis] = useState<SearchAnalysis | null>(null);
   const [notes, setNotes] = useState<SavedNote[]>([]);
   const [noteTarget, setNoteTarget] = useState<LegalResult | null>(null);
   const [noteId, setNoteId] = useState<number | "new" | "">("");
@@ -101,13 +103,14 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
     setLoading(true); setError(""); setSearched(true);
     try {
       const response = await fetch(`/api/legal-search?q=${encodeURIComponent(text)}&category=${encodeURIComponent(requestedCategory)}`);
-      const result = await response.json() as { results?: LegalResult[]; error?: string };
+      const result = await response.json() as { results?: LegalResult[]; analysis?: SearchAnalysis; error?: string };
       if (!response.ok) throw new Error(result.error ?? "尋法脈搜尋失敗");
       setResults(result.results ?? []);
       onResultCount?.((result.results ?? []).length);
       setSearchedQuery(text);
+      setAnalysis(result.analysis ?? null);
     } catch (reason) {
-      setResults([]); onResultCount?.(0); setError(reason instanceof Error ? reason.message : "尋法脈搜尋失敗");
+      setResults([]); setAnalysis(null); onResultCount?.(0); setError(reason instanceof Error ? reason.message : "尋法脈搜尋失敗");
     } finally { setLoading(false); }
   }
 
@@ -176,8 +179,13 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
     </section>
     <form className="legal-search-form" onSubmit={(event) => { event.preventDefault(); void search(); }}><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋法規名稱、條號或關鍵字，例如：刑法第271條" aria-label="法規搜尋關鍵字" /><select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="法規類別"><option value="">全部</option><option value="法律">法律</option><option value="命令">命令</option></select><button className="primary-btn" disabled={loading}>{loading ? "搜尋中…" : "搜尋"}</button></form>
     <div className="legal-search-suggestions"><span>快速搜尋</span>{["刑法第271條", "正當防衛", "民法第184條", "行政處分"].map((item) => <button type="button" key={item} onClick={() => { setQuery(item); void search(item); }}>{item}</button>)}</div>
+    {searched && !loading && !error && analysis && <section className="legal-query-analysis" aria-label="AI 搜尋拆解">
+      <div><b>AI 已拆解這次搜尋</b><span>{analysis.intent === "compare" ? "分別查找概念，並優先排列同時相關的法條" : "辨識法律概念並擴展常見相關用語"}</span></div>
+      <dl><dt>核心概念</dt><dd>{analysis.terms.map((term) => <button type="button" key={term} onClick={() => { setQuery(term); void search(term); }}>{term}</button>)}</dd></dl>
+      {!!analysis.expandedTerms.length && <dl><dt>同步延伸</dt><dd>{analysis.expandedTerms.map((term) => <button type="button" key={term} onClick={() => { setQuery(term); void search(term); }}>{term}</button>)}</dd></dl>}
+    </section>}
     {error && <p className="legal-search-error">{error}</p>}
-    {searched && !loading && !error && !results.length && <div className="legal-search-empty">沒有找到相符條文。可以改用法規名稱、條號或較短的關鍵字。</div>}
+    {searched && !loading && !error && !results.length && <div className="legal-search-empty"><b>已拆開搜尋，但目前資料中仍沒有直接相符的條文</b><span>法律概念不一定會原文寫在法條內；可點上方任一概念單獨查找，或改到「司法院裁判」搜尋實務見解。</span></div>}
     <div className="search-highlight-legend"><span><i className="exact" />搜尋關鍵字</span><span><i className="related" />關聯概念</span></div>
     <div className="legal-result-list">{results.map((result, index) => {
       const resultKey = `${result.documentId}-${result.articleNo}-${index}`;

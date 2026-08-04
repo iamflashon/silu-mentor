@@ -3079,6 +3079,15 @@ a {
 .research-panel { display: none; }
 .research-panel.active { display: block; }
 .judicial-search-panel { border-top: 4px solid #47758a; }
+.legal-query-analysis { display: grid; gap: 10px; margin-top: 14px; padding: 14px 16px; border: 1px solid #cfe1e8; border-left: 4px solid #4f879e; border-radius: 10px; background: #f5fafc; }
+.legal-query-analysis > div { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.legal-query-analysis > div b { color: #285d7f; font-size: 14px; }
+.legal-query-analysis > div span { color: #6d8591; font-size: 12px; }
+.legal-query-analysis dl { display: grid; grid-template-columns: 72px 1fr; align-items: start; gap: 8px; margin: 0; }
+.legal-query-analysis dt { padding-top: 6px; color: #758b96; font-size: 12px; font-weight: 800; }
+.legal-query-analysis dd { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.legal-query-analysis button { padding: 5px 9px; border: 1px solid #c9dee7; border-radius: 999px; background: #fff; color: #315f76; font-size: 12px; cursor: pointer; }
+.legal-query-analysis button:hover { border-color: #6fa0b4; background: #edf7fa; }
 .judicial-search-form { display: grid; grid-template-columns: minmax(0, 1fr) 180px 100px auto; gap: 8px; margin-top: 18px; }
 .judicial-search-form input { min-width: 0; padding: 14px 15px; border: 1px solid #cfdee6; border-radius: 9px; background: #fbfdfe; color: #3c6175; font: inherit; font-size: 15px; }
 .judicial-search-form .primary-btn { border: 0; border-radius: 9px; background: #285d7f; color: #fff; padding: 0 16px; font-size: 14px; font-weight: 850; }
