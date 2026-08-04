@@ -283,6 +283,7 @@ export default function AdminPage() {
     | "documents"
     | "resources"
     | "courses"
+    | "trials"
     | "listening"
     | "magazine"
     | "legal"
@@ -325,6 +326,8 @@ export default function AdminPage() {
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceCreator, setResourceCreator] = useState("");
+  const [resourceSubject, setResourceSubject] = useState("刑法");
+  const [resourceDescription, setResourceDescription] = useState("");
   const [resourceUrl, setResourceUrl] = useState("");
   const [resourceDocumentId, setResourceDocumentId] = useState("");
   const [magazineUrl, setMagazineUrl] = useState(
@@ -718,6 +721,8 @@ export default function AdminPage() {
     const selectedType =
       activeTab === "courses"
         ? "course"
+        : activeTab === "trials"
+          ? "trial"
         : activeTab === "resources"
           ? "book"
           : resourceType;
@@ -727,11 +732,12 @@ export default function AdminPage() {
       body: JSON.stringify({
         resourceType: selectedType,
         title: resourceTitle,
-        subject: "刑法",
+        subject: resourceSubject,
         creator: resourceCreator,
+        description: resourceDescription,
         sourceUrl: resourceUrl,
         documentId: resourceDocumentId || null,
-        accessType: selectedType === "course" ? "full" : "owned",
+        accessType: selectedType === "course" ? "full" : selectedType === "trial" ? "external" : "owned",
       }),
     });
     const result = (await readJson(response)) as {
@@ -745,6 +751,7 @@ export default function AdminPage() {
     setResources((current) => [result.resource!, ...current]);
     setResourceTitle("");
     setResourceCreator("");
+    setResourceDescription("");
     setResourceUrl("");
     setResourceDocumentId("");
     setNotice("學習資源已建立，可繼續上傳書封或字幕。");
@@ -2200,7 +2207,13 @@ export default function AdminPage() {
             className={activeTab === "courses" ? "active" : ""}
             onClick={() => setActiveTab("courses")}
           >
-            影音／試聽課
+            影音課程
+          </button>
+          <button
+            className={activeTab === "trials" ? "active" : ""}
+            onClick={() => setActiveTab("trials")}
+          >
+            知識達試聽
           </button>
           <button
             className={activeTab === "listening" ? "active" : ""}
@@ -2643,14 +2656,13 @@ export default function AdminPage() {
             </section>
           </div>
         )}
-        {(activeTab === "resources" || activeTab === "courses") && (
+        {(activeTab === "resources" || activeTab === "courses" || activeTab === "trials") && (
           <section className="panel resource-manager">
             <div className="cost-heading">
               <div>
-                <h2>書籍與課程管理</h2>
+                <h2>{activeTab === "trials" ? "知識達試聽管理" : "書籍與課程管理"}</h2>
                 <p className="panel-sub">
-                  書籍綁定教材 PDF 並管理書封；課程綁定可直接播放的 HLS／影片網址與 SRT
-                  字幕，字幕會自動拆成可搜尋的時間片段。
+                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材 PDF 並管理書封；課程綁定可直接播放的 HLS／影片網址與 SRT 字幕，字幕會自動拆成可搜尋的時間片段。"}
                 </p>
               </div>
               <span className="source-count">{resources.length} 項資源</span>
@@ -2659,12 +2671,13 @@ export default function AdminPage() {
               <label className="field">
                 資源類型
                 <select
-                  value={activeTab === "courses" ? "course" : "book"}
+                  value={activeTab === "courses" ? "course" : activeTab === "trials" ? "trial" : "book"}
                   onChange={(e) => setResourceType(e.target.value)}
                   disabled
                 >
                   <option value="book">書籍</option>
                   <option value="course">影音課程</option>
+                  <option value="trial">知識達試聽</option>
                 </select>
               </label>
               <label className="field">
@@ -2683,16 +2696,18 @@ export default function AdminPage() {
                   placeholder="張鏡榮律師"
                 />
               </label>
-              {activeTab === "courses" ? (
+              {activeTab === "trials" && <label className="field">科目<select value={resourceSubject} onChange={(e) => setResourceSubject(e.target.value)}>{["民法", "刑法", "憲法", "行政法", "民事訴訟法", "刑事訴訟法", "商事法", "選試科目"].map((item) => <option key={item}>{item}</option>)}</select></label>}
+              {activeTab === "trials" && <label className="field">課程簡介<input value={resourceDescription} onChange={(e) => setResourceDescription(e.target.value)} placeholder="例如：適合初學者建立刑法基本架構" /></label>}
+              {activeTab === "courses" || activeTab === "trials" ? (
                 <label className="field">
-                  課程／來源網址
+                  {activeTab === "trials" ? "知識達官方試聽網址" : "課程／來源網址"}
                   <input
                     type="url"
                     value={resourceUrl}
                     onChange={(e) => setResourceUrl(e.target.value)}
-                    placeholder="https://…/playlist.m3u8"
+                    placeholder={activeTab === "trials" ? "https://www.ibrain.com.tw/audition/ListDetail.aspx?…" : "https://…/playlist.m3u8"}
                   />
-                  <small className="field-hint">請填可直接播放的 .m3u8 或 .mp4；ibrain 課程頁網址不能直接嵌入。</small>
+                  <small className="field-hint">{activeTab === "trials" ? "學生點擊後會另開此官方頁面。" : "請填可直接播放的 .m3u8 或 .mp4；ibrain 課程頁網址不能直接嵌入。"}</small>
                 </label>
               ) : (
                 <div className="field resource-create-hint">
@@ -2706,7 +2721,7 @@ export default function AdminPage() {
             </form>
             {notice && <div className="notice">{notice}</div>}
             <div className="resource-grid">
-              {orderedResourceGroup(activeTab === "courses" ? "course" : "book").map((resource, resourceIndex) => (
+              {orderedResourceGroup(activeTab === "courses" ? "course" : activeTab === "trials" ? "trial" : "book").map((resource, resourceIndex) => (
                   <article className="resource-card magazine-resource-card" key={resource.id}>
                     <div className="resource-cover">
                       {resource.hasCover ? (

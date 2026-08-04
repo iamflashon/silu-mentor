@@ -114,7 +114,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as Record<string, unknown>;
   const title = String(body.title ?? "").trim();
   const resourceType = String(body.resourceType ?? "book");
-  if (!title || !["book", "course", "magazine"].includes(resourceType))
+  if (!title || !["book", "course", "trial", "magazine"].includes(resourceType))
     return Response.json(
       { error: "請填寫正確的資源名稱與類型" },
       { status: 400 },

@@ -12,7 +12,7 @@ type Task = { id: number; planId: number; taskDate: string; subject: string; tit
 type Draft = { id?: number; date: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type StudyRecord = { id: number; recordDate: string; subject: string; title: string; activityType: string; plannedMinutes: number; actualMinutes: number; correct: boolean | null; reflection: string; weakness: string; nextStep: string };
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
-type LearningResource = { id: number; resourceType: "book" | "course" | "magazine"; title: string; subject: string; creator: string; description: string; documentId: number | null; documentStatus?: string | null; documentError?: string | null; sourceUrl: string; accessType: string; status: string; sortOrder: number; segmentCount: number; hasCover?: number };
+type LearningResource = { id: number; resourceType: "book" | "course" | "trial" | "magazine"; title: string; subject: string; creator: string; description: string; documentId: number | null; documentStatus?: string | null; documentError?: string | null; sourceUrl: string; accessType: string; status: string; sortOrder: number; segmentCount: number; hasCover?: number };
 type ResourceSegment = { id: number; resourceId: number; segmentType: string; lessonLabel: string; title: string; pageStart: number | null; pageEnd: number | null; startSeconds: number | null; endSeconds: number | null; text: string; summary: string; importance: number; recommended: boolean; sequence: number };
 type TutorMessage = { role: "mentor" | "student"; text: string };
 type ChatDay = { id: number; date: string; title: string; summary: string; progressStatus: string; messageCount: number; messages: Array<{ role: "mentor" | "student"; text: string; sources?: string[] }> };
@@ -51,12 +51,12 @@ function monthValue(date = new Date()) {
   return taipeiMonth(date);
 }
 
-type PlanTab = "calendar" | "practice" | "laws" | "books" | "courses" | "listening" | "magazine" | "records" | "conversations" | "exam-conversations" | "notes";
+type PlanTab = "calendar" | "practice" | "laws" | "books" | "courses" | "trials" | "listening" | "magazine" | "records" | "conversations" | "exam-conversations" | "notes";
 
 function requestedPlanTab(): PlanTab {
   if (typeof window === "undefined") return "calendar";
   const value = new URLSearchParams(window.location.search).get("tab");
-  return ["calendar", "practice", "laws", "books", "courses", "listening", "magazine", "records", "conversations", "exam-conversations", "notes"].includes(value ?? "")
+  return ["calendar", "practice", "laws", "books", "courses", "trials", "listening", "magazine", "records", "conversations", "exam-conversations", "notes"].includes(value ?? "")
     ? value as PlanTab
     : "calendar";
 }
@@ -315,6 +315,15 @@ export default function StudyPlanPage() {
 
   const bookResources = resources.filter((item) => item.resourceType === "book" && item.status !== "archived").sort((a, b) => (a.sortOrder - b.sortOrder) || (a.id - b.id));
   const courseResources = resources.filter((item) => item.resourceType === "course" && item.status !== "archived").sort((a, b) => (a.sortOrder - b.sortOrder) || (a.id - b.id));
+  const managedTrialResources = resources.filter((item) => item.resourceType === "trial" && item.status === "active").sort((a, b) => (a.sortOrder - b.sortOrder) || (a.id - b.id));
+  const defaultTrialResources: LearningResource[] = [
+    { id: -1, resourceType: "trial", title: "民法（入門）", subject: "民法", creator: "蘇台大", description: "適合先建立民法基本架構，再進入正課與案例演習。", documentId: null, sourceUrl: "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=63834&iC=2089", accessType: "external", status: "active", sortOrder: 0, segmentCount: 0 },
+    { id: -2, resourceType: "trial", title: "民法案例演習", subject: "民法", creator: "蘇台大", description: "從案例中練習辨認法律關係、爭點與請求權基礎。", documentId: null, sourceUrl: "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=48540&iC=2089", accessType: "external", status: "active", sortOrder: 1, segmentCount: 0 },
+    { id: -3, resourceType: "trial", title: "刑法（入門）", subject: "刑法", creator: "榮台大", description: "適合刑法初學者先掌握犯罪論體系與基本判斷順序。", documentId: null, sourceUrl: "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=65691&iC=2089", accessType: "external", status: "active", sortOrder: 2, segmentCount: 0 },
+    { id: -4, resourceType: "trial", title: "刑法（進階）", subject: "刑法", creator: "榮台大", description: "進一步理解重要爭點與考題中的法律適用。", documentId: null, sourceUrl: "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=41161&iC=2089", accessType: "external", status: "active", sortOrder: 3, segmentCount: 0 },
+    { id: -5, resourceType: "trial", title: "憲法", subject: "憲法", creator: "韓台大", description: "試聽憲法課程，了解基本權與國家權力的重要架構。", documentId: null, sourceUrl: "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=22340&iC=2089", accessType: "external", status: "active", sortOrder: 4, segmentCount: 0 },
+  ];
+  const trialResources = managedTrialResources.length ? managedTrialResources : defaultTrialResources;
   const defaultExpandedBookId = selectedResourceId === null ? (bookResources[0]?.id ?? null) : null;
   const currentExpandedBookId = expandedBookId ?? defaultExpandedBookId;
   const selectedResource = resources.find((item) => item.id === selectedResourceId && ((activeTab === "courses" && item.resourceType === "course") || (activeTab === "books" && item.resourceType === "book"))) ?? (activeTab === "courses" ? courseResources[0] : bookResources[0]) ?? null;
@@ -373,13 +382,16 @@ export default function StudyPlanPage() {
     event.preventDefault();
     const text = bookInput.trim();
     if (!text || !selectedChapter || !selectedResource || bookChatLoading) return;
-    const studentMessage = { role: "student" as const, text: `${bookContext(selectedChapter)}\n學生回覆：${text}` };
+    const studentMessage = { role: "student" as const, text };
     const nextMessages = [...bookMessages, studentMessage].slice(-12);
     setBookMessages(nextMessages);
     setBookInput("");
     setBookChatLoading(true);
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: nextMessages }) });
+      const apiMessages = nextMessages.map((message, index) => index === nextMessages.length - 1 && message.role === "student"
+        ? { ...message, text: `${bookContext(selectedChapter)}\n學生回覆：${message.text}` }
+        : message);
+      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: apiMessages }) });
       const result = await response.json() as { reply?: string; error?: string };
       setBookMessages((current) => [...current, { role: "mentor", text: response.ok ? (result.reply ?? "我們接著往下釐清。") : (result.error ?? "AI 教學暫時無法回應") }]);
     } catch {
@@ -427,8 +439,13 @@ export default function StudyPlanPage() {
         <div><p>MY LEARNING CENTER</p><h1>學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律備考聊完後，AI 會把任務寫到這裡"}</span></div>
         {activeTab === "calendar" && <div className="calendar-header-actions"><button className="reset-plan-btn" onClick={openResetPlanner}>↻ AI 重新規劃</button><button className="add-task" onClick={() => openNew()}>＋ 新增任務</button></div>}
       </div>
-      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>書籍</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "exam-conversations" ? "active" : ""} onClick={() => setActiveTab("exam-conversations")}>試題問答 <span>{examConversations.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>書籍</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button><button className={activeTab === "trials" ? "active" : ""} onClick={() => setActiveTab("trials")}>知識達試聽</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "exam-conversations" ? "active" : ""} onClick={() => setActiveTab("exam-conversations")}>試題問答 <span>{examConversations.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
       {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><div className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>已發布的題目都會保留在學習區，方便依序練習</span></div><i>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? "▶" : "聽"}</i></div>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? <div className="listening-feed-list">{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).map((item) => <article className="listening-feed-item" key={item.id}><div className="listening-feed-heading"><div><span>{item.year || "自訂題目"} · {item.subject}</span><h3>{item.title}</h3></div><b>已發布</b></div><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={item} /></article>)}</div> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</div></section>}
+      {activeTab === "trials" && <section className="trial-course-hub" aria-label="知識達司律課程試聽">
+        <header className="trial-course-head"><div><p>IBRAIN COURSE AUDITION</p><h2>知識達司律課程試聽</h2><span>先看看老師的講解方式，再決定適合自己的課程。點擊後會另開知識達官方試聽頁。</span></div><a href="https://www.ibrain.com.tw/audition/List.aspx?iC=2089&sLA=%E7%9F%A5%E8%AD%98%E9%81%94%E3%80%81%E5%8F%B8%E6%B3%95%E8%80%83%E8%A9%A6%E3%80%81%E9%AB%98%E9%BB%9E%E5%BE%8B%E5%B8%AB%E5%8F%B8%E6%B3%95%E5%AE%98" target="_blank" rel="noreferrer">查看全部課程 ↗</a></header>
+        <div className="trial-course-grid">{trialResources.map((resource) => <article className="trial-course-card" key={resource.id}><div className="trial-course-subject">{resource.subject}</div><div className="trial-teacher-mark" aria-hidden="true">{resource.creator.slice(0, 1)}</div><div className="trial-course-copy"><span>{resource.creator}</span><h3>{resource.title}</h3><p>{resource.description || "前往知識達官方頁面試聽這位老師的課程。"}</p></div><a href={resource.sourceUrl} target="_blank" rel="noreferrer" aria-label={`前往試聽 ${resource.creator} ${resource.title}`}>前往試聽 <b>↗</b></a></article>)}</div>
+        <p className="trial-course-note">課程內容與試聽服務由知識達官方頁面提供；本站僅整理入口，不儲存或播放課程影片。</p>
+      </section>}
       {(activeTab === "books" || activeTab === "courses") && <section className="resource-learning-hub" aria-label={activeTab === "books" ? "書籍學習" : "影音課程學習"}>
             <div className="resource-learning-head"><div><p>{activeTab === "books" ? "READING ROOM" : "COURSE ROOM"}</p><h2>{activeTab === "books" ? "書籍學習" : "影音課程學習"}</h2><span>{activeTab === "books" ? "不開啟 PDF；選章節後由 AI 依教材內容教學。" : "留在學習專區內完成；進度、今日計畫與學習紀錄會連在一起。"}</span></div><span className="resource-count">{(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>
         <div className="resource-learning-layout"><aside className={`resource-list ${activeTab === "books" ? "book-resource-list" : ""}`} aria-label="可學習資源"><div className="resource-list-heading"><strong>{activeTab === "books" ? "書本清單" : "影音課程清單"}</strong><span>共 {(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>{activeTab === "books" ? bookResources.map((resource) => {
