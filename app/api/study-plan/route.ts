@@ -16,8 +16,9 @@ export async function GET(request: Request) {
     const month = url.searchParams.get("month") ?? "";
     const validMonth = /^\d{4}-\d{2}$/.test(month) ? month : taipeiMonth();
     const db = await getDb();
-    const tasks = await db.select().from(studyTasks).where(and(gte(studyTasks.taskDate, `${validMonth}-01`), lte(studyTasks.taskDate, `${validMonth}-31`))).orderBy(asc(studyTasks.taskDate), asc(studyTasks.id));
     const plans = await db.select().from(studyPlans).where(eq(studyPlans.active, true));
+    const activePlan = plans[0];
+    const tasks = activePlan ? await db.select().from(studyTasks).where(and(eq(studyTasks.planId, activePlan.id), gte(studyTasks.taskDate, `${validMonth}-01`), lte(studyTasks.taskDate, `${validMonth}-31`))).orderBy(asc(studyTasks.taskDate), asc(studyTasks.id)) : [];
     return Response.json({ month: validMonth, plans, tasks });
   } catch {
     return Response.json({ error: "讀書計畫資料庫尚未就緒" }, { status: 503 });

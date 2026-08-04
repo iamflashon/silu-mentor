@@ -228,6 +228,7 @@ async function savePlan(plan: PlanCall, constraint: PlanningConstraint | null) {
     await db.update(studyPlans).set({ dailyMinutes }).where(eq(studyPlans.id, active.id));
   } else {
     if (active) replacedTasks = (await db.select().from(studyTasks).where(eq(studyTasks.planId, active.id))).length;
+    if (active) await db.delete(studyTasks).where(eq(studyTasks.planId, active.id));
     await db.update(studyPlans).set({ active: false }).where(eq(studyPlans.active, true));
     const [created] = await db.insert(studyPlans).values({
       title: plan.title.slice(0, 120),
