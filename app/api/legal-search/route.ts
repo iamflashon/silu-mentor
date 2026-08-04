@@ -19,6 +19,12 @@ const CORE_LAW_TITLES: Record<string, string[]> = {
   "刑事訴訟法": ["刑事訴訟法"],
 };
 
+const RELATED_ARTICLE_NUMBERS: Record<string, string[]> = {
+  "民法:184": ["185", "187", "188", "191", "191-2", "193", "195", "197"],
+  "中華民國刑法:271": ["25", "26", "27", "28", "29", "30", "272", "275"],
+  "刑法:271": ["25", "26", "27", "28", "29", "30", "272", "275"],
+};
+
 function exactCoreLawTitle(lawName: string): SQL | null {
   const titles = CORE_LAW_TITLES[lawName];
   if (!titles?.length) return null;
@@ -50,6 +56,12 @@ function parseLawQuery(value: string) {
     lawName: normalized.slice(0, articleMatch.index),
     articleNumber: articleMatch[1],
   };
+}
+
+function articleNumberOf(value: string) {
+  const normalized = normalizeSearchText(value).replace(/條之/g, "-");
+  const match = normalized.match(/第?(\d+)(?:條)?(?:之|-)?(\d+)?/);
+  return match ? `${match[1]}${match[2] ? `-${match[2]}` : ""}` : "";
 }
 
 export async function GET(request: Request) {
@@ -110,7 +122,47 @@ export async function GET(request: Request) {
       .orderBy(asc(legalDocuments.title), asc(legalArticles.articleNo))
       .limit(limit);
 
-    const results = rows.map((row) => ({
+    let selectedRows = rows;
+    let relatedRows: typeof rows = [];
+    if (parsed.articleNumber) {
+      // 條號查詢必須精準比對，避免第 184 條誤命中第 1184 條。
+      selectedRows = rows.filter((row) => articleNumberOf(row.articleNo) === parsed.articleNumber);
+      const officialTitle = parsed.lawName ? CORE_LAW_TITLES[parsed.lawName]?.[0] ?? parsed.lawName : "";
+      const relatedNumbers = RELATED_ARTICLE_NUMBERS[`${officialTitle}:${parsed.articleNumber}`]
+        ?? RELATED_ARTICLE_NUMBERS[`${parsed.lawName}:${parsed.articleNumber}`]
+        ?? [];
+      if (relatedNumbers.length && parsed.lawName) {
+        const relatedCandidates = await db
+          .select({
+            documentId: legalDocuments.id,
+            title: legalDocuments.title,
+            category: legalDocuments.category,
+            classification: legalDocuments.classification,
+            modifiedDate: legalDocuments.modifiedDate,
+            sourceUrl: legalDocuments.sourceUrl,
+            articleNo: legalArticles.articleNo,
+            hierarchy: legalArticles.hierarchy,
+            content: legalArticles.content,
+          })
+          .from(legalArticles)
+          .innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id))
+          .where(and(
+            eq(legalDocuments.status, "active"),
+            exactCoreLawTitle(parsed.lawName) ?? like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`),
+            or(...relatedNumbers.map((number) => like(legalArticles.articleNo, `%${escapeLike(number)}%`))),
+          ))
+          .limit(30);
+        relatedRows = relatedCandidates
+          .filter((row) => relatedNumbers.includes(articleNumberOf(row.articleNo)))
+          .sort((left, right) => relatedNumbers.indexOf(articleNumberOf(left.articleNo)) - relatedNumbers.indexOf(articleNumberOf(right.articleNo)))
+          .slice(0, 6);
+      }
+    }
+
+    const results = [
+      ...selectedRows.map((row) => ({ ...row, matchType: parsed.articleNumber ? "exact" : "content" })),
+      ...relatedRows.map((row) => ({ ...row, matchType: "related" })),
+    ].map((row) => ({
       ...row,
       excerpt: row.content.length > 220 ? `${row.content.slice(0, 220)}…` : row.content,
     }));

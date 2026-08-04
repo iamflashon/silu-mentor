@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Fragment, useEffect, useState } from "react";
 
-type LegalResult = { documentId: number; title: string; category: string; classification: string; modifiedDate: string; sourceUrl: string; articleNo: string; hierarchy: string; content: string; excerpt: string };
+type LegalResult = { documentId: number; title: string; category: string; classification: string; modifiedDate: string; sourceUrl: string; articleNo: string; hierarchy: string; content: string; excerpt: string; matchType?: "exact" | "related" | "content" };
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
 type InlineMessage = { role: "mentor" | "student"; text: string };
 
@@ -110,11 +110,11 @@ export function LegalSearch() {
     } finally { setLoading(false); }
   }
 
-  async function sendInline(text: string, target = learningTarget, seedMessages = inlineMessages) {
+  async function sendInline(text: string, target = learningTarget, seedMessages = inlineMessages, showStudentMessage = true) {
     const value = text.trim();
     if (!value || !target || inlineThinking) return;
     const nextMessages: InlineMessage[] = [...seedMessages, { role: "student", text: value }];
-    setInlineMessages(nextMessages);
+    setInlineMessages(showStudentMessage ? nextMessages : seedMessages);
     setInlineInput("");
     setInlineThinking(true);
     try {
@@ -134,7 +134,7 @@ export function LegalSearch() {
     const prompt = handoffPrompt(result, direction, searchedQuery || query);
     setLearningTarget(result);
     setInlineMessages([]);
-    void sendInline(prompt, result, []);
+    void sendInline(prompt, result, [], false);
   }
 
   function submitInline(event: FormEvent) {
@@ -183,15 +183,20 @@ export function LegalSearch() {
       const related = relatedConcepts(searchedQuery || query, result);
       const expanded = expandedResult === resultKey;
       const learningOpen = learningResult === resultKey;
-      return <article className="legal-result" key={resultKey}>
+      const startsGroup = index === 0 || results[index - 1]?.matchType !== result.matchType;
+      return <Fragment key={resultKey}>
+        {startsGroup && result.matchType === "exact" && <header className="legal-result-section-head"><b>精準法條</b><span>與搜尋的法規名稱及條號完全相符</span></header>}
+        {startsGroup && result.matchType === "related" && <header className="legal-result-section-head related"><b>關聯法條</b><span>與本條規範關係密切、適合一起理解</span></header>}
+        <article className={`legal-result${result.matchType === "related" ? " related-result" : ""}`}>
         <div className="legal-result-meta"><span>{result.category || "法規"}</span><b><HighlightedText text={result.title} query={searchedQuery || query} related={related} /></b><small>{result.classification ? `${result.classification} · ` : ""}{result.articleNo || result.hierarchy || "條文"}</small></div>
         <p><HighlightedText text={result.excerpt} query={searchedQuery || query} related={related} /></p>
         {!!related.length && <div className="related-concept-row"><span>可能相關</span>{related.map((concept) => <button type="button" key={concept} onClick={() => { setQuery(concept); void search(concept); }}>{concept}</button>)}</div>}
         {expanded && <section className="inline-original-law" aria-label="原條文"><header><b>原條文</b><span>{result.title} {result.articleNo}</span></header><p><HighlightedText text={result.content} query={searchedQuery || query} related={related} /></p></section>}
-        {learningOpen && <section className="learning-directions" aria-label="延伸學習分類"><header><b>想從哪個方向延伸？</b><span>AI 會留在本頁對答，並接續保存到學習紀錄。</span></header><div><button type="button" onClick={() => startLearning(result, "articles")}><b>相關法條</b><span>前後條文與規範關係</span></button><button type="button" onClick={() => startLearning(result, "issues")}><b>核心爭點</b><span>實務、學說與作答架構</span></button><button type="button" onClick={() => startLearning(result, "questions")}><b>歷屆考題</b><span>真題與相近考法</span></button><button type="button" onClick={() => startLearning(result, "guide")}><b>引導學習</b><span>說明後用問題帶著學</span></button></div>{learningTarget === result && <div className="inline-law-chat" aria-live="polite">{inlineMessages.map((message, messageIndex) => <div className={message.role} key={`${message.role}-${messageIndex}`}><b>{message.role === "mentor" ? "司律導師" : "我"}</b><p>{message.text}</p></div>)}{inlineThinking && <div className="mentor thinking"><b>司律導師</b><p>正在依條文與關鍵字整理…</p></div>}<form onSubmit={submitInline}><input value={inlineInput} onChange={(event) => setInlineInput(event.target.value)} placeholder="接著問這個條文、爭點或考題…" aria-label="延伸學習對話" /><button type="submit" disabled={inlineThinking || !inlineInput.trim()}>送出</button></form></div>}</section>}
+        {learningOpen && <section className="learning-directions" aria-label="延伸學習分類"><header><b>想從哪個方向延伸？</b><span>AI 會留在本頁對答，並接續保存到學習紀錄。</span></header><div className="learning-direction-grid"><button type="button" onClick={() => startLearning(result, "articles")}><b>相關法條</b><span>前後條文與規範關係</span></button><button type="button" onClick={() => startLearning(result, "issues")}><b>核心爭點</b><span>實務、學說與作答架構</span></button><button type="button" onClick={() => startLearning(result, "questions")}><b>歷屆考題</b><span>真題與相近考法</span></button><button type="button" onClick={() => startLearning(result, "guide")}><b>引導學習</b><span>說明後用問題帶著學</span></button></div>{learningTarget === result && <div className="inline-law-chat" aria-live="polite">{inlineMessages.map((message, messageIndex) => <div className={message.role} key={`${message.role}-${messageIndex}`}><b>{message.role === "mentor" ? "司律導師" : "我"}</b><p>{message.text}</p></div>)}{inlineThinking && <div className="mentor thinking"><b>司律導師</b><p>正在依條文與關鍵字整理…</p></div>}<form onSubmit={submitInline}><input value={inlineInput} onChange={(event) => setInlineInput(event.target.value)} placeholder="接著問這個條文、爭點或考題…" aria-label="延伸學習對話" /><button type="submit" disabled={inlineThinking || !inlineInput.trim()}>送出</button></form></div>}</section>}
         <footer><a href={result.sourceUrl || "#"} target="_blank" rel="noreferrer">官方來源</a><button type="button" aria-expanded={expanded} onClick={() => setExpandedResult(expanded ? null : resultKey)}>{expanded ? "收合原文" : "查看原文"}</button><button type="button" onClick={() => openNotePicker(result)}>加入筆記</button><button type="button" aria-expanded={learningOpen} onClick={() => setLearningResult(learningOpen ? null : resultKey)}>{learningOpen ? "收合延伸" : "延伸學習"}</button></footer>
         {noteTarget === result && <div className="legal-note-picker"><label>指定筆記<select value={noteId} onChange={(event) => setNoteId(event.target.value === "new" ? "new" : Number(event.target.value))}><option value="new">＋ 新增自訂筆記</option>{notes.map((note) => <option key={note.id} value={note.id}>{note.title || "未命名筆記"}</option>)}</select></label>{noteId === "new" && <label>新筆記名稱<input value={noteTitle} onChange={(event) => setNoteTitle(event.target.value)} /></label>}<div><button type="button" onClick={() => setNoteTarget(null)}>取消</button><button type="button" className="primary-btn" onClick={() => void addToNote()}>確認加入</button></div></div>}
-      </article>;
+        </article>
+      </Fragment>;
     })}</div>
     {noteMessage && <p className="legal-note-message">{noteMessage}</p>}
   </section>;

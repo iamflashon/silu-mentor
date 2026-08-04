@@ -2775,6 +2775,12 @@ a {
 .search-hit, .related-hit { padding: 0 2px; border-radius: 3px; color: inherit; font-weight: 850; }
 .search-hit { background: #ffe38b; }
 .related-hit { background: #cdebf5; }
+.legal-result-section-head { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 8px; padding: 0 2px; }
+.legal-result-section-head b { color: #214f6a; font-size: 17px; }
+.legal-result-section-head span { color: #78909d; font-size: 12px; }
+.legal-result-section-head.related { margin-top: 24px; padding-top: 16px; border-top: 1px solid #cfe1e8; }
+.legal-result-section-head.related b { color: #36758d; }
+.legal-result.related-result { border-left: 4px solid #8bc4d5; background: #fbfdfe; }
 .related-concept-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .related-concept-row > span { margin-right: 2px; color: #77909d; font-size: 12px; font-weight: 800; }
 .related-concept-row button { padding: 5px 9px; border: 1px solid #cce0e8; border-radius: 999px; background: #eff8fb; color: #386f87; font-size: 12px; cursor: pointer; }
@@ -2787,17 +2793,17 @@ a {
 .learning-directions > header { display: flex; align-items: baseline; gap: 10px; }
 .learning-directions > header b { color: #285d7f; font-size: 16px; }
 .learning-directions > header span { color: #718895; font-size: 12px; }
-.learning-directions > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
-.learning-directions button { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid #d3e4ea; border-radius: 8px; background: #fff; color: #315f76; text-align: left; cursor: pointer; }
-.learning-directions button:hover { border-color: #77a9bd; box-shadow: 0 3px 10px rgba(40, 93, 127, .08); }
-.learning-directions button b { font-size: 14px; }
-.learning-directions button span { color: #78909d; font-size: 11px; line-height: 1.45; }
-.inline-law-chat { display: grid; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #d8e7ec; }
+.learning-direction-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.learning-direction-grid > button { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid #d3e4ea; border-radius: 8px; background: #fff; color: #315f76; text-align: left; cursor: pointer; }
+.learning-direction-grid > button:hover { border-color: #77a9bd; box-shadow: 0 3px 10px rgba(40, 93, 127, .08); }
+.learning-direction-grid > button b { font-size: 14px; }
+.learning-direction-grid > button span { color: #78909d; font-size: 11px; line-height: 1.45; }
+.inline-law-chat { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 14px; padding-top: 14px; border-top: 1px solid #d8e7ec; }
 .inline-law-chat > div { max-width: 88%; padding: 12px 14px; border-radius: 10px; }
 .inline-law-chat > div b { display: block; margin-bottom: 5px; color: #416d80; font-size: 12px; }
 .inline-law-chat > div p { margin: 0; color: #385968; font-size: 15px; line-height: 1.75; white-space: pre-wrap; }
-.inline-law-chat .mentor { justify-self: start; background: #fff; border: 1px solid #d7e6ec; }
-.inline-law-chat .student { justify-self: end; background: #dfeef4; }
+.inline-law-chat .mentor { align-self: flex-start; background: #fff; border: 1px solid #d7e6ec; }
+.inline-law-chat .student { align-self: flex-end; background: #dfeef4; }
 .inline-law-chat .thinking { opacity: .75; }
 .inline-law-chat form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 4px; }
 .inline-law-chat input { min-width: 0; padding: 12px 13px; border: 1px solid #cbdde4; border-radius: 8px; background: #fff; color: #365a6d; font: inherit; font-size: 14px; }
@@ -3911,7 +3917,7 @@ a {
   .search-highlight-legend { justify-content: flex-start; }
   .legal-result footer { justify-content: flex-start; flex-wrap: wrap; }
   .learning-directions > header { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .learning-directions > div { grid-template-columns: 1fr 1fr; }
+  .learning-direction-grid { grid-template-columns: 1fr 1fr; }
   .inline-original-law p { font-size: 17px; }
   .inline-law-chat > div { max-width: 96%; }
   .calendar-grid {
