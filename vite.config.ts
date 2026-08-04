@@ -41,7 +41,8 @@ const localBindingConfig = {
 
 const normalizeGeneratedWranglerConfig = () => ({
   name: "normalize-generated-wrangler-config",
-  writeBundle() {
+  enforce: "post" as const,
+  closeBundle() {
     const configPath = path.resolve(process.cwd(), "dist/server/wrangler.json");
     if (!fs.existsSync(configPath)) return;
 
