@@ -188,6 +188,8 @@ a {
   color: var(--muted);
 }
 .practice-launch {
+  width: min(1180px, calc(100% - 40px));
+  margin: 10px auto 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -225,6 +227,10 @@ a {
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
+}
+.practice-launch button:hover {
+  border-color: #7fa8be;
+  background: #eaf3f7;
 }
 .practice-card {
   margin: 0 0 25px 46px;
@@ -3605,8 +3611,12 @@ a {
     min-width: 155px;
   }
   .practice-launch {
+    width: calc(100% - 28px);
+    margin-top: 8px;
     align-items: flex-start;
     flex-direction: column;
+    gap: 10px;
+    padding: 11px 12px;
   }
   .practice-launch > div:last-child {
     width: 100%;
