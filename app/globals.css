@@ -2855,6 +2855,22 @@ a {
 .practice-option-list span { min-width: 0; font-size: 13px; line-height: 1.65; }
 .essay-practice textarea { width: 100%; min-height: 160px; resize: vertical; padding: 12px; border: 1px solid #d4e1e8; border-radius: 10px; color: #29475b; background: #fff; font: inherit; font-size: 11px; line-height: 1.7; }
 .essay-practice .primary-btn { margin-top: 9px; }
+.essay-coach { margin-bottom: 16px; border-color: #bcded2; background: #f6fbf8; }
+.essay-coach .issue-prompt { max-width: 620px; margin: 7px 0 0; color: #607a70; font-size: 12px; line-height: 1.65; }
+.guided-answer-sheet { overflow: hidden; border: 1px solid #c9d9e1; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px rgba(35, 72, 92, .07); }
+.guided-answer-sheet > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 17px; border-bottom: 1px solid #dbe5ea; background: #f8fbfc; }
+.guided-answer-sheet > header div { display: grid; gap: 3px; }
+.guided-answer-sheet > header span { color: #2c7180; font-size: 10px; font-weight: 900; letter-spacing: .1em; }
+.guided-answer-sheet > header strong { color: #24485d; font-size: 15px; }
+.guided-answer-sheet > header small { color: #758a96; font-size: 11px; }
+.guided-answer-sheet nav { display: flex; align-items: center; gap: 5px; padding: 8px 13px; border-bottom: 1px solid #dbe5ea; background: #eaf8ef; }
+.guided-answer-sheet nav button { min-width: 42px; padding: 6px 8px; border: 1px solid #b8d7c8; border-radius: 6px; background: #fff; color: #315e52; font-size: 11px; font-weight: 800; cursor: pointer; }
+.guided-answer-sheet nav span { margin-left: auto; color: #638076; font-size: 10px; }
+.guided-answer-sheet textarea { width: 100%; min-height: 510px; resize: vertical; padding: 20px 25px; border: 0; border-radius: 0; outline: 0; color: #203c4c; background: repeating-linear-gradient(#fff 0, #fff 31px, #d9e4e9 32px); font: 15px/32px system-ui, sans-serif; }
+.guided-answer-sheet footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid #dbe5ea; color: #6b818e; font-size: 11px; }
+.guided-answer-sheet footer b { color: #315d73; font-variant-numeric: tabular-nums; }
+.essay-submit-wide { width: 100%; margin-top: 12px; padding: 13px 18px; border: 0; border-radius: 9px; background: #183b59; color: #fff; font-size: 14px; font-weight: 850; cursor: pointer; }
+.essay-submit-wide:disabled { opacity: .48; cursor: default; }
 .practice-feedback, .essay-feedback { margin-top: 12px; padding: 11px 12px; border-radius: 9px; background: #eef7f2; color: #4b6f61; }
 .practice-feedback strong, .essay-feedback strong { font-size: 10px; }
 .practice-feedback p, .essay-feedback p { margin: 5px 0 0; font-size: 10px; line-height: 1.65; white-space: pre-wrap; }
