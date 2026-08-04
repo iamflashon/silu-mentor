@@ -2921,6 +2921,47 @@ a {
 .daily-law-swap:hover { border-color: #75a8bd; background: #eef7f9; }
 .daily-law-pending { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px dashed #c5d8e2; border-radius: 999px; color: #6e8797; background: #f8fbfc; font-size: 10px; }
 .daily-law-pending b { color: #26728c; font-size: 11px; }
+.top-dictionary-card {
+  width: min(1180px, calc(100% - 40px));
+  margin: 10px auto 0;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1.25fr) minmax(280px, 1.15fr);
+  gap: 18px;
+  align-items: center;
+  padding: 12px 16px;
+  border: 1px solid #d6e4eb;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 7px 20px rgba(30, 63, 88, .045);
+}
+.top-dictionary-intro .rail-title { margin-bottom: 4px; }
+.top-dictionary-intro p { margin: 0; color: #718694; font-size: 10px; line-height: 1.55; }
+.top-dictionary-featured {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #cfe1e8;
+  border-radius: 10px;
+  background: #f2f8fa;
+}
+.top-dictionary-featured > div:first-child { min-width: 0; }
+.top-dictionary-featured span { display: block; color: #43829a; font-size: 9px; font-weight: 850; letter-spacing: .06em; }
+.top-dictionary-featured strong { display: block; overflow: hidden; margin-top: 3px; color: #245a76; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.top-dictionary-featured > p { display: -webkit-box; overflow: hidden; margin: 0; color: #506f80; font-size: 10px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.top-dictionary-featured > div:last-child { display: flex; gap: 5px; }
+.top-dictionary-featured button { padding: 7px 8px; border: 0; border-radius: 7px; background: #285f80; color: #fff; font-size: 10px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.top-dictionary-featured button + button { border: 1px solid #bdd2dc; background: #fff; color: #356b83; }
+.top-dictionary-featured button:disabled { opacity: .55; cursor: wait; }
+.top-dictionary-search { min-width: 0; }
+.top-dictionary-search form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.top-dictionary-search input { min-width: 0; width: 100%; padding: 10px 11px; border: 1px solid #cbdce5; border-radius: 9px; background: #fbfdfe; color: #31566f; font-size: 13px; outline: 0; }
+.top-dictionary-search input:focus { border-color: #6e9fb8; box-shadow: 0 0 0 3px rgba(70, 130, 158, .1); }
+.top-dictionary-search form button { padding: 9px 11px; border: 0; border-radius: 9px; background: #285f80; color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; }
+.top-dictionary-search form button:disabled { opacity: .55; cursor: wait; }
+.top-dictionary-search .dictionary-result { margin-top: 8px; }
 .pulse-luck > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pulse-luck select { width: 78px; padding: 5px 6px; border: 1px solid #cfdee6; border-radius: 7px; color: #54778b; background: #f8fbfc; font-size: 8px; }
 .pulse-music iframe { width: 100%; height: 96px; margin-top: 6px; border: 0; border-radius: 7px; background: #edf4f7; }
@@ -3486,6 +3527,23 @@ a {
   }
   .daily-law-button b,
   .daily-law-button span { font-size: 11px; }
+  .top-dictionary-card {
+    width: calc(100% - 28px);
+    margin-top: 8px;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 10px 11px;
+    border-radius: 13px;
+  }
+  .top-dictionary-intro { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .top-dictionary-intro .rail-title { flex: 0 0 auto; margin: 0; }
+  .top-dictionary-intro p { flex: 1; text-align: right; }
+  .top-dictionary-featured { grid-template-columns: minmax(0, 1fr) auto; padding: 7px 9px; }
+  .top-dictionary-featured > p { display: none; }
+  .top-dictionary-featured > div:last-child { align-self: center; }
+  .top-dictionary-featured button { padding: 6px 7px; font-size: 9px; }
+  .top-dictionary-search input { padding: 9px 10px; font-size: 12px; }
+  .top-dictionary-search form button { padding: 8px 10px; font-size: 11px; }
   .command-layout {
     width: calc(100% - 28px);
     grid-template-columns: 1fr;
