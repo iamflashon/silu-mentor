@@ -2621,10 +2621,21 @@ a {
 .book-ai-heading small { color: #6e8794; font-size: 11px; line-height: 1.5; text-align: right; }
 .book-dialogue-messages { min-height: 0; overflow: auto; padding: 22px; background: #fcfefe; scroll-behavior: smooth; }
 .book-dialogue-message { max-width: 88%; margin-bottom: 12px; }
-.book-dialogue-message.student { margin-left: auto; }
+.book-dialogue-message.student {
+  width: fit-content;
+  max-width: min(88%, 680px);
+  margin-left: auto;
+}
 .book-dialogue-message > span { display: block; margin-bottom: 4px; color: #6d8794; font-size: 10px; font-weight: 850; }
 .book-dialogue-message p { margin: 0; padding: 13px 16px; border-radius: 12px 12px 12px 3px; background: #eef6f8; color: #31586c; font-size: 15px; line-height: 1.8; white-space: pre-wrap; }
-.book-dialogue-message.student p { border-radius: 12px 12px 3px 12px; background: #1d4763; color: #fff; }
+.book-dialogue-message.student p {
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border-radius: 12px 12px 3px 12px;
+  background: #1d4763;
+  color: #fff;
+}
 .book-typing { color: #678491 !important; }
 .book-dialogue-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 11px; border-top: 1px solid #e6eef1; background: #fff; }
 .book-dialogue-form textarea { min-width: 0; resize: vertical; padding: 11px 12px; border: 1px solid #cddfe6; border-radius: 9px; color: #31586c; font: inherit; line-height: 1.6; outline: none; }
