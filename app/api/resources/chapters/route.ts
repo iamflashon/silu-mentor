@@ -29,6 +29,16 @@ type ChapterPayload = {
   }>;
 };
 
+type ProblemOutlinePayload = {
+  topics?: Array<{
+    section?: string;
+    topic?: string;
+  }>;
+};
+
+const PROBLEM_TOPIC_BATCH_SIZE = 3;
+const MIN_COMPLETE_PROBLEM_QUESTIONS = 8;
+
 function chapterStatusKey(resourceId: number) {
   return `book_chapters_status:${resourceId}`;
 }
@@ -68,6 +78,36 @@ function parseChapterPayload(payload: Record<string, unknown>) {
   } catch {
     return [] as ChapterPayload["chapters"];
   }
+}
+
+function parseProblemOutline(payload: Record<string, unknown>) {
+  const raw = outputText(payload)
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(raw) as ProblemOutlinePayload;
+    return (parsed.topics ?? [])
+      .map((item) => ({
+        section: String(item.section ?? "").trim(),
+        topic: String(item.topic ?? "").trim(),
+      }))
+      .filter((item) => item.topic)
+      .filter(
+        (item, index, all) =>
+          all.findIndex(
+            (candidate) =>
+              candidate.section === item.section && candidate.topic === item.topic,
+          ) === index,
+      )
+      .slice(0, 36);
+  } catch {
+    return [] as Array<{ section: string; topic: string }>;
+  }
+}
+
+function problemQuestionKey(chapter: NonNullable<ChapterPayload["chapters"]>[number]) {
+  return `${String(chapter.section ?? "").trim()}|${String(chapter.topic ?? "").trim()}|${String(chapter.title ?? "").trim()}`;
 }
 
 function isProblemBook(resource: { title: string; description: string | null }) {
@@ -150,7 +190,10 @@ export async function GET(request: Request) {
     const usableChapters = problemBook
       ? chapters.filter(isCompleteProblemQuestion)
       : chapters;
-    if (usableChapters.length) {
+    if (
+      usableChapters.length &&
+      (!problemBook || usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS)
+    ) {
       return Response.json({
         chapters: usableChapters,
         generated: false,
@@ -166,7 +209,10 @@ export async function GET(request: Request) {
         ready: false,
         status: "needs_rebuild",
         invalidCount: chapters.length,
-        message: `現有 ${chapters.length} 筆只有主題名稱，尚未擷取題型與完整題目；請到後台重新擷取題型。`,
+        message:
+          usableChapters.length > 0
+            ? `目前只擷取到 ${usableChapters.length} 道完整題目，明顯未涵蓋整本解題書；請到後台重新分批擷取。`
+            : `現有 ${chapters.length} 筆只有主題名稱，尚未擷取題型與完整題目；請到後台重新擷取題型。`,
       });
     }
 
@@ -334,19 +380,74 @@ export async function POST(request: Request) {
       );
 
     await writeChapterStatus(resourceId, "building");
-    const payload = await openAIJson("/responses", {
+    const extractionModel =
+      process.env.OPENAI_EXTRACTION_MODEL ||
+      process.env.OPENAI_MODEL ||
+      "gpt-5.6-luna";
+    const problemQuestionSchema = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        chapters: {
+          type: "array",
+          maxItems: 80,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              title: { type: "string" },
+              section: { type: "string" },
+              topic: { type: "string" },
+              stem: { type: "string" },
+              summary: { type: "string" },
+              page_start: { type: ["integer", "null"] },
+              page_end: { type: ["integer", "null"] },
+            },
+            required: ["title", "section", "topic", "stem", "summary", "page_start", "page_end"],
+          },
+        },
+      },
+      required: ["chapters"],
+    } as const;
+
+    let parsed: NonNullable<ChapterPayload["chapters"]> = [];
+    if (problemBook) {
+      // A single whole-book semantic search usually returns only the few most
+      // similar chunks. First recover the real topic catalogue, then issue
+      // targeted searches in small topic batches so later parts of the book
+      // are not silently omitted.
+      const outlinePayload = await openAIJson("/responses", {
+        method: "POST",
+        body: JSON.stringify({
+          model: extractionModel,
+          instructions: "你是台灣司律解題書目錄核對員。使用 file_search，只抄錄原書目錄中明確存在的『部分』與『主題』；不要回傳題目、不要改寫名稱、不要自行補項目。保留原順序。",
+          input: `請搜尋《${resource.title}》（原始檔名：${document.fileName}）的目錄，列出全部部分與主題。`,
+          tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 50 }],
+          text: { format: { type: "json_schema", name: "problem_book_outline", strict: true, schema: { type: "object", additionalProperties: false, properties: { topics: { type: "array", maxItems: 36, items: { type: "object", additionalProperties: false, properties: { section: { type: "string" }, topic: { type: "string" } }, required: ["section", "topic"] } } }, required: ["topics"] } } },
+        }),
+      });
+      const topics = parseProblemOutline(outlinePayload);
+      for (let index = 0; index < topics.length; index += PROBLEM_TOPIC_BATCH_SIZE) {
+        const batch = topics.slice(index, index + PROBLEM_TOPIC_BATCH_SIZE);
+        const payload = await openAIJson("/responses", {
+          method: "POST",
+          body: JSON.stringify({
+            model: extractionModel,
+            instructions: "你是台灣司律考試解題書編輯。必須使用 file_search 逐一搜尋指定主題，只能抄錄書中明確存在的題型與完整題目。title 原樣保留題型編號與名稱；stem 必須是完整題目本文，不得放解析；section、topic 必須使用指定目錄名稱。不得用一般法律知識補題。保留原書順序。",
+            input: `教材：《${resource.title}》（${document.fileName}）\n本批只擷取下列主題中的全部題型與完整題目：\n${batch.map((item) => `${item.section}｜${item.topic}`).join("\n")}`,
+            tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 50 }],
+            text: { format: { type: "json_schema", name: "problem_book_questions", strict: true, schema: problemQuestionSchema } },
+          }),
+        });
+        parsed.push(...parseChapterPayload(payload));
+      }
+    } else {
+      const payload = await openAIJson("/responses", {
       method: "POST",
       body: JSON.stringify({
-        model:
-          process.env.OPENAI_EXTRACTION_MODEL ||
-          process.env.OPENAI_MODEL ||
-          "gpt-5.6-luna",
-        instructions: problemBook
-          ? "你是台灣司律考試解題書編輯。必須先使用 file_search 搜尋教材索引，依原書目錄拆成『部分 → 主題 → 題型』，只能整理書中明確存在的實際題目，不得改寫成觀念課程。section 原樣保留例如『第1部分 刑法總則』；topic 原樣保留例如『主題1 刑法ABC』；title 原樣保留例如『題型1.1 罪刑法定原則（105政大轉學考第1題）』；stem 放完整題目本文，不得加入解析或 AI 開場白；summary 只放原書可確認的爭點摘要。無法證明題目及其所屬主題時不要回傳。保留原順序，頁碼無法確認填 null，最多 80 筆。"
-          : "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
-        input: problemBook
-          ? `請從已索引的解題教材《${resource.title}》（原始檔名：${document.fileName}）依原書目錄搜尋每一個部分、主題、題型與完整題目，逐題依原書順序輸出。只回傳索引中可確認的真實題目。`
-          : `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節。`,
+        model: extractionModel,
+        instructions: "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
+        input: `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節。`,
         tools: [
           {
             type: "file_search",
@@ -359,53 +460,22 @@ export async function POST(request: Request) {
             type: "json_schema",
             name: "book_chapters",
             strict: true,
-            schema: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                chapters: {
-                  type: "array",
-                  maxItems: 80,
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      title: { type: "string" },
-                      section: { type: "string" },
-                      topic: { type: "string" },
-                      stem: { type: "string" },
-                      summary: { type: "string" },
-                      page_start: { type: ["integer", "null"] },
-                      page_end: { type: ["integer", "null"] },
-                    },
-                    required: [
-                      "title",
-                      "section",
-                      "topic",
-                      "stem",
-                      "summary",
-                      "page_start",
-                      "page_end",
-                    ],
-                  },
-                },
-              },
-              required: ["chapters"],
-            },
+            schema: problemQuestionSchema,
           },
         },
       }),
-    });
-    const parsed = parseChapterPayload(payload);
+      });
+      parsed = parseChapterPayload(payload);
+    }
     const generated = problemBook
-      ? parsed.filter(isCompleteProblemQuestion)
+      ? parsed.filter(isCompleteProblemQuestion).filter((chapter, index, all) => all.findIndex((candidate) => problemQuestionKey(candidate) === problemQuestionKey(chapter)) === index)
       : parsed;
-    if (!generated.length) {
+    if (!generated.length || (problemBook && generated.length < MIN_COMPLETE_PROBLEM_QUESTIONS)) {
       await writeChapterStatus(resourceId, "failed");
       return Response.json(
         {
           error: problemBook
-            ? "未擷取到同時包含題型編號與完整題目的資料，因此不會把主題目錄誤存成題目。請確認 PDF 文字索引完整後再試。"
+            ? `本次只辨識到 ${generated.length} 道完整題目，未達最低完整度，因此不會覆蓋既有資料。請確認 PDF 文字索引與目錄完整後再試。`
             : "索引中找不到可辨識的目錄章節；請確認 PDF 內有目錄，或稍後由管理後台重新建立。",
         },
         { status: 422 },
