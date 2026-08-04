@@ -2689,6 +2689,30 @@ a {
 .practice-switch { display: flex; gap: 6px; padding: 4px; border-radius: 11px; background: #edf3f6; }
 .practice-switch button { padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: #668192; font-size: 10px; font-weight: 800; cursor: pointer; }
 .practice-switch button.active { background: #285d7f; color: #fff; }
+.practice-feature-guide { margin-top: 18px; padding: 16px; border: 1px solid #d8e5eb; border-radius: 14px; background: #f8fbfc; }
+.practice-feature-guide > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.practice-feature-guide > header b { display: block; color: #28566f; font-size: 17px; }
+.practice-feature-guide > header span { display: block; margin-top: 5px; color: #708894; font-size: 13px; line-height: 1.6; }
+.practice-feature-guide > header small { max-width: 250px; padding: 7px 9px; border-radius: 8px; background: #e8f2f5; color: #4c7588; font-size: 11px; line-height: 1.5; }
+.practice-feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 13px; }
+.practice-feature-grid article, .practice-feature-grid button { display: flex; flex-direction: column; min-width: 0; min-height: 150px; padding: 14px; border: 1px solid #dbe6eb; border-radius: 11px; background: #fff; color: inherit; text-align: left; }
+.practice-feature-grid button { cursor: pointer; }
+.practice-feature-grid button.ready { border-color: #8bb3c4; box-shadow: inset 0 3px 0 #3d7895; }
+.practice-feature-grid > * > span { color: #7d9eae; font-size: 10px; font-weight: 850; letter-spacing: .09em; }
+.practice-feature-grid strong { margin-top: 8px; color: #2e5a70; font-size: 15px; }
+.practice-feature-grid p { margin: 7px 0 10px; color: #718793; font-size: 12px; line-height: 1.65; }
+.practice-feature-grid em { margin-top: auto; color: #397691; font-size: 11px; font-style: normal; font-weight: 800; }
+.practice-feature-grid article em { color: #899ba4; }
+.essay-guide { background: #fbfaf7; border-color: #e4ded1; }
+.essay-guide > header b { color: #6f5637; }
+.essay-guide > header small { background: #f1ebe1; color: #755f43; }
+.essay-workflow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+.essay-workflow li { display: flex; gap: 9px; min-width: 0; padding: 12px; border: 1px solid #e5dfd4; border-radius: 10px; background: #fff; }
+.essay-workflow li > span { display: grid; place-items: center; width: 25px; height: 25px; flex: 0 0 auto; border-radius: 50%; background: #8a6842; color: #fff; font-size: 11px; font-weight: 850; }
+.essay-workflow strong { color: #684f34; font-size: 13px; }
+.essay-workflow p { margin: 5px 0 0; color: #7f776d; font-size: 11px; line-height: 1.55; }
+.grading-scope-note { margin: 10px 0 0; padding: 10px 12px; border-radius: 9px; background: #f2eee6; color: #6f675d; font-size: 12px; line-height: 1.7; }
+.grading-scope-note b { color: #6d5337; }
 .practice-lab-note { display: flex; align-items: center; gap: 8px; margin-top: 18px; padding: 10px 12px; border-radius: 10px; background: #f2f7f9; color: #718594; font-size: 10px; }
 .practice-lab-note b { color: #2f6684; }
 .practice-lab-note button { margin-left: auto; padding: 6px 8px; border: 1px solid #c9dae3; border-radius: 7px; background: #fff; color: #39657d; font-size: 9px; font-weight: 800; cursor: pointer; }
@@ -3999,6 +4023,11 @@ a {
   .practice-lab-head, .legal-search-head { flex-direction: column; }
   .practice-switch { width: 100%; }
   .practice-switch button { flex: 1; }
+  .practice-feature-guide > header { flex-direction: column; gap: 9px; }
+  .practice-feature-guide > header small { max-width: none; }
+  .practice-feature-grid { grid-template-columns: 1fr; }
+  .practice-feature-grid article, .practice-feature-grid button { min-height: 0; }
+  .essay-workflow { grid-template-columns: 1fr 1fr; }
   .practice-option-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .practice-coach > header { flex-direction: column; }
   .practice-coach > header > div:last-child { width: 100%; justify-content: flex-start; }
