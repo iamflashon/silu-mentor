@@ -2481,29 +2481,44 @@ a {
   font-size: 14px;
 }
 .plan-tabs {
-  display: grid;
-  grid-template-columns: repeat(9, minmax(86px, 108px));
-  justify-content: center;
-  gap: 8px;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
   margin: 0 0 20px;
-  padding: 0;
+  padding: 8px 10px 0;
   width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #c6d6df transparent;
+  border-bottom: 1px solid #c9d8e1;
+  background: linear-gradient(180deg, rgba(234, 241, 245, .35), rgba(234, 241, 245, .72));
+  border-radius: 12px 12px 0 0;
 }
 .plan-tabs button {
   position: relative;
-  width: 108px;
-  min-height: 54px;
-  padding: 12px 9px;
-  border: 1px solid #d8e4eb;
-  border-radius: 10px;
-  background: #fff;
-  color: #587387;
-  font-size: 13px;
+  flex: 1 0 auto;
+  min-width: 82px;
+  min-height: 44px;
+  margin-bottom: -1px;
+  padding: 11px 10px 10px;
+  border: 1px solid transparent;
+  border-bottom-color: #c9d8e1;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: #617a8b;
+  font-size: 12px;
   font-weight: 800;
   text-align: center;
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(31, 63, 86, 0.04);
+  box-shadow: none;
+  transition: color .16s ease, background .16s ease, border-color .16s ease;
+}
+.plan-tabs button:hover:not(.active) {
+  color: #315d78;
+  background: rgba(255, 255, 255, .52);
 }
 
 .resource-learning-hub {
@@ -2669,15 +2684,19 @@ a {
 .book-dialogue-empty p { max-width: 360px; margin: 8px 0 0; font-size: 13px; line-height: 1.7; }
 .chapter-retry { margin: 8px 0; padding: 6px 10px; border: 1px solid #8eb4c5; border-radius: 7px; background: #fff; color: #2e6e8a; font-size: 11px; font-weight: 800; cursor: pointer; }
 .plan-tabs button.active {
-  background: #193d5a;
-  border-color: #193d5a;
-  color: white;
-  box-shadow: 0 8px 18px rgba(25, 61, 90, 0.16);
+  z-index: 1;
+  min-height: 49px;
+  padding-top: 13px;
+  border-color: #c9d8e1;
+  border-bottom-color: #fff;
+  background: #fff;
+  color: #193d5a;
+  box-shadow: 0 -4px 12px rgba(35, 72, 97, .045);
 }
 .plan-tabs span {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 5px;
+  right: 5px;
   margin-left: 0;
   padding: 2px 5px;
   border-radius: 999px;
@@ -2704,8 +2723,8 @@ a {
 @media (max-width: 920px) { .trial-course-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .trial-course-hub { width: calc(100% - 28px); padding: 18px; } .trial-course-head { align-items: flex-start; flex-direction: column; } .trial-course-grid { grid-template-columns: 1fr; } .trial-course-card { min-height: 190px; } }
 .plan-tabs button.active span {
-  background: rgba(255, 255, 255, 0.55);
-  color: inherit;
+  background: #e5eef3;
+  color: #365d75;
 }
 .exam-gateway {
   display: grid;
@@ -4145,17 +4164,23 @@ a {
     gap: 15px;
   }
   .plan-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    display: flex;
+    gap: 2px;
+    margin-right: -14px;
+    width: calc(100% + 14px);
+    padding: 7px 8px 0;
+    scroll-snap-type: x proximity;
   }
   .plan-tabs button {
-    width: 100%;
-    min-height: 52px;
+    flex: 0 0 auto;
+    min-width: 88px;
+    min-height: 43px;
     padding: 10px 11px;
     font-size: 11px;
-    white-space: normal;
+    white-space: nowrap;
+    scroll-snap-align: start;
   }
+  .plan-tabs button.active { min-height: 47px; padding-top: 12px; }
   .resource-learning-hub { width: calc(100% - 28px); padding: 15px; }
   .resource-learning-head { align-items: flex-start; }
   .resource-learning-head h2 { font-size: 22px; }
