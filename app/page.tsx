@@ -369,13 +369,13 @@ export default function Home() {
   return (
     <main className="coach-shell">
       <header className="topbar">
-        <Link href="/" className="brand" aria-label="司律備考首頁">
+        <a href="/" className="brand" aria-label="司律備考首頁">
           <span className="brand-mark">律</span>
           <span>司律備考</span>
-        </Link>
+        </a>
         <div className="top-actions">
-          <Link href="/plan" className="admin-link">學習專區</Link>
-          <Link href="/admin" className="admin-link">管理後台</Link>
+          <a href="/plan" className="admin-link">學習專區</a>
+          <a href="/admin" className="admin-link">管理後台</a>
         </div>
       </header>
       <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker ?? ["距離目標再前進一小步"]).join("　◆　")}</span></div></div>

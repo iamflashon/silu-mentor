@@ -2114,13 +2114,13 @@ export default function AdminPage() {
   return (
     <main className="admin-shell">
       <header className="topbar">
-        <Link href="/" className="brand">
+        <a href="/" className="brand">
           <span className="brand-mark">律</span>
           <span>司律備考</span>
-        </Link>
-        <Link href="/" className="back-link">
+        </a>
+        <a href="/" className="back-link">
           返回對話首頁 →
-        </Link>
+        </a>
       </header>
       <div className="admin-main">
         <div className="admin-title">

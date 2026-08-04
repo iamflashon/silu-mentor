@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import { PracticeLab } from "./practice-lab";
@@ -348,8 +347,8 @@ export default function StudyPlanPage() {
 
   return <main className="plan-shell">
     <header className="topbar">
-      <Link href="/" className="brand"><span className="brand-mark">律</span><span>司律備考</span></Link>
-      <div className="top-actions"><Link href="/" className="back-link">返回對話</Link><Link href="/admin" className="admin-link">管理後台</Link></div>
+      <a href="/" className="brand"><span className="brand-mark">律</span><span>司律備考</span></a>
+      <div className="top-actions"><a href="/" className="back-link">返回對話</a><a href="/admin" className="admin-link">管理後台</a></div>
     </header>
     <div className="plan-main">
       <div className="plan-header">
