@@ -18,6 +18,7 @@ const localBindingConfig = {
   // Keep the worker on the last pre-default date while the Sites deployer
   // catches up with Cloudflare's 2026-08-04 compatibility change.
   compatibility_date: "2026-08-03",
+  compatibility_flags: ["nodejs_compat_v2"],
   // Cloudflare Cron uses UTC. 16:30–21:55 UTC is 00:30–05:55 in Taiwan.
   // The five-minute cadence lets a failed batch resume while the official API
   // is still open, without requiring an administrator to keep the page open.
