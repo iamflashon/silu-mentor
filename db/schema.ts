@@ -71,6 +71,9 @@ export const chatSessions = sqliteTable("chat_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull(),
   title: text("title").notNull().default("司律備考對話"),
+  sessionDate: text("session_date"),
+  summary: text("summary").notNull().default(""),
+  progressStatus: text("progress_status").notNull().default("open"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

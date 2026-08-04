@@ -10,6 +10,7 @@ type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; ou
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
 type TodayRecord = { subject: string; title: string; activityType: string; actualMinutes: number; nextStep: string };
+type YesterdayContext = { date: string; sessionId: number | null; messageCount: number; lastStudent: string; lastMentor: string; completedTasks: number; totalTasks: number; incompleteTasks: Array<{ id: number; subject: string; title: string; durationMinutes: number; details: string }>; records: Array<{ subject: string; title: string; activityType: string; actualMinutes: number; correct: boolean | null; weakness: string; nextStep: string }> };
 type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
@@ -32,6 +33,8 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [todayTasks, setTodayTasks] = useState<TodayTask[]>([]);
+  const [yesterday, setYesterday] = useState<YesterdayContext | null>(null);
+  const [dailyChoiceVisible, setDailyChoiceVisible] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [today, setToday] = useState(() => taipeiDate());
   const [greeting, setGreeting] = useState(() => taipeiGreeting());
@@ -91,16 +94,27 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/chat/history").then(async (response) => {
       if (!response.ok) throw new Error("history unavailable");
-      const data = await response.json() as { sessionId?: number | null; messages?: Message[]; today?: string; todayTasks?: TodayTask[]; greeting?: string; todayRecords?: TodayRecord[] };
+      const data = await response.json() as { sessionId?: number | null; messages?: Message[]; today?: string; todayTasks?: TodayTask[]; greeting?: string; todayRecords?: TodayRecord[]; yesterday?: YesterdayContext | null };
       setSessionId(data.sessionId ?? null);
       setToday(data.today ?? taipeiDate());
       setTodayTasks(data.todayTasks ?? []);
+      setYesterday(data.yesterday ?? null);
       setGreeting(data.greeting ?? taipeiGreeting());
       const restored = data.messages ?? [];
       if (restored.length) setMessages(restored);
+      else if (data.yesterday) {
+        const incomplete = data.yesterday.incompleteTasks.length;
+        const yesterdayProgress = data.yesterday.totalTasks
+          ? `昨天完成 ${data.yesterday.completedTasks}/${data.yesterday.totalTasks} 項任務${incomplete ? `，還有 ${incomplete} 項未完成` : ""}`
+          : data.yesterday.records.length
+            ? `昨天留下 ${data.yesterday.records.length} 筆學習紀錄`
+            : "昨天有一段學習對話紀錄";
+        setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}。${yesterdayProgress}。今天要怎麼開始，由你決定；我會依昨天的紀錄幫你接續。` }]);
+        setDailyChoiceVisible(true);
+      }
       else if ((data.todayTasks ?? []).length) {
         const pending = (data.todayTasks ?? []).filter((task) => task.status !== "completed");
-        const records = data.todayRecords ?? [];
+      const records = data.todayRecords ?? [];
         const recordSummary = records.length ? `你今天已經學過：${records.slice(0, 3).map((record) => record.title).join("、")}。` : "";
         setMessages([{ role: "mentor", text: pending.length ? `${data.greeting ?? taipeiGreeting()}，${recordSummary}今天已經安排好 ${pending.length} 項任務。我們從第一項「${pending[0].title}」開始，好嗎？` : `${data.greeting ?? taipeiGreeting()}，${recordSummary}今天的任務都完成了。要不要趁狀態正好，先預習明天的內容？` }]);
       } else {
@@ -302,6 +316,7 @@ export default function Home() {
     const nextMessages: Message[] = [...messages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
     setMessages(nextMessages);
     setInput("");
+    setDailyChoiceVisible(false);
     setImageDraft(null);
     setEditingImage(false);
     setThinking(true);
@@ -417,6 +432,15 @@ export default function Home() {
           )}
           <div ref={endRef} />
         </div>
+
+        {dailyChoiceVisible && yesterday && <section className="daily-handoff" aria-label="昨日學習接續選擇">
+          <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
+          <div className="daily-handoff-actions">
+            <button type="button" onClick={() => void send("我想繼續昨天的進度，請先告訴我昨天完成到哪裡，再從未完成的任務或最後接續點開始。")}>繼續昨天進度</button>
+            <button type="button" onClick={() => void send("我今天想開始新的單元，請依照今天的任務直接帶我開始。")}>開始今天新單元</button>
+            <button type="button" onClick={() => void send("請考考我昨天的學習成效，先出一個我可以直接回答的小問題，不要先公布答案。")}>考考昨天成效</button>
+          </div>
+        </section>}
 
         {source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)}</span> : null}</div>}
 

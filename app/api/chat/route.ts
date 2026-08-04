@@ -1,5 +1,5 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatMessages, chatSessions, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
@@ -129,6 +129,15 @@ function normalizedTaskPart(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/g, "").replace(/[，。,、:：·・\-_—]/g, "");
 }
 
+function previousDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day - 1, 12)).toISOString().slice(0, 10);
+}
+
+function resolvedSessionDate(session: { sessionDate?: string | null; createdAt: Date; updatedAt: Date }) {
+  return session.sessionDate || taipeiDate(session.updatedAt || session.createdAt);
+}
+
 async function deletePlanTasks(command: DeletePlanCall) {
   const db = await getDb();
   const [plan] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
@@ -180,13 +189,21 @@ async function savePlan(plan: PlanCall) {
 async function getOrCreateSession(request: Request, requestedId: number | null, firstText: string) {
   const db = await getDb();
   const key = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
+  const today = taipeiDate();
   if (requestedId) {
     const [existing] = await db.select().from(chatSessions).where(eq(chatSessions.id, requestedId)).limit(1);
-    if (existing?.userKey === key) return existing;
+    if (existing?.userKey === key && resolvedSessionDate(existing) === today) {
+      if (!existing.sessionDate) await db.update(chatSessions).set({ sessionDate: today }).where(eq(chatSessions.id, existing.id));
+      return { ...existing, sessionDate: today };
+    }
   }
-  const [latest] = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(1);
-  if (latest) return latest;
-  const [created] = await db.insert(chatSessions).values({ userKey: key, title: firstText.slice(0, 60) || "司律備考對話" }).returning();
+  const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(120);
+  const todaySession = sessions.find((candidate) => resolvedSessionDate(candidate) === today);
+  if (todaySession) {
+    if (!todaySession.sessionDate) await db.update(chatSessions).set({ sessionDate: today }).where(eq(chatSessions.id, todaySession.id));
+    return { ...todaySession, sessionDate: today };
+  }
+  const [created] = await db.insert(chatSessions).values({ userKey: key, sessionDate: today, title: `${today}｜${firstText.slice(0, 48) || "司律備考對話"}` }).returning();
   return created;
 }
 
@@ -206,7 +223,7 @@ export async function POST(request: Request) {
     if (latestStudent) {
       const db = await getDb();
       await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text });
-      await db.update(chatSessions).set({ updatedAt: new Date() }).where(eq(chatSessions.id, session.id));
+      await db.update(chatSessions).set({ updatedAt: new Date(), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
     }
 
     let vectorStoreId = "";
@@ -217,8 +234,10 @@ export async function POST(request: Request) {
     } catch { /* answer from model knowledge until the index is ready */ }
 
     const today = taipeiDate();
+    const yesterday = previousDate(today);
     let planContext = "目前尚未建立讀書計畫。";
     let recordContext = "目前尚無學習紀錄。";
+    let yesterdayContext = "昨天沒有可接續的學習紀錄。";
     try {
       const db = await getDb();
       const [plan] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
@@ -233,7 +252,21 @@ export async function POST(request: Request) {
       const records = await db.select().from(studyRecords).where(eq(studyRecords.userKey, key)).orderBy(desc(studyRecords.createdAt)).limit(20);
       if (records.length) recordContext = `近期學習紀錄：${records.map((record) => `${record.recordDate} ${record.subject}/${record.title}/${record.activityType}/${record.actualMinutes}分鐘${record.correct === null ? "" : record.correct ? "/答對" : "/答錯"}${record.weakness ? `/弱點:${record.weakness}` : ""}${record.nextStep ? `/接續:${record.nextStep}` : ""}`).join("；")}`;
     } catch { /* continue without record context */ }
-    const instructions = `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。`;
+    try {
+      const db = await getDb();
+      const key = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
+      const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(120);
+      const yesterdaySession = sessions.find((candidate) => resolvedSessionDate(candidate) === yesterday);
+      const yesterdayMessages = yesterdaySession ? await db.select().from(chatMessages).where(eq(chatMessages.sessionId, yesterdaySession.id)).orderBy(desc(chatMessages.id)).limit(12) : [];
+      const yesterdayRecords = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, key), eq(studyRecords.recordDate, yesterday))).orderBy(desc(studyRecords.createdAt)).limit(20);
+      const yesterdayTasks = planContext.includes("目前計畫") ? await db.select().from(studyTasks).where(and(eq(studyTasks.taskDate, yesterday), eq(studyTasks.status, "pending"))).limit(20) : [];
+      const lastStudent = [...yesterdayMessages].reverse().find((message) => message.role === "student")?.text ?? "";
+      const lastMentor = [...yesterdayMessages].reverse().find((message) => message.role === "mentor")?.text ?? "";
+      const taskText = yesterdayTasks.length ? `未完成任務：${yesterdayTasks.map((task) => `${task.subject}/${task.title}`).join("、")}。` : "昨天沒有查到未完成任務。";
+      const recordText = yesterdayRecords.length ? `昨天學習紀錄：${yesterdayRecords.map((record) => `${record.subject}/${record.title}/${record.actualMinutes}分鐘${record.weakness ? `/弱點:${record.weakness}` : ""}${record.nextStep ? `/接續:${record.nextStep}` : ""}`).join("；")}。` : "昨天沒有學習紀錄。";
+      yesterdayContext = `${taskText}${recordText}${lastStudent ? `昨天學生最後提到：${lastStudent.slice(0, 240)}。` : ""}${lastMentor ? `昨天教練最後的接續提示：${lastMentor.slice(0, 360)}。` : ""}`;
+    } catch { /* continue without yesterday context */ }
+    const instructions = `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。`;
     const selectedModel = process.env.OPENAI_MODEL || chooseModel(messages);
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
@@ -362,7 +395,7 @@ export async function POST(request: Request) {
         model: selectedModel,
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
-      await db.update(chatSessions).set({ updatedAt: new Date() }).where(eq(chatSessions.id, session.id));
+      await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply.replace(/\s+/g, " ").slice(0, 500), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
       if (latestStudent && latestStudent.text.trim().length >= 6) {
         const learningMinutes = Math.min(30, Math.max(5, Math.ceil(latestStudent.text.trim().length / 80) * 5));
         await db.insert(studyRecords).values({

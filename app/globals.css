@@ -616,6 +616,23 @@ a {
   font-weight: 700;
   cursor: pointer;
 }
+.daily-handoff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 4px;
+  padding: 11px 13px;
+  border: 1px solid #d7e9e3;
+  border-radius: 12px;
+  background: #f5fbf8;
+}
+.daily-handoff > div:first-child { display: grid; gap: 2px; min-width: 0; }
+.daily-handoff b { color: #315f57; font-size: 13px; }
+.daily-handoff span { color: #78918f; font-size: 11px; }
+.daily-handoff-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.daily-handoff-actions button { border: 1px solid #b9d8cf; border-radius: 999px; padding: 7px 10px; background: #fff; color: #32675b; font: inherit; font-size: 11px; font-weight: 750; cursor: pointer; }
+.daily-handoff-actions button:first-child { border-color: #4e9b88; background: #4e9b88; color: #fff; }
 .command-rail {
   position: sticky;
   top: 122px;
@@ -3427,6 +3444,20 @@ a {
   font-weight: 750;
   cursor: pointer;
 }
+.daily-chat-list { display: grid; gap: 9px; }
+.daily-chat-card { overflow: hidden; border: 1px solid #dce9ee; border-radius: 12px; background: #fff; }
+.daily-chat-summary { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 13px 14px; border: 0; background: transparent; color: #31566f; text-align: left; cursor: pointer; }
+.daily-chat-summary > span { color: #6e8da0; font-size: 12px; font-weight: 800; }
+.daily-chat-summary > div { display: grid; gap: 3px; min-width: 0; }
+.daily-chat-summary strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.daily-chat-summary small { color: #8a9da7; font-size: 10px; }
+.daily-chat-summary > b { color: #4b8398; font-size: 10px; white-space: nowrap; }
+.daily-chat-messages { display: grid; gap: 8px; padding: 0 14px 14px; border-top: 1px solid #edf3f5; }
+.daily-chat-message { max-width: 88%; padding: 9px 11px; border-radius: 10px; }
+.daily-chat-message.mentor { background: #eef7f1; color: #365e53; }
+.daily-chat-message.student { justify-self: end; background: #eff5f8; color: #365d74; }
+.daily-chat-message span { display: block; margin-bottom: 3px; color: #73909c; font-size: 10px; font-weight: 800; }
+.daily-chat-message p { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.7; }
 .note-search {
   width: 100%;
   margin-bottom: 14px;
@@ -4953,4 +4984,7 @@ a {
   .course-reference-player video { height: 220px; }
   .segment-time { flex-wrap: wrap; }
   .resource-editor { padding: 18px; }
+  .daily-handoff { align-items: stretch; flex-direction: column; gap: 9px; }
+  .daily-handoff-actions { justify-content: flex-start; }
+  .daily-handoff-actions button { flex: 1 1 auto; }
 }

@@ -141,6 +141,13 @@
       "when": 1785765978480,
       "tag": "0019_premium_deadpool",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1785811160705,
+      "tag": "0020_lying_rattler",
+      "breakpoints": true
     }
   ]
 }
