@@ -118,6 +118,13 @@ export async function DELETE(request: Request) {
     const params = new URL(request.url).searchParams;
     const taskId = Number(params.get("taskId"));
     const db = await getDb();
+    if (params.get("clear") === "1") {
+      const [plan] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
+      if (!plan) return Response.json({ deleted: 0 });
+      const tasks = await db.select().from(studyTasks).where(eq(studyTasks.planId, plan.id));
+      await db.delete(studyTasks).where(eq(studyTasks.planId, plan.id));
+      return Response.json({ deleted: tasks.length });
+    }
     if (params.get("duplicates") === "1") {
       const tasks = await db.select().from(studyTasks).orderBy(asc(studyTasks.id));
       const seen = new Set<string>(); const duplicateIds: number[] = [];

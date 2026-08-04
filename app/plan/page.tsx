@@ -76,6 +76,10 @@ export default function StudyPlanPage() {
   });
   const [resourceMessage, setResourceMessage] = useState("");
   const [coursePlayerError, setCoursePlayerError] = useState("");
+  const [resetPlanOpen, setResetPlanOpen] = useState(false);
+  const [resetPlanLoading, setResetPlanLoading] = useState(false);
+  const [resetPlanMessage, setResetPlanMessage] = useState("");
+  const [resetPlanDraft, setResetPlanDraft] = useState({ dailyMinutes: 120, days: 14 });
 
   async function load() {
     const response = await fetch(`/api/study-plan?month=${month}`);
@@ -216,6 +220,28 @@ export default function StudyPlanPage() {
     await load();
   }
 
+  async function clearAndReplan() {
+    setResetPlanLoading(true);
+    setResetPlanMessage("");
+    try {
+      const clearResponse = await fetch("/api/study-plan?clear=1", { method: "DELETE" });
+      const clearResult = await clearResponse.json() as { deleted?: number; error?: string };
+      if (!clearResponse.ok) throw new Error(clearResult.error ?? "行事曆清空失敗");
+      const prompt = `請立即依照我的既有學習紀錄、作答結果、弱點與目前進度，重新建立一份從今天開始的 ${resetPlanDraft.days} 天司律讀書計畫。每日可用時間 ${resetPlanDraft.dailyMinutes} 分鐘。請平衡一試選擇題、二試申論、教材閱讀、影音與複習，避免重複已完成內容，並直接使用 save_study_plan 寫入行事曆。`;
+      const planResponse = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "student", text: prompt }] }) });
+      const planResult = await planResponse.json() as { planSaved?: boolean; error?: string };
+      if (!planResponse.ok || !planResult.planSaved) throw new Error(planResult.error ?? "舊行程已清空，但 AI 尚未成功建立新計畫，請再按一次重新規劃。");
+      setResetPlanMessage(`已清除 ${clearResult.deleted ?? 0} 項舊行程，AI 已重新安排接下來的讀書計畫。`);
+      await load();
+      window.setTimeout(() => { setResetPlanOpen(false); setResetPlanMessage(""); }, 1200);
+    } catch (error) {
+      setResetPlanMessage(error instanceof Error ? error.message : "重新規劃失敗，請稍後再試。");
+      await load();
+    } finally {
+      setResetPlanLoading(false);
+    }
+  }
+
   function moveMonth(delta: number) {
     const [year, monthNumber] = month.split("-").map(Number);
     setMonth(monthValue(new Date(year, monthNumber - 1 + delta, 1)));
@@ -353,7 +379,7 @@ export default function StudyPlanPage() {
     <div className="plan-main">
       <div className="plan-header">
         <div><p>MY LEARNING CENTER</p><h1>學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律備考聊完後，AI 會把任務寫到這裡"}</span></div>
-        {activeTab === "calendar" && <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>}
+        {activeTab === "calendar" && <div className="calendar-header-actions"><button className="reset-plan-btn" onClick={() => { setResetPlanDraft({ dailyMinutes: plans[0]?.dailyMinutes ?? 120, days: 14 }); setResetPlanMessage(""); setResetPlanOpen(true); }}>↻ 清空並重新規劃</button><button className="add-task" onClick={() => openNew()}>＋ 新增任務</button></div>}
       </div>
       <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>主動刷題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>書籍</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>法規搜尋</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>法教專區</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "exam-conversations" ? "active" : ""} onClick={() => setActiveTab("exam-conversations")}>試題問答 <span>{examConversations.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
       {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><div className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>已發布的題目都會保留在學習區，方便依序練習</span></div><i>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? "▶" : "聽"}</i></div>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? <div className="listening-feed-list">{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).map((item) => <article className="listening-feed-item" key={item.id}><div className="listening-feed-heading"><div><span>{item.year || "自訂題目"} · {item.subject}</span><h3>{item.title}</h3></div><b>已發布</b></div><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={item} /></article>)}</div> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</div></section>}
@@ -405,5 +431,6 @@ export default function StudyPlanPage() {
     </div>
     {draft && <div className="editor-backdrop" onClick={() => setDraft(null)}><section className="task-editor" onClick={(event) => event.stopPropagation()}><div className="editor-title"><h2>{draft.id ? "編輯讀書任務" : "新增讀書任務"}</h2><button onClick={() => setDraft(null)}>×</button></div><label className="field">日期<input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></label><label className="field">科目<select value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })}>{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label><label className="field">任務名稱<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="例如：不作為犯基本觀念" /></label><label className="field">預計時間（分鐘）<input type="number" min="10" max="480" value={draft.durationMinutes} onChange={(e) => setDraft({ ...draft, durationMinutes: Number(e.target.value) })} /></label><label className="field">學習內容<textarea value={draft.details} onChange={(e) => setDraft({ ...draft, details: e.target.value })} rows={4} /></label><label className="complete-check"><input type="checkbox" checked={draft.status === "completed"} onChange={(e) => setDraft({ ...draft, status: e.target.checked ? "completed" : "pending" })} />已完成</label>{message && <p className="editor-message">{message}</p>}<div className="editor-actions">{draft.id && <button className="delete-task" onClick={remove}>刪除</button>}<button className="primary-btn" onClick={save}>儲存任務</button></div></section></div>}
     {noteDraft && <div className="editor-backdrop" onClick={() => setNoteDraft(null)}><section className="task-editor note-editor" onClick={(event) => event.stopPropagation()}><div className="editor-title"><h2>編輯筆記</h2><button onClick={() => setNoteDraft(null)}>×</button></div><label className="field">標題<input value={noteDraft.title} onChange={(e) => setNoteDraft({ ...noteDraft, title: e.target.value })} /></label><label className="field">科目<select value={noteDraft.subject} onChange={(e) => setNoteDraft({ ...noteDraft, subject: e.target.value })}>{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label><label className="field">標籤<input value={noteDraft.tags} onChange={(e) => setNoteDraft({ ...noteDraft, tags: e.target.value })} placeholder="重要、待複習…" /></label><label className="field">筆記內容<textarea value={noteDraft.content} onChange={(e) => setNoteDraft({ ...noteDraft, content: e.target.value })} rows={9} /></label>{noteDraft.sourceLabel && <p className="note-source-readonly">教材來源：{noteDraft.sourceLabel}</p>}<div className="editor-actions"><button className="delete-task" onClick={removeNote}>刪除筆記</button><button className="primary-btn" onClick={saveNote}>儲存筆記</button></div></section></div>}
+    {resetPlanOpen && <div className="editor-backdrop" onClick={() => !resetPlanLoading && setResetPlanOpen(false)}><section className="task-editor reset-plan-dialog" onClick={(event) => event.stopPropagation()}><div className="editor-title"><div><p>AI STUDY PLANNER</p><h2>清空並重新規劃</h2></div><button disabled={resetPlanLoading} onClick={() => setResetPlanOpen(false)}>×</button></div><div className="reset-plan-warning"><strong>會清空目前行事曆上的任務</strong><p>已完成的學習紀錄、作答結果、弱點分析、每日對話與筆記都會保留，AI 會依這些紀錄重新安排。</p></div><div className="reset-plan-fields"><label className="field">每日可用時間（分鐘）<input type="number" min="30" max="720" step="30" value={resetPlanDraft.dailyMinutes} onChange={(event) => setResetPlanDraft({ ...resetPlanDraft, dailyMinutes: Math.max(30, Number(event.target.value) || 30) })} /></label><label className="field">這次先規劃<select value={resetPlanDraft.days} onChange={(event) => setResetPlanDraft({ ...resetPlanDraft, days: Number(event.target.value) })}><option value={7}>接下來 7 天</option><option value={14}>接下來 14 天</option></select></label></div>{resetPlanMessage && <p className={`reset-plan-message ${resetPlanMessage.includes("已清除") ? "success" : ""}`}>{resetPlanMessage}</p>}<div className="editor-actions"><button className="secondary-btn" disabled={resetPlanLoading} onClick={() => setResetPlanOpen(false)}>取消</button><button className="reset-confirm-btn" disabled={resetPlanLoading} onClick={() => void clearAndReplan()}>{resetPlanLoading ? "AI 正在重新規劃…" : "確認清空，讓 AI 重排"}</button></div></section></div>}
   </main>;
 }
