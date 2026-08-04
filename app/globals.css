@@ -2933,6 +2933,9 @@ a {
 .practice-recommendations article > p { display: -webkit-box; overflow: hidden; margin: 5px 0 0; color: #708591; font-size: 12px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .practice-recommendations article > a { display: inline-block; margin-top: 8px; color: #2c7392; font-size: 12px; font-weight: 800; text-decoration: none; }
 .practice-empty, .legal-search-empty { margin-top: 15px; padding: 24px; border-radius: 11px; background: #f5f8fa; color: #718895; font-size: 14px; text-align: center; }
+.legal-search-empty b, .legal-search-empty span { display: block; }
+.legal-search-empty b { color: #315f76; font-size: 15px; }
+.legal-search-empty span { margin-top: 6px; line-height: 1.6; }
 .legal-search-form { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px; margin-top: 18px; }
 .legal-search-form input, .legal-search-form select { min-width: 0; padding: 14px 15px; border: 1px solid #cfdee6; border-radius: 9px; background: #fbfdfe; color: #3c6175; font: inherit; font-size: 15px; }
 .legal-search-form .primary-btn { min-width: 72px; border: 0; border-radius: 9px; background: #285d7f; color: #fff; font-size: 14px; font-weight: 850; cursor: pointer; }
@@ -3050,6 +3053,12 @@ a {
 .judicial-search-form { display: grid; grid-template-columns: minmax(0, 1fr) 180px 100px auto; gap: 8px; margin-top: 18px; }
 .judicial-search-form input { min-width: 0; padding: 14px 15px; border: 1px solid #cfdee6; border-radius: 9px; background: #fbfdfe; color: #3c6175; font: inherit; font-size: 15px; }
 .judicial-search-form .primary-btn { border: 0; border-radius: 9px; background: #285d7f; color: #fff; padding: 0 16px; font-size: 14px; font-weight: 850; }
+.judicial-search-examples { display: flex; align-items: stretch; gap: 8px; margin-top: 11px; }
+.judicial-search-examples > span { align-self: center; flex: 0 0 auto; color: #718895; font-size: 12px; font-weight: 850; }
+.judicial-search-examples button { display: grid; gap: 2px; min-width: 0; padding: 8px 11px; border: 1px solid #d5e4ea; border-radius: 9px; background: #f7fbfc; color: #315f76; text-align: left; cursor: pointer; }
+.judicial-search-examples button:hover { border-color: #79aabd; background: #eef7f9; }
+.judicial-search-examples b { font-size: 12px; }
+.judicial-search-examples small { overflow: hidden; color: #718895; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .judicial-search-hint { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; color: #718895; font-size: 13px; }
 .judicial-search-hint button { border: 0; background: transparent; color: #2f718d; font-weight: 800; cursor: pointer; }
 .judicial-result-list { display: grid; gap: 10px; margin-top: 16px; }
@@ -3066,7 +3075,7 @@ a {
 .judicial-result footer span { color: #78909d; font-size: 12px; }
 .judicial-result footer button { padding: 8px 12px; border: 0; border-radius: 7px; background: #285d7f; color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; }
 .judicial-result footer button:disabled { opacity: .48; cursor: default; }
-@media (max-width: 760px) { .legal-research-tabs { top: 0; gap: 3px; padding: 4px; } .legal-research-tabs button { min-height: 40px; padding: 8px 5px; font-size: 12px; } .legal-research-overview { padding: 17px; } .legal-research-overview > header h2 { font-size: 20px; } .legal-research-overview > div { grid-template-columns: 1fr; } .judicial-search-form { grid-template-columns: 1fr 1fr; } .judicial-search-form > :first-child { grid-column: 1 / -1; } .judicial-result footer { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 760px) { .legal-research-tabs { top: 0; gap: 3px; padding: 4px; } .legal-research-tabs button { min-height: 40px; padding: 8px 5px; font-size: 12px; } .legal-research-overview { padding: 17px; } .legal-research-overview > header h2 { font-size: 20px; } .legal-research-overview > div { grid-template-columns: 1fr; } .judicial-search-form { grid-template-columns: 1fr 1fr; } .judicial-search-form > :first-child { grid-column: 1 / -1; } .judicial-search-examples { display: grid; grid-template-columns: 1fr; } .judicial-search-examples > span { margin-top: 3px; } .judicial-result footer { align-items: flex-start; flex-direction: column; } }
 .learning-overview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

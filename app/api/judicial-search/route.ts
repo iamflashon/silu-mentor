@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { judicialCases } from "../../../db/schema";
 
@@ -19,15 +19,27 @@ export async function GET(request: Request) {
   const limit = Math.max(1, Math.min(30, Number(url.searchParams.get("limit") ?? 12) || 12));
   try {
     const db = await getDb();
+    const [available] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(eq(judicialCases.status, "active"));
     const conditions = [eq(judicialCases.status, "active")];
     if (query) {
       const pattern = `%${escapeLike(query)}%`;
-      conditions.push(or(like(judicialCases.jid, pattern), like(judicialCases.title, pattern), like(judicialCases.fullText, pattern), like(judicialCases.caseType, pattern), like(judicialCases.caseNo, pattern))!);
+      const compactQuery = query.replace(/[\s，,。．・：:（）()【】\[\]「」]/g, "");
+      const compactPattern = `%${escapeLike(compactQuery)}%`;
+      const composedCaseNo = sql<string>`${judicialCases.court} || ${judicialCases.year} || '年度' || ${judicialCases.caseType} || '字第' || ${judicialCases.caseNo} || '號'`;
+      conditions.push(or(
+        like(judicialCases.jid, pattern),
+        like(judicialCases.title, pattern),
+        like(judicialCases.fullText, pattern),
+        like(judicialCases.court, pattern),
+        like(judicialCases.caseType, pattern),
+        like(judicialCases.caseNo, pattern),
+        sql`${composedCaseNo} like ${compactPattern}`,
+      )!);
     }
     if (court) conditions.push(like(judicialCases.court, `%${escapeLike(court)}%`));
     if (year) conditions.push(eq(judicialCases.year, year));
     const rows = await db.select().from(judicialCases).where(and(...conditions)).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit);
-    return Response.json({ query, total: rows.length, results: rows.map((row) => {
+    return Response.json({ query, total: rows.length, availableTotal: Number(available?.value ?? 0), results: rows.map((row) => {
       let fullText = row.fullText;
       if (!fullText && row.rawJson) {
         try {
