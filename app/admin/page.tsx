@@ -333,6 +333,7 @@ export default function AdminPage() {
   const [magazineUrl, setMagazineUrl] = useState(
     "https://www.angle.com.tw/magazine/m_search.asp?KindID=12",
   );
+  const [magazineYear, setMagazineYear] = useState(() => new Date().getFullYear());
   const [subtitleCourse, setSubtitleCourse] = useState<LearningResource | null>(
     null,
   );
@@ -1377,7 +1378,45 @@ export default function AdminPage() {
       setNotice("請先填寫法學教室期數網址。");
       return false;
     }
-    setNotice("正在分析最新一期、試讀文章與可用連結…");
+    const isHistoryUrl = /m_search\.asp/i.test(url);
+    if (isHistoryUrl) {
+      setNotice("正在尋找今年全部期數…");
+      const discoveryResponse = await fetch("/api/resources/magazine-import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url, discoverYear: magazineYear }),
+      });
+      const discovery = (await readJson(discoveryResponse)) as { year?: number; issues?: Array<{ url: string; title: string }>; error?: string };
+      if (!discoveryResponse.ok || !discovery.issues?.length) {
+        setNotice(discovery.error ?? "今年尚未找到可同步的法學教室期數");
+        return false;
+      }
+      let completed = 0;
+      let indexed = 0;
+      let failed = 0;
+      for (const [index, issue] of discovery.issues.entries()) {
+        setNotice(`正在處理 ${issue.title}（${index + 1}/${discovery.issues.length}）…`);
+        const issueResponse = await fetch("/api/resources/magazine-import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: issue.url }),
+        });
+        const issueResult = (await readJson(issueResponse)) as { indexed?: number; failures?: string[] };
+        if (issueResponse.ok) {
+          completed++;
+          indexed += issueResult.indexed ?? 0;
+          failed += issueResult.failures?.length ?? 0;
+        } else failed++;
+      }
+      const refreshed = await fetch("/api/resources");
+      if (refreshed.ok) {
+        const refreshedResult = (await refreshed.json()) as { resources?: LearningResource[] };
+        setResources(refreshedResult.resources ?? []);
+      }
+      setNotice(`已同步 ${discovery.year ?? "今年"} 年 ${completed}/${discovery.issues.length} 期，共完成 ${indexed} 篇試讀分析${failed ? `；${failed} 篇需重試或人工確認` : ""}。`);
+      return completed > 0;
+    }
+    setNotice("正在分析指定期數、試讀文章與可用連結…");
     const response = await fetch("/api/resources/magazine-import", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -3028,7 +3067,7 @@ export default function AdminPage() {
               <div>
                 <h2>月旦法學教室</h2>
                 <p className="panel-sub">
-                  貼入歷期網址後，自動找到最新一期並分析出刊資料、試讀文章與合法連結；資料先進草稿，確認後再供前台推薦。
+                  選擇年度後，自動抓取該年度全部期數、每期四篇試讀文章標題與 PDF，再整理摘要與核心爭點；資料先進草稿，確認後再供前台推薦。
                 </p>
               </div>
               <span className="source-count">
@@ -3048,12 +3087,18 @@ export default function AdminPage() {
                   onChange={(e) => setMagazineUrl(e.target.value)}
                 />
               </label>
+              <label className="field magazine-year-field">
+                年度
+                <select value={magazineYear} onChange={(event) => setMagazineYear(Number(event.target.value))}>
+                  {Array.from({ length: 12 }, (_, index) => new Date().getFullYear() - index).map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </label>
               <button
                 type="button"
                 className="primary-btn"
                 onClick={analyzeMagazine}
               >
-                自動分析最新一期
+                自動抓取該年度
               </button>
             </div>
             <form className="magazine-add-issue" onSubmit={createMagazineIssue}>

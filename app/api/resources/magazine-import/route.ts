@@ -29,9 +29,30 @@ async function analyzeTrialPdf(article: { title: string; url: string }) {
 }
 
 export async function POST(request: Request) {
-  const { url } = await request.json() as { url?: string };
+  const { url, discoverYear } = await request.json() as { url?: string; discoverYear?: number | boolean };
   const parsed = new URL(String(url ?? ""));
   if (parsed.hostname !== "www.angle.com.tw" || !parsed.pathname.startsWith("/magazine/")) return Response.json({ error: "目前僅接受元照月旦雜誌網址" }, { status: 400 });
+  if (discoverYear) {
+    if (!parsed.pathname.endsWith("m_search.asp")) return Response.json({ error: "同步全年請使用月旦法學教室歷期網址" }, { status: 422 });
+    const listHtml = await fetchBig5(parsed.toString());
+    const candidates = Array.from(listHtml.matchAll(/href=["']([^"']*m_single\.asp\?BKID=\d+)[^"']*["']/gi))
+      .map((match) => new URL(match[1].replaceAll("&amp;", "&"), parsed).toString())
+      .filter((value, index, all) => all.indexOf(value) === index)
+      .slice(0, 180);
+    const currentYear = typeof discoverYear === "number" && Number.isInteger(discoverYear) ? discoverYear : new Date().getFullYear();
+    const issues: Array<{ url: string; title: string; issue: string; publishDate: string }> = [];
+    for (const detailUrl of candidates) {
+      const detailHtml = await fetchBig5(detailUrl);
+      const plain = clean(detailHtml);
+      const issue = plain.match(/月旦法學教室第\s*(\d+)\s*期/)?.[1] ?? "";
+      const publishDate = plain.match(/出刊日[^\d]*(\d{4})[年/]\s*(\d{1,2})/) ?? null;
+      if (!publishDate || !issue) continue;
+      const year = Number(publishDate[1]);
+      if (year < currentYear && issues.length) break;
+      if (year === currentYear) issues.push({ url: detailUrl, title: `月旦法學教室第${issue}期`, issue, publishDate: `${publishDate[1]}/${publishDate[2]}` });
+    }
+    return Response.json({ year: currentYear, issues });
+  }
   let detailUrl = parsed.toString();
   let issueFromList = "";
   if (parsed.pathname.endsWith("m_search.asp")) {
@@ -53,7 +74,7 @@ export async function POST(request: Request) {
   const existing = await db.select().from(learningResources).where(eq(learningResources.sourceUrl, detailUrl)).limit(1);
   const [resource] = existing.length ? existing : await db.insert(learningResources).values({ resourceType: "magazine", title, subject: "綜合", creator: "元照出版公司", description: [productCode, publishDate].filter(Boolean).join(" · "), sourceUrl: detailUrl, accessType: "external", status: "draft" }).returning();
   const current = await db.select().from(resourceSegments).where(eq(resourceSegments.resourceId, resource.id)); let indexed = 0; const failures: string[] = [];
-  for (let index = 0; index < articles.length; index++) { const article = articles[index]; const row = current.find((item) => item.title === article.title.slice(0, 100)); try { const analyzed = await analyzeTrialPdf(article); const values = { segmentType: "article_trial", lessonLabel: title, title: article.title.slice(0, 100), text: analyzed.text, summary: analyzed.analysis, importance: 5, recommended: true, reviewStatus: "ai_reviewed", sequence: index + 1 }; if (row) await db.update(resourceSegments).set(values).where(eq(resourceSegments.id, row.id)); else await db.insert(resourceSegments).values({ resourceId: resource.id, ...values }); await db.insert(usageLogs).values({ model: analyzed.model, source: "月旦試讀PDF", inputTokens: analyzed.usage?.input_tokens ?? 0, cachedTokens: analyzed.usage?.input_tokens_details?.cached_tokens ?? 0, outputTokens: analyzed.usage?.output_tokens ?? 0, fileSearchCalls: 0, estimatedCostUsdMicros: 0 }); indexed++; } catch (error) { const failureMessage = error instanceof Error ? error.message : "處理失敗"; failures.push(`${article.title}：${failureMessage}`); const values = { segmentType: "article_link", lessonLabel: title, title: article.title.slice(0, 100), text: JSON.stringify({ ...article, status: "failed", error: failureMessage }), summary: failureMessage, importance: 0, recommended: false, reviewStatus: "failed", sequence: index + 1 }; if (row) await db.update(resourceSegments).set(values).where(eq(resourceSegments.id, row.id)); else await db.insert(resourceSegments).values({ resourceId: resource.id, ...values }); } }
+  for (let index = 0; index < articles.length; index++) { const article = articles[index]; const row = current.find((item) => item.title === article.title.slice(0, 100)); try { const analyzed = await analyzeTrialPdf(article); const values = { segmentType: "article_trial", lessonLabel: title, title: article.title.slice(0, 100), text: analyzed.text, summary: analyzed.analysis, importance: 5, recommended: true, reviewStatus: "ai_reviewed", sequence: index + 1 }; if (row) await db.update(resourceSegments).set(values).where(eq(resourceSegments.id, row.id)); else await db.insert(resourceSegments).values({ resourceId: resource.id, ...values }); await db.insert(usageLogs).values({ model: analyzed.model, source: "月旦試讀PDF", inputTokens: analyzed.usage?.input_tokens ?? 0, cachedTokens: analyzed.usage?.input_tokens_details?.cached_tokens ?? 0, outputTokens: analyzed.usage?.output_tokens ?? 0, fileSearchCalls: 0, estimatedCostUsdMicros: 0 }); indexed++; } catch (error) { const failureMessage = error instanceof Error ? error.message : "處理失敗"; failures.push(`${article.title}：${failureMessage}`); const values = { segmentType: "article_link", lessonLabel: title, title: article.title.slice(0, 100), text: JSON.stringify({ ...article, status: "failed", error: failureMessage }), summary: "", importance: 0, recommended: false, reviewStatus: "failed", sequence: index + 1 }; if (row) await db.update(resourceSegments).set(values).where(eq(resourceSegments.id, row.id)); else await db.insert(resourceSegments).values({ resourceId: resource.id, ...values }); } }
   await db.update(learningResources).set({ status: indexed ? "active" : "draft", updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
   return Response.json({ resource: { ...resource, status: indexed ? "active" : "draft" }, imported: !existing.length, articles: articles.length, indexed, failures, detailUrl });
 }

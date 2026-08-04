@@ -1854,10 +1854,11 @@ a {
 }
 .magazine-import {
   display: grid;
-  grid-template-columns: 1fr 210px;
+  grid-template-columns: minmax(0, 1fr) 120px 210px;
   gap: 12px;
   align-items: end;
 }
+.magazine-year-field select { width: 100%; }
 .back-link {
   color: #526c7e;
   font-size: 14px;
@@ -2552,6 +2553,7 @@ a {
 .course-ai-tools { display: grid; gap: 10px; padding: 13px; border: 1px solid #dbe7ec; border-radius: 10px; background: #fff; }
 .course-ai-shortcuts, .course-capture-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .course-ai-shortcuts > span { margin-right: 2px; color: #315d73; font-size: 11px; font-weight: 850; }
+.course-ai-evidence-warning { flex-basis: 100%; padding-left: 51px; color: #9b6b36; font-size: 10px; line-height: 1.5; }
 .course-ai-shortcuts button, .course-capture-button { padding: 7px 10px; border: 1px solid #c6dbe5; border-radius: 8px; background: #f4f9fb; color: #315d73; font-size: 11px; font-weight: 800; cursor: pointer; }
 .course-ai-shortcuts button:hover { border-color: #6b9fb5; background: #eaf5f8; }
 .course-ai-shortcuts button:disabled, .course-capture-button:disabled { cursor: wait; opacity: .55; }

@@ -330,6 +330,16 @@ export default function StudyPlanPage() {
   const selectedSegment = resourceSegments.find((segment) => segment.id === (selectedSegmentId ?? selectedProgress?.segmentId)) ?? null;
   const courseSummarySegments = resourceSegments.filter((segment) => segment.summary.trim() || segment.recommended);
   const selectedChapter = bookChapters.find((chapter) => chapter.id === selectedChapterId) ?? null;
+  const courseEvidence = [selectedSegment?.summary, selectedSegment?.text].filter(Boolean).join("\n").trim();
+  const hasCourseEvidence = courseEvidence.length > 0;
+
+  useEffect(() => {
+    if (activeTab !== "courses" || !selectedResource) return;
+    setCourseAiReply("");
+    setCourseAiNotice(hasCourseEvidence
+      ? ""
+      : "目前時間點沒有摘要、字幕或教材內容，AI 不會憑空生成；請先選擇右側有內容的重點，或使用截圖問 AI。");
+  }, [activeTab, selectedResource?.id, selectedSegment?.id, hasCourseEvidence]);
 
   useEffect(() => {
     if (!courseAiLoading) return;
@@ -370,12 +380,17 @@ export default function StudyPlanPage() {
 
   async function askCourseAi(prompt: string, imageDataUrl = "", actionLabel = "整理答案") {
     if (!selectedResource || !prompt.trim() || courseAiLoading) return;
+    if (!imageDataUrl && !hasCourseEvidence) {
+      setCourseAiReply("");
+      setCourseAiNotice("目前時間點沒有摘要、字幕或教材內容，AI 不會憑空生成。請先選擇右側有內容的重點，或使用截圖問 AI。");
+      return;
+    }
     setCourseAiAction(actionLabel);
     setCourseAiLoading(true);
     setCourseAiReply("");
     setCourseAiNotice("");
     const time = selectedProgress?.positionSeconds ?? selectedSegment?.startSeconds ?? 0;
-    const context = `課程：${selectedResource.title}；科目：${selectedResource.subject}；目前時間：${formatMediaTime(time)}；目前重點：${selectedSegment?.title || "尚未選定"}；摘要：${selectedSegment?.summary || "尚無摘要"}。`;
+    const context = `課程：${selectedResource.title}；科目：${selectedResource.subject}；目前時間：${formatMediaTime(time)}；目前重點：${selectedSegment?.title || "尚未選定"}；可用課程內容：${courseEvidence.slice(0, 6000) || "僅有學生提供的截圖"}。`;
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
