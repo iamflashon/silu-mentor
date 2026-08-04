@@ -2554,6 +2554,22 @@ a {
 .course-ai-shortcuts > span { margin-right: 2px; color: #315d73; font-size: 11px; font-weight: 850; }
 .course-ai-shortcuts button, .course-capture-button { padding: 7px 10px; border: 1px solid #c6dbe5; border-radius: 8px; background: #f4f9fb; color: #315d73; font-size: 11px; font-weight: 800; cursor: pointer; }
 .course-ai-shortcuts button:hover { border-color: #6b9fb5; background: #eaf5f8; }
+.course-ai-shortcuts button:disabled, .course-capture-button:disabled { cursor: wait; opacity: .55; }
+.course-ai-progress { padding: 12px; border: 1px solid #bfd8e4; border-radius: 10px; background: linear-gradient(135deg, #f3f9fb, #edf6f9); }
+.course-ai-progress-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.course-ai-progress-heading strong, .course-ai-progress-heading small { display: block; }
+.course-ai-progress-heading strong { color: #25556e; font-size: 12px; }
+.course-ai-progress-heading small { margin-top: 2px; color: #78909c; font-size: 10px; }
+.course-ai-spinner { width: 22px; height: 22px; flex: 0 0 22px; border: 3px solid #c9e0e9; border-top-color: #2f7898; border-radius: 50%; animation: course-ai-spin .8s linear infinite; }
+.course-ai-progress ol { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.course-ai-progress li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; color: #91a3ab; font-size: 11px; }
+.course-ai-progress li i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #e2ebef; color: #8298a3; font-size: 10px; font-style: normal; font-weight: 850; }
+.course-ai-progress li.active { color: #245b75; font-weight: 800; }
+.course-ai-progress li.active i { background: #2f7898; color: #fff; box-shadow: 0 0 0 4px rgba(47, 120, 152, .1); }
+.course-ai-progress li.done { color: #4a7c6b; }
+.course-ai-progress li.done i { background: #dff1e9; color: #2d7a5e; }
+.course-ai-progress li em { color: #2f7898; font-size: 10px; font-style: normal; font-weight: 800; }
+@keyframes course-ai-spin { to { transform: rotate(360deg); } }
 .course-capture-button { border-color: #2f6695; background: #2f6695; color: #fff; box-shadow: 0 4px 12px rgba(47, 102, 149, .16); }
 .course-capture-row span { color: #748b97; font-size: 11px; }
 .course-capture-preview { position: relative; width: min(260px, 100%); overflow: hidden; border: 1px solid #cddfe6; border-radius: 9px; background: #132b3a; }
