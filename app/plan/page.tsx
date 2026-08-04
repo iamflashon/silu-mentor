@@ -22,6 +22,21 @@ type HomeFeed = { magazines?: MagazineFeed[]; magazine: MagazineFeed | null; lis
 
 const subjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法", "綜合"];
 
+const coreExamPoints = [
+  { subject: "刑法", title: "不作為犯與保證人地位", level: "核心必會", exams: ["一試", "二試"], summary: "先找作為義務來源，再判斷等價性、可能性與結果歸責。", cue: "看到未救助、監督義務或危險前行為時，先畫出保證人地位。" },
+  { subject: "刑法", title: "因果關係與客觀歸責", level: "核心必會", exams: ["一試", "二試"], summary: "區分條件因果、製造法所不容許風險，以及風險是否在結果中實現。", cue: "題目出現第三人介入、被害人自我負責或異常因果歷程時優先檢查。" },
+  { subject: "刑事訴訟法", title: "搜索、扣押與證據能力", level: "核心必會", exams: ["一試", "二試"], summary: "依令狀原則、例外要件及違法取證的權衡順序作答。", cue: "先確認搜索依據，再處理程序違法與證據排除，避免一步跳到結論。" },
+  { subject: "刑事訴訟法", title: "傳聞法則與例外", level: "重點複習", exams: ["一試", "二試"], summary: "辨認審判外陳述、證明目的與法定例外，最後處理可信性保障。", cue: "先問這句話拿來證明什麼；不是所有審判外陳述都當然屬傳聞。" },
+  { subject: "民法", title: "意思表示瑕疵與代理", level: "核心必會", exams: ["一試", "二試"], summary: "將錯誤、詐欺脅迫、無權代理與表見代理分層判斷。", cue: "題目人物多時先畫法律行為與代理關係，不要只追著事實敘述走。" },
+  { subject: "民法", title: "債務不履行與契約解除", level: "核心必會", exams: ["一試", "二試"], summary: "依給付不能、遲延、不完全給付整理請求權及解除效果。", cue: "先定給付義務與違約型態，再分別檢查損害賠償、解除及返還。" },
+  { subject: "民事訴訟法", title: "訴訟標的與既判力", level: "核心必會", exams: ["一試", "二試"], summary: "掌握訴訟標的識別、既判力客觀範圍與前後訴關係。", cue: "遇到前後兩案時，先並列當事人、聲明、原因事實與判決主文。" },
+  { subject: "民事訴訟法", title: "共同訴訟與訴之變更追加", level: "重點複習", exams: ["一試", "二試"], summary: "辨認合一確定必要性，並檢查變更追加的同一基礎事實。", cue: "先判斷各人法律關係能否分別確定，再談程序效果。" },
+  { subject: "憲法", title: "基本權審查架構", level: "核心必會", exams: ["一試", "二試"], summary: "依保護範圍、干預、法律保留與比例原則完成審查。", cue: "先定基本權主體與保護範圍；不要一開始就直接寫比例原則。" },
+  { subject: "行政法", title: "行政處分與救濟類型", level: "核心必會", exams: ["一試", "二試"], summary: "辨認行政行為性質，再選擇撤銷、課予義務或確認訴訟。", cue: "先問人民要法院消滅、作成，還是確認什麼法律效果。" },
+  { subject: "行政法", title: "行政契約與國家賠償", level: "重點複習", exams: ["一試", "二試"], summary: "區分公法契約、行政處分與事實行為，銜接責任成立要件。", cue: "不要因為政府是當事人就直接認定為公法關係。" },
+  { subject: "商事法", title: "董事責任與股東會決議", level: "核心必會", exams: ["一試", "二試"], summary: "整理召集程序、決議瑕疵、忠實義務與損害賠償責任。", cue: "公司法題先列機關、權限、程序與責任四層，較不容易漏點。" },
+];
+
 const planningSubjects = ["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法"];
 const subjectScopes: Record<string, string[]> = {
   刑法: ["全科", "刑法總則", "刑法分則"],
@@ -52,12 +67,12 @@ function monthValue(date = new Date()) {
   return taipeiMonth(date);
 }
 
-type PlanTab = "calendar" | "practice" | "laws" | "books" | "courses" | "trials" | "listening" | "magazine" | "records" | "conversations" | "exam-conversations" | "notes";
+type PlanTab = "calendar" | "practice" | "hotspots" | "laws" | "books" | "courses" | "trials" | "listening" | "magazine" | "records" | "conversations" | "exam-conversations" | "notes";
 
 function requestedPlanTab(): PlanTab {
   if (typeof window === "undefined") return "calendar";
   const value = new URLSearchParams(window.location.search).get("tab");
-  return ["calendar", "practice", "laws", "books", "courses", "trials", "listening", "magazine", "records", "conversations", "exam-conversations", "notes"].includes(value ?? "")
+  return ["calendar", "practice", "hotspots", "laws", "books", "courses", "trials", "listening", "magazine", "records", "conversations", "exam-conversations", "notes"].includes(value ?? "")
     ? value as PlanTab
     : "calendar";
 }
@@ -91,6 +106,7 @@ export default function StudyPlanPage() {
   const [noteQuery, setNoteQuery] = useState("");
   const [recordDraft, setRecordDraft] = useState({ subject: "刑法", title: "", actualMinutes: 60, weakness: "", nextStep: "" });
   const [activeTab, setActiveTab] = useState<PlanTab>(requestedPlanTab);
+  const [hotSubject, setHotSubject] = useState("全部");
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [magazineQuery, setMagazineQuery] = useState("");
@@ -248,6 +264,9 @@ export default function StudyPlanPage() {
   function dateFor(day: number) { return `${month}-${String(day).padStart(2, "0")}`; }
   function openNew(day?: number) {
     setDraft({ date: day ? dateFor(day) : `${month}-01`, subject: "刑法", title: "", durationMinutes: 60, details: "", status: "pending" });
+  }
+  function addCorePointTask(point: typeof coreExamPoints[number]) {
+    setDraft({ date: taipeiDate(), subject: point.subject, title: `熱考點｜${point.title}`, durationMinutes: 45, details: `${point.summary}\n\n作答提醒：${point.cue}`, status: "pending" });
   }
   function openTask(task: Task) {
     setDraft({ id: task.id, date: task.taskDate, subject: task.subject, title: task.title, durationMinutes: task.durationMinutes, details: task.details, status: task.status });
@@ -642,7 +661,13 @@ export default function StudyPlanPage() {
         <div><p>MY LEARNING CENTER</p><h1>學習專區</h1><span>{plans[0] ? `${plans[0].targetLabel} · 每日 ${plans[0].dailyMinutes} 分鐘` : "和司律備考聊完後，AI 會把任務寫到這裡"}</span></div>
         {activeTab === "calendar" && <div className="calendar-header-actions"><button className="reset-plan-btn" onClick={openResetPlanner}>↻ AI 重新規劃</button><button className="add-task" onClick={() => openNew()}>＋ 新增任務</button></div>}
       </div>
-      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>練真題</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>智能書</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>來一課</button><button className={activeTab === "trials" ? "active" : ""} onClick={() => setActiveTab("trials")}>雲端課</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>尋法脈</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>讀法教</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "exam-conversations" ? "active" : ""} onClick={() => setActiveTab("exam-conversations")}>試題問答 <span>{examConversations.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>練真題</button><button className={activeTab === "hotspots" ? "active" : ""} onClick={() => setActiveTab("hotspots")}>熱考點</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>智能書</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>來一課</button><button className={activeTab === "trials" ? "active" : ""} onClick={() => setActiveTab("trials")}>雲端課</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>尋法脈</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>讀法教</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "exam-conversations" ? "active" : ""} onClick={() => setActiveTab("exam-conversations")}>試題問答 <span>{examConversations.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
+      {activeTab === "hotspots" && <section className="hot-points-hub" aria-label="司律熱考點">
+        <header className="hot-points-head"><div><p>CORE EXAM POINTS</p><h2>熱考點</h2><span>把各科最需要先掌握的核心爭點整理成複習順序；可直接加入今日計畫，再接著練真題。</span></div><aside><strong>{coreExamPoints.length}</strong><span>個核心考點</span></aside></header>
+        <nav className="hot-subject-tabs" aria-label="熱考點科目篩選">{["全部", ...planningSubjects].map((subject) => <button type="button" className={hotSubject === subject ? "active" : ""} key={subject} onClick={() => setHotSubject(subject)}>{subject}</button>)}</nav>
+        <div className="hot-points-grid">{coreExamPoints.filter((point) => hotSubject === "全部" || point.subject === hotSubject).map((point, index) => <article className="hot-point-card" key={`${point.subject}-${point.title}`}><header><span>{point.subject}</span><b>{String(index + 1).padStart(2, "0")}</b></header><div className="hot-point-badges"><strong>{point.level}</strong>{point.exams.map((exam) => <em key={exam}>{exam}</em>)}</div><h3>{point.title}</h3><p>{point.summary}</p><div className="hot-point-cue"><b>審題提醒</b><span>{point.cue}</span></div><footer><button type="button" onClick={() => addCorePointTask(point)}>＋ 加入今日計畫</button><button type="button" className="primary" onClick={() => setActiveTab("practice")}>練相關真題 →</button></footer></article>)}</div>
+        <p className="hot-points-note">目前先以司律核心體系建立複習入口；後續接入歷屆題統計後，可再顯示近年命題次數、年度與題號依據。</p>
+      </section>}
       {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><div className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>已發布的題目都會保留在學習區，方便依序練習</span></div><i>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? "▶" : "聽"}</i></div>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? <div className="listening-feed-list">{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).map((item) => <article className="listening-feed-item" key={item.id}><div className="listening-feed-heading"><div><span>{item.year || "自訂題目"} · {item.subject}</span><h3>{item.title}</h3></div><b>已發布</b></div><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={item} /></article>)}</div> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</div></section>}
       {activeTab === "trials" && <section className="trial-course-hub" aria-label="雲端課">
         <header className="trial-course-head"><div><p>IBRAIN COURSE AUDITION</p><h2>雲端課</h2><span>先看看老師的講解方式，再決定適合自己的課程。點擊後會另開知識達官方試聽頁。</span></div><a href="https://www.ibrain.com.tw/audition/List.aspx?iC=2089&sLA=%E7%9F%A5%E8%AD%98%E9%81%94%E3%80%81%E5%8F%B8%E6%B3%95%E8%80%83%E8%A9%A6%E3%80%81%E9%AB%98%E9%BB%9E%E5%BE%8B%E5%B8%AB%E5%8F%B8%E6%B3%95%E5%AE%98" target="_blank" rel="noreferrer">查看全部課程 ↗</a></header>

@@ -2520,6 +2520,35 @@ a {
   color: #315d78;
   background: rgba(255, 255, 255, .52);
 }
+.hot-points-hub { width: min(100%, 1180px); margin: 0 auto; padding: 25px; border: 1px solid #d8e5eb; border-radius: 18px; background: #fff; box-shadow: 0 16px 34px rgba(38, 77, 103, .06); }
+.hot-points-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.hot-points-head p { margin: 0 0 6px; color: #5f8da4; font-size: 10px; font-weight: 900; letter-spacing: .15em; }
+.hot-points-head h2 { margin: 0; color: #244d67; font-size: 27px; }
+.hot-points-head > div > span { display: block; max-width: 720px; margin-top: 8px; color: #718997; font-size: 13px; line-height: 1.65; }
+.hot-points-head aside { display: grid; justify-items: center; min-width: 92px; padding: 11px 14px; border-radius: 13px; background: #edf5f7; color: #356c85; }
+.hot-points-head aside strong { font-size: 24px; }
+.hot-points-head aside span { font-size: 10px; font-weight: 800; }
+.hot-subject-tabs { display: flex; gap: 6px; margin: 20px 0 15px; overflow-x: auto; }
+.hot-subject-tabs button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid #d5e3e9; border-radius: 999px; background: #f8fbfc; color: #557485; font-size: 12px; font-weight: 800; cursor: pointer; }
+.hot-subject-tabs button.active { border-color: #2b6483; background: #2b6483; color: #fff; }
+.hot-points-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.hot-point-card { display: flex; flex-direction: column; min-width: 0; padding: 19px; border: 1px solid #dbe7ec; border-radius: 14px; background: linear-gradient(145deg, #fff, #f7fbfc); }
+.hot-point-card > header { display: flex; align-items: center; justify-content: space-between; color: #668797; font-size: 11px; font-weight: 850; }
+.hot-point-card > header b { color: #aac0ca; font-size: 17px; }
+.hot-point-badges { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.hot-point-badges strong, .hot-point-badges em { padding: 4px 7px; border-radius: 6px; font-size: 10px; font-style: normal; }
+.hot-point-badges strong { background: #dcecf1; color: #285f79; }
+.hot-point-badges em { background: #f0f3f5; color: #6c818c; }
+.hot-point-card h3 { margin: 10px 0 7px; color: #264d64; font-size: 18px; }
+.hot-point-card > p { margin: 0; color: #627d8b; font-size: 13px; line-height: 1.7; }
+.hot-point-cue { display: grid; gap: 4px; margin-top: 13px; padding: 11px 12px; border-left: 3px solid #6c9db2; border-radius: 0 8px 8px 0; background: #f0f7f9; }
+.hot-point-cue b { color: #3a7088; font-size: 10px; }
+.hot-point-cue span { color: #5f7885; font-size: 12px; line-height: 1.6; }
+.hot-point-card footer { display: flex; gap: 7px; margin-top: auto; padding-top: 15px; }
+.hot-point-card footer button { flex: 1; padding: 9px 10px; border: 1px solid #bfd3dc; border-radius: 8px; background: #fff; color: #35677e; font-size: 11px; font-weight: 850; cursor: pointer; }
+.hot-point-card footer button.primary { border-color: #285d7f; background: #285d7f; color: #fff; }
+.hot-points-note { margin: 16px 0 0; color: #83959e; font-size: 11px; text-align: center; }
+@media (max-width: 720px) { .hot-points-hub { padding: 17px; } .hot-points-head { align-items: flex-start; } .hot-points-head aside { display: none; } .hot-points-grid { grid-template-columns: 1fr; } .hot-point-card footer { flex-direction: column; } }
 
 .resource-learning-hub {
   width: min(100%, 1240px);
