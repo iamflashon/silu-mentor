@@ -40,7 +40,7 @@ a {
 }
 .topbar {
   height: 72px;
-  padding: 0 34px;
+  padding: 0 max(34px, calc((100% - 1180px) / 2));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -98,6 +98,10 @@ a {
   font-weight: 700;
   border-left: 1px solid var(--line);
   padding-left: 20px;
+}
+.top-actions .admin-link:first-child {
+  border-left: 0;
+  padding-left: 0;
 }
 .study-ticker {
   position: sticky;
