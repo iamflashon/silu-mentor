@@ -15,6 +15,7 @@ type StudyRecord = { id: number; recordDate: string; subject: string; title: str
 type SavedNote = { id: number; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string };
 type LearningResource = { id: number; resourceType: "book" | "course" | "trial" | "magazine"; title: string; subject: string; creator: string; description: string; documentId: number | null; documentStatus?: string | null; documentError?: string | null; sourceUrl: string; accessType: string; status: string; sortOrder: number; segmentCount: number; hasCover?: number };
 type ResourceSegment = { id: number; resourceId: number; segmentType: string; lessonLabel: string; title: string; pageStart: number | null; pageEnd: number | null; startSeconds: number | null; endSeconds: number | null; text: string; summary: string; importance: number; recommended: boolean; sequence: number };
+type BookFullTextHit = { section: string; excerpt: string; page_start: number | null; page_end: number | null; relevance: string };
 type TutorMessage = { role: "mentor" | "student"; text: string };
 type ChatDay = { id: number; date: string; title: string; summary: string; progressStatus: string; messageCount: number; messages: Array<{ role: "mentor" | "student"; text: string; sources?: string[] }> };
 type ExamCoachConversation = { questionId: number; year: string; subject: string; questionNumber: string; stem: string; messages: Array<{ id: number; role: string; text: string; createdAt: string }> };
@@ -89,6 +90,10 @@ function highlightMagazineText(text: string, query: string): ReactNode {
     : part);
 }
 
+function isProblemSolvingBook(resource: Pick<LearningResource, "title" | "description"> | null | undefined) {
+  return Boolean(resource && /解題|題庫|題型|案例演習|申論/.test(`${resource.title} ${resource.description}`));
+}
+
 export default function StudyPlanPage() {
   const [month, setMonth] = useState(monthValue());
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -136,6 +141,9 @@ export default function StudyPlanPage() {
   const [bookChaptersLoading, setBookChaptersLoading] = useState(false);
   const [bookChapterMessage, setBookChapterMessage] = useState("");
   const [bookSearchQuery, setBookSearchQuery] = useState("");
+  const [bookFullTextHits, setBookFullTextHits] = useState<BookFullTextHit[]>([]);
+  const [bookFullTextLoading, setBookFullTextLoading] = useState(false);
+  const [bookFullTextMessage, setBookFullTextMessage] = useState("");
   const chapterBuildAttemptedRef = useRef<Set<number>>(new Set());
   const restoredBookProgressRef = useRef(false);
   const bookDialogueEndRef = useRef<HTMLDivElement | null>(null);
@@ -271,7 +279,8 @@ export default function StudyPlanPage() {
     setDraft({ date: taipeiDate(), subject: point.subject, title: `熱考點｜${point.title}`, durationMinutes: 45, details: `${point.summary}\n\n作答提醒：${point.cue}`, status: "pending" });
   }
   function openCorePointBook(point: typeof coreExamPoints[number]) {
-    const criminalBook = bookResources.find((item) => item.subject === "刑法" || item.title.includes("刑法"));
+    const criminalBooks = bookResources.filter((item) => item.subject === "刑法" || item.title.includes("刑法"));
+    const criminalBook = criminalBooks.find((item) => !isProblemSolvingBook(item)) ?? criminalBooks[0];
     if (!criminalBook) return;
     setPendingBookPoint({ title: point.title, summary: point.summary });
     setSelectedResourceId(criminalBook.id);
@@ -401,6 +410,7 @@ export default function StudyPlanPage() {
   const selectedSegment = resourceSegments.find((segment) => segment.id === (selectedSegmentId ?? selectedProgress?.segmentId)) ?? null;
   const courseSummarySegments = resourceSegments.filter((segment) => segment.summary.trim() || segment.recommended);
   const selectedChapter = bookChapters.find((chapter) => chapter.id === selectedChapterId) ?? null;
+  const selectedBookIsProblemSolving = isProblemSolvingBook(selectedResource);
   const bookSearchTerms = useMemo(() => {
     const query = bookSearchQuery.trim();
     if (!query) return [];
@@ -434,6 +444,33 @@ export default function StudyPlanPage() {
     return text.split(matcher).map((part, index) => terms.some((term) => part.toLocaleLowerCase("zh-Hant") === term.toLocaleLowerCase("zh-Hant"))
       ? <mark className="book-search-highlight" key={`${part}-${index}`}>{part}</mark>
       : part);
+  }
+
+  async function searchBookFullText(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const query = bookSearchQuery.trim();
+    if (!selectedResource || selectedResource.resourceType !== "book" || query.length < 2 || bookFullTextLoading) return;
+    setBookFullTextLoading(true);
+    setBookFullTextHits([]);
+    setBookFullTextMessage("");
+    try {
+      const response = await fetch("/api/resources/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resourceId: selectedResource.id, query }) });
+      const result = await response.json() as { hits?: BookFullTextHit[]; error?: string };
+      if (!response.ok) setBookFullTextMessage(result.error ?? "教材全文搜尋暫時無法使用");
+      else {
+        setBookFullTextHits(result.hits ?? []);
+        setBookFullTextMessage(result.hits?.length ? "以下結果來自這本書的教材全文索引。" : `教材全文也未找到「${query}」；可能需改用同義詞，或確認這本書是否收錄該主題。`);
+      }
+    } catch { setBookFullTextMessage("教材全文搜尋暫時無法使用，請稍後再試。"); }
+    finally { setBookFullTextLoading(false); }
+  }
+
+  function chapterForFullTextHit(hit: BookFullTextHit) {
+    const byPage = hit.page_start == null ? null : bookChapters.find((chapter) => chapter.pageStart != null && chapter.pageEnd != null && hit.page_start! >= chapter.pageStart && hit.page_start! <= chapter.pageEnd);
+    if (byPage) return byPage;
+    const terms = `${hit.section} ${bookSearchQuery}`.split(/[\s、，,；;／/與及的]+/).filter((term) => term.length >= 2);
+    const [best] = bookChapters.map((chapter) => ({ chapter, score: terms.reduce((score, term) => score + (`${chapter.title} ${chapter.summary}`.includes(term) ? term.length : 0), 0) })).sort((a, b) => b.score - a.score);
+    return best?.score > 0 ? best.chapter : null;
   }
   const courseEvidence = [selectedSegment?.summary, selectedSegment?.text].filter(Boolean).join("\n").trim();
   const hasCourseEvidence = courseEvidence.length > 0;
@@ -570,7 +607,9 @@ export default function StudyPlanPage() {
       } catch { /* start a fresh chapter below */ }
     }
     const focus = focusPoint ? `\n本次從熱考點「${focusPoint}」進入，請先在本章教材中定位與這個考點最相關的內容；若本章沒有足夠依據，請明確告知，不要補造。` : "";
-    const prompt = `${bookContext(chapter)}${focus}\n請開始教我這一章。先用一小段話說明本章要學會什麼，再提出一個學生可以直接回答的問題；請嚴格以這本教材為優先依據，不要先傾倒完整解答。`;
+    const prompt = selectedBookIsProblemSolving
+      ? `${bookContext(chapter)}${focus}\n這是解題書中的題目或題組，不是一般授課章節。請先確認教材索引中有實際題目與解析依據；若只有目錄或摘要，明確告知資料不足。若資料足夠，依序帶我做：重述題目事實、辨認題型、圈出關鍵事實、列爭點、說明作答架構，再逐步分析規範與涵攝。先從審題提問開始，不要直接講課或一次公布完整擬答。`
+      : `${bookContext(chapter)}${focus}\n請開始教我這一章。先用一小段話說明本章要學會什麼，再提出一個學生可以直接回答的問題；請嚴格以這本教材為優先依據，不要先傾倒完整解答。`;
     try {
       const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "student", text: prompt }], visibleStudentText: "", context: { type: "book", resourceId: selectedResource.id, segmentId: chapter.id, resourceTitle: selectedResource.title, segmentTitle: chapter.title } }) });
       const result = await response.json() as { reply?: string; error?: string; sessionId?: number };
@@ -592,8 +631,14 @@ export default function StudyPlanPage() {
       const score = terms.reduce((total, term) => total + (haystack.includes(term) ? term.length : 0), 0);
       return { chapter, score };
     }).sort((a, b) => b.score - a.score || a.chapter.sequence - b.chapter.sequence);
-    const chapter = ranked[0]?.chapter;
-    if (!chapter) return;
+    const best = ranked[0];
+    if (!best || best.score <= 0) {
+      setBookSearchQuery(pendingBookPoint.title);
+      setResourceMessage(`在《${selectedResource.title}》目前的目錄與摘要中，尚未確認「${pendingBookPoint.title}」對應位置；已替你填入搜尋詞，請從結果確認，不會任意跳到第一章。`);
+      setPendingBookPoint(null);
+      return;
+    }
+    const chapter = best.chapter;
     const focusPoint = pendingBookPoint.title;
     setPendingBookPoint(null);
     void startBookChapter(chapter, false, focusPoint);
@@ -738,7 +783,7 @@ export default function StudyPlanPage() {
       </section>}
       {(activeTab === "books" || activeTab === "courses") && <section className="resource-learning-hub" aria-label={activeTab === "books" ? "智能書" : "來一課"}>
             <div className="resource-learning-head"><div><p>{activeTab === "books" ? "READING ROOM" : "COURSE ROOM"}</p><h2>{activeTab === "books" ? "智能書" : "來一課"}</h2><span>{activeTab === "books" ? "不開啟 PDF；選章節後由 AI 依教材內容教學。" : "留在學習專區內完成；進度、今日計畫與學習紀錄會連在一起。"}</span></div><span className="resource-count">{(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>
-        {activeTab === "books" && <section className="book-topic-search" aria-label="搜尋智能書主題"><div className="book-topic-search-copy"><strong>搜尋書中主題</strong><span>{selectedResource?.resourceType === "book" ? `目前搜尋《${selectedResource.title}》的章名與章節摘要` : "先選一本智能書，再輸入想找的法律主題"}</span></div><label><span aria-hidden>⌕</span><input value={bookSearchQuery} onChange={(event) => setBookSearchQuery(event.target.value)} placeholder="例如：正當防衛、客觀歸責、原因自由行為" disabled={selectedResource?.resourceType !== "book" || bookChaptersLoading} />{bookSearchQuery && <button type="button" onClick={() => setBookSearchQuery("")} aria-label="清除搜尋">×</button>}</label>{bookSearchQuery.trim() && <div className="book-topic-results" aria-live="polite"><div className="book-topic-result-heading"><strong>{bookSearchResults.length ? `找到 ${bookSearchResults.length} 個相關章節` : "章名與摘要尚未直接命中"}</strong><span>{bookSearchResults.length ? "點選結果，直接進入該章並開始 AI 導讀" : "可換較短的法律概念；完整教材內容搜尋將由 AI 索引接續處理"}</span></div>{bookSearchResults.map(({ chapter, index, matched }) => <button type="button" key={chapter.id} onClick={() => void startBookChapter(chapter, false, bookSearchQuery.trim())}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{highlightBookText(chapter.title)}</strong>{chapter.summary && <small>{highlightBookText(chapter.summary)}</small>}<em>命中：{matched.slice(0, 3).join("、")}{chapter.pageStart ? ` · 第 ${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""} 頁` : ""}</em></div><span>讀這一章 →</span></button>)}</div>}</section>}
+        {activeTab === "books" && <section className="book-topic-search" aria-label="搜尋智能書主題"><div className="book-topic-search-copy"><strong>搜尋書中主題</strong><span>{selectedResource?.resourceType === "book" ? `搜尋《${selectedResource.title}》的章節與教材全文` : "先選一本智能書，再輸入想找的法律主題"}</span></div><form onSubmit={searchBookFullText}><label><span aria-hidden>⌕</span><input value={bookSearchQuery} onChange={(event) => { setBookSearchQuery(event.target.value); setBookFullTextHits([]); setBookFullTextMessage(""); }} placeholder="例如：未遂犯與不能未遂、正當防衛、客觀歸責" disabled={selectedResource?.resourceType !== "book" || bookChaptersLoading || bookFullTextLoading} />{bookSearchQuery && <button type="button" onClick={() => { setBookSearchQuery(""); setBookFullTextHits([]); setBookFullTextMessage(""); }} aria-label="清除搜尋">×</button>}</label><button type="submit" disabled={bookSearchQuery.trim().length < 2 || bookFullTextLoading || selectedResource?.resourceType !== "book"}>{bookFullTextLoading ? "正在查教材全文…" : "搜尋教材全文"}</button></form>{bookSearchQuery.trim() && <div className="book-topic-results" aria-live="polite"><div className="book-topic-result-heading"><strong>{bookSearchResults.length ? `章名／摘要命中 ${bookSearchResults.length} 處` : "章名與摘要未直接命中"}</strong><span>下方全文搜尋會再查書內實際段落，不只比對目錄</span></div>{bookSearchResults.map(({ chapter, index, matched }) => <button type="button" key={chapter.id} onClick={() => void startBookChapter(chapter, false, bookSearchQuery.trim())}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{highlightBookText(chapter.title)}</strong>{chapter.summary && <small>{highlightBookText(chapter.summary)}</small>}<em>章節命中：{matched.slice(0, 3).join("、")}{chapter.pageStart ? ` · 第 ${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""} 頁` : ""}</em></div><span>讀這一章 →</span></button>)}{bookFullTextMessage && <p className="book-fulltext-message">{bookFullTextMessage}</p>}{bookFullTextHits.map((hit, index) => { const chapter = chapterForFullTextHit(hit); return <button type="button" className="book-fulltext-hit" key={`${hit.section}-${index}`} disabled={!chapter} onClick={() => chapter && void startBookChapter(chapter, false, `${bookSearchQuery.trim()}；教材命中：${hit.section}—${hit.excerpt}`)}><b>文</b><div><strong>{highlightBookText(hit.section)}</strong><small>{highlightBookText(hit.excerpt)}</small><em>教材全文命中{hit.page_start ? ` · 第 ${hit.page_start}${hit.page_end && hit.page_end !== hit.page_start ? `–${hit.page_end}` : ""} 頁` : ""}{hit.relevance ? ` · ${hit.relevance}` : ""}</em></div><span>{chapter ? "開啟所屬章節 →" : "已找到內文；章節待核對"}</span></button>})}</div>}</section>}
         <div className="resource-learning-layout"><aside className={`resource-list ${activeTab === "books" ? "book-resource-list" : ""}`} aria-label="可學習資源"><div className="resource-list-heading"><strong>{activeTab === "books" ? "書本清單" : "影音課程清單"}</strong><span>共 {(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>{activeTab === "books" ? bookResources.map((resource) => {
           const isSelected = selectedResource?.id === resource.id;
           const isExpanded = currentExpandedBookId === resource.id;

@@ -185,8 +185,12 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify({
         model: process.env.OPENAI_EXTRACTION_MODEL || process.env.OPENAI_MODEL || "gpt-5.6-luna",
-        instructions: "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
-        input: `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節。`,
+        instructions: /解題|題庫|題型|案例演習|申論/.test(`${resource.title} ${resource.description}`)
+          ? "你是台灣司律考試解題書編輯。必須先使用 file_search 搜尋已建立的教材索引，只能整理書中明確存在的題目、題號或題型單元；不得把一般刑法體系自行改寫成題目，不得創造題名。title 優先保留原書的年度、考試別、題號或題型名稱；summary 說明題目考查的具體爭點與解題任務，不得寫成『本章介紹某概念』的授課摘要。若索引片段無法證明實際題目存在，就不要回傳。保留原順序，頁碼無法確認填 null，最多 80 筆。"
+          : "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
+        input: /解題|題庫|題型|案例演習|申論/.test(`${resource.title} ${resource.description}`)
+          ? `請從已索引的解題教材《${resource.title}》（原始檔名：${document.fileName}）搜尋實際題目、題號、題型單元及其解題重點，依原書順序輸出。只回傳索引中可確認的真實題目或題型。`
+          : `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節。`,
         tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 20 }],
         text: {
           format: {
