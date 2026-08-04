@@ -248,7 +248,7 @@ async function downloadDocument(db: Awaited<ReturnType<typeof getDb>>, token: st
     caseNo: String(data.JNO || parts[3] || ""),
     judgmentDate: String(data.JDATE || parts[4] || ""),
     title: String(data.JTITLE || data.JFULLTITLE || ""),
-    fullText: String(data.JFULL || data.JTEXT || ""),
+    fullText: String(data.JFULLX || data.JFULL || data.JTEXT || ""),
     rawJson: JSON.stringify(payload),
   }).onConflictDoUpdate({
     target: judicialCases.jid,
@@ -259,7 +259,7 @@ async function downloadDocument(db: Awaited<ReturnType<typeof getDb>>, token: st
       caseNo: String(data.JNO || parts[3] || ""),
       judgmentDate: String(data.JDATE || parts[4] || ""),
       title: String(data.JTITLE || data.JFULLTITLE || ""),
-      fullText: String(data.JFULL || data.JTEXT || ""),
+      fullText: String(data.JFULLX || data.JFULL || data.JTEXT || ""),
       rawJson: JSON.stringify(payload),
       status: "active",
       updatedAt: new Date(),

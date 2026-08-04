@@ -20,7 +20,16 @@ export async function GET(request: Request) {
     if (court) conditions.push(like(judicialCases.court, `%${escapeLike(court)}%`));
     if (year) conditions.push(eq(judicialCases.year, year));
     const rows = await db.select().from(judicialCases).where(and(...conditions)).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit);
-    return Response.json({ query, total: rows.length, results: rows.map((row) => ({ ...row, title: row.title || `${row.year}年度${row.caseType}字第${row.caseNo}號`, excerpt: row.fullText.length > 260 ? `${row.fullText.slice(0, 260)}…` : row.fullText })) });
+    return Response.json({ query, total: rows.length, results: rows.map((row) => {
+      let fullText = row.fullText;
+      if (!fullText && row.rawJson) {
+        try {
+          const payload = JSON.parse(row.rawJson) as { data?: { JFULLX?: string; JFULL?: string; JTEXT?: string } };
+          fullText = String(payload.data?.JFULLX || payload.data?.JFULL || payload.data?.JTEXT || "");
+        } catch { fullText = ""; }
+      }
+      return { id: row.id, jid: row.jid, court: row.court, year: row.year, caseType: row.caseType, caseNo: row.caseNo, judgmentDate: row.judgmentDate, title: row.title || `${row.year}年度${row.caseType}字第${row.caseNo}號`, fullText, excerpt: fullText.length > 260 ? `${fullText.slice(0, 260)}…` : fullText };
+    }) });
   } catch {
     return Response.json({ error: "裁判資料尚未就緒，請稍後再搜尋" }, { status: 503 });
   }
