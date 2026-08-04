@@ -1,4 +1,4 @@
-import { and, asc, eq, like, or } from "drizzle-orm";
+import { and, asc, eq, like, or, type SQL } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { legalArticles, legalDocuments } from "../../../db/schema";
 
@@ -10,6 +10,20 @@ const CORE_LAW_NAMES = new Set([
   "刑法",
   "刑事訴訟法",
 ]);
+
+const CORE_LAW_TITLES: Record<string, string[]> = {
+  "憲法": ["中華民國憲法", "中華民國憲法增修條文"],
+  "民法": ["民法"],
+  "民事訴訟法": ["民事訴訟法"],
+  "刑法": ["中華民國刑法"],
+  "刑事訴訟法": ["刑事訴訟法"],
+};
+
+function exactCoreLawTitle(lawName: string): SQL | null {
+  const titles = CORE_LAW_TITLES[lawName];
+  if (!titles?.length) return null;
+  return or(...titles.map((title) => eq(legalDocuments.title, title))) ?? null;
+}
 
 function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
@@ -54,15 +68,17 @@ export async function GET(request: Request) {
     if (parsed.articleNumber) {
       const articlePattern = `%${escapeLike(parsed.articleNumber)}%`;
       const articleCondition = like(legalArticles.articleNo, articlePattern);
+      const exactTitleCondition = parsed.lawName ? exactCoreLawTitle(parsed.lawName) : null;
       conditions.push(
         parsed.lawName
-          ? and(like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`), articleCondition)
+          ? and(exactTitleCondition ?? like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`), articleCondition)
           : articleCondition,
       );
     } else if (parsed.lawName) {
-      // A core-law search should enter the law itself, not constitutional
-      // judgments whose full text happens to mention the same word.
-      conditions.push(like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`));
+      // Core laws use official-title matching. In particular, searching 民法
+      // must not return 國民法官法 or regulations whose title merely contains
+      // the same two characters.
+      conditions.push(exactCoreLawTitle(parsed.lawName) ?? like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`));
     } else {
       conditions.push(
         or(
