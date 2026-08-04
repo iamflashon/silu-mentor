@@ -334,6 +334,7 @@ export default function AdminPage() {
     "https://www.angle.com.tw/magazine/m_search.asp?KindID=12",
   );
   const [magazineYear, setMagazineYear] = useState(() => new Date().getFullYear());
+  const [magazineListYear, setMagazineListYear] = useState(() => new Date().getFullYear());
   const [subtitleCourse, setSubtitleCourse] = useState<LearningResource | null>(
     null,
   );
@@ -1413,6 +1414,7 @@ export default function AdminPage() {
         const refreshedResult = (await refreshed.json()) as { resources?: LearningResource[] };
         setResources(refreshedResult.resources ?? []);
       }
+      setMagazineListYear(magazineYear);
       setNotice(`已同步 ${discovery.year ?? "今年"} 年 ${completed}/${discovery.issues.length} 期，共完成 ${indexed} 篇試讀分析${failed ? `；${failed} 篇需重試或人工確認` : ""}。`);
       return completed > 0;
     }
@@ -3111,9 +3113,16 @@ export default function AdminPage() {
               <button type="submit" className="secondary-btn" disabled={creatingMagazineIssue}>{creatingMagazineIssue ? "建立與分析中…" : "新增期數並分析"}</button>
             </form>
             {notice && <div className="notice">{notice}</div>}
+            <div className="magazine-year-filter">
+              <div><strong>依年度查看</strong><span>預設只顯示一個年度，避免所有期數一次展開。</span></div>
+              <select value={magazineListYear} onChange={(event) => setMagazineListYear(Number(event.target.value))}>
+                {Array.from(new Set(resources.filter((item) => item.resourceType === "magazine").map((item) => Number(item.description.match(/(20\d{2})[年/]/)?.[1])).filter(Boolean).concat([new Date().getFullYear()]))).sort((a, b) => b - a).map((year) => <option key={year} value={year}>{year} 年</option>)}
+              </select>
+            </div>
             <div className="resource-grid">
               {resources
                 .filter((item) => item.resourceType === "magazine")
+                .filter((item) => Number(item.description.match(/(20\d{2})[年/]/)?.[1]) === magazineListYear)
                 .map((resource) => (
                   <article className="resource-card" key={resource.id}>
                     <div className="resource-cover">

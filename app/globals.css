@@ -1859,6 +1859,11 @@ a {
   align-items: end;
 }
 .magazine-year-field select { width: 100%; }
+.magazine-year-filter { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; padding: 11px 12px; border: 1px solid #dbe7ec; border-radius: 10px; background: #f7fafb; }
+.magazine-year-filter strong, .magazine-year-filter span { display: block; }
+.magazine-year-filter strong { color: #285b76; font-size: 12px; }
+.magazine-year-filter span { margin-top: 3px; color: #78909d; font-size: 10px; }
+.magazine-year-filter select { min-width: 120px; padding: 8px 10px; border: 1px solid #cbdde5; border-radius: 8px; background: #fff; color: #315d73; font-weight: 800; }
 .back-link {
   color: #526c7e;
   font-size: 14px;
