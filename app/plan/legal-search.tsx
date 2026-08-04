@@ -58,7 +58,7 @@ function handoffPrompt(result: LegalResult, direction: LearningDirection, query:
   return `我搜尋的關鍵字是「${query}」。請延伸學習「${result.title}」${result.articleNo ? `的${result.articleNo}` : ""}。\n原條文：${result.content}\n任務：${requests[direction]}`;
 }
 
-export function LegalSearch() {
+export function LegalSearch({ onResultCount }: { onResultCount?: (count: number) => void }) {
   const [query, setQuery] = useState("");
   const [searchedQuery, setSearchedQuery] = useState("");
   const [category, setCategory] = useState("");
@@ -104,9 +104,10 @@ export function LegalSearch() {
       const result = await response.json() as { results?: LegalResult[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "法規搜尋失敗");
       setResults(result.results ?? []);
+      onResultCount?.((result.results ?? []).length);
       setSearchedQuery(text);
     } catch (reason) {
-      setResults([]); setError(reason instanceof Error ? reason.message : "法規搜尋失敗");
+      setResults([]); onResultCount?.(0); setError(reason instanceof Error ? reason.message : "法規搜尋失敗");
     } finally { setLoading(false); }
   }
 

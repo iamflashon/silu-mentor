@@ -4,8 +4,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 import { PracticeLab } from "./practice-lab";
-import { LegalSearch } from "./legal-search";
-import { JudicialSearch } from "./judicial-search";
+import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
 
 type Plan = { id: number; title: string; targetLabel: string; dailyMinutes: number };
@@ -454,7 +453,7 @@ export default function StudyPlanPage() {
       </div>
       </>}
       {activeTab === "practice" && <PracticeLab initialType="mcq" />}
-      {activeTab === "laws" && <div className="legal-judicial-stack"><LegalSearch /><JudicialSearch /></div>}
+      {activeTab === "laws" && <LegalResearchTabs />}
       {activeTab === "records" && <section className="learning-hub tab-hub" id="records">
         <div className="hub-heading"><div><p>LEARNING HISTORY</p><h2>學習紀錄</h2><span>完成讀書任務與一試練題後會自動寫入，也保留實際時間、弱點與下次接續點。</span></div><strong>{records.length} 筆</strong></div>
         <div className="record-entry"><select value={recordDraft.subject} onChange={(event) => setRecordDraft({ ...recordDraft, subject: event.target.value })}>{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select><input value={recordDraft.title} onChange={(event) => setRecordDraft({ ...recordDraft, title: event.target.value })} placeholder="今天實際學了什麼？" /><input type="number" min="0" max="720" value={recordDraft.actualMinutes} onChange={(event) => setRecordDraft({ ...recordDraft, actualMinutes: Number(event.target.value) })} aria-label="實際分鐘" /><input value={recordDraft.weakness} onChange={(event) => setRecordDraft({ ...recordDraft, weakness: event.target.value })} placeholder="發現的弱點（可不填）" /><input value={recordDraft.nextStep} onChange={(event) => setRecordDraft({ ...recordDraft, nextStep: event.target.value })} placeholder="下次從哪裡接續？" /><button onClick={addRecord}>補登紀錄</button></div>
