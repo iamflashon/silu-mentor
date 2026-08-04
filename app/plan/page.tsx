@@ -61,6 +61,18 @@ function requestedPlanTab(): PlanTab {
     : "calendar";
 }
 
+function magazineYear(magazine: MagazineFeed) {
+  const text = `${magazine.title} ${magazine.description ?? ""}`;
+  const western = text.match(/(?:^|\D)(20\d{2})(?:\D|$)/)?.[1];
+  if (western) return western;
+  const roc = text.match(/(?:民國\s*)?(1\d{2})\s*年/)?.[1];
+  return roc ? String(Number(roc) + 1911) : "年份未標示";
+}
+
+function magazineIssueLabel(title: string) {
+  return title.match(/第\s*\d+\s*期/)?.[0].replace(/\s+/g, "") ?? title;
+}
+
 export default function StudyPlanPage() {
   const [month, setMonth] = useState(monthValue());
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -80,6 +92,16 @@ export default function StudyPlanPage() {
   const [activeTab, setActiveTab] = useState<PlanTab>(requestedPlanTab);
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
+  const [magazineQuery, setMagazineQuery] = useState("");
+  const [magazineYearFilter, setMagazineYearFilter] = useState("全部年度");
+  const [selectedMagazineId, setSelectedMagazineId] = useState<number | null>(null);
+  const [magazineSelectedText, setMagazineSelectedText] = useState("");
+  const [magazineInput, setMagazineInput] = useState("");
+  const [magazineMessages, setMagazineMessages] = useState<TutorMessage[]>([]);
+  const [magazineSessionId, setMagazineSessionId] = useState<number | null>(null);
+  const [magazineAiLoading, setMagazineAiLoading] = useState(false);
+  const [magazineAiNotice, setMagazineAiNotice] = useState("");
+  const magazineInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [resources, setResources] = useState<LearningResource[]>([]);
   const [selectedResourceId, setSelectedResourceId] = useState<number | null>(null);
   const [expandedBookId, setExpandedBookId] = useState<number | null>(null);
@@ -327,6 +349,16 @@ export default function StudyPlanPage() {
     { id: -5, resourceType: "trial", title: "憲法", subject: "憲法", creator: "韓台大", description: "試聽憲法課程，了解基本權與國家權力的重要架構。", documentId: null, sourceUrl: "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=22340&iC=2089", accessType: "external", status: "active", sortOrder: 4, segmentCount: 0 },
   ];
   const trialResources = managedTrialResources.length ? managedTrialResources : defaultTrialResources;
+  const magazineFeeds = homeFeed?.magazines ?? (homeFeed?.magazine ? [homeFeed.magazine] : []);
+  const magazineYears = [...new Set(magazineFeeds.map(magazineYear))].sort((a, b) => b.localeCompare(a, "zh-Hant"));
+  const normalizedMagazineQuery = magazineQuery.trim().toLocaleLowerCase("zh-Hant");
+  const filteredMagazines = magazineFeeds.filter((magazine) => {
+    if (magazineYearFilter !== "全部年度" && magazineYear(magazine) !== magazineYearFilter) return false;
+    if (!normalizedMagazineQuery) return true;
+    const searchable = [magazine.title, magazine.description, ...(magazine.articles ?? []).flatMap((article) => [article.title, article.summary, article.issue])].join(" ").toLocaleLowerCase("zh-Hant");
+    return searchable.includes(normalizedMagazineQuery);
+  });
+  const selectedMagazine = filteredMagazines.find((magazine) => magazine.id === selectedMagazineId) ?? filteredMagazines[0] ?? null;
   const defaultExpandedBookId = selectedResourceId === null ? (bookResources[0]?.id ?? null) : null;
   const currentExpandedBookId = expandedBookId ?? defaultExpandedBookId;
   const selectedResource = resources.find((item) => item.id === selectedResourceId && ((activeTab === "courses" && item.resourceType === "course") || (activeTab === "books" && item.resourceType === "book"))) ?? (activeTab === "courses" ? courseResources[0] : bookResources[0]) ?? null;
@@ -526,6 +558,48 @@ export default function StudyPlanPage() {
     }
   }
 
+  function captureMagazineSelection() {
+    const text = window.getSelection()?.toString().replace(/\s+/g, " ").trim() ?? "";
+    if (text.length >= 2) setMagazineSelectedText(text.slice(0, 1500));
+  }
+
+  function useMagazineSelection() {
+    if (!magazineSelectedText) return;
+    setMagazineInput(`請用白話解釋這段文字，並說明它在司律考試可能涉及的爭點：\n「${magazineSelectedText}」`);
+    window.setTimeout(() => magazineInputRef.current?.focus(), 0);
+  }
+
+  async function sendMagazineMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = magazineInput.trim();
+    if (!question || !selectedMagazine || magazineAiLoading) return;
+    const nextMessages: TutorMessage[] = [...magazineMessages, { role: "student", text: question }].slice(-12);
+    setMagazineMessages(nextMessages);
+    setMagazineInput("");
+    setMagazineSelectedText("");
+    setMagazineAiLoading(true);
+    setMagazineAiNotice("");
+    const articleContext = (selectedMagazine.articles ?? []).map((article) => `文章：${article.title}\n摘要：${article.summary || "未提供"}\n核心爭點：${article.issue || "未提供"}`).join("\n\n");
+    const apiMessages = nextMessages.map((message, index) => index === nextMessages.length - 1 && message.role === "student"
+      ? { ...message, text: `目前期數：${selectedMagazine.title}\n本期可用試讀資料：\n${articleContext.slice(0, 10000)}\n\n學生問題：${message.text}` }
+      : message);
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: apiMessages, visibleStudentText: question, sessionId: magazineSessionId, context: { type: "magazine", resourceId: selectedMagazine.id, resourceTitle: selectedMagazine.title } }),
+      });
+      const result = await response.json() as { reply?: string; error?: string; sessionId?: number };
+      if (!response.ok || !result.reply) throw new Error(result.error || "AI 暫時無法回應");
+      setMagazineSessionId(result.sessionId ?? magazineSessionId);
+      setMagazineMessages((current) => [...current, { role: "mentor", text: result.reply! }]);
+    } catch (error) {
+      setMagazineAiNotice(error instanceof Error ? error.message : "AI 暫時無法回應");
+    } finally {
+      setMagazineAiLoading(false);
+    }
+  }
+
   async function addRecord() {
     if (!recordDraft.title.trim()) return;
     const response = await fetch("/api/learning-records", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...recordDraft, activityType: "手動補登" }) });
@@ -587,7 +661,25 @@ export default function StudyPlanPage() {
           </article> : <div className="resource-empty resource-empty-large">先從左側選擇一項{activeTab === "books" ? "書籍" : "影音課程"}，就在這裡開始。</div>}
         </div>
       </section>}
-      {activeTab === "magazine" && <section className="learning-single-column" aria-label="法教專區"><div className="column-card law-column rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="column-heading"><div><h2>法教專區</h2><span>已發布的期數都會保留，摘要與核心爭點分開整理</span></div><i>法</i></div>{(homeFeed?.magazines ?? (homeFeed?.magazine ? [homeFeed.magazine] : [])).length ? <div className="magazine-feed-list">{(homeFeed?.magazines ?? (homeFeed?.magazine ? [homeFeed.magazine] : [])).map((magazine) => <article className="magazine-feed-item" key={magazine.id}><strong>{magazine.title}</strong>{magazine.isDraft && <p className="column-notice">目前先顯示後台匯入的試讀目錄，完整分析仍由後台確認。</p>}<div className="magazine-article-list">{(magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <p className="magazine-article-summary"><b>摘要</b>{article.summary}</p>}<p className="magazine-article-issue"><b>核心爭點</b>{article.issue || (article.reviewStatus === "draft" ? "尚待後台分析／發布" : "尚未擷取核心爭點")}</p></div></div>)}</div><a href={magazine.sourceUrl} target="_blank" rel="noreferrer">查看本期來源 →</a></article>)}</div> : <p className="column-empty">後台尚未發布法學教室期數。</p>}</div></section>}
+      {activeTab === "magazine" && <section className="magazine-library" aria-label="法教專區">
+        <header className="magazine-library-head"><div><p>LAW CLASSROOM</p><h2>法教專區</h2><span>依年度與期數查找試讀文章，選取文字即可請 AI 解釋。</span></div><i>法</i></header>
+        <div className="magazine-library-layout">
+          <aside className="magazine-index">
+            <label className="magazine-search"><span>搜尋文章或老師</span><input value={magazineQuery} onChange={(event) => setMagazineQuery(event.target.value)} placeholder="輸入關鍵字、老師名稱…" /></label>
+            <nav className="magazine-years" aria-label="法學教室年度"><button className={magazineYearFilter === "全部年度" ? "active" : ""} onClick={() => setMagazineYearFilter("全部年度")}>全部年度 <span>{magazineFeeds.length}</span></button>{magazineYears.map((year) => <button key={year} className={magazineYearFilter === year ? "active" : ""} onClick={() => setMagazineYearFilter(year)}>{year}<span>{magazineFeeds.filter((magazine) => magazineYear(magazine) === year).length}</span></button>)}</nav>
+            <div className="magazine-issues">{filteredMagazines.map((magazine) => <button key={magazine.id} className={selectedMagazine?.id === magazine.id ? "active" : ""} onClick={() => { setSelectedMagazineId(magazine.id); setMagazineMessages([]); setMagazineSessionId(null); setMagazineSelectedText(""); }}><strong>{magazineIssueLabel(magazine.title)}</strong><small>{magazine.title}</small><span>{magazine.articles?.length ?? 0} 篇試讀</span></button>)}{!filteredMagazines.length && <p>找不到符合的期數或文章。</p>}</div>
+          </aside>
+          <div className="magazine-reading-panel">
+            {selectedMagazine ? <>
+              <header className="magazine-reading-head"><div><span>{magazineYear(selectedMagazine)}</span><h3>{selectedMagazine.title}</h3><small>本期共 {selectedMagazine.articles?.length ?? 0} 篇試讀內容</small></div><a href={selectedMagazine.sourceUrl} target="_blank" rel="noreferrer">查看本期來源 ↗</a></header>
+              {selectedMagazine.isDraft && <p className="column-notice">目前先顯示後台匯入的試讀目錄，完整分析仍由後台確認。</p>}
+              <div className="magazine-reading-list" onMouseUp={captureMagazineSelection}>{(selectedMagazine.articles ?? []).map((article, index) => <article className="magazine-reading-article" key={article.id}><div className="magazine-article-number">{String(index + 1).padStart(2, "0")}</div><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <section className="magazine-article-summary"><b>文章摘要</b><p>{article.summary}</p></section>}<section className="magazine-article-issue"><b>核心爭點</b><p>{article.issue || (article.reviewStatus === "draft" ? "尚待後台分析／發布" : "尚未擷取核心爭點")}</p></section></div></article>)}</div>
+              {magazineSelectedText && <div className="magazine-selection"><div><strong>已選取文字</strong><p>{magazineSelectedText}</p></div><button type="button" onClick={useMagazineSelection}>送到對話框問 AI</button></div>}
+              <section className="magazine-ai"><header><div><span>AI ARTICLE TUTOR</span><h3>問 AI 解釋本期內容</h3></div><small>回答僅依目前顯示的標題、摘要、爭點與框選文字</small></header>{magazineMessages.length > 0 && <div className="magazine-ai-messages">{magazineMessages.map((message, index) => <div className={`magazine-ai-message ${message.role}`} key={`${message.role}-${index}`}><span>{message.role === "mentor" ? "AI 教練" : "你"}</span><p>{message.text}</p></div>)}{magazineAiLoading && <div className="magazine-ai-message mentor"><span>AI 教練</span><p>正在閱讀本期試讀資料…</p></div>}</div>}<div className="magazine-ai-shortcuts"><button type="button" onClick={() => setMagazineInput("請整理本期四篇文章各自的核心爭點，以及它們可能屬於哪一個法律科目。")}>整理本期爭點</button><button type="button" onClick={() => setMagazineInput("請選一篇最適合司律考生先讀的文章，說明理由，但不要補造試讀資料以外的內容。")}>建議先讀哪篇</button><button type="button" onClick={() => setMagazineInput("請把目前文章的核心爭點轉成二試申論的爭點、規範、涵攝、結論架構。")}>轉成申論架構</button></div><form onSubmit={sendMagazineMessage}><textarea ref={magazineInputRef} rows={3} value={magazineInput} onChange={(event) => setMagazineInput(event.target.value)} placeholder="直接問本期文章，或先框選上方文字…" disabled={magazineAiLoading} /><button type="submit" disabled={magazineAiLoading || !magazineInput.trim()}>{magazineAiLoading ? "AI 思考中…" : "送出問題"}</button></form>{magazineAiNotice && <p className="magazine-ai-notice">{magazineAiNotice}</p>}</section>
+            </> : <div className="magazine-empty">後台尚未發布法學教室期數。</div>}
+          </div>
+        </div>
+      </section>}
       {activeTab === "calendar" && <><div className="calendar-toolbar"><button onClick={() => moveMonth(-1)}>‹</button><strong>{month.replace("-", " 年 ")} 月</strong><button onClick={() => moveMonth(1)}>›</button></div>
       <div className="calendar-grid">
         {["日", "一", "二", "三", "四", "五", "六"].map((day) => <div className="weekday" key={day}>{day}</div>)}
