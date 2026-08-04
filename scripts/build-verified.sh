@@ -25,9 +25,9 @@ timeout \
   "${SITES_BUILD_TIMEOUT:-3m}" \
   "${vinext}" build
 
-# The Cloudflare Vite plugin serializes an empty compatibility_flags array even
-# when the project does not configure flags. Sites treats the field itself as
-# an explicit override, so remove only the empty generated field.
+# The Cloudflare Vite plugin serializes deployment compatibility metadata even
+# though Sites owns that metadata. Remove the generated override fields from
+# the packaged artifact so the platform can apply its current defaults once.
 wrangler_config="${SITES_PROJECT_ROOT}/dist/server/wrangler.json"
 if [[ -f "${wrangler_config}" ]]; then
   node --input-type=module - "${wrangler_config}" <<'NODE'
@@ -37,8 +37,9 @@ const configPath = process.argv[2];
 const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 if (Array.isArray(config.compatibility_flags) && config.compatibility_flags.length === 0) {
   delete config.compatibility_flags;
-  fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
 }
+delete config.compatibility_date;
+fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
 NODE
 fi
 
