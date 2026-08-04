@@ -121,9 +121,13 @@ export async function DELETE(request: Request) {
     if (params.get("clear") === "1") {
       const [plan] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
       if (!plan) return Response.json({ deleted: 0 });
-      const tasks = await db.select().from(studyTasks).where(eq(studyTasks.planId, plan.id));
-      await db.delete(studyTasks).where(eq(studyTasks.planId, plan.id));
-      return Response.json({ deleted: tasks.length });
+      const subject = params.get("subject")?.trim();
+      const allowedSubjects = new Set(["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法"]);
+      if (subject && !allowedSubjects.has(subject)) return Response.json({ error: "指定科目不正確" }, { status: 400 });
+      const condition = subject ? and(eq(studyTasks.planId, plan.id), eq(studyTasks.subject, subject)) : eq(studyTasks.planId, plan.id);
+      const tasks = await db.select().from(studyTasks).where(condition);
+      await db.delete(studyTasks).where(condition);
+      return Response.json({ deleted: tasks.length, subject: subject ?? null });
     }
     if (params.get("duplicates") === "1") {
       const tasks = await db.select().from(studyTasks).orderBy(asc(studyTasks.id));
