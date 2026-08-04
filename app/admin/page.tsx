@@ -5,7 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
-import CourseVideoPlayer from "../course-video-player";
+import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
 type Uploaded = {
   id: number;
@@ -84,6 +84,7 @@ type LearningResource = {
   sourceUrl: string;
   accessType: string;
   status: string;
+  sortOrder: number;
   hasCover: number;
   segmentCount: number;
   chapterCount?: number;
@@ -1665,6 +1666,33 @@ export default function AdminPage() {
     setNotice(`${resource.title} 已移除。`);
   }
 
+  function orderedResourceGroup(resourceType: string) {
+    return resources
+      .filter((item) => item.resourceType === resourceType)
+      .sort((a, b) => (a.sortOrder - b.sortOrder) || (a.id - b.id));
+  }
+
+  async function moveResource(resource: LearningResource, direction: -1 | 1) {
+    const group = orderedResourceGroup(resource.resourceType);
+    const index = group.findIndex((item) => item.id === resource.id);
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= group.length) return;
+    const reordered = [...group];
+    [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
+    const orderById = new Map(reordered.map((item, itemIndex) => [item.id, itemIndex]));
+    setResources((current) => current.map((item) => orderById.has(item.id) ? { ...item, sortOrder: orderById.get(item.id) ?? item.sortOrder } : item));
+    const responses = await Promise.all(reordered.map((item, itemIndex) => fetch("/api/resources", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: item.id, sortOrder: itemIndex }),
+    })));
+    if (responses.some((response) => !response.ok)) {
+      setNotice("課程／書本順序儲存失敗，請重新整理後再試。");
+      return;
+    }
+    setNotice(`${resource.resourceType === "course" ? "影音課程" : "書本"}順序已更新。`);
+  }
+
   async function openSubtitleEditor(resource: LearningResource) {
     const response = await fetch(
       `/api/resources/segments?resourceId=${resource.id}`,
@@ -2676,13 +2704,7 @@ export default function AdminPage() {
             </form>
             {notice && <div className="notice">{notice}</div>}
             <div className="resource-grid">
-              {resources
-                .filter((resource) =>
-                  activeTab === "courses"
-                    ? resource.resourceType === "course"
-                    : resource.resourceType === "book",
-                )
-                .map((resource) => (
+              {orderedResourceGroup(activeTab === "courses" ? "course" : "book").map((resource, resourceIndex) => (
                   <article className="resource-card magazine-resource-card" key={resource.id}>
                     <div className="resource-cover">
                       {resource.hasCover ? (
@@ -2724,6 +2746,11 @@ export default function AdminPage() {
                       </small>
                     </div>
                     <div className="resource-actions">
+                      <div className="resource-order-actions" aria-label={`${resource.title}排序`}>
+                        <span>第 {resourceIndex + 1} 順位</span>
+                        <button type="button" onClick={() => void moveResource(resource, -1)} disabled={resourceIndex === 0} aria-label="上移">↑</button>
+                        <button type="button" onClick={() => void moveResource(resource, 1)} disabled={resourceIndex === orderedResourceGroup(resource.resourceType).length - 1} aria-label="下移">↓</button>
+                      </div>
                       {resource.resourceType === "book" && (
                         <>
                           <select
@@ -2764,9 +2791,7 @@ export default function AdminPage() {
                           }
                         >
                           <option value="">選擇這堂課對應的書</option>
-                          {resources
-                            .filter((item) => item.resourceType === "book")
-                            .map((book) => (
+                          {orderedResourceGroup("book").map((book) => (
                               <option key={book.id} value={book.id}>
                                 {book.title}
                               </option>
@@ -3472,7 +3497,7 @@ export default function AdminPage() {
                     <div className="course-preview-empty">尚未設定課程播放網址</div>
                   )}
                 </div>
-                <div className="course-preview-current">目前預覽時間：{Math.floor(coursePreviewTime / 60)}:{String(coursePreviewTime % 60).padStart(2, "0")}</div>
+                <div className="course-preview-current">目前預覽時間：{formatMediaTime(coursePreviewTime)}</div>
                 {coursePreviewError && <div className="course-preview-error" role="alert">{coursePreviewError}<br /><span>請確認 CloudFront 是否允許本站來源；目前後台已提供伺服器代理播放。</span></div>}
                 {coursePreviewResource.sourceUrl && <a className="course-preview-external" href={coursePreviewResource.sourceUrl} target="_blank" rel="noreferrer">另開原始課程網址 ↗</a>}
               </div>
@@ -3482,7 +3507,7 @@ export default function AdminPage() {
                   <div className="course-preview-summary-list">
                     {coursePreviewSegments.map((segment) => (
                       <button type="button" key={segment.id} onClick={() => seekCoursePreview(segment.startSeconds ?? 0)}>
-                        <span>{Math.floor((segment.startSeconds ?? 0) / 60)}:{String((segment.startSeconds ?? 0) % 60).padStart(2, "0")}</span>
+                        <span>{formatMediaTime(segment.startSeconds)}</span>
                         <div><strong>{segment.title || "課程重點"}</strong><p>{segment.summary || "此段已標記為前台推薦重點。"}</p></div>
                       </button>
                     ))}
@@ -3524,7 +3549,7 @@ export default function AdminPage() {
                     <div className="course-preview-empty">尚未設定課程播放網址</div>
                   )}
                 </div>
-                <div className="course-preview-current">目前預覽時間：{Math.floor(coursePreviewTime / 60)}:{String(coursePreviewTime % 60).padStart(2, "0")}　點選右側「跳到這段」即可對照課程。</div>
+                <div className="course-preview-current">目前預覽時間：{formatMediaTime(coursePreviewTime)}　點選右側「跳到這段」即可對照課程。</div>
                 <a
                   href={subtitleCourse.sourceUrl}
                   target="_blank"

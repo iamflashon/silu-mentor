@@ -8,6 +8,8 @@ type CourseVideoPlayerProps = {
   sourceUrl: string;
   title: string;
   startSeconds?: number;
+  /** Changes only when the user explicitly asks the player to seek. */
+  seekToken?: number;
   onTimeChange?: (seconds: number) => void;
   onError?: (message: string) => void;
   className?: string;
@@ -15,6 +17,14 @@ type CourseVideoPlayerProps = {
 
 function isHlsUrl(value: string) {
   return /\.m3u8(?:[?#].*)?$/i.test(value.trim());
+}
+
+export function formatMediaTime(value: number | null | undefined) {
+  const total = Math.max(0, Math.floor(Number(value) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 export function courseMediaUrl(resourceId: number, sourceUrl: string) {
@@ -31,12 +41,14 @@ export default function CourseVideoPlayer({
   sourceUrl,
   title,
   startSeconds = 0,
+  seekToken = 0,
   onTimeChange,
   onError,
   className,
 }: CourseVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const lastPlaybackTimeRef = useRef(0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -72,6 +84,7 @@ export default function CourseVideoPlayer({
       video.removeEventListener("error", handleError);
       hlsRef.current?.destroy();
       hlsRef.current = null;
+      lastPlaybackTimeRef.current = 0;
       video.removeAttribute("src");
       video.load();
     };
@@ -79,16 +92,27 @@ export default function CourseVideoPlayer({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !Number.isFinite(startSeconds) || startSeconds <= 0) return;
+    if (!video || !Number.isFinite(startSeconds)) return;
     const seek = () => {
-      if (Number.isFinite(video.duration) && video.duration > startSeconds) {
-        video.currentTime = startSeconds;
+      const desired = Math.max(0, startSeconds);
+      if (!Number.isFinite(video.duration) || video.duration <= desired) return;
+      if (desired === 0 && lastPlaybackTimeRef.current <= 1.25) return;
+      // Ignore the parent's once-per-second progress display.  A real click
+      // on a timestamp produces a meaningful jump and is still applied.
+      const distance = Math.abs(lastPlaybackTimeRef.current - desired);
+      if (lastPlaybackTimeRef.current === 0 || distance > 1.25) {
+        video.currentTime = desired;
       }
     };
     if (video.readyState >= 1) seek();
     else video.addEventListener("loadedmetadata", seek, { once: true });
     return () => video.removeEventListener("loadedmetadata", seek);
-  }, [startSeconds, sourceUrl]);
+  // Playback progress is reported to the parent every second.  It must not be
+  // treated as a new seek request: assigning currentTime on every timeupdate
+  // makes HLS rewind a fraction of a second repeatedly and can eventually
+  // make the same media fragments play again.  Only a new resource or an
+  // explicit seekToken is allowed to move the playhead.
+  }, [resourceId, sourceUrl, seekToken, startSeconds]);
 
   return (
     <video
@@ -98,8 +122,10 @@ export default function CourseVideoPlayer({
       preload="metadata"
       playsInline
       title={title}
-      onTimeUpdate={(event) => onTimeChange?.(event.currentTarget.currentTime)}
+      onTimeUpdate={(event) => {
+        lastPlaybackTimeRef.current = event.currentTarget.currentTime;
+        onTimeChange?.(event.currentTarget.currentTime);
+      }}
     />
   );
 }
-

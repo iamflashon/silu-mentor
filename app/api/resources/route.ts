@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings, documents, learningResources, resourceSegments } from "../../../db/schema";
 
@@ -30,6 +30,7 @@ export async function GET() {
       sourceUrl: learningResources.sourceUrl,
       accessType: learningResources.accessType,
       status: learningResources.status,
+      sortOrder: learningResources.sortOrder,
       documentStatus: documents.status,
       documentError: documents.indexError,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
@@ -44,7 +45,7 @@ export async function GET() {
     )
     .leftJoin(documents, eq(learningResources.documentId, documents.id))
     .groupBy(learningResources.id, documents.status, documents.indexError)
-    .orderBy(desc(learningResources.updatedAt));
+    .orderBy(asc(learningResources.sortOrder), asc(learningResources.createdAt));
   const articleRows = await db
     .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
     .from(resourceSegments)
@@ -125,6 +126,12 @@ export async function POST(request: Request) {
       { status: 422 },
     );
   const db = await getDb();
+  const [lastInType] = await db
+    .select({ sortOrder: learningResources.sortOrder })
+    .from(learningResources)
+    .where(eq(learningResources.resourceType, resourceType))
+    .orderBy(desc(learningResources.sortOrder))
+    .limit(1);
   const [row] = await db
     .insert(learningResources)
     .values({
@@ -139,6 +146,7 @@ export async function POST(request: Request) {
       sourceUrl,
       accessType: String(body.accessType ?? "owned"),
       status: String(body.status ?? "active"),
+      sortOrder: (lastInType?.sortOrder ?? -1) + 1,
     })
     .returning();
   return Response.json({ resource: row }, { status: 201 });
@@ -183,6 +191,22 @@ export async function PUT(request: Request) {
     })
     .where(eq(learningResources.id, id))
     .returning();
+  return Response.json({ resource: row });
+}
+
+export async function PATCH(request: Request) {
+  const body = (await request.json()) as Record<string, unknown>;
+  const id = Number(body.id);
+  if (!id || !Number.isFinite(Number(body.sortOrder))) {
+    return Response.json({ error: "缺少資源排序資料" }, { status: 400 });
+  }
+  const db = await getDb();
+  const [row] = await db
+    .update(learningResources)
+    .set({ sortOrder: Math.max(0, Math.floor(Number(body.sortOrder))), updatedAt: new Date() })
+    .where(eq(learningResources.id, id))
+    .returning({ id: learningResources.id, sortOrder: learningResources.sortOrder });
+  if (!row) return Response.json({ error: "找不到資源" }, { status: 404 });
   return Response.json({ resource: row });
 }
 

@@ -1607,6 +1607,10 @@ a {
   flex-direction: column;
   gap: 7px;
 }
+.resource-order-actions { display: flex; align-items: center; gap: 5px; width: 100%; padding: 7px 8px; border-radius: 8px; background: #eef5f8; color: #4c7181; font-size: 11px; font-weight: 800; }
+.resource-order-actions span { margin-right: auto; }
+.resource-order-actions button { width: 28px; height: 26px; padding: 0; border: 1px solid #c8dce4; border-radius: 6px; background: #fff; color: #31677d; cursor: pointer; font-weight: 900; }
+.resource-order-actions button:disabled { opacity: .4; cursor: not-allowed; }
 .resource-actions label,
 .resource-actions a {
   padding: 7px 9px;
@@ -2491,6 +2495,9 @@ a {
 .resource-count { padding: 7px 10px; border-radius: 9px; background: #edf5f7; color: #39708a; font-size: 12px; font-weight: 850; white-space: nowrap; }
 .resource-learning-layout { display: grid; grid-template-columns: 235px minmax(0, 1fr); gap: 16px; align-items: start; }
 .resource-list { display: grid; gap: 8px; align-content: start; }
+.resource-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 4px 7px; color: #315d73; }
+.resource-list-heading strong { font-size: 13px; }
+.resource-list-heading span { color: #78909d; font-size: 11px; }
 .resource-list > button { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 9px; width: 100%; padding: 11px; border: 1px solid #dce7ec; border-radius: 11px; background: #fbfdfe; color: #355b70; text-align: left; cursor: pointer; }
 .resource-list > button.active { border-color: #4e8baa; background: #edf7fa; box-shadow: inset 3px 0 #3e7d99; }
 .resource-list > button > span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: #e2eff3; color: #2b6a85; font-size: 13px; font-weight: 850; }
@@ -2525,6 +2532,11 @@ a {
 .resource-panel-actions button { white-space: nowrap; }
 .resource-message { margin: 12px 0 0; padding: 9px 10px; border-radius: 8px; background: #eef8f3; color: #39735d; font-size: 12px; line-height: 1.5; }
 .book-reader, .course-reader { margin-top: 15px; }
+.course-reader { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 12px; align-items: start; }
+.course-reader .course-player { grid-column: 1; grid-row: 1; }
+.course-reader .course-preview-error { grid-column: 1 / -1; }
+.course-reader .course-study-meta { grid-column: 1; grid-row: 2; }
+.course-reader .course-segment-list { grid-column: 2; grid-row: 1 / span 2; max-height: 500px; }
 .reader-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding: 9px 11px; border-radius: 9px; background: #eef5f8; color: #6e8794; font-size: 11px; }
 .reader-toolbar label { display: flex; align-items: center; gap: 7px; color: #416b80; font-weight: 800; white-space: nowrap; }
 .reader-toolbar input { width: 68px; padding: 6px 7px; border: 1px solid #cbdde5; border-radius: 7px; background: #fff; color: #294e64; font: inherit; }
@@ -2537,6 +2549,7 @@ a {
 .course-study-meta strong, .course-study-meta span { display: block; color: #3e6579; font-size: 12px; line-height: 1.5; }
 .course-study-meta span { color: #718895; font-size: 11px; }
 .course-segment-list { display: grid; gap: 7px; max-height: 420px; overflow: auto; padding-right: 3px; }
+.course-segment-list::before { content: "影片重點摘要 · 播放時可對應跳轉"; display: block; padding: 2px 3px 5px; color: #315d73; font-size: 12px; font-weight: 850; }
 .course-segment-list > button { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 9px; width: 100%; padding: 10px; border: 1px solid #dbe7ec; border-radius: 9px; background: #fff; color: #3b6275; text-align: left; cursor: pointer; }
 .course-segment-list > button.active { border-color: #5b98ae; background: #edf7fa; }
 .course-segment-list > button > span { color: #3c829c; font-size: 11px; font-weight: 850; }
@@ -3822,6 +3835,8 @@ a {
   .resource-learning-head h2 { font-size: 22px; }
   .resource-learning-head span:not(.resource-count) { font-size: 12px; }
   .resource-learning-layout { grid-template-columns: 1fr; }
+  .course-reader { display: block; }
+  .course-reader .course-segment-list { max-height: 320px; margin-top: 12px; }
   .resource-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .book-resource-list { grid-template-columns: 1fr; }
   .resource-study-panel > header { flex-direction: column; }
