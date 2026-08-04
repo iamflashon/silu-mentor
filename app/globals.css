@@ -1648,6 +1648,16 @@ a {
   font-weight: 800;
   cursor: pointer;
 }
+.course-preview-open {
+  padding: 8px 9px;
+  border: 1px solid #d5ae58;
+  border-radius: 8px;
+  background: #fff8e9;
+  color: #8d6821;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
 .subtitle-editor-backdrop {
   position: fixed;
   inset: 0;
@@ -4961,6 +4971,34 @@ a {
 .course-reference-player video { display: block; width: 100%; height: 260px; border: 0; background: #162d3d; }
 .course-preview-empty { display: grid; place-items: center; min-height: 260px; color: #9db0ba; font-size: 12px; }
 .course-preview-current { margin-top: 7px; padding: 7px 8px; border-radius: 7px; background: #eef6f8; color: #5c7b8a; font-size: 10px; line-height: 1.45; }
+.course-preview-backdrop { position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; padding: 18px; background: rgba(15, 34, 48, .62); backdrop-filter: blur(5px); }
+.course-preview-modal { width: min(1120px, 100%); max-height: calc(100vh - 30px); overflow: auto; padding: 22px; border-radius: 20px; background: #f7fafc; box-shadow: 0 30px 100px rgba(5, 22, 35, .34); }
+.course-preview-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.course-preview-modal > header span { color: #5a8195; font-size: 10px; font-weight: 850; }
+.course-preview-modal > header h2 { margin: 4px 0 0; color: #173a54; font-size: 22px; }
+.course-preview-modal > header > button { border: 0; background: transparent; color: #718592; font-size: 28px; cursor: pointer; }
+.course-preview-note { margin-bottom: 13px; padding: 9px 10px; border-radius: 8px; background: #eef6f8; color: #557487; font-size: 10px; line-height: 1.5; }
+.course-preview-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: 15px; }
+.course-preview-main { min-width: 0; }
+.course-preview-player { overflow: hidden; border-radius: 12px; background: #162d3d; }
+.course-preview-player iframe, .course-preview-player video { display: block; width: 100%; height: 420px; border: 0; background: #162d3d; }
+.course-preview-external { display: inline-block; margin-top: 9px; color: #2d6b92; font-size: 10px; font-weight: 800; text-decoration: none; }
+.course-preview-error { margin-top: 9px; padding: 9px 10px; border-radius: 8px; background: #fff0ef; color: #a6534c; font-size: 10px; line-height: 1.55; }
+.course-preview-error span { color: #8f716e; }
+.course-preview-summary-panel { min-width: 0; padding: 13px; border: 1px solid #dce6ed; border-radius: 12px; background: white; }
+.course-preview-summary-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid #e5edf1; }
+.course-preview-summary-heading span, .course-preview-summary-heading small { display: block; color: #648293; font-size: 10px; }
+.course-preview-summary-heading strong { display: block; margin-top: 3px; color: #285b76; font-size: 15px; }
+.course-preview-summary-heading small { text-align: right; line-height: 1.5; }
+.course-preview-summary-list { display: grid; gap: 7px; margin-top: 10px; }
+.course-preview-summary-list button { display: grid; grid-template-columns: 48px 1fr; gap: 8px; width: 100%; padding: 9px; text-align: left; border: 1px solid #e1eaee; border-radius: 9px; background: #fbfdfe; color: #355c71; cursor: pointer; }
+.course-preview-summary-list button:hover { border-color: #8fb5cc; background: #f0f8fb; }
+.course-preview-summary-list button > span { color: #b17d28; font: 800 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.course-preview-summary-list strong { display: block; color: #2f5e77; font-size: 11px; line-height: 1.45; }
+.course-preview-summary-list p { margin: 3px 0 0; color: #728794; font-size: 10px; line-height: 1.5; }
+.course-preview-summary-empty { padding: 18px 4px; color: #80929d; font-size: 10px; line-height: 1.6; }
+.course-preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 15px; padding-top: 13px; border-top: 1px solid #dce6ed; color: #718795; font-size: 10px; }
+.course-preview-footer button { padding: 8px 10px; border: 1px solid #8fb5cc; border-radius: 8px; background: #eaf4f9; color: #235f83; font-size: 10px; font-weight: 850; cursor: pointer; }
 .segment-time button { padding: 6px 8px; border: 1px solid #9fc3d1; border-radius: 7px; background: #edf7fa; color: #2f718b; font-size: 9px; font-weight: 850; cursor: pointer; }
 .segment-summary-preview { display: grid; gap: 3px; margin-top: 8px; padding: 8px 9px; border-left: 3px solid #dbad55; border-radius: 0 8px 8px 0; background: #fffaf0; color: #765e38; font-size: 11px; line-height: 1.55; }
 .segment-summary-preview b { color: #9a7131; font-size: 10px; }
@@ -4999,6 +5037,9 @@ a {
   .course-reference { position: static; }
   .course-reference-player iframe,
   .course-reference-player video { height: 220px; }
+  .course-preview-layout { grid-template-columns: 1fr; }
+  .course-preview-player iframe, .course-preview-player video { height: 240px; }
+  .course-preview-modal { padding: 16px; }
   .segment-time { flex-wrap: wrap; }
   .resource-editor { padding: 18px; }
   .daily-handoff { align-items: stretch; flex-direction: column; gap: 9px; }

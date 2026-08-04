@@ -19,6 +19,7 @@
     "drizzle-orm": "0.45.2",
     "fast-xml-parser": "^5.2.5",
     "fflate": "^0.8.2",
+    "hls.js": "1.6.16",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"

@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
+import CourseVideoPlayer from "../course-video-player";
 
 type Uploaded = {
   id: number;
@@ -107,6 +108,8 @@ type SubtitleSegment = {
   id: number;
   startSeconds: number;
   endSeconds: number;
+  title?: string;
+  segmentType?: string;
   text: string;
   summary: string;
   importance: number;
@@ -340,7 +343,10 @@ export default function AdminPage() {
   const [magazineIssueUrl, setMagazineIssueUrl] = useState("");
   const [creatingMagazineIssue, setCreatingMagazineIssue] = useState(false);
   const [coursePreviewTime, setCoursePreviewTime] = useState(0);
-  const coursePreviewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [coursePreviewResource, setCoursePreviewResource] = useState<LearningResource | null>(null);
+  const [coursePreviewSegments, setCoursePreviewSegments] = useState<SubtitleSegment[]>([]);
+  const [coursePreviewLoading, setCoursePreviewLoading] = useState(false);
+  const [coursePreviewError, setCoursePreviewError] = useState("");
   const [listeningItems, setListeningItems] = useState<ListeningItem[]>([]);
   const [essayQuestions, setEssayQuestions] = useState<EssayQuestion[]>([]);
   const [listeningQuestionId, setListeningQuestionId] = useState("");
@@ -1669,6 +1675,27 @@ export default function AdminPage() {
     setCoursePreviewTime(0);
   }
 
+  async function openCoursePreview(resource: LearningResource) {
+    setCoursePreviewResource(resource);
+    setCoursePreviewSegments([]);
+    setCoursePreviewError("");
+    setCoursePreviewTime(0);
+    setCoursePreviewLoading(true);
+    try {
+      const response = await fetch(`/api/resources/segments?resourceId=${resource.id}`);
+      const result = (await readJson(response)) as { segments?: SubtitleSegment[]; error?: string };
+      if (!response.ok) {
+        setCoursePreviewError(result.error ?? "無法讀取課程重點");
+        return;
+      }
+      setCoursePreviewSegments(result.segments ?? []);
+    } catch {
+      setCoursePreviewError("無法讀取課程重點，請稍後再試。");
+    } finally {
+      setCoursePreviewLoading(false);
+    }
+  }
+
   function youtubeEmbedUrl(value: string, startSeconds = 0) {
     try {
       const url = new URL(value.trim());
@@ -1687,11 +1714,6 @@ export default function AdminPage() {
   function seekCoursePreview(seconds: number) {
     const next = Math.max(0, Math.floor(seconds));
     setCoursePreviewTime(next);
-    const player = coursePreviewVideoRef.current;
-    if (player) {
-      player.currentTime = next;
-      void player.play().catch(() => undefined);
-    }
   }
 
   async function saveSegment(segment: SubtitleSegment) {
@@ -2765,6 +2787,13 @@ export default function AdminPage() {
                       </label>
                       {resource.resourceType === "course" && (
                         <>
+                          <button
+                            type="button"
+                            className="course-preview-open"
+                            onClick={() => void openCoursePreview(resource)}
+                          >
+                            預覽課程
+                          </button>
                           <label>
                             上傳 SRT
                             <input
@@ -3411,6 +3440,57 @@ export default function AdminPage() {
           </section>
         </div>
       )}
+      {coursePreviewResource && (
+        <div className="course-preview-backdrop" role="presentation" onClick={() => setCoursePreviewResource(null)}>
+          <section className="course-preview-modal" role="dialog" aria-modal="true" aria-labelledby="course-preview-title" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <span>學生端課程預覽</span>
+                <h2 id="course-preview-title">{coursePreviewResource.title}</h2>
+              </div>
+              <button type="button" onClick={() => setCoursePreviewResource(null)} aria-label="關閉預覽">×</button>
+            </header>
+            <div className="course-preview-note">這裡依前台實際呈現檢查影片與時間點重點；不顯示逐字字幕。</div>
+            <div className="course-preview-layout">
+              <div className="course-preview-main">
+                <div className="course-preview-player">
+                  {youtubeEmbedUrl(coursePreviewResource.sourceUrl, coursePreviewTime) ? (
+                    <iframe key={`${coursePreviewResource.id}-${coursePreviewTime}`} src={youtubeEmbedUrl(coursePreviewResource.sourceUrl, coursePreviewTime)} title={`${coursePreviewResource.title}課程預覽`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                  ) : coursePreviewResource.sourceUrl ? (
+                    <CourseVideoPlayer
+                      resourceId={coursePreviewResource.id}
+                      sourceUrl={coursePreviewResource.sourceUrl}
+                      title={`${coursePreviewResource.title}課程預覽`}
+                      startSeconds={coursePreviewTime}
+                      onTimeChange={(seconds) => setCoursePreviewTime(Math.floor(seconds))}
+                      onError={setCoursePreviewError}
+                    />
+                  ) : (
+                    <div className="course-preview-empty">尚未設定課程播放網址</div>
+                  )}
+                </div>
+                <div className="course-preview-current">目前預覽時間：{Math.floor(coursePreviewTime / 60)}:{String(coursePreviewTime % 60).padStart(2, "0")}</div>
+                {coursePreviewError && <div className="course-preview-error" role="alert">{coursePreviewError}<br /><span>請確認 CloudFront 是否允許本站來源；目前後台已提供伺服器代理播放。</span></div>}
+                {coursePreviewResource.sourceUrl && <a className="course-preview-external" href={coursePreviewResource.sourceUrl} target="_blank" rel="noreferrer">另開原始課程網址 ↗</a>}
+              </div>
+              <aside className="course-preview-summary-panel">
+                <div className="course-preview-summary-heading"><div><span>時間點重點摘要</span><strong>{coursePreviewSegments.filter((segment) => segment.summary?.trim() || segment.recommended).length} 個重點</strong></div><small>點擊即可跳到影片位置</small></div>
+                {coursePreviewLoading ? <div className="course-preview-summary-empty">正在讀取已整理的課程重點…</div> : coursePreviewSegments.filter((segment) => segment.summary?.trim() || segment.recommended).length ? (
+                  <div className="course-preview-summary-list">
+                    {coursePreviewSegments.filter((segment) => segment.summary?.trim() || segment.recommended).map((segment) => (
+                      <button type="button" key={segment.id} onClick={() => seekCoursePreview(segment.startSeconds ?? 0)}>
+                        <span>{Math.floor((segment.startSeconds ?? 0) / 60)}:{String((segment.startSeconds ?? 0) % 60).padStart(2, "0")}</span>
+                        <div><strong>{segment.title || "課程重點"}</strong><p>{segment.summary || "此段已標記為前台推薦重點。"}</p></div>
+                      </button>
+                    ))}
+                  </div>
+                ) : <div className="course-preview-summary-empty">尚未整理時間點重點。請先在「校正字幕／重點」中補上摘要，或使用 AI 自動拆解。</div>}
+              </aside>
+            </div>
+            <footer className="course-preview-footer"><span>目前狀態：{coursePreviewResource.status === "active" ? "已發布" : "草稿／待確認"}</span><button type="button" onClick={() => { setCoursePreviewResource(null); void openSubtitleEditor(coursePreviewResource); }}>前往校正字幕／重點</button></footer>
+          </section>
+        </div>
+      )}
       {subtitleCourse && (
         <div className="subtitle-editor-backdrop">
           <section className="subtitle-editor">
@@ -3427,7 +3507,14 @@ export default function AdminPage() {
                   {youtubeEmbedUrl(subtitleCourse.sourceUrl, coursePreviewTime) ? (
                     <iframe key={`${subtitleCourse.id}-${coursePreviewTime}`} src={youtubeEmbedUrl(subtitleCourse.sourceUrl, coursePreviewTime)} title={`${subtitleCourse.title}課程畫面`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
                   ) : directVideoUrl(subtitleCourse.sourceUrl) ? (
-                    <video ref={coursePreviewVideoRef} controls preload="metadata" src={subtitleCourse.sourceUrl} />
+                    <CourseVideoPlayer
+                      resourceId={subtitleCourse.id}
+                      sourceUrl={subtitleCourse.sourceUrl}
+                      title={`${subtitleCourse.title}課程畫面`}
+                      startSeconds={coursePreviewTime}
+                      onTimeChange={(seconds) => setCoursePreviewTime(Math.floor(seconds))}
+                      onError={setCoursePreviewError}
+                    />
                   ) : subtitleCourse.sourceUrl ? (
                     <iframe key={`${subtitleCourse.id}-${coursePreviewTime}`} src={`${subtitleCourse.sourceUrl}${subtitleCourse.sourceUrl.includes("#") ? "&" : "#"}t=${coursePreviewTime}`} title={`${subtitleCourse.title}課程畫面`} allow="autoplay; fullscreen; picture-in-picture" />
                   ) : (
