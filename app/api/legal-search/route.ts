@@ -2,8 +2,40 @@ import { and, asc, eq, like, or } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { legalArticles, legalDocuments } from "../../../db/schema";
 
+const CORE_LAW_NAMES = new Set([
+  "憲法",
+  "行政法",
+  "民法",
+  "民事訴訟法",
+  "刑法",
+  "刑事訴訟法",
+]);
+
 function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .replace(/[０-９]/g, (character) => String.fromCharCode(character.charCodeAt(0) - 0xfee0))
+    .replace(/[\s\u3000]+/g, "");
+}
+
+function parseLawQuery(value: string) {
+  const normalized = normalizeSearchText(value);
+  const articleMatch = normalized.match(/第(\d+)(?:條|条)(?:之(\d+))?/);
+  if (!articleMatch || articleMatch.index === undefined) {
+    return {
+      normalized,
+      lawName: CORE_LAW_NAMES.has(normalized) ? normalized : "",
+      articleNumber: "",
+    };
+  }
+  return {
+    normalized,
+    lawName: normalized.slice(0, articleMatch.index),
+    articleNumber: articleMatch[1],
+  };
 }
 
 export async function GET(request: Request) {
@@ -17,16 +49,31 @@ export async function GET(request: Request) {
   try {
     const db = await getDb();
     const pattern = `%${escapeLike(query)}%`;
-    const conditions = [
-      eq(legalDocuments.status, "active"),
-      or(
-        like(legalDocuments.title, pattern),
-        like(legalDocuments.classification, pattern),
-        like(legalArticles.articleNo, pattern),
-        like(legalArticles.content, pattern),
-        like(legalArticles.hierarchy, pattern),
-      ),
-    ];
+    const parsed = parseLawQuery(query);
+    const conditions = [eq(legalDocuments.status, "active")];
+    if (parsed.articleNumber) {
+      const articlePattern = `%${escapeLike(parsed.articleNumber)}%`;
+      const articleCondition = like(legalArticles.articleNo, articlePattern);
+      conditions.push(
+        parsed.lawName
+          ? and(like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`), articleCondition)
+          : articleCondition,
+      );
+    } else if (parsed.lawName) {
+      // A core-law search should enter the law itself, not constitutional
+      // judgments whose full text happens to mention the same word.
+      conditions.push(like(legalDocuments.title, `%${escapeLike(parsed.lawName)}%`));
+    } else {
+      conditions.push(
+        or(
+          like(legalDocuments.title, pattern),
+          like(legalDocuments.classification, pattern),
+          like(legalArticles.articleNo, pattern),
+          like(legalArticles.content, pattern),
+          like(legalArticles.hierarchy, pattern),
+        ),
+      );
+    }
     if (category && ["法律", "命令"].includes(category)) conditions.push(eq(legalDocuments.category, category));
 
     const rows = await db

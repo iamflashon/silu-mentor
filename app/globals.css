@@ -2076,6 +2076,18 @@ a {
   overflow: auto;
   overflow-wrap: anywhere;
 }
+.chapter-index-complete {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid #b9dfc9;
+  border-radius: 8px;
+  background: #effaf3;
+  color: #28724d;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.45;
+  text-align: center;
+}
 .index-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -2597,6 +2609,15 @@ a {
 .practice-lab-head span,
 .legal-search-head span { display: block; margin-top: 6px; color: #8294a0; font-size: 10px; line-height: 1.55; }
 .legal-search-head > strong { padding: 7px 9px; border-radius: 8px; background: #eaf3f6; color: #3b718c; font-size: 9px; white-space: nowrap; }
+.core-law-guide { margin-top: 18px; padding: 14px; border: 1px solid #d9e7ec; border-radius: 12px; background: #f8fbfc; }
+.core-law-guide-head b { display: block; color: #315d73; font-size: 12px; }
+.core-law-guide-head span { display: block; margin-top: 4px; color: #8294a0; font-size: 10px; }
+.core-law-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 11px; }
+.core-law-grid button { display: grid; gap: 4px; min-width: 0; padding: 11px 12px; border: 1px solid #d4e3e9; border-radius: 9px; background: #fff; color: #315d73; text-align: left; cursor: pointer; }
+.core-law-grid button:hover { border-color: #75a6bb; background: #f3fafc; }
+.core-law-grid strong { font-size: 13px; }
+.core-law-grid small { color: #7c929e; font-size: 9px; line-height: 1.45; }
+.core-law-grid span { margin-top: 3px; color: #3b7b96; font-size: 9px; font-weight: 800; }
 .practice-switch { display: flex; gap: 6px; padding: 4px; border-radius: 11px; background: #edf3f6; }
 .practice-switch button { padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: #668192; font-size: 10px; font-weight: 800; cursor: pointer; }
 .practice-switch button.active { background: #285d7f; color: #fff; }
@@ -3693,6 +3714,7 @@ a {
   .practice-diagnosis,
   .practice-recommendations > div { grid-template-columns: 1fr; }
   .legal-search-form { grid-template-columns: 1fr; }
+  .core-law-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .law-document-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .law-document-detail > header { align-items: flex-start; flex-direction: column; }
   .law-document-detail header div:last-child { width: 100%; }

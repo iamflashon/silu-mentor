@@ -21,6 +21,7 @@ export async function GET() {
       documentError: documents.indexError,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
       segmentCount: sql<number>`count(${resourceSegments.id})`,
+      chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') then 1 else 0 end)`,
       updatedAt: learningResources.updatedAt,
     })
     .from(learningResources)

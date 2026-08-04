@@ -85,6 +85,7 @@ type LearningResource = {
   status: string;
   hasCover: number;
   segmentCount: number;
+  chapterCount?: number;
   articleCount?: number;
   analyzedArticleCount?: number;
   failedArticleCount?: number;
@@ -1482,7 +1483,10 @@ export default function AdminPage() {
       return;
     }
     const count = result.chapters?.length ?? 0;
-    setNotice(result.reused ? `「${resource.title}」已有 ${count} 個已保存章節，這次沒有再次呼叫 AI。` : `「${resource.title}」已建立並保存 ${count} 個章節；之後前台只會讀取這些資料。`);
+    setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
+    setNotice(result.reused
+      ? `「${resource.title}」已建立好章節索引，共 ${count} 章；這次沒有再次呼叫 AI。`
+      : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
   }
 
   async function bindCourseBook(
@@ -2714,11 +2718,16 @@ export default function AdminPage() {
                           <button
                             type="button"
                             className="subtitle-open"
-                            disabled={!resource.documentId}
+                            disabled={!resource.documentId || Number(resource.chapterCount ?? 0) > 0}
                             onClick={() => void buildBookChapters(resource)}
                           >
-                            建立章節索引（一次）
+                            {Number(resource.chapterCount ?? 0) > 0 ? "已建立好章節索引" : "建立章節索引（一次）"}
                           </button>
+                          {Number(resource.chapterCount ?? 0) > 0 && (
+                            <span className="chapter-index-complete" role="status">
+                              ✓ 已建立好章節索引（{Number(resource.chapterCount)} 章）
+                            </span>
+                          )}
                         </>
                       )}
                       {resource.resourceType === "course" && (
