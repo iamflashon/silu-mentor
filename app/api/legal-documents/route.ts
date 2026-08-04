@@ -6,6 +6,25 @@ function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
+function articleOrder(articleNo: string, fallbackId: number) {
+  const normalized = articleNo.replace(/\s+/g, "");
+  const match = normalized.match(/第(\d+)(?:條)?(?:[-之](\d+))?(?:條)?(?:之(\d+))?/);
+  if (!match) return [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, fallbackId];
+  return [Number(match[1]), Number(match[2] ?? match[3] ?? 0), fallbackId];
+}
+
+function compareArticles(
+  left: { articleNo: string; id: number },
+  right: { articleNo: string; id: number },
+) {
+  const leftOrder = articleOrder(left.articleNo, left.id);
+  const rightOrder = articleOrder(right.articleNo, right.id);
+  for (let index = 0; index < leftOrder.length; index += 1) {
+    if (leftOrder[index] !== rightOrder[index]) return leftOrder[index] - rightOrder[index];
+  }
+  return 0;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const sourceKey = (url.searchParams.get("sourceKey") ?? "moj-regulations").trim().slice(0, 80);
@@ -20,7 +39,7 @@ export async function GET(request: Request) {
     if (documentId > 0) {
       const [document] = await db.select().from(legalDocuments).where(and(eq(legalDocuments.id, documentId), eq(legalDocuments.status, "active"))).limit(1);
       if (!document) return Response.json({ error: "找不到這筆法規內容" }, { status: 404 });
-      const articles = await db.select().from(legalArticles).where(eq(legalArticles.documentId, document.id)).orderBy(asc(legalArticles.id));
+      const articles = (await db.select().from(legalArticles).where(eq(legalArticles.documentId, document.id))).sort(compareArticles);
       return Response.json({ document, articles });
     }
 
