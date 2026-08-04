@@ -36,7 +36,11 @@ type ProblemOutlinePayload = {
   }>;
 };
 
-const PROBLEM_TOPIC_BATCH_SIZE = 3;
+// One topic per request keeps each file-search response comfortably below the
+// model's tokens-per-minute ceiling. A larger batch can retrieve tens of
+// thousands of tokens even though the calls themselves are sequential.
+const PROBLEM_TOPIC_BATCH_SIZE = 1;
+const PROBLEM_FILE_SEARCH_RESULTS = 16;
 const MIN_COMPLETE_PROBLEM_QUESTIONS = 8;
 
 function chapterStatusKey(resourceId: number) {
@@ -422,7 +426,7 @@ export async function POST(request: Request) {
           model: extractionModel,
           instructions: "你是台灣司律解題書目錄核對員。使用 file_search，只抄錄原書目錄中明確存在的『部分』與『主題』；不要回傳題目、不要改寫名稱、不要自行補項目。保留原順序。",
           input: `請搜尋《${resource.title}》（原始檔名：${document.fileName}）的目錄，列出全部部分與主題。`,
-          tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 50 }],
+          tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 20 }],
           text: { format: { type: "json_schema", name: "problem_book_outline", strict: true, schema: { type: "object", additionalProperties: false, properties: { topics: { type: "array", maxItems: 36, items: { type: "object", additionalProperties: false, properties: { section: { type: "string" }, topic: { type: "string" } }, required: ["section", "topic"] } } }, required: ["topics"] } } },
         }),
       });
@@ -435,7 +439,7 @@ export async function POST(request: Request) {
             model: extractionModel,
             instructions: "你是台灣司律考試解題書編輯。必須使用 file_search 逐一搜尋指定主題，只能抄錄書中明確存在的題型與完整題目。title 原樣保留題型編號與名稱；stem 必須是完整題目本文，不得放解析；section、topic 必須使用指定目錄名稱。不得用一般法律知識補題。保留原書順序。",
             input: `教材：《${resource.title}》（${document.fileName}）\n本批只擷取下列主題中的全部題型與完整題目：\n${batch.map((item) => `${item.section}｜${item.topic}`).join("\n")}`,
-            tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 50 }],
+            tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: PROBLEM_FILE_SEARCH_RESULTS }],
             text: { format: { type: "json_schema", name: "problem_book_questions", strict: true, schema: problemQuestionSchema } },
           }),
         });
