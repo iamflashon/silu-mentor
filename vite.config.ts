@@ -1,5 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
+import fs from "node:fs";
+import path from "node:path";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -37,6 +39,20 @@ const localBindingConfig = {
     : [],
 };
 
+const normalizeGeneratedWranglerConfig = () => ({
+  name: "normalize-generated-wrangler-config",
+  writeBundle() {
+    const configPath = path.resolve(process.cwd(), "dist/server/wrangler.json");
+    if (!fs.existsSync(configPath)) return;
+
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    if (Array.isArray(config.compatibility_flags) && config.compatibility_flags.length === 0) {
+      delete config.compatibility_flags;
+      fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
+    }
+  },
+});
+
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
@@ -63,6 +79,7 @@ export default defineConfig(async () => {
         inspectorPort: false,
         config: localBindingConfig,
       }),
+      normalizeGeneratedWranglerConfig(),
     ],
   };
 });
