@@ -347,6 +347,7 @@ export default function AdminPage() {
   const [magazineIssueEditorDraft, setMagazineIssueEditorDraft] = useState<MagazineIssueEditorDraft | null>(null);
   const [magazineIssueTitle, setMagazineIssueTitle] = useState("");
   const [magazineIssueUrl, setMagazineIssueUrl] = useState("");
+  const [syncingMagazineYear, setSyncingMagazineYear] = useState(false);
   const [creatingMagazineIssue, setCreatingMagazineIssue] = useState(false);
   const [coursePreviewTime, setCoursePreviewTime] = useState(0);
   const [coursePreviewSeekToken, setCoursePreviewSeekToken] = useState(0);
@@ -1374,18 +1375,21 @@ export default function AdminPage() {
     }
   }
 
-  async function analyzeMagazine(url = magazineUrl) {
-    if (!url.trim()) {
+  async function analyzeMagazine(url?: string) {
+    const sourceUrl = typeof url === "string" ? url : magazineUrl;
+    if (!sourceUrl.trim()) {
       setNotice("請先填寫法學教室期數網址。");
       return false;
     }
-    const isHistoryUrl = /m_search\.asp/i.test(url);
-    if (isHistoryUrl) {
-      setNotice("正在尋找今年全部期數…");
+    const isHistoryUrl = /m_search\.asp/i.test(sourceUrl);
+    try {
+      if (isHistoryUrl) {
+        setSyncingMagazineYear(true);
+        setNotice(`正在讀取 ${magazineYear} 年全部期數…`);
       const discoveryResponse = await fetch("/api/resources/magazine-import", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url, discoverYear: magazineYear }),
+        body: JSON.stringify({ url: sourceUrl, discoverYear: magazineYear }),
       });
       const discovery = (await readJson(discoveryResponse)) as { year?: number; issues?: Array<{ url: string; title: string }>; error?: string };
       if (!discoveryResponse.ok || !discovery.issues?.length) {
@@ -1417,35 +1421,41 @@ export default function AdminPage() {
       setMagazineListYear(magazineYear);
       setNotice(`已同步 ${discovery.year ?? "今年"} 年 ${completed}/${discovery.issues.length} 期，共完成 ${indexed} 篇試讀分析${failed ? `；${failed} 篇需重試或人工確認` : ""}。`);
       return completed > 0;
-    }
-    setNotice("正在分析指定期數、試讀文章與可用連結…");
-    const response = await fetch("/api/resources/magazine-import", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    const result = (await readJson(response)) as {
-      resource?: LearningResource;
-      articles?: number;
-      indexed?: number;
-      failures?: string[];
-      error?: string;
-    };
-    if (!response.ok || !result.resource) {
-      setNotice(result.error ?? "月旦法學教室分析失敗");
+      }
+      setNotice("正在分析指定期數、試讀文章與可用連結…");
+      const response = await fetch("/api/resources/magazine-import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: sourceUrl }),
+      });
+      const result = (await readJson(response)) as {
+        resource?: LearningResource;
+        articles?: number;
+        indexed?: number;
+        failures?: string[];
+        error?: string;
+      };
+      if (!response.ok || !result.resource) {
+        setNotice(result.error ?? "月旦法學教室分析失敗");
+        return false;
+      }
+      const refreshed = await fetch("/api/resources");
+      if (refreshed.ok) {
+        const refreshedResult = (await refreshed.json()) as { resources?: LearningResource[] };
+        setResources(refreshedResult.resources ?? []);
+      } else {
+        setResources((current) => current.some((item) => item.id === result.resource!.id) ? current : [result.resource!, ...current]);
+      }
+      setNotice(
+        `已分析 ${result.articles ?? 0} 個試讀入口，${result.indexed ?? 0} 篇 PDF 已完成解析並可供 AI 搜尋${result.failures?.length ? `；${result.failures.length} 篇暫時失敗，可再次按「自動分析」重試` : ""}。`,
+      );
+      return true;
+    } catch (error) {
+      setNotice(error instanceof Error ? `抓取失敗：${error.message}` : "抓取失敗，請稍後再試。");
       return false;
+    } finally {
+      if (isHistoryUrl) setSyncingMagazineYear(false);
     }
-    const refreshed = await fetch("/api/resources");
-    if (refreshed.ok) {
-      const refreshedResult = (await refreshed.json()) as { resources?: LearningResource[] };
-      setResources(refreshedResult.resources ?? []);
-    } else {
-      setResources((current) => current.some((item) => item.id === result.resource!.id) ? current : [result.resource!, ...current]);
-    }
-    setNotice(
-      `已分析 ${result.articles ?? 0} 個試讀入口，${result.indexed ?? 0} 篇 PDF 已完成解析並可供 AI 搜尋${result.failures?.length ? `；${result.failures.length} 篇暫時失敗，可再次按「自動分析」重試` : ""}。`,
-    );
-    return true;
   }
 
   async function createMagazineIssue(event: FormEvent) {
@@ -1455,7 +1465,9 @@ export default function AdminPage() {
       return;
     }
     setCreatingMagazineIssue(true);
-    const response = await fetch("/api/resources", {
+    setNotice("正在建立指定期數…");
+    try {
+      const response = await fetch("/api/resources", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -1468,17 +1480,24 @@ export default function AdminPage() {
         status: "draft",
       }),
     });
-    const result = (await readJson(response)) as { resource?: LearningResource; error?: string };
-    if (!response.ok || !result.resource) {
-      setNotice(result.error ?? "法學教室期數建立失敗");
+      const result = (await readJson(response)) as { resource?: LearningResource; error?: string };
+      if (!response.ok || !result.resource) {
+        setNotice(result.error ?? "法學教室期數建立失敗");
+        return;
+      }
+      const issueUrl = magazineIssueUrl.trim();
+      setMagazineUrl(issueUrl);
+      setNotice("期數已建立，正在抓取試讀文章並分析…");
+      const analyzed = await analyzeMagazine(issueUrl);
+      if (analyzed) {
+        setMagazineIssueTitle("");
+        setMagazineIssueUrl("");
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? `新增失敗：${error.message}` : "新增失敗，請稍後再試。");
+    } finally {
       setCreatingMagazineIssue(false);
-      return;
     }
-    setMagazineUrl(magazineIssueUrl.trim());
-    setMagazineIssueTitle("");
-    setMagazineIssueUrl("");
-    await analyzeMagazine(magazineIssueUrl.trim());
-    setCreatingMagazineIssue(false);
   }
 
   async function publishMagazine(resource: LearningResource) {
@@ -3098,9 +3117,10 @@ export default function AdminPage() {
               <button
                 type="button"
                 className="primary-btn"
-                onClick={analyzeMagazine}
+                onClick={() => void analyzeMagazine()}
+                disabled={syncingMagazineYear}
               >
-                自動抓取該年度
+                {syncingMagazineYear ? `正在抓取 ${magazineYear} 年…` : "自動抓取該年度"}
               </button>
             </div>
             <form className="magazine-add-issue" onSubmit={createMagazineIssue}>
