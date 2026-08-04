@@ -135,6 +135,7 @@ export default function StudyPlanPage() {
   const [bookChatLoading, setBookChatLoading] = useState(false);
   const [bookChaptersLoading, setBookChaptersLoading] = useState(false);
   const [bookChapterMessage, setBookChapterMessage] = useState("");
+  const [bookSearchQuery, setBookSearchQuery] = useState("");
   const chapterBuildAttemptedRef = useRef<Set<number>>(new Set());
   const restoredBookProgressRef = useRef(false);
   const bookDialogueEndRef = useRef<HTMLDivElement | null>(null);
@@ -400,6 +401,40 @@ export default function StudyPlanPage() {
   const selectedSegment = resourceSegments.find((segment) => segment.id === (selectedSegmentId ?? selectedProgress?.segmentId)) ?? null;
   const courseSummarySegments = resourceSegments.filter((segment) => segment.summary.trim() || segment.recommended);
   const selectedChapter = bookChapters.find((chapter) => chapter.id === selectedChapterId) ?? null;
+  const bookSearchTerms = useMemo(() => {
+    const query = bookSearchQuery.trim();
+    if (!query) return [];
+    const aliases: Record<string, string[]> = {
+      正當防衛: ["防衛", "不法侵害", "防衛過當"],
+      客觀歸責: ["製造風險", "實現風險", "規範保護目的"],
+      原因自由行為: ["原因自由", "自陷無責任能力"],
+      不作為犯: ["不作為", "保證人地位", "作為義務"],
+      因果關係: ["因果", "條件關係", "相當因果"],
+      故意: ["故意", "構成要件故意", "未必故意"],
+    };
+    const base = query.split(/[\s、，,；;／/]+/).map((term) => term.trim()).filter((term) => term.length >= 2);
+    return [...new Set(base.flatMap((term) => [term, ...(aliases[term] ?? [])]))];
+  }, [bookSearchQuery]);
+  const bookSearchResults = useMemo(() => {
+    if (!bookSearchTerms.length) return [];
+    return bookChapters.map((chapter, index) => {
+      const title = chapter.title.toLocaleLowerCase("zh-Hant");
+      const summary = chapter.summary.toLocaleLowerCase("zh-Hant");
+      const matched = bookSearchTerms.filter((term) => `${title} ${summary}`.includes(term.toLocaleLowerCase("zh-Hant")));
+      const score = matched.reduce((total, term) => total + (title.includes(term.toLocaleLowerCase("zh-Hant")) ? 8 : 3) + term.length, 0);
+      return { chapter, index, matched, score };
+    }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.chapter.sequence - b.chapter.sequence).slice(0, 8);
+  }, [bookChapters, bookSearchTerms]);
+
+  function highlightBookText(text: string): ReactNode {
+    const terms = bookSearchTerms.filter((term) => text.toLocaleLowerCase("zh-Hant").includes(term.toLocaleLowerCase("zh-Hant"))).sort((a, b) => b.length - a.length);
+    if (!terms.length) return text;
+    const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const matcher = new RegExp(`(${escaped.join("|")})`, "giu");
+    return text.split(matcher).map((part, index) => terms.some((term) => part.toLocaleLowerCase("zh-Hant") === term.toLocaleLowerCase("zh-Hant"))
+      ? <mark className="book-search-highlight" key={`${part}-${index}`}>{part}</mark>
+      : part);
+  }
   const courseEvidence = [selectedSegment?.summary, selectedSegment?.text].filter(Boolean).join("\n").trim();
   const hasCourseEvidence = courseEvidence.length > 0;
 
@@ -703,6 +738,7 @@ export default function StudyPlanPage() {
       </section>}
       {(activeTab === "books" || activeTab === "courses") && <section className="resource-learning-hub" aria-label={activeTab === "books" ? "智能書" : "來一課"}>
             <div className="resource-learning-head"><div><p>{activeTab === "books" ? "READING ROOM" : "COURSE ROOM"}</p><h2>{activeTab === "books" ? "智能書" : "來一課"}</h2><span>{activeTab === "books" ? "不開啟 PDF；選章節後由 AI 依教材內容教學。" : "留在學習專區內完成；進度、今日計畫與學習紀錄會連在一起。"}</span></div><span className="resource-count">{(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>
+        {activeTab === "books" && <section className="book-topic-search" aria-label="搜尋智能書主題"><div className="book-topic-search-copy"><strong>搜尋書中主題</strong><span>{selectedResource?.resourceType === "book" ? `目前搜尋《${selectedResource.title}》的章名與章節摘要` : "先選一本智能書，再輸入想找的法律主題"}</span></div><label><span aria-hidden>⌕</span><input value={bookSearchQuery} onChange={(event) => setBookSearchQuery(event.target.value)} placeholder="例如：正當防衛、客觀歸責、原因自由行為" disabled={selectedResource?.resourceType !== "book" || bookChaptersLoading} />{bookSearchQuery && <button type="button" onClick={() => setBookSearchQuery("")} aria-label="清除搜尋">×</button>}</label>{bookSearchQuery.trim() && <div className="book-topic-results" aria-live="polite"><div className="book-topic-result-heading"><strong>{bookSearchResults.length ? `找到 ${bookSearchResults.length} 個相關章節` : "章名與摘要尚未直接命中"}</strong><span>{bookSearchResults.length ? "點選結果，直接進入該章並開始 AI 導讀" : "可換較短的法律概念；完整教材內容搜尋將由 AI 索引接續處理"}</span></div>{bookSearchResults.map(({ chapter, index, matched }) => <button type="button" key={chapter.id} onClick={() => void startBookChapter(chapter, false, bookSearchQuery.trim())}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{highlightBookText(chapter.title)}</strong>{chapter.summary && <small>{highlightBookText(chapter.summary)}</small>}<em>命中：{matched.slice(0, 3).join("、")}{chapter.pageStart ? ` · 第 ${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""} 頁` : ""}</em></div><span>讀這一章 →</span></button>)}</div>}</section>}
         <div className="resource-learning-layout"><aside className={`resource-list ${activeTab === "books" ? "book-resource-list" : ""}`} aria-label="可學習資源"><div className="resource-list-heading"><strong>{activeTab === "books" ? "書本清單" : "影音課程清單"}</strong><span>共 {(activeTab === "books" ? bookResources : courseResources).length} 項</span></div>{activeTab === "books" ? bookResources.map((resource) => {
           const isSelected = selectedResource?.id === resource.id;
           const isExpanded = currentExpandedBookId === resource.id;
