@@ -421,9 +421,12 @@ export default function StudyPlanPage() {
       不作為犯: ["不作為", "保證人地位", "作為義務"],
       因果關係: ["因果", "條件關係", "相當因果"],
       故意: ["故意", "構成要件故意", "未必故意"],
+      未遂犯: ["未遂", "障礙未遂", "普通未遂", "著手"],
+      不能未遂: ["不能犯", "不能未遂", "重大無知", "危險性"],
     };
-    const base = query.split(/[\s、，,；;／/]+/).map((term) => term.trim()).filter((term) => term.length >= 2);
-    return [...new Set(base.flatMap((term) => [term, ...(aliases[term] ?? [])]))];
+    const base = query.split(/[\s、，,；;／/與及]+/).map((term) => term.trim()).filter((term) => term.length >= 2);
+    const concepts = Object.keys(aliases).filter((concept) => query.includes(concept));
+    return [...new Set([...base, ...concepts].flatMap((term) => [term, ...(aliases[term] ?? [])]))];
   }, [bookSearchQuery]);
   const bookSearchResults = useMemo(() => {
     if (!bookSearchTerms.length) return [];
@@ -446,9 +449,9 @@ export default function StudyPlanPage() {
       : part);
   }
 
-  async function searchBookFullText(event?: FormEvent<HTMLFormElement>) {
+  async function searchBookFullText(event?: FormEvent<HTMLFormElement>, requestedQuery?: string) {
     event?.preventDefault();
-    const query = bookSearchQuery.trim();
+    const query = (requestedQuery ?? bookSearchQuery).trim();
     if (!selectedResource || selectedResource.resourceType !== "book" || query.length < 2 || bookFullTextLoading) return;
     setBookFullTextLoading(true);
     setBookFullTextHits([]);
@@ -464,6 +467,14 @@ export default function StudyPlanPage() {
     } catch { setBookFullTextMessage("教材全文搜尋暫時無法使用，請稍後再試。"); }
     finally { setBookFullTextLoading(false); }
   }
+
+  useEffect(() => {
+    const query = bookSearchQuery.trim();
+    if (activeTab !== "books" || selectedResource?.resourceType !== "book" || query.length < 2 || bookChaptersLoading) return;
+    const timer = window.setTimeout(() => void searchBookFullText(undefined, query), 650);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedResource?.id, bookSearchQuery, bookChaptersLoading]);
 
   function chapterForFullTextHit(hit: BookFullTextHit) {
     const byPage = hit.page_start == null ? null : bookChapters.find((chapter) => chapter.pageStart != null && chapter.pageEnd != null && hit.page_start! >= chapter.pageStart && hit.page_start! <= chapter.pageEnd);
