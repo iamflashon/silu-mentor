@@ -2780,7 +2780,7 @@ export default function AdminPage() {
               </button>
             </form>
             {notice && <div className="notice">{notice}</div>}
-            <div className="resource-grid">
+            <div className="resource-grid magazine-resource-grid">
               {orderedResourceGroup(activeTab === "courses" ? "course" : activeTab === "trials" ? "trial" : "book").map((resource, resourceIndex) => (
                   <article className="resource-card magazine-resource-card" key={resource.id}>
                     <div className="resource-cover">
@@ -3144,7 +3144,7 @@ export default function AdminPage() {
                 .filter((item) => item.resourceType === "magazine")
                 .filter((item) => Number(item.description.match(/(20\d{2})[年/]/)?.[1]) === magazineListYear)
                 .map((resource) => (
-                  <article className="resource-card" key={resource.id}>
+                  <article className="resource-card magazine-resource-card" key={resource.id}>
                     <div className="resource-cover">
                       <span>刊</span>
                     </div>
