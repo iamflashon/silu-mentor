@@ -25,21 +25,19 @@ timeout \
   "${SITES_BUILD_TIMEOUT:-3m}" \
   "${vinext}" build
 
-# Cloudflare now treats the Node compatibility behavior as the default and
-# rejects an explicit nodejs_compat flag (including an empty compatibility_flags
-# field) in the generated manifest.
+# The Cloudflare Vite plugin serializes an empty compatibility_flags array even
+# when the project does not configure flags. Sites treats the field itself as
+# an explicit override, so remove only the empty generated field.
 wrangler_config="${SITES_PROJECT_ROOT}/dist/server/wrangler.json"
 if [[ -f "${wrangler_config}" ]]; then
-  node - "${wrangler_config}" <<'NODE'
-const fs = require("node:fs");
+  node --input-type=module - "${wrangler_config}" <<'NODE'
+import fs from "node:fs";
 
-const path = process.argv[2];
-const config = JSON.parse(fs.readFileSync(path, "utf8"));
-if (Array.isArray(config.compatibility_flags)) {
-  const normalized = config.compatibility_flags.filter((flag) => flag !== "nodejs_compat");
-  if (normalized.length === 0) delete config.compatibility_flags;
-  else if (normalized.length !== config.compatibility_flags.length) config.compatibility_flags = normalized;
-  fs.writeFileSync(path, `${JSON.stringify(config)}\n`);
+const configPath = process.argv[2];
+const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+if (Array.isArray(config.compatibility_flags) && config.compatibility_flags.length === 0) {
+  delete config.compatibility_flags;
+  fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
 }
 NODE
 fi

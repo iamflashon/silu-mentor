@@ -1,7 +1,5 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import fs from "node:fs";
-import path from "node:path";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -15,10 +13,9 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
-  // Keep the worker on the last pre-default date while the Sites deployer
-  // catches up with Cloudflare's 2026-08-04 compatibility change.
-  compatibility_date: "2026-08-03",
-  compatibility_flags: ["nodejs_als"],
+  // Sites supplies Node.js compatibility by default from this date. Explicit
+  // compatibility flags are rejected when they duplicate that platform default.
+  compatibility_date: "2026-08-04",
   // Cloudflare Cron uses UTC. 16:30–21:55 UTC is 00:30–05:55 in Taiwan.
   // The five-minute cadence lets a failed batch resume while the official API
   // is still open, without requiring an administrator to keep the page open.
@@ -41,27 +38,6 @@ const localBindingConfig = {
       ]
     : [],
 };
-
-const normalizeGeneratedWranglerConfig = () => ({
-  name: "normalize-generated-wrangler-config",
-  enforce: "post" as const,
-  closeBundle() {
-    const configPath = path.resolve(process.cwd(), "dist/server/wrangler.json");
-    if (!fs.existsSync(configPath)) return;
-
-    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    if (Array.isArray(config.compatibility_flags)) {
-      const normalized = config.compatibility_flags.filter(
-        (flag: string) => flag !== "nodejs_compat",
-      );
-      if (normalized.length === 0) delete config.compatibility_flags;
-      else if (normalized.length !== config.compatibility_flags.length) {
-        config.compatibility_flags = normalized;
-      }
-      fs.writeFileSync(configPath, `${JSON.stringify(config)}\n`);
-    }
-  },
-});
 
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
@@ -89,7 +65,6 @@ export default defineConfig(async () => {
         inspectorPort: false,
         config: localBindingConfig,
       }),
-      normalizeGeneratedWranglerConfig(),
     ],
   };
 });
