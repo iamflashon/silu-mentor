@@ -1,5 +1,6 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
+import { getOpenAIKey } from "../../../../lib/openai";
 import { examQuestions, examSourceItems, examSources, usageLogs } from "../../../../db/schema";
 
 const allowedHosts = new Set(["lawyer.get.com.tw", "fd.get.com.tw"]);
@@ -49,7 +50,7 @@ function extractResponseText(payload: unknown) {
 }
 
 async function extractPdf(item: typeof examSourceItems.$inferSelect, examType: string) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = await getOpenAIKey();
   if (!apiKey) throw new Error("OPENAI_API_KEY 尚未設定");
   const download = await fetch(assertAllowed(item.fileUrl), { redirect: "follow", headers: { "user-agent": "iBrain-SiluMentor/1.0" } });
   if (!download.ok) throw new Error(`PDF 下載失敗（HTTP ${download.status}）`);

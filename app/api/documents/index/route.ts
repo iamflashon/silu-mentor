@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     form.set("file", new File([await object.arrayBuffer()], document.fileName, { type: document.contentType }));
     const fileResponse = await fetch("https://api.openai.com/v1/files", {
       method: "POST",
-      headers: openAIHeaders(false),
+      headers: await openAIHeaders(false),
       body: form,
     });
     const filePayload = await fileResponse.json() as { id?: string; error?: { message?: string } };

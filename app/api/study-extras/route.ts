@@ -1,6 +1,6 @@
 import { getDb } from "../../../db";
 import { usageLogs } from "../../../db/schema";
-import { openAIJson } from "../../../lib/openai";
+import { getOpenAIKey, getOpenAIModel, openAIJson } from "../../../lib/openai";
 import { taipeiDate } from "../../../lib/taipei-time";
 
 const zodiacNames = new Set(["牡羊座", "金牛座", "雙子座", "巨蟹座", "獅子座", "處女座", "天秤座", "天蠍座", "射手座", "摩羯座", "水瓶座", "雙魚座"]);
@@ -58,8 +58,8 @@ function fallbackLuck(zodiac: string, subject: string) {
 }
 
 async function getAiLuck(zodiac: string, subject: string, progress: string) {
-  if (!process.env.OPENAI_API_KEY) return fallbackLuck(zodiac, subject);
-  const model = process.env.OPENAI_MODEL || "gpt-5.6-luna";
+  if (!(await getOpenAIKey())) return fallbackLuck(zodiac, subject);
+  const model = await getOpenAIModel("gpt-5.6-luna");
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({

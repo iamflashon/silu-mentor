@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
+import { getOpenAIKey } from "../../../lib/openai";
 import { examQuestions } from "../../../db/schema";
 
 const allowedAnswerHosts = new Set(["lawyer.get.com.tw", "fd.get.com.tw"]);
@@ -28,7 +29,7 @@ function normalizeQuestionNumber(value: string) {
 }
 
 async function extractTeacherAnswers(sourceUrl: string, year: string) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = await getOpenAIKey();
   if (!apiKey) throw new Error("OPENAI_API_KEY 尚未設定");
   const download = await fetch(assertAnswerSource(sourceUrl), { redirect: "follow", headers: { "user-agent": "SiluMentor/1.0" } });
   if (!download.ok) throw new Error(`擬答 PDF 下載失敗（HTTP ${download.status}）`);

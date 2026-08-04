@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examAttempts, examQuestions, studyRecords, usageLogs } from "../../../db/schema";
 import { taipeiDate } from "../../../lib/taipei-time";
+import { getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
 
 function userKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
@@ -25,7 +26,7 @@ function parseRubric(raw: string) {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY;
+    const apiKey = await getOpenAIKey();
     if (!apiKey) return Response.json({ error: "OPENAI_API_KEY 尚未設定" }, { status: 503 });
     const body = await request.json() as { questionId?: number; answer?: string };
     const questionId = Number(body.questionId);
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     if (!question.teacherAnswer.trim()) return Response.json({ error: "這題尚未完成老師擬答核對，暫不能進行依擬答批改。" }, { status: 409 });
     const rubric = parseRubric(question.rubricJson);
     const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, body: JSON.stringify({
-      model: process.env.OPENAI_ESSAY_GRADING_MODEL || "gpt-5.6-sol",
+      model: process.env.OPENAI_ESSAY_GRADING_MODEL || await getOpenAIModel("gpt-5.6-sol"),
       instructions: `你是台灣司律二試申論閱卷教練。必須以「高點名師參考擬答」及其明確評分重點作為主要核對依據，但不能用文字相似度代替法律評價。請檢查學生是否審對題目、列出關鍵爭點、使用正確規範、完成事實涵攝、提出結論，並檢查架構與表達。老師擬答是參考解答，不是唯一文字答案；學生採不同但有法律理由的見解時，應標示為可接受或需補強，不要直接判錯。只根據題目、老師擬答與提供的評分點，不能補造未提供的老師見解。回覆繁體中文，分項指出學生原文證據、漏寫點與下一個修正動作。`,
       input: [{ role: "user", content: [{ type: "input_text", text: JSON.stringify({ question: question.stem, teacher_answer: question.teacherAnswer, teacher_notes: question.teacherNotes, rubric, student_answer: answer }, null, 2) }] }],
       text: { format: { type: "json_schema", name: "essay_grading", strict: true, schema: { type: "object", additionalProperties: false, properties: { score: { type: "integer" }, overall: { type: "string" }, dimensions: { type: "array", items: { type: "object", additionalProperties: false, properties: { criterion: { type: "string" }, score: { type: "integer" }, max_score: { type: "integer" }, result: { type: "string" }, evidence: { type: "string" }, missing: { type: "string" } }, required: ["criterion", "score", "max_score", "result", "evidence", "missing"] } }, strengths: { type: "array", items: { type: "string" } }, priority_fixes: { type: "array", items: { type: "string" } }, next_step: { type: "string" }, source_used: { type: "string" } }, required: ["score", "overall", "dimensions", "strengths", "priority_fixes", "next_step", "source_used"] } } },
@@ -50,7 +51,8 @@ export async function POST(request: Request) {
     const date = taipeiDate();
     await db.insert(studyRecords).values({ userKey: userKey(request), questionId, recordDate: date, subject: question.subject, title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "二試申論批改", correct: null, reflection: grading.overall.slice(0, 1000), weakness: grading.priority_fixes.join("；").slice(0, 500), nextStep: grading.next_step.slice(0, 500) });
     const input = Number(payload.usage?.input_tokens ?? 0); const output = Number(payload.usage?.output_tokens ?? 0); const cached = Number(payload.usage?.input_tokens_details?.cached_tokens ?? 0);
-    await db.insert(usageLogs).values({ model: process.env.OPENAI_ESSAY_GRADING_MODEL || "gpt-5.6-sol", source: "二試申論批改", inputTokens: input, cachedTokens: cached, outputTokens: output, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(((Math.max(0, input - cached) * 2.5 + cached * .25 + output * 15) / 1_000_000) * 1_000_000) });
+    const gradingModel = process.env.OPENAI_ESSAY_GRADING_MODEL || await getOpenAIModel("gpt-5.6-sol");
+    await db.insert(usageLogs).values({ model: gradingModel, source: "二試申論批改", inputTokens: input, cachedTokens: cached, outputTokens: output, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(((Math.max(0, input - cached) * 2.5 + cached * .25 + output * 15) / 1_000_000) * 1_000_000) });
     return Response.json({ grading, source: { label: question.answerSource || "高點名師參考擬答", status: question.answerStatus } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "AI 申論批改失敗" }, { status: 500 });
