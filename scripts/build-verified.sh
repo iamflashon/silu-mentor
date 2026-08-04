@@ -25,4 +25,20 @@ timeout \
   "${SITES_BUILD_TIMEOUT:-3m}" \
   "${vinext}" build
 
+# Cloudflare now treats nodejs_compat as the default and rejects an explicit
+# empty compatibility_flags field in the generated Wrangler manifest.
+wrangler_config="${SITES_PROJECT_ROOT}/dist/server/wrangler.json"
+if [[ -f "${wrangler_config}" ]]; then
+  node - "${wrangler_config}" <<'NODE'
+const fs = require("node:fs");
+
+const path = process.argv[2];
+const config = JSON.parse(fs.readFileSync(path, "utf8"));
+if (Array.isArray(config.compatibility_flags) && config.compatibility_flags.length === 0) {
+  delete config.compatibility_flags;
+  fs.writeFileSync(path, `${JSON.stringify(config)}\n`);
+}
+NODE
+fi
+
 "${script_dir}/validate-artifact.sh"
