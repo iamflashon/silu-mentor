@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { learningResources, resourceSegments } from "../../../../db/schema";
-import { openAIJson } from "../../../../lib/openai";
+import { getOpenAIModel, openAIJson } from "../../../../lib/openai";
 import { decodeSubtitle, looksLikeRawSrt, parseSrt, parseSrtCues } from "../../../../lib/srt";
 
 function timeLabel(value: number) {
@@ -9,12 +9,144 @@ function timeLabel(value: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+type DigestRow = {
+  anchorId: number;
+  title: string;
+  summary: string;
+};
+
+function cleanJsonText(value: string) {
+  return value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+}
+
+function makeDigestWindows<T extends { startSeconds: number | null; text: string }>(rows: T[]) {
+  const windows: T[][] = [];
+  let current: T[] = [];
+  let windowStart = rows[0]?.startSeconds ?? 0;
+  for (const row of rows) {
+    const start = row.startSeconds ?? windowStart;
+    if (current.length && (start - windowStart >= 360 || current.length >= 45)) {
+      windows.push(current);
+      current = [];
+      windowStart = start;
+    }
+    current.push(row);
+  }
+  if (current.length) windows.push(current);
+  return windows;
+}
+
+function compactExistingSummaries(rows: Array<typeof resourceSegments.$inferSelect>) {
+  return makeDigestWindows(rows.filter((row) => row.segmentType === "subtitle"))
+    .map((window) => window
+      .filter((row) => row.summary.trim() || row.recommended)
+      .sort((a, b) => (b.importance - a.importance) || (a.sequence - b.sequence))[0])
+    .filter((row): row is typeof rows[number] => Boolean(row));
+}
+
+async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: Array<typeof resourceSegments.$inferSelect>) {
+  const windows = makeDigestWindows(rows);
+  const digest: Array<DigestRow & { sourceSequence: number }> = [];
+  const model = await getOpenAIModel("gpt-5.6-luna");
+
+  for (const window of windows) {
+    const payload = await openAIJson("/responses", {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        instructions: "你是台灣司律考試影音課程編輯。請把這一段連續課程整理成 1 個最值得學生記住的摘要重點；只有在內容確實包含兩個完全不同的考點時才輸出 2 個。不要逐句摘要，不要照抄字幕，不要補造字幕沒有的內容。每個重點要有 8 至 20 字的主題標題、30 至 70 字的繁中摘要，並選出最能代表該重點的字幕 anchorId。輸出 JSON。",
+        input: JSON.stringify(window.map((item) => ({
+          anchorId: item.id,
+          start: item.startSeconds,
+          end: item.endSeconds,
+          text: item.text,
+        }))),
+        text: {
+          format: {
+            type: "json_schema",
+            name: "course_digest",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                items: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 2,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      anchorId: { type: "integer" },
+                      title: { type: "string" },
+                      summary: { type: "string" },
+                    },
+                    required: ["anchorId", "title", "summary"],
+                  },
+                },
+              },
+              required: ["items"],
+            },
+          },
+        },
+      }),
+    });
+    const parsed = JSON.parse(cleanJsonText(outputText(payload))) as { items?: DigestRow[] };
+    const validIds = new Set(window.map((item) => item.id));
+    for (const item of parsed.items ?? []) {
+      if (!validIds.has(item.anchorId) || !item.title?.trim() || !item.summary?.trim()) continue;
+      const source = window.find((row) => row.id === item.anchorId);
+      if (!source) continue;
+      digest.push({
+        anchorId: item.anchorId,
+        title: item.title.trim().slice(0, 40),
+        summary: item.summary.trim().slice(0, 180),
+        sourceSequence: source.sequence,
+      });
+    }
+  }
+
+  const uniqueDigest = Array.from(new Map(digest.map((item) => [item.anchorId, item])).values())
+    .sort((a, b) => a.sourceSequence - b.sourceSequence);
+  if (!uniqueDigest.length) throw new Error("AI 沒有產生可用的課程摘要");
+
+  await db.update(resourceSegments).set({
+    summary: "",
+    importance: 0,
+    recommended: false,
+    reviewStatus: "source",
+  }).where(eq(resourceSegments.resourceId, rows[0].resourceId));
+
+  for (const item of uniqueDigest) {
+    await db.update(resourceSegments).set({
+      title: item.title,
+      summary: item.summary,
+      importance: 5,
+      recommended: true,
+      reviewStatus: "ai_digest",
+    }).where(eq(resourceSegments.id, item.anchorId));
+  }
+  await db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, rows[0].resourceId));
+  return uniqueDigest.length;
+}
+
 export async function GET(request: Request) {
-  const resourceId = Number(new URL(request.url).searchParams.get("resourceId"));
+  const url = new URL(request.url);
+  const resourceId = Number(url.searchParams.get("resourceId"));
+  const summaryOnly = url.searchParams.get("view") === "summary";
   const db = await getDb();
   const [resource] = await db.select().from(learningResources).where(eq(learningResources.id, resourceId)).limit(1);
   if (!resource) return Response.json({ error: "找不到課程" }, { status: 404 });
-  const segments = await db.select().from(resourceSegments).where(eq(resourceSegments.resourceId, resourceId)).orderBy(asc(resourceSegments.sequence));
+  let segments = await db.select().from(resourceSegments).where(eq(resourceSegments.resourceId, resourceId)).orderBy(asc(resourceSegments.sequence));
+  if (summaryOnly) {
+    const digest = segments.filter((segment) => segment.reviewStatus === "ai_digest" && segment.summary.trim());
+    return Response.json({
+      resource,
+      segments: digest.length ? digest : compactExistingSummaries(segments),
+      summaryMode: digest.length ? "ai_digest" : "compact_preview",
+    });
+  }
   return Response.json({ resource, segments });
 }
 
@@ -79,6 +211,17 @@ export async function POST(request: Request) {
       await db.insert(resourceSegments).values(rebuilt.slice(index, index + 4));
     await db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, resourceId));
     return Response.json({ repaired: true, segments: rebuilt.length });
+  }
+
+  if (!body.action || body.action === "digest") {
+    try {
+      const digestCount = await createCourseDigest(db, rows);
+      return Response.json({ analyzed: digestCount, digestCount });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI 摘要分析失敗";
+      console.error(`[resources/segments] course digest failed: ${message.slice(0, 500)}`);
+      return Response.json({ error: `字幕已建立 ${rows.length} 段，但 AI 摘要尚未完成：${message.slice(0, 160)}` }, { status: 502 });
+    }
   }
 
   let analyzed = 0;

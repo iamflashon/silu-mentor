@@ -100,7 +100,7 @@ export default function StudyPlanPage() {
   useEffect(() => {
     const resource = resources.find((item) => item.id === selectedResourceId) ?? (activeTab === "courses" ? resources.find((item) => item.resourceType === "course" && item.status !== "archived") : null);
     if (!resource || resource.resourceType !== "course" || activeTab !== "courses") return;
-    fetch(`/api/resources/segments?resourceId=${resource.id}`).then(async (response) => { if (response.ok) setResourceSegments((((await response.json()) as { segments?: ResourceSegment[] }).segments ?? []).filter((segment) => segment.segmentType === "subtitle")); });
+    fetch(`/api/resources/segments?resourceId=${resource.id}&view=summary`).then(async (response) => { if (response.ok) setResourceSegments((((await response.json()) as { segments?: ResourceSegment[] }).segments ?? []).filter((segment) => segment.segmentType === "subtitle")); });
   }, [resources, selectedResourceId, activeTab]);
 
   async function loadBookChapters(resourceId: number, allowBuild = true) {

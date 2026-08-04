@@ -1316,7 +1316,7 @@ export default function AdminPage() {
       return;
     }
 
-    setNotice(`字幕已解析，建立 ${result.segments ?? 0} 個時間片段；正在交給 AI 判讀考點…`);
+    setNotice(`字幕已解析 ${result.segments ?? 0} 段；正在由 AI 整理整堂課的摘要重點…`);
     const analysisResponse = await fetch("/api/resources/segments", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1324,10 +1324,11 @@ export default function AdminPage() {
     });
     const analysis = (await readJson(analysisResponse)) as {
       analyzed?: number;
+      digestCount?: number;
       error?: string;
     };
     if (analysisResponse.ok) {
-      setNotice(`字幕已完成：${result.segments ?? 0} 段已建立，AI 已解析 ${analysis.analyzed ?? 0} 段考點。`);
+      setNotice(`字幕已完成：保留 ${result.segments ?? 0} 段原始字幕，AI 已整理 ${analysis.digestCount ?? analysis.analyzed ?? 0} 個摘要重點。`);
     } else {
       setNotice(`字幕已建立 ${result.segments ?? 0} 段，但 AI 分析未完成：${analysis.error ?? "請稍後在字幕校正視窗重新分析。"}`);
     }
@@ -1682,7 +1683,7 @@ export default function AdminPage() {
     setCoursePreviewTime(0);
     setCoursePreviewLoading(true);
     try {
-      const response = await fetch(`/api/resources/segments?resourceId=${resource.id}`);
+      const response = await fetch(`/api/resources/segments?resourceId=${resource.id}&view=summary`);
       const result = (await readJson(response)) as { segments?: SubtitleSegment[]; error?: string };
       if (!response.ok) {
         setCoursePreviewError(result.error ?? "無法讀取課程重點");
@@ -1737,15 +1738,16 @@ export default function AdminPage() {
     const response = await fetch("/api/resources/segments", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ resourceId: subtitleCourse.id }),
+      body: JSON.stringify({ resourceId: subtitleCourse.id, action: "digest" }),
     });
     const result = (await readJson(response)) as {
       analyzed?: number;
+      digestCount?: number;
       error?: string;
     };
     if (!response.ok) setNotice(result.error ?? "AI 重點分析失敗");
     else {
-      setNotice(`AI 已分析 ${result.analyzed ?? 0} 個字幕片段。`);
+      setNotice(`AI 已整理 ${result.digestCount ?? result.analyzed ?? 0} 個摘要重點；原始字幕仍保留在後台。`);
       await openSubtitleEditor(subtitleCourse);
     }
     setAnalyzingSegments(false);
@@ -3475,17 +3477,17 @@ export default function AdminPage() {
                 {coursePreviewResource.sourceUrl && <a className="course-preview-external" href={coursePreviewResource.sourceUrl} target="_blank" rel="noreferrer">另開原始課程網址 ↗</a>}
               </div>
               <aside className="course-preview-summary-panel">
-                <div className="course-preview-summary-heading"><div><span>時間點重點摘要</span><strong>{coursePreviewSegments.filter((segment) => segment.summary?.trim() || segment.recommended).length} 個重點</strong></div><small>點擊即可跳到影片位置</small></div>
-                {coursePreviewLoading ? <div className="course-preview-summary-empty">正在讀取已整理的課程重點…</div> : coursePreviewSegments.filter((segment) => segment.summary?.trim() || segment.recommended).length ? (
+                <div className="course-preview-summary-heading"><div><span>課程摘要重點</span><strong>{coursePreviewSegments.length} 個重點</strong></div><small>每個重點保留一個代表時間點</small></div>
+                {coursePreviewLoading ? <div className="course-preview-summary-empty">正在分析整堂課的摘要重點…</div> : coursePreviewSegments.length ? (
                   <div className="course-preview-summary-list">
-                    {coursePreviewSegments.filter((segment) => segment.summary?.trim() || segment.recommended).map((segment) => (
+                    {coursePreviewSegments.map((segment) => (
                       <button type="button" key={segment.id} onClick={() => seekCoursePreview(segment.startSeconds ?? 0)}>
                         <span>{Math.floor((segment.startSeconds ?? 0) / 60)}:{String((segment.startSeconds ?? 0) % 60).padStart(2, "0")}</span>
                         <div><strong>{segment.title || "課程重點"}</strong><p>{segment.summary || "此段已標記為前台推薦重點。"}</p></div>
                       </button>
                     ))}
                   </div>
-                ) : <div className="course-preview-summary-empty">尚未整理時間點重點。請先在「校正字幕／重點」中補上摘要，或使用 AI 自動拆解。</div>}
+                ) : <div className="course-preview-summary-empty">尚未產生課程摘要。請在「校正字幕／重點」中按「AI 整理課程摘要重點」。</div>}
               </aside>
             </div>
             <footer className="course-preview-footer"><span>目前狀態：{coursePreviewResource.status === "active" ? "已發布" : "草稿／待確認"}</span><button type="button" onClick={() => { setCoursePreviewResource(null); void openSubtitleEditor(coursePreviewResource); }}>前往校正字幕／重點</button></footer>
@@ -3536,7 +3538,7 @@ export default function AdminPage() {
                 >
                   {analyzingSegments
                     ? "AI 分析中，請稍候…"
-                    : "AI 自動拆解推薦重點"}
+                    : "AI 整理課程摘要重點"}
                 </button>
                 <p>AI 會提出重要度與摘要，管理員確認後才供前台推薦。</p>
               </div>
