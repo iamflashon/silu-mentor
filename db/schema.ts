@@ -74,6 +74,9 @@ export const chatSessions = sqliteTable("chat_sessions", {
   sessionDate: text("session_date"),
   summary: text("summary").notNull().default(""),
   progressStatus: text("progress_status").notNull().default("open"),
+  contextType: text("context_type").notNull().default("home"),
+  resourceId: integer("resource_id"),
+  segmentId: integer("segment_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

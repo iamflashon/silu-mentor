@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { chatMessages, chatSessions, studyPlans, studyRecords, studyTasks } from "../../../../db/schema";
 import { taipeiDate, taipeiGreeting } from "../../../../lib/taipei-time";
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
       ? await db.select().from(studyTasks).where(and(eq(studyTasks.planId, activePlan.id), eq(studyTasks.taskDate, yesterdayDate))).orderBy(asc(studyTasks.id))
       : [];
 
-    const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(120);
+    const sessions = await db.select().from(chatSessions).where(and(eq(chatSessions.userKey, key), ne(chatSessions.contextType, "book"))).orderBy(desc(chatSessions.updatedAt)).limit(120);
     const todaySession = sessions.find((session) => sessionDate(session) === today) ?? null;
     const yesterdaySession = sessions.find((session) => sessionDate(session) === yesterdayDate) ?? null;
     const currentMessages = todaySession

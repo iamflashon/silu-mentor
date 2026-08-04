@@ -155,6 +155,13 @@
       "when": 1785817797288,
       "tag": "0021_dry_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1785848842336,
+      "tag": "0022_rare_spirit",
+      "breakpoints": true
     }
   ]
 }

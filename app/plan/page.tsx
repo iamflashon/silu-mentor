@@ -89,11 +89,14 @@ export default function StudyPlanPage() {
   const [courseSeekToken, setCourseSeekToken] = useState(0);
   const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null);
   const [bookMessages, setBookMessages] = useState<TutorMessage[]>([]);
+  const [bookSessionId, setBookSessionId] = useState<number | null>(null);
+  const [lastBookProgress, setLastBookProgress] = useState<{ resourceId: number; segmentId: number } | null>(null);
   const [bookInput, setBookInput] = useState("");
   const [bookChatLoading, setBookChatLoading] = useState(false);
   const [bookChaptersLoading, setBookChaptersLoading] = useState(false);
   const [bookChapterMessage, setBookChapterMessage] = useState("");
   const chapterBuildAttemptedRef = useRef<Set<number>>(new Set());
+  const restoredBookProgressRef = useRef(false);
   const bookDialogueEndRef = useRef<HTMLDivElement | null>(null);
   const [resourceProgress, setResourceProgress] = useState<Record<string, { page: number; segmentId: number | null; positionSeconds: number; updatedAt: string }>>(() => {
     if (typeof window === "undefined") return {};
@@ -132,6 +135,7 @@ export default function StudyPlanPage() {
     fetch("/api/notes").then(async (response) => { if (response.ok) setNotes(((await response.json()) as { notes?: SavedNote[] }).notes ?? []); });
     fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed((await response.json()) as HomeFeed); });
     fetch("/api/resources").then(async (response) => { if (response.ok) setResources(((await response.json()) as { resources?: LearningResource[] }).resources ?? []); });
+    fetch("/api/book-learning").then(async (response) => { if (response.ok) { const result = await response.json() as { resourceId?: number | null; segmentId?: number | null }; if (result.resourceId && result.segmentId) setLastBookProgress({ resourceId: result.resourceId, segmentId: result.segmentId }); } });
   }, []);
 
   useEffect(() => {
@@ -444,16 +448,32 @@ export default function StudyPlanPage() {
     return `教材：《${selectedResource?.title ?? ""}》；科目：${selectedResource?.subject ?? "綜合"}；目前章節：${chapter.title}${pages}。${chapter.summary ? `章節摘要：${chapter.summary}` : ""}`;
   }
 
-  async function startBookChapter(chapter: ResourceSegment) {
+  async function startBookChapter(chapter: ResourceSegment, forceRestart = false) {
     if (!selectedResource || selectedResource.resourceType !== "book") return;
     setSelectedChapterId(chapter.id);
     setBookMessages([]);
+    setBookSessionId(null);
     setBookInput("");
     setBookChatLoading(true);
+    if (!forceRestart) {
+      try {
+        const historyResponse = await fetch(`/api/book-learning?resourceId=${selectedResource.id}&segmentId=${chapter.id}`);
+        const history = await historyResponse.json() as { sessionId?: number | null; messages?: TutorMessage[] };
+        if (historyResponse.ok && history.messages?.length) {
+          setBookSessionId(history.sessionId ?? null);
+          setBookMessages(history.messages);
+          setLastBookProgress({ resourceId: selectedResource.id, segmentId: chapter.id });
+          setBookChatLoading(false);
+          return;
+        }
+      } catch { /* start a fresh chapter below */ }
+    }
     const prompt = `${bookContext(chapter)}\n請開始教我這一章。先用一小段話說明本章要學會什麼，再提出一個學生可以直接回答的問題；請嚴格以這本教材為優先依據，不要先傾倒完整解答。`;
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "student", text: prompt }] }) });
-      const result = await response.json() as { reply?: string; error?: string };
+      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "student", text: prompt }], visibleStudentText: "", context: { type: "book", resourceId: selectedResource.id, segmentId: chapter.id, resourceTitle: selectedResource.title, segmentTitle: chapter.title } }) });
+      const result = await response.json() as { reply?: string; error?: string; sessionId?: number };
+      setBookSessionId(result.sessionId ?? null);
+      setLastBookProgress({ resourceId: selectedResource.id, segmentId: chapter.id });
       setBookMessages([{ role: "mentor", text: response.ok ? (result.reply ?? "我們先從這一章開始。") : (result.error ?? "AI 教學暫時無法開始") }]);
     } catch {
       setBookMessages([{ role: "mentor", text: "教材章節已開啟，但 AI 暫時沒有回應。請稍後再按一次章節。" }]);
@@ -461,6 +481,26 @@ export default function StudyPlanPage() {
       setBookChatLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (activeTab !== "books" || !lastBookProgress || restoredBookProgressRef.current) return;
+    const resource = resources.find((item) => item.id === lastBookProgress.resourceId && item.resourceType === "book" && item.status !== "archived");
+    if (!resource) return;
+    restoredBookProgressRef.current = true;
+    const timer = window.setTimeout(() => {
+      setSelectedResourceId(resource.id);
+      setExpandedBookId(resource.id);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, lastBookProgress, resources]);
+
+  useEffect(() => {
+    if (!lastBookProgress || selectedResourceId !== lastBookProgress.resourceId || selectedChapterId !== null) return;
+    const chapter = bookChapters.find((item) => item.id === lastBookProgress.segmentId);
+    if (!chapter) return;
+    const timer = window.setTimeout(() => { void startBookChapter(chapter); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [bookChapters, lastBookProgress, selectedChapterId, selectedResourceId]);
 
   async function sendBookMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -475,8 +515,9 @@ export default function StudyPlanPage() {
       const apiMessages = nextMessages.map((message, index) => index === nextMessages.length - 1 && message.role === "student"
         ? { ...message, text: `${bookContext(selectedChapter)}\n學生回覆：${message.text}` }
         : message);
-      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: apiMessages }) });
-      const result = await response.json() as { reply?: string; error?: string };
+      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: apiMessages, visibleStudentText: text, sessionId: bookSessionId, context: { type: "book", resourceId: selectedResource.id, segmentId: selectedChapter.id, resourceTitle: selectedResource.title, segmentTitle: selectedChapter.title } }) });
+      const result = await response.json() as { reply?: string; error?: string; sessionId?: number };
+      setBookSessionId(result.sessionId ?? bookSessionId);
       setBookMessages((current) => [...current, { role: "mentor", text: response.ok ? (result.reply ?? "我們接著往下釐清。") : (result.error ?? "AI 教學暫時無法回應") }]);
     } catch {
       setBookMessages((current) => [...current, { role: "mentor", text: "這次回覆沒有送出成功，請再試一次。" }]);

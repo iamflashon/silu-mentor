@@ -1,4 +1,5 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
+type ChatContext = { type: "home" } | { type: "book"; resourceId: number; segmentId: number; resourceTitle: string; segmentTitle: string };
 type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: string; replaceOnlySubject: boolean; days: number; dailyMinutes: number };
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
@@ -254,24 +255,36 @@ async function savePlan(plan: PlanCall, constraint: PlanningConstraint | null) {
   return { savedTasks: seen.size, replacedTasks };
 }
 
-async function getOrCreateSession(request: Request, requestedId: number | null, firstText: string) {
+async function getOrCreateSession(request: Request, requestedId: number | null, firstText: string, context: ChatContext) {
   const db = await getDb();
   const key = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
   const today = taipeiDate();
   if (requestedId) {
     const [existing] = await db.select().from(chatSessions).where(eq(chatSessions.id, requestedId)).limit(1);
-    if (existing?.userKey === key && resolvedSessionDate(existing) === today) {
+    const sameContext = context.type === "book"
+      ? existing?.contextType === "book" && existing.resourceId === context.resourceId && existing.segmentId === context.segmentId
+      : existing?.contextType !== "book" && resolvedSessionDate(existing) === today;
+    if (existing?.userKey === key && sameContext) {
       if (!existing.sessionDate) await db.update(chatSessions).set({ sessionDate: today }).where(eq(chatSessions.id, existing.id));
       return { ...existing, sessionDate: today };
     }
   }
-  const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(120);
-  const todaySession = sessions.find((candidate) => resolvedSessionDate(candidate) === today);
+  const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(240);
+  const todaySession = context.type === "book"
+    ? sessions.find((candidate) => candidate.contextType === "book" && candidate.resourceId === context.resourceId && candidate.segmentId === context.segmentId)
+    : sessions.find((candidate) => candidate.contextType !== "book" && resolvedSessionDate(candidate) === today);
   if (todaySession) {
     if (!todaySession.sessionDate) await db.update(chatSessions).set({ sessionDate: today }).where(eq(chatSessions.id, todaySession.id));
     return { ...todaySession, sessionDate: today };
   }
-  const [created] = await db.insert(chatSessions).values({ userKey: key, sessionDate: today, title: `${today}｜${firstText.slice(0, 48) || "司律備考對話"}` }).returning();
+  const [created] = await db.insert(chatSessions).values(context.type === "book" ? {
+    userKey: key,
+    sessionDate: today,
+    title: `書籍｜${context.resourceTitle}｜${context.segmentTitle}`.slice(0, 180),
+    contextType: "book",
+    resourceId: context.resourceId,
+    segmentId: context.segmentId,
+  } : { userKey: key, sessionDate: today, title: `${today}｜${firstText.slice(0, 48) || "司律備考對話"}`, contextType: "home" }).returning();
   return created;
 }
 
@@ -282,7 +295,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
 
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string };
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
     const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
@@ -291,10 +304,15 @@ export async function POST(request: Request) {
       ? body.planningConstraint
       : body.planningConstraint?.mode === "all" ? body.planningConstraint : null;
     const latestStudent = [...messages].reverse().find((message) => message.role === "student");
-    const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話");
-    if (latestStudent) {
+    const rawContext = body.context;
+    const context: ChatContext = rawContext?.type === "book" && Number.isInteger(rawContext.resourceId) && Number.isInteger(rawContext.segmentId)
+      ? { type: "book", resourceId: rawContext.resourceId, segmentId: rawContext.segmentId, resourceTitle: String(rawContext.resourceTitle || "教材"), segmentTitle: String(rawContext.segmentTitle || "目前章節") }
+      : { type: "home" };
+    const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話", context);
+    const storedStudentText = context.type === "book" ? String(body.visibleStudentText ?? "").trim() : (latestStudent?.text ?? "");
+    if (storedStudentText) {
       const db = await getDb();
-      await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text });
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: storedStudentText });
       await db.update(chatSessions).set({ updatedAt: new Date(), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
     }
 
@@ -327,8 +345,8 @@ export async function POST(request: Request) {
     try {
       const db = await getDb();
       const key = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
-      const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(120);
-      const yesterdaySession = sessions.find((candidate) => resolvedSessionDate(candidate) === yesterday);
+      const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(240);
+      const yesterdaySession = sessions.find((candidate) => candidate.contextType !== "book" && resolvedSessionDate(candidate) === yesterday);
       const yesterdayMessages = yesterdaySession ? await db.select().from(chatMessages).where(eq(chatMessages.sessionId, yesterdaySession.id)).orderBy(desc(chatMessages.id)).limit(12) : [];
       const yesterdayRecords = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, key), eq(studyRecords.recordDate, yesterday))).orderBy(desc(studyRecords.createdAt)).limit(20);
       const yesterdayTasks = planContext.includes("目前計畫") ? await db.select().from(studyTasks).where(and(eq(studyTasks.taskDate, yesterday), eq(studyTasks.status, "pending"))).limit(20) : [];
@@ -339,7 +357,9 @@ export async function POST(request: Request) {
       yesterdayContext = `${taskText}${recordText}${lastStudent ? `昨天學生最後提到：${lastStudent.slice(0, 240)}。` : ""}${lastMentor ? `昨天教練最後的接續提示：${lastMentor.slice(0, 360)}。` : ""}`;
     } catch { /* continue without yesterday context */ }
     const plannerRule = planningConstraint ? `\n這次要規劃 ${planningConstraint.days} 天，每天「所有任務合計」不得超過 ${planningConstraint.dailyMinutes} 分鐘；每一天安排 1 至 3 項，每項通常 20 至 90 分鐘，不得把每日總時間重複填在每一項任務。${planningConstraint.mode === "single" ? `唯一允許的科目是「${planningConstraint.subject}」，範圍是「${planningConstraint.scope}」。每一筆 task.subject 必須完全等於「${planningConstraint.subject}」，標題與內容不得出現其他法科或法學緒論。` : "請依弱點與考試重要性分配各科。"}` : "";
-    const instructions = `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`;
+    const instructions = context.type === "book"
+      ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。`
+      : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`;
     const selectedModel = process.env.OPENAI_MODEL || await getOpenAIModel(chooseModel(messages));
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
@@ -473,7 +493,7 @@ export async function POST(request: Request) {
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply.replace(/\s+/g, " ").slice(0, 500), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
-      if (latestStudent && latestStudent.text.trim().length >= 6) {
+      if (context.type !== "book" && latestStudent && latestStudent.text.trim().length >= 6) {
         const learningMinutes = Math.min(30, Math.max(5, Math.ceil(latestStudent.text.trim().length / 80) * 5));
         await db.insert(studyRecords).values({
           userKey: request.headers.get("oai-authenticated-user-email") ?? "default-owner",
