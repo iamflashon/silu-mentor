@@ -105,6 +105,12 @@ type LearningResource = {
     analysisState?: "analyzed" | "captured" | "pending" | "failed";
   }>;
 };
+
+function isProblemSolvingResource(resource: LearningResource) {
+  return /解題|題庫|題型|案例演習|申論/.test(
+    `${resource.title} ${resource.description}`,
+  );
+}
 type SubtitleSegment = {
   id: number;
   startSeconds: number;
@@ -1573,7 +1579,10 @@ export default function AdminPage() {
     const response = await fetch("/api/resources/chapters", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ resourceId: resource.id }),
+      body: JSON.stringify({
+        resourceId: resource.id,
+        rebuild: isProblemSolvingResource(resource),
+      }),
     });
     const result = (await readJson(response)) as {
       chapters?: unknown[];
@@ -1588,8 +1597,10 @@ export default function AdminPage() {
     const count = result.chapters?.length ?? 0;
     setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
     setNotice(result.reused
-      ? `「${resource.title}」已建立好章節索引，共 ${count} 章；這次沒有再次呼叫 AI。`
-      : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
+      ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
+      : isProblemSolvingResource(resource)
+        ? `「${resource.title}」已擷取 ${count} 道含完整題目的題型。`
+        : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
   }
 
   async function bindCourseBook(
@@ -2874,12 +2885,16 @@ export default function AdminPage() {
                           <button
                             type="button"
                             className="subtitle-open"
-                            disabled={!resource.documentId || Number(resource.chapterCount ?? 0) > 0}
+                            disabled={!resource.documentId}
                             onClick={() => void buildBookChapters(resource)}
                           >
-                            {Number(resource.chapterCount ?? 0) > 0 ? "已建立好章節索引" : "建立章節索引（一次）"}
+                            {isProblemSolvingResource(resource)
+                              ? "重新擷取題型與完整題目"
+                              : Number(resource.chapterCount ?? 0) > 0
+                                ? "已建立好章節索引"
+                                : "建立章節索引（一次）"}
                           </button>
-                          {Number(resource.chapterCount ?? 0) > 0 && (
+                          {Number(resource.chapterCount ?? 0) > 0 && !isProblemSolvingResource(resource) && (
                             <span className="chapter-index-complete" role="status">
                               ✓ 已建立好章節索引（{Number(resource.chapterCount)} 章）
                             </span>

@@ -70,6 +70,22 @@ function parseChapterPayload(payload: Record<string, unknown>) {
   }
 }
 
+function isProblemBook(resource: { title: string; description: string | null }) {
+  return /解題|題庫|題型|案例演習|申論/.test(
+    `${resource.title} ${resource.description ?? ""}`,
+  );
+}
+
+function isCompleteProblemQuestion(chapter: {
+  title?: string | null;
+  text?: string | null;
+  stem?: string | null;
+}) {
+  const title = String(chapter.title ?? "").trim();
+  const stem = String(chapter.text ?? chapter.stem ?? "").trim();
+  return /題型\s*\d+(?:\.\d+)+|第\s*\d+\s*題/.test(title) && stem.length >= 30;
+}
+
 async function readChapterStatus(resourceId: number) {
   const db = await getDb();
   const [setting] = await db
@@ -130,12 +146,27 @@ export async function GET(request: Request) {
 
     const chapters = await readChapters(resourceId);
     const status = await readChapterStatus(resourceId);
-    if (chapters.length) {
+    const problemBook = isProblemBook(resource);
+    const usableChapters = problemBook
+      ? chapters.filter(isCompleteProblemQuestion)
+      : chapters;
+    if (usableChapters.length) {
       return Response.json({
-        chapters,
+        chapters: usableChapters,
         generated: false,
         ready: true,
         status: "completed",
+      });
+    }
+
+    if (problemBook && chapters.length) {
+      return Response.json({
+        chapters: [],
+        generated: false,
+        ready: false,
+        status: "needs_rebuild",
+        invalidCount: chapters.length,
+        message: `現有 ${chapters.length} 筆只有主題名稱，尚未擷取題型與完整題目；請到後台重新擷取題型。`,
       });
     }
 
@@ -230,7 +261,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   let resourceId = 0;
   try {
-    const body = (await request.json()) as { resourceId?: number };
+    const body = (await request.json()) as {
+      resourceId?: number;
+      rebuild?: boolean;
+    };
     resourceId = Number(body.resourceId);
     if (!Number.isInteger(resourceId) || resourceId < 1)
       return Response.json({ error: "缺少書籍編號" }, { status: 400 });
@@ -244,10 +278,14 @@ export async function POST(request: Request) {
     if (!resource || resource.resourceType !== "book")
       return Response.json({ error: "找不到書籍" }, { status: 404 });
 
+    const problemBook = isProblemBook(resource);
     const existing = await readChapters(resourceId);
-    if (existing.length)
+    const validExisting = problemBook
+      ? existing.filter(isCompleteProblemQuestion)
+      : existing;
+    if (validExisting.length && !body.rebuild)
       return Response.json({
-        chapters: existing,
+        chapters: validExisting,
         generated: false,
         reused: true,
         status: "completed",
@@ -303,21 +341,17 @@ export async function POST(request: Request) {
           process.env.OPENAI_EXTRACTION_MODEL ||
           process.env.OPENAI_MODEL ||
           "gpt-5.6-luna",
-        instructions: /解題|題庫|題型|案例演習|申論/.test(
-          `${resource.title} ${resource.description}`,
-        )
+        instructions: problemBook
           ? "你是台灣司律考試解題書編輯。必須先使用 file_search 搜尋教材索引，依原書目錄拆成『部分 → 主題 → 題型』，只能整理書中明確存在的實際題目，不得改寫成觀念課程。section 原樣保留例如『第1部分 刑法總則』；topic 原樣保留例如『主題1 刑法ABC』；title 原樣保留例如『題型1.1 罪刑法定原則（105政大轉學考第1題）』；stem 放完整題目本文，不得加入解析或 AI 開場白；summary 只放原書可確認的爭點摘要。無法證明題目及其所屬主題時不要回傳。保留原順序，頁碼無法確認填 null，最多 80 筆。"
           : "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
-        input: /解題|題庫|題型|案例演習|申論/.test(
-          `${resource.title} ${resource.description}`,
-        )
+        input: problemBook
           ? `請從已索引的解題教材《${resource.title}》（原始檔名：${document.fileName}）依原書目錄搜尋每一個部分、主題、題型與完整題目，逐題依原書順序輸出。只回傳索引中可確認的真實題目。`
           : `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節。`,
         tools: [
           {
             type: "file_search",
             vector_store_ids: [setting.value],
-            max_num_results: 20,
+            max_num_results: problemBook ? 50 : 20,
           },
         ],
         text: {
@@ -362,13 +396,17 @@ export async function POST(request: Request) {
         },
       }),
     });
-    const generated = parseChapterPayload(payload);
+    const parsed = parseChapterPayload(payload);
+    const generated = problemBook
+      ? parsed.filter(isCompleteProblemQuestion)
+      : parsed;
     if (!generated.length) {
       await writeChapterStatus(resourceId, "failed");
       return Response.json(
         {
-          error:
-            "索引中找不到可辨識的目錄章節；請確認 PDF 內有目錄，或稍後由管理後台重新建立。",
+          error: problemBook
+            ? "未擷取到同時包含題型編號與完整題目的資料，因此不會把主題目錄誤存成題目。請確認 PDF 文字索引完整後再試。"
+            : "索引中找不到可辨識的目錄章節；請確認 PDF 內有目錄，或稍後由管理後台重新建立。",
         },
         { status: 422 },
       );
@@ -377,9 +415,7 @@ export async function POST(request: Request) {
     const rows = generated.map((chapter, index) => ({
       resourceId,
       segmentType: "book_chapter",
-      lessonLabel: /解題|題庫|題型|案例演習|申論/.test(
-        `${resource.title} ${resource.description}`,
-      )
+      lessonLabel: problemBook
         ? `${String(chapter.section ?? "").trim()}｜${String(chapter.topic ?? "").trim()}`.slice(
             0,
             160,
@@ -407,6 +443,16 @@ export async function POST(request: Request) {
     }));
     const inserted: (typeof resourceSegments.$inferSelect)[] = [];
     try {
+      if (existing.length) {
+        await db
+          .delete(resourceSegments)
+          .where(
+            and(
+              eq(resourceSegments.resourceId, resourceId),
+              inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
+            ),
+          );
+      }
       for (
         let index = 0;
         index < rows.length;
