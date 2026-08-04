@@ -188,8 +188,10 @@ a {
   color: var(--muted);
 }
 .practice-inline-launch {
-  /* Match the right rail's left edge: 800px main column + 34px gap. */
-  flex: 0 0 346px;
+  /* Keep the two buttons inside the date/law row at every desktop width. */
+  flex: 0 1 346px;
+  width: min(346px, 100%);
+  max-width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -204,10 +206,14 @@ a {
 }
 .practice-inline-launch > div {
   display: flex;
+  flex: 0 1 auto;
   gap: 8px;
   margin-left: auto;
+  min-width: 0;
 }
 .practice-inline-launch button {
+  flex: 0 1 auto;
+  min-width: 0;
   padding: 7px 11px;
   border: 1px solid #b9cedb;
   border-radius: 9px;
@@ -2922,9 +2928,9 @@ a {
 .home-editorial-card { min-height: 158px; }
 .home-editorial-head { margin-top: 5px; }
 .home-editorial-card > strong { margin-top: 15px; }
-.home-date-line { display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 40px)); margin: 12px auto 0; color: #6e8797; font-size: 11px; line-height: 1.4; }
+.home-date-line { display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 40px)); min-width: 0; margin: 12px auto 0; color: #6e8797; font-size: 11px; line-height: 1.4; }
 .home-date-line > span:first-child { flex: 0 0 auto; }
-.daily-law-actions { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.daily-law-actions { display: inline-flex; align-items: center; flex: 1 1 auto; gap: 6px; min-width: 0; overflow: hidden; }
 .daily-law-button { display: inline-flex; align-items: center; min-width: 0; max-width: min(620px, 70vw); padding: 6px 10px; border: 1px solid #bfd7e2; border-radius: 999px; background: #eef7f9; color: #315e75; cursor: pointer; }
 .daily-law-button b { flex: 0 0 auto; margin-right: 7px; color: #26728c; font-size: 11px; }
 .daily-law-button span { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
