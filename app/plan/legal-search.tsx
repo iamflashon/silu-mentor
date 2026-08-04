@@ -169,7 +169,7 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
   }
 
   return <section className="legal-search-panel" aria-label="全國法規搜尋與內容瀏覽">
-    <div className="legal-search-head"><div><p>OFFICIAL LAW SEARCH</p><h2>全國法規搜尋</h2><span>輸入法規名稱、條號或關鍵字查詢；搜尋結果可直接查看完整條文與官方來源。</span></div><strong>查法條</strong></div>
+    <div className="legal-search-head"><div><p>OFFICIAL LAW SEARCH</p><h2>尋法脈</h2><span>輸入法規名稱、條號或關鍵字查詢；搜尋結果可直接查看完整條文與官方來源。</span></div><strong>查法條</strong></div>
     <section className="core-law-guide" aria-label="司律核心六法">
       <div className="core-law-guide-head"><div><b>司律核心六法</b><span>先從最重要的六個法科開始，需要其他法規再直接搜尋。</span></div></div>
       <div className="core-law-grid">{CORE_LAWS.map((law) => <button type="button" key={law.title} onClick={() => { setQuery(law.query); setCategory(""); void search(law.query, ""); }}><strong>{law.title}</strong><small>{law.hint}</small><span>搜尋相關法條 →</span></button>)}</div>

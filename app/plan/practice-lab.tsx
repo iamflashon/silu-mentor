@@ -436,11 +436,11 @@ export function PracticeLab({ initialType }: Props) {
   }
 
   return (
-    <section className="practice-lab" aria-label="主動刷題區">
+    <section className="practice-lab" aria-label="練真題區">
       <div className="practice-lab-head">
         <div>
           <p>ACTIVE PRACTICE</p>
-          <h2>主動刷題</h2>
+          <h2>練真題</h2>
           <span>這裡是自己開始練習的地方；完成後會留下作答與弱點紀錄。</span>
         </div>
         <div className="practice-switch">
