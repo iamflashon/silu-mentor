@@ -107,6 +107,7 @@ export default function StudyPlanPage() {
   const [recordDraft, setRecordDraft] = useState({ subject: "刑法", title: "", actualMinutes: 60, weakness: "", nextStep: "" });
   const [activeTab, setActiveTab] = useState<PlanTab>(requestedPlanTab);
   const [hotSubject, setHotSubject] = useState("全部");
+  const [pendingBookPoint, setPendingBookPoint] = useState<{ title: string; summary: string } | null>(null);
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [magazineQuery, setMagazineQuery] = useState("");
@@ -267,6 +268,16 @@ export default function StudyPlanPage() {
   }
   function addCorePointTask(point: typeof coreExamPoints[number]) {
     setDraft({ date: taipeiDate(), subject: point.subject, title: `熱考點｜${point.title}`, durationMinutes: 45, details: `${point.summary}\n\n作答提醒：${point.cue}`, status: "pending" });
+  }
+  function openCorePointBook(point: typeof coreExamPoints[number]) {
+    const criminalBook = bookResources.find((item) => item.subject === "刑法" || item.title.includes("刑法"));
+    if (!criminalBook) return;
+    setPendingBookPoint({ title: point.title, summary: point.summary });
+    setSelectedResourceId(criminalBook.id);
+    setExpandedBookId(criminalBook.id);
+    setSelectedChapterId(null);
+    setBookMessages([]);
+    setActiveTab("books");
   }
   function openTask(task: Task) {
     setDraft({ id: task.id, date: task.taskDate, subject: task.subject, title: task.title, durationMinutes: task.durationMinutes, details: task.details, status: task.status });
@@ -503,7 +514,7 @@ export default function StudyPlanPage() {
     return `教材：《${selectedResource?.title ?? ""}》；科目：${selectedResource?.subject ?? "綜合"}；目前章節：${chapter.title}${pages}。${chapter.summary ? `章節摘要：${chapter.summary}` : ""}`;
   }
 
-  async function startBookChapter(chapter: ResourceSegment, forceRestart = false) {
+  async function startBookChapter(chapter: ResourceSegment, forceRestart = false, focusPoint = "") {
     if (!selectedResource || selectedResource.resourceType !== "book") return;
     setSelectedChapterId(chapter.id);
     setBookMessages([]);
@@ -523,7 +534,8 @@ export default function StudyPlanPage() {
         }
       } catch { /* start a fresh chapter below */ }
     }
-    const prompt = `${bookContext(chapter)}\n請開始教我這一章。先用一小段話說明本章要學會什麼，再提出一個學生可以直接回答的問題；請嚴格以這本教材為優先依據，不要先傾倒完整解答。`;
+    const focus = focusPoint ? `\n本次從熱考點「${focusPoint}」進入，請先在本章教材中定位與這個考點最相關的內容；若本章沒有足夠依據，請明確告知，不要補造。` : "";
+    const prompt = `${bookContext(chapter)}${focus}\n請開始教我這一章。先用一小段話說明本章要學會什麼，再提出一個學生可以直接回答的問題；請嚴格以這本教材為優先依據，不要先傾倒完整解答。`;
     try {
       const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "student", text: prompt }], visibleStudentText: "", context: { type: "book", resourceId: selectedResource.id, segmentId: chapter.id, resourceTitle: selectedResource.title, segmentTitle: chapter.title } }) });
       const result = await response.json() as { reply?: string; error?: string; sessionId?: number };
@@ -536,6 +548,21 @@ export default function StudyPlanPage() {
       setBookChatLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (activeTab !== "books" || !pendingBookPoint || !bookChapters.length || !selectedResource || selectedResource.resourceType !== "book") return;
+    const terms = pendingBookPoint.title.split(/[、，與及的]/).map((term) => term.trim()).filter((term) => term.length >= 2);
+    const ranked = bookChapters.map((chapter) => {
+      const haystack = `${chapter.title} ${chapter.summary}`;
+      const score = terms.reduce((total, term) => total + (haystack.includes(term) ? term.length : 0), 0);
+      return { chapter, score };
+    }).sort((a, b) => b.score - a.score || a.chapter.sequence - b.chapter.sequence);
+    const chapter = ranked[0]?.chapter;
+    if (!chapter) return;
+    const focusPoint = pendingBookPoint.title;
+    setPendingBookPoint(null);
+    void startBookChapter(chapter, false, focusPoint);
+  }, [activeTab, pendingBookPoint, bookChapters, selectedResource]);
 
   useEffect(() => {
     if (activeTab !== "books" || !lastBookProgress || restoredBookProgressRef.current) return;
@@ -663,10 +690,10 @@ export default function StudyPlanPage() {
       </div>
       <nav className="plan-tabs"><button className={activeTab === "calendar" ? "active" : ""} onClick={() => setActiveTab("calendar")}>行事曆</button><button className={activeTab === "practice" ? "active" : ""} onClick={() => setActiveTab("practice")}>練真題</button><button className={activeTab === "hotspots" ? "active" : ""} onClick={() => setActiveTab("hotspots")}>熱考點</button><button className={activeTab === "books" ? "active" : ""} onClick={() => setActiveTab("books")}>智能書</button><button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>來一課</button><button className={activeTab === "trials" ? "active" : ""} onClick={() => setActiveTab("trials")}>雲端課</button><button className={activeTab === "laws" ? "active" : ""} onClick={() => setActiveTab("laws")}>尋法脈</button><button className={activeTab === "listening" ? "active" : ""} onClick={() => setActiveTab("listening")}>聽解題</button><button className={activeTab === "magazine" ? "active" : ""} onClick={() => setActiveTab("magazine")}>讀法教</button><button className={activeTab === "records" ? "active" : ""} onClick={() => setActiveTab("records")}>學習紀錄 <span>{records.length}</span></button><button className={activeTab === "conversations" ? "active" : ""} onClick={() => setActiveTab("conversations")}>每日對話 <span>{chatDays.length}</span></button><button className={activeTab === "exam-conversations" ? "active" : ""} onClick={() => setActiveTab("exam-conversations")}>試題問答 <span>{examConversations.length}</span></button><button className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>筆記收藏 <span>{notes.length}</span></button></nav>
       {activeTab === "hotspots" && <section className="hot-points-hub" aria-label="司律熱考點">
-        <header className="hot-points-head"><div><p>CORE EXAM POINTS</p><h2>熱考點</h2><span>把各科最需要先掌握的核心爭點整理成複習順序；可直接加入今日計畫，再接著練真題。</span></div><aside><strong>{coreExamPoints.length}</strong><span>個核心考點</span></aside></header>
+        <header className="hot-points-head"><div><p>CORE EXAM POINTS</p><h2>熱考點</h2><span>先依各科核心體系整理複習順序；刑法可直接銜接現有智能書學習。</span></div><aside><strong>{coreExamPoints.length}</strong><span>個核心考點</span></aside></header>
         <nav className="hot-subject-tabs" aria-label="熱考點科目篩選">{["全部", ...planningSubjects].map((subject) => <button type="button" className={hotSubject === subject ? "active" : ""} key={subject} onClick={() => setHotSubject(subject)}>{subject}</button>)}</nav>
-        <div className="hot-points-grid">{coreExamPoints.filter((point) => hotSubject === "全部" || point.subject === hotSubject).map((point, index) => <article className="hot-point-card" key={`${point.subject}-${point.title}`}><header><span>{point.subject}</span><b>{String(index + 1).padStart(2, "0")}</b></header><div className="hot-point-badges"><strong>{point.level}</strong>{point.exams.map((exam) => <em key={exam}>{exam}</em>)}</div><h3>{point.title}</h3><p>{point.summary}</p><div className="hot-point-cue"><b>審題提醒</b><span>{point.cue}</span></div><footer><button type="button" onClick={() => addCorePointTask(point)}>＋ 加入今日計畫</button><button type="button" className="primary" onClick={() => setActiveTab("practice")}>練相關真題 →</button></footer></article>)}</div>
-        <p className="hot-points-note">目前先以司律核心體系建立複習入口；後續接入歷屆題統計後，可再顯示近年命題次數、年度與題號依據。</p>
+        <div className="hot-points-grid">{coreExamPoints.filter((point) => hotSubject === "全部" || point.subject === hotSubject).map((point, index) => { const hasBook = point.subject === "刑法" && bookResources.some((item) => item.subject === "刑法" || item.title.includes("刑法")); return <article className="hot-point-card" key={`${point.subject}-${point.title}`}><header><span>{point.subject}</span><b>{String(index + 1).padStart(2, "0")}</b></header><div className="hot-point-badges"><strong>{point.level}</strong>{point.exams.map((exam) => <em key={exam}>{exam}</em>)}</div><h3>{point.title}</h3><p>{point.summary}</p><div className="hot-point-cue"><b>審題提醒</b><span>{point.cue}</span></div><div className={`hot-point-source ${hasBook ? "available" : "pending"}`}><b>{hasBook ? "已連結智能書" : "教材待上架"}</b><span>{hasBook ? "依考點定位刑法章節" : "目前尚無本科智能書"}</span></div><footer><button type="button" onClick={() => addCorePointTask(point)}>＋ 加入今日計畫</button>{hasBook ? <button type="button" className="primary" onClick={() => openCorePointBook(point)}>讀智能書</button> : <button type="button" className="primary unavailable" disabled>智能書待上架</button>}</footer></article>; })}</div>
+        <p className="hot-points-note">目前 88 筆是核心考點整理，不代表已有 88 組真題。須核對歷屆題的年度、題號與實際爭點後，才會逐筆開放練習。</p>
       </section>}
       {activeTab === "listening" && <section className="learning-single-column" aria-label="聽解題專區"><div className="column-card listening-feature"><div className="column-kicker">LISTENING SOLUTION</div><div className="column-heading"><div><h2>聽解題</h2><span>已發布的題目都會保留在學習區，方便依序練習</span></div><i>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? "▶" : "聽"}</i></div>{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).length ? <div className="listening-feed-list">{(homeFeed?.listeningItems ?? (homeFeed?.listening ? [homeFeed.listening] : [])).map((item) => <article className="listening-feed-item" key={item.id}><div className="listening-feed-heading"><div><span>{item.year || "自訂題目"} · {item.subject}</span><h3>{item.title}</h3></div><b>已發布</b></div><p>先聽老師如何抓爭點，再留下自己的答題接續點。</p><ListeningPlayer item={item} /></article>)}</div> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</div></section>}
       {activeTab === "trials" && <section className="trial-course-hub" aria-label="雲端課">

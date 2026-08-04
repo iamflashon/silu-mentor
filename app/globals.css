@@ -2544,9 +2544,16 @@ a {
 .hot-point-cue { display: grid; gap: 4px; margin-top: 13px; padding: 11px 12px; border-left: 3px solid #6c9db2; border-radius: 0 8px 8px 0; background: #f0f7f9; }
 .hot-point-cue b { color: #3a7088; font-size: 10px; }
 .hot-point-cue span { color: #5f7885; font-size: 12px; line-height: 1.6; }
+.hot-point-source { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 11px; }
+.hot-point-source.pending { border: 1px dashed #cad8de; background: #f7f9fa; color: #7b8e98; }
+.hot-point-source.available { border: 1px solid #b9d8cf; background: #f0f8f5; color: #527d70; }
+.hot-point-source.available b { color: #2f6f5c; }
+.hot-point-source b { color: #607985; }
+.hot-point-source span { text-align: right; }
 .hot-point-card footer { display: flex; gap: 7px; margin-top: auto; padding-top: 15px; }
 .hot-point-card footer button { flex: 1; padding: 9px 10px; border: 1px solid #bfd3dc; border-radius: 8px; background: #fff; color: #35677e; font-size: 11px; font-weight: 850; cursor: pointer; }
 .hot-point-card footer button.primary { border-color: #285d7f; background: #285d7f; color: #fff; }
+.hot-point-card footer button.unavailable { border-color: #d5e0e5; background: #eef3f5; color: #8598a2; cursor: not-allowed; opacity: 1; }
 .hot-points-note { margin: 16px 0 0; color: #83959e; font-size: 11px; text-align: center; }
 @media (max-width: 720px) { .hot-points-hub { padding: 17px; } .hot-points-head { align-items: flex-start; } .hot-points-head aside { display: none; } .hot-points-grid { grid-template-columns: 1fr; } .hot-point-card footer { flex-direction: column; } }
 
