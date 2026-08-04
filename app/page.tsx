@@ -369,14 +369,8 @@ export default function Home() {
       <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}</div>
 
       <section className="practice-launch" aria-label="練真題">
-        <div><strong>練真題</strong><span>真題直接嵌入對話，依一試與二試開始練習</span></div>
+        <strong>練真題</strong>
         <div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button type="button" onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div>
-      </section>
-
-      <section className="top-dictionary-card" aria-label="法律辭典">
-        <div className="top-dictionary-intro"><div className="rail-title"><strong>法律辭典</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院來源 ↗</a></div><p>查一個法律名詞，或讓 AI 隨機抽一個司律常見用語。</p></div>
-        {dictionaryFeatured && <div className="top-dictionary-featured"><div><span>AI 今日隨機</span><strong>{dictionaryFeatured.term}</strong></div><p>{dictionaryFeatured.content}</p><div><button type="button" onClick={teachFeaturedDictionaryTerm}>讓 AI 教我</button><button type="button" onClick={() => void loadRandomDictionary()} disabled={dictionaryFeaturedLoading}>{dictionaryFeaturedLoading ? "換題中…" : "換一個"}</button></div></div>}
-        <div className="top-dictionary-search"><form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="例如：比例原則、抗告、系爭" aria-label="輸入法律名詞" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "查詢中…" : "查辭典"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><strong>{dictionaryResult.term}</strong><p>{dictionaryResult.content}</p><button type="button" onClick={teachDictionaryTerm}>讓 AI 教我</button></div>}</div>
       </section>
 
       <div className={`command-layout rail-${railSide}`}>
@@ -436,6 +430,11 @@ export default function Home() {
       </section>
 
       <aside className="command-rail">
+        <section className="top-dictionary-card rail-dictionary-card" aria-label="法律辭典">
+          <div className="top-dictionary-intro"><div className="rail-title"><strong>法律辭典</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院來源 ↗</a></div><p>查一個法律名詞，或讓 AI 隨機抽一個司律常見用語。</p></div>
+          {dictionaryFeatured && <div className="top-dictionary-featured"><div><span>AI 今日隨機</span><strong>{dictionaryFeatured.term}</strong></div><p>{dictionaryFeatured.content}</p><div><button type="button" onClick={teachFeaturedDictionaryTerm}>讓 AI 教我</button><button type="button" onClick={() => void loadRandomDictionary()} disabled={dictionaryFeaturedLoading}>{dictionaryFeaturedLoading ? "換題中…" : "換一個"}</button></div></div>}
+          <div className="top-dictionary-search"><form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="例如：比例原則、抗告、系爭" aria-label="輸入法律名詞" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "查詢中…" : "查辭典"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><strong>{dictionaryResult.term}</strong><p>{dictionaryResult.content}</p><button type="button" onClick={teachDictionaryTerm}>讓 AI 教我</button></div>}</div>
+        </section>
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
         <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
         <article className="home-editorial-card rail-editorial-card rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>法教專區</h2><span>顯示摘要；按「爭點解析」時會一併分析核心爭點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong><div className="magazine-article-list">{(homeFeed.magazine.articles ?? []).map((article) => <div className="magazine-article-row" key={article.id}><div className="magazine-article-copy"><h3>{article.title}</h3>{article.summary && <p className="magazine-article-summary"><b>摘要</b>{article.summary}</p>}</div><button type="button" onClick={() => askMagazineArticle(article)}>爭點解析</button></div>)}</div><a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>

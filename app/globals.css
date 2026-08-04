@@ -192,39 +192,32 @@ a {
   margin: 10px auto 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 18px;
-  margin-bottom: 20px;
-  padding: 14px 16px;
+  margin-bottom: 10px;
+  padding: 10px 16px;
   border: 1px solid #d6e3eb;
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.88);
 }
-.practice-launch strong,
-.practice-launch span {
-  display: block;
-}
 .practice-launch strong {
+  flex: 0 0 auto;
   color: #254a65;
-  font-size: 14px;
-}
-.practice-launch span {
-  margin-top: 4px;
-  color: #758997;
-  font-size: 10px;
+  font-size: 13px;
 }
 .practice-launch > div:last-child {
   display: flex;
   gap: 8px;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 .practice-launch button {
-  padding: 9px 12px;
+  padding: 7px 11px;
   border: 1px solid #b9cedb;
-  border-radius: 10px;
+  border-radius: 9px;
   background: #f4f8fa;
   color: #2a5a79;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -2968,6 +2961,26 @@ a {
 .top-dictionary-search form button { padding: 9px 11px; border: 0; border-radius: 9px; background: #285f80; color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; }
 .top-dictionary-search form button:disabled { opacity: .55; cursor: wait; }
 .top-dictionary-search .dictionary-result { margin-top: 8px; }
+.command-rail > .rail-dictionary-card {
+  width: 100%;
+  margin: 0;
+  display: block;
+  padding: 13px;
+  border-radius: 15px;
+}
+.rail-dictionary-card .top-dictionary-intro .rail-title { margin-bottom: 4px; }
+.rail-dictionary-card .top-dictionary-intro p { margin: 0; }
+.rail-dictionary-card .top-dictionary-featured {
+  display: block;
+  margin-top: 9px;
+  padding: 8px 9px;
+}
+.rail-dictionary-card .top-dictionary-featured > p {
+  margin-top: 6px;
+  -webkit-line-clamp: 3;
+}
+.rail-dictionary-card .top-dictionary-featured > div:last-child { margin-top: 8px; }
+.rail-dictionary-card .top-dictionary-search { margin-top: 9px; }
 .pulse-luck > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pulse-luck select { width: 78px; padding: 5px 6px; border: 1px solid #cfdee6; border-radius: 7px; color: #54778b; background: #f8fbfc; font-size: 8px; }
 .pulse-music iframe { width: 100%; height: 96px; margin-top: 6px; border: 0; border-radius: 7px; background: #edf4f7; }
@@ -3613,17 +3626,21 @@ a {
   .practice-launch {
     width: calc(100% - 28px);
     margin-top: 8px;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-    padding: 11px 12px;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 8px;
+    padding: 8px 10px;
   }
   .practice-launch > div:last-child {
-    width: 100%;
+    min-width: 0;
+    gap: 5px;
   }
   .practice-launch button {
-    flex: 1;
+    padding: 7px 8px;
+    font-size: 9px;
+    white-space: nowrap;
   }
+  .practice-launch strong { font-size: 11px; }
   .practice-card {
     margin-left: 0;
   }
