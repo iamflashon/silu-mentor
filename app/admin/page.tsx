@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
@@ -201,6 +201,7 @@ type EssayQuestion = {
   stem: string;
   sourceUrl: string;
   hasTeacherAnswer?: string;
+  teacherNotes?: string;
 };
 type LegalSource = {
   id: number;
@@ -358,12 +359,36 @@ export default function AdminPage() {
   const [listeningItems, setListeningItems] = useState<ListeningItem[]>([]);
   const [essayQuestions, setEssayQuestions] = useState<EssayQuestion[]>([]);
   const [listeningQuestionId, setListeningQuestionId] = useState("");
+  const [listeningQuestionYear, setListeningQuestionYear] = useState("all");
+  const [listeningQuestionSubject, setListeningQuestionSubject] = useState("all");
+  const [listeningQuestionSearch, setListeningQuestionSearch] = useState("");
+  const [previewListeningQuestionId, setPreviewListeningQuestionId] = useState<number | null>(null);
   const [listeningTitle, setListeningTitle] = useState("");
   const [listeningQuestionText, setListeningQuestionText] = useState("");
   const [listeningFile, setListeningFile] = useState<File | null>(null);
   const [listeningPackageFile, setListeningPackageFile] = useState<File | null>(
     null,
   );
+
+  const listeningQuestionYears = useMemo(
+    () => [...new Set(essayQuestions.map((question) => question.year))].sort((a, b) => b.localeCompare(a, "zh-Hant", { numeric: true })),
+    [essayQuestions],
+  );
+  const listeningQuestionSubjects = useMemo(
+    () => [...new Set(essayQuestions.filter((question) => listeningQuestionYear === "all" || question.year === listeningQuestionYear).map((question) => question.subject))].sort((a, b) => a.localeCompare(b, "zh-Hant")),
+    [essayQuestions, listeningQuestionYear],
+  );
+  const filteredListeningQuestions = useMemo(() => {
+    const keyword = listeningQuestionSearch.trim().toLocaleLowerCase("zh-Hant");
+    return essayQuestions.filter((question) => {
+      if (listeningQuestionYear !== "all" && question.year !== listeningQuestionYear) return false;
+      if (listeningQuestionSubject !== "all" && question.subject !== listeningQuestionSubject) return false;
+      if (!keyword) return true;
+      return `${question.year} ${question.subject} ${question.questionNumber} ${question.stem} ${question.hasTeacherAnswer ?? ""}`.toLocaleLowerCase("zh-Hant").includes(keyword);
+    });
+  }, [essayQuestions, listeningQuestionSearch, listeningQuestionSubject, listeningQuestionYear]);
+  const previewListeningQuestion = essayQuestions.find((question) => question.id === previewListeningQuestionId) ?? null;
+  const selectedListeningQuestion = essayQuestions.find((question) => String(question.id) === listeningQuestionId) ?? null;
   const [preparedTxt, setPreparedTxt] = useState<File | null>(null);
   const [generatingListening, setGeneratingListening] = useState(false);
   const [editingListening, setEditingListening] =
@@ -2964,21 +2989,55 @@ export default function AdminPage() {
               <span className="source-count">{listeningItems.length} 篇</span>
             </div>
             <form className="listening-create" onSubmit={generateListening}>
-              <label className="field">
-                從二試真題庫選題
-                <select
-                  value={listeningQuestionId}
-                  onChange={(e) => setListeningQuestionId(e.target.value)}
-                >
-                  <option value="">不選，改用貼上／上傳</option>
-                  {essayQuestions.map((question) => (
-                    <option value={question.id} key={question.id}>
-                      {question.year} · {question.subject} · 第{" "}
-                      {question.questionNumber} 題{question.hasTeacherAnswer?.trim() ? " · 已核對擬答" : " · 尚無擬答"}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <section className="listening-question-picker">
+                <div className="listening-picker-heading">
+                  <div>
+                    <strong>從二試真題庫選題</strong>
+                    <span>先查看題目與老師擬答，確認後再選用。</span>
+                  </div>
+                  {selectedListeningQuestion && (
+                    <button type="button" onClick={() => setPreviewListeningQuestionId(selectedListeningQuestion.id)}>
+                      查看已選內容
+                    </button>
+                  )}
+                </div>
+                <div className="listening-question-filters">
+                  <label>
+                    年度
+                    <select value={listeningQuestionYear} onChange={(event) => { setListeningQuestionYear(event.target.value); setListeningQuestionSubject("all"); }}>
+                      <option value="all">全部年度</option>
+                      {listeningQuestionYears.map((year) => <option value={year} key={year}>{year} 年</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    科目
+                    <select value={listeningQuestionSubject} onChange={(event) => setListeningQuestionSubject(event.target.value)}>
+                      <option value="all">全部科目</option>
+                      {listeningQuestionSubjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}
+                    </select>
+                  </label>
+                  <label className="listening-question-search">
+                    搜尋
+                    <input value={listeningQuestionSearch} onChange={(event) => setListeningQuestionSearch(event.target.value)} placeholder="搜尋題號、關鍵字或爭點" />
+                  </label>
+                </div>
+                {selectedListeningQuestion && (
+                  <div className="listening-selected-question">
+                    <span>已選題目</span>
+                    <strong>{selectedListeningQuestion.year} · {selectedListeningQuestion.subject} · 第 {selectedListeningQuestion.questionNumber} 題</strong>
+                    <button type="button" onClick={() => setListeningQuestionId("")}>取消選用</button>
+                  </div>
+                )}
+                <div className="listening-question-results">
+                  {filteredListeningQuestions.length ? filteredListeningQuestions.slice(0, 40).map((question) => (
+                    <button type="button" key={question.id} className={String(question.id) === listeningQuestionId ? "selected" : ""} onClick={() => setPreviewListeningQuestionId(question.id)}>
+                      <span>{question.year} · {question.subject}</span>
+                      <strong>第 {question.questionNumber} 題｜{question.stem.replace(/\s+/g, " ").slice(0, 72)}{question.stem.length > 72 ? "…" : ""}</strong>
+                      <small>{question.hasTeacherAnswer?.trim() ? "老師擬答已核對" : "尚無老師擬答"}　點標題查看內容</small>
+                    </button>
+                  )) : <p>找不到符合條件的二試題目。</p>}
+                </div>
+              </section>
               <label className="field">
                 節目標題（可由 AI 產生）
                 <input
@@ -3021,6 +3080,33 @@ export default function AdminPage() {
                 {generatingListening ? "AI 正在生成聞稿…" : "AI 生成解題聞稿"}
               </button>
             </form>
+            {previewListeningQuestion && (
+              <div className="listening-question-modal" role="dialog" aria-modal="true" aria-label="查看二試題目與老師擬答" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreviewListeningQuestionId(null); }}>
+                <article>
+                  <header>
+                    <div>
+                      <span>{previewListeningQuestion.year} · {previewListeningQuestion.subject}</span>
+                      <h3>第 {previewListeningQuestion.questionNumber} 題</h3>
+                    </div>
+                    <button type="button" aria-label="關閉" onClick={() => setPreviewListeningQuestionId(null)}>×</button>
+                  </header>
+                  <section>
+                    <h4>題目全文</h4>
+                    <p>{previewListeningQuestion.stem}</p>
+                  </section>
+                  <section className="teacher-answer-preview">
+                    <h4>老師擬答</h4>
+                    {previewListeningQuestion.hasTeacherAnswer?.trim() ? <p>{previewListeningQuestion.hasTeacherAnswer}</p> : <p className="missing">這題目前尚未核對老師擬答。</p>}
+                  </section>
+                  <footer>
+                    <button type="button" onClick={() => setPreviewListeningQuestionId(null)}>返回題庫</button>
+                    <button type="button" className="primary-btn" disabled={!previewListeningQuestion.hasTeacherAnswer?.trim()} onClick={() => { setListeningQuestionId(String(previewListeningQuestion.id)); setPreviewListeningQuestionId(null); }}>
+                      {String(previewListeningQuestion.id) === listeningQuestionId ? "已選用這一題" : "選用這一題"}
+                    </button>
+                  </footer>
+                </article>
+              </div>
+            )}
             <div className="listening-package-card">
               <div>
                 <strong>直接匯入聽解題 ZIP</strong>
