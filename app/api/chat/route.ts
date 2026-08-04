@@ -1,4 +1,5 @@
 type ClientMessage = { role: "mentor" | "student"; text: string };
+type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: string; replaceOnlySubject: boolean };
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
@@ -161,22 +162,68 @@ async function deletePlanTasks(command: DeletePlanCall) {
   return { count: targets.length, titles: targets.slice(0, 5).map((task) => `${task.taskDate} ${task.subject}／${task.title}`) };
 }
 
-async function savePlan(plan: PlanCall) {
+function taskConflictsWithSubject(task: PlanCall["tasks"][number], subject: string) {
+  const text = `${task.subject} ${task.title} ${task.details}`;
+  const otherSubjects: Record<string, RegExp> = {
+    刑法: /民法|民事訴訟|刑事訴訟|刑訴|法學緒論|憲法|行政法|公司法|證券交易法|保險法|票據法/,
+    刑事訴訟法: /民法|民事訴訟|民訴|法學緒論|憲法|行政法|公司法|證券交易法|保險法|票據法/,
+    民法: /刑法|刑事訴訟|刑訴|民事訴訟|民訴|法學緒論|憲法|行政法|公司法|證券交易法|保險法|票據法/,
+    民事訴訟法: /刑法|刑事訴訟|刑訴|法學緒論|憲法|行政法|公司法|證券交易法|保險法|票據法/,
+    憲法: /刑法|刑事訴訟|刑訴|民法|民事訴訟|民訴|法學緒論|行政法|公司法|證券交易法|保險法|票據法/,
+    行政法: /刑法|刑事訴訟|刑訴|民法|民事訴訟|民訴|法學緒論|憲法|公司法|證券交易法|保險法|票據法/,
+    商事法: /刑法|刑事訴訟|刑訴|民法總則|民事訴訟|民訴|法學緒論|憲法|行政法/,
+  };
+  return task.subject !== subject || (otherSubjects[subject]?.test(text) ?? true);
+}
+
+function taskConflictsWithScope(task: PlanCall["tasks"][number], scope: string) {
+  if (!scope || scope === "全科") return false;
+  const text = `${task.title} ${task.details}`;
+  const oppositeScopes: Record<string, RegExp> = {
+    刑法總則: /刑法分則/,
+    刑法分則: /刑法總則/,
+    民法總則: /債法|物權|親屬|繼承/,
+    債法: /民法總則|物權|親屬|繼承/,
+    物權: /民法總則|債法|親屬|繼承/,
+    親屬: /民法總則|債法|物權|繼承/,
+    繼承: /民法總則|債法|物權|親屬/,
+  };
+  return oppositeScopes[scope]?.test(text) ?? false;
+}
+
+async function savePlan(plan: PlanCall, constraint: PlanningConstraint | null) {
   const db = await getDb();
-  await db.update(studyPlans).set({ active: false }).where(eq(studyPlans.active, true));
-  const [created] = await db.insert(studyPlans).values({
-    title: plan.title.slice(0, 120),
-    targetLabel: plan.target_label.slice(0, 120),
-    dailyMinutes: Math.max(15, Math.min(720, Number(plan.daily_minutes) || 120)),
-  }).returning();
   const tasks = plan.tasks.slice(0, 14).filter((task) => /^\d{4}-\d{2}-\d{2}$/.test(task.date));
+  if (constraint?.mode === "single") {
+    const invalid = tasks.filter((task) => taskConflictsWithSubject(task, constraint.subject) || taskConflictsWithScope(task, constraint.scope));
+    if (invalid.length) throw new Error(`AI 產生了非${constraint.subject}任務，已阻止寫入`);
+  }
+  const [active] = await db.select().from(studyPlans).where(eq(studyPlans.active, true)).limit(1);
+  let planId: number;
+  let replacedTasks = 0;
+  if (constraint?.mode === "single" && constraint.replaceOnlySubject && active) {
+    planId = active.id;
+    const oldTasks = await db.select().from(studyTasks).where(and(eq(studyTasks.planId, active.id), eq(studyTasks.subject, constraint.subject)));
+    replacedTasks = oldTasks.length;
+    await db.delete(studyTasks).where(and(eq(studyTasks.planId, active.id), eq(studyTasks.subject, constraint.subject)));
+    await db.update(studyPlans).set({ dailyMinutes: Math.max(15, Math.min(720, Number(plan.daily_minutes) || 120)) }).where(eq(studyPlans.id, active.id));
+  } else {
+    if (active) replacedTasks = (await db.select().from(studyTasks).where(eq(studyTasks.planId, active.id))).length;
+    await db.update(studyPlans).set({ active: false }).where(eq(studyPlans.active, true));
+    const [created] = await db.insert(studyPlans).values({
+      title: plan.title.slice(0, 120),
+      targetLabel: plan.target_label.slice(0, 120),
+      dailyMinutes: Math.max(15, Math.min(720, Number(plan.daily_minutes) || 120)),
+    }).returning();
+    planId = created.id;
+  }
   const seen = new Set<string>();
   for (const task of tasks) {
     const key = `${task.date}|${normalizedTaskPart(task.subject)}|${normalizedTaskPart(task.title)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     await db.insert(studyTasks).values({
-      planId: created.id,
+      planId,
       taskDate: task.date,
       subject: task.subject.slice(0, 40),
       title: task.title.slice(0, 120),
@@ -184,7 +231,7 @@ async function savePlan(plan: PlanCall) {
       details: (task.details ?? "").slice(0, 500),
     });
   }
-  return tasks.length;
+  return { savedTasks: seen.size, replacedTasks };
 }
 
 async function getOrCreateSession(request: Request, requestedId: number | null, firstText: string) {
@@ -215,10 +262,14 @@ export async function POST(request: Request) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
 
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint };
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
     const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
+    const allowedPlanningSubjects = new Set(["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法"]);
+    const planningConstraint = body.planningConstraint?.mode === "single" && allowedPlanningSubjects.has(body.planningConstraint.subject)
+      ? body.planningConstraint
+      : body.planningConstraint?.mode === "all" ? body.planningConstraint : null;
     const latestStudent = [...messages].reverse().find((message) => message.role === "student");
     const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話");
     if (latestStudent) {
@@ -267,7 +318,8 @@ export async function POST(request: Request) {
       const recordText = yesterdayRecords.length ? `昨天學習紀錄：${yesterdayRecords.map((record) => `${record.subject}/${record.title}/${record.actualMinutes}分鐘${record.weakness ? `/弱點:${record.weakness}` : ""}${record.nextStep ? `/接續:${record.nextStep}` : ""}`).join("；")}。` : "昨天沒有學習紀錄。";
       yesterdayContext = `${taskText}${recordText}${lastStudent ? `昨天學生最後提到：${lastStudent.slice(0, 240)}。` : ""}${lastMentor ? `昨天教練最後的接續提示：${lastMentor.slice(0, 360)}。` : ""}`;
     } catch { /* continue without yesterday context */ }
-    const instructions = `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。`;
+    const plannerRule = planningConstraint?.mode === "single" ? `\n這是受限制的單科規劃：唯一允許的科目是「${planningConstraint.subject}」，範圍是「${planningConstraint.scope}」。save_study_plan 的每一筆 task.subject 必須完全等於「${planningConstraint.subject}」，標題與內容也不得出現其他法科或法學緒論。寧可減少任務，也不可安排跨科內容。` : "";
+    const instructions = `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`;
     const selectedModel = process.env.OPENAI_MODEL || await getOpenAIModel(chooseModel(messages));
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
@@ -290,7 +342,7 @@ export async function POST(request: Request) {
               additionalProperties: false,
               properties: {
                 date: { type: "string", description: "YYYY-MM-DD" },
-                subject: { type: "string" },
+                subject: planningConstraint?.mode === "single" ? { type: "string", enum: [planningConstraint.subject] } : { type: "string" },
                 title: { type: "string" },
                 duration_minutes: { type: "integer" },
                 details: { type: "string" },
@@ -348,14 +400,18 @@ export async function POST(request: Request) {
     const planCall = readPlanCall(payload);
     const deleteCall = readDeleteCall(payload);
     let planSaved = false;
+    let replacedTasks = 0;
     if (planCall) {
       try {
-        const count = await savePlan(planCall);
-        if (count) {
+        const result = await savePlan(planCall, planningConstraint);
+        replacedTasks = result.replacedTasks;
+        if (result.savedTasks) {
           planSaved = true;
-          reply = `${reply ? `${reply}\n\n` : ""}我已經把接下來 ${count} 項任務寫入你的讀書計畫。你可以打開行事曆查看，也可以隨時告訴我調整。`;
+          reply = `${reply ? `${reply}\n\n` : ""}我已經把接下來 ${result.savedTasks} 項任務寫入你的讀書計畫。你可以打開行事曆查看，也可以隨時告訴我調整。`;
         }
-      } catch { /* keep the conversation available */ }
+      } catch (error) {
+        reply = error instanceof Error ? error.message : "AI 規劃內容未通過科目檢查，沒有寫入行事曆。";
+      }
     }
     let tasksDeleted = 0;
     if (deleteCall) {
@@ -417,6 +473,7 @@ export async function POST(request: Request) {
       source: fromFiles ? "教材" : "AI 補充",
       usage: { model: selectedModel, ...usage, fileSearchCalls: searchedFiles ? 1 : 0, estimatedCostUsd },
       planSaved,
+      replacedTasks,
       tasksDeleted,
       sources,
       sessionId: session.id,

@@ -250,17 +250,20 @@ export default function StudyPlanPage() {
     setResetPlanMessage("");
     try {
       const clearOnlySubject = resetPlanDraft.mode === "single" && resetPlanDraft.clearScope === "subject";
-      const clearParams = new URLSearchParams({ clear: "1" });
-      if (clearOnlySubject) clearParams.set("subject", resetPlanDraft.subject);
-      const clearResponse = await fetch(`/api/study-plan?${clearParams.toString()}`, { method: "DELETE" });
-      const clearResult = await clearResponse.json() as { deleted?: number; error?: string };
-      if (!clearResponse.ok) throw new Error(clearResult.error ?? "行事曆清空失敗");
       const target = resetPlanDraft.mode === "single" ? `${resetPlanDraft.subject}（${resetPlanDraft.scope}）單科專攻` : "司律全科備考";
       const prompt = `請立即依照我的既有學習紀錄、作答結果、弱點與目前進度，建立一份從今天開始的 ${resetPlanDraft.days} 天「${target}」讀書計畫。程度：${resetPlanDraft.level}；每日可用時間：${resetPlanDraft.dailyMinutes} 分鐘；學習目標：${resetPlanDraft.goals.join("、")}；納入資源：${resetPlanDraft.resources.join("、")}。${resetPlanDraft.mode === "single" ? `所有新任務都必須屬於「${resetPlanDraft.subject}」，並聚焦「${resetPlanDraft.scope}」。` : "請依弱點與考試重要性分配各科比重。"}避免重複已完成內容，安排間隔複習，並直接使用 save_study_plan 寫入行事曆。`;
-      const planResponse = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: [{ role: "student", text: prompt }] }) });
-      const planResult = await planResponse.json() as { planSaved?: boolean; error?: string };
-      if (!planResponse.ok || !planResult.planSaved) throw new Error(planResult.error ?? "舊行程已清空，但 AI 尚未成功建立新計畫，請再按一次重新規劃。");
-      setResetPlanMessage(`已清除 ${clearResult.deleted ?? 0} 項${clearOnlySubject ? resetPlanDraft.subject : ""}舊行程，AI 已重新安排接下來的讀書計畫。`);
+      const planResponse = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        messages: [{ role: "student", text: prompt }],
+        planningConstraint: resetPlanDraft.mode === "single" ? {
+          mode: "single",
+          subject: resetPlanDraft.subject,
+          scope: resetPlanDraft.scope,
+          replaceOnlySubject: resetPlanDraft.clearScope === "subject",
+        } : { mode: "all", subject: "", scope: "", replaceOnlySubject: false },
+      }) });
+      const planResult = await planResponse.json() as { planSaved?: boolean; replacedTasks?: number; error?: string };
+      if (!planResponse.ok || !planResult.planSaved) throw new Error(planResult.error ?? "AI 尚未成功建立新計畫，原行程未變動，請再試一次。");
+      setResetPlanMessage(`已替換 ${planResult.replacedTasks ?? 0} 項${clearOnlySubject ? resetPlanDraft.subject : ""}舊行程，AI 已重新安排接下來的讀書計畫。`);
       await load();
       window.setTimeout(() => { setResetPlanOpen(false); setResetPlanMessage(""); }, 1200);
     } catch (error) {
@@ -482,7 +485,7 @@ export default function StudyPlanPage() {
         <div className="editor-actions"><button className="secondary-btn" onClick={() => setResetPlanOpen(false)}>取消</button><button className="planner-next-btn" disabled={!resetPlanDraft.goals.length || !resetPlanDraft.resources.length} onClick={() => setResetPlanDraft({ ...resetPlanDraft, step: "preview" })}>預覽規劃摘要</button></div>
       </> : <>
         <div className="planner-summary"><span>{resetPlanDraft.mode === "single" ? "單科專攻" : "全科備考"}</span><h3>{resetPlanDraft.mode === "single" ? `${resetPlanDraft.subject}｜${resetPlanDraft.scope}` : "司律全科讀書計畫"}</h3><p>{resetPlanDraft.days} 天｜每天 {resetPlanDraft.dailyMinutes} 分鐘｜{resetPlanDraft.level}</p><dl><div><dt>學習目標</dt><dd>{resetPlanDraft.goals.join("、")}</dd></div><div><dt>學習內容</dt><dd>{resetPlanDraft.resources.join("、")}</dd></div><div><dt>行程處理</dt><dd>{resetPlanDraft.mode === "single" && resetPlanDraft.clearScope === "subject" ? `只清除目前的${resetPlanDraft.subject}任務，其他科目保留` : "清空目前行事曆任務後重新安排"}</dd></div></dl></div>
-        <div className="reset-plan-warning"><strong>學習成果不會被刪除</strong><p>已完成的學習紀錄、作答結果、弱點分析、每日對話與筆記都會保留，並提供給 AI 作為重排依據。</p></div>{resetPlanMessage && <p className={`reset-plan-message ${resetPlanMessage.includes("已清除") ? "success" : ""}`}>{resetPlanMessage}</p>}<div className="editor-actions"><button className="secondary-btn" disabled={resetPlanLoading} onClick={() => setResetPlanDraft({ ...resetPlanDraft, step: "settings" })}>返回修改</button><button className="reset-confirm-btn" disabled={resetPlanLoading} onClick={() => void clearAndReplan()}>{resetPlanLoading ? "AI 正在規劃…" : "確認並建立計畫"}</button></div>
+        <div className="reset-plan-warning"><strong>學習成果不會被刪除</strong><p>已完成的學習紀錄、作答結果、弱點分析、每日對話與筆記都會保留，並提供給 AI 作為重排依據。</p></div>{resetPlanMessage && <p className={`reset-plan-message ${resetPlanMessage.includes("已替換") ? "success" : ""}`}>{resetPlanMessage}</p>}<div className="editor-actions"><button className="secondary-btn" disabled={resetPlanLoading} onClick={() => setResetPlanDraft({ ...resetPlanDraft, step: "settings" })}>返回修改</button><button className="reset-confirm-btn" disabled={resetPlanLoading} onClick={() => void clearAndReplan()}>{resetPlanLoading ? "AI 正在規劃…" : "確認並建立計畫"}</button></div>
       </>}
     </section></div>}
   </main>;
