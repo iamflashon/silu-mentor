@@ -344,6 +344,7 @@ export default function AdminPage() {
   const [magazineIssueUrl, setMagazineIssueUrl] = useState("");
   const [creatingMagazineIssue, setCreatingMagazineIssue] = useState(false);
   const [coursePreviewTime, setCoursePreviewTime] = useState(0);
+  const [coursePreviewSeekToken, setCoursePreviewSeekToken] = useState(0);
   const [coursePreviewResource, setCoursePreviewResource] = useState<LearningResource | null>(null);
   const [coursePreviewSegments, setCoursePreviewSegments] = useState<SubtitleSegment[]>([]);
   const [coursePreviewLoading, setCoursePreviewLoading] = useState(false);
@@ -1743,6 +1744,7 @@ export default function AdminPage() {
   function seekCoursePreview(seconds: number) {
     const next = Math.max(0, Math.floor(seconds));
     setCoursePreviewTime(next);
+    setCoursePreviewSeekToken((token) => token + 1);
   }
 
   async function saveSegment(segment: SubtitleSegment) {
@@ -3490,6 +3492,7 @@ export default function AdminPage() {
                       sourceUrl={coursePreviewResource.sourceUrl}
                       title={`${coursePreviewResource.title}課程預覽`}
                       startSeconds={coursePreviewTime}
+                      seekToken={coursePreviewSeekToken}
                       onTimeChange={(seconds) => setCoursePreviewTime(Math.floor(seconds))}
                       onError={setCoursePreviewError}
                     />
@@ -3540,6 +3543,7 @@ export default function AdminPage() {
                       sourceUrl={subtitleCourse.sourceUrl}
                       title={`${subtitleCourse.title}課程畫面`}
                       startSeconds={coursePreviewTime}
+                      seekToken={coursePreviewSeekToken}
                       onTimeChange={(seconds) => setCoursePreviewTime(Math.floor(seconds))}
                       onError={setCoursePreviewError}
                     />

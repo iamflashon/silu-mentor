@@ -112,7 +112,11 @@ export default function CourseVideoPlayer({
   // makes HLS rewind a fraction of a second repeatedly and can eventually
   // make the same media fragments play again.  Only a new resource or an
   // explicit seekToken is allowed to move the playhead.
-  }, [resourceId, sourceUrl, seekToken, startSeconds]);
+  // startSeconds is intentionally excluded. Parents continuously report the
+  // current playback time for progress and transcript highlighting; only an
+  // explicit seekToken change may turn that display value into a seek.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resourceId, sourceUrl, seekToken]);
 
   return (
     <video
