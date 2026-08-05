@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { PlaybackRateSelect } from "./course-video-player";
 
 export type ListeningFeed = {
   id: number;
@@ -32,6 +33,7 @@ export function ListeningPlayer({ item, compact = false }: { item: ListeningFeed
   const [resumeAfterSwitch, setResumeAfterSwitch] = useState(false);
   const [activeSubtitle, setActiveSubtitle] = useState("");
   const [showQuestion, setShowQuestion] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const segments = item.audioSegments?.length
     ? item.audioSegments
     : [{ id: item.id, audioUrl: item.audioUrl, durationSeconds: 0, startOffsetSeconds: 0, sequence: 0 }];
@@ -49,6 +51,10 @@ export function ListeningPlayer({ item, compact = false }: { item: ListeningFeed
   useEffect(() => {
     setActiveSubtitle("");
   }, [segmentIndex]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+  }, [playbackRate, segmentIndex]);
 
   useEffect(() => {
     if (!resumeAfterSwitch || !audioRef.current) return;
@@ -78,6 +84,9 @@ export function ListeningPlayer({ item, compact = false }: { item: ListeningFeed
           }
         }}
       />
+      <div className="listening-player-controls">
+        <PlaybackRateSelect value={playbackRate} onChange={setPlaybackRate} />
+      </div>
       <div className={`listening-subtitle${activeSubtitle ? " has-text" : ""}`} aria-live="polite">
         {activeSubtitle || (subtitles.length ? "播放時會在這裡顯示字幕" : "字幕尚未匯入")}
       </div>

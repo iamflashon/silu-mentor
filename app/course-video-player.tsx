@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 
 type CourseVideoPlayerProps = {
@@ -14,6 +14,27 @@ type CourseVideoPlayerProps = {
   onError?: (message: string) => void;
   className?: string;
 };
+
+export const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 1.75, 2];
+
+export function PlaybackRateSelect({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="playback-rate-control">
+      <span>播放速度</span>
+      <select value={value} onChange={(event) => onChange(Number(event.target.value))} aria-label="播放速度">
+        {PLAYBACK_RATES.map((rate) => (
+          <option value={rate} key={rate}>{rate}×</option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 function isHlsUrl(value: string) {
   return /\.m3u8(?:[?#].*)?$/i.test(value.trim());
@@ -49,12 +70,20 @@ export default function CourseVideoPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const lastPlaybackTimeRef = useRef(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !sourceUrl.trim()) return;
 
     const src = courseMediaUrl(resourceId, sourceUrl);
+    const applyPlaybackRate = () => {
+      video.playbackRate = playbackRate;
+    };
     const handleError = () => {
       onError?.(
         isHlsUrl(sourceUrl)
@@ -64,6 +93,8 @@ export default function CourseVideoPlayer({
     };
 
     video.addEventListener("error", handleError);
+    video.addEventListener("loadedmetadata", applyPlaybackRate);
+    applyPlaybackRate();
     if (isHlsUrl(sourceUrl) && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -82,12 +113,16 @@ export default function CourseVideoPlayer({
 
     return () => {
       video.removeEventListener("error", handleError);
+      video.removeEventListener("loadedmetadata", applyPlaybackRate);
       hlsRef.current?.destroy();
       hlsRef.current = null;
       lastPlaybackTimeRef.current = 0;
       video.removeAttribute("src");
       video.load();
     };
+  // playbackRate is synchronized by the dedicated effect above; including it
+  // here would tear down and reload the HLS stream whenever the user changes speed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourceId, sourceUrl, onError]);
 
   useEffect(() => {
@@ -119,17 +154,22 @@ export default function CourseVideoPlayer({
   }, [resourceId, sourceUrl, seekToken]);
 
   return (
-    <video
-      ref={videoRef}
-      className={className}
-      controls
-      preload="metadata"
-      playsInline
-      title={title}
-      onTimeUpdate={(event) => {
-        lastPlaybackTimeRef.current = event.currentTarget.currentTime;
-        onTimeChange?.(event.currentTarget.currentTime);
-      }}
-    />
+    <>
+      <video
+        ref={videoRef}
+        className={className}
+        controls
+        preload="metadata"
+        playsInline
+        title={title}
+        onTimeUpdate={(event) => {
+          lastPlaybackTimeRef.current = event.currentTarget.currentTime;
+          onTimeChange?.(event.currentTarget.currentTime);
+        }}
+      />
+      <div className="course-video-controls">
+        <PlaybackRateSelect value={playbackRate} onChange={setPlaybackRate} />
+      </div>
+    </>
   );
 }

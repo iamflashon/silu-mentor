@@ -17,7 +17,7 @@ type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; s
 type MagazineArticle = { id: number; title: string; summary: string; issue: string; sourceUrl: string; reviewStatus: string; sequence: number };
 type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: Array<{ id: string; text: string; url: string; enabled: boolean }>; examCountdowns: Array<{ id: string; label: string; date: string; enabled: boolean }> };
 type LegalLesson = { documentId: number; title: string; articleNo: string; hierarchy: string; content: string };
-type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string };
+type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string; sourceType?: "judicial" | "legispedia"; sourceNote?: string };
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
 type PracticeRecommendation = { type: string; title: string; location: string; url: string; startSeconds: number | null };
 
@@ -221,9 +221,9 @@ export default function Home() {
     setDictionaryNotice("");
     setDictionaryResult(null);
     const response = await fetch(`/api/legal-dictionary?q=${encodeURIComponent(term)}`);
-    const result = await response.json() as DictionaryResult & { error?: string };
+    const result = await response.json() as DictionaryResult & { error?: string; canExplainWithAi?: boolean };
     if (response.ok) setDictionaryResult(result);
-    else setDictionaryNotice(result.error ?? "官方辭典暫時查不到這個名詞");
+    else setDictionaryNotice(`${result.error ?? "目前查不到這個名詞"}${result.canExplainWithAi ? " 點下方「AI 解釋」即可接續。" : ""}`);
     setDictionaryLoading(false);
   }
 
@@ -239,7 +239,13 @@ export default function Home() {
 
   function teachDictionaryTerm() {
     if (!dictionaryResult) return;
-    void send(`請用司律考生能理解的方式教我法律名詞「${dictionaryResult.term}」。\n司法院裁判書用語辭典內容：\n${dictionaryResult.content}\n請先說明白話意思，再補充它常出現在哪一科、容易和什麼概念混淆，最後問我一個判斷題。`);
+    void send(`請用司律考生能理解的方式教我法律名詞「${dictionaryResult.term}」。\n${dictionaryResult.sourceLabel}內容：\n${dictionaryResult.content}\n請先說明白話意思，再補充它常出現在哪一科、容易和什麼概念混淆，最後問我一個判斷題。若資料來源已停止更新，請提醒我核對現行法令。`);
+  }
+
+  function teachUnknownDictionaryTerm() {
+    const term = dictionaryTerm.trim();
+    if (!term) return;
+    void send(`目前司法院裁判書用語辭典與法律百科都沒有找到「${term}」的詞條。請不要假裝有外部來源，改以中華民國法律學習脈絡，清楚標示「AI 整理」，用白話說明這個名詞可能的法律意義；若有不確定之處請明確說明，並提醒我核對法條與判決原文。最後問我一個簡短判斷題。`);
   }
 
   function teachFeaturedDictionaryTerm() {
@@ -465,7 +471,7 @@ export default function Home() {
         <section className="top-dictionary-card rail-dictionary-card" aria-label="法律辭典">
           <div className="top-dictionary-intro"><div className="rail-title"><strong>法律辭典</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院來源 ↗</a></div><p>查一個法律名詞，或讓 AI 隨機抽一個司律常見用語。</p></div>
           {dictionaryFeatured && <div className="top-dictionary-featured"><div><span>AI 今日隨機</span><strong>{dictionaryFeatured.term}</strong></div><p>{dictionaryFeatured.content}</p><div><button type="button" onClick={teachFeaturedDictionaryTerm}>讓 AI 教我</button><button type="button" onClick={() => void loadRandomDictionary()} disabled={dictionaryFeaturedLoading}>{dictionaryFeaturedLoading ? "換題中…" : "換一個"}</button></div></div>}
-          <div className="top-dictionary-search"><form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="例如：比例原則、抗告、系爭" aria-label="輸入法律名詞" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "查詢中…" : "查辭典"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><strong>{dictionaryResult.term}</strong><p>{dictionaryResult.content}</p><div className="dictionary-result-actions"><a href={dictionaryResult.sourceUrl} target="_blank" rel="noreferrer" aria-label={`查看${dictionaryResult.term}完整詞條`}>看全文</a><button type="button" onClick={teachDictionaryTerm}>白話解析</button></div></div>}</div>
+          <div className="top-dictionary-search"><form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="例如：比例原則、抗告、系爭" aria-label="輸入法律名詞" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "查詢中…" : "查辭典"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><div className="dictionary-result-heading"><strong>{dictionaryResult.term}</strong><span>{dictionaryResult.sourceLabel}</span></div><p>{dictionaryResult.content}</p>{dictionaryResult.sourceNote && <small className="dictionary-source-note">{dictionaryResult.sourceNote}</small>}<div className="dictionary-result-actions"><a href={dictionaryResult.sourceUrl} target="_blank" rel="noreferrer" aria-label={`查看${dictionaryResult.term}完整詞條`}>看全文</a><button type="button" onClick={teachDictionaryTerm}>白話解析</button></div></div>}{dictionaryNotice && !dictionaryResult && dictionaryTerm.trim() && <div className="dictionary-result dictionary-ai-fallback"><div className="dictionary-result-heading"><strong>{dictionaryTerm.trim()}</strong><span>AI 整理</span></div><p>外部詞典目前沒有可引用的詞條；可以請 AI 依司律考試脈絡先做白話說明。</p><div className="dictionary-result-actions"><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院詞典</a><button type="button" onClick={teachUnknownDictionaryTerm}>AI 解釋</button></div></div>}</div>
         </section>
         <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
         <article className="home-editorial-card rail-editorial-card rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>讀法教</h2><span>切換文章，再按「爭點解析」學習核心爭點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong>{magazineArticles.length > 1 ? <div className="magazine-tabs" role="tablist" aria-label="法學教室文章切換">{magazineArticles.map((article, index) => <button type="button" role="tab" aria-selected={selectedMagazineArticle?.id === article.id} className={selectedMagazineArticle?.id === article.id ? "active" : ""} onClick={() => setSelectedMagazineArticleId(article.id)} key={article.id}>{index + 1}</button>)}</div> : null}{selectedMagazineArticle ? <div className="magazine-article-panel" role="tabpanel"><div className="magazine-article-copy"><h3>{selectedMagazineArticle.title}</h3>{selectedMagazineArticle.summary && <p className="magazine-article-summary"><b>摘要</b>{selectedMagazineArticle.summary}</p>}</div><div className="magazine-article-actions"><button type="button" onClick={() => askMagazineArticle(selectedMagazineArticle)}>爭點解析</button>{selectedMagazineArticle.sourceUrl ? <a href={selectedMagazineArticle.sourceUrl} target="_blank" rel="noreferrer">查看這篇試讀 PDF ↗</a> : null}</div></div> : <p className="column-empty">本期文章正在整理中。</p>}<a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看本期法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>

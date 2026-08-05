@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
-import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
+import CourseVideoPlayer, { formatMediaTime, PlaybackRateSelect } from "../course-video-player";
 import { PracticeLab } from "./practice-lab";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
@@ -429,6 +429,7 @@ export default function StudyPlanPage() {
     null,
   );
   const [courseSeekToken, setCourseSeekToken] = useState(0);
+  const [youtubePlaybackRate, setYoutubePlaybackRate] = useState(1);
   const [selectedChapterId, setSelectedChapterId] = useState<number | null>(
     null,
   );
@@ -972,6 +973,11 @@ export default function StudyPlanPage() {
     } catch {
       return "";
     }
+  }
+
+  function applyYoutubePlaybackRate(rate: number) {
+    const iframe = document.querySelector<HTMLIFrameElement>(".course-youtube-frame");
+    iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "setPlaybackRate", args: [rate] }), "https://www.youtube.com");
   }
 
   const bookResources = resources
@@ -2842,18 +2848,31 @@ export default function StudyPlanPage() {
                             selectedProgress?.positionSeconds ??
                             0,
                         ) ? (
-                          <iframe
-                            key={`${selectedResource.id}-${selectedSegment?.id || 0}`}
-                            src={youtubeEmbedUrl(
-                              selectedResource.sourceUrl,
-                              selectedSegment?.startSeconds ??
-                                selectedProgress?.positionSeconds ??
-                                0,
-                            )}
-                            title={`${selectedResource.title}影音播放器`}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                          />
+                          <>
+                            <iframe
+                              className="course-youtube-frame"
+                              key={`${selectedResource.id}-${selectedSegment?.id || 0}`}
+                              src={youtubeEmbedUrl(
+                                selectedResource.sourceUrl,
+                                selectedSegment?.startSeconds ??
+                                  selectedProgress?.positionSeconds ??
+                                  0,
+                              )}
+                              title={`${selectedResource.title}影音播放器`}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              onLoad={() => applyYoutubePlaybackRate(youtubePlaybackRate)}
+                            />
+                            <div className="course-video-controls">
+                              <PlaybackRateSelect
+                                value={youtubePlaybackRate}
+                                onChange={(rate) => {
+                                  setYoutubePlaybackRate(rate);
+                                  applyYoutubePlaybackRate(rate);
+                                }}
+                              />
+                            </div>
+                          </>
                         ) : selectedResource.sourceUrl ? (
                           <CourseVideoPlayer
                             resourceId={selectedResource.id}
