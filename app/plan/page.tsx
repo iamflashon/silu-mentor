@@ -446,6 +446,7 @@ export default function StudyPlanPage() {
     summary: string;
   } | null>(null);
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; alt: string } | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [courseCollections, setCourseCollections] = useState<CourseCollection[]>([]);
   const [courseCollectionsLoaded, setCourseCollectionsLoaded] = useState(false);
@@ -596,6 +597,19 @@ export default function StudyPlanPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [month]);
+  useEffect(() => {
+    if (!lightboxImage) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLightboxImage(null);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [lightboxImage]);
   useEffect(() => {
     fetch("/api/learning-records").then(async (response) => {
       if (response.ok)
@@ -2758,7 +2772,7 @@ export default function StudyPlanPage() {
               </aside>
               {selectedMyCourse ? <div className={`my-course-player-layout ${selectedMyCourse.sourceKind === "playlist" ? "has-playlist" : ""} ${myCoursePlaylistCollapsed ? "my-course-playlist-collapsed" : ""}`}>
                 {selectedMyCourse.sourceKind === "playlist" && <aside className={`my-course-playlist ${myCoursePlaylistCollapsed ? "is-collapsed" : ""}`} aria-label="我的課播放清單"><div className="my-course-playlist-head"><button type="button" className="course-panel-toggle" aria-expanded={!myCoursePlaylistCollapsed} onClick={() => setMyCoursePlaylistCollapsed((value) => !value)}><span><strong>播放清單</strong><small>{selectedMyPlaylistItems.length ? `${selectedMyPlaylistItems.length} 集` : myCoursePlaylistMessages[selectedMyCourse.id] ?? "正在讀取…"}</small></span><b aria-hidden="true">{myCoursePlaylistCollapsed ? "›" : "‹"}</b></button></div>{!myCoursePlaylistCollapsed && selectedMyPlaylistItems.map((item, index) => <button type="button" className={`my-course-episode ${selectedMyEpisode?.videoId === item.videoId ? "active" : ""}`} key={item.videoId} onClick={() => { resetMyCourseAiDraft(); setSelectedMyEpisodeId(item.videoId); }}><i>{String(index + 1).padStart(2, "0")}</i>{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <span className="my-course-thumb-fallback">▶</span>}<span><strong>{item.title}</strong><small>{item.durationLabel || "YouTube 公開課程"}</small></span></button>)}</aside>}
-                <div className="my-course-player"><div className="my-course-player-head"><div><span>正在學習</span><strong>{selectedMyEpisode?.title ?? selectedMyCourse.title}</strong><small>{selectedMyCourse.subject} · {selectedMyCourse.examType} · {selectedMyCourse.relevanceLabel}</small></div><div><a href={selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}` : selectedMyCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a><button type="button" onClick={() => void removeMyCourse(selectedMyCourse)}>移除</button></div></div>{youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl) ? <iframe className="my-course-youtube-frame" src={youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl)} title={selectedMyEpisode?.title ?? selectedMyCourse.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="my-course-player-empty">這個網址目前無法嵌入，請在 YouTube 開啟確認。</div>}<div className="my-course-ai" onPaste={(event) => handleScreenshotPaste(event, loadMyCourseScreenshot)}><div className="my-course-ai-head"><b>課程 AI 問答</b><span>沒有 SRT 也能問；可上傳或直接 Ctrl＋V 貼上 YouTube 截圖。</span></div><div className="my-course-ai-upload"><label className="my-course-screenshot-button">{myCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadMyCourseScreenshot(file); event.currentTarget.value = ""; }} /></label>{myCourseScreenshotName && <span>{myCourseScreenshotName}</span>}</div>{myCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><img src={myCourseScreenshotDataUrl} alt="準備提問的課程截圖" /><button type="button" onClick={() => { setMyCourseScreenshotDataUrl(""); setMyCourseScreenshotName(""); }} aria-label="移除課程截圖">×</button></div>}<form className="my-course-ai-form" onSubmit={askMyCourseAi}><textarea rows={3} value={myCourseAiInput} onChange={(event) => setMyCourseAiInput(event.target.value)} placeholder="例如：這張投影片提到的刑法沿革，和現行刑法有什麼關係？請輸入你的問題。" disabled={myCourseAiLoading} /><button type="submit" disabled={myCourseAiLoading || !myCourseAiInput.trim()}>{myCourseAiLoading ? "回答中…" : "問 AI"}</button></form>{myCourseAiNotice && <p className="my-course-ai-notice">{myCourseAiNotice}</p>}{myCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{myCourseAiReply}</p></div>}{myCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void saveMyCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{myCourseNoteMessage && <span>{myCourseNoteMessage}</span>}</div>}{myCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{myCourseNotes.length} 則</span></div>{myCourseNotes.slice(0, 5).map((note) => <article key={note.id}><img src={note.attachments?.[0]?.url} alt="" /> <div><strong>{note.title}</strong><p>{note.content}</p></div></article>)}</section>}</div></div>
+                <div className="my-course-player"><div className="my-course-player-head"><div><span>正在學習</span><strong>{selectedMyEpisode?.title ?? selectedMyCourse.title}</strong><small>{selectedMyCourse.subject} · {selectedMyCourse.examType} · {selectedMyCourse.relevanceLabel}</small></div><div><a href={selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}` : selectedMyCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a><button type="button" onClick={() => void removeMyCourse(selectedMyCourse)}>移除</button></div></div>{youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl) ? <iframe className="my-course-youtube-frame" src={youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl)} title={selectedMyEpisode?.title ?? selectedMyCourse.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="my-course-player-empty">這個網址目前無法嵌入，請在 YouTube 開啟確認。</div>}<div className="my-course-ai" onPaste={(event) => handleScreenshotPaste(event, loadMyCourseScreenshot)}><div className="my-course-ai-head"><b>課程 AI 問答</b><span>沒有 SRT 也能問；可上傳或直接 Ctrl＋V 貼上 YouTube 截圖。</span></div><div className="my-course-ai-upload"><label className="my-course-screenshot-button">{myCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadMyCourseScreenshot(file); event.currentTarget.value = ""; }} /></label>{myCourseScreenshotName && <span>{myCourseScreenshotName}</span>}</div>{myCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><button type="button" className="screenshot-zoom-button" onClick={() => setLightboxImage({ url: myCourseScreenshotDataUrl, alt: "準備提問的課程截圖" })} aria-label="放大課程截圖"><img src={myCourseScreenshotDataUrl} alt="準備提問的課程截圖" /></button><button type="button" onClick={() => { setMyCourseScreenshotDataUrl(""); setMyCourseScreenshotName(""); }} aria-label="移除課程截圖">×</button></div>}<form className="my-course-ai-form" onSubmit={askMyCourseAi}><textarea rows={3} value={myCourseAiInput} onChange={(event) => setMyCourseAiInput(event.target.value)} placeholder="例如：這張投影片提到的刑法沿革，和現行刑法有什麼關係？請輸入你的問題。" disabled={myCourseAiLoading} /><button type="submit" disabled={myCourseAiLoading || !myCourseAiInput.trim()}>{myCourseAiLoading ? "回答中…" : "問 AI"}</button></form>{myCourseAiNotice && <p className="my-course-ai-notice">{myCourseAiNotice}</p>}{myCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{myCourseAiReply}</p></div>}{myCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void saveMyCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{myCourseNoteMessage && <span>{myCourseNoteMessage}</span>}</div>}{myCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{myCourseNotes.length} 則</span></div>{myCourseNotes.slice(0, 5).map((note) => <article key={note.id}><button type="button" className="inline-note-image" onClick={() => { const attachment = note.attachments?.[0]; if (attachment) setLightboxImage({ url: attachment.url, alt: "我的課堂截圖" }); }} aria-label="放大筆記截圖">{note.attachments?.[0]?.url ? <img src={note.attachments[0].url} alt="我的課堂截圖" /> : <span className="inline-note-image-empty">無截圖</span>}</button><div><div className="inline-note-title-row"><strong>{note.title}</strong><button type="button" className="inline-note-edit" onClick={() => setNoteDraft(note)}>編輯內容</button></div><p>{note.content}</p></div></article>)}</section>}</div></div>
               </div> : null}
             </div>
           </section>
@@ -2825,12 +2839,12 @@ export default function StudyPlanPage() {
                           <div className="public-course-ai" onPaste={(event) => handleScreenshotPaste(event, (file) => loadCourseScreenshotFile(file, setPublicCourseScreenshotDataUrl, setPublicCourseScreenshotName, setPublicCourseAiNotice))}>
                             <div className="public-course-ai-head"><strong>這一集可以問 AI</strong><span>可上傳或直接 Ctrl＋V 貼上 YouTube 截圖；平台不會假裝讀過影片聲音。</span></div>
                             <div className="public-course-ai-upload"><label className="my-course-screenshot-button">{publicCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadCourseScreenshotFile(file, setPublicCourseScreenshotDataUrl, setPublicCourseScreenshotName, setPublicCourseAiNotice); event.currentTarget.value = ""; }} /></label>{publicCourseScreenshotName && <span>{publicCourseScreenshotName}</span>}</div>
-                            {publicCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><img src={publicCourseScreenshotDataUrl} alt="準備提問的公開課截圖" /><button type="button" onClick={() => { setPublicCourseScreenshotDataUrl(""); setPublicCourseScreenshotName(""); }} aria-label="移除公開課截圖">×</button></div>}
+                            {publicCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><button type="button" className="screenshot-zoom-button" onClick={() => setLightboxImage({ url: publicCourseScreenshotDataUrl, alt: "準備提問的公開課截圖" })} aria-label="放大公開課截圖"><img src={publicCourseScreenshotDataUrl} alt="準備提問的公開課截圖" /></button><button type="button" onClick={() => { setPublicCourseScreenshotDataUrl(""); setPublicCourseScreenshotName(""); }} aria-label="移除公開課截圖">×</button></div>}
                             <form className="my-course-ai-form" onSubmit={askPublicCourseAi}><textarea rows={3} value={publicCourseAiInput} onChange={(event) => setPublicCourseAiInput(event.target.value)} placeholder="例如：老師這張投影片的爭點是什麼？請輸入你的問題。" disabled={publicCourseAiLoading} /><button type="submit" disabled={publicCourseAiLoading || !publicCourseAiInput.trim()}>{publicCourseAiLoading ? "回答中…" : "問 AI"}</button></form>
                             {publicCourseAiNotice && <p className="my-course-ai-notice">{publicCourseAiNotice}</p>}
                             {publicCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{publicCourseAiReply}</p></div>}
                             {publicCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void savePublicCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{publicCourseNoteMessage && <span>{publicCourseNoteMessage}</span>}</div>}
-                            {publicCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{publicCourseNotes.length} 則</span></div>{publicCourseNotes.slice(0, 5).map((note) => <article key={note.id}><img src={note.attachments?.[0]?.url} alt="" /> <div><strong>{note.title}</strong><p>{note.content}</p></div></article>)}</section>}
+                            {publicCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{publicCourseNotes.length} 則</span></div>{publicCourseNotes.slice(0, 5).map((note) => <article key={note.id}><button type="button" className="inline-note-image" onClick={() => { const attachment = note.attachments?.[0]; if (attachment) setLightboxImage({ url: attachment.url, alt: "開放課堂截圖" }); }} aria-label="放大筆記截圖">{note.attachments?.[0]?.url ? <img src={note.attachments[0].url} alt="開放課堂截圖" /> : <span className="inline-note-image-empty">無截圖</span>}</button><div><div className="inline-note-title-row"><strong>{note.title}</strong><button type="button" className="inline-note-edit" onClick={() => setNoteDraft(note)}>編輯內容</button></div><p>{note.content}</p></div></article>)}</section>}
                           </div>
                         </div>
                       </div>
@@ -4452,12 +4466,12 @@ export default function StudyPlanPage() {
                     <div>
                       <span>{note.subject}</span>
                       {note.tags && <em>{note.tags}</em>}
-                      <button>編輯</button>
+                      <button type="button" onClick={(event) => { event.stopPropagation(); setNoteDraft(note); }}>編輯</button>
                     </div>
                     <strong>{note.title}</strong>
                     <p>{note.content}</p>
                     {note.attachments?.map((attachment) => (
-                      <img className="note-attachment-preview" key={attachment.id} src={attachment.url} alt="筆記課程截圖" loading="lazy" />
+                      <button type="button" className="note-attachment-zoom" key={attachment.id} onClick={(event) => { event.stopPropagation(); setLightboxImage({ url: attachment.url, alt: "筆記課程截圖" }); }} aria-label="放大筆記課程截圖"><img className="note-attachment-preview" src={attachment.url} alt="筆記課程截圖" loading="lazy" /></button>
                     ))}
                     {note.sourceLabel && (
                       <small>教材來源：{note.sourceLabel}</small>
@@ -4642,7 +4656,7 @@ export default function StudyPlanPage() {
               </p>
             )}
             {noteDraft.attachments?.map((attachment) => (
-              <img className="note-editor-attachment" key={attachment.id} src={attachment.url} alt="筆記課程截圖" />
+              <button type="button" className="note-editor-attachment-button" key={attachment.id} onClick={() => setLightboxImage({ url: attachment.url, alt: "筆記課程截圖" })} aria-label="放大筆記課程截圖"><img className="note-editor-attachment" src={attachment.url} alt="筆記課程截圖" /></button>
             ))}
             <div className="editor-actions">
               <button className="delete-task" onClick={removeNote}>
@@ -4653,6 +4667,13 @@ export default function StudyPlanPage() {
               </button>
             </div>
           </section>
+        </div>
+      )}
+      {lightboxImage && (
+        <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="放大圖片" onClick={() => setLightboxImage(null)}>
+          <button type="button" className="image-lightbox-close" onClick={() => setLightboxImage(null)} aria-label="關閉圖片">×</button>
+          <img src={lightboxImage.url} alt={lightboxImage.alt} onClick={(event) => event.stopPropagation()} />
+          <p>點擊外部或按 Esc 關閉</p>
         </div>
       )}
       {resetPlanOpen && (
