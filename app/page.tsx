@@ -20,6 +20,7 @@ type LegalLesson = { documentId: number; title: string; articleNo: string; hiera
 type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string; sourceType?: "judicial" | "legispedia"; sourceNote?: string };
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
 type PracticeRecommendation = { type: string; title: string; location: string; url: string; startSeconds: number | null };
+type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
@@ -41,6 +42,7 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
+  const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
@@ -410,8 +412,8 @@ export default function Home() {
         aria-expanded={mobileRailOpen}
         aria-controls="mobile-command-rail"
       >
-        <span aria-hidden="true">{railSide === "right" ? "‹" : "›"}</span>
-        <b>作戰資訊</b>
+        <span aria-hidden="true">工具</span>
+        <b>學習工具</b>
       </button>
       {mobileRailOpen && <button type="button" className="mobile-rail-backdrop" aria-label="關閉作戰資訊側欄" onClick={() => setMobileRailOpen(false)} />}
 
@@ -482,21 +484,40 @@ export default function Home() {
 
       <aside className="command-rail" id="mobile-command-rail" aria-label="作戰資訊側欄">
         <div className="mobile-rail-head">
-          <strong>作戰資訊</strong>
+          <strong>學習工具</strong>
           <div>
             <button type="button" onClick={toggleRailSide}>⇆ 移到{railSide === "right" ? "左側" : "右側"}</button>
             <button type="button" onClick={() => setMobileRailOpen(false)} aria-label="關閉作戰資訊側欄">關閉</button>
           </div>
         </div>
+        <nav className="mobile-rail-tabs" aria-label="切換學習工具">
+          {([
+            ["dictionary", "法典"],
+            ["listening", "聽解題"],
+            ["magazine", "讀法教"],
+            ["music", "音樂"],
+          ] as Array<[MobileRailTool, string]>).map(([tool, label]) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobileRailTool === tool}
+              className={mobileRailTool === tool ? "active" : ""}
+              onClick={() => setMobileRailTool(tool)}
+              key={tool}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
-        <section className="top-dictionary-card rail-dictionary-card" aria-label="法律辭典">
+        <section className={`top-dictionary-card rail-dictionary-card mobile-rail-panel ${mobileRailTool === "dictionary" ? "mobile-active" : ""}`} aria-label="法律辭典">
           <div className="top-dictionary-intro"><div className="rail-title"><strong>法律辭典</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院來源 ↗</a></div><p>查一個法律名詞，或讓 AI 隨機抽一個司律常見用語。</p></div>
           {dictionaryFeatured && <div className="top-dictionary-featured"><div><span>AI 今日隨機</span><strong>{dictionaryFeatured.term}</strong></div><p>{dictionaryFeatured.content}</p><div><button type="button" onClick={teachFeaturedDictionaryTerm}>讓 AI 教我</button><button type="button" onClick={() => void loadRandomDictionary()} disabled={dictionaryFeaturedLoading}>{dictionaryFeaturedLoading ? "換題中…" : "換一個"}</button></div></div>}
           <div className="top-dictionary-search"><form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="例如：比例原則、抗告、系爭" aria-label="輸入法律名詞" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "查詢中…" : "查辭典"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><div className="dictionary-result-heading"><strong>{dictionaryResult.term}</strong><span>{dictionaryResult.sourceLabel}</span></div><p>{dictionaryResult.content}</p>{dictionaryResult.sourceNote && <small className="dictionary-source-note">{dictionaryResult.sourceNote}</small>}<div className="dictionary-result-actions"><a href={dictionaryResult.sourceUrl} target="_blank" rel="noreferrer" aria-label={`查看${dictionaryResult.term}完整詞條`}>看全文</a><button type="button" onClick={teachDictionaryTerm}>白話解析</button></div></div>}{dictionaryNotice && !dictionaryResult && dictionaryTerm.trim() && <div className="dictionary-result dictionary-ai-fallback"><div className="dictionary-result-heading"><strong>{dictionaryTerm.trim()}</strong><span>AI 整理</span></div><p>外部詞典目前沒有可引用的詞條；可以請 AI 依司律考試脈絡先做白話說明。</p><div className="dictionary-result-actions"><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院詞典</a><button type="button" onClick={teachUnknownDictionaryTerm}>AI 解釋</button></div></div>}</div>
         </section>
-        <article className="home-editorial-card rail-editorial-card"><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
-        <article className="home-editorial-card rail-editorial-card rail-magazine-card"><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>讀法教</h2><span>切換文章，再按「爭點解析」學習核心爭點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong>{magazineArticles.length > 1 ? <div className="magazine-tabs" role="tablist" aria-label="法學教室文章切換">{magazineArticles.map((article, index) => <button type="button" role="tab" aria-selected={selectedMagazineArticle?.id === article.id} className={selectedMagazineArticle?.id === article.id ? "active" : ""} onClick={() => setSelectedMagazineArticleId(article.id)} key={article.id}>{index + 1}</button>)}</div> : null}{selectedMagazineArticle ? <div className="magazine-article-panel" role="tabpanel"><div className="magazine-article-copy"><h3>{selectedMagazineArticle.title}</h3>{selectedMagazineArticle.summary && <p className="magazine-article-summary"><b>摘要</b>{selectedMagazineArticle.summary}</p>}</div><div className="magazine-article-actions"><button type="button" onClick={() => askMagazineArticle(selectedMagazineArticle)}>爭點解析</button>{selectedMagazineArticle.sourceUrl ? <a href={selectedMagazineArticle.sourceUrl} target="_blank" rel="noreferrer">查看這篇試讀 PDF ↗</a> : null}</div></div> : <p className="column-empty">本期文章正在整理中。</p>}<a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看本期法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
-        <article className="home-editorial-card rail-editorial-card rail-music-card"><div className="column-kicker">FOCUS MUSIC</div><div className="home-editorial-head"><div><h2>讀書音樂</h2><span>{musicPlaying ? "播放中 · 再按一次停止" : "需要時再開啟 · 請點擊播放音樂"}</span></div><button type="button" className="music-play-button" onClick={toggleMusic} aria-label={musicPlaying ? "停止讀書音樂" : "點擊播放讀書音樂"}><span>{musicPlaying ? "■" : "▶"}</span><b>{musicPlaying ? "停止音樂" : "播放音樂"}</b></button></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe className={`music-iframe ${musicActivated ? "is-active" : ""}`} title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen loading="eager" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">無法播放時，在 YouTube 開啟 ↗</a></> : <p className="column-empty">管理後台設定讀書音樂後，會在這裡提供播放。</p>}</article>
+        <article className={`home-editorial-card rail-editorial-card mobile-rail-panel ${mobileRailTool === "listening" ? "mobile-active" : ""}`}><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>聽解題專區</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} · ${homeFeed.listening.subject}` : "把解題變成可以反覆聽的學習段落"}</span></div><i>{homeFeed?.listening ? "▶" : "聽"}</i></div>{homeFeed?.listening ? <><p>先聽老師抓爭點，再回學習專區接續今天的題目。</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>}</article>
+        <article className={`home-editorial-card rail-editorial-card rail-magazine-card mobile-rail-panel ${mobileRailTool === "magazine" ? "mobile-active" : ""}`}><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>讀法教</h2><span>切換文章，再按「爭點解析」學習核心爭點</span></div><i>法</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong>{magazineArticles.length > 1 ? <div className="magazine-tabs" role="tablist" aria-label="法學教室文章切換">{magazineArticles.map((article, index) => <button type="button" role="tab" aria-selected={selectedMagazineArticle?.id === article.id} className={selectedMagazineArticle?.id === article.id ? "active" : ""} onClick={() => setSelectedMagazineArticleId(article.id)} key={article.id}>{index + 1}</button>)}</div> : null}{selectedMagazineArticle ? <div className="magazine-article-panel" role="tabpanel"><div className="magazine-article-copy"><h3>{selectedMagazineArticle.title}</h3>{selectedMagazineArticle.summary && <p className="magazine-article-summary"><b>摘要</b>{selectedMagazineArticle.summary}</p>}</div><div className="magazine-article-actions"><button type="button" onClick={() => askMagazineArticle(selectedMagazineArticle)}>爭點解析</button>{selectedMagazineArticle.sourceUrl ? <a href={selectedMagazineArticle.sourceUrl} target="_blank" rel="noreferrer">查看這篇試讀 PDF ↗</a> : null}</div></div> : <p className="column-empty">本期文章正在整理中。</p>}<a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">查看本期法學教室來源 →</a></> : <p className="column-empty">後台匯入並發布法學教室試讀內容後，最新專區會出現在這裡。</p>}</article>
+        <article className={`home-editorial-card rail-editorial-card rail-music-card mobile-rail-panel ${mobileRailTool === "music" ? "mobile-active" : ""}`}><div className="column-kicker">FOCUS MUSIC</div><div className="home-editorial-head"><div><h2>讀書音樂</h2><span>{musicPlaying ? "播放中 · 再按一次停止" : "需要時再開啟 · 請點擊播放音樂"}</span></div><button type="button" className="music-play-button" onClick={toggleMusic} aria-label={musicPlaying ? "停止讀書音樂" : "點擊播放讀書音樂"}><span>{musicPlaying ? "■" : "▶"}</span><b>{musicPlaying ? "停止音樂" : "播放音樂"}</b></button></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe className={`music-iframe ${musicActivated ? "is-active" : ""}`} title="司律備考讀書音樂" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen loading="eager" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">無法播放時，在 YouTube 開啟 ↗</a></> : <p className="column-empty">管理後台設定讀書音樂後，會在這裡提供播放。</p>}</article>
       </aside>
       </div>
 

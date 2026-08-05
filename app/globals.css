@@ -186,7 +186,8 @@ a {
 }
 .mobile-rail-toggle,
 .mobile-rail-backdrop,
-.mobile-rail-head {
+.mobile-rail-head,
+.mobile-rail-tabs {
   display: none;
 }
 .command-layout.rail-left {
@@ -9362,36 +9363,38 @@ a {
   .mobile-rail-toggle {
     position: fixed;
     z-index: 38;
-    top: 50%;
+    right: 14px;
+    bottom: 106px;
     display: flex;
     align-items: center;
-    gap: 3px;
-    min-height: 92px;
-    padding: 12px 8px;
+    gap: 7px;
+    min-height: 44px;
+    padding: 9px 13px;
     border: 1px solid #b8d0dc;
-    background: #ffffff;
-    color: #214f6c;
+    border-radius: 999px;
+    background: #1f6285;
+    color: #ffffff;
     box-shadow: 0 8px 22px rgba(29, 67, 91, 0.16);
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 850;
     cursor: pointer;
-    writing-mode: vertical-rl;
   }
   .mobile-rail-toggle b {
     font-size: 15px;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
   }
   .mobile-rail-toggle span {
-    font-size: 19px;
+    padding-right: 7px;
+    border-right: 1px solid rgba(255, 255, 255, 0.38);
+    font-size: 11px;
     line-height: 1;
   }
   .mobile-rail-toggle.rail-right {
-    right: 0;
-    border-radius: 14px 0 0 14px;
+    right: 14px;
   }
   .mobile-rail-toggle.rail-left {
-    left: 0;
-    border-radius: 0 14px 14px 0;
+    right: auto;
+    left: 14px;
   }
   .mobile-rail-backdrop {
     position: fixed;
@@ -9430,6 +9433,43 @@ a {
     font-size: 12px;
     font-weight: 800;
     cursor: pointer;
+  }
+  .mobile-rail-tabs {
+    position: sticky;
+    z-index: 2;
+    top: -12px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    margin: 0 -2px 4px;
+    padding: 10px 2px 8px;
+    background: #f8fbfd;
+  }
+  .mobile-rail-tabs button {
+    min-height: 40px;
+    padding: 7px 4px;
+    border: 1px solid #c8d9e2;
+    border-radius: 10px;
+    background: #fff;
+    color: #315e75;
+    font-size: 13px;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+  .mobile-rail-tabs button.active {
+    border-color: #2a6f91;
+    background: #2a6f91;
+    color: #fff;
+  }
+  .command-rail .mobile-rail-panel {
+    display: none;
+  }
+  .command-rail .mobile-rail-panel.mobile-active {
+    display: block;
+  }
+  .command-rail .rail-dictionary-card.mobile-active {
+    width: 100%;
+    margin-top: 0;
   }
   .rail-switch {
     display: none;
