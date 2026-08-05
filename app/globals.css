@@ -2397,6 +2397,53 @@ a {
   line-height: 1.45;
   text-align: center;
 }
+.chapter-progress-panel {
+  width: min(360px, 100%);
+  padding: 10px 11px;
+  border: 1px solid #b9d9e6;
+  border-radius: 10px;
+  background: #f4fbfd;
+  color: #386679;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.chapter-progress-panel.paused,
+.chapter-progress-panel.failed {
+  border-color: #e6c88e;
+  background: #fffaf0;
+  color: #80652b;
+}
+.chapter-progress-panel.completed {
+  border-color: #b9dfc9;
+  background: #effaf3;
+  color: #28724d;
+}
+.chapter-progress-heading,
+.chapter-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chapter-progress-heading strong { font-size: 11px; }
+.chapter-progress-heading span { font-weight: 900; }
+.chapter-progress-track {
+  height: 7px;
+  margin: 7px 0 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #dcecf1;
+}
+.chapter-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4f9db7, #79c9c0);
+  transition: width .35s ease;
+}
+.chapter-progress-meta { align-items: flex-start; flex-direction: column; gap: 2px; }
+.chapter-progress-meta small { color: inherit; opacity: .82; }
+.chapter-progress-error { display: block; margin-top: 6px; color: inherit; opacity: .9; }
 .index-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

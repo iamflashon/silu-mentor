@@ -105,11 +105,40 @@ type LearningResource = {
     analysisState?: "analyzed" | "captured" | "pending" | "failed";
   }>;
 };
+type ChapterProgress = {
+  state: "not_started" | "building" | "paused" | "failed" | "completed" | "needs_rebuild";
+  phase?: "outline" | "questions" | "saving" | "paused" | "failed";
+  completedTopics?: number;
+  totalTopics?: number;
+  foundQuestions?: number;
+  currentTopic?: string;
+  error?: string;
+  stale?: boolean;
+  lastUpdatedAt?: string | null;
+};
 
 function isProblemSolvingResource(resource: LearningResource) {
   return /解題|題庫|題型|案例演習|申論/.test(
     `${resource.title} ${resource.description}`,
   );
+}
+
+function chapterProgressPercent(progress?: ChapterProgress) {
+  if (!progress) return 0;
+  if (progress.state === "completed") return 100;
+  if (progress.totalTopics && progress.completedTopics != null)
+    return Math.min(99, Math.round((progress.completedTopics / progress.totalTopics) * 100));
+  return progress.phase === "questions" ? 12 : progress.phase === "saving" ? 92 : 4;
+}
+
+function chapterProgressLabel(progress?: ChapterProgress) {
+  if (!progress) return "尚未開始解析";
+  if (progress.state === "completed") return "解析完成";
+  if (progress.state === "paused") return "解析暫停，原資料仍保留";
+  if (progress.state === "failed") return "解析未完成，原資料仍保留";
+  if (progress.phase === "outline") return "正在讀取原書的部分與主題目錄";
+  if (progress.phase === "saving") return "正在保存已完成的題型";
+  return "正在逐一擷取題型與完整題目";
 }
 type SubtitleSegment = {
   id: number;
@@ -332,6 +361,7 @@ export default function AdminPage() {
   const [batchSourceId, setBatchSourceId] = useState<number | null>(null);
   const batchStopRef = useRef(false);
   const [resources, setResources] = useState<LearningResource[]>([]);
+  const [chapterProgress, setChapterProgress] = useState<Record<number, ChapterProgress>>({});
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceCreator, setResourceCreator] = useState("");
@@ -438,6 +468,24 @@ export default function AdminPage() {
   const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
   const [savingHomepage, setSavingHomepage] = useState(false);
 
+  async function refreshChapterProgress(resourceIds: number[]) {
+    const entries = await Promise.all(resourceIds.map(async (id) => {
+      try {
+        const response = await fetch(`/api/resources/chapters?resourceId=${id}&progress=1`, { cache: "no-store" });
+        if (!response.ok) return null;
+        const result = (await response.json()) as { progress?: ChapterProgress };
+        return result.progress ? [id, result.progress] as const : null;
+      } catch {
+        return null;
+      }
+    }));
+    setChapterProgress((current) => {
+      const next = { ...current };
+      for (const entry of entries) if (entry) next[entry[0]] = entry[1];
+      return next;
+    });
+  }
+
   useEffect(() => {
     fetch("/api/documents")
       .then(async (response) => {
@@ -488,6 +536,7 @@ export default function AdminPage() {
           ((await response.json()) as { resources?: LearningResource[] })
             .resources ?? [];
         setResources(loaded);
+        void refreshChapterProgress(loaded.filter((item) => item.resourceType === "book").map((item) => item.id));
         // 修復早期版本把整段 SRT 當成一筆文字保存的舊資料。
         await Promise.all(
           loaded
@@ -535,6 +584,13 @@ export default function AdminPage() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const bookIds = resources.filter((item) => item.resourceType === "book").map((item) => item.id);
+    if (!bookIds.length) return;
+    const timer = window.setInterval(() => void refreshChapterProgress(bookIds), 5_000);
+    return () => window.clearInterval(timer);
+  }, [resources]);
 
   async function saveFocusMusic(event: FormEvent) {
     event.preventDefault();
@@ -1592,6 +1648,10 @@ export default function AdminPage() {
       return;
     }
     setNotice(`正在從「${resource.title}」已建立的教材索引整理章節；不會重新上傳或讀取整份 PDF…`);
+    setChapterProgress((current) => ({
+      ...current,
+      [resource.id]: { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 },
+    }));
     const response = await fetch("/api/resources/chapters", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1604,10 +1664,17 @@ export default function AdminPage() {
       chapters?: unknown[];
       generated?: boolean;
       reused?: boolean;
+      status?: string;
+      progress?: ChapterProgress;
       error?: string;
     };
+    if (result.progress) setChapterProgress((current) => ({ ...current, [resource.id]: result.progress! }));
     if (!response.ok) {
       setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
+      return;
+    }
+    if (result.status === "paused" || result.status === "building") {
+      setNotice("解析已暫停；原資料仍保留，稍後可再按一次重新執行解析。");
       return;
     }
     const count = result.chapters?.length ?? 0;
@@ -2919,6 +2986,29 @@ export default function AdminPage() {
                                 ? "已建立好章節索引"
                                 : "建立章節索引（一次）"}
                           </button>
+                          {isProblemSolvingResource(resource) && (() => {
+                            const progress = chapterProgress[resource.id];
+                            const percent = chapterProgressPercent(progress);
+                            return (
+                              <div className={`chapter-progress-panel ${progress?.state ?? "not_started"}`} role="status">
+                                <div className="chapter-progress-heading">
+                                  <strong>{chapterProgressLabel(progress)}</strong>
+                                  <span>{percent}%</span>
+                                </div>
+                                <div className="chapter-progress-track"><i style={{ width: `${percent}%` }} /></div>
+                                <div className="chapter-progress-meta">
+                                  <span>
+                                    {progress?.totalTopics
+                                      ? `主題 ${progress.completedTopics ?? 0}／${progress.totalTopics}`
+                                      : "等待解析工作開始"}
+                                    {` · 已找到 ${progress?.foundQuestions ?? 0} 題`}
+                                  </span>
+                                  {progress?.currentTopic && <small>目前：{progress.currentTopic}</small>}
+                                </div>
+                                {progress?.error && <small className="chapter-progress-error">{progress.error}</small>}
+                              </div>
+                            );
+                          })()}
                           {Number(resource.chapterCount ?? 0) > 0 && !isProblemSolvingResource(resource) && (
                             <span className="chapter-index-complete" role="status">
                               ✓ 已建立好章節索引（{Number(resource.chapterCount)} 章）

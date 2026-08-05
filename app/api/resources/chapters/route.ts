@@ -43,6 +43,16 @@ const PROBLEM_TOPIC_BATCH_SIZE = 1;
 const PROBLEM_FILE_SEARCH_RESULTS = 16;
 const MIN_COMPLETE_PROBLEM_QUESTIONS = 8;
 
+type ChapterProgress = {
+  state: "not_started" | "building" | "paused" | "failed" | "completed";
+  phase?: "outline" | "questions" | "saving" | "paused" | "failed";
+  completedTopics?: number;
+  totalTopics?: number;
+  foundQuestions?: number;
+  currentTopic?: string;
+  error?: string;
+};
+
 function chapterStatusKey(resourceId: number) {
   return `book_chapters_status:${resourceId}`;
 }
@@ -130,25 +140,51 @@ function isCompleteProblemQuestion(chapter: {
   return /題型\s*\d+(?:\.\d+)+|第\s*\d+\s*題/.test(title) && stem.length >= 30;
 }
 
-async function readChapterStatus(resourceId: number) {
+async function readChapterProgressRecord(resourceId: number) {
   const db = await getDb();
   const [setting] = await db
     .select()
     .from(appSettings)
     .where(eq(appSettings.key, chapterStatusKey(resourceId)))
     .limit(1);
-  return setting?.value ?? "not_started";
+  if (!setting) return { progress: { state: "not_started" } as ChapterProgress, updatedAt: null as Date | null };
+  try {
+    const parsed = JSON.parse(setting.value) as ChapterProgress;
+    if (parsed && typeof parsed.state === "string") return { progress: parsed, updatedAt: setting.updatedAt };
+  } catch {
+    // Older versions stored only a plain status string.
+  }
+  const state = ["building", "paused", "failed", "completed"].includes(setting.value)
+    ? setting.value as ChapterProgress["state"]
+    : "not_started";
+  return { progress: { state }, updatedAt: setting.updatedAt };
 }
 
-async function writeChapterStatus(resourceId: number, value: string) {
+async function readChapterStatus(resourceId: number) {
+  return (await readChapterProgressRecord(resourceId)).progress.state;
+}
+
+async function writeChapterProgress(resourceId: number, progress: ChapterProgress) {
   const db = await getDb();
   await db
     .insert(appSettings)
-    .values({ key: chapterStatusKey(resourceId), value, updatedAt: new Date() })
+    .values({ key: chapterStatusKey(resourceId), value: JSON.stringify(progress), updatedAt: new Date() })
     .onConflictDoUpdate({
       target: appSettings.key,
-      set: { value, updatedAt: new Date() },
+      set: { value: JSON.stringify(progress), updatedAt: new Date() },
     });
+}
+
+function progressForResponse(progress: ChapterProgress, updatedAt: Date | null) {
+  const stale = progress.state === "building" && updatedAt
+    ? Date.now() - updatedAt.getTime() > 120_000
+    : false;
+  return {
+    ...progress,
+    stale,
+    lastUpdatedAt: updatedAt?.toISOString() ?? null,
+    ...(stale ? { state: "paused", phase: "paused", error: "上一輪解析可能已中斷；原資料仍保留，請重新執行解析。" } : {}),
+  };
 }
 
 async function readChapters(resourceId: number) {
@@ -189,7 +225,12 @@ export async function GET(request: Request) {
       return Response.json({ error: "找不到書籍" }, { status: 404 });
 
     const chapters = await readChapters(resourceId);
-    const status = await readChapterStatus(resourceId);
+    const progressRecord = await readChapterProgressRecord(resourceId);
+    const progress = progressForResponse(progressRecord.progress, progressRecord.updatedAt);
+    if (new URL(request.url).searchParams.get("progress") === "1") {
+      return Response.json({ resourceId, status: progress.state, progress });
+    }
+    const status = progress.state;
     const problemBook = isProblemBook(resource);
     const usableChapters = problemBook
       ? chapters.filter(isCompleteProblemQuestion)
@@ -203,6 +244,7 @@ export async function GET(request: Request) {
         generated: false,
         ready: true,
         status: "completed",
+        progress,
       });
     }
 
@@ -213,6 +255,7 @@ export async function GET(request: Request) {
         ready: false,
         status: "needs_rebuild",
         invalidCount: chapters.length,
+        progress,
         message:
           usableChapters.length > 0
             ? `目前只擷取到 ${usableChapters.length} 道完整題目，明顯未涵蓋整本解題書；請到後台重新分批擷取。`
@@ -226,6 +269,7 @@ export async function GET(request: Request) {
         generated: false,
         ready: false,
         status,
+        progress,
         message: "這本書尚未綁定後台教材。",
       });
     }
@@ -240,6 +284,7 @@ export async function GET(request: Request) {
         generated: false,
         ready: false,
         status,
+        progress,
         message: "這本書尚未完成教材索引。",
       });
     }
@@ -250,6 +295,7 @@ export async function GET(request: Request) {
           generated: false,
           ready: false,
           status,
+          progress,
           documentStatus: document.status,
           message:
             document.status === "failed"
@@ -266,6 +312,7 @@ export async function GET(request: Request) {
           generated: false,
           ready: false,
           status,
+          progress,
           message: "後台正在建立章節索引，完成後即可讀取。",
         },
         { status: 202 },
@@ -277,6 +324,7 @@ export async function GET(request: Request) {
         generated: false,
         ready: true,
         status,
+        progress,
         message:
           "章節索引曾建立失敗；請由管理後台明確按下「建立章節索引」再試一次。",
       });
@@ -341,10 +389,14 @@ export async function POST(request: Request) {
         status: "completed",
       });
 
-    const status = await readChapterStatus(resourceId);
-    if (status === "building")
+    const progressRecord = await readChapterProgressRecord(resourceId);
+    const previousProgress = progressRecord.progress;
+    const staleBuilding = previousProgress.state === "building" && progressRecord.updatedAt
+      ? Date.now() - progressRecord.updatedAt.getTime() > 120_000
+      : false;
+    if (previousProgress.state === "building" && !staleBuilding)
       return Response.json(
-        { error: "章節索引正在建立中，請稍後再試。", status },
+        { error: "章節索引正在建立中，請稍後再試。", status: "building", progress: progressForResponse(previousProgress, progressRecord.updatedAt) },
         { status: 202 },
       );
 
@@ -383,7 +435,13 @@ export async function POST(request: Request) {
         { status: 409 },
       );
 
-    await writeChapterStatus(resourceId, "building");
+    await writeChapterProgress(resourceId, {
+      state: "building",
+      phase: problemBook ? "outline" : "questions",
+      completedTopics: 0,
+      totalTopics: 0,
+      foundQuestions: 0,
+    });
     const extractionModel =
       process.env.OPENAI_EXTRACTION_MODEL ||
       process.env.OPENAI_MODEL ||
@@ -431,8 +489,17 @@ export async function POST(request: Request) {
         }),
       });
       const topics = parseProblemOutline(outlinePayload);
+      await writeChapterProgress(resourceId, {
+        state: "building", phase: "questions", completedTopics: 0,
+        totalTopics: topics.length, foundQuestions: 0,
+      });
       for (let index = 0; index < topics.length; index += PROBLEM_TOPIC_BATCH_SIZE) {
         const batch = topics.slice(index, index + PROBLEM_TOPIC_BATCH_SIZE);
+        await writeChapterProgress(resourceId, {
+          state: "building", phase: "questions", completedTopics: index,
+          totalTopics: topics.length, foundQuestions: parsed.filter(isCompleteProblemQuestion).length,
+          currentTopic: `${batch[0]?.section ?? ""}｜${batch[0]?.topic ?? ""}`,
+        });
         const payload = await openAIJson("/responses", {
           method: "POST",
           body: JSON.stringify({
@@ -444,6 +511,11 @@ export async function POST(request: Request) {
           }),
         });
         parsed.push(...parseChapterPayload(payload));
+        await writeChapterProgress(resourceId, {
+          state: "building", phase: "questions", completedTopics: index + 1,
+          totalTopics: topics.length, foundQuestions: parsed.filter(isCompleteProblemQuestion).length,
+          currentTopic: topics[index + 1] ? `${topics[index + 1].section}｜${topics[index + 1].topic}` : "",
+        });
       }
     } else {
       const payload = await openAIJson("/responses", {
@@ -475,7 +547,7 @@ export async function POST(request: Request) {
       ? parsed.filter(isCompleteProblemQuestion).filter((chapter, index, all) => all.findIndex((candidate) => problemQuestionKey(candidate) === problemQuestionKey(chapter)) === index)
       : parsed;
     if (!generated.length || (problemBook && generated.length < MIN_COMPLETE_PROBLEM_QUESTIONS)) {
-      await writeChapterStatus(resourceId, "failed");
+      await writeChapterProgress(resourceId, { state: "failed", phase: "failed", foundQuestions: generated.length, error: "本次未達最低完整度，原資料未被覆蓋。" });
       return Response.json(
         {
           error: problemBook
@@ -539,7 +611,7 @@ export async function POST(request: Request) {
             .returning()),
         );
       }
-      await writeChapterStatus(resourceId, "completed");
+      await writeChapterProgress(resourceId, { state: "completed", phase: "saving", foundQuestions: inserted.length });
       return Response.json({
         chapters: inserted,
         generated: true,
@@ -562,15 +634,20 @@ export async function POST(request: Request) {
       throw insertError;
     }
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message.slice(0, 240) : "建立章節索引失敗";
+    const paused = /較忙|限流|rate.?limit|429|try again/i.test(message);
     if (resourceId) {
       try {
-        await writeChapterStatus(resourceId, "failed");
+        await writeChapterProgress(resourceId, {
+          state: paused ? "paused" : "failed",
+          phase: paused ? "paused" : "failed",
+          error: paused ? "AI 目前較忙；已保留原資料，稍後可重新執行解析。" : message,
+        });
       } catch {
         /* preserve original error */
       }
     }
-    const message =
-      error instanceof Error ? error.message.slice(0, 240) : "建立章節索引失敗";
-    return Response.json({ error: message, status: "failed" }, { status: 500 });
+    return Response.json({ error: paused ? undefined : message, status: paused ? "paused" : "failed" }, { status: paused ? 202 : 500 });
   }
 }
