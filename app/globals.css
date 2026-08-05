@@ -9794,11 +9794,68 @@ a {
     max-width: 96%;
   }
   .calendar-grid {
-    overflow-x: auto;
-    grid-template-columns: repeat(7, minmax(130px, 1fr));
+    width: 100%;
+    overflow: hidden;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    border-radius: 12px;
+  }
+  .calendar-toolbar {
+    gap: 10px;
+    margin-bottom: 9px;
+  }
+  .calendar-toolbar button {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    font-size: 19px;
+  }
+  .calendar-toolbar strong {
+    min-width: 116px;
+    font-size: 14px;
+  }
+  .weekday {
+    padding: 7px 1px;
+    font-size: 10px;
+  }
+  .calendar-day {
+    min-height: 92px;
+    padding: 5px 3px;
+  }
+  .day-number {
+    font-size: 10px;
+  }
+  .day-tasks {
+    gap: 3px;
+    margin-top: 5px;
+  }
+  .calendar-task {
+    gap: 3px;
+    padding: 4px 3px;
+    border-radius: 6px;
+  }
+  .calendar-task > button {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    font-size: 9px;
+  }
+  .calendar-task strong {
+    font-size: 8px;
+  }
+  .calendar-task span {
+    margin: 1px 0;
+    font-size: 9px;
+  }
+  .calendar-task small {
+    display: none;
+  }
+  .day-add {
+    top: 3px;
+    right: 3px;
+    font-size: 12px;
   }
   .plan-main {
-    overflow-x: auto;
+    overflow-x: hidden;
   }
   .note-list {
     grid-template-columns: 1fr;
