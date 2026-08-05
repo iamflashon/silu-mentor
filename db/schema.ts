@@ -11,6 +11,18 @@ export const documents = sqliteTable("documents", {
   status: text("status").notNull().default("uploaded"),
   openaiFileId: text("openai_file_id"),
   indexError: text("index_error"),
+  processingStage: text("processing_stage").notNull().default("queued"),
+  processingMessage: text("processing_message").notNull().default("等待自動處理"),
+  fileSha256: text("file_sha256"),
+  pageCount: integer("page_count"),
+  extractedChars: integer("extracted_chars").notNull().default(0),
+  chapterCount: integer("chapter_count").notNull().default(0),
+  questionCount: integer("question_count").notNull().default(0),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  processingResultJson: text("processing_result_json").notNull().default("{}"),
+  fullTextIndexed: integer("full_text_indexed", { mode: "boolean" }).notNull().default(false),
+  vectorIndexed: integer("vector_indexed", { mode: "boolean" }).notNull().default(false),
+  processedAt: integer("processed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

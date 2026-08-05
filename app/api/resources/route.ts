@@ -51,6 +51,12 @@ export async function GET() {
       sortOrder: learningResources.sortOrder,
       documentStatus: documents.status,
       documentError: documents.indexError,
+      documentProcessingStage: documents.processingStage,
+      documentProcessingMessage: documents.processingMessage,
+      documentChapterCount: documents.chapterCount,
+      documentQuestionCount: documents.questionCount,
+      documentExtractedChars: documents.extractedChars,
+      documentTagsJson: documents.tagsJson,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
       segmentCount: sql<number>`count(${resourceSegments.id})`,
       chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') then 1 else 0 end)`,
@@ -62,7 +68,7 @@ export async function GET() {
       eq(resourceSegments.resourceId, learningResources.id),
     )
     .leftJoin(documents, eq(learningResources.documentId, documents.id))
-    .groupBy(learningResources.id, documents.status, documents.indexError)
+    .groupBy(learningResources.id, documents.status, documents.indexError, documents.processingStage, documents.processingMessage, documents.chapterCount, documents.questionCount, documents.extractedChars, documents.tagsJson)
     .orderBy(asc(learningResources.sortOrder), asc(learningResources.createdAt));
   const articleRows = await db
     .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
@@ -129,6 +135,7 @@ export async function GET() {
         analyzedArticleCount,
         failedArticleCount,
         pendingArticleCount: articlePreviews.length - analyzedArticleCount - failedArticleCount,
+        documentTags: (() => { try { return JSON.parse(row.documentTagsJson ?? "[]"); } catch { return []; } })(),
       };
     }),
   });

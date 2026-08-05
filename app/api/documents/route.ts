@@ -1,8 +1,17 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { chatMessages, documents } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
-import { openAIJson } from "../../../lib/openai";
+import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../lib/document-processing";
+
+function processingResult(value: string) {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 function safeName(value: string) {
   return value.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
@@ -11,21 +20,7 @@ function safeName(value: string) {
 export async function GET() {
   try {
     const db = await getDb();
-    let rows = await db.select().from(documents).orderBy(desc(documents.createdAt)).limit(50);
-    const processing = rows.filter((row) => row.openaiFileId && ["in_progress", "uploading_to_index"].includes(row.status));
-    if (processing.length) {
-      const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-      if (setting?.value) {
-        await Promise.all(processing.map(async (row) => {
-          try {
-            const result = await openAIJson(`/vector_stores/${setting.value}/files/${row.openaiFileId}`);
-            const status = typeof result.status === "string" ? result.status : row.status;
-            await db.update(documents).set({ status, indexError: status === "failed" ? "索引服務未能處理此文件" : null }).where(eq(documents.id, row.id));
-          } catch { /* keep last known status */ }
-        }));
-        rows = await db.select().from(documents).where(inArray(documents.id, rows.map((row) => row.id))).orderBy(desc(documents.createdAt));
-      }
-    }
+    const rows = await db.select().from(documents).orderBy(desc(documents.createdAt)).limit(50);
     const [documentStats] = await db.select({
       total: sql<number>`count(*)`,
       ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
@@ -36,16 +31,38 @@ export async function GET() {
       misses: sql<number>`coalesce(sum(case when ${chatMessages.source} = 'AI 補充' then 1 else 0 end), 0)`,
     }).from(chatMessages).where(eq(chatMessages.role, "mentor"));
     const [indexSetting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-    return Response.json({ documents: rows.map((row) => ({
-      id: row.id,
-      name: row.fileName,
-      subject: row.subject,
-      type: row.documentType,
-      sizeBytes: row.sizeBytes,
-      status: row.status,
-      error: row.indexError,
-      createdAt: row.createdAt,
-    })), stats: {
+    return Response.json({ documents: rows.map((row) => {
+      const result = processingResult(row.processingResultJson);
+      const chapters = Array.isArray(result.chapters) ? result.chapters.slice(0, 12) : [];
+      const questions = Array.isArray(result.questions) ? result.questions.slice(0, 12) : [];
+      return {
+        id: row.id,
+        name: row.fileName,
+        subject: row.subject,
+        type: row.documentType,
+        sizeBytes: row.sizeBytes,
+        status: row.status,
+        error: row.indexError,
+        processingStage: row.processingStage === "queued" && row.status === "completed" ? "completed" : row.processingStage,
+        processingMessage: row.processingMessage,
+        pageCount: row.pageCount,
+        extractedChars: row.extractedChars,
+        chapterCount: row.chapterCount,
+        questionCount: row.questionCount,
+        tags: (() => { try { return JSON.parse(row.tagsJson); } catch { return []; } })(),
+        fullTextIndexed: row.fullTextIndexed,
+        vectorIndexed: row.vectorIndexed,
+        summary: typeof result.summary === "string" ? result.summary : "",
+        sourceFileName: typeof result.sourceFileName === "string" ? result.sourceFileName : row.fileName,
+        indexedFileName: typeof result.indexedFileName === "string" ? result.indexedFileName : row.fileName,
+        extractionNote: typeof result.extractionNote === "string" ? result.extractionNote : "",
+        analysisStatus: typeof result.analysisStatus === "string" ? result.analysisStatus : "",
+        chapters,
+        questions,
+        processedAt: row.processedAt,
+        createdAt: row.createdAt,
+      };
+    }), stats: {
       total: Number(documentStats?.total ?? 0),
       ready: Number(documentStats?.ready ?? 0),
       indexedBytes: Number(documentStats?.indexedBytes ?? 0),
@@ -65,14 +82,14 @@ export async function POST(request: Request) {
     const subject = String(form.get("subject") ?? "").trim();
     const documentType = String(form.get("documentType") ?? "").trim();
 
-    if (!(file instanceof File) || file.type !== "application/pdf") {
-      return Response.json({ error: "請上傳 PDF 文件" }, { status: 400 });
+    if (!(file instanceof File) || !isSupportedDocument(file.name, file.type)) {
+      return Response.json({ error: "請上傳 PDF、JSONL、TXT 或 ZIP 文件" }, { status: 400 });
     }
     if (!subject || !documentType) {
       return Response.json({ error: "請選擇科目與文件類型" }, { status: 400 });
     }
-    if (file.size > 55 * 1024 * 1024) {
-      return Response.json({ error: "PDF 不可超過 55MB" }, { status: 413 });
+    if (file.size > MAX_DOCUMENT_BYTES) {
+      return Response.json({ error: "教材文件不可超過 55MB" }, { status: 413 });
     }
 
     const { env } = await import("cloudflare:workers");
@@ -81,7 +98,7 @@ export async function POST(request: Request) {
 
     const key = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName(file.name)}`;
     await bucket.put(key, file.stream(), {
-      httpMetadata: { contentType: file.type },
+      httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) },
       customMetadata: { subject, documentType, originalName: file.name },
     });
 
@@ -90,7 +107,7 @@ export async function POST(request: Request) {
       const [row] = await db.insert(documents).values({
         storageKey: key,
         fileName: file.name,
-        contentType: file.type,
+        contentType: contentTypeForDocument(file.name, file.type),
         sizeBytes: file.size,
         subject,
         documentType,
