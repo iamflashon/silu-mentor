@@ -436,7 +436,11 @@ export function PracticeLab({ initialType }: Props) {
         <legend>申論批改模型</legend>
         <div>
           {options.map((option) => (
-            <label key={option.value}>
+            <label
+              key={option.value}
+              className={essayModelMode === option.value ? "selected" : ""}
+              onClick={() => setEssayModelMode(option.value)}
+            >
               <input
                 type="radio"
                 name="essay-grading-model"
