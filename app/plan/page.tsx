@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type ClipboardEvent,
   type FormEvent,
   type ReactNode,
   useEffect,
@@ -79,6 +80,8 @@ type LearningAnalysis = {
 };
 type SavedNote = {
   id: number;
+  sourceType?: string;
+  sourceId?: string | null;
   title: string;
   content: string;
   subject: string;
@@ -474,6 +477,14 @@ export default function StudyPlanPage() {
   const [myCourseScreenshotDataUrl, setMyCourseScreenshotDataUrl] = useState("");
   const [myCourseScreenshotName, setMyCourseScreenshotName] = useState("");
   const [myCourseNoteMessage, setMyCourseNoteMessage] = useState("");
+  const [publicCourseAiInput, setPublicCourseAiInput] = useState("");
+  const [publicCourseLastQuestion, setPublicCourseLastQuestion] = useState("");
+  const [publicCourseAiReply, setPublicCourseAiReply] = useState("");
+  const [publicCourseAiLoading, setPublicCourseAiLoading] = useState(false);
+  const [publicCourseAiNotice, setPublicCourseAiNotice] = useState("");
+  const [publicCourseScreenshotDataUrl, setPublicCourseScreenshotDataUrl] = useState("");
+  const [publicCourseScreenshotName, setPublicCourseScreenshotName] = useState("");
+  const [publicCourseNoteMessage, setPublicCourseNoteMessage] = useState("");
   const myCoursePlaylistFetchesRef = useRef<Set<number>>(new Set());
   const [magazineQuery, setMagazineQuery] = useState("");
   const [magazineYearFilter, setMagazineYearFilter] = useState("全部年度");
@@ -1162,6 +1173,21 @@ export default function StudyPlanPage() {
   const selectedMyCourse = myCourses.find((course) => course.id === selectedMyCourseId) ?? myCourses[0] ?? null;
   const selectedMyPlaylistItems = selectedMyCourse ? myCoursePlaylistItems[selectedMyCourse.id] ?? [] : [];
   const selectedMyEpisode = selectedMyPlaylistItems.find((item) => item.videoId === selectedMyEpisodeId) ?? selectedMyPlaylistItems[0] ?? null;
+  const selectedPublicCourse = courseCollections
+    .flatMap((collection) => collection.courses)
+    .find((course) => course.id === selectedPublicCourseId) ??
+    courseCollections
+      .flatMap((collection) => collection.courses)
+      .find((course) => publicCourseSubject === "全部" || course.subject === publicCourseSubject) ??
+    null;
+  const selectedPublicPlaylistItems = selectedPublicCourse ? playlistItemsByCourse[selectedPublicCourse.id] ?? [] : [];
+  const selectedPublicEpisode = selectedPublicPlaylistItems.find((item) => item.videoId === selectedPublicEpisodeId) ?? selectedPublicPlaylistItems[0] ?? null;
+  const myCourseNotes = selectedMyCourse
+    ? notes.filter((note) => note.sourceId === `my-course:${selectedMyCourse.id}:${selectedMyEpisode?.videoId ?? "course"}`)
+    : [];
+  const publicCourseNotes = selectedPublicCourse
+    ? notes.filter((note) => note.sourceId === `public-course:${selectedPublicCourse.id}:${selectedPublicEpisode?.videoId ?? "course"}`)
+    : [];
   const managedTrialResources = resources
     .filter((item) => item.resourceType === "trial" && item.status === "active")
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
@@ -2146,6 +2172,24 @@ export default function StudyPlanPage() {
     setSelectedMyCourseId((current) => current === course.id ? null : current);
   }
 
+  function resetMyCourseAiDraft() {
+    setMyCourseScreenshotDataUrl("");
+    setMyCourseScreenshotName("");
+    setMyCourseAiReply("");
+    setMyCourseAiNotice("");
+    setMyCourseLastQuestion("");
+    setMyCourseNoteMessage("");
+  }
+
+  function resetPublicCourseAiDraft() {
+    setPublicCourseScreenshotDataUrl("");
+    setPublicCourseScreenshotName("");
+    setPublicCourseAiReply("");
+    setPublicCourseAiNotice("");
+    setPublicCourseLastQuestion("");
+    setPublicCourseNoteMessage("");
+  }
+
   async function askMyCourseAi(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const question = myCourseAiInput.trim();
@@ -2185,13 +2229,18 @@ export default function StudyPlanPage() {
     }
   }
 
-  function loadMyCourseScreenshot(file: File) {
+  function loadCourseScreenshotFile(
+    file: File,
+    onData: (dataUrl: string) => void,
+    onName: (name: string) => void,
+    onNotice: (notice: string) => void,
+  ) {
     if (!file.type.startsWith("image/")) {
-      setMyCourseAiNotice("請選擇圖片格式的課程截圖。");
+      onNotice("請選擇圖片格式的課程截圖。");
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      setMyCourseAiNotice("截圖請控制在 8MB 以下。");
+      onNotice("截圖請控制在 8MB 以下。");
       return;
     }
     const reader = new FileReader();
@@ -2204,24 +2253,46 @@ export default function StudyPlanPage() {
         canvas.height = Math.max(1, Math.round(image.height * scale));
         const context = canvas.getContext("2d");
         if (!context) {
-          setMyCourseAiNotice("截圖讀取失敗，請換一張圖片再試。");
+          onNotice("截圖讀取失敗，請換一張圖片再試。");
           return;
         }
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        setMyCourseScreenshotDataUrl(canvas.toDataURL("image/jpeg", 0.78));
-        setMyCourseScreenshotName(file.name);
-        setMyCourseAiNotice("截圖已加入；輸入問題後即可讓 AI 依畫面協助判斷。");
+        onData(canvas.toDataURL("image/jpeg", 0.78));
+        onName(file.name || "課程截圖.jpg");
+        onNotice("截圖已加入；輸入問題後即可讓 AI 依畫面協助判斷。若是 YouTube 內嵌播放器，請用裝置截圖後在這裡貼上。 ");
       };
-      image.onerror = () => setMyCourseAiNotice("截圖讀取失敗，請換一張圖片再試。");
+      image.onerror = () => onNotice("截圖讀取失敗，請換一張圖片再試。");
       image.src = String(reader.result ?? "");
     };
-    reader.onerror = () => setMyCourseAiNotice("截圖讀取失敗，請換一張圖片再試。");
+    reader.onerror = () => onNotice("截圖讀取失敗，請換一張圖片再試。");
     reader.readAsDataURL(file);
+  }
+
+  function loadMyCourseScreenshot(file: File) {
+    loadCourseScreenshotFile(
+      file,
+      setMyCourseScreenshotDataUrl,
+      setMyCourseScreenshotName,
+      setMyCourseAiNotice,
+    );
+  }
+
+  function handleScreenshotPaste(
+    event: ClipboardEvent,
+    onLoad: (file: File) => void,
+  ) {
+    const image = Array.from(event.clipboardData.items)
+      .find((item) => item.type.startsWith("image/"))
+      ?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    onLoad(new File([image], `貼上的課程截圖-${Date.now()}.png`, { type: image.type }));
   }
 
   async function saveMyCourseScreenshotNote() {
     if (!selectedMyCourse || !myCourseScreenshotDataUrl) return;
     const episodeTitle = selectedMyEpisode?.title ?? "整個播放清單";
+    const episodeKey = selectedMyEpisode?.videoId ?? "course";
     const content = `課程：${selectedMyCourse.title}\n單元：${episodeTitle}\n\n我的問題：${myCourseLastQuestion || myCourseAiInput.trim() || "尚未輸入問題"}\n\nAI 回答：${myCourseAiReply || "尚未取得 AI 回答"}`;
     setMyCourseNoteMessage("正在保存截圖筆記…");
     const response = await fetch("/api/notes", {
@@ -2229,7 +2300,7 @@ export default function StudyPlanPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         sourceType: "my-course-screenshot",
-        sourceId: String(selectedMyCourse.id),
+        sourceId: `my-course:${selectedMyCourse.id}:${episodeKey}`,
         title: `${selectedMyCourse.title}｜${episodeTitle}`,
         content,
         subject: selectedMyCourse.subject,
@@ -2249,6 +2320,78 @@ export default function StudyPlanPage() {
     const notesResponse = await fetch("/api/notes");
     if (notesResponse.ok) setNotes(((await notesResponse.json()) as { notes?: SavedNote[] }).notes ?? []);
     setMyCourseNoteMessage("已保存到筆記收藏；下次可從筆記繼續複習。");
+  }
+
+  async function askPublicCourseAi(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = publicCourseAiInput.trim();
+    if (!question || !selectedPublicCourse || publicCourseAiLoading) return;
+    setPublicCourseLastQuestion(question);
+    setPublicCourseAiLoading(true);
+    setPublicCourseAiReply("");
+    setPublicCourseAiNotice("");
+    const episodeTitle = selectedPublicEpisode?.title ?? "整個播放清單";
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: [{
+            role: "student",
+            text: `開放課程：${selectedPublicCourse.title}；科目：${selectedPublicCourse.subject}；目前單元：${episodeTitle}。這是平台整理的 YouTube 公開課程，平台沒有影片逐字稿。${publicCourseScreenshotDataUrl ? "學生提供了一張目前課程畫面截圖，請只依截圖中看得到的文字與畫面回答。" : "請只依學生輸入的問題與可靠的一般法律知識回答，不要假設你看過或聽過影片。"} 若問題涉及老師口頭說法，請指出需要學生補上老師原話或聽課筆記。\n學生問題：${question}`,
+          }],
+          visibleStudentText: question,
+          imageDataUrl: publicCourseScreenshotDataUrl || undefined,
+          context: {
+            type: "public-course",
+            resourceId: selectedPublicCourse.id,
+            resourceTitle: selectedPublicCourse.title,
+            episodeTitle,
+          },
+        }),
+      });
+      const result = (await response.json()) as { reply?: string; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "AI 暫時無法回應");
+      setPublicCourseAiReply(result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。");
+      setPublicCourseAiInput("");
+    } catch (error) {
+      setPublicCourseAiNotice(error instanceof Error ? error.message : "AI 暫時無法回應");
+    } finally {
+      setPublicCourseAiLoading(false);
+    }
+  }
+
+  async function savePublicCourseScreenshotNote() {
+    if (!selectedPublicCourse || !publicCourseScreenshotDataUrl) return;
+    const episodeTitle = selectedPublicEpisode?.title ?? "整個播放清單";
+    const episodeKey = selectedPublicEpisode?.videoId ?? "course";
+    const content = `課程：${selectedPublicCourse.title}\n單元：${episodeTitle}\n\n我的問題：${publicCourseLastQuestion || publicCourseAiInput.trim() || "尚未輸入問題"}\n\nAI 回答：${publicCourseAiReply || "尚未取得 AI 回答"}`;
+    setPublicCourseNoteMessage("正在保存截圖筆記…");
+    const response = await fetch("/api/notes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceType: "public-course-screenshot",
+        sourceId: `public-course:${selectedPublicCourse.id}:${episodeKey}`,
+        title: `${selectedPublicCourse.title}｜${episodeTitle}`,
+        content,
+        subject: selectedPublicCourse.subject,
+        tags: "開放課、截圖、待複習",
+        sourceLabel: `${selectedPublicCourse.title}｜${episodeTitle}`,
+        imageDataUrl: publicCourseScreenshotDataUrl,
+        imageSourceUrl: selectedPublicCourse.sourceUrl,
+        episodeTitle,
+        positionSeconds: 0,
+      }),
+    });
+    const result = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setPublicCourseNoteMessage(result.error ?? "截圖筆記保存失敗");
+      return;
+    }
+    const notesResponse = await fetch("/api/notes");
+    if (notesResponse.ok) setNotes(((await notesResponse.json()) as { notes?: SavedNote[] }).notes ?? []);
+    setPublicCourseNoteMessage("已保存；筆記會留在這一集影片下方，也可到筆記收藏查看。");
   }
 
   return (
@@ -2609,13 +2752,13 @@ export default function StudyPlanPage() {
               <aside className={`my-course-list ${myCourseListCollapsed ? "is-collapsed" : ""}`} aria-label="我的課清單">
                 <div className="my-course-list-head"><button type="button" className="course-panel-toggle" aria-expanded={!myCourseListCollapsed} onClick={() => setMyCourseListCollapsed((value) => !value)}><span><strong>我的課清單</strong><small>只有你看得到</small></span><b aria-hidden="true">{myCourseListCollapsed ? "›" : "‹"}</b></button></div>
                 {!myCourseListCollapsed && <>
-                  {myCourses.map((course, index) => <button type="button" className={`my-course-list-item ${selectedMyCourse?.id === course.id ? "active" : ""}`} key={course.id} onClick={() => { setSelectedMyCourseId(course.id); setSelectedMyEpisodeId(null); }}><i>{String(index + 1).padStart(2, "0")}</i><span><strong>{course.title}</strong><small>{course.subject} · {course.examType} · {course.scope}</small></span><b>{course.sourceKind === "playlist" ? `${course.metadata?.itemCount || myCoursePlaylistItems[course.id]?.length || "…"} 集` : "影片"}</b></button>)}
+                  {myCourses.map((course, index) => <button type="button" className={`my-course-list-item ${selectedMyCourse?.id === course.id ? "active" : ""}`} key={course.id} onClick={() => { resetMyCourseAiDraft(); setSelectedMyCourseId(course.id); setSelectedMyEpisodeId(null); }}><i>{String(index + 1).padStart(2, "0")}</i><span><strong>{course.title}</strong><small>{course.subject} · {course.examType} · {course.scope}</small></span><b>{course.sourceKind === "playlist" ? `${course.metadata?.itemCount || myCoursePlaylistItems[course.id]?.length || "…"} 集` : "影片"}</b></button>)}
                   {!myCourses.length && <p className="my-course-empty">先在上方貼一個 YouTube 網址，這裡就會建立你的第一堂課。</p>}
                 </>}
               </aside>
               {selectedMyCourse ? <div className={`my-course-player-layout ${selectedMyCourse.sourceKind === "playlist" ? "has-playlist" : ""} ${myCoursePlaylistCollapsed ? "my-course-playlist-collapsed" : ""}`}>
-                {selectedMyCourse.sourceKind === "playlist" && <aside className={`my-course-playlist ${myCoursePlaylistCollapsed ? "is-collapsed" : ""}`} aria-label="我的課播放清單"><div className="my-course-playlist-head"><button type="button" className="course-panel-toggle" aria-expanded={!myCoursePlaylistCollapsed} onClick={() => setMyCoursePlaylistCollapsed((value) => !value)}><span><strong>播放清單</strong><small>{selectedMyPlaylistItems.length ? `${selectedMyPlaylistItems.length} 集` : myCoursePlaylistMessages[selectedMyCourse.id] ?? "正在讀取…"}</small></span><b aria-hidden="true">{myCoursePlaylistCollapsed ? "›" : "‹"}</b></button></div>{!myCoursePlaylistCollapsed && selectedMyPlaylistItems.map((item, index) => <button type="button" className={`my-course-episode ${selectedMyEpisode?.videoId === item.videoId ? "active" : ""}`} key={item.videoId} onClick={() => setSelectedMyEpisodeId(item.videoId)}><i>{String(index + 1).padStart(2, "0")}</i>{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <span className="my-course-thumb-fallback">▶</span>}<span><strong>{item.title}</strong><small>{item.durationLabel || "YouTube 公開課程"}</small></span></button>)}</aside>}
-                <div className="my-course-player"><div className="my-course-player-head"><div><span>正在學習</span><strong>{selectedMyEpisode?.title ?? selectedMyCourse.title}</strong><small>{selectedMyCourse.subject} · {selectedMyCourse.examType} · {selectedMyCourse.relevanceLabel}</small></div><div><a href={selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}` : selectedMyCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a><button type="button" onClick={() => void removeMyCourse(selectedMyCourse)}>移除</button></div></div>{youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl) ? <iframe className="my-course-youtube-frame" src={youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl)} title={selectedMyEpisode?.title ?? selectedMyCourse.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="my-course-player-empty">這個網址目前無法嵌入，請在 YouTube 開啟確認。</div>}<div className="my-course-ai"><div className="my-course-ai-head"><b>課程 AI 問答</b><span>沒有 SRT 也能問；請先輸入問題，也可以附上課程截圖。</span></div><div className="my-course-ai-upload"><label className="my-course-screenshot-button">{myCourseScreenshotDataUrl ? "更換截圖" : "上傳課程截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadMyCourseScreenshot(file); event.currentTarget.value = ""; }} /></label>{myCourseScreenshotName && <span>{myCourseScreenshotName}</span>}</div>{myCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><img src={myCourseScreenshotDataUrl} alt="準備提問的課程截圖" /><button type="button" onClick={() => { setMyCourseScreenshotDataUrl(""); setMyCourseScreenshotName(""); }} aria-label="移除課程截圖">×</button></div>}<form className="my-course-ai-form" onSubmit={askMyCourseAi}><textarea rows={3} value={myCourseAiInput} onChange={(event) => setMyCourseAiInput(event.target.value)} placeholder="例如：這張投影片提到的刑法沿革，和現行刑法有什麼關係？請輸入你的問題。" disabled={myCourseAiLoading} /><button type="submit" disabled={myCourseAiLoading || !myCourseAiInput.trim()}>{myCourseAiLoading ? "回答中…" : "問 AI"}</button></form>{myCourseAiNotice && <p className="my-course-ai-notice">{myCourseAiNotice}</p>}{myCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{myCourseAiReply}</p></div>}{myCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void saveMyCourseScreenshotNote()}>截圖與問答存入筆記</button>{myCourseNoteMessage && <span>{myCourseNoteMessage}</span>}</div>}</div></div>
+                {selectedMyCourse.sourceKind === "playlist" && <aside className={`my-course-playlist ${myCoursePlaylistCollapsed ? "is-collapsed" : ""}`} aria-label="我的課播放清單"><div className="my-course-playlist-head"><button type="button" className="course-panel-toggle" aria-expanded={!myCoursePlaylistCollapsed} onClick={() => setMyCoursePlaylistCollapsed((value) => !value)}><span><strong>播放清單</strong><small>{selectedMyPlaylistItems.length ? `${selectedMyPlaylistItems.length} 集` : myCoursePlaylistMessages[selectedMyCourse.id] ?? "正在讀取…"}</small></span><b aria-hidden="true">{myCoursePlaylistCollapsed ? "›" : "‹"}</b></button></div>{!myCoursePlaylistCollapsed && selectedMyPlaylistItems.map((item, index) => <button type="button" className={`my-course-episode ${selectedMyEpisode?.videoId === item.videoId ? "active" : ""}`} key={item.videoId} onClick={() => { resetMyCourseAiDraft(); setSelectedMyEpisodeId(item.videoId); }}><i>{String(index + 1).padStart(2, "0")}</i>{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <span className="my-course-thumb-fallback">▶</span>}<span><strong>{item.title}</strong><small>{item.durationLabel || "YouTube 公開課程"}</small></span></button>)}</aside>}
+                <div className="my-course-player"><div className="my-course-player-head"><div><span>正在學習</span><strong>{selectedMyEpisode?.title ?? selectedMyCourse.title}</strong><small>{selectedMyCourse.subject} · {selectedMyCourse.examType} · {selectedMyCourse.relevanceLabel}</small></div><div><a href={selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}` : selectedMyCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a><button type="button" onClick={() => void removeMyCourse(selectedMyCourse)}>移除</button></div></div>{youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl) ? <iframe className="my-course-youtube-frame" src={youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl)} title={selectedMyEpisode?.title ?? selectedMyCourse.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="my-course-player-empty">這個網址目前無法嵌入，請在 YouTube 開啟確認。</div>}<div className="my-course-ai" onPaste={(event) => handleScreenshotPaste(event, loadMyCourseScreenshot)}><div className="my-course-ai-head"><b>課程 AI 問答</b><span>沒有 SRT 也能問；可上傳或直接 Ctrl＋V 貼上 YouTube 截圖。</span></div><div className="my-course-ai-upload"><label className="my-course-screenshot-button">{myCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadMyCourseScreenshot(file); event.currentTarget.value = ""; }} /></label>{myCourseScreenshotName && <span>{myCourseScreenshotName}</span>}</div>{myCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><img src={myCourseScreenshotDataUrl} alt="準備提問的課程截圖" /><button type="button" onClick={() => { setMyCourseScreenshotDataUrl(""); setMyCourseScreenshotName(""); }} aria-label="移除課程截圖">×</button></div>}<form className="my-course-ai-form" onSubmit={askMyCourseAi}><textarea rows={3} value={myCourseAiInput} onChange={(event) => setMyCourseAiInput(event.target.value)} placeholder="例如：這張投影片提到的刑法沿革，和現行刑法有什麼關係？請輸入你的問題。" disabled={myCourseAiLoading} /><button type="submit" disabled={myCourseAiLoading || !myCourseAiInput.trim()}>{myCourseAiLoading ? "回答中…" : "問 AI"}</button></form>{myCourseAiNotice && <p className="my-course-ai-notice">{myCourseAiNotice}</p>}{myCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{myCourseAiReply}</p></div>}{myCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void saveMyCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{myCourseNoteMessage && <span>{myCourseNoteMessage}</span>}</div>}{myCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{myCourseNotes.length} 則</span></div>{myCourseNotes.slice(0, 5).map((note) => <article key={note.id}><img src={note.attachments?.[0]?.url} alt="" /> <div><strong>{note.title}</strong><p>{note.content}</p></div></article>)}</section>}</div></div>
               </div> : null}
             </div>
           </section>
@@ -2648,7 +2791,7 @@ export default function StudyPlanPage() {
                     <div className="public-course-list" aria-label={`${collection.title}課程清單`}>
                       <div className="public-course-list-heading"><strong>課程清單</strong><span>選擇課程後，下方會開啟播放區</span></div>
                       {visibleCourses.map((course, index) => (
-                        <button type="button" className={`public-course-list-item ${selectedPublicCourseId === course.id ? "active" : ""}`} key={course.id} onClick={() => setSelectedPublicCourseId(course.id)}>
+                        <button type="button" className={`public-course-list-item ${selectedPublicCourseId === course.id ? "active" : ""}`} key={course.id} onClick={() => { resetPublicCourseAiDraft(); setSelectedPublicCourseId(course.id); setSelectedPublicEpisodeId(null); }}>
                           <i>{String(index + 1).padStart(2, "0")}</i>
                           <span><strong>{course.title}</strong><small>{course.subject} · {course.creator || "公開課程"}</small>{course.description && <em>{course.description}</em>}</span>
                           <b>{selectedPublicCourseId === course.id ? "目前課程" : isYoutubePlaylist(course.sourceUrl) ? `${playlistItemsByCourse[course.id]?.length ?? "…"} 集` : "開始播放"}</b>
@@ -2665,7 +2808,7 @@ export default function StudyPlanPage() {
                             {!publicPlaylistCollapsed && selectedPlaylistItems.length ? (
                               <div className="public-playlist-items">
                                 {selectedPlaylistItems.map((item, index) => (
-                                  <button type="button" className={`public-playlist-item ${selectedEpisode?.videoId === item.videoId ? "active" : ""}`} key={item.videoId} onClick={() => { setSelectedPublicCourseId(selectedCourse.id); setSelectedPublicEpisodeId(item.videoId); }}>
+                                  <button type="button" className={`public-playlist-item ${selectedEpisode?.videoId === item.videoId ? "active" : ""}`} key={item.videoId} onClick={() => { resetPublicCourseAiDraft(); setSelectedPublicCourseId(selectedCourse.id); setSelectedPublicEpisodeId(item.videoId); }}>
                                     <i>{String(index + 1).padStart(2, "0")}</i>
                                     {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <span className="public-playlist-thumb-fallback">▶</span>}
                                     <span><strong>{item.title}</strong><small>{item.durationLabel || "YouTube 公開課程"}</small></span>
@@ -2679,6 +2822,16 @@ export default function StudyPlanPage() {
                         <div className="public-course-player">
                           <div className="public-course-player-head"><div><span>正在學習</span><strong>{selectedEpisode?.title ?? selectedCourse.title}</strong><small>{selectedCourse.creator || "公開課程"} · {selectedCourse.subject}</small></div><a href={selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}` : selectedCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></div>
                           {youtubeEmbedUrl(selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}&list=${new URL(selectedCourse.sourceUrl).searchParams.get("list") ?? ""}` : selectedCourse.sourceUrl) ? <iframe className="public-course-youtube-frame" src={youtubeEmbedUrl(selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}&list=${new URL(selectedCourse.sourceUrl).searchParams.get("list") ?? ""}` : selectedCourse.sourceUrl)} title={`${selectedEpisode?.title ?? selectedCourse.title}公開課程`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="public-course-player-empty">這堂課尚未設定可播放網址，請回到後台補上。</div>}
+                          <div className="public-course-ai" onPaste={(event) => handleScreenshotPaste(event, (file) => loadCourseScreenshotFile(file, setPublicCourseScreenshotDataUrl, setPublicCourseScreenshotName, setPublicCourseAiNotice))}>
+                            <div className="public-course-ai-head"><strong>這一集可以問 AI</strong><span>可上傳或直接 Ctrl＋V 貼上 YouTube 截圖；平台不會假裝讀過影片聲音。</span></div>
+                            <div className="public-course-ai-upload"><label className="my-course-screenshot-button">{publicCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadCourseScreenshotFile(file, setPublicCourseScreenshotDataUrl, setPublicCourseScreenshotName, setPublicCourseAiNotice); event.currentTarget.value = ""; }} /></label>{publicCourseScreenshotName && <span>{publicCourseScreenshotName}</span>}</div>
+                            {publicCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><img src={publicCourseScreenshotDataUrl} alt="準備提問的公開課截圖" /><button type="button" onClick={() => { setPublicCourseScreenshotDataUrl(""); setPublicCourseScreenshotName(""); }} aria-label="移除公開課截圖">×</button></div>}
+                            <form className="my-course-ai-form" onSubmit={askPublicCourseAi}><textarea rows={3} value={publicCourseAiInput} onChange={(event) => setPublicCourseAiInput(event.target.value)} placeholder="例如：老師這張投影片的爭點是什麼？請輸入你的問題。" disabled={publicCourseAiLoading} /><button type="submit" disabled={publicCourseAiLoading || !publicCourseAiInput.trim()}>{publicCourseAiLoading ? "回答中…" : "問 AI"}</button></form>
+                            {publicCourseAiNotice && <p className="my-course-ai-notice">{publicCourseAiNotice}</p>}
+                            {publicCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{publicCourseAiReply}</p></div>}
+                            {publicCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void savePublicCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{publicCourseNoteMessage && <span>{publicCourseNoteMessage}</span>}</div>}
+                            {publicCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{publicCourseNotes.length} 則</span></div>{publicCourseNotes.slice(0, 5).map((note) => <article key={note.id}><img src={note.attachments?.[0]?.url} alt="" /> <div><strong>{note.title}</strong><p>{note.content}</p></div></article>)}</section>}
+                          </div>
                         </div>
                       </div>
                     )}
