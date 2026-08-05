@@ -14,6 +14,7 @@ import { PracticeLab } from "./practice-lab";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
 import { coreExamPoints } from "../../lib/core-exam-points";
+import type { YoutubePlaylistItem } from "../../lib/youtube-playlist";
 
 type Plan = {
   id: number;
@@ -415,6 +416,10 @@ export default function StudyPlanPage() {
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [courseCollections, setCourseCollections] = useState<CourseCollection[]>([]);
+  const [playlistItemsByCourse, setPlaylistItemsByCourse] = useState<Record<number, YoutubePlaylistItem[]>>({});
+  const [playlistMessages, setPlaylistMessages] = useState<Record<number, string>>({});
+  const [selectedPublicEpisodeId, setSelectedPublicEpisodeId] = useState<string | null>(null);
+  const playlistFetchesRef = useRef<Set<number>>(new Set());
   const [magazineQuery, setMagazineQuery] = useState("");
   const [magazineYearFilter, setMagazineYearFilter] = useState("全部年度");
   const [selectedMagazineId, setSelectedMagazineId] = useState<number | null>(
@@ -593,6 +598,30 @@ export default function StudyPlanPage() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "public-courses") return;
+    const playlistCourses = courseCollections
+      .flatMap((collection) => collection.courses)
+      .filter((course) => isYoutubePlaylist(course.sourceUrl));
+    playlistCourses.forEach((course) => {
+      if (playlistFetchesRef.current.has(course.id)) return;
+      playlistFetchesRef.current.add(course.id);
+      const query = encodeURIComponent(course.sourceUrl);
+      fetch(`/api/course-playlist?url=${query}`)
+        .then(async (response) => {
+          const result = (await response.json()) as { items?: YoutubePlaylistItem[]; error?: string };
+          if (!response.ok) throw new Error(result.error ?? "播放清單暫時無法讀取");
+          setPlaylistItemsByCourse((current) => ({ ...current, [course.id]: result.items ?? [] }));
+        })
+        .catch((error: unknown) => {
+          setPlaylistMessages((current) => ({
+            ...current,
+            [course.id]: error instanceof Error ? error.message : "播放清單暫時無法讀取",
+          }));
+        });
+    });
+  }, [activeTab, courseCollections]);
 
   useEffect(() => {
     const resource =
@@ -2324,7 +2353,7 @@ export default function StudyPlanPage() {
                 <h2>開放課</h2>
                 <span>把各科公開課程集中整理成清單；先有刑法，之後可持續加入民法與其他科目。選一堂開始，再回到教材與真題練習。</span>
               </div>
-              <strong>{courseCollections.reduce((total, collection) => total + collection.courses.length, 0)} 堂公開課程</strong>
+              <strong>{courseCollections.reduce((total, collection) => total + collection.courses.length, 0)} 個播放清單</strong>
             </header>
             <nav className="public-course-subjects" aria-label="公開課程科目篩選">
               {publicCourseSubjects.map((subject) => (
@@ -2335,24 +2364,46 @@ export default function StudyPlanPage() {
               {courseCollections.map((collection) => {
                 const visibleCourses = collection.courses.filter((course) => publicCourseSubject === "全部" || course.subject === publicCourseSubject);
                 if (!visibleCourses.length) return null;
-                const selectedCourse = visibleCourses.find((course) => course.id === selectedPublicCourseId) ?? null;
+                const selectedCourse = visibleCourses.find((course) => course.id === selectedPublicCourseId) ?? visibleCourses[0] ?? null;
+                const selectedPlaylistItems = selectedCourse ? playlistItemsByCourse[selectedCourse.id] ?? [] : [];
+                const selectedEpisode = selectedPlaylistItems.find((item) => item.videoId === selectedPublicEpisodeId) ?? selectedPlaylistItems[0] ?? null;
                 return (
                   <article className="public-course-collection" key={collection.id}>
-                    <header><div><span>COURSE COLLECTION</span><h3>{collection.title}</h3><p>{collection.description || "依科目整理公開課程，選一堂開始補充學習。"}</p></div><b>{visibleCourses.length} 堂</b></header>
+                    <header><div><span>COURSE COLLECTION</span><h3>{collection.title}</h3><p>{collection.description || "後台貼一次播放清單網址，學生可在這裡選擇每一集。"}</p></div><b>{visibleCourses.length} 個播放清單</b></header>
                     <div className="public-course-list" aria-label={`${collection.title}課程清單`}>
                       <div className="public-course-list-heading"><strong>課程清單</strong><span>選擇課程後，下方會開啟播放區</span></div>
                       {visibleCourses.map((course, index) => (
                         <button type="button" className={`public-course-list-item ${selectedPublicCourseId === course.id ? "active" : ""}`} key={course.id} onClick={() => setSelectedPublicCourseId(course.id)}>
                           <i>{String(index + 1).padStart(2, "0")}</i>
                           <span><strong>{course.title}</strong><small>{course.subject} · {course.creator || "公開課程"}</small>{course.description && <em>{course.description}</em>}</span>
-                          <b>{selectedPublicCourseId === course.id ? "播放中" : isYoutubePlaylist(course.sourceUrl) ? "播放清單" : "開始播放"}</b>
+                          <b>{selectedPublicCourseId === course.id ? "目前課程" : isYoutubePlaylist(course.sourceUrl) ? `${playlistItemsByCourse[course.id]?.length ?? "…"} 集` : "開始播放"}</b>
                         </button>
                       ))}
                     </div>
+                    {selectedCourse && isYoutubePlaylist(selectedCourse.sourceUrl) && (
+                      <div className="public-playlist-panel" aria-label={`${selectedCourse.title}播放清單`}>
+                        <div className="public-playlist-heading">
+                          <div><strong>播放清單</strong><span>{selectedPlaylistItems.length ? `${selectedPlaylistItems.length} 集，可直接選擇` : "正在載入每一集…"}</span></div>
+                          <small>只需貼一次網址</small>
+                        </div>
+                        {selectedPlaylistItems.length ? (
+                          <div className="public-playlist-items">
+                            {selectedPlaylistItems.map((item, index) => (
+                              <button type="button" className={`public-playlist-item ${selectedEpisode?.videoId === item.videoId ? "active" : ""}`} key={item.videoId} onClick={() => { setSelectedPublicCourseId(selectedCourse.id); setSelectedPublicEpisodeId(item.videoId); }}>
+                                <i>{String(index + 1).padStart(2, "0")}</i>
+                                {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <span className="public-playlist-thumb-fallback">▶</span>}
+                                <span><strong>{item.title}</strong><small>{item.durationLabel || "YouTube 公開課程"}</small></span>
+                                <b>{selectedEpisode?.videoId === item.videoId ? "播放中" : "播放"}</b>
+                              </button>
+                            ))}
+                          </div>
+                        ) : <p className="public-playlist-status">{playlistMessages[selectedCourse.id] ?? "正在從 YouTube 讀取播放清單，請稍候。"}</p>}
+                      </div>
+                    )}
                     {selectedCourse && (
                       <div className="public-course-player">
-                        <div className="public-course-player-head"><div><span>正在學習</span><strong>{selectedCourse.title}</strong><small>{selectedCourse.creator || "公開課程"} · {selectedCourse.subject}</small></div><a href={selectedCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></div>
-                        {youtubeEmbedUrl(selectedCourse.sourceUrl) ? <iframe className="public-course-youtube-frame" src={youtubeEmbedUrl(selectedCourse.sourceUrl)} title={`${selectedCourse.title}公開課程`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="public-course-player-empty">這堂課尚未設定可播放網址，請回到後台補上。</div>}
+                        <div className="public-course-player-head"><div><span>正在學習</span><strong>{selectedEpisode?.title ?? selectedCourse.title}</strong><small>{selectedCourse.creator || "公開課程"} · {selectedCourse.subject}</small></div><a href={selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}` : selectedCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></div>
+                        {youtubeEmbedUrl(selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}&list=${new URL(selectedCourse.sourceUrl).searchParams.get("list") ?? ""}` : selectedCourse.sourceUrl) ? <iframe className="public-course-youtube-frame" src={youtubeEmbedUrl(selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}&list=${new URL(selectedCourse.sourceUrl).searchParams.get("list") ?? ""}` : selectedCourse.sourceUrl)} title={`${selectedEpisode?.title ?? selectedCourse.title}公開課程`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="public-course-player-empty">這堂課尚未設定可播放網址，請回到後台補上。</div>}
                       </div>
                     )}
                   </article>

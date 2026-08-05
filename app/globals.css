@@ -4533,6 +4533,118 @@ a {
   font-size: 10px;
   white-space: nowrap;
 }
+.public-playlist-panel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #cfe1e7;
+  border-radius: 13px;
+  background: #f8fbfc;
+}
+.public-playlist-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 10px;
+  border-bottom: 1px solid #e2edf0;
+}
+.public-playlist-heading > div {
+  display: grid;
+  gap: 3px;
+}
+.public-playlist-heading strong {
+  color: #244a63;
+  font-size: 15px;
+}
+.public-playlist-heading span,
+.public-playlist-heading small {
+  color: #718997;
+  font-size: 11px;
+}
+.public-playlist-heading small {
+  color: #397896;
+  font-weight: 800;
+}
+.public-playlist-items {
+  display: grid;
+  max-height: 450px;
+  gap: 6px;
+  padding-top: 8px;
+  overflow-y: auto;
+}
+.public-playlist-item {
+  display: grid;
+  grid-template-columns: 30px 100px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 7px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: #fff;
+  color: #244a63;
+  text-align: left;
+  cursor: pointer;
+}
+.public-playlist-item:hover,
+.public-playlist-item.active {
+  border-color: #75a8ba;
+  background: #edf7f8;
+}
+.public-playlist-item > i {
+  color: #397896;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  text-align: center;
+}
+.public-playlist-item img,
+.public-playlist-thumb-fallback {
+  display: block;
+  width: 100px;
+  height: 56px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: #dcecf0;
+}
+.public-playlist-thumb-fallback {
+  display: grid;
+  place-items: center;
+  color: #397896;
+  font-size: 18px;
+}
+.public-playlist-item > span:not(.public-playlist-thumb-fallback) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.public-playlist-item strong {
+  overflow: hidden;
+  color: #244a63;
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.public-playlist-item small {
+  color: #718997;
+  font-size: 10px;
+}
+.public-playlist-item > b {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #e8f3f6;
+  color: #397896;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.public-playlist-status {
+  margin: 0;
+  padding: 18px 5px 5px;
+  color: #718997;
+  font-size: 12px;
+  text-align: center;
+}
 .public-course-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4791,6 +4903,24 @@ a {
   }
   .public-course-list-item > b {
     grid-column: 2;
+    justify-self: start;
+  }
+  .public-playlist-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .public-playlist-item {
+    grid-template-columns: 24px 78px minmax(0, 1fr);
+    gap: 7px;
+  }
+  .public-playlist-item img,
+  .public-playlist-thumb-fallback {
+    width: 78px;
+    height: 44px;
+  }
+  .public-playlist-item > b {
+    grid-column: 3;
     justify-self: start;
   }
   .public-course-collection {
