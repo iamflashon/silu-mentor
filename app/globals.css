@@ -11479,6 +11479,78 @@ a {
   font-size: 10px;
   line-height: 1.6;
 }
+
+/* 申論批改結果：提高閱讀性，方便長時間閱讀與老花使用者 */
+.essay-grading-result {
+  margin-top: 18px;
+  padding: 20px;
+}
+.essay-score {
+  gap: 8px;
+}
+.essay-score b {
+  font-size: 52px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.essay-score span {
+  font-size: 18px;
+  font-weight: 750;
+}
+.essay-grading-result > p {
+  margin: 12px 0 18px;
+  font-size: 16px;
+  line-height: 1.85;
+}
+.essay-dimensions {
+  gap: 12px;
+}
+.essay-dimensions article {
+  padding: 15px 16px;
+  border: 1px solid #edf2f4;
+}
+.essay-dimensions strong,
+.essay-grading-result > div > strong {
+  font-size: 17px;
+  line-height: 1.55;
+}
+.essay-dimensions p {
+  margin: 8px 0;
+  font-size: 16px;
+  line-height: 1.85;
+}
+.essay-dimensions small {
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 1.75;
+}
+.essay-grading-result ul {
+  margin-top: 9px;
+  font-size: 15px;
+  line-height: 1.8;
+}
+.essay-next-step {
+  margin-top: 17px;
+  padding-top: 14px;
+}
+.essay-next-step p {
+  margin-top: 8px;
+  font-size: 16px;
+  line-height: 1.8;
+}
+.essay-feedback {
+  padding: 15px 16px;
+}
+.practice-feedback strong,
+.essay-feedback strong {
+  font-size: 16px;
+}
+.practice-feedback p,
+.essay-feedback p {
+  margin-top: 8px;
+  font-size: 15px;
+  line-height: 1.8;
+}
 @media (max-width: 800px) {
   .question-filters {
     align-items: stretch;
@@ -11510,6 +11582,31 @@ a {
   }
   .question-editor-grid {
     grid-template-columns: 1fr;
+  }
+
+  .essay-grading-result {
+    padding: 16px;
+  }
+  .essay-score b {
+    font-size: 46px;
+  }
+  .essay-score span {
+    font-size: 17px;
+  }
+  .essay-grading-result > p,
+  .essay-dimensions p,
+  .essay-next-step p {
+    font-size: 16px;
+  }
+  .essay-dimensions strong,
+  .essay-grading-result > div > strong {
+    font-size: 17px;
+  }
+  .essay-dimensions small,
+  .essay-grading-result ul,
+  .essay-feedback p,
+  .practice-feedback p {
+    font-size: 15px;
   }
 }
 @media (max-width: 800px) {
