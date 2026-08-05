@@ -1007,6 +1007,14 @@ export default function StudyPlanPage() {
     }
   }
 
+  function isYoutubePlaylist(value: string) {
+    try {
+      return Boolean(new URL(value.trim()).searchParams.get("list"));
+    } catch {
+      return false;
+    }
+  }
+
   function applyYoutubePlaybackRate(rate: number) {
     const iframe = document.querySelector<HTMLIFrameElement>(".course-youtube-frame");
     iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "setPlaybackRate", args: [rate] }), "https://www.youtube.com");
@@ -2054,7 +2062,7 @@ export default function StudyPlanPage() {
             className={activeTab === "public-courses" ? "active" : ""}
             onClick={() => setActiveTab("public-courses")}
           >
-            課程專區
+            開放課
           </button>
           <button
             className={activeTab === "trials" ? "active" : ""}
@@ -2309,12 +2317,12 @@ export default function StudyPlanPage() {
           </section>
         )}
         {activeTab === "public-courses" && (
-          <section className="public-course-hub" aria-label="公開課程專區">
+          <section className="public-course-hub" aria-label="開放課專區">
             <header className="public-course-head">
               <div>
-                <p>OPEN COURSE COLLECTIONS</p>
-                <h2>課程專區</h2>
-                <span>把各科公開課程集中整理；先有刑法，之後可持續加入民法與其他科目。課程是備考補充，完成後再回到教材與真題練習。</span>
+                <p>OPEN COURSES</p>
+                <h2>開放課</h2>
+                <span>把各科公開課程集中整理成清單；先有刑法，之後可持續加入民法與其他科目。選一堂開始，再回到教材與真題練習。</span>
               </div>
               <strong>{courseCollections.reduce((total, collection) => total + collection.courses.length, 0)} 堂公開課程</strong>
             </header>
@@ -2331,10 +2339,13 @@ export default function StudyPlanPage() {
                 return (
                   <article className="public-course-collection" key={collection.id}>
                     <header><div><span>COURSE COLLECTION</span><h3>{collection.title}</h3><p>{collection.description || "依科目整理公開課程，選一堂開始補充學習。"}</p></div><b>{visibleCourses.length} 堂</b></header>
-                    <div className="public-course-card-grid">
-                      {visibleCourses.map((course) => (
-                        <button type="button" className={`public-course-card ${selectedPublicCourseId === course.id ? "active" : ""}`} key={course.id} onClick={() => setSelectedPublicCourseId(course.id)}>
-                          <span>{course.subject}</span><strong>{course.title}</strong><small>{course.creator || "公開課程"}</small><em>{course.description || "點擊後在專區內播放"}</em><b>{selectedPublicCourseId === course.id ? "目前播放中" : "開始播放 →"}</b>
+                    <div className="public-course-list" aria-label={`${collection.title}課程清單`}>
+                      <div className="public-course-list-heading"><strong>課程清單</strong><span>選擇課程後，下方會開啟播放區</span></div>
+                      {visibleCourses.map((course, index) => (
+                        <button type="button" className={`public-course-list-item ${selectedPublicCourseId === course.id ? "active" : ""}`} key={course.id} onClick={() => setSelectedPublicCourseId(course.id)}>
+                          <i>{String(index + 1).padStart(2, "0")}</i>
+                          <span><strong>{course.title}</strong><small>{course.subject} · {course.creator || "公開課程"}</small>{course.description && <em>{course.description}</em>}</span>
+                          <b>{selectedPublicCourseId === course.id ? "播放中" : isYoutubePlaylist(course.sourceUrl) ? "播放清單" : "開始播放"}</b>
                         </button>
                       ))}
                     </div>
@@ -2348,7 +2359,8 @@ export default function StudyPlanPage() {
                 );
               })}
             </div>
-            {!courseCollections.length && <div className="public-course-empty">目前尚未發布公開課程專區；管理員發布後會在這裡顯示。</div>}
+            {!courseCollections.length && <div className="public-course-empty">目前尚未發布公開課；管理員發布後會在這裡顯示。</div>}
+            {courseCollections.length > 0 && !courseCollections.some((collection) => collection.courses.some((course) => publicCourseSubject === "全部" || course.subject === publicCourseSubject)) && <div className="public-course-empty">這個科目目前尚未加入公開課，之後可由管理後台新增。</div>}
           </section>
         )}
         {(activeTab === "books" || activeTab === "courses") && (
