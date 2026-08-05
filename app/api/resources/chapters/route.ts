@@ -9,6 +9,8 @@ import {
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
+// Temporary rows keep a resumable extraction invisible to students until the
+// minimum complete-question threshold is reached and the job is finalized.
 const PENDING_CHAPTER_TYPE = "book_chapter_pending";
 // D1 limits the number of bound parameters in a single statement. The chapter
 // INSERT currently binds 15 values per row (not ten: Drizzle also binds the
