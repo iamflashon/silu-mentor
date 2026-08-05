@@ -176,6 +176,13 @@
       "when": 1785894308541,
       "tag": "0024_illegal_terrax",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1785903108615,
+      "tag": "0025_spooky_silver_sable",
+      "breakpoints": true
     }
   ]
 }

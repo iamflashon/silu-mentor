@@ -102,6 +102,14 @@ type LearningResource = {
   segmentCount: number;
   hasCover?: number;
 };
+type CourseCollection = {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  sortOrder: number;
+  courses: Array<LearningResource & { itemId: number; itemSortOrder: number }>;
+};
 type ResourceSegment = {
   id: number;
   resourceId: number;
@@ -261,6 +269,7 @@ type PlanTab =
   | "laws"
   | "books"
   | "courses"
+  | "public-courses"
   | "trials"
   | "listening"
   | "magazine"
@@ -279,6 +288,7 @@ function requestedPlanTab(): PlanTab {
     "laws",
     "books",
     "courses",
+    "public-courses",
     "trials",
     "listening",
     "magazine",
@@ -396,12 +406,15 @@ export default function StudyPlanPage() {
   });
   const [activeTab, setActiveTab] = useState<PlanTab>(requestedPlanTab);
   const [hotSubject, setHotSubject] = useState("全部");
+  const [publicCourseSubject, setPublicCourseSubject] = useState("全部");
+  const [selectedPublicCourseId, setSelectedPublicCourseId] = useState<number | null>(null);
   const [pendingBookPoint, setPendingBookPoint] = useState<{
     title: string;
     summary: string;
   } | null>(null);
   const [noteDraft, setNoteDraft] = useState<SavedNote | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
+  const [courseCollections, setCourseCollections] = useState<CourseCollection[]>([]);
   const [magazineQuery, setMagazineQuery] = useState("");
   const [magazineYearFilter, setMagazineYearFilter] = useState("全部年度");
   const [selectedMagazineId, setSelectedMagazineId] = useState<number | null>(
@@ -560,6 +573,12 @@ export default function StudyPlanPage() {
             .resources ?? [],
         );
     });
+    fetch("/api/course-collections").then(async (response) => {
+      if (response.ok)
+        setCourseCollections(
+          ((await response.json()) as { collections?: CourseCollection[] }).collections ?? [],
+        );
+    }).catch(() => undefined);
     fetch("/api/book-learning").then(async (response) => {
       if (response.ok) {
         const result = (await response.json()) as {
@@ -967,9 +986,22 @@ export default function StudyPlanPage() {
           : url.searchParams.get("v") ||
             (url.pathname.match(/\/(?:embed|shorts|live)\/([^/]+)/)?.[1] ?? "");
       id = id.split(/[?&]/)[0];
-      return /^[A-Za-z0-9_-]{6,}$/.test(id)
-        ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1&enablejsapi=1${startSeconds > 0 ? `&start=${Math.floor(startSeconds)}` : ""}`
-        : "";
+      const playlistId = url.searchParams.get("list")?.trim() ?? "";
+      const validVideoId = /^[A-Za-z0-9_-]{6,}$/.test(id);
+      const validPlaylistId = /^[A-Za-z0-9_-]{6,}$/.test(playlistId);
+      if (!validVideoId && !validPlaylistId) return "";
+      const params = new URLSearchParams({
+        rel: "0",
+        controls: "1",
+        modestbranding: "1",
+        playsinline: "1",
+        enablejsapi: "1",
+      });
+      if (validPlaylistId) params.set("list", playlistId);
+      if (startSeconds > 0) params.set("start", String(Math.floor(startSeconds)));
+      return validVideoId
+        ? `https://www.youtube.com/embed/${id}?${params.toString()}`
+        : `https://www.youtube.com/embed/videoseries?${params.toString()}`;
     } catch {
       return "";
     }
@@ -990,6 +1022,14 @@ export default function StudyPlanPage() {
       (item) => item.resourceType === "course" && item.status !== "archived",
     )
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  const publicCourseSubjects = [
+    "全部",
+    ...new Set(
+      courseCollections.flatMap((collection) =>
+        collection.courses.map((course) => course.subject).filter(Boolean),
+      ),
+    ),
+  ];
   const managedTrialResources = resources
     .filter((item) => item.resourceType === "trial" && item.status === "active")
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
@@ -2011,6 +2051,12 @@ export default function StudyPlanPage() {
             來一課
           </button>
           <button
+            className={activeTab === "public-courses" ? "active" : ""}
+            onClick={() => setActiveTab("public-courses")}
+          >
+            課程專區
+          </button>
+          <button
             className={activeTab === "trials" ? "active" : ""}
             onClick={() => setActiveTab("trials")}
           >
@@ -2260,6 +2306,49 @@ export default function StudyPlanPage() {
             <p className="trial-course-note">
               課程內容與試聽服務由知識達官方頁面提供；本站僅整理入口，不儲存或播放課程影片。
             </p>
+          </section>
+        )}
+        {activeTab === "public-courses" && (
+          <section className="public-course-hub" aria-label="公開課程專區">
+            <header className="public-course-head">
+              <div>
+                <p>OPEN COURSE COLLECTIONS</p>
+                <h2>課程專區</h2>
+                <span>把各科公開課程集中整理；課程是備考補充，先建立體系，再回到教材與真題練習。</span>
+              </div>
+              <strong>{courseCollections.reduce((total, collection) => total + collection.courses.length, 0)} 堂公開課程</strong>
+            </header>
+            <nav className="public-course-subjects" aria-label="公開課程科目篩選">
+              {publicCourseSubjects.map((subject) => (
+                <button type="button" className={publicCourseSubject === subject ? "active" : ""} key={subject} onClick={() => setPublicCourseSubject(subject)}>{subject}</button>
+              ))}
+            </nav>
+            <div className="public-course-collection-grid">
+              {courseCollections.map((collection) => {
+                const visibleCourses = collection.courses.filter((course) => publicCourseSubject === "全部" || course.subject === publicCourseSubject);
+                if (!visibleCourses.length) return null;
+                const selectedCourse = visibleCourses.find((course) => course.id === selectedPublicCourseId) ?? null;
+                return (
+                  <article className="public-course-collection" key={collection.id}>
+                    <header><div><span>COURSE COLLECTION</span><h3>{collection.title}</h3><p>{collection.description || "依科目整理公開課程，選一堂開始補充學習。"}</p></div><b>{visibleCourses.length} 堂</b></header>
+                    <div className="public-course-card-grid">
+                      {visibleCourses.map((course) => (
+                        <button type="button" className={`public-course-card ${selectedPublicCourseId === course.id ? "active" : ""}`} key={course.id} onClick={() => setSelectedPublicCourseId(course.id)}>
+                          <span>{course.subject}</span><strong>{course.title}</strong><small>{course.creator || "公開課程"}</small><em>{course.description || "點擊後在專區內播放"}</em><b>{selectedPublicCourseId === course.id ? "目前播放中" : "開始播放 →"}</b>
+                        </button>
+                      ))}
+                    </div>
+                    {selectedCourse && (
+                      <div className="public-course-player">
+                        <div className="public-course-player-head"><div><span>正在學習</span><strong>{selectedCourse.title}</strong><small>{selectedCourse.creator || "公開課程"} · {selectedCourse.subject}</small></div><a href={selectedCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></div>
+                        {youtubeEmbedUrl(selectedCourse.sourceUrl) ? <iframe className="public-course-youtube-frame" src={youtubeEmbedUrl(selectedCourse.sourceUrl)} title={`${selectedCourse.title}公開課程`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="public-course-player-empty">這堂課尚未設定可播放網址，請回到後台補上。</div>}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+            {!courseCollections.length && <div className="public-course-empty">目前尚未發布公開課程專區；管理員發布後會在這裡顯示。</div>}
           </section>
         )}
         {(activeTab === "books" || activeTab === "courses") && (

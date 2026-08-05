@@ -286,6 +286,37 @@ export const learningResources = sqliteTable("learning_resources", {
     .$defaultFn(() => new Date()),
 });
 
+export const courseCollections = sqliteTable("course_collections", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const courseCollectionItems = sqliteTable("course_collection_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  collectionId: integer("collection_id")
+    .notNull()
+    .references(() => courseCollections.id, { onDelete: "cascade" }),
+  resourceId: integer("resource_id")
+    .notNull()
+    .references(() => learningResources.id, { onDelete: "cascade" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const resourceSegments = sqliteTable("resource_segments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   resourceId: integer("resource_id")

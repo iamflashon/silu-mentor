@@ -105,6 +105,14 @@ type LearningResource = {
     analysisState?: "analyzed" | "captured" | "pending" | "failed";
   }>;
 };
+type CourseCollection = {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  sortOrder: number;
+  courses: Array<LearningResource & { itemId: number; itemSortOrder: number }>;
+};
 type ChapterProgress = {
   state: "not_started" | "building" | "paused" | "failed" | "completed" | "needs_rebuild";
   phase?: "outline" | "questions" | "saving" | "paused" | "failed";
@@ -321,6 +329,7 @@ export default function AdminPage() {
     | "documents"
     | "resources"
     | "courses"
+    | "course-collections"
     | "trials"
     | "listening"
     | "magazine"
@@ -361,6 +370,12 @@ export default function AdminPage() {
   const [batchSourceId, setBatchSourceId] = useState<number | null>(null);
   const batchStopRef = useRef(false);
   const [resources, setResources] = useState<LearningResource[]>([]);
+  const [courseCollections, setCourseCollections] = useState<CourseCollection[]>([]);
+  const [collectionTitle, setCollectionTitle] = useState("");
+  const [collectionDescription, setCollectionDescription] = useState("");
+  const [collectionStatus, setCollectionStatus] = useState("draft");
+  const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(null);
+  const [selectedCollectionResourceId, setSelectedCollectionResourceId] = useState("");
   const [chapterProgress, setChapterProgress] = useState<Record<number, ChapterProgress>>({});
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
@@ -545,6 +560,14 @@ export default function AdminPage() {
         );
       })
       .catch(() => undefined);
+    fetch("/api/course-collections?all=1")
+      .then(async (response) => {
+        if (response.ok)
+          setCourseCollections(
+            ((await response.json()) as { collections?: CourseCollection[] }).collections ?? [],
+          );
+      })
+      .catch(() => undefined);
     fetch("/api/listening")
       .then(async (response) => {
         if (response.ok) {
@@ -584,6 +607,83 @@ export default function AdminPage() {
       })
       .catch(() => undefined);
   }, []);
+
+  async function refreshCourseCollections() {
+    const response = await fetch("/api/course-collections?all=1", { cache: "no-store" });
+    if (response.ok)
+      setCourseCollections(
+        ((await response.json()) as { collections?: CourseCollection[] }).collections ?? [],
+      );
+  }
+
+  async function createCourseCollection(event: FormEvent) {
+    event.preventDefault();
+    if (!collectionTitle.trim()) return;
+    const response = await fetch("/api/course-collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "collection",
+        title: collectionTitle,
+        description: collectionDescription,
+        status: collectionStatus,
+      }),
+    });
+    const result = (await readJson(response)) as { error?: string };
+    if (!response.ok) {
+      setNotice(result.error ?? "課程專區建立失敗");
+      return;
+    }
+    setCollectionTitle("");
+    setCollectionDescription("");
+    setCollectionStatus("draft");
+    setNotice("課程專區已建立；接著可把影音課程放入專區。");
+    await refreshCourseCollections();
+  }
+
+  async function updateCourseCollection(collection: CourseCollection, patch: Partial<CourseCollection>) {
+    const latest = courseCollections.find((item) => item.id === collection.id) ?? collection;
+    const response = await fetch("/api/course-collections", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entity: "collection", ...latest, ...patch }),
+    });
+    const result = (await readJson(response)) as { error?: string };
+    if (!response.ok) setNotice(result.error ?? "課程專區更新失敗");
+    else await refreshCourseCollections();
+  }
+
+  async function addCourseToCollection(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedCollectionId || !selectedCollectionResourceId) {
+      setNotice("請先選擇專區與影音課程。");
+      return;
+    }
+    const response = await fetch("/api/course-collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "item", collectionId: selectedCollectionId, resourceId: selectedCollectionResourceId }),
+    });
+    const result = (await readJson(response)) as { error?: string };
+    setNotice(response.ok ? "課程已放入專區。" : (result.error ?? "課程加入專區失敗"));
+    if (response.ok) {
+      setSelectedCollectionResourceId("");
+      await refreshCourseCollections();
+    }
+  }
+
+  async function removeCourseCollection(collection: CourseCollection) {
+    if (!window.confirm(`確定移除專區「${collection.title}」？專區內課程資源不會被刪除。`)) return;
+    const response = await fetch(`/api/course-collections?collectionId=${collection.id}`, { method: "DELETE" });
+    setNotice(response.ok ? "課程專區已移除，原影音課程仍保留。" : "課程專區移除失敗");
+    if (response.ok) await refreshCourseCollections();
+  }
+
+  async function removeCourseFromCollection(itemId: number) {
+    const response = await fetch(`/api/course-collections?itemId=${itemId}`, { method: "DELETE" });
+    setNotice(response.ok ? "已從專區移除，影音課程本身仍保留。" : "課程移除失敗");
+    if (response.ok) await refreshCourseCollections();
+  }
 
   useEffect(() => {
     const bookIds = resources.filter((item) => item.resourceType === "book").map((item) => item.id);
@@ -1934,7 +2034,22 @@ export default function AdminPage() {
       const url = new URL(value.trim());
       let id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/(?:embed|shorts|live)\/([^/]+)/)?.[1] ?? "");
       id = id.split(/[?&]/)[0];
-      return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1${startSeconds > 0 ? `&start=${Math.floor(startSeconds)}` : ""}` : "";
+      const playlistId = url.searchParams.get("list")?.trim() ?? "";
+      const validVideoId = /^[A-Za-z0-9_-]{6,}$/.test(id);
+      const validPlaylistId = /^[A-Za-z0-9_-]{6,}$/.test(playlistId);
+      if (!validVideoId && !validPlaylistId) return "";
+      const params = new URLSearchParams({
+        rel: "0",
+        controls: "1",
+        modestbranding: "1",
+        playsinline: "1",
+        enablejsapi: "1",
+      });
+      if (validPlaylistId) params.set("list", playlistId);
+      if (startSeconds > 0) params.set("start", String(Math.floor(startSeconds)));
+      return validVideoId
+        ? `https://www.youtube.com/embed/${id}?${params.toString()}`
+        : `https://www.youtube.com/embed/videoseries?${params.toString()}`;
     } catch {
       return "";
     }
@@ -2406,6 +2521,12 @@ export default function AdminPage() {
             影音課程
           </button>
           <button
+            className={activeTab === "course-collections" ? "active" : ""}
+            onClick={() => setActiveTab("course-collections")}
+          >
+            課程專區
+          </button>
+          <button
             className={activeTab === "trials" ? "active" : ""}
             onClick={() => setActiveTab("trials")}
           >
@@ -2488,6 +2609,54 @@ export default function AdminPage() {
               <div><span>法教專區</span><strong>{resources.filter((item) => item.resourceType === "magazine" && item.status === "active").length ? "已發布，首頁列出四篇試讀" : "尚未發布"}</strong></div>
               <div><span>聽解題</span><strong>{listeningItems.some((item) => item.status === "published" && (item.audioStorageKey || item.audioFileName)) ? "已發布音檔" : "請完成音檔與發布"}</strong></div>
               <div><span>日期／天氣／運試</span><strong>首頁依台北日期即時同步</strong></div>
+            </div>
+          </section>
+        )}
+        {activeTab === "course-collections" && (
+          <section className="panel course-collection-manager">
+            <div className="cost-heading">
+              <div>
+                <h2>課程專區管理</h2>
+                <p className="panel-sub">
+                  建立「專區 → 科目 → 公開課程」的整理方式。專區發布後，學生會在學習專區的「課程專區」看到內容；課程本身仍由「影音課程」管理。
+                </p>
+              </div>
+              <span className="source-count">{courseCollections.length} 個專區</span>
+            </div>
+            <form className="collection-create-form" onSubmit={createCourseCollection}>
+              <label className="field">專區名稱<input value={collectionTitle} onChange={(event) => setCollectionTitle(event.target.value)} placeholder="例如：台大開放課程" /></label>
+              <label className="field">專區介紹<input value={collectionDescription} onChange={(event) => setCollectionDescription(event.target.value)} placeholder="例如：各科公開課程整理，作為備考補充" /></label>
+              <label className="field">狀態<select value={collectionStatus} onChange={(event) => setCollectionStatus(event.target.value)}><option value="draft">草稿</option><option value="active">發布</option></select></label>
+              <button type="submit" className="primary-btn" disabled={!collectionTitle.trim()}>建立專區</button>
+            </form>
+            <form className="collection-attach-form" onSubmit={addCourseToCollection}>
+              <div><strong>把影音課程放入專區</strong><span>先在「影音課程」建立 YouTube 影片／播放清單，再在這裡選擇。</span></div>
+              <label className="field">選擇專區<select value={selectedCollectionId ?? ""} onChange={(event) => setSelectedCollectionId(Number(event.target.value) || null)}><option value="">請選擇</option>{courseCollections.map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select></label>
+              <label className="field">選擇影音課程<select value={selectedCollectionResourceId} onChange={(event) => setSelectedCollectionResourceId(event.target.value)}><option value="">請選擇</option>{resources.filter((resource) => resource.resourceType === "course" && resource.status !== "archived").map((resource) => <option key={resource.id} value={resource.id}>{resource.subject}｜{resource.title}</option>)}</select></label>
+              <button type="submit" className="primary-btn" disabled={!selectedCollectionId || !selectedCollectionResourceId}>加入專區</button>
+            </form>
+            {notice && <div className="notice">{notice}</div>}
+            <div className="course-collection-list">
+              {courseCollections.length ? courseCollections.map((collection) => (
+                <article className="course-collection-admin-card" key={collection.id}>
+                  <div className="course-collection-admin-head">
+                    <div><span>課程專區</span><strong>{collection.courses.length} 堂課</strong></div>
+                    <button type="button" className="danger-text-button" onClick={() => void removeCourseCollection(collection)}>移除專區</button>
+                  </div>
+                  <div className="course-collection-edit-grid">
+                    <label className="field">專區名稱<input value={collection.title} onChange={(event) => setCourseCollections((items) => items.map((item) => item.id === collection.id ? { ...item, title: event.target.value } : item))} onBlur={(event) => void updateCourseCollection(collection, { title: event.target.value })} /></label>
+                    <label className="field">顯示狀態<select value={collection.status} onChange={(event) => { setCourseCollections((items) => items.map((item) => item.id === collection.id ? { ...item, status: event.target.value } : item)); void updateCourseCollection(collection, { status: event.target.value }); }}><option value="draft">草稿</option><option value="active">已發布</option></select></label>
+                    <label className="field collection-description-field">專區介紹<input value={collection.description} onChange={(event) => setCourseCollections((items) => items.map((item) => item.id === collection.id ? { ...item, description: event.target.value } : item))} onBlur={(event) => void updateCourseCollection(collection, { description: event.target.value })} /></label>
+                  </div>
+                  <div className="course-collection-course-list">
+                    {collection.courses.length ? collection.courses.map((course) => (
+                      <div className="course-collection-course-row" key={course.itemId}>
+                        <span>{course.subject}</span><strong>{course.title}</strong><small>{course.creator || "未設定老師"}</small><button type="button" onClick={() => void removeCourseFromCollection(course.itemId)}>移除</button>
+                      </div>
+                    )) : <p>目前尚未放入課程；可在上方選擇影音課程加入。</p>}
+                  </div>
+                </article>
+              )) : <div className="collection-empty">尚未建立課程專區。先建立一個專區，再放入不同科目的公開課程。</div>}
             </div>
           </section>
         )}
@@ -2867,7 +3036,7 @@ export default function AdminPage() {
               <div>
                 <h2>{activeTab === "trials" ? "知識達試聽管理" : "書籍與課程管理"}</h2>
                 <p className="panel-sub">
-                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材 PDF 並管理書封；課程綁定可直接播放的 HLS／影片網址與 SRT 字幕，字幕會自動拆成可搜尋的時間片段。"}
+                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材 PDF 並管理書封；影音課程可嵌入 YouTube 單支影片、播放清單或 HLS／MP4，並可搭配字幕整理學習重點。"}
                 </p>
               </div>
               <span className="source-count">{resources.length} 項資源</span>
@@ -2910,9 +3079,9 @@ export default function AdminPage() {
                     type="url"
                     value={resourceUrl}
                     onChange={(e) => setResourceUrl(e.target.value)}
-                    placeholder={activeTab === "trials" ? "https://www.ibrain.com.tw/audition/ListDetail.aspx?…" : "https://…/playlist.m3u8"}
+                    placeholder={activeTab === "trials" ? "https://www.ibrain.com.tw/audition/ListDetail.aspx?…" : "https://www.youtube.com/watch?v=… 或 playlist?list=…"}
                   />
-                  <small className="field-hint">{activeTab === "trials" ? "學生點擊後會另開此官方頁面。" : "請填可直接播放的 .m3u8 或 .mp4；ibrain 課程頁網址不能直接嵌入。"}</small>
+                  <small className="field-hint">{activeTab === "trials" ? "學生點擊後會另開此官方頁面。" : "可貼 YouTube 影片／播放清單網址，或可直接播放的 .m3u8／.mp4；ibrain 課程頁網址不能直接嵌入。"}</small>
                 </label>
               ) : (
                 <div className="field resource-create-hint">
