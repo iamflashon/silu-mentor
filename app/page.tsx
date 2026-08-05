@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, MouseEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "./listening-player";
 import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
 
@@ -15,7 +15,7 @@ type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
 type MagazineArticle = { id: number; title: string; summary: string; issue: string; reviewStatus: string; sequence: number };
-type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: string[] };
+type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: Array<{ id: string; text: string; url: string; enabled: boolean }>; examCountdowns: Array<{ id: string; label: string; date: string; enabled: boolean }> };
 type LegalLesson = { documentId: number; title: string; articleNo: string; hierarchy: string; content: string };
 type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string };
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
@@ -49,6 +49,7 @@ export default function Home() {
   const endRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
   const [editingImage, setEditingImage] = useState(false);
   const [practiceQuestion, setPracticeQuestion] = useState<PracticeQuestion | null>(null);
@@ -74,6 +75,10 @@ export default function Home() {
   const [musicPlaying, setMusicPlaying] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
   const handoffHandled = useRef(false);
+  const nextExam = useMemo(() => {
+    const todayValue = Date.parse(`${today}T00:00:00Z`);
+    return (homeFeed?.examCountdowns ?? []).map((exam) => ({ ...exam, days: Math.ceil((Date.parse(`${exam.date}T00:00:00Z`) - todayValue) / 86_400_000) })).filter((exam) => exam.days >= 0).sort((a, b) => a.days - b.days)[0] ?? null;
+  }, [homeFeed?.examCountdowns, today]);
 
   useEffect(() => {
     const refreshTaipeiClock = () => {
@@ -90,6 +95,13 @@ export default function Home() {
     if (!messageList) return;
     messageList.scrollTo({ top: messageList.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
+
+  useEffect(() => {
+    const textarea = composerInputRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = input ? `${Math.min(textarea.scrollHeight, 220)}px` : "36px";
+  }, [input]);
 
   useEffect(() => {
     fetch("/api/chat/history").then(async (response) => {
@@ -369,16 +381,13 @@ export default function Home() {
   return (
     <main className="coach-shell">
       <header className="topbar">
-        <a href="/" className="brand" aria-label="司律備考首頁">
-          <span className="brand-mark">律</span>
-          <span>司律備考</span>
-        </a>
+        <div className="brand-zone"><a href="/" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
           <a href="/plan" className="admin-link">學習專區</a>
           <a href="/admin" className="admin-link">管理後台</a>
         </div>
       </header>
-      <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker ?? ["距離目標再前進一小步"]).join("　◆　")}</span></div></div>
+      <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "今日任務完成後，記得留下學習接續點", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>◆</b> : null}</span>)}</span></div></div>
 
       <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button type="button" onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section></div>
 
@@ -466,6 +475,7 @@ export default function Home() {
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
           <button className="attach-image" type="button" aria-label="上傳或貼上圖片問問題" title="上傳圖片，也可直接按 Ctrl+V 貼上" onClick={() => imageInputRef.current?.click()}>＋</button>
           <textarea
+            ref={composerInputRef}
             aria-label="輸入你想學習的內容"
             placeholder="告訴我你想學什麼，或直接貼上一道題目……"
             value={input}

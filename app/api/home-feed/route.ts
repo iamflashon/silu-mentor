@@ -34,7 +34,9 @@ export async function GET() {
     return { ...magazine, isDraft: false, articles };
   }))).sort((a, b) => magazineSortValue(b) - magazineSortValue(a) || b.id - a.id);
   const recommended = await db.select({ id: resourceSegments.id, resourceId: resourceSegments.resourceId, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds, importance: resourceSegments.importance }).from(resourceSegments).where(eq(resourceSegments.recommended, true)).orderBy(desc(resourceSegments.importance)).limit(5);
-  const [musicSetting] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "focus_music_url")).limit(1);
+  const settings = await db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings).where(inArray(appSettings.key, ["focus_music_url", "exam_countdowns", "battle_alerts"]));
+  const settingValues = Object.fromEntries(settings.map((item) => [item.key, item.value]));
+  const parseSetting = <T,>(key: string, fallback: T): T => { try { return settingValues[key] ? JSON.parse(settingValues[key]) as T : fallback; } catch { return fallback; } };
   return Response.json({
     book: resources.find((item) => item.resourceType === "book") ?? null,
     course: resources.find((item) => item.resourceType === "course") ?? null,
@@ -42,8 +44,9 @@ export async function GET() {
     magazine: magazineFeeds[0] ?? null,
     listeningItems: listeningItems.map((listening) => ({ id: listening.id, title: listening.title, year: listening.year, subject: listening.subject, questionText: listening.questionText, subtitles: listening.subtitles, audioUrl: listening.audioStorageKey ? `/api/listening/audio?id=${listening.id}` : "", audioSegments: listening.segments.map((segment) => ({ ...segment, audioUrl: `/api/listening/segments/audio?id=${segment.id}` })) })),
     listening: listeningItems[0] ? { id: listeningItems[0].id, title: listeningItems[0].title, year: listeningItems[0].year, subject: listeningItems[0].subject, questionText: listeningItems[0].questionText, subtitles: listeningItems[0].subtitles, audioUrl: listeningItems[0].audioStorageKey ? `/api/listening/audio?id=${listeningItems[0].id}` : "", audioSegments: listeningItems[0].segments.map((segment) => ({ ...segment, audioUrl: `/api/listening/segments/audio?id=${segment.id}` })) } : null,
-    focusMusicUrl: musicSetting?.value ?? "",
+    focusMusicUrl: settingValues.focus_music_url ?? "",
     recommended,
-    ticker: ["距離 116 年司律考試持續累積實力", "今日任務完成後，記得留下學習接續點", "每次學習只往前一小步，也是在累積上榜實力"],
+    ticker: parseSetting<Array<{ id: string; text: string; url: string; enabled: boolean }>>("battle_alerts", []).filter((item) => item.enabled),
+    examCountdowns: parseSetting<Array<{ id: string; label: string; date: string; enabled: boolean }>>("exam_countdowns", []).filter((item) => item.enabled),
   });
 }

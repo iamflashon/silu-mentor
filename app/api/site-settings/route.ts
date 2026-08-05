@@ -1,6 +1,8 @@
-import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings } from "../../../db/schema";
+
+type ExamCountdown = { id: string; label: string; date: string; enabled: boolean };
+type BattleAlert = { id: string; text: string; url: string; enabled: boolean };
 
 function isYoutubeUrl(value: string) {
   try {
@@ -11,17 +13,58 @@ function isYoutubeUrl(value: string) {
   }
 }
 
+function parseJsonSetting<T>(value: string | undefined, fallback: T): T {
+  try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; }
+}
+
+function validWebUrl(value: string) {
+  if (!value) return true;
+  try { const url = new URL(value); return url.protocol === "https:" || url.protocol === "http:"; } catch { return false; }
+}
+
+async function saveSetting(key: string, value: string) {
+  const db = await getDb();
+  await db.insert(appSettings).values({ key, value, updatedAt: new Date() }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } });
+}
+
 export async function GET() {
   const db = await getDb();
-  const [setting] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "focus_music_url")).limit(1);
-  return Response.json({ focusMusicUrl: setting?.value ?? "" });
+  const settings = await db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings);
+  const values = Object.fromEntries(settings.map((item) => [item.key, item.value]));
+  return Response.json({
+    focusMusicUrl: values.focus_music_url ?? "",
+    examCountdowns: parseJsonSetting<ExamCountdown[]>(values.exam_countdowns, []),
+    battleAlerts: parseJsonSetting<BattleAlert[]>(values.battle_alerts, []),
+  });
 }
 
 export async function PATCH(request: Request) {
-  const body = await request.json() as { focusMusicUrl?: unknown };
-  const value = typeof body.focusMusicUrl === "string" ? body.focusMusicUrl.trim() : "";
-  if (value && !isYoutubeUrl(value)) return Response.json({ error: "請輸入有效的 YouTube 音樂網址" }, { status: 400 });
-  const db = await getDb();
-  await db.insert(appSettings).values({ key: "focus_music_url", value, updatedAt: new Date() }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } });
-  return Response.json({ focusMusicUrl: value });
+  const body = await request.json() as { focusMusicUrl?: unknown; examCountdowns?: unknown; battleAlerts?: unknown };
+  const response: Record<string, unknown> = {};
+  if (Object.prototype.hasOwnProperty.call(body, "focusMusicUrl")) {
+    const value = typeof body.focusMusicUrl === "string" ? body.focusMusicUrl.trim() : "";
+    if (value && !isYoutubeUrl(value)) return Response.json({ error: "請輸入有效的 YouTube 音樂網址" }, { status: 400 });
+    await saveSetting("focus_music_url", value);
+    response.focusMusicUrl = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "examCountdowns")) {
+    if (!Array.isArray(body.examCountdowns)) return Response.json({ error: "考試日期資料格式不正確" }, { status: 400 });
+    const exams = body.examCountdowns.slice(0, 20).map((item, index) => {
+      const row = item as Partial<ExamCountdown>;
+      return { id: String(row.id || `exam-${Date.now()}-${index}`), label: String(row.label ?? "").trim().slice(0, 40), date: String(row.date ?? "").trim(), enabled: row.enabled !== false };
+    }).filter((item) => item.label && /^\d{4}-\d{2}-\d{2}$/.test(item.date));
+    await saveSetting("exam_countdowns", JSON.stringify(exams));
+    response.examCountdowns = exams;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "battleAlerts")) {
+    if (!Array.isArray(body.battleAlerts)) return Response.json({ error: "作戰快訊資料格式不正確" }, { status: 400 });
+    const alerts = body.battleAlerts.slice(0, 30).map((item, index) => {
+      const row = item as Partial<BattleAlert>;
+      return { id: String(row.id || `alert-${Date.now()}-${index}`), text: String(row.text ?? "").trim().slice(0, 120), url: String(row.url ?? "").trim().slice(0, 500), enabled: row.enabled !== false };
+    }).filter((item) => item.text);
+    if (alerts.some((item) => !validWebUrl(item.url))) return Response.json({ error: "快訊連結必須是有效的 http 或 https 網址" }, { status: 400 });
+    await saveSetting("battle_alerts", JSON.stringify(alerts));
+    response.battleAlerts = alerts;
+  }
+  return Response.json(response);
 }

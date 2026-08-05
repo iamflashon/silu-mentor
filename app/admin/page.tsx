@@ -239,6 +239,8 @@ type JudicialStatus = {
     window?: string;
   };
 };
+type ExamCountdown = { id: string; label: string; date: string; enabled: boolean };
+type BattleAlert = { id: string; text: string; url: string; enabled: boolean };
 const DOCUMENTS_PER_PAGE = 5;
 const USAGE_PER_PAGE = 10;
 
@@ -432,6 +434,9 @@ export default function AdminPage() {
   const [focusMusicUrl, setFocusMusicUrl] = useState("");
   const [focusMusicDraft, setFocusMusicDraft] = useState("");
   const [savingFocusMusic, setSavingFocusMusic] = useState(false);
+  const [examCountdowns, setExamCountdowns] = useState<ExamCountdown[]>([]);
+  const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
+  const [savingHomepage, setSavingHomepage] = useState(false);
 
   useEffect(() => {
     fetch("/api/documents")
@@ -522,9 +527,11 @@ export default function AdminPage() {
     fetch("/api/site-settings")
       .then(async (response) => {
         if (!response.ok) return;
-        const result = (await response.json()) as { focusMusicUrl?: string };
+        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[] };
         setFocusMusicUrl(result.focusMusicUrl ?? "");
         setFocusMusicDraft(result.focusMusicUrl ?? "");
+        setExamCountdowns(result.examCountdowns ?? []);
+        setBattleAlerts(result.battleAlerts ?? []);
       })
       .catch(() => undefined);
   }, []);
@@ -537,6 +544,15 @@ export default function AdminPage() {
     if (response.ok) { setFocusMusicUrl(result.focusMusicUrl ?? ""); setFocusMusicDraft(result.focusMusicUrl ?? ""); setNotice(result.focusMusicUrl ? "讀書音樂已設定，前台現在可以播放。" : "前台讀書音樂已清除。"); }
     else setNotice(result.error ?? "讀書音樂設定失敗");
     setSavingFocusMusic(false);
+  }
+
+  async function saveHomepageSettings() {
+    setSavingHomepage(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ examCountdowns, battleAlerts }) });
+    const result = (await readJson(response)) as { examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; error?: string };
+    if (response.ok) { setExamCountdowns(result.examCountdowns ?? []); setBattleAlerts(result.battleAlerts ?? []); setNotice("考試倒數與作戰快訊已更新到前台。"); }
+    else setNotice(result.error ?? "首頁訊息設定失敗");
+    setSavingHomepage(false);
   }
 
   useEffect(() => {
@@ -2371,6 +2387,15 @@ export default function AdminPage() {
               </div>
               <span className={`source-count ${focusMusicUrl ? "configured" : ""}`}>{focusMusicUrl ? "已設定" : "尚未設定"}</span>
             </div>
+            <div className="homepage-setting-block">
+              <div className="setting-block-head"><div><h3>考試倒數</h3><p>同學可自行填考試科目或名稱與日期；首頁自動顯示最近一場。</p></div><button type="button" onClick={() => setExamCountdowns((items) => [...items, { id: `exam-${Date.now()}`, label: "", date: "", enabled: true }])}>＋ 新增考試</button></div>
+              <div className="settings-list">{examCountdowns.length ? examCountdowns.map((exam, index) => <div className="setting-row exam-setting-row" key={exam.id}><label><span>考試科目／名稱</span><input value={exam.label} onChange={(event) => setExamCountdowns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} placeholder="例如：司律一試" /></label><label><span>考試日期</span><input type="date" value={exam.date} onChange={(event) => setExamCountdowns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, date: event.target.value } : item))} /></label><label className="setting-enabled"><input type="checkbox" checked={exam.enabled} onChange={(event) => setExamCountdowns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} />顯示</label><button type="button" className="setting-remove" onClick={() => setExamCountdowns((items) => items.filter((_, itemIndex) => itemIndex !== index))}>刪除</button></div>) : <p className="settings-empty">尚未設定考試日期。新增後，倒數才會出現在首頁。</p>}</div>
+            </div>
+            <div className="homepage-setting-block">
+              <div className="setting-block-head"><div><h3>作戰快訊</h3><p>填入跑馬燈文字，可選填點擊後開啟的連結。</p></div><button type="button" onClick={() => setBattleAlerts((items) => [...items, { id: `alert-${Date.now()}`, text: "", url: "", enabled: true }])}>＋ 新增快訊</button></div>
+              <div className="settings-list">{battleAlerts.length ? battleAlerts.map((alert, index) => <div className="setting-row alert-setting-row" key={alert.id}><label><span>快訊文字</span><input value={alert.text} onChange={(event) => setBattleAlerts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item))} placeholder="例如：114 年二試考題解析已上線" /></label><label><span>連結（選填）</span><input type="url" value={alert.url} onChange={(event) => setBattleAlerts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, url: event.target.value } : item))} placeholder="https://…" /></label><label className="setting-enabled"><input type="checkbox" checked={alert.enabled} onChange={(event) => setBattleAlerts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} />顯示</label><button type="button" className="setting-remove" onClick={() => setBattleAlerts((items) => items.filter((_, itemIndex) => itemIndex !== index))}>刪除</button></div>) : <p className="settings-empty">尚未新增作戰快訊。</p>}</div>
+            </div>
+            <div className="homepage-save-bar"><button type="button" className="primary-btn" disabled={savingHomepage} onClick={() => void saveHomepageSettings()}>{savingHomepage ? "儲存中…" : "儲存倒數與作戰快訊"}</button></div>
             <form className="site-setting-form" onSubmit={saveFocusMusic}>
               <label className="field">讀書音樂 YouTube 網址<input value={focusMusicDraft} onChange={(event) => setFocusMusicDraft(event.target.value)} placeholder="https://www.youtube.com/watch?v=…" /></label>
               <div className="site-setting-actions"><button type="submit" className="primary-btn" disabled={savingFocusMusic}>{savingFocusMusic ? "儲存中…" : "儲存並發布到前台"}</button><button type="button" onClick={() => setFocusMusicDraft("")}>清除</button></div>
