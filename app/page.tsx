@@ -40,6 +40,7 @@ export default function Home() {
   const [greeting, setGreeting] = useState(() => taipeiGreeting());
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
+  const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
@@ -402,7 +403,19 @@ export default function Home() {
 
       <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button type="button" onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section></div>
 
-      <div className={`command-layout rail-${railSide}`}>
+      <button
+        type="button"
+        className={`mobile-rail-toggle rail-${railSide}`}
+        onClick={() => setMobileRailOpen(true)}
+        aria-expanded={mobileRailOpen}
+        aria-controls="mobile-command-rail"
+      >
+        <span aria-hidden="true">{railSide === "right" ? "‹" : "›"}</span>
+        <b>作戰資訊</b>
+      </button>
+      {mobileRailOpen && <button type="button" className="mobile-rail-backdrop" aria-label="關閉作戰資訊側欄" onClick={() => setMobileRailOpen(false)} />}
+
+      <div className={`command-layout rail-${railSide} ${mobileRailOpen ? "mobile-rail-open" : ""}`}>
       <section className="conversation" aria-live="polite">
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
@@ -467,7 +480,14 @@ export default function Home() {
         )}
       </section>
 
-      <aside className="command-rail">
+      <aside className="command-rail" id="mobile-command-rail" aria-label="作戰資訊側欄">
+        <div className="mobile-rail-head">
+          <strong>作戰資訊</strong>
+          <div>
+            <button type="button" onClick={toggleRailSide}>⇆ 移到{railSide === "right" ? "左側" : "右側"}</button>
+            <button type="button" onClick={() => setMobileRailOpen(false)} aria-label="關閉作戰資訊側欄">關閉</button>
+          </div>
+        </div>
         <button className="rail-switch" onClick={toggleRailSide} aria-label={`將作戰資訊移到${railSide === "right" ? "左" : "右"}側`}>⇆ 移到{railSide === "right" ? "左邊" : "右邊"}</button>
         <section className="top-dictionary-card rail-dictionary-card" aria-label="法律辭典">
           <div className="top-dictionary-intro"><div className="rail-title"><strong>法律辭典</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">司法院來源 ↗</a></div><p>查一個法律名詞，或讓 AI 隨機抽一個司律常見用語。</p></div>

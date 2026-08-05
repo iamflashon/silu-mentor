@@ -184,6 +184,11 @@ a {
   gap: 34px;
   align-items: start;
 }
+.mobile-rail-toggle,
+.mobile-rail-backdrop,
+.mobile-rail-head {
+  display: none;
+}
 .command-layout.rail-left {
   grid-template-columns: 300px minmax(0, 800px);
 }
@@ -2800,7 +2805,7 @@ a {
   border-radius: 9px 9px 0 0;
   background: transparent;
   color: #617a8b;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
   text-align: center;
   white-space: nowrap;
@@ -9327,10 +9332,104 @@ a {
     max-height: calc(100dvh - 260px);
   }
   .command-rail {
-    position: static;
-    padding-top: 0;
+    position: fixed;
+    z-index: 40;
+    top: 81px;
+    bottom: 0;
+    width: min(88vw, 340px);
+    max-height: none;
+    padding: 12px 12px 104px;
     display: grid;
     grid-template-columns: 1fr;
+    align-content: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: #f8fbfd;
+    box-shadow: 0 18px 42px rgba(20, 45, 65, 0.22);
+    transition: transform 0.22s ease;
+  }
+  .command-layout.rail-right .command-rail {
+    right: 0;
+    transform: translateX(102%);
+  }
+  .command-layout.rail-left .command-rail {
+    left: 0;
+    transform: translateX(-102%);
+  }
+  .command-layout.mobile-rail-open .command-rail {
+    transform: translateX(0);
+  }
+  .mobile-rail-toggle {
+    position: fixed;
+    z-index: 38;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-height: 92px;
+    padding: 12px 8px;
+    border: 1px solid #b8d0dc;
+    background: #ffffff;
+    color: #214f6c;
+    box-shadow: 0 8px 22px rgba(29, 67, 91, 0.16);
+    font-size: 15px;
+    font-weight: 850;
+    cursor: pointer;
+    writing-mode: vertical-rl;
+  }
+  .mobile-rail-toggle b {
+    font-size: 15px;
+    letter-spacing: 0.04em;
+  }
+  .mobile-rail-toggle span {
+    font-size: 19px;
+    line-height: 1;
+  }
+  .mobile-rail-toggle.rail-right {
+    right: 0;
+    border-radius: 14px 0 0 14px;
+  }
+  .mobile-rail-toggle.rail-left {
+    left: 0;
+    border-radius: 0 14px 14px 0;
+  }
+  .mobile-rail-backdrop {
+    position: fixed;
+    z-index: 39;
+    inset: 81px 0 0;
+    display: block;
+    width: 100%;
+    border: 0;
+    background: rgba(16, 38, 54, 0.25);
+    cursor: pointer;
+  }
+  .mobile-rail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 9px;
+    min-height: 42px;
+    padding: 0 2px 10px;
+    border-bottom: 1px solid #d9e6ec;
+  }
+  .mobile-rail-head > strong {
+    color: #1e4b68;
+    font-size: 17px;
+  }
+  .mobile-rail-head > div {
+    display: flex;
+    gap: 6px;
+  }
+  .mobile-rail-head button {
+    min-height: 31px;
+    padding: 5px 8px;
+    border: 1px solid #bfd3dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #35657c;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
   }
   .rail-switch {
     display: none;
@@ -9554,19 +9653,28 @@ a {
     width: calc(100% + 14px);
     padding: 7px 8px 0;
     scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    overscroll-behavior-x: contain;
   }
   .plan-tabs button {
     flex: 0 0 auto;
-    min-width: 88px;
-    min-height: 43px;
-    padding: 10px 11px;
-    font-size: 11px;
+    min-width: 104px;
+    min-height: 48px;
+    padding: 10px 13px;
+    font-size: 15px;
+    line-height: 1.25;
     white-space: nowrap;
     scroll-snap-align: start;
   }
   .plan-tabs button.active {
-    min-height: 47px;
-    padding-top: 12px;
+    min-height: 52px;
+    padding-top: 13px;
+  }
+  .plan-tabs span {
+    top: 4px;
+    right: 5px;
+    font-size: 9px;
   }
   .resource-learning-hub {
     width: calc(100% - 28px);
