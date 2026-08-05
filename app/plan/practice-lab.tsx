@@ -32,6 +32,13 @@ type EssayGrading = {
   source_used: string;
 };
 
+type EssayModelMode = "sol" | "claude" | "dual";
+type EssayComparison = {
+  scoreDifference: number;
+  agreements: string[];
+  differences: Array<{ criterion: string; sol: number; claude: number }>;
+};
+
 type CoachMessage = { role: "mentor" | "student"; text: string };
 type CoachRecommendation = {
   type: string;
@@ -59,6 +66,16 @@ export function PracticeLab({ initialType }: Props) {
   const [essay, setEssay] = useState("");
   const [essayFeedback, setEssayFeedback] = useState("");
   const [essayGrading, setEssayGrading] = useState<EssayGrading | null>(null);
+  const [essayReviews, setEssayReviews] = useState<{
+    sol: EssayGrading;
+    claude: EssayGrading;
+  } | null>(null);
+  const [essayComparison, setEssayComparison] =
+    useState<EssayComparison | null>(null);
+  const [essayModelMode, setEssayModelMode] =
+    useState<EssayModelMode>("sol");
+  const [essayResultMode, setEssayResultMode] =
+    useState<EssayModelMode>("sol");
   const [submitting, setSubmitting] = useState(false);
   const [coachInput, setCoachInput] = useState("");
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
@@ -148,6 +165,9 @@ export function PracticeLab({ initialType }: Props) {
     setFeedback("");
     setEssayFeedback("");
     setEssayGrading(null);
+    setEssayReviews(null);
+    setEssayComparison(null);
+    setEssayResultMode("sol");
     setEssay("");
     setCoachInput("");
     setCoachMessages([]);
@@ -350,21 +370,38 @@ export function PracticeLab({ initialType }: Props) {
     setSubmitting(true);
     setEssayFeedback("");
     setEssayGrading(null);
+    setEssayReviews(null);
+    setEssayComparison(null);
     try {
       const response = await fetch("/api/essay-grading", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ questionId: question.id, answer: essay }),
+        body: JSON.stringify({
+          questionId: question.id,
+          answer: essay,
+          mode: essayModelMode,
+        }),
       });
       const result = (await response.json()) as {
+        mode?: EssayModelMode;
         grading?: EssayGrading;
+        reviews?: { sol?: EssayGrading; claude?: EssayGrading };
+        comparison?: EssayComparison | null;
         source?: { label?: string };
         error?: string;
       };
       if (response.ok && result.grading) {
+        const resultMode = result.mode ?? essayModelMode;
+        setEssayResultMode(resultMode);
         setEssayGrading(result.grading);
+        if (result.reviews?.sol && result.reviews.claude) {
+          setEssayReviews({ sol: result.reviews.sol, claude: result.reviews.claude });
+          setEssayComparison(result.comparison ?? null);
+        }
         setEssayFeedback(
-          `本次依${result.source?.label ?? "老師參考擬答"}批改。`,
+          resultMode === "dual"
+            ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改。`
+            : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改。`,
         );
       } else setEssayFeedback(result.error ?? "申論批改暫時無法使用");
     } catch {
@@ -372,6 +409,130 @@ export function PracticeLab({ initialType }: Props) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function essayModelPicker() {
+    const options: Array<{ value: EssayModelMode; label: string; note: string }> = [
+      { value: "sol", label: "GPT-5.6 Sol", note: "預設批改" },
+      { value: "claude", label: "Claude Opus 5", note: "另一模型測試" },
+      { value: "dual", label: "Sol＋Claude 雙模型覆核", note: "兩份評分並列比較" },
+    ];
+    return (
+      <fieldset className="essay-model-picker" disabled={submitting}>
+        <legend>申論批改模型</legend>
+        <div>
+          {options.map((option) => (
+            <label key={option.value}>
+              <input
+                type="radio"
+                name="essay-grading-model"
+                value={option.value}
+                checked={essayModelMode === option.value}
+                onChange={() => setEssayModelMode(option.value)}
+              />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.note}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+        {essayModelMode === "dual" && (
+          <p>兩個模型會取得完全相同的題目、老師擬答與學生答案，完成後分開顯示分數與採分差異。</p>
+        )}
+      </fieldset>
+    );
+  }
+
+  function renderEssayGrading(grading: EssayGrading, title?: string) {
+    return (
+      <div className="essay-grading-result">
+        {title && (
+          <header className="essay-model-result-heading">
+            <strong>{title}</strong>
+            <span>獨立評分結果</span>
+          </header>
+        )}
+        <div className="essay-score">
+          <b>{grading.score}</b>
+          <span>/ 100</span>
+        </div>
+        <p>{grading.overall}</p>
+        <div className="essay-dimensions">
+          {grading.dimensions.map((item) => (
+            <article key={item.criterion}>
+              <strong>
+                {item.criterion}　{item.score}/{item.max_score}
+              </strong>
+              <p>{item.result}</p>
+              {item.evidence && <small>你的作答依據：{item.evidence}</small>}
+              {item.missing && <small>待補強：{item.missing}</small>}
+            </article>
+          ))}
+        </div>
+        {grading.priority_fixes.length > 0 && (
+          <div>
+            <strong>優先修正</strong>
+            <ul>
+              {grading.priority_fixes.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="essay-next-step">
+          <strong>下一步</strong>
+          <p>{grading.next_step}</p>
+        </div>
+      </div>
+    );
+  }
+
+  function renderEssayResult() {
+    if (!essayGrading) return null;
+    if (!essayReviews || essayResultMode !== "dual") {
+      return renderEssayGrading(
+        essayGrading,
+        essayResultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+      );
+    }
+    return (
+      <section className="essay-dual-review" aria-label="雙模型申論覆核結果">
+        <header>
+          <div>
+            <strong>Sol＋Claude 雙模型覆核</strong>
+            <span>兩個模型獨立評分，先看各自判斷，再看採分差異。</span>
+          </div>
+          {essayComparison && (
+            <b>總分差距 {essayComparison.scoreDifference} 分</b>
+          )}
+        </header>
+        <div className="essay-dual-models">
+          {renderEssayGrading(essayReviews.sol, "GPT-5.6 Sol")}
+          {renderEssayGrading(essayReviews.claude, "Claude Opus 5")}
+        </div>
+        {essayComparison && (
+          <div className="essay-comparison">
+            <strong>覆核摘要</strong>
+            {essayComparison.agreements.length > 0 && (
+              <p>
+                <b>配分一致：</b>{essayComparison.agreements.join("、")}
+              </p>
+            )}
+            {essayComparison.differences.length > 0 ? (
+              <p>
+                <b>配分差異：</b>
+                {essayComparison.differences
+                  .map((item) => `${item.criterion}（Sol ${item.sol}／Claude ${item.claude}）`)
+                  .join("、")}
+              </p>
+            ) : (
+              <p><b>配分差異：</b>兩個模型在已辨識的採分項目沒有分數差異。</p>
+            )}
+          </div>
+        )}
+      </section>
+    );
   }
 
   function essayToolbar() {
@@ -814,6 +975,7 @@ export function PracticeLab({ initialType }: Props) {
                 </button>
               </footer>
             </section>
+            {essayModelPicker()}
             {!question.hasTeacherAnswer && (
               <p className="mock-exam-warning">
                 本題尚未完成老師擬答核對，目前可作答並儲存，但暫不開放正式交卷批改。
@@ -825,29 +987,7 @@ export function PracticeLab({ initialType }: Props) {
                 <p>{essayFeedback}</p>
               </div>
             )}
-            {essayGrading && (
-              <div className="essay-grading-result">
-                <div className="essay-score">
-                  <b>{essayGrading.score}</b>
-                  <span>/ 100</span>
-                </div>
-                <p>{essayGrading.overall}</p>
-                <div className="essay-dimensions">
-                  {essayGrading.dimensions.map((item) => (
-                    <article key={item.criterion}>
-                      <strong>
-                        {item.criterion}　{item.score}/{item.max_score}
-                      </strong>
-                      <p>{item.result}</p>
-                      {item.evidence && (
-                        <small>你的作答依據：{item.evidence}</small>
-                      )}
-                      {item.missing && <small>待補強：{item.missing}</small>}
-                    </article>
-                  ))}
-                </div>
-              </div>
-            )}
+            {renderEssayResult()}
           </article>
         )}
       {loading ? (
@@ -1116,6 +1256,7 @@ export function PracticeLab({ initialType }: Props) {
                   <b>字數 {essay.length}／5,200</b>
                 </footer>
               </section>
+              {essayModelPicker()}
               <button
                 className="essay-submit-wide"
                 disabled={
@@ -1131,43 +1272,7 @@ export function PracticeLab({ initialType }: Props) {
                   <p>{essayFeedback}</p>
                 </div>
               )}
-              {essayGrading && (
-                <div className="essay-grading-result">
-                  <div className="essay-score">
-                    <b>{essayGrading.score}</b>
-                    <span>/ 100</span>
-                  </div>
-                  <p>{essayGrading.overall}</p>
-                  <div className="essay-dimensions">
-                    {essayGrading.dimensions.map((item) => (
-                      <article key={item.criterion}>
-                        <strong>
-                          {item.criterion}　{item.score}/{item.max_score}
-                        </strong>
-                        <p>{item.result}</p>
-                        {item.evidence && (
-                          <small>你的作答依據：{item.evidence}</small>
-                        )}
-                        {item.missing && <small>待補強：{item.missing}</small>}
-                      </article>
-                    ))}
-                  </div>
-                  {essayGrading.priority_fixes.length > 0 && (
-                    <div>
-                      <strong>優先修正</strong>
-                      <ul>
-                        {essayGrading.priority_fixes.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  <div className="essay-next-step">
-                    <strong>下一步</strong>
-                    <p>{essayGrading.next_step}</p>
-                  </div>
-                </div>
-              )}
+              {renderEssayResult()}
             </div>
           )}
         </article>

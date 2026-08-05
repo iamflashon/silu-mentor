@@ -17,11 +17,27 @@ export async function getOpenAIKey() {
   return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
 }
 
+export async function getAnthropicKey() {
+  const configured = process.env.ANTHROPIC_API_KEY;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeKey = env.ANTHROPIC_API_KEY;
+  return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
+}
+
 export async function getOpenAIModel(fallback = "gpt-5.6-luna") {
   const configured = process.env.OPENAI_MODEL;
   if (configured?.trim()) return configured.trim();
   const env = await runtimeEnv();
   const runtimeModel = env.OPENAI_MODEL;
+  return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
+}
+
+export async function getAnthropicModel(fallback = "claude-opus-5") {
+  const configured = process.env.ANTHROPIC_ESSAY_GRADING_MODEL || process.env.ANTHROPIC_MODEL;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeModel = env.ANTHROPIC_ESSAY_GRADING_MODEL || env.ANTHROPIC_MODEL;
   return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
 }
 
