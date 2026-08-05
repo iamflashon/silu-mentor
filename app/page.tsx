@@ -331,6 +331,7 @@ export default function Home() {
   }
 
   async function send(text: string) {
+    composerInputRef.current?.blur();
     const value = text.trim();
     if ((!value && !imageDraft) || thinking) return;
     const question = value || "請先辨識這張圖片中的題目，帶我一步一步審題。";

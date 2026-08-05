@@ -9,6 +9,7 @@ import {
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
+const PENDING_CHAPTER_TYPE = "book_chapter_pending";
 // D1 limits the number of bound parameters in a single statement. The chapter
 // INSERT currently binds 15 values per row (not ten: Drizzle also binds the
 // defaulted fields we set explicitly), so eight chapters would bind about 120
@@ -51,6 +52,7 @@ type ChapterProgress = {
   foundQuestions?: number;
   currentTopic?: string;
   error?: string;
+  topics?: Array<{ section: string; topic: string }>;
 };
 
 function chapterStatusKey(resourceId: number) {
@@ -196,6 +198,20 @@ async function readChapters(resourceId: number) {
       and(
         eq(resourceSegments.resourceId, resourceId),
         inArray(resourceSegments.segmentType, [...CHAPTER_TYPES]),
+      ),
+    )
+    .orderBy(asc(resourceSegments.sequence));
+}
+
+async function readPendingChapters(resourceId: number) {
+  const db = await getDb();
+  return db
+    .select()
+    .from(resourceSegments)
+    .where(
+      and(
+        eq(resourceSegments.resourceId, resourceId),
+        eq(resourceSegments.segmentType, PENDING_CHAPTER_TYPE),
       ),
     )
     .orderBy(asc(resourceSegments.sequence));
@@ -390,15 +406,7 @@ export async function POST(request: Request) {
       });
 
     const progressRecord = await readChapterProgressRecord(resourceId);
-    const previousProgress = progressRecord.progress;
-    const staleBuilding = previousProgress.state === "building" && progressRecord.updatedAt
-      ? Date.now() - progressRecord.updatedAt.getTime() > 120_000
-      : false;
-    if (previousProgress.state === "building" && !staleBuilding)
-      return Response.json(
-        { error: "章節索引正在建立中，請稍後再試。", status: "building", progress: progressForResponse(previousProgress, progressRecord.updatedAt) },
-        { status: 202 },
-      );
+    let activeProgress = progressRecord.progress;
 
     if (!resource.documentId)
       return Response.json(
@@ -435,13 +443,28 @@ export async function POST(request: Request) {
         { status: 409 },
       );
 
-    await writeChapterProgress(resourceId, {
-      state: "building",
-      phase: problemBook ? "outline" : "questions",
-      completedTopics: 0,
-      totalTopics: 0,
-      foundQuestions: 0,
-    });
+    // Problem-book extraction is a resumable queue. Each request performs at
+    // most one topic, so a timeout or rate limit cannot discard the topics
+    // already completed. A request with an existing checkpoint continues it.
+    let topics = problemBook ? activeProgress.topics : undefined;
+    const shouldRestartCompleted = problemBook && activeProgress.state === "failed"
+      && activeProgress.totalTopics != null
+      && activeProgress.completedTopics != null
+      && activeProgress.completedTopics >= activeProgress.totalTopics;
+    if (problemBook && (!topics?.length || shouldRestartCompleted)) {
+      const pending = await readPendingChapters(resourceId);
+      if (pending.length) {
+        await db.delete(resourceSegments).where(
+          and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, PENDING_CHAPTER_TYPE)),
+        );
+      }
+      await writeChapterProgress(resourceId, {
+        state: "building", phase: "outline", completedTopics: 0,
+        totalTopics: 0, foundQuestions: 0,
+      });
+      activeProgress = { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 };
+      topics = undefined;
+    }
     const extractionModel =
       process.env.OPENAI_EXTRACTION_MODEL ||
       process.env.OPENAI_MODEL ||
@@ -478,28 +501,34 @@ export async function POST(request: Request) {
       // similar chunks. First recover the real topic catalogue, then issue
       // targeted searches in small topic batches so later parts of the book
       // are not silently omitted.
-      const outlinePayload = await openAIJson("/responses", {
-        method: "POST",
-        body: JSON.stringify({
-          model: extractionModel,
-          instructions: "你是台灣司律解題書目錄核對員。使用 file_search，只抄錄原書目錄中明確存在的『部分』與『主題』；不要回傳題目、不要改寫名稱、不要自行補項目。保留原順序。",
-          input: `請搜尋《${resource.title}》（原始檔名：${document.fileName}）的目錄，列出全部部分與主題。`,
-          tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 20 }],
-          text: { format: { type: "json_schema", name: "problem_book_outline", strict: true, schema: { type: "object", additionalProperties: false, properties: { topics: { type: "array", maxItems: 36, items: { type: "object", additionalProperties: false, properties: { section: { type: "string" }, topic: { type: "string" } }, required: ["section", "topic"] } } }, required: ["topics"] } } },
-        }),
-      });
-      const topics = parseProblemOutline(outlinePayload);
-      await writeChapterProgress(resourceId, {
-        state: "building", phase: "questions", completedTopics: 0,
-        totalTopics: topics.length, foundQuestions: 0,
-      });
-      for (let index = 0; index < topics.length; index += PROBLEM_TOPIC_BATCH_SIZE) {
-        const batch = topics.slice(index, index + PROBLEM_TOPIC_BATCH_SIZE);
-        await writeChapterProgress(resourceId, {
-          state: "building", phase: "questions", completedTopics: index,
-          totalTopics: topics.length, foundQuestions: parsed.filter(isCompleteProblemQuestion).length,
-          currentTopic: `${batch[0]?.section ?? ""}｜${batch[0]?.topic ?? ""}`,
+      if (!topics?.length) {
+        const outlinePayload = await openAIJson("/responses", {
+          method: "POST",
+          body: JSON.stringify({
+            model: extractionModel,
+            instructions: "你是台灣司律解題書目錄核對員。使用 file_search，只抄錄原書目錄中明確存在的『部分』與『主題』；不要回傳題目、不要改寫名稱、不要自行補項目。保留原順序。",
+            input: `請搜尋《${resource.title}》（原始檔名：${document.fileName}）的目錄，列出全部部分與主題。`,
+            tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 20 }],
+            text: { format: { type: "json_schema", name: "problem_book_outline", strict: true, schema: { type: "object", additionalProperties: false, properties: { topics: { type: "array", maxItems: 36, items: { type: "object", additionalProperties: false, properties: { section: { type: "string" }, topic: { type: "string" } }, required: ["section", "topic"] } } }, required: ["topics"] } } },
+          }),
         });
+        topics = parseProblemOutline(outlinePayload);
+        if (!topics.length) throw new Error("教材目錄未辨識到可處理的主題");
+        await writeChapterProgress(resourceId, {
+          state: "building", phase: "questions", completedTopics: 0,
+          totalTopics: topics.length, foundQuestions: 0, topics,
+        });
+        activeProgress = { state: "building", phase: "questions", completedTopics: 0, totalTopics: topics.length, foundQuestions: 0, topics };
+      }
+      const index = Math.min(activeProgress.completedTopics ?? 0, topics.length);
+      if (index < topics.length) {
+        const batch = topics.slice(index, index + PROBLEM_TOPIC_BATCH_SIZE);
+        activeProgress = {
+          ...activeProgress, state: "building", phase: "questions", completedTopics: index,
+          totalTopics: topics.length, topics,
+          currentTopic: `${batch[0]?.section ?? ""}｜${batch[0]?.topic ?? ""}`,
+        };
+        await writeChapterProgress(resourceId, activeProgress);
         const payload = await openAIJson("/responses", {
           method: "POST",
           body: JSON.stringify({
@@ -510,12 +539,37 @@ export async function POST(request: Request) {
             text: { format: { type: "json_schema", name: "problem_book_questions", strict: true, schema: problemQuestionSchema } },
           }),
         });
-        parsed.push(...parseChapterPayload(payload));
-        await writeChapterProgress(resourceId, {
-          state: "building", phase: "questions", completedTopics: index + 1,
-          totalTopics: topics.length, foundQuestions: parsed.filter(isCompleteProblemQuestion).length,
+        parsed = parseChapterPayload(payload);
+        const pending = await readPendingChapters(resourceId);
+        const existingKeys = new Set(pending.map((chapter) => `${chapter.lessonLabel}|${chapter.title}`));
+        const newRows = parsed
+          .filter(isCompleteProblemQuestion)
+          .filter((chapter) => !existingKeys.has(`${String(chapter.section ?? "").trim()}｜${String(chapter.topic ?? "").trim()}|${String(chapter.title ?? "").trim()}`))
+          .map((chapter, localIndex) => ({
+            resourceId, segmentType: PENDING_CHAPTER_TYPE,
+            lessonLabel: `${String(chapter.section ?? "").trim()}｜${String(chapter.topic ?? "").trim()}`.slice(0, 160),
+            title: String(chapter.title ?? "").trim().slice(0, 160),
+            pageStart: chapter.page_start == null ? null : Math.max(1, Number(chapter.page_start) || 1),
+            pageEnd: chapter.page_end == null ? null : Math.max(1, Number(chapter.page_end) || 1),
+            text: String(chapter.stem ?? "").trim().slice(0, 12000),
+            sequence: index * 1000 + localIndex + 1,
+            summary: String(chapter.summary ?? "").trim().slice(0, 240),
+            reviewStatus: "ai_reviewed",
+          }));
+        if (newRows.length) await db.insert(resourceSegments).values(newRows);
+        const foundQuestions = pending.length + newRows.length;
+        activeProgress = {
+          ...activeProgress, state: "building", phase: "questions", completedTopics: index + 1,
+          totalTopics: topics.length, foundQuestions,
           currentTopic: topics[index + 1] ? `${topics[index + 1].section}｜${topics[index + 1].topic}` : "",
+          topics,
+        };
+        await writeChapterProgress(resourceId, {
+          ...activeProgress,
         });
+        if (index + 1 < topics.length) {
+          return Response.json({ status: "building", progress: progressForResponse(activeProgress, new Date()) }, { status: 202 });
+        }
       }
     } else {
       const payload = await openAIJson("/responses", {
@@ -543,11 +597,10 @@ export async function POST(request: Request) {
       });
       parsed = parseChapterPayload(payload);
     }
-    const generated = problemBook
-      ? parsed.filter(isCompleteProblemQuestion).filter((chapter, index, all) => all.findIndex((candidate) => problemQuestionKey(candidate) === problemQuestionKey(chapter)) === index)
-      : parsed;
+    const pendingChapters = problemBook ? await readPendingChapters(resourceId) : [];
+    const generated = problemBook ? pendingChapters : parsed;
     if (!generated.length || (problemBook && generated.length < MIN_COMPLETE_PROBLEM_QUESTIONS)) {
-      await writeChapterProgress(resourceId, { state: "failed", phase: "failed", foundQuestions: generated.length, error: "本次未達最低完整度，原資料未被覆蓋。" });
+      await writeChapterProgress(resourceId, { ...activeProgress, state: "failed", phase: "failed", foundQuestions: generated.length, error: "本次未達最低完整度，原資料未被覆蓋。" });
       return Response.json(
         {
           error: problemBook
@@ -599,19 +652,26 @@ export async function POST(request: Request) {
             ),
           );
       }
-      for (
-        let index = 0;
-        index < rows.length;
-        index += CHAPTER_INSERT_BATCH_SIZE
-      ) {
-        inserted.push(
-          ...(await db
-            .insert(resourceSegments)
-            .values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE))
-            .returning()),
+      if (problemBook) {
+        await db.update(resourceSegments).set({ segmentType: "book_chapter" }).where(
+          and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, PENDING_CHAPTER_TYPE)),
         );
+        inserted.push(...(await readChapters(resourceId)));
+      } else {
+        for (
+          let index = 0;
+          index < rows.length;
+          index += CHAPTER_INSERT_BATCH_SIZE
+        ) {
+          inserted.push(
+            ...(await db
+              .insert(resourceSegments)
+              .values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE))
+              .returning()),
+          );
+        }
       }
-      await writeChapterProgress(resourceId, { state: "completed", phase: "saving", foundQuestions: inserted.length });
+      await writeChapterProgress(resourceId, { state: "completed", phase: "saving", foundQuestions: inserted.length, completedTopics: activeProgress.completedTopics, totalTopics: activeProgress.totalTopics, topics: activeProgress.topics });
       return Response.json({
         chapters: inserted,
         generated: true,
@@ -639,7 +699,9 @@ export async function POST(request: Request) {
     const paused = /較忙|限流|rate.?limit|429|try again/i.test(message);
     if (resourceId) {
       try {
+        const progress = activeProgress ?? (await readChapterProgressRecord(resourceId)).progress;
         await writeChapterProgress(resourceId, {
+          ...progress,
           state: paused ? "paused" : "failed",
           phase: paused ? "paused" : "failed",
           error: paused ? "AI 目前較忙；已保留原資料，稍後可重新執行解析。" : message,

@@ -3029,6 +3029,17 @@ a {
   text-align: center;
 }
 @media (max-width: 720px) {
+  /* iOS Safari zooms the whole page when a focused field is smaller than
+     16px. Keep student-facing fields at the native safe size. */
+  .coach-shell input:not([type="checkbox"]):not([type="radio"]),
+  .coach-shell textarea,
+  .coach-shell select,
+  .plan-shell input:not([type="checkbox"]):not([type="radio"]),
+  .plan-shell textarea,
+  .plan-shell select {
+    font-size: 16px !important;
+  }
+
   .hot-points-hub {
     padding: 17px;
   }

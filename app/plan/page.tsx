@@ -1712,6 +1712,7 @@ export default function StudyPlanPage() {
 
   async function sendBookMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    event.currentTarget.querySelector("textarea")?.blur();
     const text = bookInput.trim();
     if (!text || !selectedChapter || !selectedResource || bookChatLoading)
       return;

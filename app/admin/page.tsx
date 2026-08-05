@@ -1652,38 +1652,53 @@ export default function AdminPage() {
       ...current,
       [resource.id]: { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 },
     }));
-    const response = await fetch("/api/resources/chapters", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        resourceId: resource.id,
-        rebuild: isProblemSolvingResource(resource),
-      }),
-    });
-    const result = (await readJson(response)) as {
-      chapters?: unknown[];
-      generated?: boolean;
-      reused?: boolean;
-      status?: string;
-      progress?: ChapterProgress;
-      error?: string;
-    };
-    if (result.progress) setChapterProgress((current) => ({ ...current, [resource.id]: result.progress! }));
-    if (!response.ok) {
-      setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await fetch("/api/resources/chapters", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          resourceId: resource.id,
+          rebuild: isProblemSolvingResource(resource),
+        }),
+      });
+      const result = (await readJson(response)) as {
+        chapters?: unknown[];
+        generated?: boolean;
+        reused?: boolean;
+        status?: string;
+        progress?: ChapterProgress;
+        error?: string;
+      };
+      if (result.progress) {
+        setChapterProgress((current) => ({ ...current, [resource.id]: result.progress! }));
+        if (result.progress.totalTopics) {
+          setNotice(`正在解析「${resource.title}」：主題 ${result.progress.completedTopics ?? 0}／${result.progress.totalTopics}，已找到 ${result.progress.foundQuestions ?? 0} 題。`);
+        }
+      }
+      if (!response.ok && response.status !== 202) {
+        setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
+        return;
+      }
+      if (result.status === "paused" || result.status === "failed") {
+        setNotice(result.status === "paused"
+          ? "解析暫停；已保存目前進度，稍後再按一次即可接著解析。"
+          : (result.error ?? "解析未完成；原資料仍保留。"));
+        return;
+      }
+      if (result.status === "building") {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        continue;
+      }
+      const count = result.chapters?.length ?? 0;
+      setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
+      setNotice(result.reused
+        ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
+        : isProblemSolvingResource(resource)
+          ? `「${resource.title}」已擷取 ${count} 道含完整題目的題型。`
+          : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
       return;
     }
-    if (result.status === "paused" || result.status === "building") {
-      setNotice("解析已暫停；原資料仍保留，稍後可再按一次重新執行解析。");
-      return;
-    }
-    const count = result.chapters?.length ?? 0;
-    setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
-    setNotice(result.reused
-      ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
-      : isProblemSolvingResource(resource)
-        ? `「${resource.title}」已擷取 ${count} 道含完整題目的題型。`
-        : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
+    setNotice("解析工作已保存目前進度；可再次按下按鈕接著處理剩餘主題。");
   }
 
   async function bindCourseBook(
