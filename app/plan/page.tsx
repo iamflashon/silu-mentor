@@ -12,6 +12,7 @@ import {
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import CourseVideoPlayer, { formatMediaTime, PlaybackRateSelect } from "../course-video-player";
 import { PracticeLab } from "./practice-lab";
+import { EssayHistory } from "./essay-history";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
 import { coreExamPoints } from "../../lib/core-exam-points";
@@ -296,6 +297,7 @@ function monthValue(date = new Date()) {
 type PlanTab =
   | "calendar"
   | "practice"
+  | "essay-history"
   | "hotspots"
   | "laws"
   | "books"
@@ -315,6 +317,7 @@ function requestedPlanTab(): PlanTab {
   return [
     "calendar",
     "practice",
+    "essay-history",
     "hotspots",
     "laws",
     "books",
@@ -2412,6 +2415,12 @@ export default function StudyPlanPage() {
             練真題
           </button>
           <button
+            className={activeTab === "essay-history" ? "active" : ""}
+            onClick={() => setActiveTab("essay-history")}
+          >
+            申論批改
+          </button>
+          <button
             className={activeTab === "hotspots" ? "active" : ""}
             onClick={() => setActiveTab("hotspots")}
           >
@@ -3949,6 +3958,7 @@ export default function StudyPlanPage() {
           </>
         )}
         {activeTab === "practice" && <PracticeLab initialType="mcq" />}
+        {activeTab === "essay-history" && <EssayHistory />}
         {activeTab === "laws" && <LegalResearchTabs />}
         {activeTab === "records" && (
           <section className="learning-hub tab-hub" id="records">

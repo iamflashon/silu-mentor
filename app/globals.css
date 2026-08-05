@@ -11676,6 +11676,187 @@ a {
   font-size: 16px;
   line-height: 1.8;
 }
+.essay-solution-steps {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid #cfe1e8;
+  border-radius: 10px;
+  background: #eef7fa;
+}
+.essay-solution-steps > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.essay-solution-steps > header strong {
+  color: #1f5f7d;
+  font-size: 19px;
+}
+.essay-solution-steps > header span {
+  color: #6c8793;
+  font-size: 13px;
+}
+.essay-solution-steps ol {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.essay-solution-steps li {
+  padding: 13px 14px;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(36, 92, 120, 0.04);
+}
+.essay-solution-step-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 7px;
+}
+.essay-solution-step-head b {
+  display: inline-grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 50%;
+  background: #2e7897;
+  color: #fff;
+  font-size: 14px;
+}
+.essay-solution-step-head strong {
+  color: #2c5c73;
+  font-size: 17px;
+}
+.essay-solution-steps li p {
+  margin: 6px 0 0;
+  color: #527181;
+  font-size: 15px;
+  line-height: 1.75;
+}
+.essay-solution-steps li p em {
+  display: inline-block;
+  min-width: 76px;
+  margin-right: 5px;
+  color: #2e7897;
+  font-style: normal;
+  font-weight: 750;
+}
+.essay-history-hub {
+  display: grid;
+  gap: 18px;
+}
+.essay-history-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 24px;
+  border: 1px solid #d4e4e9;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f7fbfc, #edf7f8);
+}
+.essay-history-head p {
+  margin: 0 0 5px;
+  color: #77909b;
+  font-size: 11px;
+  letter-spacing: .12em;
+}
+.essay-history-head h2 {
+  margin: 0;
+  color: #245c78;
+  font-size: 25px;
+}
+.essay-history-head span {
+  display: block;
+  margin-top: 8px;
+  color: #5e7885;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.essay-history-head > strong {
+  color: #2e7897;
+  font-size: 26px;
+  white-space: nowrap;
+}
+.essay-history-list {
+  display: grid;
+  gap: 12px;
+}
+.essay-history-card {
+  overflow: hidden;
+  border: 1px solid #d7e5e9;
+  border-radius: 12px;
+  background: #fff;
+}
+.essay-history-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 17px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+.essay-history-card summary::-webkit-details-marker { display: none; }
+.essay-history-card summary > span { display: grid; gap: 5px; }
+.essay-history-card summary b { color: #2c5c73; font-size: 16px; }
+.essay-history-card summary small { color: #76909d; font-size: 13px; }
+.essay-history-card summary > strong { color: #2e7897; font-size: 22px; white-space: nowrap; }
+.essay-history-body {
+  display: grid;
+  gap: 14px;
+  padding: 0 20px 22px;
+  border-top: 1px solid #e5eef1;
+}
+.essay-history-question,
+.essay-history-answer {
+  padding: 15px 16px;
+  border-radius: 9px;
+  background: #f7fafb;
+}
+.essay-history-question h3,
+.essay-history-answer h3 { margin: 0 0 8px; color: #2c5c73; font-size: 16px; }
+.essay-history-question p { margin: 0; color: #527181; font-size: 15px; line-height: 1.8; white-space: pre-wrap; }
+.essay-history-answer pre { margin: 0; color: #405f6d; font: inherit; font-size: 15px; line-height: 1.8; white-space: pre-wrap; }
+.essay-history-grading { padding: 18px; border: 1px solid #d5e4e9; border-radius: 11px; background: #f9fcfd; }
+.essay-history-grading h4 { margin: 0 0 12px; color: #245c78; font-size: 18px; }
+.essay-history-score { display: flex; align-items: baseline; gap: 7px; color: #1f5f7d; }
+.essay-history-score b { font-size: 40px; line-height: 1; }
+.essay-history-score span { font-size: 16px; font-weight: 700; }
+.essay-history-overall { margin: 9px 0 16px; color: #476878; font-size: 15px; line-height: 1.8; }
+.essay-history-dimensions { display: grid; gap: 9px; }
+.essay-history-dimensions article { padding: 12px 13px; border-radius: 8px; background: #fff; }
+.essay-history-dimensions strong { color: #2c5c73; font-size: 15px; }
+.essay-history-dimensions p { margin: 6px 0; color: #527181; font-size: 14px; line-height: 1.75; }
+.essay-history-dimensions small { display: block; margin-top: 4px; color: #728996; font-size: 13px; line-height: 1.65; }
+.essay-history-fixes { margin-top: 14px; color: #527181; font-size: 14px; line-height: 1.75; }
+.essay-history-fixes strong, .essay-history-next strong { color: #2c5c73; }
+.essay-history-fixes ul { margin: 6px 0 0; padding-left: 20px; }
+.essay-history-next { margin-top: 14px; padding-top: 12px; border-top: 1px solid #dce8ed; }
+.essay-history-next p { margin: 6px 0 0; color: #527181; font-size: 14px; line-height: 1.75; }
+.essay-history-dual { display: grid; gap: 12px; }
+.essay-history-dual-head { display: flex; justify-content: space-between; gap: 10px; color: #245c78; font-size: 17px; }
+.essay-history-dual-head span { padding: 5px 8px; border-radius: 6px; background: #e1eff5; font-size: 13px; }
+.essay-history-dual-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.essay-history-dual-grid .essay-history-grading { padding: 14px; }
+.essay-history-comparison { padding: 12px 14px; border-radius: 8px; background: #eef7fa; color: #527181; font-size: 14px; line-height: 1.75; }
+.essay-history-comparison p { margin: 5px 0 0; }
+.essay-history-empty { padding: 42px 20px; border: 1px dashed #c6dce3; border-radius: 12px; background: #f8fbfc; color: #66818e; text-align: center; font-size: 15px; }
+.essay-history-empty.is-error { color: #9a5f5f; }
+@media (max-width: 800px) {
+  .essay-solution-steps > header,
+  .essay-history-head,
+  .essay-history-card summary,
+  .essay-history-dual-head { align-items: flex-start; flex-direction: column; }
+  .essay-solution-steps li p { font-size: 15px; }
+  .essay-solution-steps li p em { display: block; margin-bottom: 2px; }
+  .essay-history-dual-grid { grid-template-columns: 1fr; }
+  .essay-history-card summary > strong { font-size: 20px; }
+}
 .essay-feedback {
   padding: 15px 16px;
 }

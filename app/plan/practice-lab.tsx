@@ -18,6 +18,14 @@ type PracticeQuestion = {
 type EssayGrading = {
   score: number;
   overall: string;
+  solution_steps?: Array<{
+    step: number;
+    title: string;
+    focus: string;
+    analysis: string;
+    student_performance: string;
+    next_action: string;
+  }>;
   dimensions: Array<{
     criterion: string;
     score: number;
@@ -73,7 +81,7 @@ export function PracticeLab({ initialType }: Props) {
   const [essayComparison, setEssayComparison] =
     useState<EssayComparison | null>(null);
   const [essayModelMode, setEssayModelMode] =
-    useState<EssayModelMode>("sol");
+    useState<EssayModelMode | null>(null);
   const [essayResultMode, setEssayResultMode] =
     useState<EssayModelMode>("sol");
   const [submitting, setSubmitting] = useState(false);
@@ -168,6 +176,7 @@ export function PracticeLab({ initialType }: Props) {
     setEssayReviews(null);
     setEssayComparison(null);
     setEssayResultMode("sol");
+    setEssayModelMode(null);
     setEssay("");
     setCoachInput("");
     setCoachMessages([]);
@@ -367,6 +376,10 @@ export function PracticeLab({ initialType }: Props) {
 
   async function submitEssay() {
     if (!question || !essay.trim() || submitting) return;
+    if (!essayModelMode) {
+      setEssayFeedback("請先選擇申論批改模型，再開始批改。");
+      return;
+    }
     setSubmitting(true);
     setEssayFeedback("");
     setEssayGrading(null);
@@ -384,6 +397,7 @@ export function PracticeLab({ initialType }: Props) {
       });
       const result = (await response.json()) as {
         mode?: EssayModelMode;
+        saved?: boolean;
         grading?: EssayGrading;
         reviews?: { sol?: EssayGrading; claude?: EssayGrading };
         comparison?: EssayComparison | null;
@@ -400,8 +414,8 @@ export function PracticeLab({ initialType }: Props) {
         }
         setEssayFeedback(
           resultMode === "dual"
-            ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改。`
-            : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改。`,
+            ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
+            : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
         );
       } else setEssayFeedback(result.error ?? "申論批改暫時無法使用");
     } catch {
@@ -440,6 +454,7 @@ export function PracticeLab({ initialType }: Props) {
         {essayModelMode === "dual" && (
           <p>兩個模型會取得完全相同的題目、老師擬答與學生答案，完成後分開顯示分數與採分差異。</p>
         )}
+        {!essayModelMode && <p>請先選擇一種批改方式；未選擇模型時不會送出批改。</p>}
       </fieldset>
     );
   }
@@ -458,6 +473,22 @@ export function PracticeLab({ initialType }: Props) {
           <span>/ 100</span>
         </div>
         <p>{grading.overall}</p>
+        {grading.solution_steps?.length ? (
+          <section className="essay-solution-steps" aria-label="解題過程步驟">
+            <header><strong>解題過程步驟</strong><span>從審題一路看到結論</span></header>
+            <ol>
+              {grading.solution_steps.map((step, index) => (
+                <li key={`${step.step}-${step.title}-${index}`}>
+                  <div className="essay-solution-step-head"><b>{step.step || index + 1}</b><strong>{step.title}</strong></div>
+                  <p><em>本步處理</em>{step.focus}</p>
+                  <p><em>解題分析</em>{step.analysis}</p>
+                  <p><em>你的表現</em>{step.student_performance}</p>
+                  <p><em>下一動作</em>{step.next_action}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
         <div className="essay-dimensions">
           {grading.dimensions.map((item) => (
             <article key={item.criterion}>
@@ -962,15 +993,17 @@ export function PracticeLab({ initialType }: Props) {
                   disabled={
                     !essay.trim() ||
                     submitting ||
-                    examSubmitted ||
+                    !essayModelMode ||
                     !question.hasTeacherAnswer
                   }
                   onClick={submitMockExam}
                 >
                   {submitting
                     ? "正在批改…"
-                    : examSubmitted
-                      ? "已交卷"
+                    : essayGrading
+                      ? "再次批改"
+                      : examSubmitted
+                        ? "已交卷（可重新批改）"
                       : "確認交卷"}
                 </button>
               </footer>
@@ -1260,11 +1293,15 @@ export function PracticeLab({ initialType }: Props) {
               <button
                 className="essay-submit-wide"
                 disabled={
-                  !essay.trim() || submitting || !question.hasTeacherAnswer
+                  !essay.trim() || submitting || !essayModelMode || !question.hasTeacherAnswer
                 }
                 onClick={() => void submitEssay()}
               >
-                {submitting ? "AI 分項批改中…" : "送出 AI 分項批改"}
+                {submitting
+                  ? "AI 分項批改中…"
+                  : essayGrading
+                    ? "再次批改"
+                    : "送出 AI 分項批改"}
               </button>
               {essayFeedback && (
                 <div className="essay-feedback">
