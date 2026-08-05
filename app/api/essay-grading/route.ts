@@ -60,6 +60,7 @@ const gradingSchema = {
     overall: { type: "string" },
     solution_steps: {
       type: "array",
+      description: "依序輸出 5 個解題過程步驟；伺服器端會驗證至少 2 步、最多 5 步。",
       items: {
         type: "object",
         additionalProperties: false,
