@@ -141,6 +141,13 @@ a {
 .ticker-item b { margin: 0 18px; color: #7592a5; font-size: 8px; }
 .ticker-item a { text-decoration: underline; text-decoration-color: rgba(47, 102, 149, .35); text-underline-offset: 3px; }
 .ticker-item a:hover { color: var(--blue); }
+.magazine-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 12px 0 10px; }
+.magazine-tabs button { min-height: 28px; border: 1px solid #d6e2ea; border-radius: 8px; background: #f4f8fa; color: #668095; font-size: 11px; font-weight: 800; cursor: pointer; }
+.magazine-tabs button:hover, .magazine-tabs button.active { border-color: #2f6695; background: #2f6695; color: white; }
+.magazine-article-panel { position: relative; min-height: 180px; padding: 12px 0 10px; border-top: 1px solid #e5edf2; border-bottom: 1px solid #e5edf2; }
+.magazine-article-panel > button { position: absolute; top: 12px; right: 0; padding: 8px 9px; border: 0; border-radius: 8px; background: #3a7ca4; color: white; font-size: 10px; font-weight: 800; cursor: pointer; }
+.magazine-article-panel .magazine-article-copy { padding-right: 66px; }
+.magazine-article-panel .magazine-article-summary { max-height: 118px; overflow: auto; }
 
 .homepage-setting-block { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
 .setting-block-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
