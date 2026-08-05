@@ -313,6 +313,7 @@ function requestedPlanTab(): PlanTab {
   if (typeof window === "undefined") return "calendar";
   const value = new URLSearchParams(window.location.search).get("tab");
   // 申論批改已整合回「練真題 → 二試申論題」；保留舊連結的相容導向，避免空白頁。
+  // 版本標記：重新發布同一份已驗證修正版。
   if (value === "essay-history") return "practice";
   return [
     "calendar",
