@@ -7573,7 +7573,8 @@ a {
   box-shadow: 0 0 0 3px rgba(70, 130, 158, 0.1);
 }
 .legal-dictionary-card form button,
-.dictionary-result > button {
+.dictionary-result-actions > button,
+.dictionary-result-actions > a {
   padding: 9px 11px;
   border: 0;
   border-radius: 9px;
@@ -7581,6 +7582,8 @@ a {
   color: #fff;
   font-size: 12px;
   font-weight: 800;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
 }
 .legal-dictionary-card form button:disabled {
@@ -7614,8 +7617,19 @@ a {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
 }
-.dictionary-result > button {
-  width: 100%;
+.dictionary-result-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.dictionary-result-actions > a {
+  border: 1px solid #9fbfce;
+  background: #fff;
+  color: #285f80;
+}
+.dictionary-result-actions > button {
+  background: #285f80;
+  color: #fff;
 }
 .site-settings-panel {
   margin-top: 18px;
