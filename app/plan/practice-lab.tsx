@@ -72,6 +72,14 @@ type PracticeFacets = {
 };
 type EssayMode = "guided" | "exam";
 
+const gradingAnimationSteps = [
+  { title: "審題定位", note: "確認題目要求與作答範圍" },
+  { title: "抓出爭點", note: "對照參考擬答整理關鍵爭點" },
+  { title: "核對規範", note: "檢查法條、要件與法律理由" },
+  { title: "檢查涵攝", note: "逐段比對事實涵攝與結論" },
+  { title: "整理分數", note: "形成解題步驟與下一步修正" },
+];
+
 export function PracticeLab({ initialType }: Props) {
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
   const [question, setQuestion] = useState<PracticeQuestion | null>(null);
@@ -93,6 +101,7 @@ export function PracticeLab({ initialType }: Props) {
   const [essayResultMode, setEssayResultMode] =
     useState<EssayModelMode>("sol");
   const [submitting, setSubmitting] = useState(false);
+  const [gradingAnimationStep, setGradingAnimationStep] = useState(0);
   const [coachInput, setCoachInput] = useState("");
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
   const [coachGap, setCoachGap] = useState("");
@@ -126,6 +135,20 @@ export function PracticeLab({ initialType }: Props) {
   );
   const clockText = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const essayPages = Math.max(1, Math.ceil(essay.length / 650));
+
+  useEffect(() => {
+    if (!submitting) {
+      setGradingAnimationStep(0);
+      return;
+    }
+    setGradingAnimationStep(0);
+    const timer = window.setInterval(() => {
+      setGradingAnimationStep((current) =>
+        Math.min(current + 1, gradingAnimationSteps.length - 1),
+      );
+    }, 850);
+    return () => window.clearInterval(timer);
+  }, [submitting]);
 
   function insertEssayMarker(marker: string) {
     const textarea = essayRef.current;
@@ -549,6 +572,33 @@ export function PracticeLab({ initialType }: Props) {
           <p>{grading.next_step}</p>
         </div>
       </div>
+    );
+  }
+
+  function renderGradingAnimation() {
+    if (!submitting) return null;
+    return (
+      <section className="essay-grading-animation" aria-live="polite" aria-label="申論批改進度">
+        <div className="essay-grading-animation-head">
+          <span className="essay-grading-orbit" aria-hidden="true"><i /><i /><i /></span>
+          <div>
+            <strong>AI 正在逐步批改你的答案</strong>
+            <small>{gradingAnimationSteps[gradingAnimationStep].note}</small>
+          </div>
+          <b>{gradingAnimationStep + 1}/{gradingAnimationSteps.length}</b>
+        </div>
+        <ol>
+          {gradingAnimationSteps.map((step, index) => (
+            <li
+              className={index < gradingAnimationStep ? "done" : index === gradingAnimationStep ? "active" : ""}
+              key={step.title}
+            >
+              <span aria-hidden="true">{index < gradingAnimationStep ? "✓" : index + 1}</span>
+              <strong>{step.title}</strong>
+            </li>
+          ))}
+        </ol>
+      </section>
     );
   }
 
@@ -1055,6 +1105,7 @@ export function PracticeLab({ initialType }: Props) {
               </footer>
             </section>
             {essayModelPicker()}
+            {renderGradingAnimation()}
             {!question.hasTeacherAnswer && (
               <p className="mock-exam-warning">
                 本題尚未完成老師擬答核對，目前可作答並儲存，但暫不開放正式交卷批改。
@@ -1354,6 +1405,7 @@ export function PracticeLab({ initialType }: Props) {
                     ? "重新嘗試批改"
                     : "送出 AI 分項批改"}
               </button>
+              {renderGradingAnimation()}
               {essayFeedback && (
                 <div className="essay-feedback">
                   <strong>AI 申論批改</strong>
