@@ -48,6 +48,60 @@ type EssayAttempt = {
   } | null;
 };
 
+function asText(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeGrading(value: unknown): EssayGrading | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const solutionSteps = Array.isArray(source.solution_steps)
+    ? source.solution_steps.flatMap((item, index) => {
+        if (!item || typeof item !== "object") return [];
+        const step = item as Record<string, unknown>;
+        return [{
+          step: Math.max(1, Math.round(asNumber(step.step, index + 1))),
+          title: asText(step.title, `解題步驟 ${index + 1}`),
+          focus: asText(step.focus),
+          analysis: asText(step.analysis),
+          student_performance: asText(step.student_performance),
+          next_action: asText(step.next_action),
+        }];
+      })
+    : [];
+  const dimensions = Array.isArray(source.dimensions)
+    ? source.dimensions.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const dimension = item as Record<string, unknown>;
+        return [{
+          criterion: asText(dimension.criterion, "未命名採分項目"),
+          score: asNumber(dimension.score),
+          max_score: asNumber(dimension.max_score, 0),
+          result: asText(dimension.result),
+          evidence: asText(dimension.evidence),
+          missing: asText(dimension.missing),
+        }];
+      })
+    : [];
+  const strings = (field: unknown) => Array.isArray(field)
+    ? field.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    score: asNumber(source.score),
+    overall: asText(source.overall, "這筆批改已有保存，但部分批改欄位是早期格式。"),
+    solution_steps: solutionSteps,
+    dimensions,
+    strengths: strings(source.strengths),
+    priority_fixes: strings(source.priority_fixes),
+    next_step: asText(source.next_step, "請回到練真題重新批改，以取得完整解題步驟。"),
+    source_used: asText(source.source_used),
+  };
+}
+
 function modeLabel(mode: EssayAttempt["mode"]) {
   return mode === "dual" ? "Sol＋Claude 雙模型覆核" : mode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol";
 }
@@ -82,7 +136,7 @@ function GradingView({ grading, title }: { grading: EssayGrading; title?: string
       ) : null}
       <div className="essay-history-dimensions">
         {grading.dimensions.map((item) => (
-          <article key={item.criterion}>
+          <article key={`${item.criterion}-${item.score}-${item.max_score}`}>
             <strong>{item.criterion}　{item.score}/{item.max_score}</strong>
             <p>{item.result}</p>
             {item.evidence && <small>你的作答依據：{item.evidence}</small>}
@@ -90,7 +144,7 @@ function GradingView({ grading, title }: { grading: EssayGrading; title?: string
           </article>
         ))}
       </div>
-      {grading.priority_fixes.length > 0 && <div className="essay-history-fixes"><strong>優先修正</strong><ul>{grading.priority_fixes.map((item) => <li key={item}>{item}</li>)}</ul></div>}
+      {grading.priority_fixes.length > 0 && <div className="essay-history-fixes"><strong>優先修正</strong><ul>{grading.priority_fixes.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></div>}
       <div className="essay-history-next"><strong>下一步</strong><p>{grading.next_step}</p></div>
     </div>
   );
@@ -128,7 +182,12 @@ export function EssayHistory() {
       {!loading && !error && attempts.length > 0 && (
         <div className="essay-history-list">
           {attempts.map((attempt) => {
-            const primary = attempt.mode === "dual" ? attempt.reviews?.sol : attempt.grading;
+            const solGrading = normalizeGrading(attempt.reviews?.sol);
+            const claudeGrading = normalizeGrading(attempt.reviews?.claude);
+            const primary = attempt.mode === "dual"
+              ? solGrading ?? claudeGrading
+              : normalizeGrading(attempt.grading);
+            const hasDualReviews = attempt.mode === "dual" && solGrading && claudeGrading;
             return (
               <details className="essay-history-card" key={attempt.id}>
                 <summary>
@@ -138,13 +197,15 @@ export function EssayHistory() {
                 <div className="essay-history-body">
                   <section className="essay-history-question"><h3>題目</h3><p>{attempt.stem}</p></section>
                   <section className="essay-history-answer"><h3>我的作答</h3><pre>{attempt.answer}</pre></section>
-                  {attempt.mode === "dual" && attempt.reviews?.sol && attempt.reviews.claude ? (
+                  {hasDualReviews ? (
                     <section className="essay-history-dual">
                       <div className="essay-history-dual-head"><strong>雙模型覆核結果</strong>{attempt.comparison && <span>總分差距 {attempt.comparison.scoreDifference} 分</span>}</div>
-                      <div className="essay-history-dual-grid"><GradingView grading={attempt.reviews.sol} title="GPT-5.6 Sol" /><GradingView grading={attempt.reviews.claude} title="Claude Opus 5" /></div>
+                      <div className="essay-history-dual-grid"><GradingView grading={solGrading} title="GPT-5.6 Sol" /><GradingView grading={claudeGrading} title="Claude Opus 5" /></div>
                       {attempt.comparison && <div className="essay-history-comparison"><b>覆核摘要</b>{attempt.comparison.agreements.length > 0 && <p>配分一致：{attempt.comparison.agreements.join("、")}</p>}{attempt.comparison.differences.length > 0 && <p>配分差異：{attempt.comparison.differences.map((item) => `${item.criterion}（Sol ${item.sol}／Claude ${item.claude}）`).join("、")}</p>}</div>}
                     </section>
-                  ) : primary ? <GradingView grading={primary} title={modeLabel(attempt.mode)} /> : null}
+                  ) : primary ? <GradingView grading={primary} title={attempt.mode === "dual" ? "可用的模型批改結果" : modeLabel(attempt.mode)} /> : (
+                    <div className="essay-history-empty is-error">這筆紀錄只有作答內容，批改欄位格式較舊；請回到練真題重新批改。</div>
+                  )}
                 </div>
               </details>
             );
