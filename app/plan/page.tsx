@@ -2314,7 +2314,7 @@ export default function StudyPlanPage() {
               <div>
                 <p>OPEN COURSE COLLECTIONS</p>
                 <h2>課程專區</h2>
-                <span>把各科公開課程集中整理；課程是備考補充，先建立體系，再回到教材與真題練習。</span>
+                <span>把各科公開課程集中整理；先有刑法，之後可持續加入民法與其他科目。課程是備考補充，完成後再回到教材與真題練習。</span>
               </div>
               <strong>{courseCollections.reduce((total, collection) => total + collection.courses.length, 0)} 堂公開課程</strong>
             </header>
