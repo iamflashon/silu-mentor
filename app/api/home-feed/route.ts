@@ -26,7 +26,7 @@ export async function GET() {
   }
   const magazines = await db.select().from(learningResources).where(and(eq(learningResources.resourceType, "magazine"), eq(learningResources.status, "active"))).orderBy(desc(learningResources.updatedAt));
   const magazineFeeds = (await Promise.all(magazines.map(async (magazine) => {
-    const magazineRows = await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4);
+    const magazineRows = await db.select({ id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4);
     const articles = magazineRows.map((article) => {
       const analysis = parseMagazineAnalysis(article.summary);
       return { ...article, summary: analysis.summary, issue: analysis.issue };

@@ -73,6 +73,8 @@ type LearningAnalysis = {
   model: string;
   usage?: { inputTokens: number; outputTokens: number; estimatedCostUsd: number };
   generatedAt?: string;
+  saved?: boolean;
+  isStale?: boolean;
 };
 type SavedNote = {
   id: number;
@@ -161,6 +163,7 @@ type MagazineFeed = {
     title: string;
     summary: string;
     issue: string;
+    sourceUrl: string;
     reviewStatus: string;
     sequence: number;
   }>;
@@ -516,6 +519,11 @@ export default function StudyPlanPage() {
             [],
         );
     });
+    fetch("/api/learning-analysis").then(async (response) => {
+      if (!response.ok) return;
+      const result = (await response.json()) as { analysis?: LearningAnalysis | null };
+      if (result.analysis) setLearningAnalysis(result.analysis);
+    }).catch(() => undefined);
     fetch("/api/usage").then(async (response) => {
       if (response.ok) setShowAnalysisCost(Boolean(((await response.json()) as { showCosts?: boolean }).showCosts));
     }).catch(() => undefined);
@@ -1804,8 +1812,8 @@ export default function StudyPlanPage() {
     if (!response.ok) return;
     const result = (await response.json()) as { record: StudyRecord };
     setRecords((current) => [result.record, ...current]);
-    setLearningAnalysis(null);
-    setLearningAnalysisNotice("新增紀錄後，請重新分析目前學習狀況。");
+    setLearningAnalysis((current) => current ? { ...current, isStale: true } : null);
+    setLearningAnalysisNotice("已保存上次診斷；新增紀錄後，請重新分析目前學習狀況。");
     setRecordDraft({
       subject: "刑法",
       title: "",
@@ -3207,6 +3215,16 @@ export default function StudyPlanPage() {
                                   )}
                                 </p>
                               </section>
+                              {article.sourceUrl ? (
+                                <a
+                                  className="magazine-article-pdf-link"
+                                  href={article.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  查看這篇試讀 PDF ↗
+                                </a>
+                              ) : null}
                             </div>
                           </article>
                         ),
@@ -3404,7 +3422,7 @@ export default function StudyPlanPage() {
               <div className="learning-coach-status">
                 <span className="learning-coach-status-dot" />
                 <strong>{coachData.statusLabel}</strong>
-                <span>{learningAnalysis ? "依目前學習紀錄判讀" : "先看初步狀況，點擊分析取得完整診斷"}</span>
+                <span>{learningAnalysis?.isStale ? "學習紀錄已更新，這是上次保存的診斷" : learningAnalysis ? "已保存，可下次繼續查看" : "先看初步狀況，點擊分析取得完整診斷"}</span>
               </div>
               <p className="learning-coach-summary">{coachData.summary}</p>
               {!learningAnalysis && <div className="learning-coach-next"><b>下一步</b><span>{coachData.nextAction}</span></div>}
@@ -3438,7 +3456,7 @@ export default function StudyPlanPage() {
                     </div>
                   )}
                   <footer className="learning-coach-meta">
-                    <span>{coachData.model} · {coachData.generatedAt ? `分析於 ${coachData.generatedAt}` : "剛剛完成"}</span>
+                    <span>{coachData.model} · {coachData.generatedAt ? `分析於 ${coachData.generatedAt}` : "剛剛完成"}{learningAnalysis?.saved ? " · 已保存" : ""}</span>
                     {showAnalysisCost && coachData.usage && <span>Token {(coachData.usage.inputTokens + coachData.usage.outputTokens).toLocaleString()} · 約 US$ {coachData.usage.estimatedCostUsd.toFixed(4)}</span>}
                   </footer>
                 </div>

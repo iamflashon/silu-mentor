@@ -1,0 +1,1 @@
+ALTER TABLE `resource_segments` ADD `source_url` text DEFAULT '' NOT NULL;

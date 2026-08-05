@@ -145,7 +145,10 @@ a {
 .magazine-tabs button { min-height: 28px; border: 1px solid #d6e2ea; border-radius: 8px; background: #f4f8fa; color: #668095; font-size: 11px; font-weight: 800; cursor: pointer; }
 .magazine-tabs button:hover, .magazine-tabs button.active { border-color: #2f6695; background: #2f6695; color: white; }
 .magazine-article-panel { position: relative; min-height: 180px; padding: 12px 0 10px; border-top: 1px solid #e5edf2; border-bottom: 1px solid #e5edf2; }
-.magazine-article-panel > button { position: absolute; top: 12px; right: 0; padding: 8px 9px; border: 0; border-radius: 8px; background: #3a7ca4; color: white; font-size: 10px; font-weight: 800; cursor: pointer; }
+.magazine-article-actions { position: absolute; top: 12px; right: 0; display: grid; gap: 7px; justify-items: end; }
+.magazine-article-actions button, .magazine-article-actions a { padding: 8px 9px; border-radius: 8px; font-size: 10px; font-weight: 800; cursor: pointer; }
+.magazine-article-actions button { border: 0; background: #3a7ca4; color: white; }
+.magazine-article-actions a { border: 1px solid #b8d0db; background: #f4fafc; color: #2f6d83; text-decoration: none; }
 .magazine-article-panel .magazine-article-copy { padding-right: 66px; }
 .magazine-article-panel .magazine-article-summary { max-height: 118px; overflow: auto; }
 
@@ -7947,6 +7950,19 @@ a {
 .magazine-article-issue b {
   color: #25718a;
 }
+.magazine-article-pdf-link {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 7px 10px;
+  border: 1px solid #c2d8df;
+  border-radius: 8px;
+  background: #f5fafb;
+  color: #2d6e82;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.magazine-article-pdf-link:hover { border-color: #3d8191; background: #eaf5f6; }
 .rail-magazine-card .magazine-article-row button {
   min-width: 58px;
   min-height: 34px;
@@ -9113,6 +9129,16 @@ a {
   }
   .magazine-article-summary {
     font-size: 11px;
+  }
+  .magazine-article-panel .magazine-article-copy {
+    padding-right: 0;
+  }
+  .magazine-article-actions {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-top: 12px;
   }
   .option-grid {
     grid-template-columns: 1fr;

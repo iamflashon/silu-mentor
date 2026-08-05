@@ -134,6 +134,29 @@ export const studyRecords = sqliteTable("study_records", {
     .$defaultFn(() => new Date()),
 });
 
+export const learningAnalyses = sqliteTable("learning_analyses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  sourceRecordCount: integer("source_record_count").notNull().default(0),
+  sourceLatestRecordId: integer("source_latest_record_id").notNull().default(0),
+  statusLabel: text("status_label").notNull(),
+  summary: text("summary").notNull(),
+  strengthsJson: text("strengths_json").notNull().default("[]"),
+  gapsJson: text("gaps_json").notNull().default("[]"),
+  nextAction: text("next_action").notNull(),
+  recommendationsJson: text("recommendations_json").notNull().default("[]"),
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
+  generatedAt: integer("generated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+ });
+
 export const savedNotes = sqliteTable("saved_notes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull(),
@@ -275,6 +298,7 @@ export const resourceSegments = sqliteTable("resource_segments", {
   pageEnd: integer("page_end"),
   startSeconds: integer("start_seconds"),
   endSeconds: integer("end_seconds"),
+  sourceUrl: text("source_url").notNull().default(""),
   text: text("text").notNull().default(""),
   summary: text("summary").notNull().default(""),
   importance: integer("importance").notNull().default(0),

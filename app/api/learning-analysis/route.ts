@@ -1,11 +1,24 @@
 import { and, asc, desc, eq, or } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+import { learningAnalyses, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { getOpenAIKey, getOpenAIModel, openAIJson } from "../../../lib/openai";
 import { taipeiDate } from "../../../lib/taipei-time";
 
 type RecordRow = typeof studyRecords.$inferSelect;
 type Recommendation = { title: string; type: string; reason: string; action: string; resourceId: number | null; segmentId: number | null; url: string; location: string };
+type AnalysisResult = {
+  statusLabel: string;
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  nextAction: string;
+  recommendations: Recommendation[];
+  model: string;
+  usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number };
+  generatedAt: string;
+  saved?: boolean;
+  isStale?: boolean;
+};
 
 function userKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
@@ -26,6 +39,58 @@ function countWeaknesses(records: RecordRow[]) {
     if (weakness) counts.set(weakness, (counts.get(weakness) ?? 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+}
+
+function parseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function sourceFingerprint(records: RecordRow[]) {
+  return { count: records.length, latestId: records[0]?.id ?? 0 };
+}
+
+async function saveAnalysis(db: Awaited<ReturnType<typeof getDb>>, key: string, analysis: Omit<AnalysisResult, "generatedAt" | "saved" | "isStale">, records: RecordRow[]) {
+  const fingerprint = sourceFingerprint(records);
+  const generatedAt = new Date();
+  await db.insert(learningAnalyses).values({
+    userKey: key,
+    sourceRecordCount: fingerprint.count,
+    sourceLatestRecordId: fingerprint.latestId,
+    statusLabel: analysis.statusLabel,
+    summary: analysis.summary,
+    strengthsJson: JSON.stringify(analysis.strengths),
+    gapsJson: JSON.stringify(analysis.gaps),
+    nextAction: analysis.nextAction,
+    recommendationsJson: JSON.stringify(analysis.recommendations),
+    model: analysis.model,
+    inputTokens: analysis.usage.inputTokens,
+    outputTokens: analysis.usage.outputTokens,
+    estimatedCostUsdMicros: Math.round(analysis.usage.estimatedCostUsd * 1_000_000),
+    generatedAt,
+    createdAt: generatedAt,
+  });
+  return { ...analysis, generatedAt: taipeiDate(generatedAt), saved: true, isStale: false } satisfies AnalysisResult;
+}
+
+function rowToAnalysis(row: typeof learningAnalyses.$inferSelect, currentRecords: RecordRow[]): AnalysisResult {
+  const fingerprint = sourceFingerprint(currentRecords);
+  return {
+    statusLabel: row.statusLabel,
+    summary: row.summary,
+    strengths: parseJson<string[]>(row.strengthsJson, []),
+    gaps: parseJson<string[]>(row.gapsJson, []),
+    nextAction: row.nextAction,
+    recommendations: parseJson<Recommendation[]>(row.recommendationsJson, []),
+    model: row.model,
+    usage: { inputTokens: row.inputTokens, outputTokens: row.outputTokens, estimatedCostUsd: row.estimatedCostUsdMicros / 1_000_000 },
+    generatedAt: taipeiDate(row.generatedAt),
+    saved: true,
+    isStale: row.sourceRecordCount !== fingerprint.count || row.sourceLatestRecordId !== fingerprint.latestId,
+  };
 }
 
 function fallbackAnalysis(records: RecordRow[], pendingTasks: number, candidates: Array<{ resourceId: number; segmentId: number; title: string; resourceType: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; sourceUrl: string }>) {
@@ -68,7 +133,7 @@ export async function POST(request: Request) {
     const subjects = [...new Set(records.map((record) => record.subject).filter(Boolean))];
     const candidateRows = await db.select({ resourceId: learningResources.id, segmentId: resourceSegments.id, title: resourceSegments.title, resourceType: learningResources.resourceType, lessonLabel: resourceSegments.lessonLabel, pageStart: resourceSegments.pageStart, pageEnd: resourceSegments.pageEnd, sourceUrl: learningResources.sourceUrl }).from(resourceSegments).innerJoin(learningResources, eq(resourceSegments.resourceId, learningResources.id)).where(and(eq(learningResources.status, "active"), subjects.length ? or(...subjects.map((subject) => or(eq(learningResources.subject, subject), eq(learningResources.subject, "綜合")))) : eq(learningResources.status, "active"))).orderBy(desc(resourceSegments.recommended), desc(resourceSegments.importance)).limit(16);
     const fallback = fallbackAnalysis(records, tasks.length, candidateRows);
-    if (!(await getOpenAIKey())) return Response.json({ ...fallback, generatedAt: taipeiDate() });
+    if (!(await getOpenAIKey())) return Response.json(await saveAnalysis(db, key, fallback, records));
 
     const weaknessSummary = countWeaknesses(records).map(([topic, count]) => `${topic}（${count}次）`).join("、") || "尚無明確弱點";
     const recordSummary = records.slice(0, 45).map((record) => `${record.recordDate}|${record.subject}|${record.activityType}|${record.title}|${record.actualMinutes}分|${record.correct === null ? "未作答" : record.correct ? "答對" : "答錯"}|弱點:${record.weakness || "無"}|接續:${record.nextStep || "無"}`).join("\n");
@@ -87,8 +152,20 @@ export async function POST(request: Request) {
     const inputTokens = Number(usage?.input_tokens ?? 0);
     const outputTokens = Number(usage?.output_tokens ?? 0);
     await db.insert(usageLogs).values({ model: String(payload.model ?? model), source: "學習紀錄 AI 教練診斷", inputTokens, cachedTokens: Number(usage?.input_tokens_details?.cached_tokens ?? 0), outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: 0 });
-    return Response.json({ statusLabel: parsed.status_label, summary: parsed.summary, strengths: parsed.strengths.slice(0, 4), gaps: parsed.gaps.slice(0, 4), nextAction: parsed.next_action, recommendations, model: String(payload.model ?? model), usage: { inputTokens, outputTokens, estimatedCostUsd: 0 }, generatedAt: taipeiDate() });
+    return Response.json(await saveAnalysis(db, key, { statusLabel: parsed.status_label, summary: parsed.summary, strengths: parsed.strengths.slice(0, 4), gaps: parsed.gaps.slice(0, 4), nextAction: parsed.next_action, recommendations, model: String(payload.model ?? model), usage: { inputTokens, outputTokens, estimatedCostUsd: 0 } }, records));
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 240) : "AI 教練診斷暫時無法完成" }, { status: 500 });
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const db = await getDb();
+    const key = userKey(request);
+    const records = await db.select().from(studyRecords).where(eq(studyRecords.userKey, key)).orderBy(desc(studyRecords.createdAt)).limit(80);
+    const [row] = await db.select().from(learningAnalyses).where(eq(learningAnalyses.userKey, key)).orderBy(desc(learningAnalyses.generatedAt)).limit(1);
+    return Response.json({ analysis: row ? rowToAnalysis(row, records) : null });
+  } catch {
+    return Response.json({ analysis: null, error: "已保存的 AI 診斷暫時無法讀取" }, { status: 503 });
   }
 }

@@ -162,6 +162,20 @@
       "when": 1785848842336,
       "tag": "0022_rare_spirit",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785894017035,
+      "tag": "0023_ancient_eddie_brock",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1785894308541,
+      "tag": "0024_illegal_terrax",
+      "breakpoints": true
     }
   ]
 }

@@ -47,7 +47,7 @@ export async function GET() {
     .groupBy(learningResources.id, documents.status, documents.indexError)
     .orderBy(asc(learningResources.sortOrder), asc(learningResources.createdAt));
   const articleRows = await db
-    .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
+    .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
     .from(resourceSegments)
     .where(inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))
     .orderBy(resourceSegments.sequence);
@@ -62,7 +62,7 @@ export async function GET() {
       const articles = (articlesByResource.get(row.id) ?? []).slice(0, 4);
       const articlePreviews = articles.map((article) => {
         let failure = "";
-        let sourceUrl = "";
+        let sourceUrl = article.sourceUrl;
         if (article.segmentType === "article_link") {
           try {
             const source = JSON.parse(article.text) as {
@@ -70,7 +70,7 @@ export async function GET() {
               url?: string;
             };
             failure = source.error ?? article.summary ?? "";
-            sourceUrl = source.url ?? "";
+            sourceUrl ||= source.url ?? "";
           } catch {
             failure = article.summary || "";
           }
