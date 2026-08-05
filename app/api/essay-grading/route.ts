@@ -60,7 +60,6 @@ const gradingSchema = {
     overall: { type: "string" },
     solution_steps: {
       type: "array",
-      minItems: 5,
       items: {
         type: "object",
         additionalProperties: false,
@@ -155,6 +154,23 @@ function parseEssayGrading(raw: string) {
     typeof value.source_used !== "string"
   ) {
     throw new Error("AI 回傳的申論批改格式不完整");
+  }
+  if (value.solution_steps.length < 2 || value.solution_steps.length > 5) {
+    throw new Error("AI 回傳的解題步驟數量不完整（應為 2 至 5 步）");
+  }
+  for (const [index, step] of value.solution_steps.entries()) {
+    if (
+      !step ||
+      typeof step !== "object" ||
+      !Number.isInteger(step.step) ||
+      typeof step.title !== "string" ||
+      typeof step.focus !== "string" ||
+      typeof step.analysis !== "string" ||
+      typeof step.student_performance !== "string" ||
+      typeof step.next_action !== "string"
+    ) {
+      throw new Error(`AI 回傳的第 ${index + 1} 個解題步驟格式不完整`);
+    }
   }
   return value as EssayGrading;
 }
@@ -255,7 +271,7 @@ async function runClaude(
     body: JSON.stringify({
       model,
       max_tokens: 12000,
-      system: `${gradingInstructions}\n\n只輸出合法 JSON，不要輸出 Markdown、說明文字或 JSON 以外的內容。JSON 欄位必須完全使用 score、overall、dimensions、strengths、priority_fixes、next_step、source_used。`,
+      system: `${gradingInstructions}\n\n只輸出合法 JSON，不要輸出 Markdown、說明文字或 JSON 以外的內容。JSON 欄位必須完全使用 score、overall、solution_steps、dimensions、strengths、priority_fixes、next_step、source_used。`,
       messages: [{ role: "user", content: gradingInput(question, answer) }],
       output_config: { format: { type: "json_schema", schema: gradingSchema } },
     }),
