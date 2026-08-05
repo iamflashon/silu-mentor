@@ -174,6 +174,18 @@ export function playlistIdFromUrl(value: string) {
   }
 }
 
+export function videoIdFromUrl(value: string) {
+  try {
+    const url = new URL(value.trim());
+    const id = url.hostname === "youtu.be"
+      ? url.pathname.slice(1)
+      : url.searchParams.get("v") || url.pathname.match(/\/(?:embed|shorts|live)\/([^/]+)/)?.[1] || "";
+    return /^[A-Za-z0-9_-]{6,}$/.test(id.split(/[?&]/)[0]) ? id.split(/[?&]/)[0] : "";
+  } catch {
+    return "";
+  }
+}
+
 export async function fetchYoutubePlaylist(playlistId: string) {
   const pageResponse = await fetch(
     `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`,

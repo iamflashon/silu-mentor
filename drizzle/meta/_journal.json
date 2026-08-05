@@ -183,6 +183,13 @@
       "when": 1785903108615,
       "tag": "0025_spooky_silver_sable",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1785907010382,
+      "tag": "0026_next_the_twelve",
+      "breakpoints": true
     }
   ]
 }

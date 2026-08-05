@@ -317,6 +317,28 @@ export const courseCollectionItems = sqliteTable("course_collection_items", {
     .$defaultFn(() => new Date()),
 });
 
+export const myCourses = sqliteTable("my_courses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  title: text("title").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  sourceKind: text("source_kind").notNull().default("video"),
+  playlistId: text("playlist_id"),
+  videoId: text("video_id"),
+  subject: text("subject").notNull().default("綜合"),
+  examType: text("exam_type").notNull().default("一試／二試"),
+  scope: text("scope").notNull().default("全科"),
+  relevanceLabel: text("relevance_label").notNull().default("待確認"),
+  relevanceScore: integer("relevance_score").notNull().default(0),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const resourceSegments = sqliteTable("resource_segments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   resourceId: integer("resource_id")
