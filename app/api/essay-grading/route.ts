@@ -44,8 +44,23 @@ type ModelRun = {
   cachedTokens: number;
 };
 
+type ModelFailure = {
+  model: "sol" | "claude";
+  label: string;
+  message: string;
+  retryable: boolean;
+};
+
 class EssayModelError extends Error {
-  status = 502;
+  constructor(
+    message: string,
+    public status = 502,
+    public model: "sol" | "claude" = "sol",
+    public retryable = false,
+  ) {
+    super(message);
+    this.name = "EssayModelError";
+  }
 }
 
 const gradingInstructions = `你是台灣司律二試申論閱卷教練。必須以「高點名師參考擬答」及其明確評分重點作為主要核對依據，但不能用文字相似度代替法律評價。請檢查學生是否審對題目、列出關鍵爭點、使用正確規範、完成事實涵攝、提出結論，並檢查架構與表達。老師擬答是參考解答，不是唯一文字答案；學生採不同但有法律理由的見解時，應標示為可接受或需補強，不要直接判錯。只根據題目、老師擬答與提供的評分點，不能補造未提供的老師見解。回覆繁體中文，分項指出學生原文證據、漏寫點與下一個修正動作。
@@ -194,6 +209,27 @@ function modelErrorMessage(payload: Record<string, unknown>, fallback: string) {
   return fallback;
 }
 
+function isRetryableModelFailure(status: number, message: string) {
+  return status === 408 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 529 || /overloaded|rate.?limit|temporarily unavailable|service unavailable/i.test(message);
+}
+
+function modelFailure(error: unknown, fallbackModel: "sol" | "claude"): ModelFailure {
+  if (error instanceof EssayModelError) {
+    return {
+      model: error.model,
+      label: error.model === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+      message: error.message,
+      retryable: error.retryable,
+    };
+  }
+  return {
+    model: fallbackModel,
+    label: fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+    message: (fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol") + "：批改暫時失敗，請稍後重試。",
+    retryable: true,
+  };
+}
+
 function parseModelGrading(modelLabel: string, raw: string) {
   try {
     return parseEssayGrading(raw);
@@ -245,7 +281,8 @@ async function runSol(
     error?: { message?: string };
   };
   if (!response.ok) {
-    throw new EssayModelError(`GPT-5.6 Sol：${modelErrorMessage(payload, "申論批改失敗")}`);
+    const detail = modelErrorMessage(payload, "申論批改失敗");
+    throw new EssayModelError(`GPT-5.6 Sol：${detail}`, response.status, "sol", isRetryableModelFailure(response.status, detail));
   }
   return {
     model,
@@ -285,10 +322,15 @@ async function runClaude(
     stop_reason?: string;
   };
   if (!response.ok) {
-    throw new EssayModelError(`Claude Opus 5：${modelErrorMessage(payload, "申論批改失敗")}`);
+    const detail = modelErrorMessage(payload, "申論批改失敗");
+    const retryable = isRetryableModelFailure(response.status, detail);
+    const message = /overloaded/i.test(detail) || response.status === 529
+      ? "Claude Opus 5 目前服務繁忙（Overloaded），請稍後重試。"
+      : `Claude Opus 5：${detail}`;
+    throw new EssayModelError(message, retryable ? 503 : 502, "claude", retryable);
   }
   if (payload.stop_reason === "max_tokens") {
-    throw new EssayModelError("Claude Opus 5：回覆被截斷，尚未完成完整批改");
+    throw new EssayModelError("Claude Opus 5：回覆被截斷，尚未完成完整批改", 502, "claude");
   }
   return {
     model: payload.model || model,
@@ -337,6 +379,7 @@ function parseStoredGrading(raw: string) {
       sol?: EssayGrading;
       claude?: EssayGrading;
       comparison?: ReturnType<typeof compareGradings> | null;
+      failures?: ModelFailure[];
     };
   } catch {
     return null;
@@ -387,6 +430,7 @@ export async function GET(request: Request) {
         grading: stored.grading,
         reviews: stored.mode === "dual" ? { sol: stored.sol, claude: stored.claude } : undefined,
         comparison: stored.comparison ?? null,
+        modelFailures: stored.failures ?? [],
       }];
     });
     return Response.json({ attempts });
@@ -423,23 +467,32 @@ export async function POST(request: Request) {
     const solModel = await getEssayOpenAIModel("gpt-5.6-sol");
     const claudeModel = await getAnthropicModel("claude-opus-5");
     const runs: ModelRun[] = [];
+    const failures: ModelFailure[] = [];
     if (mode === "sol") runs.push(await runSol(openAIKey, solModel, question, answer));
     if (mode === "claude") runs.push(await runClaude(anthropicKey, claudeModel, question, answer));
     if (mode === "dual") {
-      const [sol, claude] = await Promise.all([
+      const results = await Promise.allSettled([
         runSol(openAIKey, solModel, question, answer),
         runClaude(anthropicKey, claudeModel, question, answer),
       ]);
-      runs.push(sol, claude);
+      const [solResult, claudeResult] = results;
+      if (solResult.status === "fulfilled") runs.push(solResult.value);
+      else failures.push(modelFailure(solResult.reason, "sol"));
+      if (claudeResult.status === "fulfilled") runs.push(claudeResult.value);
+      else failures.push(modelFailure(claudeResult.reason, "claude"));
     }
 
     const solRun = runs.find((run) => run.model === solModel) ?? (mode === "claude" ? undefined : runs[0]);
     const claudeRun = runs.find((run) => run.model === claudeModel) ?? (mode === "claude" ? runs[0] : undefined);
-    const primary = mode === "claude" ? claudeRun : solRun;
-    if (!primary) throw new Error("沒有取得申論批改結果");
+    const primary = mode === "claude" ? claudeRun : solRun ?? claudeRun;
+    if (!primary) {
+      const failure = failures[0];
+      if (failure) throw new EssayModelError(failure.message, failure.retryable ? 503 : 502, failure.model, failure.retryable);
+      throw new Error("沒有取得申論批改結果");
+    }
     const comparison = mode === "dual" && solRun && claudeRun ? compareGradings(solRun.grading, claudeRun.grading) : null;
     const storedGrading = mode === "dual"
-      ? { mode, sol: solRun?.grading, claude: claudeRun?.grading, comparison }
+      ? { mode, sol: solRun?.grading, claude: claudeRun?.grading, comparison, failures }
       : { mode, model: primary.model, grading: primary.grading };
 
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId, selectedAnswer: null, correct: null, answerText: answer, gradingJson: JSON.stringify(storedGrading) });
@@ -465,11 +518,17 @@ export async function POST(request: Request) {
       grading: primary.grading,
       reviews: mode === "dual" ? { sol: solRun?.grading, claude: claudeRun?.grading } : undefined,
       comparison,
+      modelFailures: failures,
       models: { sol: solRun?.model ?? solModel, claude: claudeRun?.model ?? claudeModel },
       source: { label: question.answerSource || "高點名師參考擬答", status: question.answerStatus },
     });
   } catch (error) {
     const status = error instanceof EssayModelError ? error.status : 500;
-    return Response.json({ error: error instanceof Error ? error.message : "AI 申論批改失敗" }, { status });
+    const failure = error instanceof EssayModelError ? modelFailure(error, error.model) : undefined;
+    return Response.json({
+      error: error instanceof Error ? error.message : "AI 申論批改失敗",
+      retryable: failure?.retryable ?? false,
+      failedModel: failure?.model,
+    }, { status });
   }
 }

@@ -47,6 +47,12 @@ type EssayComparison = {
   agreements: string[];
   differences: Array<{ criterion: string; sol: number; claude: number }>;
 };
+type EssayModelFailure = {
+  model: "sol" | "claude";
+  label: string;
+  message: string;
+  retryable: boolean;
+};
 
 type CoachMessage = { role: "mentor" | "student"; text: string };
 type CoachRecommendation = {
@@ -81,6 +87,7 @@ export function PracticeLab({ initialType }: Props) {
   } | null>(null);
   const [essayComparison, setEssayComparison] =
     useState<EssayComparison | null>(null);
+  const [essayModelFailures, setEssayModelFailures] = useState<EssayModelFailure[]>([]);
   const [essayModelMode, setEssayModelMode] =
     useState<EssayModelMode | null>(null);
   const [essayResultMode, setEssayResultMode] =
@@ -177,6 +184,7 @@ export function PracticeLab({ initialType }: Props) {
     setEssayGrading(null);
     setEssayReviews(null);
     setEssayComparison(null);
+    setEssayModelFailures([]);
     setEssayResultMode("sol");
     setEssayModelMode(null);
     setEssay("");
@@ -384,9 +392,6 @@ export function PracticeLab({ initialType }: Props) {
     }
     setSubmitting(true);
     setEssayFeedback("");
-    setEssayGrading(null);
-    setEssayReviews(null);
-    setEssayComparison(null);
     try {
       const response = await fetch("/api/essay-grading", {
         method: "POST",
@@ -403,6 +408,9 @@ export function PracticeLab({ initialType }: Props) {
         grading?: EssayGrading;
         reviews?: { sol?: EssayGrading; claude?: EssayGrading };
         comparison?: EssayComparison | null;
+        modelFailures?: EssayModelFailure[];
+        retryable?: boolean;
+        failedModel?: "sol" | "claude";
         source?: { label?: string };
         error?: string;
       };
@@ -410,18 +418,37 @@ export function PracticeLab({ initialType }: Props) {
         const resultMode = result.mode ?? essayModelMode;
         setEssayResultMode(resultMode);
         setEssayGrading(result.grading);
+        setEssayModelFailures(result.modelFailures ?? []);
         if (result.reviews?.sol && result.reviews.claude) {
           setEssayReviews({ sol: result.reviews.sol, claude: result.reviews.claude });
           setEssayComparison(result.comparison ?? null);
+        } else {
+          setEssayReviews(null);
+          setEssayComparison(null);
         }
+        const failures = result.modelFailures ?? [];
         setEssayFeedback(
-          resultMode === "dual"
-            ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
-            : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
+          failures.length > 0
+            ? (resultMode === "dual" ? "Sol 批改已完成並保存；" : "批改尚未完成；") + failures.map((item) => item.message).join("；") + " 你的答案已保留，可重新選擇模型批改。"
+            : resultMode === "dual"
+              ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
+              : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
         );
-      } else setEssayFeedback(result.error ?? "申論批改暫時無法使用");
+      } else {
+        setEssayModelFailures(result.failedModel ? [{
+          model: result.failedModel,
+          label: result.failedModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+          message: result.error ?? "申論批改暫時無法使用",
+          retryable: result.retryable ?? false,
+        }] : []);
+        setEssayFeedback(
+          result.retryable
+            ? (result.error ?? "模型服務目前繁忙，請稍後重試。") + " 你的答案已保留，可再次批改。"
+            : result.error ?? "申論批改暫時無法使用",
+        );
+      }
     } catch {
-      setEssayFeedback("申論審題暫時無法使用，請稍後再試。");
+      setEssayFeedback("申論批改暫時無法連線，請稍後重試。你的答案已保留。");
     } finally {
       setSubmitting(false);
     }
@@ -1018,9 +1045,11 @@ export function PracticeLab({ initialType }: Props) {
                   {submitting
                     ? "正在批改…"
                     : essayGrading
-                      ? "再次批改"
-                      : examSubmitted
-                        ? "已交卷（可重新批改）"
+                    ? "再次批改"
+                    : examSubmitted
+                      ? "已交卷（可重新批改）"
+                      : essayModelFailures.length > 0
+                        ? "重新嘗試批改"
                       : "確認交卷"}
                 </button>
               </footer>
@@ -1035,6 +1064,9 @@ export function PracticeLab({ initialType }: Props) {
               <div className="essay-feedback">
                 <strong>AI 申論批改</strong>
                 <p>{essayFeedback}</p>
+                {essayModelFailures.length > 0 && (
+                  <small>失敗模型：{essayModelFailures.map((item) => item.label).join("、")}</small>
+                )}
               </div>
             )}
             {renderEssayResult()}
@@ -1317,13 +1349,18 @@ export function PracticeLab({ initialType }: Props) {
                 {submitting
                   ? "AI 分項批改中…"
                   : essayGrading
-                    ? "再次批改"
+                  ? "再次批改"
+                  : essayModelFailures.length > 0
+                    ? "重新嘗試批改"
                     : "送出 AI 分項批改"}
               </button>
               {essayFeedback && (
                 <div className="essay-feedback">
                   <strong>AI 申論批改</strong>
                   <p>{essayFeedback}</p>
+                  {essayModelFailures.length > 0 && (
+                    <small>失敗模型：{essayModelFailures.map((item) => item.label).join("、")}</small>
+                  )}
                 </div>
               )}
               {renderEssayResult()}
