@@ -53,6 +53,27 @@ type StudyRecord = {
   weakness: string;
   nextStep: string;
 };
+type LearningAnalysisRecommendation = {
+  title: string;
+  type: string;
+  reason: string;
+  action: string;
+  resourceId: number | null;
+  segmentId: number | null;
+  url: string;
+  location: string;
+};
+type LearningAnalysis = {
+  statusLabel: string;
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  nextAction: string;
+  recommendations: LearningAnalysisRecommendation[];
+  model: string;
+  usage?: { inputTokens: number; outputTokens: number; estimatedCostUsd: number };
+  generatedAt?: string;
+};
 type SavedNote = {
   id: number;
   title: string;
@@ -203,6 +224,29 @@ type ResetPlanDraft = {
   step: "settings" | "preview";
 };
 
+function coachPreview(records: StudyRecord[]): LearningAnalysis {
+  const answered = records.filter((record) => record.correct !== null);
+  const correct = answered.filter((record) => record.correct).length;
+  const minutes = records.reduce((sum, record) => sum + record.actualMinutes, 0);
+  const accuracy = answered.length ? Math.round((correct / answered.length) * 100) : null;
+  const weaknessCounts = new Map<string, number>();
+  records.forEach((record) => {
+    const weakness = record.weakness.trim();
+    if (weakness) weaknessCounts.set(weakness, (weaknessCounts.get(weakness) ?? 0) + 1);
+  });
+  const weaknesses = [...weaknessCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const primary = weaknesses[0]?.[0] ?? (accuracy !== null && accuracy < 70 ? "選項判斷與錯因整理" : "尚未形成穩定弱點樣本");
+  return {
+    statusLabel: !records.length ? "尚在建立學習樣本" : accuracy !== null && accuracy < 70 ? "需要先補核心觀念" : accuracy !== null && accuracy >= 80 ? "基礎穩定，應增加涵攝與變化題" : "正在累積，下一步要加強回想",
+    summary: !records.length ? "先完成幾次學習與作答，AI 教練才有足夠資料辨認你的穩定弱點。" : `最近累積 ${minutes} 分鐘學習${accuracy === null ? "，目前以閱讀與對話為主" : `，作答正確率 ${accuracy}%`}。目前最值得先處理的是「${primary}」。`,
+    strengths: records.length ? ["已留下可追蹤的學習紀錄", minutes >= 120 ? "投入時間已形成穩定節奏" : "已開始累積學習節奏"] : ["已進入學習專區", "接下來可用紀錄讓教練更精準"],
+    gaps: weaknesses.length ? weaknesses.map(([topic, count]) => `${topic}（${count} 次）`) : ["尚未有足夠的弱點紀錄", answered.length ? "需要持續記下每題錯因" : "需要增加作答樣本"],
+    nextAction: "點擊「開始分析」，讓 AI 教練依完整紀錄安排下一個補強動作。",
+    recommendations: [],
+    model: "尚未分析",
+  };
+}
+
 function monthValue(date = new Date()) {
   return taipeiMonth(date);
 }
@@ -334,6 +378,10 @@ export default function StudyPlanPage() {
   const [openChatDay, setOpenChatDay] = useState<number | null>(null);
   const [notes, setNotes] = useState<SavedNote[]>([]);
   const [recordPage, setRecordPage] = useState(1);
+  const [learningAnalysis, setLearningAnalysis] = useState<LearningAnalysis | null>(null);
+  const [learningAnalysisLoading, setLearningAnalysisLoading] = useState(false);
+  const [learningAnalysisNotice, setLearningAnalysisNotice] = useState("");
+  const [showAnalysisCost, setShowAnalysisCost] = useState(false);
   const [notePage, setNotePage] = useState(1);
   const [noteQuery, setNoteQuery] = useState("");
   const [recordDraft, setRecordDraft] = useState({
@@ -468,6 +516,9 @@ export default function StudyPlanPage() {
             [],
         );
     });
+    fetch("/api/usage").then(async (response) => {
+      if (response.ok) setShowAnalysisCost(Boolean(((await response.json()) as { showCosts?: boolean }).showCosts));
+    }).catch(() => undefined);
     fetch("/api/chat/history?archive=1").then(async (response) => {
       if (response.ok)
         setChatDays(
@@ -856,6 +907,8 @@ export default function StudyPlanPage() {
         .includes(noteQuery.trim().toLowerCase()),
   );
   const visibleRecords = records.slice((recordPage - 1) * 10, recordPage * 10);
+  const coachPreviewData = useMemo(() => coachPreview(records), [records]);
+  const coachData = learningAnalysis ?? coachPreviewData;
   const visibleNotes = filteredNotes.slice((notePage - 1) * 10, notePage * 10);
   function youtubeEmbedUrl(value: string, startSeconds = 0) {
     try {
@@ -1751,6 +1804,8 @@ export default function StudyPlanPage() {
     if (!response.ok) return;
     const result = (await response.json()) as { record: StudyRecord };
     setRecords((current) => [result.record, ...current]);
+    setLearningAnalysis(null);
+    setLearningAnalysisNotice("新增紀錄後，請重新分析目前學習狀況。");
     setRecordDraft({
       subject: "刑法",
       title: "",
@@ -1759,6 +1814,30 @@ export default function StudyPlanPage() {
       nextStep: "",
     });
     setRecordPage(1);
+  }
+
+  async function analyzeLearning() {
+    setLearningAnalysisLoading(true);
+    setLearningAnalysisNotice("");
+    try {
+      const response = await fetch("/api/learning-analysis", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+      const result = (await response.json()) as LearningAnalysis & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "AI 教練診斷暫時無法完成");
+      setLearningAnalysis(result);
+    } catch (error) {
+      setLearningAnalysisNotice(error instanceof Error ? error.message : "AI 教練診斷暫時無法完成");
+    } finally {
+      setLearningAnalysisLoading(false);
+    }
+  }
+
+  function openLearningRecommendation(recommendation: LearningAnalysisRecommendation) {
+    if (recommendation.resourceId) setSelectedResourceId(recommendation.resourceId);
+    if (recommendation.segmentId) {
+      setSelectedSegmentId(recommendation.segmentId);
+      setSelectedChapterId(recommendation.segmentId);
+    }
+    setActiveTab(recommendation.type === "影音課" ? "courses" : "books");
   }
 
   async function saveNote() {
@@ -3311,6 +3390,61 @@ export default function StudyPlanPage() {
               </div>
               <strong>{records.length} 筆</strong>
             </div>
+            <section className={`learning-coach-card ${learningAnalysis ? "is-analyzed" : ""}`} aria-label="AI 教練學習診斷">
+              <div className="learning-coach-head">
+                <div>
+                  <p>AI COACH DIAGNOSIS</p>
+                  <h3>AI 教練學習診斷</h3>
+                  <span>不只記下你做過什麼，也判斷目前最值得補強的地方。</span>
+                </div>
+                <button type="button" className="learning-coach-analyze" onClick={() => void analyzeLearning()} disabled={learningAnalysisLoading}>
+                  {learningAnalysisLoading ? "分析中…" : learningAnalysis ? "重新分析" : "開始分析"}
+                </button>
+              </div>
+              <div className="learning-coach-status">
+                <span className="learning-coach-status-dot" />
+                <strong>{coachData.statusLabel}</strong>
+                <span>{learningAnalysis ? "依目前學習紀錄判讀" : "先看初步狀況，點擊分析取得完整診斷"}</span>
+              </div>
+              <p className="learning-coach-summary">{coachData.summary}</p>
+              {!learningAnalysis && <div className="learning-coach-next"><b>下一步</b><span>{coachData.nextAction}</span></div>}
+              {learningAnalysis && (
+                <div className="learning-coach-analysis">
+                  <div className="learning-coach-columns">
+                    <div>
+                      <b>目前做得不錯</b>
+                      <ul>{coachData.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                    <div className="learning-coach-gaps">
+                      <b>教練看到的缺口</b>
+                      <ul>{coachData.gaps.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                  </div>
+                  <div className="learning-coach-next"><b>今天建議先做</b><span>{coachData.nextAction}</span></div>
+                  {coachData.recommendations.length > 0 && (
+                    <div className="learning-coach-recommendations">
+                      <div className="learning-coach-recommendations-head"><b>可以再加強的內容</b><span>依弱點與近期紀錄排序</span></div>
+                      {coachData.recommendations.map((item) => (
+                        <article key={`${item.segmentId ?? item.title}-${item.location}`}>
+                          <div>
+                            <span>{item.type}</span>
+                            <strong>{item.title}</strong>
+                            {item.location && <small>{item.location}</small>}
+                            <p>{item.reason}。{item.action}。</p>
+                          </div>
+                          <button type="button" onClick={() => openLearningRecommendation(item)}>前往補強</button>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                  <footer className="learning-coach-meta">
+                    <span>{coachData.model} · {coachData.generatedAt ? `分析於 ${coachData.generatedAt}` : "剛剛完成"}</span>
+                    {showAnalysisCost && coachData.usage && <span>Token {(coachData.usage.inputTokens + coachData.usage.outputTokens).toLocaleString()} · 約 US$ {coachData.usage.estimatedCostUsd.toFixed(4)}</span>}
+                  </footer>
+                </div>
+              )}
+              {learningAnalysisNotice && <div className="learning-coach-notice">{learningAnalysisNotice}</div>}
+            </section>
             <div className="record-entry">
               <select
                 value={recordDraft.subject}
