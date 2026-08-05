@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { chatMessages, documents } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../lib/document-processing";
+import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
 
 function processingResult(value: string) {
   try {
@@ -32,7 +33,8 @@ export async function GET() {
     }).from(chatMessages).where(eq(chatMessages.role, "mentor"));
     const [indexSetting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     return Response.json({ documents: rows.map((row) => {
-      const result = processingResult(row.processingResultJson);
+      const result = storedDocumentAnalysis(row.processingResultJson);
+      const counts = storedDocumentStats(row.processingResultJson, row.chapterCount, row.questionCount);
       const chapters = Array.isArray(result.chapters) ? result.chapters.slice(0, 12) : [];
       const questions = Array.isArray(result.questions) ? result.questions.slice(0, 12) : [];
       return {
@@ -47,8 +49,9 @@ export async function GET() {
         processingMessage: row.processingMessage,
         pageCount: row.pageCount,
         extractedChars: row.extractedChars,
-        chapterCount: row.chapterCount,
-        questionCount: row.questionCount,
+        chapterCount: counts.chapterCount,
+        topicCount: counts.topicCount,
+        questionCount: counts.questionCount,
         tags: (() => { try { return JSON.parse(row.tagsJson); } catch { return []; } })(),
         fullTextIndexed: row.fullTextIndexed,
         vectorIndexed: row.vectorIndexed,

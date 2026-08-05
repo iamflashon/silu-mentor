@@ -6,6 +6,10 @@ import {
   learningResources,
   resourceSegments,
 } from "../../../../db/schema";
+import {
+  storedDocumentAnalysis,
+  storedDocumentStats,
+} from "../../../../lib/document-analysis";
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
@@ -49,10 +53,15 @@ type StoredDocumentAnalysis = {
   questions?: Array<{
     number?: string;
     title?: string;
+    question_title?: string;
     content?: string;
     stem?: string;
+    question?: string;
     chapter?: string;
+    topic?: string;
+    theme?: string;
     section?: string;
+    part?: string;
     page_start?: number | null;
     page_end?: number | null;
   }>;
@@ -164,16 +173,10 @@ function isCompleteProblemQuestion(chapter: {
 }
 
 function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
-  try {
-    const parsed = JSON.parse(document.processingResultJson || "{}") as {
-      analysis?: StoredDocumentAnalysis;
-    };
-    return parsed.analysis && typeof parsed.analysis === "object"
-      ? parsed.analysis
-      : null;
-  } catch {
-    return null;
-  }
+  const parsed = storedDocumentAnalysis(document.processingResultJson || "{}");
+  return parsed && (Array.isArray(parsed.questions) || Array.isArray(parsed.chapters))
+    ? (parsed as StoredDocumentAnalysis)
+    : null;
 }
 
 function storedCatalogueRows(
@@ -184,11 +187,17 @@ function storedCatalogueRows(
   const questions = Array.isArray(analysis?.questions) ? analysis.questions : [];
   return questions
     .map((question, index) => {
-      const title = String(question.title ?? question.number ?? "").trim();
+      const title = String(
+        question.title ?? question.question_title ?? question.number ?? "",
+      ).trim();
       if (!title) return null;
-      const section = String(question.section ?? "").trim();
-      const topic = String(question.chapter ?? "").trim() || "其他題型";
-      const text = String(question.content ?? question.stem ?? "").trim();
+      const section = String(question.section ?? question.part ?? "").trim();
+      const topic = String(
+        question.chapter ?? question.topic ?? question.theme ?? "",
+      ).trim() || "其他題型";
+      const text = String(
+        question.content ?? question.stem ?? question.question ?? "",
+      ).trim();
       return {
         id: -(index + 1),
         resourceId,
@@ -315,7 +324,47 @@ export async function GET(request: Request) {
     const progressRecord = await readChapterProgressRecord(resourceId);
     const progress = progressForResponse(progressRecord.progress, progressRecord.updatedAt);
     if (new URL(request.url).searchParams.get("progress") === "1") {
-      return Response.json({ resourceId, status: progress.state, progress });
+      const [document] = resource.documentId
+        ? await db
+            .select()
+            .from(documents)
+            .where(eq(documents.id, resource.documentId))
+            .limit(1)
+        : [];
+      const stored = document
+        ? storedDocumentStats(
+            document.processingResultJson,
+            document.chapterCount,
+            document.questionCount,
+          )
+        : { chapterCount: 0, topicCount: 0, questionCount: 0 };
+      const storedAnalysis = document
+        ? storedDocumentAnalysis(document.processingResultJson)
+        : null;
+      const hasCompletedStoredAnalysis = Boolean(
+        document &&
+          document.status === "completed" &&
+          stored.questionCount > 0 &&
+          (Array.isArray(storedAnalysis?.questions) ||
+            Array.isArray(storedAnalysis?.chapters)),
+      );
+      const effectiveProgress = hasCompletedStoredAnalysis
+        ? {
+            ...progress,
+            state: "completed" as const,
+            phase: "saving" as const,
+            completedTopics: stored.topicCount || stored.chapterCount,
+            totalTopics: stored.topicCount || stored.chapterCount,
+            foundQuestions: stored.questionCount,
+            currentTopic: "",
+            error: undefined,
+          }
+        : progress;
+      return Response.json({
+        resourceId,
+        status: effectiveProgress.state,
+        progress: effectiveProgress,
+      });
     }
     const status = progress.state;
     const problemBook = isProblemBook(resource);

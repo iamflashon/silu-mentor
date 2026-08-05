@@ -110,6 +110,9 @@ type LearningResource = {
   documentId: number | null;
   documentStatus?: string | null;
   documentError?: string | null;
+  documentChapterCount?: number;
+  documentTopicCount?: number;
+  documentQuestionCount?: number;
   sourceUrl: string;
   accessType: string;
   courseCategory?: "managed" | "public" | null;

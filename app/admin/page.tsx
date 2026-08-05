@@ -20,6 +20,7 @@ type Uploaded = {
   pageCount?: number | null;
   extractedChars?: number;
   chapterCount?: number;
+  topicCount?: number;
   questionCount?: number;
   tags?: string[];
   fullTextIndexed?: boolean;
@@ -115,6 +116,7 @@ type LearningResource = {
   documentProcessingStage?: string | null;
   documentProcessingMessage?: string | null;
   documentChapterCount?: number;
+  documentTopicCount?: number;
   documentQuestionCount?: number;
   documentExtractedChars?: number;
   documentTags?: string[];
@@ -546,6 +548,7 @@ export default function AdminPage() {
             pageCount?: number | null;
             extractedChars?: number;
             chapterCount?: number;
+            topicCount?: number;
             questionCount?: number;
             tags?: string[];
             fullTextIndexed?: boolean;
@@ -574,6 +577,7 @@ export default function AdminPage() {
             pageCount: item.pageCount,
             extractedChars: item.extractedChars,
             chapterCount: item.chapterCount,
+            topicCount: item.topicCount,
             questionCount: item.questionCount,
             tags: item.tags,
             fullTextIndexed: item.fullTextIndexed,
@@ -2389,7 +2393,7 @@ export default function AdminPage() {
           if (refreshed.ok) {
             const data = await refreshed.json() as { documents?: Array<Record<string, unknown>>; stats?: DocumentStats };
             const current = (data.documents ?? []).find((item) => Number(item.id) === documentId);
-            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
+            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), topicCount: Number(current.topicCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
             if (data.stats) setDocumentStats(data.stats);
             const resourcesResponse = await fetch("/api/resources", { cache: "no-store" });
             if (resourcesResponse.ok) {
@@ -3304,7 +3308,7 @@ export default function AdminPage() {
                         {resource.resourceType === "book"
                           ? resource.documentId
                             ? resource.documentStatus === "completed"
-                              ? `已完成教材解析與索引（${resource.documentChapterCount ?? 0} 章／${resource.documentQuestionCount ?? 0} 題）`
+                              ? `已完成教材解析與索引（${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"}／${resource.documentQuestionCount ?? 0} 題）`
                               : "教材已綁定，正在自動解析與建立索引"
                             : "尚未綁定教材文件"
                           : resource.sourceUrl
@@ -3344,7 +3348,7 @@ export default function AdminPage() {
                               <div className="chapter-progress-meta">
                                 <span>
                                   {resource.documentStatus === "completed"
-                                    ? `檔案分析已整理 ${resource.documentChapterCount ?? 0} 章 · ${resource.documentQuestionCount ?? 0} 題`
+                                    ? `檔案分析已整理 ${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${resource.documentQuestionCount ?? 0} 題`
                                     : "完成後會自動更新章節、題目與分類結果"}
                                 </span>
                                 {!!resource.documentTags?.length && <small>標籤：{resource.documentTags.slice(0, 8).join("、")}</small>}

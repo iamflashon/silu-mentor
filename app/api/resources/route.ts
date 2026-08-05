@@ -8,6 +8,7 @@ import {
   learningResources,
   resourceSegments,
 } from "../../../db/schema";
+import { storedDocumentStats } from "../../../lib/document-analysis";
 
 function isPlayableCourseUrl(value: string) {
   try {
@@ -55,6 +56,7 @@ export async function GET() {
       documentProcessingMessage: documents.processingMessage,
       documentChapterCount: documents.chapterCount,
       documentQuestionCount: documents.questionCount,
+      documentProcessingResultJson: documents.processingResultJson,
       documentExtractedChars: documents.extractedChars,
       documentTagsJson: documents.tagsJson,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
@@ -68,7 +70,7 @@ export async function GET() {
       eq(resourceSegments.resourceId, learningResources.id),
     )
     .leftJoin(documents, eq(learningResources.documentId, documents.id))
-    .groupBy(learningResources.id, documents.status, documents.indexError, documents.processingStage, documents.processingMessage, documents.chapterCount, documents.questionCount, documents.extractedChars, documents.tagsJson)
+    .groupBy(learningResources.id, documents.status, documents.indexError, documents.processingStage, documents.processingMessage, documents.chapterCount, documents.questionCount, documents.processingResultJson, documents.extractedChars, documents.tagsJson)
     .orderBy(asc(learningResources.sortOrder), asc(learningResources.createdAt));
   const articleRows = await db
     .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
@@ -122,8 +124,21 @@ export async function GET() {
       });
       const analyzedArticleCount = articlePreviews.filter((article) => article.analysisState === "analyzed").length;
       const failedArticleCount = articlePreviews.filter((article) => article.analysisState === "failed").length;
+      const { documentProcessingResultJson, ...publicRow } = row;
       return {
-        ...row,
+        ...publicRow,
+        ...(() => {
+          const counts = storedDocumentStats(
+            documentProcessingResultJson ?? "{}",
+            Number(publicRow.documentChapterCount ?? 0),
+            Number(publicRow.documentQuestionCount ?? 0),
+          );
+          return {
+            documentChapterCount: counts.chapterCount,
+            documentTopicCount: counts.topicCount,
+            documentQuestionCount: counts.questionCount,
+          };
+        })(),
         courseCategory:
           row.resourceType === "course" && publicCourseResourceIds.has(row.id)
             ? "public"
