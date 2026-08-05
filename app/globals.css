@@ -5490,6 +5490,15 @@ a {
   background: #285d7f;
   color: #fff;
 }
+.practice-switch button.practice-history-toggle {
+  margin-left: 4px;
+  border-left: 1px solid #d2e0e7;
+  color: #2f718d;
+}
+.practice-switch button.practice-history-toggle.active {
+  background: #dceef4;
+  color: #245d76;
+}
 .practice-feature-guide {
   margin-top: 18px;
   padding: 16px;

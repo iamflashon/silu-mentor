@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EssayHistory } from "./essay-history";
 
 type PracticeQuestion = {
   id: number;
@@ -110,6 +111,7 @@ export function PracticeLab({ initialType }: Props) {
   const [secondsLeft, setSecondsLeft] = useState(90 * 60);
   const [stemOpen, setStemOpen] = useState(true);
   const [draftSavedAt, setDraftSavedAt] = useState("");
+  const [showEssayHistory, setShowEssayHistory] = useState(false);
   const essayRef = useRef<HTMLTextAreaElement | null>(null);
   const draftKey = useMemo(
     () => (question ? `silu-essay-draft:${question.id}` : ""),
@@ -644,6 +646,7 @@ export function PracticeLab({ initialType }: Props) {
             className={examType === "mcq" ? "active" : ""}
             onClick={() => {
               setExamType("mcq");
+              setShowEssayHistory(false);
               void loadQuestion("mcq");
             }}
           >
@@ -658,8 +661,18 @@ export function PracticeLab({ initialType }: Props) {
           >
             二試申論題
           </button>
+          {examType === "essay" && (
+            <button
+              type="button"
+              className={`practice-history-toggle ${showEssayHistory ? "active" : ""}`}
+              onClick={() => setShowEssayHistory((current) => !current)}
+            >
+              {showEssayHistory ? "收合歷次批改" : "我的歷次批改"}
+            </button>
+          )}
         </div>
       </div>
+      {examType === "essay" && showEssayHistory && <EssayHistory />}
       {examType === "mcq" ? (
         <section className="practice-feature-guide" aria-label="一試功能解說">
           <header>
