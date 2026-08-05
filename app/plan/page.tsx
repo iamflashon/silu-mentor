@@ -302,7 +302,6 @@ type PlanTab =
   | "courses"
   | "public-courses"
   | "my-courses"
-  | "trials"
   | "listening"
   | "magazine"
   | "records"
@@ -322,7 +321,6 @@ function requestedPlanTab(): PlanTab {
     "courses",
     "public-courses",
     "my-courses",
-    "trials",
     "listening",
     "magazine",
     "records",
@@ -1213,14 +1211,6 @@ export default function StudyPlanPage() {
   const publicCourseNotes = selectedPublicCourse
     ? notes.filter((note) => note.sourceId === `public-course:${selectedPublicCourse.id}:${selectedPublicEpisode?.videoId ?? "course"}`)
     : [];
-  const trialResources = resources
-    .filter(
-      (item) =>
-        item.resourceType === "trial" &&
-        item.status === "active" &&
-        Boolean(youtubeEmbedUrl(item.sourceUrl)),
-    )
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
   const magazineFeeds =
     homeFeed?.magazines ?? (homeFeed?.magazine ? [homeFeed.magazine] : []);
   const magazineYears = [...new Set(magazineFeeds.map(magazineYear))].sort(
@@ -2452,12 +2442,6 @@ export default function StudyPlanPage() {
             我的課 <span>{myCourses.length}</span>
           </button>
           <button
-            className={activeTab === "trials" ? "active" : ""}
-            onClick={() => setActiveTab("trials")}
-          >
-            YT試聽
-          </button>
-          <button
             className={activeTab === "laws" ? "active" : ""}
             onClick={() => setActiveTab("laws")}
           >
@@ -2652,57 +2636,6 @@ export default function StudyPlanPage() {
                 <p className="column-empty">後台尚未發布可播放的聽解題音檔。</p>
               )}
             </div>
-          </section>
-        )}
-        {activeTab === "trials" && (
-          <section className="trial-course-hub" aria-label="YT試聽課">
-            <header className="trial-course-head">
-              <div>
-                <p>YOUTUBE TRIAL COURSES</p>
-                <h2>YT試聽課</h2>
-                <span>
-                  先看一段老師的實際講解，再決定要不要深入學習。影片由 YouTube 播放，直接留在這裡觀看。
-                </span>
-              </div>
-              <strong>{trialResources.length} 部試聽</strong>
-            </header>
-            {trialResources.length ? (
-              <div className="trial-course-grid">
-                {trialResources.map((resource) => (
-                  <article className="trial-course-card" key={resource.id}>
-                    <div className="trial-course-video">
-                      <iframe
-                        src={youtubeEmbedUrl(resource.sourceUrl)}
-                        title={`${resource.creator}｜${resource.title}試聽`}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        referrerPolicy="strict-origin-when-cross-origin"
-                        allowFullScreen
-                      />
-                    </div>
-                    <div className="trial-course-subject">{resource.subject}</div>
-                    <div className="trial-teacher-mark" aria-hidden="true">
-                      {resource.creator.slice(0, 1) || "課"}
-                    </div>
-                    <div className="trial-course-copy">
-                      <span>{resource.creator || "司律課程"}</span>
-                      <h3>{resource.title}</h3>
-                      <p>{resource.description || "先看試聽內容，再決定學習方向。"}</p>
-                    </div>
-                    <a href={resource.sourceUrl} target="_blank" rel="noreferrer" aria-label={`在 YouTube 開啟 ${resource.creator} ${resource.title}`}>
-                      在 YouTube 開啟 <b>↗</b>
-                    </a>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="trial-course-empty">
-                <strong>YT試聽課尚未上架</strong>
-                <span>請由管理員在後台貼上 YouTube 試聽影片或播放清單，發布後就會顯示在這裡。</span>
-              </div>
-            )}
-            <p className="trial-course-note">
-              僅整理已發布的 YouTube 試聽入口；本站不下載、不重新託管影片。
-            </p>
           </section>
         )}
         {activeTab === "my-courses" && (

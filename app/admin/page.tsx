@@ -2530,7 +2530,7 @@ export default function AdminPage() {
             className={activeTab === "trials" ? "active" : ""}
             onClick={() => setActiveTab("trials")}
           >
-            YT試聽課
+            知識達試聽
           </button>
           <button
             className={activeTab === "listening" ? "active" : ""}
@@ -3034,9 +3034,9 @@ export default function AdminPage() {
           <section className="panel resource-manager">
             <div className="cost-heading">
               <div>
-                <h2>{activeTab === "trials" ? "YT試聽課管理" : "書籍與課程管理"}</h2>
+                <h2>{activeTab === "trials" ? "知識達試聽管理" : "書籍與課程管理"}</h2>
                 <p className="panel-sub">
-                  {activeTab === "trials" ? "貼上 YouTube 試聽影片或播放清單；前台會直接嵌入播放，讓學生先看老師的實際講解。" : "書籍綁定教材 PDF 並管理書封；影音課程可嵌入 YouTube 單支影片、播放清單或 HLS／MP4，並可搭配字幕整理學習重點。"}
+                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材 PDF 並管理書封；影音課程可嵌入 YouTube 單支影片、播放清單或 HLS／MP4，並可搭配字幕整理學習重點。"}
                 </p>
               </div>
               <span className="source-count">{resources.length} 項資源</span>
@@ -3051,7 +3051,7 @@ export default function AdminPage() {
                 >
                   <option value="book">書籍</option>
                   <option value="course">影音課程</option>
-                  <option value="trial">YT試聽課</option>
+                  <option value="trial">知識達試聽</option>
                 </select>
               </label>
               <label className="field">
@@ -3074,14 +3074,14 @@ export default function AdminPage() {
               {activeTab === "trials" && <label className="field">課程簡介<input value={resourceDescription} onChange={(e) => setResourceDescription(e.target.value)} placeholder="例如：適合初學者建立刑法基本架構" /></label>}
               {activeTab === "courses" || activeTab === "trials" ? (
                 <label className="field">
-                  {activeTab === "trials" ? "YouTube 試聽網址" : "課程／來源網址"}
+                  {activeTab === "trials" ? "知識達官方試聽網址" : "課程／來源網址"}
                   <input
                     type="url"
                     value={resourceUrl}
                     onChange={(e) => setResourceUrl(e.target.value)}
-                    placeholder={activeTab === "trials" ? "https://www.youtube.com/watch?v=… 或 playlist?list=…" : "https://www.youtube.com/watch?v=… 或 playlist?list=…"}
+                    placeholder={activeTab === "trials" ? "https://www.ibrain.com.tw/audition/ListDetail.aspx?…" : "https://www.youtube.com/watch?v=… 或 playlist?list=…"}
                   />
-                  <small className="field-hint">{activeTab === "trials" ? "學生端會直接在 YT試聽課播放；請貼 YouTube 影片或播放清單網址。" : "可貼 YouTube 影片／播放清單網址，或可直接播放的 .m3u8／.mp4；ibrain 課程頁網址不能直接嵌入。"}</small>
+                  <small className="field-hint">{activeTab === "trials" ? "學生點擊後會另開此官方頁面。" : "可貼 YouTube 影片／播放清單網址，或可直接播放的 .m3u8／.mp4；ibrain 課程頁網址不能直接嵌入。"}</small>
                 </label>
               ) : (
                 <div className="field resource-create-hint">
@@ -3115,13 +3115,11 @@ export default function AdminPage() {
                     </div>
                     <div className="resource-info">
                       <span>
-                          {resource.resourceType === "course"
-                            ? "影音課程"
-                            : resource.resourceType === "magazine"
-                              ? "期刊"
-                              : resource.resourceType === "trial"
-                                ? "YT試聽"
-                                : "書籍"}{" "}
+                        {resource.resourceType === "course"
+                          ? "影音課程"
+                          : resource.resourceType === "magazine"
+                            ? "期刊"
+                            : "書籍"}{" "}
                         · {resource.subject}
                       </span>
                       <h3>{resource.title}</h3>
@@ -3959,7 +3957,7 @@ export default function AdminPage() {
             </div>
             <label className="resource-editor-field">來源網址<input type="url" value={resourceEditorDraft.sourceUrl} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, sourceUrl: event.target.value })} /></label>
             <label className="resource-editor-field">說明<textarea rows={5} value={resourceEditorDraft.description} onChange={(event) => setResourceEditorDraft({ ...resourceEditorDraft, description: event.target.value })} /></label>
-            <p className="resource-editor-hint">影音課程請填可直接播放的 YouTube、.m3u8 或 .mp4；YT試聽課請填 YouTube 影片或播放清單網址。影片、SRT、摘要與法教文章請從各自的預覽／校正功能處理。</p>
+            <p className="resource-editor-hint">影音課程的來源網址請填可直接播放的 .m3u8 或 .mp4；ibrain 課程頁網址不能直接嵌入。影片、SRT、摘要與法教文章請從各自的預覽／校正功能處理。</p>
             <footer><button type="button" onClick={() => setResourceEditorDraft(null)}>取消</button><button type="button" className="primary-btn" onClick={() => void saveResourceEditor()}>儲存編輯內容</button></footer>
           </section>
         </div>
