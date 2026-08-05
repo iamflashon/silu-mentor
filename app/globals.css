@@ -8586,6 +8586,163 @@ a {
   font-size: 13px;
   line-height: 1.8;
 }
+.learning-snapshot {
+  margin-top: 13px;
+  padding: 13px;
+  border: 1px solid #d8e7eb;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+}
+.learning-snapshot-head,
+.learning-mini-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.learning-snapshot-head b,
+.learning-mini-chart-head b {
+  color: #315f6c;
+  font-size: 11px;
+}
+.learning-snapshot-head span,
+.learning-mini-chart-head span {
+  color: #78909a;
+  font-size: 9px;
+}
+.learning-snapshot-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 9px;
+}
+.learning-snapshot-metrics > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: #f5fafb;
+}
+.learning-snapshot-metrics span,
+.learning-snapshot-metrics small {
+  display: block;
+  color: #6c8491;
+  font-size: 9px;
+}
+.learning-snapshot-metrics strong {
+  display: block;
+  margin-top: 3px;
+  color: #235c6a;
+  font-size: 21px;
+  line-height: 1.1;
+}
+.learning-snapshot-metrics strong small {
+  display: inline;
+  color: #397780;
+  font-size: 10px;
+  font-weight: 800;
+}
+.learning-snapshot-metrics > div > small {
+  margin-top: 4px;
+}
+.learning-snapshot-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 9px;
+}
+.learning-mini-chart {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid #e1ecef;
+  border-radius: 10px;
+  background: #fff;
+}
+.learning-weakness-chart {
+  grid-column: 1 / -1;
+}
+.learning-bars {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.learning-bar-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 105px) minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 7px;
+  color: #54727e;
+  font-size: 10px;
+}
+.learning-bar-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.learning-bar-row strong {
+  color: #356b76;
+  font-size: 10px;
+  text-align: right;
+}
+.learning-bar-track,
+.learning-answer-track {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 99px;
+  background: #edf3f4;
+}
+.learning-bar-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #5da5a1;
+}
+.learning-bar-track.is-warm i {
+  background: #d59a65;
+}
+.learning-answer-track {
+  display: flex;
+  height: 13px;
+  margin-top: 19px;
+}
+.learning-answer-track i {
+  display: block;
+  height: 100%;
+}
+.learning-answer-track .is-correct,
+.learning-answer-legend .is-correct {
+  background: #5da5a1;
+}
+.learning-answer-track .is-incorrect,
+.learning-answer-legend .is-incorrect {
+  background: #d59a65;
+}
+.learning-answer-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  margin-top: 10px;
+  color: #687f89;
+  font-size: 9px;
+}
+.learning-answer-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.learning-answer-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.learning-answer-legend .is-unanswered {
+  background: #b9cbd0;
+}
+.learning-chart-empty {
+  margin: 12px 0 2px;
+  color: #78909a;
+  font-size: 10px;
+  line-height: 1.6;
+}
 .learning-coach-next {
   display: flex;
   gap: 9px;
@@ -9565,6 +9722,16 @@ a {
   }
   .learning-coach-columns {
     grid-template-columns: 1fr;
+  }
+  .learning-snapshot-metrics,
+  .learning-snapshot-charts {
+    grid-template-columns: 1fr;
+  }
+  .learning-weakness-chart {
+    grid-column: auto;
+  }
+  .learning-bar-row {
+    grid-template-columns: minmax(72px, 110px) minmax(0, 1fr) 28px;
   }
   .learning-coach-recommendations article {
     align-items: flex-start;

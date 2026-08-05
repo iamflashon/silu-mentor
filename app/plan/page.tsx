@@ -917,6 +917,45 @@ export default function StudyPlanPage() {
   const visibleRecords = records.slice((recordPage - 1) * 10, recordPage * 10);
   const coachPreviewData = useMemo(() => coachPreview(records), [records]);
   const coachData = learningAnalysis ?? coachPreviewData;
+  const learningSnapshot = useMemo(() => {
+    const subjectMinutes = new Map<string, number>();
+    const weaknessCounts = new Map<string, number>();
+    let correct = 0;
+    let incorrect = 0;
+    let unanswered = 0;
+    let totalMinutes = 0;
+
+    records.forEach((record) => {
+      totalMinutes += record.actualMinutes;
+      subjectMinutes.set(record.subject, (subjectMinutes.get(record.subject) ?? 0) + record.actualMinutes);
+      const weakness = record.weakness.trim();
+      if (weakness) weaknessCounts.set(weakness, (weaknessCounts.get(weakness) ?? 0) + 1);
+      if (record.correct === true) correct += 1;
+      else if (record.correct === false) incorrect += 1;
+      else unanswered += 1;
+    });
+
+    const subjectsByMinutes = [...subjectMinutes.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    const maxSubjectMinutes = subjectsByMinutes[0]?.[1] ?? 0;
+    const weaknesses = [...weaknessCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4);
+    const answered = correct + incorrect;
+
+    return {
+      totalMinutes,
+      correct,
+      incorrect,
+      unanswered,
+      answered,
+      accuracy: answered ? Math.round((correct / answered) * 100) : null,
+      subjectsByMinutes,
+      maxSubjectMinutes,
+      weaknesses,
+    };
+  }, [records]);
   const visibleNotes = filteredNotes.slice((notePage - 1) * 10, notePage * 10);
   function youtubeEmbedUrl(value: string, startSeconds = 0) {
     try {
@@ -3425,6 +3464,73 @@ export default function StudyPlanPage() {
                 <span>{learningAnalysis?.isStale ? "學習紀錄已更新，這是上次保存的診斷" : learningAnalysis ? "已保存，可下次繼續查看" : "先看初步狀況，點擊分析取得完整診斷"}</span>
               </div>
               <p className="learning-coach-summary">{coachData.summary}</p>
+              <div className="learning-snapshot" aria-label="學習狀況圖表">
+                <div className="learning-snapshot-head">
+                  <b>學習狀況一眼看懂</b>
+                  <span>依目前保存的學習紀錄</span>
+                </div>
+                <div className="learning-snapshot-metrics">
+                  <div>
+                    <span>累積學習</span>
+                    <strong>{learningSnapshot.totalMinutes}<small> 分鐘</small></strong>
+                  </div>
+                  <div>
+                    <span>作答表現</span>
+                    <strong>{learningSnapshot.accuracy === null ? "尚無" : `${learningSnapshot.accuracy}%`}</strong>
+                    <small>{learningSnapshot.answered ? `${learningSnapshot.correct}／${learningSnapshot.answered} 題答對` : "還沒有作答紀錄"}</small>
+                  </div>
+                  <div>
+                    <span>紀錄筆數</span>
+                    <strong>{records.length}<small> 筆</small></strong>
+                  </div>
+                </div>
+                {records.length > 0 ? (
+                  <div className="learning-snapshot-charts">
+                    <div className="learning-mini-chart">
+                      <div className="learning-mini-chart-head"><b>各科投入時間</b><span>分鐘</span></div>
+                      <div className="learning-bars">
+                        {learningSnapshot.subjectsByMinutes.map(([subject, minutes]) => (
+                          <div className="learning-bar-row" key={subject}>
+                            <span>{subject}</span>
+                            <div className="learning-bar-track"><i style={{ width: `${Math.max(8, Math.round((minutes / learningSnapshot.maxSubjectMinutes) * 100))}%` }} /></div>
+                            <strong>{minutes}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="learning-mini-chart">
+                      <div className="learning-mini-chart-head"><b>作答結果</b><span>{learningSnapshot.answered ? "已作答題目" : "尚無作答"}</span></div>
+                      {learningSnapshot.answered ? (
+                        <>
+                          <div className="learning-answer-track" aria-label={`答對 ${learningSnapshot.correct} 題、答錯 ${learningSnapshot.incorrect} 題`}>
+                            <i className="is-correct" style={{ width: `${(learningSnapshot.correct / learningSnapshot.answered) * 100}%` }} />
+                            <i className="is-incorrect" style={{ width: `${(learningSnapshot.incorrect / learningSnapshot.answered) * 100}%` }} />
+                          </div>
+                          <div className="learning-answer-legend">
+                            <span><i className="is-correct" />答對 {learningSnapshot.correct}</span>
+                            <span><i className="is-incorrect" />答錯 {learningSnapshot.incorrect}</span>
+                            {learningSnapshot.unanswered > 0 && <span><i className="is-unanswered" />未作答 {learningSnapshot.unanswered}</span>}
+                          </div>
+                        </>
+                      ) : <p className="learning-chart-empty">先完成一試練題，這裡會顯示答題表現。</p>}
+                    </div>
+                    {learningSnapshot.weaknesses.length > 0 && (
+                      <div className="learning-mini-chart learning-weakness-chart">
+                        <div className="learning-mini-chart-head"><b>紀錄中的弱點</b><span>出現次數</span></div>
+                        <div className="learning-bars">
+                          {learningSnapshot.weaknesses.map(([weakness, count]) => (
+                            <div className="learning-bar-row" key={weakness}>
+                              <span title={weakness}>{weakness}</span>
+                              <div className="learning-bar-track is-warm"><i style={{ width: `${Math.max(10, Math.round((count / learningSnapshot.weaknesses[0][1]) * 100))}%` }} /></div>
+                              <strong>{count}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : <div className="learning-chart-empty">完成讀書任務或練題後，這裡會自動整理成簡單圖表。</div>}
+              </div>
               {!learningAnalysis && <div className="learning-coach-next"><b>下一步</b><span>{coachData.nextAction}</span></div>}
               {learningAnalysis && (
                 <div className="learning-coach-analysis">
