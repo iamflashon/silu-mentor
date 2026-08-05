@@ -5,8 +5,8 @@ import { taipeiDate } from "../../../lib/taipei-time";
 import {
   getAnthropicKey,
   getAnthropicModel,
+  getEssayOpenAIModel,
   getOpenAIKey,
-  getOpenAIModel,
 } from "../../../lib/openai";
 
 type EssayModelMode = "sol" | "claude" | "dual";
@@ -35,6 +35,10 @@ type ModelRun = {
   outputTokens: number;
   cachedTokens: number;
 };
+
+class EssayModelError extends Error {
+  status = 502;
+}
 
 const gradingInstructions = `你是台灣司律二試申論閱卷教練。必須以「高點名師參考擬答」及其明確評分重點作為主要核對依據，但不能用文字相似度代替法律評價。請檢查學生是否審對題目、列出關鍵爭點、使用正確規範、完成事實涵攝、提出結論，並檢查架構與表達。老師擬答是參考解答，不是唯一文字答案；學生採不同但有法律理由的見解時，應標示為可接受或需補強，不要直接判錯。只根據題目、老師擬答與提供的評分點，不能補造未提供的老師見解。回覆繁體中文，分項指出學生原文證據、漏寫點與下一個修正動作。`;
 
@@ -127,6 +131,33 @@ function parseEssayGrading(raw: string) {
   return value as EssayGrading;
 }
 
+async function readModelPayload(response: Response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new EssayModelError(`模型服務回傳非 JSON（HTTP ${response.status}）`);
+  }
+}
+
+function modelErrorMessage(payload: Record<string, unknown>, fallback: string) {
+  const error = payload.error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  return fallback;
+}
+
+function parseModelGrading(modelLabel: string, raw: string) {
+  try {
+    return parseEssayGrading(raw);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "回傳格式不完整";
+    throw new EssayModelError(`${modelLabel}：${detail}`);
+  }
+}
+
 function gradingInput(question: {
   stem: string;
   teacherAnswer: string;
@@ -163,15 +194,17 @@ async function runSol(
       max_output_tokens: 12000,
     }),
   });
-  const payload = await response.json() as {
+  const payload = await readModelPayload(response) as {
     output?: unknown[];
     usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
     error?: { message?: string };
   };
-  if (!response.ok) throw new Error(payload.error?.message ?? "GPT-5.6 Sol 申論批改失敗");
+  if (!response.ok) {
+    throw new EssayModelError(`GPT-5.6 Sol：${modelErrorMessage(payload, "申論批改失敗")}`);
+  }
   return {
     model,
-    grading: parseEssayGrading(responseText(payload)),
+    grading: parseModelGrading("GPT-5.6 Sol", responseText(payload)),
     inputTokens: Number(payload.usage?.input_tokens ?? 0),
     outputTokens: Number(payload.usage?.output_tokens ?? 0),
     cachedTokens: Number(payload.usage?.input_tokens_details?.cached_tokens ?? 0),
@@ -196,18 +229,25 @@ async function runClaude(
       max_tokens: 12000,
       system: `${gradingInstructions}\n\n只輸出合法 JSON，不要輸出 Markdown、說明文字或 JSON 以外的內容。JSON 欄位必須完全使用 score、overall、dimensions、strengths、priority_fixes、next_step、source_used。`,
       messages: [{ role: "user", content: gradingInput(question, answer) }],
+      output_config: { format: { type: "json_schema", schema: gradingSchema } },
     }),
   });
-  const payload = await response.json() as {
+  const payload = await readModelPayload(response) as {
     model?: string;
     content?: unknown[];
     usage?: { input_tokens?: number; output_tokens?: number };
     error?: { message?: string };
+    stop_reason?: string;
   };
-  if (!response.ok) throw new Error(payload.error?.message ?? "Claude Opus 5 申論批改失敗");
+  if (!response.ok) {
+    throw new EssayModelError(`Claude Opus 5：${modelErrorMessage(payload, "申論批改失敗")}`);
+  }
+  if (payload.stop_reason === "max_tokens") {
+    throw new EssayModelError("Claude Opus 5：回覆被截斷，尚未完成完整批改");
+  }
   return {
     model: payload.model || model,
-    grading: parseEssayGrading(anthropicText(payload)),
+    grading: parseModelGrading("Claude Opus 5", anthropicText(payload)),
     inputTokens: Number(payload.usage?.input_tokens ?? 0),
     outputTokens: Number(payload.usage?.output_tokens ?? 0),
     cachedTokens: 0,
@@ -265,7 +305,7 @@ export async function POST(request: Request) {
     if (!question) return Response.json({ error: "找不到已發布的二試申論題" }, { status: 404 });
     if (!question.teacherAnswer.trim()) return Response.json({ error: "這題尚未完成老師擬答核對，暫不能進行依擬答批改。" }, { status: 409 });
 
-    const solModel = await getOpenAIModel("gpt-5.6-sol");
+    const solModel = await getEssayOpenAIModel("gpt-5.6-sol");
     const claudeModel = await getAnthropicModel("claude-opus-5");
     const runs: ModelRun[] = [];
     if (mode === "sol") runs.push(await runSol(openAIKey, solModel, question, answer));
@@ -313,6 +353,7 @@ export async function POST(request: Request) {
       source: { label: question.answerSource || "高點名師參考擬答", status: question.answerStatus },
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "AI 申論批改失敗" }, { status: 500 });
+    const status = error instanceof EssayModelError ? error.status : 500;
+    return Response.json({ error: error instanceof Error ? error.message : "AI 申論批改失敗" }, { status });
   }
 }
