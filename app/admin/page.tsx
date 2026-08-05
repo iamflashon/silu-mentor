@@ -168,7 +168,7 @@ function chapterProgressPercent(progress?: ChapterProgress) {
 function chapterProgressLabel(progress?: ChapterProgress) {
   if (!progress) return "尚未開始解析";
   if (progress.state === "completed") return "解析完成";
-  if (progress.state === "paused") return "解析暫停，原資料仍保留";
+  if (progress.state === "paused") return "AI 目前較忙，將自動重試；原資料仍保留";
   if (progress.state === "failed") return "解析未完成，原資料仍保留";
   if (progress.phase === "outline") return "正在讀取原書的部分與主題目錄";
   if (progress.phase === "saving") return "正在保存已完成的題型";
@@ -403,6 +403,8 @@ export default function AdminPage() {
   const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(null);
   const [selectedCollectionResourceId, setSelectedCollectionResourceId] = useState("");
   const [chapterProgress, setChapterProgress] = useState<Record<number, ChapterProgress>>({});
+  const chapterProgressRef = useRef<Record<number, ChapterProgress>>({});
+  const chapterJobsRef = useRef(new Set<number>());
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceCreator, setResourceCreator] = useState("");
@@ -1801,6 +1803,9 @@ export default function AdminPage() {
     setNotice(
       `${resource.title} 已${documentId ? "綁定教材文件" : "解除教材綁定"}。`,
     );
+    if (documentId && result.resource.documentStatus === "completed" && isProblemSolvingResource(result.resource)) {
+      void startAutomaticChapterIndex(result.resource);
+    }
   }
 
   async function buildBookChapters(resource: LearningResource) {
@@ -1809,11 +1814,24 @@ export default function AdminPage() {
       return;
     }
     setNotice(`正在從「${resource.title}」已建立的教材索引整理章節；不會重新上傳或讀取整份 PDF…`);
+    let savedProgress: ChapterProgress | null = null;
+    try {
+      const progressResponse = await fetch(`/api/resources/chapters?resourceId=${resource.id}&progress=1`, { cache: "no-store" });
+      if (progressResponse.ok) {
+        const progressResult = (await progressResponse.json()) as { progress?: ChapterProgress };
+        const candidate = progressResult.progress;
+        if (candidate && (candidate.state === "building" || candidate.state === "paused") && (candidate.totalTopics ?? 0) > 0) {
+          savedProgress = candidate;
+        }
+      }
+    } catch {
+      // The POST below will return the authoritative state if the progress read races it.
+    }
     setChapterProgress((current) => ({
       ...current,
-      [resource.id]: { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 },
+      [resource.id]: savedProgress ?? { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 },
     }));
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
       const response = await fetch("/api/resources/chapters", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1841,9 +1859,12 @@ export default function AdminPage() {
         return;
       }
       if (result.status === "paused" || result.status === "failed") {
-        setNotice(result.status === "paused"
-          ? "解析暫停；已保存目前進度，稍後再按一次即可接著解析。"
-          : (result.error ?? "解析未完成；原資料仍保留。"));
+        if (result.status === "paused") {
+          setNotice("AI 目前較忙；已保存目前進度，12 秒後自動重試，不需要重新上傳教材…");
+          await new Promise((resolve) => window.setTimeout(resolve, 12_000));
+          continue;
+        }
+        setNotice(result.error ?? "解析未完成；原資料仍保留。");
         return;
       }
       if (result.status === "building") {
@@ -1851,6 +1872,18 @@ export default function AdminPage() {
         continue;
       }
       const count = result.chapters?.length ?? 0;
+      setChapterProgress((current) => ({
+        ...current,
+        [resource.id]: {
+          ...(current[resource.id] ?? {}),
+          state: "completed",
+          phase: "saving",
+          completedTopics: current[resource.id]?.totalTopics,
+          totalTopics: current[resource.id]?.totalTopics,
+          foundQuestions: count,
+          currentTopic: "",
+        },
+      }));
       setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
       setNotice(result.reused
         ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
@@ -1861,6 +1894,38 @@ export default function AdminPage() {
     }
     setNotice("解析工作已保存目前進度；可再次按下按鈕接著處理剩餘主題。");
   }
+
+  async function startAutomaticChapterIndex(resource: LearningResource) {
+    if (
+      !resource.documentId ||
+      resource.documentStatus !== "completed" ||
+      !isProblemSolvingResource(resource) ||
+      Number(resource.chapterCount ?? 0) >= 8 ||
+      chapterJobsRef.current.has(resource.id) ||
+      chapterProgressRef.current[resource.id]?.state === "completed"
+    ) return;
+    chapterJobsRef.current.add(resource.id);
+    try {
+      await buildBookChapters(resource);
+    } finally {
+      chapterJobsRef.current.delete(resource.id);
+    }
+  }
+
+  useEffect(() => {
+    chapterProgressRef.current = chapterProgress;
+  }, [chapterProgress]);
+
+  useEffect(() => {
+    const candidates = resources.filter(
+      (resource) =>
+        resource.resourceType === "book" &&
+        resource.documentId &&
+        resource.documentStatus === "completed" &&
+        isProblemSolvingResource(resource),
+    );
+    for (const resource of candidates) void startAutomaticChapterIndex(resource);
+  }, [resources]);
 
   async function bindCourseBook(
     resource: LearningResource,
@@ -2326,6 +2391,12 @@ export default function AdminPage() {
             const current = (data.documents ?? []).find((item) => Number(item.id) === documentId);
             if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
             if (data.stats) setDocumentStats(data.stats);
+            const resourcesResponse = await fetch("/api/resources", { cache: "no-store" });
+            if (resourcesResponse.ok) {
+              const loaded = ((await resourcesResponse.json()) as { resources?: LearningResource[] }).resources ?? [];
+              setResources(loaded);
+              void refreshChapterProgress(loaded.filter((item) => item.resourceType === "book").map((item) => item.id));
+            }
           }
           return true;
         }
@@ -3268,12 +3339,12 @@ export default function AdminPage() {
                           {resource.documentId && (
                             <div className="chapter-progress-panel completed" role="status">
                               <div className="chapter-progress-heading">
-                                <strong>{resource.documentStatus === "completed" ? "教材已自動完成解析與索引" : resource.documentProcessingMessage ?? "教材正在自動處理"}</strong>
+                                <strong>{resource.documentStatus === "completed" ? "教材檔案已完成檢查、全文／向量索引" : resource.documentProcessingMessage ?? "教材正在自動處理"}</strong>
                               </div>
                               <div className="chapter-progress-meta">
                                 <span>
                                   {resource.documentStatus === "completed"
-                                    ? `已整理 ${resource.documentChapterCount ?? 0} 章 · ${resource.documentQuestionCount ?? 0} 題`
+                                    ? `檔案分析已整理 ${resource.documentChapterCount ?? 0} 章 · ${resource.documentQuestionCount ?? 0} 題`
                                     : "完成後會自動更新章節、題目與分類結果"}
                                 </span>
                                 {!!resource.documentTags?.length && <small>標籤：{resource.documentTags.slice(0, 8).join("、")}</small>}
