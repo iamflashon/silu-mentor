@@ -72,6 +72,16 @@ type PracticeFacets = {
 };
 type EssayMode = "guided" | "exam";
 
+type EssayBatchAttempt = {
+  id: number;
+  questionId: number;
+  year: string;
+  subject: string;
+  questionNumber: string;
+  answer: string;
+  savedAt: string;
+};
+
 const gradingAnimationSteps = [
   { title: "審題定位", note: "確認題目要求與作答範圍" },
   { title: "抓出爭點", note: "對照參考擬答整理關鍵爭點" },
@@ -79,6 +89,95 @@ const gradingAnimationSteps = [
   { title: "檢查涵攝", note: "逐段比對事實涵攝與結論" },
   { title: "整理分數", note: "形成解題步驟與下一步修正" },
 ];
+
+function EssayBatchGrading() {
+  const [attempts, setAttempts] = useState<EssayBatchAttempt[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [model, setModel] = useState<EssayModelMode>("sol");
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    fetch("/api/essay-grading")
+      .then(async (response) => {
+        const result = (await response.json()) as { attempts?: EssayBatchAttempt[] };
+        setAttempts(result.attempts ?? []);
+      })
+      .catch(() => setMessage("已保存作答暫時無法讀取，請稍後再試。"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const allSelected = attempts.length > 0 && attempts.every((attempt) => selectedIds.has(attempt.id));
+
+  function toggleAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(attempts.map((attempt) => attempt.id)));
+  }
+
+  function toggle(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function startBatch() {
+    const selected = attempts.filter((attempt) => selectedIds.has(attempt.id));
+    if (!selected.length || running) return;
+    setRunning(true);
+    setProgress(0);
+    setMessage("");
+    let completed = 0;
+    let failed = 0;
+    for (const attempt of selected) {
+      try {
+        const response = await fetch("/api/essay-grading", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ questionId: attempt.questionId, answer: attempt.answer, mode: model }),
+        });
+        if (!response.ok) failed += 1;
+      } catch {
+        failed += 1;
+      }
+      completed += 1;
+      setProgress(Math.round((completed / selected.length) * 100));
+    }
+    setRunning(false);
+    setMessage(failed ? `批次批改完成 ${completed - failed} 題，${failed} 題失敗，可到歷次批改查看結果。` : `批次批改完成，共 ${completed} 題；結果已保存至我的歷次批改。`);
+  }
+
+  return (
+    <section className="essay-batch-page" aria-label="批次批改">
+      <header className="essay-batch-head">
+        <div>
+          <p>ESSAY BATCH GRADING</p>
+          <h2>批次批改</h2>
+          <span>一次勾選多份已保存的二試申論作答，系統會依序完成批改並保存結果。</span>
+        </div>
+        <strong>{selectedIds.size} 題已選</strong>
+      </header>
+      <div className="essay-batch-toolbar">
+        <label className="essay-batch-select-all"><input type="checkbox" checked={allSelected} onChange={toggleAll} /> 全選</label>
+        <label>批改模型<select value={model} onChange={(event) => setModel(event.target.value as EssayModelMode)} disabled={running}><option value="sol">GPT-5.6 Sol</option><option value="claude">Claude Opus 5</option><option value="dual">Sol＋Claude 雙模型覆核</option></select></label>
+        <button type="button" className="primary-btn" disabled={!selectedIds.size || running} onClick={() => void startBatch()}>{running ? `批改中 ${progress}%` : "開始批次批改"}</button>
+      </div>
+      {message && <p className="essay-batch-message">{message}</p>}
+      {loading ? <div className="essay-batch-empty">正在讀取已保存的申論作答…</div> : attempts.length ? (
+        <div className="essay-batch-list">
+          {attempts.map((attempt) => (
+            <label className={`essay-batch-card ${selectedIds.has(attempt.id) ? "selected" : ""}`} key={attempt.id}>
+              <input type="checkbox" checked={selectedIds.has(attempt.id)} onChange={() => toggle(attempt.id)} disabled={running} />
+              <span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>已保存作答 · {attempt.answer.length.toLocaleString()} 字</small></span>
+            </label>
+          ))}
+        </div>
+      ) : <div className="essay-batch-empty">目前沒有可批次處理的已保存作答。先到「二試申論題」完成作答並保存，之後就能在這裡一次批改多題。</div>}
+    </section>
+  );
+}
 
 export function PracticeLab({ initialType }: Props) {
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
@@ -127,7 +226,7 @@ export function PracticeLab({ initialType }: Props) {
   const [secondsLeft, setSecondsLeft] = useState(90 * 60);
   const [stemOpen, setStemOpen] = useState(true);
   const [draftSavedAt, setDraftSavedAt] = useState("");
-  const [showEssayHistory, setShowEssayHistory] = useState(false);
+  const [essaySubPage, setEssaySubPage] = useState<"question" | "batch" | "history">("question");
   const essayRef = useRef<HTMLTextAreaElement | null>(null);
   const draftKey = useMemo(
     () => (question ? `silu-essay-draft:${question.id}` : ""),
@@ -723,7 +822,7 @@ export function PracticeLab({ initialType }: Props) {
             className={examType === "mcq" ? "active" : ""}
             onClick={() => {
               setExamType("mcq");
-              setShowEssayHistory(false);
+              setEssaySubPage("question");
               void loadQuestion("mcq");
             }}
           >
@@ -733,6 +832,7 @@ export function PracticeLab({ initialType }: Props) {
             className={examType === "essay" ? "active" : ""}
             onClick={() => {
               setExamType("essay");
+              setEssaySubPage("question");
               void loadQuestion("essay");
             }}
           >
@@ -741,15 +841,25 @@ export function PracticeLab({ initialType }: Props) {
           {examType === "essay" && (
             <button
               type="button"
-              className={`practice-history-toggle ${showEssayHistory ? "active" : ""}`}
-              onClick={() => setShowEssayHistory((current) => !current)}
+              className={essaySubPage === "batch" ? "active" : ""}
+              onClick={() => setEssaySubPage("batch")}
             >
-              {showEssayHistory ? "收合歷次批改" : "我的歷次批改"}
+              批次批改
+            </button>
+          )}
+          {examType === "essay" && (
+            <button
+              type="button"
+              className={essaySubPage === "history" ? "active" : ""}
+              onClick={() => setEssaySubPage("history")}
+            >
+              我的歷次批改
             </button>
           )}
         </div>
       </div>
-      {examType === "essay" && showEssayHistory && <EssayHistory />}
+      {examType === "essay" && essaySubPage === "history" && <EssayHistory />}
+      {examType === "essay" && essaySubPage === "batch" && <EssayBatchGrading />}
       {examType === "mcq" ? (
         <section className="practice-feature-guide" aria-label="一試功能解說">
           <header>
@@ -872,7 +982,7 @@ export function PracticeLab({ initialType }: Props) {
             </section>
           )}
         </section>
-      ) : (
+      ) : essaySubPage === "question" ? (
         <section
           className="practice-feature-guide essay-guide"
           aria-label="二試作答模式"
@@ -999,8 +1109,8 @@ export function PracticeLab({ initialType }: Props) {
             <b>你會看到：</b>
             總分與分項分數、學生原文依據、漏寫內容、優先修正項目及下一步。不同但有法律理由的見解，不會只因文字與擬答不同就判錯。
           </p>
-        </section>
-      )}
+          </section>
+      ) : null}
       <div className="practice-lab-note">
         <b>
           {examType === "mcq"
