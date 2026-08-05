@@ -39,6 +39,25 @@ type ProblemOutlinePayload = {
   }>;
 };
 
+type StoredDocumentAnalysis = {
+  chapters?: Array<{
+    title?: string;
+    path?: string;
+    page_start?: number | null;
+    page_end?: number | null;
+  }>;
+  questions?: Array<{
+    number?: string;
+    title?: string;
+    content?: string;
+    stem?: string;
+    chapter?: string;
+    section?: string;
+    page_start?: number | null;
+    page_end?: number | null;
+  }>;
+};
+
 // One topic per request keeps each file-search response comfortably below the
 // model's tokens-per-minute ceiling. A larger batch can retrieve tens of
 // thousands of tokens even though the calls themselves are sequential.
@@ -142,6 +161,56 @@ function isCompleteProblemQuestion(chapter: {
   const title = String(chapter.title ?? "").trim();
   const stem = String(chapter.text ?? chapter.stem ?? "").trim();
   return /題型\s*\d+(?:\.\d+)+|第\s*\d+\s*題/.test(title) && stem.length >= 30;
+}
+
+function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
+  try {
+    const parsed = JSON.parse(document.processingResultJson || "{}") as {
+      analysis?: StoredDocumentAnalysis;
+    };
+    return parsed.analysis && typeof parsed.analysis === "object"
+      ? parsed.analysis
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function storedCatalogueRows(
+  resourceId: number,
+  document: typeof documents.$inferSelect,
+) {
+  const analysis = readStoredDocumentAnalysis(document);
+  const questions = Array.isArray(analysis?.questions) ? analysis.questions : [];
+  return questions
+    .map((question, index) => {
+      const title = String(question.title ?? question.number ?? "").trim();
+      if (!title) return null;
+      const section = String(question.section ?? "").trim();
+      const topic = String(question.chapter ?? "").trim() || "其他題型";
+      const text = String(question.content ?? question.stem ?? "").trim();
+      return {
+        id: -(index + 1),
+        resourceId,
+        segmentType: "book_outline",
+        lessonLabel: `${section || "題型目錄"}｜${topic}`.slice(0, 160),
+        title,
+        pageStart: question.page_start ?? null,
+        pageEnd: question.page_end ?? null,
+        startSeconds: null,
+        endSeconds: null,
+        sourceUrl: "",
+        text,
+        summary: text ? "已擷取完整題目" : "目錄資料已確認；完整題文正在整理",
+        importance: 0,
+        recommended: false,
+        reviewStatus: text ? "ai_reviewed" : "catalogue_only",
+        sequence: index + 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
 async function readChapterProgressRecord(resourceId: number) {
@@ -267,6 +336,27 @@ export async function GET(request: Request) {
     }
 
     if (problemBook && chapters.length) {
+      const [document] = resource.documentId
+        ? await db
+            .select()
+            .from(documents)
+            .where(eq(documents.id, resource.documentId))
+            .limit(1)
+        : [];
+      const storedCatalogue = document
+        ? storedCatalogueRows(resourceId, document)
+        : [];
+      if (storedCatalogue.length) {
+        return Response.json({
+          chapters: storedCatalogue,
+          generated: false,
+          ready: true,
+          status: "catalogue",
+          incompleteCount: storedCatalogue.filter((item) => !item.text).length,
+          progress,
+          message: "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。",
+        });
+      }
       return Response.json({
         chapters: [],
         generated: false,
@@ -296,6 +386,20 @@ export async function GET(request: Request) {
       .from(documents)
       .where(eq(documents.id, resource.documentId))
       .limit(1);
+    if (problemBook && document) {
+      const storedCatalogue = storedCatalogueRows(resourceId, document);
+      if (storedCatalogue.length) {
+        return Response.json({
+          chapters: storedCatalogue,
+          generated: false,
+          ready: true,
+          status: "catalogue",
+          incompleteCount: storedCatalogue.filter((item) => !item.text).length,
+          progress,
+          message: "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。",
+        });
+      }
+    }
     if (!document?.openaiFileId) {
       return Response.json({
         chapters: [],
