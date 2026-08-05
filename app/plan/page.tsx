@@ -14,6 +14,7 @@ import CourseVideoPlayer, { formatMediaTime, PlaybackRateSelect } from "../cours
 import { PracticeLab } from "./practice-lab";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
+import { formatTwd } from "../../lib/currency";
 import { coreExamPoints } from "../../lib/core-exam-points";
 import type { YoutubePlaylistItem } from "../../lib/youtube-playlist";
 
@@ -432,6 +433,8 @@ export default function StudyPlanPage() {
   const [openChatDay, setOpenChatDay] = useState<number | null>(null);
   const [notes, setNotes] = useState<SavedNote[]>([]);
   const [recordPage, setRecordPage] = useState(1);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<number>>(new Set());
+  const [deletingRecords, setDeletingRecords] = useState(false);
   const [learningAnalysis, setLearningAnalysis] = useState<LearningAnalysis | null>(null);
   const [learningAnalysisLoading, setLearningAnalysisLoading] = useState(false);
   const [learningAnalysisNotice, setLearningAnalysisNotice] = useState("");
@@ -1089,6 +1092,8 @@ export default function StudyPlanPage() {
         .includes(noteQuery.trim().toLowerCase()),
   );
   const visibleRecords = records.slice((recordPage - 1) * 10, recordPage * 10);
+  const visibleRecordIds = visibleRecords.map((record) => record.id);
+  const allVisibleRecordsSelected = visibleRecordIds.length > 0 && visibleRecordIds.every((id) => selectedRecordIds.has(id));
   const coachPreviewData = useMemo(() => coachPreview(records), [records]);
   const coachData = learningAnalysis ?? coachPreviewData;
   const learningSnapshot = useMemo(() => {
@@ -2008,6 +2013,42 @@ export default function StudyPlanPage() {
       nextStep: "",
     });
     setRecordPage(1);
+  }
+
+  function toggleRecord(id: number) {
+    setSelectedRecordIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleRecords() {
+    setSelectedRecordIds((current) => {
+      const next = new Set(current);
+      if (allVisibleRecordsSelected) visibleRecordIds.forEach((id) => next.delete(id));
+      else visibleRecordIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function deleteSelectedRecords() {
+    const ids = [...selectedRecordIds];
+    if (!ids.length || !window.confirm(`確定要刪除選取的 ${ids.length} 筆學習紀錄嗎？刪除後無法復原。`)) return;
+    setDeletingRecords(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/learning-records", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "學習紀錄刪除失敗");
+      setRecords((current) => current.filter((record) => !selectedRecordIds.has(record.id)));
+      setSelectedRecordIds(new Set());
+      setRecordPage((current) => Math.min(current, Math.max(1, Math.ceil((records.length - ids.length) / 10))));
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "學習紀錄刪除失敗");
+    } finally {
+      setDeletingRecords(false);
+    }
   }
 
   async function analyzeLearning() {
@@ -4081,7 +4122,7 @@ export default function StudyPlanPage() {
                   )}
                   <footer className="learning-coach-meta">
                     <span>{coachData.model} · {coachData.generatedAt ? `分析於 ${coachData.generatedAt}` : "剛剛完成"}{learningAnalysis?.saved ? " · 已保存" : ""}</span>
-                    {showAnalysisCost && coachData.usage && <span>Token {(coachData.usage.inputTokens + coachData.usage.outputTokens).toLocaleString()} · 約 US$ {coachData.usage.estimatedCostUsd.toFixed(4)}</span>}
+                    {showAnalysisCost && coachData.usage && <span>Token {(coachData.usage.inputTokens + coachData.usage.outputTokens).toLocaleString()} · 約 US$ {coachData.usage.estimatedCostUsd.toFixed(4)} · 約 NT$ {formatTwd(coachData.usage.estimatedCostUsd)}</span>}
                   </footer>
                 </div>
               )}
@@ -4143,10 +4184,16 @@ export default function StudyPlanPage() {
               />
               <button onClick={addRecord}>補登紀錄</button>
             </div>
+            {records.length > 0 && <div className="record-batch-toolbar">
+              <label><input type="checkbox" checked={allVisibleRecordsSelected} onChange={toggleAllVisibleRecords} /> 全選本頁</label>
+              <span>已選 {selectedRecordIds.size} 筆</span>
+              <button type="button" onClick={() => void deleteSelectedRecords()} disabled={!selectedRecordIds.size || deletingRecords}>{deletingRecords ? "刪除中…" : "刪除選取紀錄"}</button>
+            </div>}
             {visibleRecords.length ? (
               <div className="record-list">
                 {visibleRecords.map((record) => (
                   <article key={record.id}>
+                    <input type="checkbox" checked={selectedRecordIds.has(record.id)} onChange={() => toggleRecord(record.id)} aria-label={`選取 ${record.subject} ${record.title}`} />
                     <time>{record.recordDate}</time>
                     <div>
                       <strong>

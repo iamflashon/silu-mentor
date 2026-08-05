@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
+import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
 type Uploaded = {
@@ -2666,7 +2667,7 @@ export default function AdminPage() {
               <div>
                 <h2>AI 使用成本</h2>
                 <p className="panel-sub">
-                  依實際 API usage 記錄，供未來方案與收費評估。
+                  依實際 API usage 記錄，供未來方案與收費評估；台幣以 1 USD ≈ NT$ {USD_TO_TWD_RATE} 暫估。
                 </p>
               </div>
               <label className="cost-toggle">
@@ -2716,7 +2717,7 @@ export default function AdminPage() {
                   US${" "}
                   {(Number(usage?.totals.costMicros ?? 0) / 1_000_000).toFixed(
                     4,
-                  )}
+                  )} · 約 NT$ {formatTwd(Number(usage?.totals.costMicros ?? 0) / 1_000_000, 2)}
                 </strong>
               </div>
             </div>
@@ -2757,7 +2758,7 @@ export default function AdminPage() {
                             US${" "}
                             {(row.estimatedCostUsdMicros / 1_000_000).toFixed(
                               5,
-                            )}
+                            )} ·<br />約 NT$ {formatTwd(row.estimatedCostUsdMicros / 1_000_000, 2)}
                           </td>
                         </tr>
                       ))}

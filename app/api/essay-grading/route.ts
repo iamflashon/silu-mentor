@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examAttempts, examQuestions, studyRecords, usageLogs } from "../../../db/schema";
 import { taipeiDate } from "../../../lib/taipei-time";
@@ -436,6 +436,25 @@ export async function GET(request: Request) {
     return Response.json({ attempts });
   } catch {
     return Response.json({ error: "申論批改紀錄暫時無法讀取" }, { status: 503 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json() as { ids?: unknown };
+    const ids = Array.isArray(body.ids)
+      ? [...new Set(body.ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
+      : [];
+    if (!ids.length) return Response.json({ error: "請先選擇要刪除的批改紀錄" }, { status: 400 });
+
+    const db = await getDb();
+    await db.delete(examAttempts).where(and(
+      eq(examAttempts.userKey, userKey(request)),
+      inArray(examAttempts.id, ids),
+    ));
+    return Response.json({ deleted: ids.length });
+  } catch {
+    return Response.json({ error: "批改紀錄刪除失敗" }, { status: 500 });
   }
 }
 

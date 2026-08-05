@@ -154,6 +154,9 @@ export function EssayHistory() {
   const [attempts, setAttempts] = useState<EssayAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [page, setPage] = useState(1);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetch("/api/essay-grading")
@@ -166,6 +169,49 @@ export function EssayHistory() {
       .finally(() => setLoading(false));
   }, []);
 
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(attempts.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visibleAttempts = attempts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const visibleIds = visibleAttempts.map((attempt) => attempt.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+
+  function toggleSelected(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function deleteSelected() {
+    const ids = [...selectedIds];
+    if (!ids.length || !window.confirm(`確定要刪除選取的 ${ids.length} 筆批改紀錄嗎？刪除後無法復原。`)) return;
+    setDeleting(true);
+    setError("");
+    try {
+      const response = await fetch("/api/essay-grading", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "批改紀錄刪除失敗");
+      setAttempts((current) => current.filter((attempt) => !selectedIds.has(attempt.id)));
+      setSelectedIds(new Set());
+      setPage((current) => Math.min(current, Math.max(1, Math.ceil((attempts.length - ids.length) / pageSize))));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "批改紀錄刪除失敗");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <section className="essay-history-hub" aria-label="我的申論批改紀錄">
       <header className="essay-history-head">
@@ -176,12 +222,17 @@ export function EssayHistory() {
         </div>
         <strong>{attempts.length} 筆</strong>
       </header>
+      {!loading && !error && attempts.length > 0 && <div className="essay-history-toolbar">
+        <label><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} /> 全選本頁</label>
+        <span>已選 {selectedIds.size} 筆</span>
+        <button type="button" onClick={() => void deleteSelected()} disabled={!selectedIds.size || deleting}>{deleting ? "刪除中…" : "刪除選取紀錄"}</button>
+      </div>}
       {loading && <div className="essay-history-empty">正在讀取已保存的批改…</div>}
       {!loading && error && <div className="essay-history-empty is-error">{error}</div>}
       {!loading && !error && attempts.length === 0 && <div className="essay-history-empty">完成第一次申論批改後，結果會自動出現在這裡。</div>}
       {!loading && !error && attempts.length > 0 && (
         <div className="essay-history-list">
-          {attempts.map((attempt) => {
+          {visibleAttempts.map((attempt) => {
             const solGrading = normalizeGrading(attempt.reviews?.sol);
             const claudeGrading = normalizeGrading(attempt.reviews?.claude);
             const primary = attempt.mode === "dual"
@@ -191,7 +242,7 @@ export function EssayHistory() {
             return (
               <details className="essay-history-card" key={attempt.id}>
                 <summary>
-                  <span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>{dateLabel(attempt.savedAt)} · {modeLabel(attempt.mode)} · 已自動保存</small></span>
+                  <span className="essay-history-summary-main"><input type="checkbox" checked={selectedIds.has(attempt.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelected(attempt.id)} aria-label={`選取 ${attempt.year} ${attempt.subject} 第 ${attempt.questionNumber} 題`} /><span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>{dateLabel(attempt.savedAt)} · {modeLabel(attempt.mode)} · 已自動保存</small></span></span>
                   <strong>{primary ? `${primary.score} 分` : "查看結果"}</strong>
                 </summary>
                 <div className="essay-history-body">
@@ -212,6 +263,11 @@ export function EssayHistory() {
           })}
         </div>
       )}
+      {!loading && !error && attempts.length > pageSize && <nav className="document-pagination essay-history-pagination" aria-label="批改紀錄分頁">
+        <button type="button" disabled={currentPage === 1} onClick={() => setPage((value) => value - 1)}>上一頁</button>
+        <span>第 {currentPage} / {pageCount} 頁（每頁 10 題）</span>
+        <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => value + 1)}>下一頁</button>
+      </nav>}
     </section>
   );
 }

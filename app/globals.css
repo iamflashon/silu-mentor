@@ -10136,7 +10136,7 @@ a {
 .record-list time {
   flex: 0 0 78px;
   color: #6d8494;
-  font-size: 10px;
+  font-size: 12px;
 }
 .record-list article > div {
   min-width: 0;
@@ -10148,18 +10148,63 @@ a {
 }
 .record-list strong {
   color: #284a62;
-  font-size: 12px;
+  font-size: 15px;
 }
 .record-list span {
   margin-top: 4px;
   color: #768b99;
-  font-size: 10px;
+  font-size: 13px;
 }
 .record-list small {
   margin-top: 4px;
   color: #52728a;
-  font-size: 9px;
+  font-size: 12px;
 }
+.record-list article > input,
+.record-batch-toolbar input,
+.essay-history-toolbar input,
+.essay-history-summary-main > input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  accent-color: #2e7897;
+}
+.record-batch-toolbar,
+.essay-history-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 11px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #dce8ed;
+  border-radius: 10px;
+  background: #f7fbfc;
+  color: #5c7786;
+  font-size: 12px;
+}
+.record-batch-toolbar label,
+.essay-history-toolbar label,
+.essay-history-summary-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.record-batch-toolbar span,
+.essay-history-toolbar span { margin-left: auto; }
+.record-batch-toolbar button,
+.essay-history-toolbar button {
+  padding: 7px 11px;
+  border: 1px solid #e2bebe;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #a04e4e;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.record-batch-toolbar button:disabled,
+.essay-history-toolbar button:disabled { cursor: not-allowed; opacity: .45; }
 .record-entry {
   display: grid;
   grid-template-columns: 110px 1.2fr 90px 1fr 1fr 95px;
@@ -10173,14 +10218,14 @@ a {
   border: 1px solid #d8e3ea;
   border-radius: 9px;
   color: #37566b;
-  font-size: 10px;
+  font-size: 12px;
 }
 .record-entry button {
   border: 0;
   border-radius: 9px;
   background: #1d4666;
   color: white;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   cursor: pointer;
 }
@@ -11909,6 +11954,9 @@ a {
   display: grid;
   gap: 12px;
 }
+.essay-history-summary-main { min-width: 0; }
+.essay-history-summary-main > span { display: grid; gap: 5px; min-width: 0; }
+.essay-history-pagination { margin-top: 0; }
 .essay-history-card {
   overflow: hidden;
   border: 1px solid #d7e5e9;
