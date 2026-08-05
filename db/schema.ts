@@ -175,6 +175,24 @@ export const savedNotes = sqliteTable("saved_notes", {
     .$defaultFn(() => new Date()),
 });
 
+export const noteAttachments = sqliteTable("note_attachments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  noteId: integer("note_id")
+    .notNull()
+    .references(() => savedNotes.id, { onDelete: "cascade" }),
+  userKey: text("user_key").notNull(),
+  kind: text("kind").notNull().default("screenshot"),
+  storageKey: text("storage_key").notNull().unique(),
+  contentType: text("content_type").notNull().default("image/jpeg"),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  sourceUrl: text("source_url").notNull().default(""),
+  episodeTitle: text("episode_title").notNull().default(""),
+  positionSeconds: integer("position_seconds").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const examQuestions = sqliteTable("exam_questions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   examType: text("exam_type").notNull(),

@@ -1,6 +1,13 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appSettings, documents, learningResources, resourceSegments } from "../../../db/schema";
+import {
+  appSettings,
+  courseCollectionItems,
+  courseCollections,
+  documents,
+  learningResources,
+  resourceSegments,
+} from "../../../db/schema";
 
 function isPlayableCourseUrl(value: string) {
   try {
@@ -17,6 +24,17 @@ function isPlayableCourseUrl(value: string) {
 
 export async function GET() {
   const db = await getDb();
+  const publicCourseRows = await db
+    .select({ resourceId: courseCollectionItems.resourceId })
+    .from(courseCollectionItems)
+    .innerJoin(
+      courseCollections,
+      eq(courseCollectionItems.collectionId, courseCollections.id),
+    )
+    .where(eq(courseCollections.status, "active"));
+  const publicCourseResourceIds = new Set(
+    publicCourseRows.map((row) => row.resourceId),
+  );
   const rows = await db
     .select({
       id: learningResources.id,
@@ -100,6 +118,12 @@ export async function GET() {
       const failedArticleCount = articlePreviews.filter((article) => article.analysisState === "failed").length;
       return {
         ...row,
+        courseCategory:
+          row.resourceType === "course" && publicCourseResourceIds.has(row.id)
+            ? "public"
+            : row.resourceType === "course"
+              ? "managed"
+              : null,
         articlePreviews,
         articleCount: articlePreviews.length,
         analyzedArticleCount,
