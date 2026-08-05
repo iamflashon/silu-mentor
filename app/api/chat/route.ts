@@ -3,7 +3,7 @@ type ChatContext =
   | { type: "home" }
   | { type: "book"; resourceId: number; segmentId: number; resourceTitle: string; segmentTitle: string }
   | { type: "magazine"; resourceId: number; resourceTitle: string }
-  | { type: "my-course"; resourceId: number; resourceTitle: string; episodeTitle: string };
+  | { type: "my-course" | "public-course"; resourceId: number; episodeId: number; resourceTitle: string; episodeTitle: string };
 type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: string; replaceOnlySubject: boolean; days: number; dailyMinutes: number };
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
@@ -265,11 +265,17 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
   const db = await getDb();
   const key = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
   const today = taipeiDate();
+  const matchesContext = (candidate: { contextType: string; resourceId: number | null; segmentId: number | null }) => {
+    if (candidate.contextType !== context.type || candidate.resourceId !== context.resourceId) return false;
+    if (context.type === "book") return candidate.segmentId === context.segmentId;
+    if (context.type === "my-course" || context.type === "public-course") return (candidate.segmentId ?? 0) === context.episodeId;
+    return true;
+  };
   if (requestedId) {
     const [existing] = await db.select().from(chatSessions).where(eq(chatSessions.id, requestedId)).limit(1);
     const sameContext = context.type === "home"
       ? existing?.contextType === "home" && resolvedSessionDate(existing) === today
-      : existing?.contextType === context.type && existing.resourceId === context.resourceId && (context.type !== "book" || existing.segmentId === context.segmentId);
+      : Boolean(existing && matchesContext(existing));
     if (existing?.userKey === key && sameContext) {
       if (!existing.sessionDate) await db.update(chatSessions).set({ sessionDate: today }).where(eq(chatSessions.id, existing.id));
       return { ...existing, sessionDate: today };
@@ -278,7 +284,7 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
   const sessions = await db.select().from(chatSessions).where(eq(chatSessions.userKey, key)).orderBy(desc(chatSessions.updatedAt)).limit(240);
   const todaySession = context.type === "home"
     ? sessions.find((candidate) => candidate.contextType === "home" && resolvedSessionDate(candidate) === today)
-    : sessions.find((candidate) => candidate.contextType === context.type && candidate.resourceId === context.resourceId && (context.type !== "book" || candidate.segmentId === context.segmentId));
+    : sessions.find((candidate) => matchesContext(candidate));
   if (todaySession) {
     if (!todaySession.sessionDate) await db.update(chatSessions).set({ sessionDate: today }).where(eq(chatSessions.id, todaySession.id));
     return { ...todaySession, sessionDate: today };
@@ -296,12 +302,13 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
     title: `法教專區｜${context.resourceTitle}`.slice(0, 180),
     contextType: "magazine",
     resourceId: context.resourceId,
-  } : context.type === "my-course" ? {
+  } : (context.type === "my-course" || context.type === "public-course") ? {
     userKey: key,
     sessionDate: today,
-    title: `我的課｜${context.resourceTitle}｜${context.episodeTitle}`.slice(0, 180),
-    contextType: "my-course",
+    title: `${context.type === "public-course" ? "開放課" : "我的課"}｜${context.resourceTitle}｜${context.episodeTitle}`.slice(0, 180),
+    contextType: context.type,
     resourceId: context.resourceId,
+    segmentId: context.episodeId,
   } : { userKey: key, sessionDate: today, title: `${today}｜${firstText.slice(0, 48) || "司律備考對話"}`, contextType: "home" }).returning();
   return created;
 }
@@ -327,16 +334,27 @@ export async function POST(request: Request) {
       ? { type: "book", resourceId: rawContext.resourceId, segmentId: rawContext.segmentId, resourceTitle: String(rawContext.resourceTitle || "教材"), segmentTitle: String(rawContext.segmentTitle || "目前章節") }
       : rawContext?.type === "magazine" && Number.isInteger(rawContext.resourceId)
         ? { type: "magazine", resourceId: rawContext.resourceId, resourceTitle: String(rawContext.resourceTitle || "法學教室") }
-      : rawContext?.type === "my-course" && Number.isInteger(rawContext.resourceId)
-        ? { type: "my-course", resourceId: rawContext.resourceId, resourceTitle: String(rawContext.resourceTitle || "我的課"), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
+      : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
+        ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
       : { type: "home" };
     const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話", context);
+    let persistedCourseMessages: ClientMessage[] = [];
+    if (context.type === "my-course" || context.type === "public-course") {
+      const db = await getDb();
+      const previous = await db.select().from(chatMessages).where(eq(chatMessages.sessionId, session.id)).orderBy(asc(chatMessages.id)).limit(20);
+      persistedCourseMessages = previous
+        .filter((message) => message.role === "student" || message.role === "mentor")
+        .map((message) => ({ role: message.role as ClientMessage["role"], text: message.text }));
+    }
     const storedStudentText = context.type === "home" ? (latestStudent?.text ?? "") : String(body.visibleStudentText ?? "").trim();
     if (storedStudentText) {
       const db = await getDb();
       await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: storedStudentText });
       await db.update(chatSessions).set({ updatedAt: new Date(), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
     }
+    const modelMessages = persistedCourseMessages.length && latestStudent
+      ? [...persistedCourseMessages, latestStudent].slice(-12)
+      : messages;
 
     let vectorStoreId = "";
     try {
@@ -383,10 +401,10 @@ export async function POST(request: Request) {
       ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。`
       : context.type === "magazine"
         ? `${baseInstructions}\n\n這是獨立的法學教室試讀文章問答，不是首頁每日導師對話。只根據目前期數、文章標題、摘要、核心爭點與學生框選的文字回答。若試讀內容不足以確認全文脈絡，必須明確標示限制，不得補造作者主張、判決內容或文章結論；不得建立、修改或刪除行事曆。`
-        : context.type === "my-course"
-          ? `${baseInstructions}\n\n這是「我的課」的課程提問，不是平台已上傳字幕的課程。平台沒有讀取學生貼上的 YouTube 影片聲音、畫面或 SRT；你只能依課程名稱、集數名稱、學生在問題中自行輸入的文字，以及可靠的一般法律知識回答。絕對不要說你看過影片、聽過老師講解或知道該影片的特定內容。若學生問的是老師在影片中的特定說法，而問題沒有提供原文、截圖或足夠描述，請明確請學生貼上老師說法或畫面後再判斷。回答聚焦學生當下問題，不要建立、修改或刪除行事曆。`
+        : context.type === "my-course" || context.type === "public-course"
+          ? `${baseInstructions}\n\n這是「${context.type === "public-course" ? "開放課" : "我的課"}」的課程提問，不是平台已上傳字幕的課程。平台沒有讀取 YouTube 影片聲音、畫面或 SRT；你只能依課程名稱、集數名稱、學生提供的截圖、學生自行輸入的文字，以及可靠的一般法律知識回答。絕對不要說你看過影片、聽過老師講解或知道該影片的特定內容。你正在接續同一段課程對話：必須先閱讀前面 AI 的回答與學生回覆，再直接承接學生現在的追問，不要重新開一個主題。若學生問的是老師在影片中的特定說法，而問題沒有提供原文、截圖或足夠描述，請明確請學生貼上老師說法或畫面後再判斷。回答聚焦學生當下問題，不要建立、修改或刪除行事曆。`
       : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`;
-    const selectedModel = process.env.OPENAI_MODEL || await getOpenAIModel(chooseModel(messages));
+    const selectedModel = process.env.OPENAI_MODEL || await getOpenAIModel(chooseModel(modelMessages));
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
       name: "save_study_plan",
@@ -447,9 +465,9 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: selectedModel,
         instructions,
-        input: messages.map((message, index) => ({
+        input: modelMessages.map((message, index) => ({
           role: message.role === "mentor" ? "assistant" : "user",
-          content: imageDataUrl && message.role === "student" && index === messages.length - 1 ? [
+          content: imageDataUrl && message.role === "student" && index === modelMessages.length - 1 ? [
             { type: "input_text", text: message.text },
             { type: "input_image", image_url: imageDataUrl, detail: "high" },
           ] : message.text,

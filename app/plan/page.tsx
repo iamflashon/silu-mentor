@@ -334,6 +334,13 @@ function requestedPlanTab(): PlanTab {
     : "calendar";
 }
 
+function courseEpisodeContextId(videoId: string | null | undefined) {
+  if (!videoId) return 0;
+  let hash = 0;
+  for (const character of videoId) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return Math.abs(hash) || 1;
+}
+
 function magazineYear(magazine: MagazineFeed) {
   const text = `${magazine.title} ${magazine.description ?? ""}`;
   const western = text.match(/(?:^|\D)(20\d{2})(?:\D|$)/)?.[1];
@@ -471,6 +478,8 @@ export default function StudyPlanPage() {
   const [myCoursePlaylistCollapsed, setMyCoursePlaylistCollapsed] = useState(false);
   const [publicPlaylistCollapsed, setPublicPlaylistCollapsed] = useState(false);
   const [myCourseAiInput, setMyCourseAiInput] = useState("");
+  const [myCourseChatMessages, setMyCourseChatMessages] = useState<TutorMessage[]>([]);
+  const [myCourseSessionId, setMyCourseSessionId] = useState<number | null>(null);
   const [myCourseLastQuestion, setMyCourseLastQuestion] = useState("");
   const [myCourseAiReply, setMyCourseAiReply] = useState("");
   const [myCourseAiLoading, setMyCourseAiLoading] = useState(false);
@@ -479,6 +488,8 @@ export default function StudyPlanPage() {
   const [myCourseScreenshotName, setMyCourseScreenshotName] = useState("");
   const [myCourseNoteMessage, setMyCourseNoteMessage] = useState("");
   const [publicCourseAiInput, setPublicCourseAiInput] = useState("");
+  const [publicCourseChatMessages, setPublicCourseChatMessages] = useState<TutorMessage[]>([]);
+  const [publicCourseSessionId, setPublicCourseSessionId] = useState<number | null>(null);
   const [publicCourseLastQuestion, setPublicCourseLastQuestion] = useState("");
   const [publicCourseAiReply, setPublicCourseAiReply] = useState("");
   const [publicCourseAiLoading, setPublicCourseAiLoading] = useState(false);
@@ -1202,89 +1213,14 @@ export default function StudyPlanPage() {
   const publicCourseNotes = selectedPublicCourse
     ? notes.filter((note) => note.sourceId === `public-course:${selectedPublicCourse.id}:${selectedPublicEpisode?.videoId ?? "course"}`)
     : [];
-  const managedTrialResources = resources
-    .filter((item) => item.resourceType === "trial" && item.status === "active")
+  const trialResources = resources
+    .filter(
+      (item) =>
+        item.resourceType === "trial" &&
+        item.status === "active" &&
+        Boolean(youtubeEmbedUrl(item.sourceUrl)),
+    )
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
-  const defaultTrialResources: LearningResource[] = [
-    {
-      id: -1,
-      resourceType: "trial",
-      title: "民法（入門）",
-      subject: "民法",
-      creator: "蘇台大",
-      description: "適合先建立民法基本架構，再進入正課與案例演習。",
-      documentId: null,
-      sourceUrl:
-        "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=63834&iC=2089",
-      accessType: "external",
-      status: "active",
-      sortOrder: 0,
-      segmentCount: 0,
-    },
-    {
-      id: -2,
-      resourceType: "trial",
-      title: "民法案例演習",
-      subject: "民法",
-      creator: "蘇台大",
-      description: "從案例中練習辨認法律關係、爭點與請求權基礎。",
-      documentId: null,
-      sourceUrl:
-        "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=48540&iC=2089",
-      accessType: "external",
-      status: "active",
-      sortOrder: 1,
-      segmentCount: 0,
-    },
-    {
-      id: -3,
-      resourceType: "trial",
-      title: "刑法（入門）",
-      subject: "刑法",
-      creator: "榮台大",
-      description: "適合刑法初學者先掌握犯罪論體系與基本判斷順序。",
-      documentId: null,
-      sourceUrl:
-        "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=65691&iC=2089",
-      accessType: "external",
-      status: "active",
-      sortOrder: 2,
-      segmentCount: 0,
-    },
-    {
-      id: -4,
-      resourceType: "trial",
-      title: "刑法（進階）",
-      subject: "刑法",
-      creator: "榮台大",
-      description: "進一步理解重要爭點與考題中的法律適用。",
-      documentId: null,
-      sourceUrl:
-        "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=41161&iC=2089",
-      accessType: "external",
-      status: "active",
-      sortOrder: 3,
-      segmentCount: 0,
-    },
-    {
-      id: -5,
-      resourceType: "trial",
-      title: "憲法",
-      subject: "憲法",
-      creator: "韓台大",
-      description: "試聽憲法課程，了解基本權與國家權力的重要架構。",
-      documentId: null,
-      sourceUrl:
-        "https://www.ibrain.com.tw/audition/ListDetail.aspx?iS=22340&iC=2089",
-      accessType: "external",
-      status: "active",
-      sortOrder: 4,
-      segmentCount: 0,
-    },
-  ];
-  const trialResources = managedTrialResources.length
-    ? managedTrialResources
-    : defaultTrialResources;
   const magazineFeeds =
     homeFeed?.magazines ?? (homeFeed?.magazine ? [homeFeed.magazine] : []);
   const magazineYears = [...new Set(magazineFeeds.map(magazineYear))].sort(
@@ -2189,6 +2125,8 @@ export default function StudyPlanPage() {
   function resetMyCourseAiDraft() {
     setMyCourseScreenshotDataUrl("");
     setMyCourseScreenshotName("");
+    setMyCourseChatMessages([]);
+    setMyCourseSessionId(null);
     setMyCourseAiReply("");
     setMyCourseAiNotice("");
     setMyCourseLastQuestion("");
@@ -2198,6 +2136,8 @@ export default function StudyPlanPage() {
   function resetPublicCourseAiDraft() {
     setPublicCourseScreenshotDataUrl("");
     setPublicCourseScreenshotName("");
+    setPublicCourseChatMessages([]);
+    setPublicCourseSessionId(null);
     setPublicCourseAiReply("");
     setPublicCourseAiNotice("");
     setPublicCourseLastQuestion("");
@@ -2213,27 +2153,38 @@ export default function StudyPlanPage() {
     setMyCourseAiReply("");
     setMyCourseAiNotice("");
     const episodeTitle = selectedMyEpisode?.title ?? "整個播放清單";
+    const contextEpisodeId = courseEpisodeContextId(selectedMyEpisode?.videoId);
+    const studentMessage: TutorMessage = { role: "student", text: question };
+    const nextMessages = [...myCourseChatMessages, studentMessage].slice(-12);
+    setMyCourseChatMessages(nextMessages);
     try {
+      const apiMessages = nextMessages.map((message, index) => index === nextMessages.length - 1
+        ? {
+            ...message,
+            text: `我的課程：${selectedMyCourse.title}；科目：${selectedMyCourse.subject}；目前單元：${episodeTitle}。這是學生自行貼上的 YouTube 課程，平台沒有影片字幕或逐字內容。${myCourseScreenshotDataUrl ? "學生另外提供了一張課程畫面截圖，請只依截圖中看得到的文字與畫面回答，不要假設你看過或聽過整支影片。" : "請只依學生自行輸入的問題與可靠的一般法律知識回答，不要假設你看過或聽過這支影片。"} 若問題涉及老師在影片中的特定說法，請指出需要學生補上老師原話、畫面文字或自己的聽課筆記。\n學生問題：${message.text}`,
+          }
+        : message);
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          messages: [{
-            role: "student",
-            text: `我的課程：${selectedMyCourse.title}；科目：${selectedMyCourse.subject}；目前單元：${episodeTitle}。這是學生自行貼上的 YouTube 課程，平台沒有影片字幕或逐字內容。${myCourseScreenshotDataUrl ? "學生另外提供了一張課程畫面截圖，請只依截圖中看得到的文字與畫面回答，不要假設你看過或聽過整支影片。" : "請只依學生自行輸入的問題與可靠的一般法律知識回答，不要假設你看過或聽過這支影片。"} 若問題涉及老師在影片中的特定說法，請指出需要學生補上老師原話、畫面文字或自己的聽課筆記。\n學生問題：${question}`,
-          }],
+          messages: apiMessages,
+          sessionId: myCourseSessionId,
           visibleStudentText: question,
           imageDataUrl: myCourseScreenshotDataUrl || undefined,
           context: {
             type: "my-course",
             resourceId: selectedMyCourse.id,
+            episodeId: contextEpisodeId,
             resourceTitle: selectedMyCourse.title,
             episodeTitle,
           },
         }),
       });
-      const result = (await response.json()) as { reply?: string; error?: string };
+      const result = (await response.json()) as { reply?: string; error?: string; sessionId?: number };
       if (!response.ok) throw new Error(result.error ?? "AI 暫時無法回應");
+      setMyCourseSessionId(result.sessionId ?? myCourseSessionId);
+      setMyCourseChatMessages((current) => [...current, { role: "mentor", text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
       setMyCourseAiReply(result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。");
       setMyCourseAiInput("");
     } catch (error) {
@@ -2345,27 +2296,38 @@ export default function StudyPlanPage() {
     setPublicCourseAiReply("");
     setPublicCourseAiNotice("");
     const episodeTitle = selectedPublicEpisode?.title ?? "整個播放清單";
+    const contextEpisodeId = courseEpisodeContextId(selectedPublicEpisode?.videoId);
+    const studentMessage: TutorMessage = { role: "student", text: question };
+    const nextMessages = [...publicCourseChatMessages, studentMessage].slice(-12);
+    setPublicCourseChatMessages(nextMessages);
     try {
+      const apiMessages = nextMessages.map((message, index) => index === nextMessages.length - 1
+        ? {
+            ...message,
+            text: `開放課程：${selectedPublicCourse.title}；科目：${selectedPublicCourse.subject}；目前單元：${episodeTitle}。這是平台整理的 YouTube 公開課程，平台沒有影片逐字稿。${publicCourseScreenshotDataUrl ? "學生提供了一張目前課程畫面截圖，請只依截圖中看得到的文字與畫面回答。" : "請只依學生輸入的問題與可靠的一般法律知識回答，不要假設你看過或聽過影片。"} 若問題涉及老師口頭說法，請指出需要學生補上老師原話或聽課筆記。\n學生問題：${message.text}`,
+          }
+        : message);
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          messages: [{
-            role: "student",
-            text: `開放課程：${selectedPublicCourse.title}；科目：${selectedPublicCourse.subject}；目前單元：${episodeTitle}。這是平台整理的 YouTube 公開課程，平台沒有影片逐字稿。${publicCourseScreenshotDataUrl ? "學生提供了一張目前課程畫面截圖，請只依截圖中看得到的文字與畫面回答。" : "請只依學生輸入的問題與可靠的一般法律知識回答，不要假設你看過或聽過影片。"} 若問題涉及老師口頭說法，請指出需要學生補上老師原話或聽課筆記。\n學生問題：${question}`,
-          }],
+          messages: apiMessages,
+          sessionId: publicCourseSessionId,
           visibleStudentText: question,
           imageDataUrl: publicCourseScreenshotDataUrl || undefined,
           context: {
             type: "public-course",
             resourceId: selectedPublicCourse.id,
+            episodeId: contextEpisodeId,
             resourceTitle: selectedPublicCourse.title,
             episodeTitle,
           },
         }),
       });
-      const result = (await response.json()) as { reply?: string; error?: string };
+      const result = (await response.json()) as { reply?: string; error?: string; sessionId?: number };
       if (!response.ok) throw new Error(result.error ?? "AI 暫時無法回應");
+      setPublicCourseSessionId(result.sessionId ?? publicCourseSessionId);
+      setPublicCourseChatMessages((current) => [...current, { role: "mentor", text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
       setPublicCourseAiReply(result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。");
       setPublicCourseAiInput("");
     } catch (error) {
@@ -2493,7 +2455,7 @@ export default function StudyPlanPage() {
             className={activeTab === "trials" ? "active" : ""}
             onClick={() => setActiveTab("trials")}
           >
-            雲端課
+            YT試聽
           </button>
           <button
             className={activeTab === "laws" ? "active" : ""}
@@ -2693,51 +2655,53 @@ export default function StudyPlanPage() {
           </section>
         )}
         {activeTab === "trials" && (
-          <section className="trial-course-hub" aria-label="雲端課">
+          <section className="trial-course-hub" aria-label="YT試聽課">
             <header className="trial-course-head">
               <div>
-                <p>IBRAIN COURSE AUDITION</p>
-                <h2>雲端課</h2>
+                <p>YOUTUBE TRIAL COURSES</p>
+                <h2>YT試聽課</h2>
                 <span>
-                  先看看老師的講解方式，再決定適合自己的課程。點擊後會另開知識達官方試聽頁。
+                  先看一段老師的實際講解，再決定要不要深入學習。影片由 YouTube 播放，直接留在這裡觀看。
                 </span>
               </div>
-              <a
-                href="https://www.ibrain.com.tw/audition/List.aspx?iC=2089&sLA=%E7%9F%A5%E8%AD%98%E9%81%94%E3%80%81%E5%8F%B8%E6%B3%95%E8%80%83%E8%A9%A6%E3%80%81%E9%AB%98%E9%BB%9E%E5%BE%8B%E5%B8%AB%E5%8F%B8%E6%B3%95%E5%AE%98"
-                target="_blank"
-                rel="noreferrer"
-              >
-                查看全部課程 ↗
-              </a>
+              <strong>{trialResources.length} 部試聽</strong>
             </header>
-            <div className="trial-course-grid">
-              {trialResources.map((resource) => (
-                <article className="trial-course-card" key={resource.id}>
-                  <div className="trial-course-subject">{resource.subject}</div>
-                  <div className="trial-teacher-mark" aria-hidden="true">
-                    {resource.creator.slice(0, 1)}
-                  </div>
-                  <div className="trial-course-copy">
-                    <span>{resource.creator}</span>
-                    <h3>{resource.title}</h3>
-                    <p>
-                      {resource.description ||
-                        "前往雲端課查看這位老師的試聽課程。"}
-                    </p>
-                  </div>
-                  <a
-                    href={resource.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`開啟雲端課 ${resource.creator} ${resource.title}`}
-                  >
-                    前往試聽 <b>↗</b>
-                  </a>
-                </article>
-              ))}
-            </div>
+            {trialResources.length ? (
+              <div className="trial-course-grid">
+                {trialResources.map((resource) => (
+                  <article className="trial-course-card" key={resource.id}>
+                    <div className="trial-course-video">
+                      <iframe
+                        src={youtubeEmbedUrl(resource.sourceUrl)}
+                        title={`${resource.creator}｜${resource.title}試聽`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        allowFullScreen
+                      />
+                    </div>
+                    <div className="trial-course-subject">{resource.subject}</div>
+                    <div className="trial-teacher-mark" aria-hidden="true">
+                      {resource.creator.slice(0, 1) || "課"}
+                    </div>
+                    <div className="trial-course-copy">
+                      <span>{resource.creator || "司律課程"}</span>
+                      <h3>{resource.title}</h3>
+                      <p>{resource.description || "先看試聽內容，再決定學習方向。"}</p>
+                    </div>
+                    <a href={resource.sourceUrl} target="_blank" rel="noreferrer" aria-label={`在 YouTube 開啟 ${resource.creator} ${resource.title}`}>
+                      在 YouTube 開啟 <b>↗</b>
+                    </a>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="trial-course-empty">
+                <strong>YT試聽課尚未上架</strong>
+                <span>請由管理員在後台貼上 YouTube 試聽影片或播放清單，發布後就會顯示在這裡。</span>
+              </div>
+            )}
             <p className="trial-course-note">
-              課程內容與試聽服務由知識達官方頁面提供；本站僅整理入口，不儲存或播放課程影片。
+              僅整理已發布的 YouTube 試聽入口；本站不下載、不重新託管影片。
             </p>
           </section>
         )}
@@ -2772,7 +2736,7 @@ export default function StudyPlanPage() {
               </aside>
               {selectedMyCourse ? <div className={`my-course-player-layout ${selectedMyCourse.sourceKind === "playlist" ? "has-playlist" : ""} ${myCoursePlaylistCollapsed ? "my-course-playlist-collapsed" : ""}`}>
                 {selectedMyCourse.sourceKind === "playlist" && <aside className={`my-course-playlist ${myCoursePlaylistCollapsed ? "is-collapsed" : ""}`} aria-label="我的課播放清單"><div className="my-course-playlist-head"><button type="button" className="course-panel-toggle" aria-expanded={!myCoursePlaylistCollapsed} onClick={() => setMyCoursePlaylistCollapsed((value) => !value)}><span><strong>播放清單</strong><small>{selectedMyPlaylistItems.length ? `${selectedMyPlaylistItems.length} 集` : myCoursePlaylistMessages[selectedMyCourse.id] ?? "正在讀取…"}</small></span><b aria-hidden="true">{myCoursePlaylistCollapsed ? "›" : "‹"}</b></button></div>{!myCoursePlaylistCollapsed && selectedMyPlaylistItems.map((item, index) => <button type="button" className={`my-course-episode ${selectedMyEpisode?.videoId === item.videoId ? "active" : ""}`} key={item.videoId} onClick={() => { resetMyCourseAiDraft(); setSelectedMyEpisodeId(item.videoId); }}><i>{String(index + 1).padStart(2, "0")}</i>{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <span className="my-course-thumb-fallback">▶</span>}<span><strong>{item.title}</strong><small>{item.durationLabel || "YouTube 公開課程"}</small></span></button>)}</aside>}
-                <div className="my-course-player"><div className="my-course-player-head"><div><span>正在學習</span><strong>{selectedMyEpisode?.title ?? selectedMyCourse.title}</strong><small>{selectedMyCourse.subject} · {selectedMyCourse.examType} · {selectedMyCourse.relevanceLabel}</small></div><div><a href={selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}` : selectedMyCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a><button type="button" onClick={() => void removeMyCourse(selectedMyCourse)}>移除</button></div></div>{youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl) ? <iframe className="my-course-youtube-frame" src={youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl)} title={selectedMyEpisode?.title ?? selectedMyCourse.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="my-course-player-empty">這個網址目前無法嵌入，請在 YouTube 開啟確認。</div>}<div className="my-course-ai" onPaste={(event) => handleScreenshotPaste(event, loadMyCourseScreenshot)}><div className="my-course-ai-head"><b>課程 AI 問答</b><span>沒有 SRT 也能問；可上傳或直接 Ctrl＋V 貼上 YouTube 截圖。</span></div><div className="my-course-ai-upload"><label className="my-course-screenshot-button">{myCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadMyCourseScreenshot(file); event.currentTarget.value = ""; }} /></label>{myCourseScreenshotName && <span>{myCourseScreenshotName}</span>}</div>{myCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><button type="button" className="screenshot-zoom-button" onClick={() => setLightboxImage({ url: myCourseScreenshotDataUrl, alt: "準備提問的課程截圖" })} aria-label="放大課程截圖"><img src={myCourseScreenshotDataUrl} alt="準備提問的課程截圖" /></button><button type="button" onClick={() => { setMyCourseScreenshotDataUrl(""); setMyCourseScreenshotName(""); }} aria-label="移除課程截圖">×</button></div>}<form className="my-course-ai-form" onSubmit={askMyCourseAi}><textarea rows={3} value={myCourseAiInput} onChange={(event) => setMyCourseAiInput(event.target.value)} placeholder="例如：這張投影片提到的刑法沿革，和現行刑法有什麼關係？請輸入你的問題。" disabled={myCourseAiLoading} /><button type="submit" disabled={myCourseAiLoading || !myCourseAiInput.trim()}>{myCourseAiLoading ? "回答中…" : "問 AI"}</button></form>{myCourseAiNotice && <p className="my-course-ai-notice">{myCourseAiNotice}</p>}{myCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{myCourseAiReply}</p></div>}{myCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void saveMyCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{myCourseNoteMessage && <span>{myCourseNoteMessage}</span>}</div>}{myCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{myCourseNotes.length} 則</span></div>{myCourseNotes.slice(0, 5).map((note) => <article key={note.id}><button type="button" className="inline-note-image" onClick={() => { const attachment = note.attachments?.[0]; if (attachment) setLightboxImage({ url: attachment.url, alt: "我的課堂截圖" }); }} aria-label="放大筆記截圖">{note.attachments?.[0]?.url ? <img src={note.attachments[0].url} alt="我的課堂截圖" /> : <span className="inline-note-image-empty">無截圖</span>}</button><div><div className="inline-note-title-row"><strong>{note.title}</strong><button type="button" className="inline-note-edit" onClick={() => setNoteDraft(note)}>編輯內容</button></div><p>{note.content}</p></div></article>)}</section>}</div></div>
+                <div className="my-course-player"><div className="my-course-player-head"><div><span>正在學習</span><strong>{selectedMyEpisode?.title ?? selectedMyCourse.title}</strong><small>{selectedMyCourse.subject} · {selectedMyCourse.examType} · {selectedMyCourse.relevanceLabel}</small></div><div><a href={selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}` : selectedMyCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a><button type="button" onClick={() => void removeMyCourse(selectedMyCourse)}>移除</button></div></div>{youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl) ? <iframe className="my-course-youtube-frame" src={youtubeEmbedUrl(selectedMyEpisode ? `https://www.youtube.com/watch?v=${selectedMyEpisode.videoId}&list=${selectedMyCourse.playlistId ?? ""}` : selectedMyCourse.sourceUrl)} title={selectedMyEpisode?.title ?? selectedMyCourse.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="my-course-player-empty">這個網址目前無法嵌入，請在 YouTube 開啟確認。</div>}<div className="my-course-ai" onPaste={(event) => handleScreenshotPaste(event, loadMyCourseScreenshot)}><div className="my-course-ai-head"><b>課程 AI 問答</b><span>沒有 SRT 也能問；可上傳或直接 Ctrl＋V 貼上 YouTube 截圖。</span></div><div className="my-course-ai-upload"><label className="my-course-screenshot-button">{myCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadMyCourseScreenshot(file); event.currentTarget.value = ""; }} /></label>{myCourseScreenshotName && <span>{myCourseScreenshotName}</span>}</div>{myCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><button type="button" className="screenshot-zoom-button" onClick={() => setLightboxImage({ url: myCourseScreenshotDataUrl, alt: "準備提問的課程截圖" })} aria-label="放大課程截圖"><img src={myCourseScreenshotDataUrl} alt="準備提問的課程截圖" /></button><button type="button" onClick={() => { setMyCourseScreenshotDataUrl(""); setMyCourseScreenshotName(""); }} aria-label="移除課程截圖">×</button></div>}<div className="course-ai-thread" aria-live="polite">{myCourseChatMessages.length ? myCourseChatMessages.map((message, index) => <div className={`course-chat-message ${message.role}`} key={`${message.role}-${index}`}><strong>{message.role === "mentor" ? "AI 導師" : "我"}</strong><p>{message.text}</p></div>) : <p className="course-ai-empty">先輸入你的問題；下一次追問時，AI 會接續這一段對話。</p>}{myCourseAiLoading && <div className="course-chat-message mentor"><strong>AI 導師</strong><p>正在依目前截圖與前面對話整理…</p></div>}</div><form className="my-course-ai-form" onSubmit={askMyCourseAi}><textarea rows={3} value={myCourseAiInput} onChange={(event) => setMyCourseAiInput(event.target.value)} placeholder="接著問這張截圖或上一段回答…" disabled={myCourseAiLoading} /><button type="submit" disabled={myCourseAiLoading || !myCourseAiInput.trim()}>{myCourseAiLoading ? "回答中…" : "問 AI"}</button></form>{myCourseAiNotice && <p className="my-course-ai-notice">{myCourseAiNotice}</p>}{myCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void saveMyCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{myCourseNoteMessage && <span>{myCourseNoteMessage}</span>}</div>}{myCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{myCourseNotes.length} 則</span></div>{myCourseNotes.slice(0, 5).map((note) => <article key={note.id}><button type="button" className="inline-note-image" onClick={() => { const attachment = note.attachments?.[0]; if (attachment) setLightboxImage({ url: attachment.url, alt: "我的課堂截圖" }); }} aria-label="放大筆記截圖">{note.attachments?.[0]?.url ? <img src={note.attachments[0].url} alt="我的課堂截圖" /> : <span className="inline-note-image-empty">無截圖</span>}</button><div><div className="inline-note-title-row"><strong>{note.title}</strong><button type="button" className="inline-note-edit" onClick={() => setNoteDraft(note)}>編輯內容</button></div><p>{note.content}</p></div></article>)}</section>}</div></div>
               </div> : null}
             </div>
           </section>
@@ -2837,12 +2801,12 @@ export default function StudyPlanPage() {
                           <div className="public-course-player-head"><div><span>正在學習</span><strong>{selectedEpisode?.title ?? selectedCourse.title}</strong><small>{selectedCourse.creator || "公開課程"} · {selectedCourse.subject}</small></div><a href={selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}` : selectedCourse.sourceUrl} target="_blank" rel="noreferrer">在 YouTube 開啟 ↗</a></div>
                           {youtubeEmbedUrl(selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}&list=${new URL(selectedCourse.sourceUrl).searchParams.get("list") ?? ""}` : selectedCourse.sourceUrl) ? <iframe className="public-course-youtube-frame" src={youtubeEmbedUrl(selectedEpisode ? `https://www.youtube.com/watch?v=${selectedEpisode.videoId}&list=${new URL(selectedCourse.sourceUrl).searchParams.get("list") ?? ""}` : selectedCourse.sourceUrl)} title={`${selectedEpisode?.title ?? selectedCourse.title}公開課程`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <div className="public-course-player-empty">這堂課尚未設定可播放網址，請回到後台補上。</div>}
                           <div className="public-course-ai" onPaste={(event) => handleScreenshotPaste(event, (file) => loadCourseScreenshotFile(file, setPublicCourseScreenshotDataUrl, setPublicCourseScreenshotName, setPublicCourseAiNotice))}>
-                            <div className="public-course-ai-head"><strong>這一集可以問 AI</strong><span>可上傳或直接 Ctrl＋V 貼上 YouTube 截圖；平台不會假裝讀過影片聲音。</span></div>
+                            <div className="public-course-ai-head"><strong>這一集可以問 AI</strong><span>可上傳或直接 Ctrl＋V 貼上 YouTube 截圖；平台會接續前面的問答。</span></div>
                             <div className="public-course-ai-upload"><label className="my-course-screenshot-button">{publicCourseScreenshotDataUrl ? "更換截圖" : "上傳／貼上截圖"}<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) loadCourseScreenshotFile(file, setPublicCourseScreenshotDataUrl, setPublicCourseScreenshotName, setPublicCourseAiNotice); event.currentTarget.value = ""; }} /></label>{publicCourseScreenshotName && <span>{publicCourseScreenshotName}</span>}</div>
                             {publicCourseScreenshotDataUrl && <div className="my-course-screenshot-preview"><button type="button" className="screenshot-zoom-button" onClick={() => setLightboxImage({ url: publicCourseScreenshotDataUrl, alt: "準備提問的公開課截圖" })} aria-label="放大公開課截圖"><img src={publicCourseScreenshotDataUrl} alt="準備提問的公開課截圖" /></button><button type="button" onClick={() => { setPublicCourseScreenshotDataUrl(""); setPublicCourseScreenshotName(""); }} aria-label="移除公開課截圖">×</button></div>}
-                            <form className="my-course-ai-form" onSubmit={askPublicCourseAi}><textarea rows={3} value={publicCourseAiInput} onChange={(event) => setPublicCourseAiInput(event.target.value)} placeholder="例如：老師這張投影片的爭點是什麼？請輸入你的問題。" disabled={publicCourseAiLoading} /><button type="submit" disabled={publicCourseAiLoading || !publicCourseAiInput.trim()}>{publicCourseAiLoading ? "回答中…" : "問 AI"}</button></form>
+                            <div className="course-ai-thread" aria-live="polite">{publicCourseChatMessages.length ? publicCourseChatMessages.map((message, index) => <div className={`course-chat-message ${message.role}`} key={`${message.role}-${index}`}><strong>{message.role === "mentor" ? "AI 導師" : "我"}</strong><p>{message.text}</p></div>) : <p className="course-ai-empty">先輸入你的問題；下一次追問時，AI 會接續這一段對話。</p>}{publicCourseAiLoading && <div className="course-chat-message mentor"><strong>AI 導師</strong><p>正在依目前截圖與前面對話整理…</p></div>}</div>
+                            <form className="my-course-ai-form" onSubmit={askPublicCourseAi}><textarea rows={3} value={publicCourseAiInput} onChange={(event) => setPublicCourseAiInput(event.target.value)} placeholder="接著問這張截圖或上一段回答…" disabled={publicCourseAiLoading} /><button type="submit" disabled={publicCourseAiLoading || !publicCourseAiInput.trim()}>{publicCourseAiLoading ? "回答中…" : "問 AI"}</button></form>
                             {publicCourseAiNotice && <p className="my-course-ai-notice">{publicCourseAiNotice}</p>}
-                            {publicCourseAiReply && <div className="my-course-ai-reply"><strong>AI 導師</strong><p>{publicCourseAiReply}</p></div>}
                             {publicCourseScreenshotDataUrl && <div className="my-course-note-actions"><button type="button" onClick={() => void savePublicCourseScreenshotNote()}>截圖與問答存入本集筆記</button>{publicCourseNoteMessage && <span>{publicCourseNoteMessage}</span>}</div>}
                             {publicCourseNotes.length > 0 && <section className="course-inline-notes" aria-label="這一集的課堂筆記"><div className="course-inline-notes-head"><strong>這一集的筆記</strong><span>{publicCourseNotes.length} 則</span></div>{publicCourseNotes.slice(0, 5).map((note) => <article key={note.id}><button type="button" className="inline-note-image" onClick={() => { const attachment = note.attachments?.[0]; if (attachment) setLightboxImage({ url: attachment.url, alt: "開放課堂截圖" }); }} aria-label="放大筆記截圖">{note.attachments?.[0]?.url ? <img src={note.attachments[0].url} alt="開放課堂截圖" /> : <span className="inline-note-image-empty">無截圖</span>}</button><div><div className="inline-note-title-row"><strong>{note.title}</strong><button type="button" className="inline-note-edit" onClick={() => setNoteDraft(note)}>編輯內容</button></div><p>{note.content}</p></div></article>)}</section>}
                           </div>

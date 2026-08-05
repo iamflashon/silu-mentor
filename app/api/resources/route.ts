@@ -22,6 +22,18 @@ function isPlayableCourseUrl(value: string) {
   }
 }
 
+function isYoutubeUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      (url.hostname === "youtu.be" ||
+        url.hostname === "youtube.com" ||
+        url.hostname.endsWith(".youtube.com"));
+  } catch {
+    return false;
+  }
+}
+
 export async function GET() {
   const db = await getDb();
   const publicCourseRows = await db
@@ -149,6 +161,11 @@ export async function POST(request: Request) {
       { error: "影音課程請填寫可直接播放的 HLS（.m3u8）或影片網址；ibrain 課程頁網址不能直接嵌入播放器。" },
       { status: 422 },
     );
+  if (resourceType === "trial" && sourceUrl && !isYoutubeUrl(sourceUrl))
+    return Response.json(
+      { error: "YT試聽課請填寫 YouTube 影片或播放清單網址。" },
+      { status: 422 },
+    );
   const db = await getDb();
   const [lastInType] = await db
     .select({ sortOrder: learningResources.sortOrder })
@@ -190,6 +207,16 @@ export async function PUT(request: Request) {
   if (current.resourceType === "course" && nextSourceUrl && !isPlayableCourseUrl(nextSourceUrl))
     return Response.json(
       { error: "影音課程請填寫可直接播放的 HLS（.m3u8）或影片網址；ibrain 課程頁網址不能直接嵌入播放器。" },
+      { status: 422 },
+    );
+  if (
+    current.resourceType === "trial" &&
+    nextSourceUrl !== current.sourceUrl &&
+    nextSourceUrl &&
+    !isYoutubeUrl(nextSourceUrl)
+  )
+    return Response.json(
+      { error: "YT試聽課請填寫 YouTube 影片或播放清單網址。" },
       { status: 422 },
     );
   if (current.resourceType === "book" && current.documentId !== nextDocumentId) {
