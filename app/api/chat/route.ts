@@ -357,6 +357,7 @@ const modelRates: Record<string, { input: number; cached: number; output: number
 function anthropicRates(model: string) {
   if (/opus/i.test(model)) return { input: 5, output: 25 };
   if (/haiku/i.test(model)) return { input: 1, output: 5 };
+  if (/sonnet-5/i.test(model)) return { input: 2, output: 10 };
   return { input: 3, output: 15 };
 }
 
@@ -787,7 +788,7 @@ export async function POST(request: Request) {
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
     const sharedRetrievalContext = searchedFiles ? extractFileSearchContext(payload) : "";
-    const comparisonClaudeModel = modelMode === "dual" ? await getAnthropicChatModel("claude-sonnet-4-20250514") : "";
+    const comparisonClaudeModel = modelMode === "dual" ? await getAnthropicChatModel("claude-sonnet-5") : "";
     let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number } | null = null;
     let claudeError = "";
     if (modelMode === "dual") {

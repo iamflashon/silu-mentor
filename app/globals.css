@@ -1253,7 +1253,7 @@ a {
   right: 334px;
   bottom: 0;
   padding: 18px 20px 16px;
-  background: linear-gradient(transparent, rgba(248, 251, 253, 0.96) 22%);
+  background: transparent;
   z-index: 8;
 }
 .composer-wrap.rail-left {
@@ -1266,6 +1266,9 @@ a {
 }
 .composer-wrap.rail-collapsed .composer,
 .composer-wrap.rail-collapsed .image-ready {
+  width: min(980px, 100%);
+}
+.composer-wrap.rail-collapsed .model-mode-switch {
   width: min(980px, 100%);
 }
 .composer {
@@ -14472,6 +14475,8 @@ a {
   }
 }
 .model-mode-switch {
+  width: min(800px, 100%);
+  margin: 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
