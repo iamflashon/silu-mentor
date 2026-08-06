@@ -9,6 +9,7 @@ const levels = [
   { level: "beginner", label: "初學小白" },
   { level: "intermediate", label: "中階考生" },
   { level: "advanced", label: "高階法研所考生" },
+  { level: "super", label: "超級學霸" },
 ] as const;
 type LevelKey = (typeof levels)[number]["level"];
 
@@ -104,14 +105,14 @@ async function runAnthropic(apiKey: string, model: string, instructions: string,
 
 const studentSchema = {
   type: "object", additionalProperties: false,
-  properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced"] }, reply: { type: "string" } },
+  properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced", "super"] }, reply: { type: "string" } },
   required: ["level", "reply"],
 };
 
 const judgeSchema = {
   type: "object", additionalProperties: false,
   properties: {
-    groups: { type: "array", minItems: 1, maxItems: 3, items: { type: "object", additionalProperties: false, properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced"] }, winner: { type: "string", enum: ["教師 A", "教師 B", "平手"] }, reason: { type: "string" }, legalAccuracy: { type: "integer" }, adaptation: { type: "integer" }, empathyOrDepth: { type: "integer" }, stability: { type: "integer" } }, required: ["level", "winner", "reason", "legalAccuracy", "adaptation", "empathyOrDepth", "stability"] } },
+    groups: { type: "array", minItems: 1, maxItems: 4, items: { type: "object", additionalProperties: false, properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced", "super"] }, winner: { type: "string", enum: ["教師 A", "教師 B", "平手"] }, reason: { type: "string" }, legalAccuracy: { type: "integer" }, adaptation: { type: "integer" }, empathyOrDepth: { type: "integer" }, stability: { type: "integer" } }, required: ["level", "winner", "reason", "legalAccuracy", "adaptation", "empathyOrDepth", "stability"] } },
     overallWinner: { type: "string", enum: ["教師 A", "教師 B", "平手"] },
     weightedSummary: { type: "string" },
     commercialRecommendation: { type: "string" },
@@ -132,13 +133,13 @@ export async function POST(request: Request) {
   try {
     const luna = await getOpenAIModel("gpt-5.6-luna");
     if (mode === "judge") {
-      const rounds = (Array.isArray(body.rounds) ? body.rounds : []).filter((round) => round && round.level && round.reply && round.teacherA?.text && round.teacherB?.text).slice(0, 3);
+      const rounds = (Array.isArray(body.rounds) ? body.rounds : []).filter((round) => round && round.level && round.reply && round.teacherA?.text && round.teacherB?.text).slice(0, 4);
       if (!rounds.length) return Response.json({ error: "請先完成至少一種程度的教師接續回答，再按 AI 審判長評比" }, { status: 400 });
       // Keep the judging request compact. The tutor turns can include long retrieval context,
       // while the judge only needs the student's actual follow-up and each teacher's answer.
       // A smaller request prevents the hosted request from timing out on mobile connections.
       const judgeInput = rounds.map((round) => `【${round.label ?? round.level}】\n學生：${String(round.reply).slice(0, 1400)}\n教師 A：${String(round.teacherA?.text).slice(0, 2200)}\n教師 B：${String(round.teacherB?.text).slice(0, 2200)}`).join("\n\n");
-      const judgeRun = await runOpenAI(openAiKey, luna, `你是教育心理學與法學引導式教學法的資深 AI 教學督導。請盲評實際提供的組別，法律正確性優先，其次才是因材施教。初學組評白話與同理；中階組評事實涵攝指引；高階組評學說、實務與價值思辯。每組各給法律正確性、程度適配、同理心或學術深度、技術穩定度四項 0 至 100 分，並判定教師 A、教師 B或平手。只有完整三組時才按初學 30%、中階 35%、高階 35% 加權；部分組別須明說總評範圍。價差只影響商用建議，不得改寫教學品質勝負。無法核對法律內容時，在 caution 標示需人工核對。理由務必精簡，只輸出 JSON。`, judgeInput, 520 + rounds.length * 120, judgeSchema);
+      const judgeRun = await runOpenAI(openAiKey, luna, `你是教育心理學與法學引導式教學法的資深 AI 教學督導。請盲評實際提供的組別，法律正確性優先，其次才是因材施教。初學組評白話與同理；中階組評事實涵攝指引；高階組評學說、實務與價值思辯；超級學霸組評體系整合、反例辨識與回應高難度追問的能力。每組各給法律正確性、程度適配、同理心或學術深度、技術穩定度四項 0 至 100 分，並判定教師 A、教師 B或平手。完整初學、中階、高階三組時按初學 30%、中階 35%、高階 35% 加權；超級學霸組另列為頂尖教學壓力測試，不混入這三組權重。部分組別須明說總評範圍。價差只影響商用建議，不得改寫教學品質勝負。無法核對法律內容時，在 caution 標示需人工核對。理由務必精簡，只輸出 JSON。`, judgeInput, 520 + rounds.length * 120, judgeSchema);
       const judgement = parseJson(judgeRun.text) as Record<string, unknown> | null;
       if (!judgement || !Array.isArray(judgement.groups)) return Response.json({ error: "AI 審判長未產生完整評分，結果未顯示" }, { status: 502 });
       await logUsage(luna, "程度測試｜AI 審判長", judgeRun.usage);

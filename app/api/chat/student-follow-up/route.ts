@@ -3,7 +3,7 @@ import { usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, getOpenAIModel } from "../../../../lib/openai";
 
 type TeacherResponse = { label?: string; model?: string; text?: string; error?: string | null };
-type TeachingLevel = "beginner" | "intermediate" | "advanced";
+type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
@@ -50,14 +50,16 @@ export async function POST(request: Request) {
   if (!apiKey) return Response.json({ error: "AI 服務尚未設定" }, { status: 503 });
   const model = await getOpenAIModel("gpt-5.6-luna");
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
-  const levelLabel = body.level === "beginner" ? "初學小白" : body.level === "intermediate" ? "中階考生" : body.level === "advanced" ? "高階法研所考生" : "目前程度的學生";
+  const levelLabel = body.level === "beginner" ? "初學小白" : body.level === "intermediate" ? "中階考生" : body.level === "advanced" ? "高階法研所考生" : body.level === "super" ? "超級學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
     ? "保留生活直覺與一個尚未釐清的白話疑問，法學用語可以稍微不精確，讓老師有機會溫和修正。"
     : body.level === "intermediate"
       ? "呈現會背基本公式、但還需要把具體事實放進要件涵攝的狀態，追問一個事實變數如何影響結論。"
       : body.level === "advanced"
         ? "提出精準的學說、實務或價值選擇疑問，要求老師處理不同見解的差異。"
-        : "自然承接老師回答，提出一個尚未完全釐清的具體疑問。";
+        : body.level === "super"
+          ? "展現已能統整體系、辨識隱藏爭點與反例的頂尖程度，針對老師回答的論證前提或可能漏洞，提出一個足以測出教學深度的高難度追問。"
+          : "自然承接老師回答，提出一個尚未完全釐清的具體疑問。";
   const startedAt = Date.now();
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
