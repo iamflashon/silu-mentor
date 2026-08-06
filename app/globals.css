@@ -14517,7 +14517,7 @@ a {
 .model-mode-switch button:disabled { opacity: .55; cursor: wait; }
 .teaching-test-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .teaching-test-buttons button { white-space: nowrap; }
-.model-mode-switch .teaching-level-beginner { border-color: #d8c79e; background: #fffaf0; color: #8a6728; font-weight: 800; }
+.model-mode-switch .teaching-level-beginner { border-color: #d8c79e; background: #fff; color: #8a6728; font-weight: 800; }
 .model-mode-switch .teaching-level-intermediate { border-color: #c6dbe0; background: #f1f9fa; color: #3f7180; font-weight: 800; }
 .model-mode-switch .teaching-level-advanced { border-color: #c7d2e5; background: #f3f6fc; color: #456486; font-weight: 800; }
 .model-mode-switch .teaching-level-beginner:hover:not(:disabled), .model-mode-switch .teaching-level-intermediate:hover:not(:disabled), .model-mode-switch .teaching-level-advanced:hover:not(:disabled) { filter: brightness(.97); }
