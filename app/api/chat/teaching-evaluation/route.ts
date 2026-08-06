@@ -117,30 +117,49 @@ const judgeSchema = {
     weightedSummary: { type: "string" },
     commercialRecommendation: { type: "string" },
     caution: { type: "string" },
+    dialogue: { type: "string" },
   },
-  required: ["groups", "overallWinner", "weightedSummary", "commercialRecommendation", "caution"],
+  required: ["groups", "overallWinner", "weightedSummary", "commercialRecommendation", "caution", "dialogue"],
 };
 
 export async function POST(request: Request) {
-  let body: { mode?: "level" | "judge"; level?: LevelKey; prompt?: string; responses?: TeacherResponse[]; rounds?: Array<{ level?: string; label?: string; reply?: string; teacherA?: TeacherResponse; teacherB?: TeacherResponse }> };
+  let body: { mode?: "level" | "judge" | "judge-followup"; level?: LevelKey; prompt?: string; question?: string; responses?: TeacherResponse[]; rounds?: Array<{ level?: string; label?: string; reply?: string; teacherA?: TeacherResponse; teacherB?: TeacherResponse }>; judgement?: Record<string, unknown>; history?: Array<{ role?: string; text?: string }> };
   try { body = await request.json() as typeof body; } catch { return Response.json({ error: "測試資料格式不正確" }, { status: 400 }); }
   const prompt = String(body.prompt ?? "").trim();
   const mode = body.mode ?? "level";
-  if (mode !== "judge" && !prompt) return Response.json({ error: "請先完成學生問題與 Luna／Claude 的回答" }, { status: 400 });
+  if (mode === "level" && !prompt) return Response.json({ error: "請先完成學生問題與 Luna／Claude 的回答" }, { status: 400 });
   const openAiKey = await getOpenAIKey();
   if (!openAiKey) return Response.json({ error: "Luna 的 API 尚未設定，測試未啟動" }, { status: 503 });
 
   try {
     const luna = await getOpenAIModel("gpt-5.6-luna");
-    if (mode === "judge") {
+    if (mode === "judge" || mode === "judge-followup") {
       const judgeModel = await getTeachingJudgeOpenAIModel("gpt-5.6-sol");
       const rounds = (Array.isArray(body.rounds) ? body.rounds : []).filter((round) => round && round.level && round.reply && round.teacherA?.text && round.teacherB?.text).slice(0, 4);
       if (!rounds.length) return Response.json({ error: "請先完成至少一種程度的教師接續回答，再按 AI 審判長評比" }, { status: 400 });
       // Keep the judging request compact. The tutor turns can include long retrieval context,
       // while the judge only needs the student's actual follow-up and each teacher's answer.
       // A smaller request prevents the hosted request from timing out on mobile connections.
-      const judgeInput = rounds.map((round) => `【${round.label ?? round.level}】\n學生：${String(round.reply).slice(0, 1400)}\n教師 A：${String(round.teacherA?.text).slice(0, 2200)}\n教師 B：${String(round.teacherB?.text).slice(0, 2200)}`).join("\n\n");
-      const judgeRun = await runOpenAI(openAiKey, judgeModel, `你是教育心理學與法學引導式教學法的資深 AI 教學督導。請盲評實際提供的組別，法律正確性優先，其次才是因材施教。初學組評白話與同理；中階組評事實涵攝指引；高階組評學說、實務與價值思辯；超級學霸組評體系整合、反例辨識與回應高難度追問的能力。每組各給法律正確性、程度適配、同理心或學術深度、技術穩定度四項 0 至 100 分，並判定教師 A、教師 B或平手。完整初學、中階、高階三組時按初學 30%、中階 35%、高階 35% 加權；超級學霸組另列為頂尖教學壓力測試，不混入這三組權重。部分組別須明說總評範圍。價差只影響商用建議，不得改寫教學品質勝負。無法核對法律內容時，在 caution 標示需人工核對。理由務必精簡，只輸出 JSON。`, judgeInput, 520 + rounds.length * 120, judgeSchema);
+      const judgeInput = rounds.map((round) => `【${round.label ?? round.level}】\n學生：${String(round.reply).slice(0, 1400)}\nLuna（${round.teacherA?.model ?? ""}）：${String(round.teacherA?.text).slice(0, 2400)}\nClaude Sonnet（${round.teacherB?.model ?? ""}）：${String(round.teacherB?.text).slice(0, 2400)}`).join("\n\n");
+      if (mode === "judge-followup") {
+        const question = String(body.question ?? "").trim();
+        if (!question) return Response.json({ error: "請輸入要追問 Sol 審判長的問題" }, { status: 400 });
+        const history = (Array.isArray(body.history) ? body.history : []).filter((item) => item && typeof item.text === "string" && item.text.trim()).slice(-6).map((item) => `${item.role === "judge" ? "Sol 審判長" : "使用者"}：${String(item.text).slice(0, 1800)}`).join("\n\n");
+        const judgement = body.judgement && typeof body.judgement === "object" ? JSON.stringify(body.judgement).slice(0, 7000) : "";
+        const followupRun = await runOpenAI(openAiKey, judgeModel, `你是「Sol 審判長」，也是資深司律閱卷教授與 AI 教學督導。你正在主對話框中與測試者持續對話。請直接回答這次追問，必須依已提供的 Luna、Claude Sonnet 實際回答與你的既有裁決，不得重新虛構兩位老師沒說過的內容。法律正確性優先；若問題涉及學說，說清楚理論位置、實際法律效果與考場寫法。若測試者問商用選擇，分開評估教學品質、成本與適用學生。繁體中文、自然對話，不用 JSON，不要變成制式評分表；可以使用簡短段落，但最後只留一個最有用的下一步追問。`, `本次受評內容：\n${judgeInput}\n\n既有裁決：\n${judgement}\n\n近期審判長對話：\n${history}\n\n測試者現在追問：\n${question.slice(0, 2400)}`, 1100);
+        await logUsage(judgeModel, "程度測試｜Sol 審判長追問", followupRun.usage);
+        return Response.json({ reply: followupRun.text, totalUsage: [followupRun.usage] });
+      }
+      const judgeRun = await runOpenAI(openAiKey, judgeModel, `你是「Sol 審判長」，兼具資深司律閱卷教授、刑法學教師與 AI 教學督導身分。請評比實際提供的 Luna 與 Claude Sonnet 回答，法律正確性優先，其次才是因材施教。
+
+初學組：檢查是否先安撫挫折、以極白話但法律上精準的例子澄清直覺；特別注意不可把「誤想防衛」錯講成一般的打錯對象或不知打到人。
+中階組：檢查是否拒絕直接給滿分，並抓出只背公式、沒有帶入未開燈、環境昏暗、攻擊手段、錯誤可避免性與結果關聯等具體事實的問題。
+高階組：檢查是否能正面處理嚴格罪責理論與限縮法律效果罪責理論，不得以「通說」壓過異說；要說清楚構成要件故意、故意罪責、禁止錯誤、可避免性，以及留下故意傷害責任與改論過失責任之實質利益差異。
+超級學霸組：評估體系整合、反例辨識、概念精確度與回應高難度追問的能力。
+
+每組給法律正確性、程度適配、同理心或學術深度、技術穩定度四項 0 至 100 分，判定教師 A（Luna）、教師 B（Claude Sonnet）或平手。完整初學、中階、高階三組時按 30%、35%、35% 加權；超級學霸另列壓力測試。價差只影響商用建議，不得改寫品質勝負。
+
+dialogue 欄位必須是一段可以直接出現在主對話框的自然評語，標題從「兩位老師的期末大抓漏」開始。依序用「1. Luna」與「2. Claude Sonnet」說明各自真正抓到的申論死穴、加分亮點、遺漏或可能誤導處，必須引用實際回答的具體內容，像資深總閱卷老師講評，而不是只報分數。最後用「Sol 審判長結論」說明本輪誰較好、各自最適合的教學任務，以及下一輪應該怎麼驗證。只輸出符合 schema 的 JSON。`, judgeInput, 900 + rounds.length * 180, judgeSchema);
       const judgement = parseJson(judgeRun.text) as Record<string, unknown> | null;
       if (!judgement || !Array.isArray(judgement.groups)) return Response.json({ error: "AI 審判長未產生完整評分，結果未顯示" }, { status: 502 });
       await logUsage(judgeModel, "程度測試｜Sol 審判長", judgeRun.usage);

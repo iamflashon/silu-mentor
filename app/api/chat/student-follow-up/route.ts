@@ -52,11 +52,11 @@ export async function POST(request: Request) {
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
   const levelLabel = body.level === "beginner" ? "初學小白" : body.level === "intermediate" ? "中階考生" : body.level === "advanced" ? "高階法研所考生" : body.level === "super" ? "超級學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
-    ? "保留生活直覺與一個尚未釐清的白話疑問，法學用語可以稍微不精確，讓老師有機會溫和修正。"
+    ? "呈現觀念混亂、把生活中的『有意做動作』與法律上的故意責任混在一起，也可以流露挫折或懷疑自己不適合法律；追問必須來自本題實際內容，不要固定套用某個例子。"
     : body.level === "intermediate"
-      ? "呈現會背基本公式、但還需要把具體事實放進要件涵攝的狀態，追問一個事實變數如何影響結論。"
+      ? "先說出看似完整的理論公式並詢問是否足以拿高分，但刻意保留一至兩個尚未帶入的題目事實，讓老師必須指出『只背公式、沒有涵攝』；追問哪一個具體事實會改變結論。"
       : body.level === "advanced"
-        ? "提出精準的學說、實務或價值選擇疑問，要求老師處理不同見解的差異。"
+        ? "採取一個有根據的非通說或競爭學說立場，完整提出法律效果與可避免性等論證，再挑戰老師為何必須採通說；要求處理兩說的實質利益、責任標籤或價值差異，不接受只報學說名稱。"
         : body.level === "super"
           ? "展現已能統整體系、辨識隱藏爭點與反例的頂尖程度，針對老師回答的論證前提或可能漏洞，提出一個足以測出教學深度的高難度追問。"
           : "自然承接老師回答，提出一個尚未完全釐清的具體疑問。";

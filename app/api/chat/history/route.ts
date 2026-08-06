@@ -52,7 +52,9 @@ export async function GET(request: Request) {
       : [];
 
     const sessions = await db.select().from(chatSessions).where(and(eq(chatSessions.userKey, key), eq(chatSessions.contextType, "home"))).orderBy(desc(chatSessions.updatedAt)).limit(120);
-    const todaySession = sessions.find((session) => sessionDate(session) === today) ?? null;
+    const todaySession = sessions.find((session) => sessionDate(session) === today && session.progressStatus === "active")
+      ?? sessions.find((session) => sessionDate(session) === today)
+      ?? null;
     const yesterdaySession = sessions.find((session) => sessionDate(session) === yesterdayDate) ?? null;
     const currentMessages = todaySession
       ? await db.select().from(chatMessages).where(eq(chatMessages.sessionId, todaySession.id)).orderBy(asc(chatMessages.id)).limit(100)

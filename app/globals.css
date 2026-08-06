@@ -72,6 +72,19 @@ a {
   background: linear-gradient(145deg, #264d70, #17334d);
   box-shadow: 0 5px 16px rgba(24, 50, 77, 0.18);
 }
+.judge-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: white;
+  background: linear-gradient(145deg, #455f8e, #263d69);
+  box-shadow: 0 5px 16px rgba(38, 61, 105, 0.2);
+  font-size: 14px;
+  font-family: serif;
+}
 .brand-mark {
   width: 36px;
   height: 36px;
@@ -555,6 +568,22 @@ a {
   border-color: #2b5d86;
   border-radius: 20px 8px 20px 20px;
 }
+.message-row.judge { flex-wrap: wrap; }
+.judge .message-bubble {
+  border-color: #cbd8ec;
+  background: linear-gradient(145deg, #fbfdff, #f4f7fd);
+  box-shadow: 0 8px 25px rgba(48, 75, 121, 0.08);
+}
+.judge-message-meta {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -7px 0 0 46px;
+  color: #71819c;
+  font-size: 10px;
+}
+.judge-message-meta b { color: #405f8c; }
 .quick-starts {
   display: flex;
   flex-wrap: wrap;
@@ -14535,6 +14564,11 @@ a {
 }
 .model-mode-switch .teaching-evaluation-trigger { border-color: #b9c9e2; background: #f2f6fc; color: #41648b; font-weight: 800; }
 .model-mode-switch .teaching-evaluation-trigger:hover:not(:disabled) { border-color: #809fc9; background: #e8f0fb; }
+.model-mode-switch .new-topic-button { border-style: dashed; border-color: #aebfc9; background: #f9fbfc; color: #526d7c; font-weight: 800; }
+.model-mode-switch .new-topic-button:hover:not(:disabled) { border-style: solid; background: #eef4f7; color: #294f67; }
+.judge-conversation-state { display: flex; align-items: center; gap: 7px; }
+.judge-conversation-state b { color: #405f8c; }
+.model-mode-switch .judge-conversation-state button { border-color: #c3cfe2; background: #f4f7fd; color: #4a668d; }
 .model-comparison-card { width: min(920px, 100%); margin: 2px 0 4px; }
 .model-comparison-card > header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid #dbe8ec; }
 .model-comparison-card > header div { display: grid; gap: 3px; }
