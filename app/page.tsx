@@ -92,6 +92,7 @@ export default function Home() {
   const [showCosts, setShowCosts] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const [modelMode, setModelMode] = useState<"luna" | "dual">("luna");
+  const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -129,6 +130,7 @@ export default function Home() {
   }, [homeFeed?.examCountdowns, today]);
   const magazineArticles = homeFeed?.magazine?.articles ?? [];
   const selectedMagazineArticle = magazineArticles.find((article) => article.id === selectedMagazineArticleId) ?? magazineArticles[0] ?? null;
+  const latestComparison = [...messages].reverse().find((message) => message.role === "mentor" && message.comparison)?.comparison ?? null;
 
   useEffect(() => {
     const refreshTaipeiClock = () => {
@@ -435,10 +437,39 @@ export default function Home() {
   }
 
   function insertStudentTestPrompt() {
-    if (thinking) return;
+    if (thinking || generatingStudentReply) return;
     setModelMode("dual");
     setInput(trustPrincipleStudentTest);
     window.setTimeout(() => composerInputRef.current?.focus(), 0);
+  }
+
+  async function generateStudentFollowUp() {
+    if (thinking || generatingStudentReply) return;
+    if (!latestComparison) {
+      insertStudentTestPrompt();
+      return;
+    }
+    const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
+    setGeneratingStudentReply(true);
+    try {
+      const response = await fetch("/api/chat/student-follow-up", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: latestStudent,
+          responses: latestComparison.responses.map((item) => ({ label: item.label, model: item.model, text: item.text, error: item.error })),
+        }),
+      });
+      const result = await response.json() as { reply?: string; error?: string };
+      if (!response.ok || !result.reply) throw new Error(result.error ?? "目前無法產生同學接續回覆");
+      setModelMode("dual");
+      setInput(result.reply);
+      window.setTimeout(() => composerInputRef.current?.focus(), 0);
+    } catch (error) {
+      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "目前無法產生同學接續回覆。" }]);
+    } finally {
+      setGeneratingStudentReply(false);
+    }
   }
 
   useEffect(() => {
@@ -593,7 +624,7 @@ export default function Home() {
       </div>
 
       {!practiceQuestion && <div className={`composer-wrap rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""}`}>
-        <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>回答模型</span><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking}>Luna</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking}>Luna＋Claude Sonnet 比較</button><button type="button" className="student-test-prompt" onClick={insertStudentTestPrompt} disabled={thinking}>✦ 貼上學生測試回答</button><small>{modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : "一般對話使用 Luna"}</small></div>
+        <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>回答模型</span><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking || generatingStudentReply}>Luna</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking || generatingStudentReply}>Luna＋Claude Sonnet 比較</button><button type="button" className="student-test-prompt" onClick={latestComparison ? generateStudentFollowUp : insertStudentTestPrompt} disabled={thinking || generatingStudentReply}>{generatingStudentReply ? "✦ 整理老師回覆中…" : latestComparison ? "✦ 依老師回覆生成同學回覆" : "✦ 貼上學生測試回答"}</button><small>{latestComparison ? "會讀取最近一輪兩位老師的實際回答，貼入輸入框但不自動送出" : modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : "一般對話使用 Luna"}</small></div>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
