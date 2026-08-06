@@ -152,6 +152,20 @@ type ChapterProgress = {
   stale?: boolean;
   lastUpdatedAt?: string | null;
 };
+type ChapterSegment = {
+  id: number;
+  resourceId: number;
+  segmentType: string;
+  lessonLabel: string;
+  title: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  text: string;
+  summary: string;
+  reviewStatus: string;
+  sequence: number;
+  completeQuestion?: boolean;
+};
 
 function isProblemSolvingResource(resource: LearningResource) {
   return /解題|題庫|題型|案例演習|申論/.test(
@@ -407,6 +421,15 @@ export default function AdminPage() {
   const [chapterProgress, setChapterProgress] = useState<Record<number, ChapterProgress>>({});
   const chapterProgressRef = useRef<Record<number, ChapterProgress>>({});
   const chapterJobsRef = useRef(new Set<number>());
+  const [chapterViewer, setChapterViewer] = useState<{
+    resource: LearningResource;
+    rows: ChapterSegment[];
+    status?: string;
+    message?: string;
+    incompleteCount?: number;
+  } | null>(null);
+  const [chapterViewerLoading, setChapterViewerLoading] = useState<number | null>(null);
+  const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null);
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceCreator, setResourceCreator] = useState("");
@@ -1895,6 +1918,38 @@ export default function AdminPage() {
     }
   }
 
+  async function openChapterViewer(resource: LearningResource) {
+    if (!resource.documentId) {
+      setNotice("請先替這本書綁定教材文件，才能查看拆解內容。");
+      return;
+    }
+    setChapterViewerLoading(resource.id);
+    try {
+      const response = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
+      const result = (await readJson(response)) as {
+        chapters?: ChapterSegment[];
+        status?: string;
+        message?: string;
+        incompleteCount?: number;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error ?? "章節內容讀取失敗");
+      const rows = Array.isArray(result.chapters) ? result.chapters : [];
+      setChapterViewer({
+        resource,
+        rows,
+        status: result.status,
+        message: result.message,
+        incompleteCount: result.incompleteCount,
+      });
+      setSelectedChapterId(rows[0]?.id ?? null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "章節內容讀取失敗");
+    } finally {
+      setChapterViewerLoading(null);
+    }
+  }
+
   async function startAutomaticChapterIndex(resource: LearningResource) {
     if (
       !resource.documentId ||
@@ -2613,6 +2668,9 @@ export default function AdminPage() {
       (usagePage - 1) * USAGE_PER_PAGE,
       usagePage * USAGE_PER_PAGE,
     ) ?? [];
+  const activeChapter = chapterViewer?.rows.find((chapter) => chapter.id === selectedChapterId)
+    ?? chapterViewer?.rows[0]
+    ?? null;
 
   return (
     <main className="admin-shell">
@@ -3362,18 +3420,26 @@ export default function AdminPage() {
                           )}
                           <button
                             type="button"
+                            className="chapter-view-open"
+                            disabled={!resource.documentId || chapterViewerLoading === resource.id}
+                            onClick={() => void openChapterViewer(resource)}
+                          >
+                            {chapterViewerLoading === resource.id ? "讀取章節中…" : "查看章節內容"}
+                          </button>
+                          <button
+                            type="button"
                             className="subtitle-open"
                             disabled={!resource.documentId}
                             onClick={() => void buildBookChapters(resource)}
                           >
                             {isProblemSolvingResource(resource)
                               ? chapterProgress[resource.id]?.state === "completed"
-                                ? "目錄已完成（查看分類）"
+                                ? "重新整理題型"
                                 : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
                                   ? "接續整理題型"
                                   : "開始整理題型與完整題目"
                               : Number(resource.chapterCount ?? 0) > 0
-                                ? "已建立好章節索引"
+                                ? "重新整理章節索引"
                                 : "建立章節索引（一次）"}
                           </button>
                           {isProblemSolvingResource(resource) && (() => {
@@ -4929,6 +4995,71 @@ export default function AdminPage() {
               onChange={(e) => uploadListeningZip(e.target.files?.[0])}
             />
           </label>
+        </div>
+      )}
+      {chapterViewer && (
+        <div
+          className="chapter-viewer-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setChapterViewer(null);
+          }}
+        >
+          <section className="chapter-viewer" role="dialog" aria-modal="true" aria-labelledby="chapter-viewer-title">
+            <header className="chapter-viewer-header">
+              <div>
+                <span>教材拆解檢視</span>
+                <h2 id="chapter-viewer-title">{chapterViewer.resource.title}</h2>
+                <p>
+                  已載入 {chapterViewer.rows.length} 筆真實章節／題型
+                  {chapterViewer.incompleteCount ? ` · ${chapterViewer.incompleteCount} 筆仍只有目錄資料` : ""}
+                </p>
+              </div>
+              <button type="button" aria-label="關閉章節內容" onClick={() => setChapterViewer(null)}>×</button>
+            </header>
+            {chapterViewer.message && <div className="chapter-viewer-message">{chapterViewer.message}</div>}
+            {chapterViewer.rows.length ? (
+              <div className="chapter-viewer-layout">
+                <aside className="chapter-viewer-index" aria-label="章節目錄">
+                  <div className="chapter-viewer-index-heading"><strong>章節目錄</strong><span>{chapterViewer.rows.length} 筆</span></div>
+                  <div className="chapter-viewer-index-list">
+                    {chapterViewer.rows.map((chapter, index) => (
+                      <button
+                        type="button"
+                        key={`${chapter.id}-${chapter.sequence}`}
+                        className={activeChapter?.id === chapter.id ? "active" : ""}
+                        onClick={() => setSelectedChapterId(chapter.id)}
+                      >
+                        <span>{String(index + 1).padStart(2, "0")}</span>
+                        <strong>{chapter.title || "未命名章節"}</strong>
+                        <small>{chapter.lessonLabel || "教材章節"}{chapter.pageStart ? ` · p.${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}` : ""}</small>
+                      </button>
+                    ))}
+                  </div>
+                </aside>
+                <article className="chapter-viewer-content">
+                  {activeChapter ? (
+                    <>
+                      <div className="chapter-viewer-content-meta">
+                        <span>{activeChapter.lessonLabel || "教材章節"}</span>
+                        <em>{activeChapter.reviewStatus === "ai_reviewed" ? "AI 已整理" : activeChapter.reviewStatus === "catalogue_only" ? "目錄已保存" : activeChapter.reviewStatus}</em>
+                      </div>
+                      <h3>{activeChapter.title || "未命名章節"}</h3>
+                      {(activeChapter.pageStart || activeChapter.pageEnd) && <small className="chapter-viewer-pages">原教材頁碼：{activeChapter.pageStart ?? "?"}{activeChapter.pageEnd && activeChapter.pageEnd !== activeChapter.pageStart ? `–${activeChapter.pageEnd}` : ""}</small>}
+                      {activeChapter.summary && <div className="chapter-viewer-summary"><strong>拆解摘要</strong><p>{activeChapter.summary}</p></div>}
+                      {activeChapter.text ? (
+                        <div className="chapter-viewer-text"><strong>完整內容／題目原文</strong><p>{activeChapter.text}</p></div>
+                      ) : (
+                        <div className="chapter-viewer-empty">目前已確認這個真實目錄項目，但完整內容仍在後台分批整理；系統不會用假資料補上。</div>
+                      )}
+                    </>
+                  ) : <div className="chapter-viewer-empty">尚未選擇章節。</div>}
+                </article>
+              </div>
+            ) : (
+              <div className="chapter-viewer-empty">目前沒有可查看的章節資料。請先完成教材索引，再按「建立章節索引」。</div>
+            )}
+          </section>
         </div>
       )}
     </main>
