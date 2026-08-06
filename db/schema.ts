@@ -106,6 +106,8 @@ export const chatMessages = sqliteTable("chat_messages", {
   text: text("text").notNull(),
   source: text("source"),
   citationsJson: text("citations_json"),
+  citationStatus: text("citation_status"),
+  comparisonJson: text("comparison_json"),
   model: text("model"),
   estimatedCostUsdMicros: integer("estimated_cost_usd_micros")
     .notNull()
@@ -404,6 +406,60 @@ export const messageFeedback = sqliteTable("message_feedback", {
   messageIndex: integer("message_index").notNull().default(0),
   feedbackType: text("feedback_type").notNull(),
   messageText: text("message_text").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const chatComparisons = sqliteTable("chat_comparisons", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  sessionId: integer("session_id").references(() => chatSessions.id, {
+    onDelete: "set null",
+  }),
+  contextType: text("context_type").notNull().default("home"),
+  promptText: text("prompt_text").notNull(),
+  sourceStatus: text("source_status").notNull().default("unavailable"),
+  sourceJson: text("source_json").notNull().default("[]"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const chatComparisonResponses = sqliteTable("chat_comparison_responses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  comparisonId: integer("comparison_id")
+    .notNull()
+    .references(() => chatComparisons.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  label: text("label").notNull(),
+  text: text("text").notNull().default(""),
+  source: text("source").notNull().default("AI 補充"),
+  citationsJson: text("citations_json"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  cachedTokens: integer("cached_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
+  durationMs: integer("duration_ms").notNull().default(0),
+  error: text("error"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const chatComparisonRatings = sqliteTable("chat_comparison_ratings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  comparisonId: integer("comparison_id")
+    .notNull()
+    .references(() => chatComparisons.id, { onDelete: "cascade" }),
+  responseId: integer("response_id")
+    .notNull()
+    .references(() => chatComparisonResponses.id, { onDelete: "cascade" }),
+  userKey: text("user_key").notNull(),
+  score: integer("score").notNull().default(0),
+  feedbackType: text("feedback_type").notNull().default("rated"),
+  note: text("note").notNull().default(""),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

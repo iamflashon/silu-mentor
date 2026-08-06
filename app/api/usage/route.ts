@@ -1,6 +1,6 @@
-import { desc, sql } from "drizzle-orm";
+import { desc, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { appSettings, usageLogs } from "../../../db/schema";
+import { appSettings, chatComparisonRatings, chatComparisonResponses, chatComparisons, usageLogs } from "../../../db/schema";
 
 export async function GET() {
   try {
@@ -14,9 +14,49 @@ export async function GET() {
       costMicros: sql<number>`coalesce(sum(${usageLogs.estimatedCostUsdMicros}), 0)`,
     }).from(usageLogs);
     const recent = await db.select().from(usageLogs).orderBy(desc(usageLogs.createdAt)).limit(30);
+    const comparisons = await db.select().from(chatComparisons).orderBy(desc(chatComparisons.createdAt)).limit(30);
+    const comparisonIds = comparisons.map((item) => item.id);
+    const comparisonResponses = comparisonIds.length
+      ? await db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, comparisonIds)).orderBy(desc(chatComparisonResponses.createdAt))
+      : [];
+    const comparisonResponseIds = comparisonResponses.map((item) => item.id);
+    const comparisonRatings = comparisonResponseIds.length
+      ? await db.select().from(chatComparisonRatings).where(inArray(chatComparisonRatings.responseId, comparisonResponseIds)).orderBy(desc(chatComparisonRatings.createdAt))
+      : [];
+    const preferredRatings = comparisonRatings.filter((item) => item.feedbackType === "preferred");
     const settings = await db.select().from(appSettings);
     const showCosts = settings.find((item) => item.key === "show_frontend_costs")?.value === "true";
-    return Response.json({ totals, recent, showCosts });
+    return Response.json({
+      totals,
+      recent,
+      showCosts,
+      comparisonStats: {
+        comparisons: comparisons.length,
+        ratedResponses: comparisonRatings.length,
+        lunaPreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "openai").length,
+        claudePreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "anthropic").length,
+        averageScore: comparisonRatings.length
+          ? comparisonRatings.reduce((sum, rating) => sum + Number(rating.score || 0), 0) / comparisonRatings.length
+          : 0,
+      },
+      recentComparisons: comparisons.map((comparison) => ({
+        id: comparison.id,
+        promptText: comparison.promptText,
+        sourceStatus: comparison.sourceStatus,
+        createdAt: comparison.createdAt,
+        responses: comparisonResponses.filter((response) => response.comparisonId === comparison.id).map((response) => ({
+          id: response.id,
+          label: response.label,
+          model: response.model,
+          inputTokens: response.inputTokens,
+          outputTokens: response.outputTokens,
+          estimatedCostUsdMicros: response.estimatedCostUsdMicros,
+          durationMs: response.durationMs,
+          error: response.error,
+          ratings: comparisonRatings.filter((rating) => rating.responseId === response.id).map((rating) => ({ score: rating.score, feedbackType: rating.feedbackType })),
+        })),
+      })),
+    });
   } catch {
     return Response.json({ error: "成本資料庫尚未就緒" }, { status: 503 });
   }

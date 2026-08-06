@@ -56,6 +56,18 @@ export async function getAnthropicModel(fallback = "claude-opus-5") {
   return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
 }
 
+/**
+ * The general tutor comparison has its own Anthropic setting so changing the
+ * essay grader does not silently change the front-end model experiment.
+ */
+export async function getAnthropicChatModel(fallback = "claude-sonnet-4-20250514") {
+  const configured = process.env.ANTHROPIC_CHAT_MODEL || process.env.ANTHROPIC_MODEL;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeModel = env.ANTHROPIC_CHAT_MODEL || env.ANTHROPIC_MODEL;
+  return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
+}
+
 export async function openAIHeaders(json = true) {
   const apiKey = await getOpenAIKey();
   if (!apiKey) throw new Error("OPENAI_API_KEY 尚未設定");

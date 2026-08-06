@@ -6,7 +6,18 @@ import { ListeningPlayer, ListeningFeed } from "./listening-player";
 import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
 import { formatTwd } from "../lib/currency";
 
-type Message = { role: "mentor" | "student"; text: string; sources?: string[] };
+type ComparisonResponse = {
+  id: number;
+  label: string;
+  model: string;
+  text: string;
+  source: "教材" | "AI 補充";
+  sources: string[];
+  error?: string | null;
+  usage: { inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsd: number; durationMs: number };
+};
+type ModelComparison = { id: number; sourceStatus: string; responses: ComparisonResponse[] };
+type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; comparison?: ModelComparison };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
@@ -31,6 +42,33 @@ function youtubeEmbedUrl(value: string) { const id = youtubeId(value); return /^
 function youtubeWatchUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : ""; }
 function requestYoutubePlay(root: Element | null) { const iframe = root?.querySelector<HTMLIFrameElement>("iframe"); iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), "https://www.youtube.com"); }
 function dateLabel(value: string) { return value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1年$2月$3日") : "今天"; }
+function comparisonSourceLabel(status: string) {
+  if (status === "verified") return "教材章節已核對";
+  if (status === "full_text_search") return "命中教材全文；章節／頁碼待核對";
+  return "本次未取得可核對教材引用";
+}
+function citationStatusLabel(status?: string) {
+  if (status === "verified") return "引用狀態：章節原文已核對";
+  if (status === "full_text_search") return "引用狀態：全文命中，章節／頁碼待核對";
+  return "引用狀態：未取得可核對教材";
+}
+function ModelComparisonCard({ comparison, onRate }: { comparison: ModelComparison; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void> }) {
+  const [scores, setScores] = useState<Record<number, number>>({});
+  const [saved, setSaved] = useState<number | null>(null);
+  return <section className="model-comparison-card" aria-label="Luna 與 Claude Sonnet 雙模型比較">
+    <header><div><b>Luna／Claude Sonnet 雙模型比較</b><span>{comparisonSourceLabel(comparison.sourceStatus)}</span></div><small>兩個模型使用同一個問題；若有教材片段，會在同一次檢索脈絡下比較。</small></header>
+    <div className="model-comparison-grid">
+      {comparison.responses.map((response) => <article className="model-comparison-response" key={response.id}>
+        <div className="model-comparison-response-head"><strong>{response.label}</strong><small>{response.model}</small></div>
+        {response.error ? <p className="model-comparison-error">{response.error}</p> : <p className="model-comparison-text">{response.text}</p>}
+        {response.sources.length > 0 && <small className="model-comparison-sources">來源：{response.sources.join("、")}</small>}
+        <div className="model-comparison-meta"><span>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms</span><span>US$ {response.usage.estimatedCostUsd.toFixed(5)} · NT$ {(response.usage.estimatedCostUsd * 32.5).toFixed(3)}</span></div>
+        {!response.error && <div className="model-comparison-actions"><label>測試評分<select value={scores[response.id] ?? 0} onChange={(event) => setScores((current) => ({ ...current, [response.id]: Number(event.target.value) }))}><option value={0}>請評分</option>{[1, 2, 3, 4, 5].map((score) => <option value={score} key={score}>{score} 分</option>)}</select></label><button type="button" disabled={!scores[response.id] || saved === response.id} onClick={async () => { await onRate(response.id, "rated", scores[response.id]); setSaved(response.id); }}>送出評分</button><button type="button" className="comparison-preferred" onClick={async () => { await onRate(response.id, "preferred", 5); setSaved(response.id); }}>選這個比較好</button></div>}
+        {saved === response.id && <small className="model-comparison-saved">已記錄測試回饋</small>}
+      </article>)}
+    </div>
+  </section>;
+}
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -50,6 +88,7 @@ export default function Home() {
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
   const [showCosts, setShowCosts] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
+  const [modelMode, setModelMode] = useState<"luna" | "dual">("luna");
   const messageListRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -361,22 +400,30 @@ export default function Home() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage }),
+        body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage, modelMode }),
       });
-      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; usage?: ReplyUsage; sessionId?: number; error?: string };
+      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
-      setMessages((current) => [...current, { role: "mentor", text: result.reply!, sources: result.sources ?? [] }]);
+      setMessages((current) => [...current, { role: "mentor", text: result.reply!, sources: result.sources ?? [], citationStatus: result.citationStatus, comparison: result.comparison ?? undefined }]);
       setSource(result.source ?? "AI 補充");
       setLastUsage(result.usage ?? null);
       if (result.sessionId) setSessionId(result.sessionId);
-    } catch {
+    } catch (error) {
       setMessages((current) => [...current, {
         role: "mentor",
-        text: "我現在還沒有連上伺服器端的 AI Key。你可以先繼續告訴我想學的科目；管理者完成環境設定後，我會從這裡接著帶你學。",
+        text: error instanceof Error && error.message ? error.message : "對話暫時無法使用；請稍後再試。",
       }]);
     } finally {
       setThinking(false);
     }
+  }
+
+  async function rateComparison(responseId: number, feedbackType: "preferred" | "rated", score: number) {
+    await fetch("/api/chat/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ comparisonResponseId: responseId, feedbackType, score }),
+    });
   }
 
   function submit(event: FormEvent) {
@@ -464,7 +511,7 @@ export default function Home() {
           {messages.map((message, index) => (
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
-              <div className="message-bubble"><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")}</small> : null}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} onRate={rateComparison} /> : <><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
             </div>
           ))}
           {thinking && (
@@ -536,6 +583,7 @@ export default function Home() {
       </div>
 
       {!practiceQuestion && <div className={`composer-wrap rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""}`}>
+        <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>回答模型</span><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking}>Luna</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking}>Luna＋Claude Sonnet 比較</button><small>{modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : "一般對話使用 Luna"}</small></div>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />

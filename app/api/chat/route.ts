@@ -8,9 +8,11 @@ type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: stri
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { storedDocumentAnalysis } from "../../../lib/document-analysis";
-import { getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
-import { appSettings, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+
+type ChatModelMode = "luna" | "dual";
 
 type TeachingEvidence = {
   status: "verified" | "full_text_search" | "unavailable";
@@ -186,6 +188,101 @@ function extractText(payload: unknown) {
   }).join("").trim();
 }
 
+function extractAnthropicText(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const content = (payload as { content?: unknown[] }).content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item): item is { type?: string; text?: string } => Boolean(item && typeof item === "object"))
+    .filter((item) => item.type === "text")
+    .map((item) => item.text ?? "")
+    .join("")
+    .trim();
+}
+
+function extractAnthropicError(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "Claude Sonnet 回覆失敗";
+  const error = (payload as { error?: unknown }).error;
+  if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") {
+    return String((error as { message: string }).message).slice(0, 300);
+  }
+  return "Claude Sonnet 回覆失敗";
+}
+
+function extractFileSearchContext(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const output = (payload as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return "";
+  const rows: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object" || (item as { type?: string }).type !== "file_search_call") continue;
+    const results = (item as { results?: unknown[] }).results;
+    if (!Array.isArray(results)) continue;
+    for (const result of results) {
+      if (!result || typeof result !== "object") continue;
+      const filename = String((result as { filename?: unknown }).filename ?? "").trim();
+      const content = (result as { content?: unknown[] }).content;
+      const text = Array.isArray(content)
+        ? content.map((part) => part && typeof part === "object" ? String((part as { text?: unknown }).text ?? "") : "").join(" ").trim()
+        : String((result as { text?: unknown }).text ?? "").trim();
+      if (text) rows.push(`${filename ? `【${filename}】` : "【教材索引片段】"}\n${text.slice(0, 1600)}`);
+    }
+  }
+  return [...new Set(rows)].slice(0, 8).join("\n\n").slice(0, 10_000);
+}
+
+function anthropicMessages(modelMessages: ClientMessage[], imageDataUrl: string) {
+  const transcript = modelMessages.map((message) => `${message.role === "mentor" ? "教練" : "學生"}：${message.text}`).join("\n\n");
+  const content: Array<Record<string, unknown>> = [{ type: "text", text: transcript }];
+  if (imageDataUrl) {
+    const match = imageDataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+    if (match) content.push({ type: "image", source: { type: "base64", media_type: match[1], data: match[2] } });
+  }
+  return [{ role: "user", content }];
+}
+
+async function runAnthropicTutor(
+  apiKey: string,
+  model: string,
+  instructions: string,
+  modelMessages: ClientMessage[],
+  imageDataUrl: string,
+  sharedRetrievalContext: string,
+) {
+  const startedAt = Date.now();
+  const sourceInstruction = sharedRetrievalContext
+    ? `\n\n【本次共同教材檢索片段】\n${sharedRetrievalContext}\n這些片段是另一模型同次檢索取得的共同資料。只能依片段可確認內容回答；無法確認的章節或頁碼必須明確標示。`
+    : "";
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1800,
+      system: `${instructions}${sourceInstruction}\n\n你是第二個獨立回答模型。請直接回答學生當下問題，不要提及模型比較、API 或內部檢索流程。`,
+      messages: anthropicMessages(modelMessages, imageDataUrl),
+    }),
+  });
+  const raw = await response.text();
+  let payload: unknown = {};
+  try { payload = JSON.parse(raw); } catch { /* handled below */ }
+  if (!response.ok) throw new Error(`${extractAnthropicError(payload)}（HTTP ${response.status}）`);
+  const reply = extractAnthropicText(payload);
+  if (!reply) throw new Error("Claude Sonnet 未產生可顯示內容");
+  const usage = payload && typeof payload === "object" ? (payload as { usage?: { input_tokens?: number; output_tokens?: number } }).usage : undefined;
+  return {
+    model: payload && typeof payload === "object" && typeof (payload as { model?: unknown }).model === "string" ? String((payload as { model: string }).model) : model,
+    reply,
+    inputTokens: Number(usage?.input_tokens ?? 0),
+    outputTokens: Number(usage?.output_tokens ?? 0),
+    durationMs: Math.max(0, Date.now() - startedAt),
+  };
+}
+
 function usedFileSearch(payload: unknown) {
   if (!payload || typeof payload !== "object") return false;
   const output = (payload as { output?: unknown[] }).output;
@@ -256,6 +353,12 @@ const modelRates: Record<string, { input: number; cached: number; output: number
   "gpt-5.6-terra": { input: 1.00, cached: 0.10, output: 6.00 },
   "gpt-5.6-sol": { input: 2.50, cached: 0.25, output: 15.00 },
 };
+
+function anthropicRates(model: string) {
+  if (/opus/i.test(model)) return { input: 5, output: 25 };
+  if (/haiku/i.test(model)) return { input: 1, output: 5 };
+  return { input: 3, output: 15 };
+}
 
 function readUsage(payload: unknown) {
   const usage = payload && typeof payload === "object" ? (payload as { usage?: Record<string, unknown> }).usage : null;
@@ -473,7 +576,12 @@ export async function POST(request: Request) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
 
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: ChatModelMode };
+    const modelMode: ChatModelMode = body.modelMode === "dual" ? "dual" : "luna";
+    const anthropicKey = modelMode === "dual" ? await getAnthropicKey() : "";
+    if (modelMode === "dual" && !anthropicKey) {
+      return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
+    }
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
     const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
@@ -563,7 +671,9 @@ export async function POST(request: Request) {
         : context.type === "my-course" || context.type === "public-course"
           ? `${baseInstructions}\n\n這是「${context.type === "public-course" ? "開放課" : "我的課"}」的課程提問，不是平台已上傳字幕的課程。平台沒有讀取 YouTube 影片聲音、畫面或 SRT；你只能依課程名稱、集數名稱、學生提供的截圖、學生自行輸入的文字，以及可靠的一般法律知識回答。絕對不要說你看過影片、聽過老師講解或知道該影片的特定內容。你正在接續同一段課程對話：必須先閱讀前面 AI 的回答與學生回覆，再直接承接學生現在的追問，不要重新開一個主題。若學生問的是老師在影片中的特定說法，而問題沒有提供原文、截圖或足夠描述，請明確請學生貼上老師說法或畫面後再判斷。回答聚焦學生當下問題，不要建立、修改或刪除行事曆。`
       : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`;
-    const selectedModel = process.env.OPENAI_MODEL || await getOpenAIModel(chooseModel(modelMessages));
+    const selectedModel = modelMode === "dual"
+      ? await getOpenAIModel("gpt-5.6-luna")
+      : process.env.OPENAI_MODEL || await getOpenAIModel(chooseModel(modelMessages));
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
       name: "save_study_plan",
@@ -619,6 +729,7 @@ export async function POST(request: Request) {
     // file_search result could silently teach from another book or chapter.
     const allowFileSearch = Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
     if (allowFileSearch) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
+    const openAiStartedAt = Date.now();
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -644,6 +755,7 @@ export async function POST(request: Request) {
     if (!response.ok) {
       return Response.json({ error: "AI 服務暫時無法回應" }, { status: 502 });
     }
+    const openAiDurationMs = Math.max(0, Date.now() - openAiStartedAt);
     let reply = extractText(payload);
     const planCall = readPlanCall(payload);
     const deleteCall = readDeleteCall(payload);
@@ -669,12 +781,31 @@ export async function POST(request: Request) {
         reply = `${reply ? `${reply}\n\n` : ""}${result.count ? `已刪除 ${result.count} 項行事曆任務。${result.titles.length ? `\n${result.titles.join("\n")}` : ""}` : "目前沒有找到符合條件的行事曆任務。"}`;
       } catch { /* keep the conversation available */ }
     }
-    if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
     const searchedFiles = usedFileSearch(payload);
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
+    const sharedRetrievalContext = searchedFiles ? extractFileSearchContext(payload) : "";
+    const comparisonClaudeModel = modelMode === "dual" ? await getAnthropicChatModel("claude-sonnet-4-20250514") : "";
+    let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number } | null = null;
+    let claudeError = "";
+    if (modelMode === "dual") {
+      try {
+        claudeRun = await runAnthropicTutor(
+          anthropicKey,
+          comparisonClaudeModel,
+          instructions,
+          modelMessages,
+          imageDataUrl,
+          sharedRetrievalContext,
+        );
+      } catch (error) {
+        claudeError = error instanceof Error ? error.message.slice(0, 500) : "Claude Sonnet 回覆失敗";
+      }
+    }
+    if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
+
     const fileSearchConfirmedForBook = Boolean(
       context.type === "book" &&
       searchedFiles &&
@@ -710,19 +841,27 @@ export async function POST(request: Request) {
     const sources = context.type === "book"
       ? effectiveTeachingEvidence?.status === "verified"
         ? [`${effectiveTeachingEvidence.resourceTitle}｜${effectiveTeachingEvidence.segmentTitle}`]
-        : effectiveTeachingEvidence?.status === "full_text_search"
+      : effectiveTeachingEvidence?.status === "full_text_search"
           ? [effectiveTeachingEvidence.fileName || "教材全文索引（章節待核對）"]
           : []
-      : citationSources;
+      : [...new Set([...citationSources, ...searchResultNames])];
     const fromFiles = context.type === "book"
       ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "full_text_search"
       : sources.length > 0;
+    const citationStatus = context.type === "book"
+      ? effectiveTeachingEvidence?.status ?? "unavailable"
+      : searchedFiles && sources.length ? "full_text_search" : "unavailable";
     const usage = readUsage(payload);
     const rates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
     const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens);
     const tokenCost = (nonCachedInput * rates.input + usage.cachedTokens * rates.cached + usage.outputTokens * rates.output) / 1_000_000;
     const fileSearchCost = searchedFiles ? 0.0025 : 0;
     const estimatedCostUsd = tokenCost + fileSearchCost;
+    const claudePricing = anthropicRates(claudeRun?.model || comparisonClaudeModel);
+    const claudeCostUsd = claudeRun
+      ? (claudeRun.inputTokens * claudePricing.input + claudeRun.outputTokens * claudePricing.output) / 1_000_000
+      : 0;
+    let comparison: Record<string, unknown> | null = null;
     try {
       const db = await getDb();
       await db.insert(usageLogs).values({
@@ -734,12 +873,87 @@ export async function POST(request: Request) {
         fileSearchCalls: searchedFiles ? 1 : 0,
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
+      if (modelMode === "dual") {
+        const [comparisonRow] = await db.insert(chatComparisons).values({
+          userKey: request.headers.get("oai-authenticated-user-email") ?? "default-owner",
+          sessionId: session.id,
+          contextType: context.type,
+          promptText: latestStudent?.text ?? "",
+          sourceStatus: citationStatus,
+          sourceJson: JSON.stringify(sources),
+        }).returning();
+        const responseRows = await db.insert(chatComparisonResponses).values([
+          {
+            comparisonId: comparisonRow.id,
+            provider: "openai",
+            model: selectedModel,
+            label: "Luna",
+            text: reply,
+            source: fromFiles ? "教材" : "AI 補充",
+            citationsJson: sources.length ? JSON.stringify(sources) : null,
+            inputTokens: usage.inputTokens,
+            cachedTokens: usage.cachedTokens,
+            outputTokens: usage.outputTokens,
+            estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
+            durationMs: openAiDurationMs,
+          },
+          {
+            comparisonId: comparisonRow.id,
+            provider: "anthropic",
+            model: claudeRun?.model || comparisonClaudeModel,
+            label: "Claude Sonnet",
+            text: claudeRun?.reply || "",
+            source: fromFiles ? "教材" : "AI 補充",
+            citationsJson: sources.length ? JSON.stringify(sources) : null,
+            inputTokens: claudeRun?.inputTokens ?? 0,
+            cachedTokens: 0,
+            outputTokens: claudeRun?.outputTokens ?? 0,
+            estimatedCostUsdMicros: Math.round(claudeCostUsd * 1_000_000),
+            durationMs: claudeRun?.durationMs ?? 0,
+            error: claudeError || null,
+          },
+        ]).returning();
+        if (claudeRun) {
+          await db.insert(usageLogs).values({
+            model: claudeRun.model,
+            source: "AI 導師雙模型比較（Claude Sonnet）",
+            inputTokens: claudeRun.inputTokens,
+            cachedTokens: 0,
+            outputTokens: claudeRun.outputTokens,
+            fileSearchCalls: 0,
+            estimatedCostUsdMicros: Math.round(claudeCostUsd * 1_000_000),
+          });
+        }
+        comparison = {
+          id: comparisonRow.id,
+          sourceStatus: citationStatus,
+          responses: responseRows.map((row) => ({
+            id: row.id,
+            provider: row.provider,
+            model: row.model,
+            label: row.label,
+            text: row.text,
+            source: row.source,
+            sources,
+            error: row.error,
+            usage: {
+              inputTokens: row.inputTokens,
+              cachedTokens: row.cachedTokens,
+              outputTokens: row.outputTokens,
+              estimatedCostUsd: row.estimatedCostUsdMicros / 1_000_000,
+              durationMs: row.durationMs,
+            },
+          })),
+        };
+      }
       await db.insert(chatMessages).values({
         sessionId: session.id,
         role: "mentor",
         text: reply,
         source: fromFiles ? "教材" : "AI 補充",
         citationsJson: sources.length ? JSON.stringify(sources) : null,
+        citationStatus,
+        comparisonJson: comparison ? JSON.stringify(comparison) : null,
         model: selectedModel,
         estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
       });
@@ -767,7 +981,9 @@ export async function POST(request: Request) {
       replacedTasks,
       tasksDeleted,
       sources,
+      citationStatus,
       teachingEvidence: effectiveTeachingEvidence,
+      comparison,
       sessionId: session.id,
     });
   } catch {

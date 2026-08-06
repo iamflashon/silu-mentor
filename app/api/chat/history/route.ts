@@ -20,7 +20,9 @@ function sessionDate(session: { sessionDate?: string | null; createdAt: Date; up
 function mapMessage(message: typeof chatMessages.$inferSelect) {
   let sources: string[] = [];
   try { sources = message.citationsJson ? JSON.parse(message.citationsJson) as string[] : []; } catch { sources = []; }
-  return { role: message.role, text: message.text, source: message.source, model: message.model, sources, createdAt: message.createdAt };
+  let comparison: unknown = undefined;
+  try { comparison = message.comparisonJson ? JSON.parse(message.comparisonJson) : undefined; } catch { comparison = undefined; }
+  return { role: message.role, text: message.text, source: message.source, model: message.model, sources, citationStatus: message.citationStatus, comparison, createdAt: message.createdAt };
 }
 
 function buildSummary(messages: Array<typeof chatMessages.$inferSelect>) {

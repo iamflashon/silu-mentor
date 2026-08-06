@@ -3364,14 +3364,14 @@ export default function StudyPlanPage() {
                                       <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
                                         <strong>
                                           {message.teachingEvidence.status === "verified"
-                                            ? "✓ 已核對本章教材"
+                                            ? "✓ 已核對章節原文"
                                             : message.teachingEvidence.status === "full_text_search"
                                               ? "△ 命中全文索引，章節待核對"
                                               : "! 尚未取得本章原文"}
                                         </strong>
                                         <span>
                                           {message.teachingEvidence.status === "verified"
-                                            ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}${message.teachingEvidence.pageStart ? `｜第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : ""}`
+                                            ? `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
                                             : message.teachingEvidence.message}
                                         </span>
                                         {message.teachingEvidence.excerpt && (
