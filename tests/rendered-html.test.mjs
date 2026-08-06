@@ -40,3 +40,14 @@ test("student follow-up click never serializes a React event", async () => {
   assert.match(source, /level === "beginner" \|\| level === "intermediate" \|\| level === "advanced"/);
   assert.match(source, /level: requestedLevel/);
 });
+
+test("teaching verdict uses the independent Sol judge", async () => {
+  const route = await readFile(new URL("../app/api/chat/teaching-evaluation/route.ts", import.meta.url), "utf8");
+  const models = await readFile(new URL("../lib/openai.ts", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(route, /getTeachingJudgeOpenAIModel\("gpt-5\.6-sol"\)/);
+  assert.match(route, /runOpenAI\(openAiKey, judgeModel,/);
+  assert.match(models, /OPENAI_TEACHING_JUDGE_MODEL/);
+  assert.match(page, /Sol 審判長評比/);
+});

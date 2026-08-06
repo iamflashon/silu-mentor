@@ -1,6 +1,6 @@
 import { getDb } from "../../../../db";
 import { usageLogs } from "../../../../db/schema";
-import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, getOpenAIModel } from "../../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel } from "../../../../lib/openai";
 
 type TeacherResponse = { label?: string; model?: string; text?: string; error?: string | null };
 type Usage = { inputTokens: number; outputTokens: number; cachedTokens: number; durationMs: number; estimatedCostUsd: number; model: string };
@@ -133,16 +133,17 @@ export async function POST(request: Request) {
   try {
     const luna = await getOpenAIModel("gpt-5.6-luna");
     if (mode === "judge") {
+      const judgeModel = await getTeachingJudgeOpenAIModel("gpt-5.6-sol");
       const rounds = (Array.isArray(body.rounds) ? body.rounds : []).filter((round) => round && round.level && round.reply && round.teacherA?.text && round.teacherB?.text).slice(0, 4);
       if (!rounds.length) return Response.json({ error: "請先完成至少一種程度的教師接續回答，再按 AI 審判長評比" }, { status: 400 });
       // Keep the judging request compact. The tutor turns can include long retrieval context,
       // while the judge only needs the student's actual follow-up and each teacher's answer.
       // A smaller request prevents the hosted request from timing out on mobile connections.
       const judgeInput = rounds.map((round) => `【${round.label ?? round.level}】\n學生：${String(round.reply).slice(0, 1400)}\n教師 A：${String(round.teacherA?.text).slice(0, 2200)}\n教師 B：${String(round.teacherB?.text).slice(0, 2200)}`).join("\n\n");
-      const judgeRun = await runOpenAI(openAiKey, luna, `你是教育心理學與法學引導式教學法的資深 AI 教學督導。請盲評實際提供的組別，法律正確性優先，其次才是因材施教。初學組評白話與同理；中階組評事實涵攝指引；高階組評學說、實務與價值思辯；超級學霸組評體系整合、反例辨識與回應高難度追問的能力。每組各給法律正確性、程度適配、同理心或學術深度、技術穩定度四項 0 至 100 分，並判定教師 A、教師 B或平手。完整初學、中階、高階三組時按初學 30%、中階 35%、高階 35% 加權；超級學霸組另列為頂尖教學壓力測試，不混入這三組權重。部分組別須明說總評範圍。價差只影響商用建議，不得改寫教學品質勝負。無法核對法律內容時，在 caution 標示需人工核對。理由務必精簡，只輸出 JSON。`, judgeInput, 520 + rounds.length * 120, judgeSchema);
+      const judgeRun = await runOpenAI(openAiKey, judgeModel, `你是教育心理學與法學引導式教學法的資深 AI 教學督導。請盲評實際提供的組別，法律正確性優先，其次才是因材施教。初學組評白話與同理；中階組評事實涵攝指引；高階組評學說、實務與價值思辯；超級學霸組評體系整合、反例辨識與回應高難度追問的能力。每組各給法律正確性、程度適配、同理心或學術深度、技術穩定度四項 0 至 100 分，並判定教師 A、教師 B或平手。完整初學、中階、高階三組時按初學 30%、中階 35%、高階 35% 加權；超級學霸組另列為頂尖教學壓力測試，不混入這三組權重。部分組別須明說總評範圍。價差只影響商用建議，不得改寫教學品質勝負。無法核對法律內容時，在 caution 標示需人工核對。理由務必精簡，只輸出 JSON。`, judgeInput, 520 + rounds.length * 120, judgeSchema);
       const judgement = parseJson(judgeRun.text) as Record<string, unknown> | null;
       if (!judgement || !Array.isArray(judgement.groups)) return Response.json({ error: "AI 審判長未產生完整評分，結果未顯示" }, { status: 502 });
-      await logUsage(luna, "程度測試｜AI 審判長", judgeRun.usage);
+      await logUsage(judgeModel, "程度測試｜Sol 審判長", judgeRun.usage);
       return Response.json({ originalPrompt: prompt, judgement, totalUsage: [judgeRun.usage] });
     }
 

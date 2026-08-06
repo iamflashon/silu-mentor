@@ -48,6 +48,21 @@ export async function getEssayOpenAIModel(fallback = "gpt-5.6-sol") {
     : fallback;
 }
 
+/**
+ * Teaching comparisons need an independent, stronger judge. Keep this
+ * separate from the general Luna tutor and the essay-grading model so a
+ * setting change in either workflow cannot silently weaken the verdict.
+ */
+export async function getTeachingJudgeOpenAIModel(fallback = "gpt-5.6-sol") {
+  const configured = process.env.OPENAI_TEACHING_JUDGE_MODEL;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeModel = env.OPENAI_TEACHING_JUDGE_MODEL;
+  return typeof runtimeModel === "string" && runtimeModel.trim()
+    ? runtimeModel.trim()
+    : fallback;
+}
+
 export async function getAnthropicModel(fallback = "claude-opus-5") {
   const configured = process.env.ANTHROPIC_ESSAY_GRADING_MODEL || process.env.ANTHROPIC_MODEL;
   if (configured?.trim()) return configured.trim();
