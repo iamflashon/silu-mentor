@@ -14523,6 +14523,8 @@ a {
   background: #fff3d5;
   color: #6f501b;
 }
+.model-mode-switch .teaching-evaluation-trigger { border-color: #b9c9e2; background: #f2f6fc; color: #41648b; font-weight: 800; }
+.model-mode-switch .teaching-evaluation-trigger:hover:not(:disabled) { border-color: #809fc9; background: #e8f0fb; }
 .model-comparison-card { width: min(920px, 100%); margin: 2px 0 4px; }
 .model-comparison-card > header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid #dbe8ec; }
 .model-comparison-card > header div { display: grid; gap: 3px; }
@@ -14549,4 +14551,32 @@ a {
   .model-comparison-card > header { display: grid; gap: 4px; }
   .model-comparison-grid { grid-template-columns: 1fr; }
   .model-mode-switch { padding-inline: 4px; }
+}
+.teaching-evaluation-card { width: min(940px, 100%); margin: 16px auto 8px; padding: 14px; border: 1px solid #ccdce9; border-radius: 15px; background: #fbfdff; color: #35536c; }
+.teaching-evaluation-card > header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding-bottom: 11px; border-bottom: 1px solid #dce7ef; }
+.teaching-evaluation-card > header div { display: grid; gap: 3px; }
+.teaching-evaluation-card > header b { color: #315f86; font-size: 15px; }
+.teaching-evaluation-card > header span, .teaching-evaluation-card > header small { color: #718797; font-size: 11px; line-height: 1.6; }
+.teaching-evaluation-rounds { display: grid; gap: 12px; padding-top: 12px; }
+.teaching-evaluation-rounds article { padding: 12px; border: 1px solid #dce8ef; border-radius: 11px; background: #fff; }
+.teaching-evaluation-level { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid #e8eff3; }
+.teaching-evaluation-level strong { color: #2f6288; }
+.teaching-evaluation-level span { color: #9a6d32; font-size: 12px; font-weight: 800; }
+.teaching-evaluation-student { margin: 10px 0; padding: 9px 10px; border-radius: 8px; background: #f7fafc; color: #4c6678; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+.teaching-evaluation-student b { display: block; margin-bottom: 3px; color: #7590a0; font-size: 11px; }
+.teaching-evaluation-teachers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.teaching-evaluation-teachers > div { min-width: 0; padding: 10px; border: 1px solid #e0ebef; border-radius: 9px; background: #fbfefe; }
+.teaching-evaluation-teachers strong { color: #47718a; font-size: 12px; }
+.teaching-evaluation-teachers p { margin: 7px 0 0; color: #47606e; font-size: 12px; line-height: 1.75; white-space: pre-wrap; }
+.teaching-evaluation-score { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 9px; color: #617b89; font-size: 11px; }
+.teaching-evaluation-score span { padding: 4px 6px; border-radius: 5px; background: #edf5f7; }
+.teaching-evaluation-score p { flex: 1 1 100%; margin: 2px 0 0; line-height: 1.6; }
+.teaching-evaluation-verdict { display: grid; gap: 4px; margin-top: 12px; padding: 12px; border-radius: 10px; background: #eef6fb; color: #496474; font-size: 12px; line-height: 1.7; }
+.teaching-evaluation-verdict strong { color: #285f88; font-size: 14px; }
+.teaching-evaluation-verdict p { margin: 0; }
+.teaching-evaluation-verdict small, .teaching-evaluation-cost { color: #7d929d; font-size: 11px; }
+.teaching-evaluation-cost { display: block; margin-top: 9px; }
+@media (max-width: 720px) {
+  .teaching-evaluation-card > header { display: grid; gap: 3px; }
+  .teaching-evaluation-teachers { grid-template-columns: 1fr; }
 }
