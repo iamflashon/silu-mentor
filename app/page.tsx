@@ -23,7 +23,7 @@ type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
 type TeachingJudgement = { groups: Array<{ level: string; winner: string; reason: string; legalAccuracy: number; adaptation: number; empathyOrDepth: number; stability: number }>; overallWinner: string; weightedSummary: string; commercialRecommendation: string; caution: string; dialogue: string };
 type JudgeTurn = { role: "student" | "judge"; text: string };
-type Message = { role: "mentor" | "student" | "judge"; text: string; sources?: string[]; citationStatus?: string; comparison?: ModelComparison; judgeUsage?: EvaluationUsage };
+type Message = { role: "mentor" | "student" | "judge"; text: string; audience?: "teacher" | "judge"; sources?: string[]; citationStatus?: string; comparison?: ModelComparison; judgeUsage?: EvaluationUsage };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
@@ -414,7 +414,7 @@ export default function Home() {
     const question = text.trim();
     if (!question || evaluatingJudge || !teachingJudgement || !teachingRounds.length) return;
     setInput("");
-    setMessages((current) => [...current, { role: "student", text: question }]);
+    setMessages((current) => [...current, { role: "student", text: question, audience: "judge" }]);
     setEvaluatingJudge(true);
     try {
       const response = await fetch("/api/chat/teaching-evaluation", {
@@ -462,7 +462,7 @@ export default function Home() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages.filter((message) => message.role !== "judge").slice(-12), sessionId, imageDataUrl: attachedImage, modelMode, teachingLevel: sentTeachingLevel }),
+        body: JSON.stringify({ messages: nextMessages.filter((message) => message.role !== "judge" && message.audience !== "judge").slice(-12), sessionId, imageDataUrl: attachedImage, modelMode, teachingLevel: sentTeachingLevel }),
       });
       const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
@@ -555,7 +555,7 @@ export default function Home() {
       insertStudentTestPrompt();
       return;
     }
-    const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
+    const latestStudent = [...messages].reverse().find((message) => message.role === "student" && message.audience !== "judge")?.text ?? "";
     setGeneratingStudentReply(true);
     setEvaluatingLevel(level ?? null);
     try {
@@ -590,7 +590,7 @@ export default function Home() {
 
   async function runTeachingJudge() {
     if (thinking || generatingStudentReply || evaluatingTeaching || !canJudgeTeaching || !teachingRounds.length) return;
-    const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
+    const latestStudent = [...messages].reverse().find((message) => message.role === "student" && message.audience !== "judge")?.text ?? "";
     if (!latestStudent) return;
     setEvaluatingJudge(true);
     try {
