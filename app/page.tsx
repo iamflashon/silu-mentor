@@ -550,12 +550,17 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ mode: "judge", prompt: latestStudent, rounds: teachingRounds }),
       });
-      const result = await response.json() as { judgement?: TeachingJudgement; totalUsage?: EvaluationUsage[]; error?: string };
+      const result = await response.json().catch(() => null) as { judgement?: TeachingJudgement; totalUsage?: EvaluationUsage[]; error?: string } | null;
+      if (!result) throw new Error("AI 審判長連線中斷，請再按一次；已完成的雙模型回合仍保留，不必重新測試。");
       if (!response.ok || !result.judgement || !result.totalUsage) throw new Error(result.error ?? "AI 審判長評比未完成");
       setTeachingJudgement(result.judgement);
       setTeachingUsage((current) => [...current, ...result.totalUsage!]);
     } catch (error) {
-      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "AI 審判長評比暫時無法完成。" }]);
+      const message = error instanceof Error ? error.message : "AI 審判長評比暫時無法完成。";
+      const friendlyMessage = /Load failed|Failed to fetch|NetworkError|fetch failed/i.test(message)
+        ? "AI 審判長連線中斷，請再按一次；已完成的雙模型回合仍保留，不必重新測試。"
+        : message;
+      setMessages((current) => [...current, { role: "mentor", text: friendlyMessage }]);
     } finally {
       setEvaluatingJudge(false);
     }
