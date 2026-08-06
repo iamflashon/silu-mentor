@@ -7,9 +7,144 @@ type ChatContext =
 type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: string; replaceOnlySubject: boolean; days: number; dailyMinutes: number };
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
+import { storedDocumentAnalysis } from "../../../lib/document-analysis";
 import { getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
-import { appSettings, chatMessages, chatSessions, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+import { appSettings, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+
+type TeachingEvidence = {
+  status: "verified" | "full_text_search" | "unavailable";
+  retrieval: "chapter_segment" | "stored_analysis" | "full_text_search" | "none";
+  resourceId: number;
+  segmentId: number;
+  resourceTitle: string;
+  segmentTitle: string;
+  lessonLabel: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  fileName: string;
+  excerpt: string;
+  message: string;
+};
+
+function analysisRows(document: typeof documents.$inferSelect, mode: "chapters" | "questions") {
+  const analysis = storedDocumentAnalysis(document.processingResultJson || "{}");
+  const rows = mode === "chapters" ? analysis.chapters : analysis.questions;
+  return Array.isArray(rows) ? rows : [];
+}
+
+function field(row: unknown, keys: string[]) {
+  if (!row || typeof row !== "object") return "";
+  for (const key of keys) {
+    const value = String((row as Record<string, unknown>)[key] ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function numberField(row: unknown, keys: string[]) {
+  if (!row || typeof row !== "object") return null;
+  for (const key of keys) {
+    const value = Number((row as Record<string, unknown>)[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "book" }>): Promise<TeachingEvidence> {
+  const unavailable = (fileName = "") : TeachingEvidence => ({
+    status: "unavailable",
+    retrieval: "none",
+    resourceId: context.resourceId,
+    segmentId: context.segmentId,
+    resourceTitle: context.resourceTitle,
+    segmentTitle: context.segmentTitle,
+    lessonLabel: "",
+    pageStart: null,
+    pageEnd: null,
+    fileName,
+    excerpt: "",
+    message: "這一章目前只有目錄或摘要，尚未取得可核對的教材原文。",
+  });
+
+  const db = await getDb();
+  const [resource] = await db.select().from(learningResources).where(eq(learningResources.id, context.resourceId)).limit(1);
+  if (!resource?.documentId) return unavailable();
+  const [document] = await db.select().from(documents).where(eq(documents.id, resource.documentId)).limit(1);
+  if (!document) return unavailable();
+
+  let row: {
+    id: number;
+    title: string;
+    lessonLabel: string;
+    pageStart: number | null;
+    pageEnd: number | null;
+    text: string;
+    summary: string;
+    retrieval: "chapter_segment" | "stored_analysis";
+  } | null = null;
+
+  if (context.segmentId > 0) {
+    const [segment] = await db.select().from(resourceSegments).where(
+      and(eq(resourceSegments.id, context.segmentId), eq(resourceSegments.resourceId, context.resourceId)),
+    ).limit(1);
+    if (segment) {
+      row = {
+        id: segment.id,
+        title: segment.title,
+        lessonLabel: segment.lessonLabel,
+        pageStart: segment.pageStart,
+        pageEnd: segment.pageEnd,
+        text: segment.text.trim(),
+        summary: segment.summary.trim(),
+        retrieval: "chapter_segment",
+      };
+    }
+  }
+
+  if (!row && context.segmentId < 0) {
+    const mode = /解題|題庫|題型|案例演習|申論/.test(`${resource.title} ${resource.description ?? ""}`) ? "questions" : "chapters";
+    const rows = analysisRows(document, mode);
+    const source = rows[Math.abs(context.segmentId) - 1] ?? rows.find((candidate) =>
+      field(candidate, ["title", "question_title", "question_no", "number"]) === context.segmentTitle,
+    );
+    if (source) {
+      const title = field(source, ["title", "question_title", "question_no", "number"]) || context.segmentTitle;
+      const section = field(source, ["section", "part", "section_path", "path"]);
+      const topic = field(source, ["chapter", "topic", "theme", "subject"]);
+      row = {
+        id: context.segmentId,
+        title,
+        lessonLabel: `${section || (mode === "chapters" ? "教材章節" : "題型目錄")}｜${topic || "其他題型"}`.slice(0, 160),
+        pageStart: numberField(source, ["page_start", "pageStart"]),
+        pageEnd: numberField(source, ["page_end", "pageEnd"]),
+        text: field(source, ["content", "text", "stem", "question_text", "question"]),
+        summary: field(source, ["summary"]),
+        retrieval: "stored_analysis",
+      };
+    }
+  }
+
+  const text = row?.text.trim() ?? "";
+  if (!row || text.length < 40) return unavailable(document.fileName);
+  const pages = row.pageStart
+    ? `第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁`
+    : "頁碼待核對";
+  return {
+    status: "verified",
+    retrieval: row.retrieval,
+    resourceId: resource.id,
+    segmentId: row.id,
+    resourceTitle: resource.title,
+    segmentTitle: row.title || context.segmentTitle,
+    lessonLabel: row.lessonLabel,
+    pageStart: row.pageStart,
+    pageEnd: row.pageEnd,
+    fileName: document.fileName,
+    excerpt: text.replace(/\s+/g, " ").slice(0, 360),
+    message: `已鎖定本書本章原文（${pages}）。`,
+  };
+}
 
 const baseInstructions = `你是「司律備考」的 AI 學習教練，專門協助台灣律師與司法官考試。
 你的任務是教會學生思考，不是立刻交付完整答案。
@@ -75,6 +210,24 @@ function extractSources(payload: unknown) {
         const filename = (annotation as { filename?: unknown }).filename;
         if (typeof filename === "string" && filename.trim()) names.push(filename.trim());
       }
+    }
+  }
+  return [...new Set(names)].slice(0, 5);
+}
+
+function extractFileSearchResultNames(payload: unknown) {
+  if (!payload || typeof payload !== "object") return [] as string[];
+  const output = (payload as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return [] as string[];
+  const names: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object" || (item as { type?: string }).type !== "file_search_call") continue;
+    const results = (item as { results?: unknown[] }).results;
+    if (!Array.isArray(results)) continue;
+    for (const result of results) {
+      if (!result || typeof result !== "object") continue;
+      const filename = (result as { filename?: unknown }).filename;
+      if (typeof filename === "string" && filename.trim()) names.push(filename.trim());
     }
   }
   return [...new Set(names)].slice(0, 5);
@@ -337,6 +490,7 @@ export async function POST(request: Request) {
       : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
         ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
       : { type: "home" };
+    const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context) : null;
     const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話", context);
     let persistedCourseMessages: ClientMessage[] = [];
     if (context.type === "my-course" || context.type === "public-course") {
@@ -397,8 +551,13 @@ export async function POST(request: Request) {
       yesterdayContext = `${taskText}${recordText}${lastStudent ? `昨天學生最後提到：${lastStudent.slice(0, 240)}。` : ""}${lastMentor ? `昨天教練最後的接續提示：${lastMentor.slice(0, 360)}。` : ""}`;
     } catch { /* continue without yesterday context */ }
     const plannerRule = planningConstraint ? `\n這次要規劃 ${planningConstraint.days} 天，每天「所有任務合計」不得超過 ${planningConstraint.dailyMinutes} 分鐘；每一天安排 1 至 3 項，每項通常 20 至 90 分鐘，不得把每日總時間重複填在每一項任務。${planningConstraint.mode === "single" ? `唯一允許的科目是「${planningConstraint.subject}」，範圍是「${planningConstraint.scope}」。每一筆 task.subject 必須完全等於「${planningConstraint.subject}」，標題與內容不得出現其他法科或法學緒論。` : "請依弱點與考試重要性分配各科。"}` : "";
+    const bookEvidenceInstruction = context.type === "book"
+      ? bookEvidence?.status === "verified"
+        ? `\n\n【本次已核對教材內容】\n書名：${bookEvidence.resourceTitle}\n章節：${bookEvidence.segmentTitle}\n分類：${bookEvidence.lessonLabel || "未標示"}\n頁碼：${bookEvidence.pageStart ? `第 ${bookEvidence.pageStart}${bookEvidence.pageEnd && bookEvidence.pageEnd !== bookEvidence.pageStart ? `–${bookEvidence.pageEnd}` : ""} 頁` : "待核對"}\n原文摘錄：${bookEvidence.excerpt}\n以上是本次唯一可直接作為教材依據的章節內容。回答時優先依此內容；若學生問到摘錄以外的細節，必須說明需要再查核，不得把一般知識冒充本章原文。`
+        : `\n\n【教材核對狀態】\n目前只知道學生選了「${context.resourceTitle}／${context.segmentTitle}」，但系統尚未取得這一章足夠的原文。不得說「教材提到」「本章指出」或虛構頁碼；若要回答，只能明確標示為一般法律補充，並先告知教材原文尚未核對。`
+      : "";
     const instructions = context.type === "book"
-      ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。`
+      ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。${bookEvidenceInstruction}`
       : context.type === "magazine"
         ? `${baseInstructions}\n\n這是獨立的法學教室試讀文章問答，不是首頁每日導師對話。只根據目前期數、文章標題、摘要、核心爭點與學生框選的文字回答。若試讀內容不足以確認全文脈絡，必須明確標示限制，不得補造作者主張、判決內容或文章結論；不得建立、修改或刪除行事曆。`
         : context.type === "my-course" || context.type === "public-course"
@@ -455,7 +614,11 @@ export async function POST(request: Request) {
         required: ["mode", "title", "date", "subject"],
       },
     });
-    if (vectorStoreId) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
+    // A verified local chapter is already scoped to the selected resource and
+    // segment. Do not add the global vector store in that case: an unscoped
+    // file_search result could silently teach from another book or chapter.
+    const allowFileSearch = Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
+    if (allowFileSearch) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -472,6 +635,7 @@ export async function POST(request: Request) {
             { type: "input_image", image_url: imageDataUrl, detail: "high" },
           ] : message.text,
         })),
+        ...(allowFileSearch ? { include: ["file_search_call.results"] } : {}),
         tools,
       }),
     });
@@ -508,8 +672,51 @@ export async function POST(request: Request) {
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
     const searchedFiles = usedFileSearch(payload);
-    const sources = searchedFiles ? extractSources(payload) : [];
-    const fromFiles = sources.length > 0;
+    const citationSources = searchedFiles ? extractSources(payload) : [];
+    const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
+    const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
+    const fileSearchConfirmedForBook = Boolean(
+      context.type === "book" &&
+      searchedFiles &&
+      bookEvidence?.fileName &&
+      allSearchSources.some((name) => name === bookEvidence.fileName),
+    );
+    const effectiveTeachingEvidence: TeachingEvidence | null = context.type === "book"
+      ? bookEvidence?.status === "verified"
+        ? bookEvidence
+        : fileSearchConfirmedForBook
+          ? {
+              ...(bookEvidence ?? {
+                status: "unavailable",
+                retrieval: "none",
+                resourceId: context.resourceId,
+                segmentId: context.segmentId,
+                resourceTitle: context.resourceTitle,
+                segmentTitle: context.segmentTitle,
+                lessonLabel: "",
+                pageStart: null,
+                pageEnd: null,
+                fileName: "",
+                excerpt: "",
+                message: "",
+              }),
+              status: "full_text_search",
+              retrieval: "full_text_search",
+              excerpt: "本次由全文索引命中；章節與頁碼仍需人工核對。",
+              message: "已命中教材全文索引，但尚未確認這段內容是否屬於目前章節。",
+            }
+          : bookEvidence
+      : null;
+    const sources = context.type === "book"
+      ? effectiveTeachingEvidence?.status === "verified"
+        ? [`${effectiveTeachingEvidence.resourceTitle}｜${effectiveTeachingEvidence.segmentTitle}`]
+        : effectiveTeachingEvidence?.status === "full_text_search"
+          ? [effectiveTeachingEvidence.fileName || "教材全文索引（章節待核對）"]
+          : []
+      : citationSources;
+    const fromFiles = context.type === "book"
+      ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "full_text_search"
+      : sources.length > 0;
     const usage = readUsage(payload);
     const rates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
     const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens);
@@ -560,6 +767,7 @@ export async function POST(request: Request) {
       replacedTasks,
       tasksDeleted,
       sources,
+      teachingEvidence: effectiveTeachingEvidence,
       sessionId: session.id,
     });
   } catch {

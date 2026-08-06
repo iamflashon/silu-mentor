@@ -4456,6 +4456,45 @@ a {
   background: #1d4763;
   color: #fff;
 }
+.book-teaching-evidence {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border: 1px solid #cde3d5;
+  border-radius: 9px;
+  background: #f4fbf6;
+  color: #47705a;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.book-teaching-evidence strong {
+  color: #2b7650;
+  font-size: 11px;
+}
+.book-teaching-evidence span,
+.book-teaching-evidence small {
+  overflow-wrap: anywhere;
+}
+.book-teaching-evidence small {
+  color: #668678;
+}
+.book-teaching-evidence.full_text_search {
+  border-color: #ead9a9;
+  background: #fffaf0;
+  color: #7d6630;
+}
+.book-teaching-evidence.full_text_search strong {
+  color: #9a741f;
+}
+.book-teaching-evidence.unavailable {
+  border-color: #efc7c7;
+  background: #fff6f6;
+  color: #884e4e;
+}
+.book-teaching-evidence.unavailable strong {
+  color: #a44040;
+}
 .book-typing {
   color: #678491 !important;
 }

@@ -169,7 +169,21 @@ type BookFullTextHit = {
   page_end: number | null;
   relevance: string;
 };
-type TutorMessage = { role: "mentor" | "student"; text: string };
+type TeachingEvidence = {
+  status: "verified" | "full_text_search" | "unavailable";
+  retrieval: "chapter_segment" | "stored_analysis" | "full_text_search" | "none";
+  resourceId: number;
+  segmentId: number;
+  resourceTitle: string;
+  segmentTitle: string;
+  lessonLabel: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  fileName: string;
+  excerpt: string;
+  message: string;
+};
+type TutorMessage = { role: "mentor" | "student"; text: string; teachingEvidence?: TeachingEvidence | null };
 type ChatDay = {
   id: number;
   date: string;
@@ -1754,6 +1768,7 @@ export default function StudyPlanPage() {
         reply?: string;
         error?: string;
         sessionId?: number;
+        teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? null);
       setLastBookProgress({
@@ -1766,6 +1781,7 @@ export default function StudyPlanPage() {
           text: response.ok
             ? (result.reply ?? "我們先從這一章開始。")
             : (result.error ?? "AI 教學暫時無法開始"),
+          teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
     } catch {
@@ -1899,6 +1915,7 @@ export default function StudyPlanPage() {
         reply?: string;
         error?: string;
         sessionId?: number;
+        teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? bookSessionId);
       setBookMessages((current) => [
@@ -1908,6 +1925,7 @@ export default function StudyPlanPage() {
           text: response.ok
             ? (result.reply ?? "我們接著往下釐清。")
             : (result.error ?? "AI 教學暫時無法回應"),
+          teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
     } catch {
@@ -3121,8 +3139,8 @@ export default function StudyPlanPage() {
                                       onClick={() =>
                                         void startBookChapter(chapter)
                                       }
-                                    >
-                                      <span>
+                                  >
+                                    <span>
                                         {String(index + 1).padStart(2, "0")}
                                       </span>
                                       <div>
@@ -3338,9 +3356,28 @@ export default function StudyPlanPage() {
                                     {message.role === "mentor"
                                       ? "AI 教練"
                                       : "你"}
-                                  </span>
-                                  <p>{message.text}</p>
-                                </div>
+                                    </span>
+                                    <p>{message.text}</p>
+                                    {message.role === "mentor" && message.teachingEvidence && (
+                                      <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
+                                        <strong>
+                                          {message.teachingEvidence.status === "verified"
+                                            ? "✓ 已核對本章教材"
+                                            : message.teachingEvidence.status === "full_text_search"
+                                              ? "△ 命中全文索引，章節待核對"
+                                              : "! 尚未取得本章原文"}
+                                        </strong>
+                                        <span>
+                                          {message.teachingEvidence.status === "verified"
+                                            ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}${message.teachingEvidence.pageStart ? `｜第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : ""}`
+                                            : message.teachingEvidence.message}
+                                        </span>
+                                        {message.teachingEvidence.excerpt && (
+                                          <small>引用片段：{message.teachingEvidence.excerpt}</small>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                               ))}
                               {bookChatLoading && (
                                 <div className="book-dialogue-message mentor">
