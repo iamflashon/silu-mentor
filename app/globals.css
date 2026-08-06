@@ -4161,6 +4161,51 @@ a {
   margin-top: 15px;
   min-height: 700px;
 }
+
+/* Keep the book lesson and its composer in view while the chapter rail has
+   its own scroll area. The dialogue messages remain the only scroll region
+   inside the lesson card, so the composer stays pinned to the bottom. */
+@media (min-width: 921px) {
+  .resource-learning-layout:has(.book-study-panel) {
+    align-items: start;
+  }
+
+  .resource-learning-layout:has(.book-study-panel) > .resource-list {
+    position: sticky;
+    top: 126px;
+    max-height: calc(100dvh - 148px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: 5px;
+  }
+
+  .resource-learning-layout > .book-study-panel {
+    position: sticky;
+    top: 126px;
+    height: calc(100dvh - 148px);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .book-study-panel > header,
+  .book-study-panel > .resource-message {
+    flex: 0 0 auto;
+  }
+
+  .book-study-panel .book-learning-room {
+    min-height: 0;
+    height: 100%;
+    flex: 1 1 auto;
+  }
+
+  .book-study-panel .book-ai-dialogue {
+    height: 100%;
+    min-height: 0;
+  }
+}
 .book-topic-search {
   display: grid;
   gap: 10px;

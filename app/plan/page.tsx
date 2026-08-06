@@ -3228,7 +3228,9 @@ export default function StudyPlanPage() {
                 )}
               </aside>
               {selectedResource ? (
-                <article className="resource-study-panel">
+                <article
+                  className={`resource-study-panel ${selectedResource.resourceType === "book" ? "book-study-panel" : ""}`}
+                >
                   <header>
                     <div>
                       <span>
