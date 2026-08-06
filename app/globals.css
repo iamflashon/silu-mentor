@@ -14512,6 +14512,17 @@ a {
 .model-mode-switch button.active { border-color: #4d8b9c; background: #e8f5f6; color: #245d6a; font-weight: 800; }
 .model-mode-switch button:disabled { opacity: .55; cursor: wait; }
 .model-mode-switch small { color: #8b9ca3; }
+.model-mode-switch .student-test-prompt {
+  border-color: #d8c79e;
+  background: #fffaf0;
+  color: #8a6728;
+  font-weight: 800;
+}
+.model-mode-switch .student-test-prompt:hover:not(:disabled) {
+  border-color: #bd9a4e;
+  background: #fff3d5;
+  color: #6f501b;
+}
 .model-comparison-card { width: min(920px, 100%); margin: 2px 0 4px; }
 .model-comparison-card > header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid #dbe8ec; }
 .model-comparison-card > header div { display: grid; gap: 3px; }
@@ -14524,6 +14535,7 @@ a {
 .model-comparison-response-head small, .model-comparison-meta, .model-comparison-sources { color: #7a8e96; font-size: 11px; }
 .model-comparison-text { white-space: pre-wrap; line-height: 1.85; color: #334f5b; margin: 12px 0; }
 .model-comparison-error { color: #a65050; line-height: 1.7; min-height: 96px; }
+.model-comparison-truncated { display: block; margin: -3px 0 9px; color: #a56b32; font-size: 11px; line-height: 1.5; }
 .model-comparison-sources { display: block; line-height: 1.6; }
 .model-comparison-meta { display: grid; gap: 3px; padding: 10px 0; border-top: 1px solid #e6eff1; margin-top: 10px; }
 .model-comparison-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

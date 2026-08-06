@@ -262,7 +262,10 @@ async function runAnthropicTutor(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1800,
+      // 深度引導教學通常需要完整說明「爭點—規範—涵攝—追問」；1800
+      // tokens 會讓 Claude 在半句或半個段落停止，改用較寬的上限，並
+      // 透過 stop_reason 把異常截斷狀態回傳給前台。
+      max_tokens: 8000,
       system: `${instructions}${sourceInstruction}\n\n你是第二個獨立回答模型。請直接回答學生當下問題，不要提及模型比較、API 或內部檢索流程。`,
       messages: anthropicMessages(modelMessages, imageDataUrl),
     }),
@@ -280,6 +283,9 @@ async function runAnthropicTutor(
     inputTokens: Number(usage?.input_tokens ?? 0),
     outputTokens: Number(usage?.output_tokens ?? 0),
     durationMs: Math.max(0, Date.now() - startedAt),
+    stopReason: payload && typeof payload === "object" && typeof (payload as { stop_reason?: unknown }).stop_reason === "string"
+      ? String((payload as { stop_reason: string }).stop_reason)
+      : null,
   };
 }
 
@@ -789,7 +795,7 @@ export async function POST(request: Request) {
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
     const sharedRetrievalContext = searchedFiles ? extractFileSearchContext(payload) : "";
     const comparisonClaudeModel = modelMode === "dual" ? await getAnthropicChatModel("claude-sonnet-5") : "";
-    let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number } | null = null;
+    let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number; stopReason: string | null } | null = null;
     let claudeError = "";
     if (modelMode === "dual") {
       try {
@@ -944,6 +950,7 @@ export async function POST(request: Request) {
               estimatedCostUsd: row.estimatedCostUsdMicros / 1_000_000,
               durationMs: row.durationMs,
             },
+            stopReason: row.label === "Claude Sonnet" ? claudeRun?.stopReason ?? null : null,
           })),
         };
       }
