@@ -482,6 +482,7 @@ export default function AdminPage() {
   const [examCountdowns, setExamCountdowns] = useState<ExamCountdown[]>([]);
   const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
   const [savingHomepage, setSavingHomepage] = useState(false);
+  const chapterBuildRunningRef = useRef<Set<number>>(new Set());
 
   async function refreshChapterProgress(resourceIds: number[]) {
     const entries = await Promise.all(resourceIds.map(async (id) => {
@@ -1743,63 +1744,98 @@ export default function AdminPage() {
   }
 
   async function buildBookChapters(resource: LearningResource) {
+    if (chapterBuildRunningRef.current.has(resource.id)) return;
     if (!resource.documentId) {
       setNotice("請先替這本書綁定已完成索引的教材 PDF。");
       return;
     }
-    setNotice(`正在從「${resource.title}」已建立的教材索引整理章節；不會重新上傳或讀取整份 PDF…`);
-    setChapterProgress((current) => ({
-      ...current,
-      [resource.id]: { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 },
-    }));
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const response = await fetch("/api/resources/chapters", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          resourceId: resource.id,
-          rebuild: isProblemSolvingResource(resource),
-        }),
-      });
-      const result = (await readJson(response)) as {
-        chapters?: unknown[];
-        generated?: boolean;
-        reused?: boolean;
-        status?: string;
-        progress?: ChapterProgress;
-        error?: string;
-      };
-      if (result.progress) {
-        setChapterProgress((current) => ({ ...current, [resource.id]: result.progress! }));
-        if (result.progress.totalTopics) {
-          setNotice(`正在解析「${resource.title}」：主題 ${result.progress.completedTopics ?? 0}／${result.progress.totalTopics}，已找到 ${result.progress.foundQuestions ?? 0} 題。`);
+    chapterBuildRunningRef.current.add(resource.id);
+    try {
+      const previous = chapterProgress[resource.id];
+      setNotice(`正在從「${resource.title}」已建立的教材索引接續整理；不會重新上傳、刪除或重新拆解既有資料…`);
+      setChapterProgress((current) => ({
+        ...current,
+        [resource.id]: current[resource.id] ?? {
+          state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0,
+        },
+      }));
+      let pausedRetries = 0;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const response = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          // Never send the old `rebuild` flag: a retry must resume the saved
+          // queue instead of deleting pending real rows and starting at 0%.
+          body: JSON.stringify({ resourceId: resource.id }),
+        });
+        const result = (await readJson(response)) as {
+          chapters?: unknown[];
+          generated?: boolean;
+          reused?: boolean;
+          status?: string;
+          progress?: ChapterProgress;
+          error?: string;
+        };
+        if (result.progress) {
+          setChapterProgress((current) => ({ ...current, [resource.id]: result.progress! }));
+          if (result.progress.totalTopics) {
+            setNotice(`正在解析「${resource.title}」：主題 ${result.progress.completedTopics ?? 0}／${result.progress.totalTopics}，已找到 ${result.progress.foundQuestions ?? 0} 題。`);
+          }
         }
-      }
-      if (!response.ok && response.status !== 202) {
-        setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
+        if (!response.ok && response.status !== 202) {
+          setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
+          return;
+        }
+        if (result.status === "paused") {
+          // Rate limits are transient. Keep the saved checkpoint and retry in
+          // the same run, with a small backoff instead of requiring the user
+          // to discover and press another button.
+          pausedRetries += 1;
+          if (pausedRetries > 8) {
+            setNotice("AI 目前較忙；已保存拆解進度，系統稍後重新進入後會接續處理。");
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(8000, 1200 * 2 ** Math.min(pausedRetries - 1, 3))));
+          continue;
+        }
+        if (result.status === "failed") {
+          setNotice(result.error ?? "解析未完成；原資料仍保留，稍後可接續處理。");
+          return;
+        }
+        if (result.status === "building") {
+          await new Promise((resolve) => window.setTimeout(resolve, 350));
+          continue;
+        }
+        const count = result.chapters?.length ?? 0;
+        setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
+        setChapterProgress((current) => ({
+          ...current,
+          [resource.id]: result.progress ?? { ...(previous ?? {}), state: "completed", phase: "saving", foundQuestions: count },
+        }));
+        setNotice(result.reused
+          ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
+          : isProblemSolvingResource(resource)
+            ? `「${resource.title}」已完成目錄整理，共 ${count} 筆真實題型。`
+            : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
         return;
       }
-      if (result.status === "paused" || result.status === "failed") {
-        setNotice(result.status === "paused"
-          ? "解析暫停；已保存目前進度，稍後再按一次即可接著解析。"
-          : (result.error ?? "解析未完成；原資料仍保留。"));
-        return;
-      }
-      if (result.status === "building") {
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-        continue;
-      }
-      const count = result.chapters?.length ?? 0;
-      setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
-      setNotice(result.reused
-        ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
-        : isProblemSolvingResource(resource)
-          ? `「${resource.title}」已擷取 ${count} 道含完整題目的題型。`
-          : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
-      return;
+      setNotice("拆解進度已保存；系統下一次檢查會從目前主題接續，不會歸零。");
+    } finally {
+      chapterBuildRunningRef.current.delete(resource.id);
     }
-    setNotice("解析工作已保存目前進度；可再次按下按鈕接著處理剩餘主題。");
   }
+
+  // A page refresh must resume an interrupted real extraction without asking
+  // the administrator to press the old rebuild button again.
+  useEffect(() => {
+    resources
+      .filter((resource) => resource.resourceType === "book" && isProblemSolvingResource(resource))
+      .filter((resource) => ["building", "paused"].includes(chapterProgress[resource.id]?.state ?? ""))
+      .forEach((resource) => void buildBookChapters(resource));
+    // The function is intentionally kept local so it can access the existing
+    // admin state; the running-set guard prevents duplicate resume requests.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resources, chapterProgress]);
 
   async function bindCourseBook(
     resource: LearningResource,
@@ -3165,7 +3201,11 @@ export default function AdminPage() {
                             onClick={() => void buildBookChapters(resource)}
                           >
                             {isProblemSolvingResource(resource)
-                              ? "重新擷取題型與完整題目"
+                              ? chapterProgress[resource.id]?.state === "completed"
+                                ? "目錄已完成（查看分類）"
+                                : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
+                                  ? "接續整理題型"
+                                  : "開始整理題型與完整題目"
                               : Number(resource.chapterCount ?? 0) > 0
                                 ? "已建立好章節索引"
                                 : "建立章節索引（一次）"}

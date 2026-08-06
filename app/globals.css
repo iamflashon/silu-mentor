@@ -3164,12 +3164,12 @@ a {
 }
 .resource-list strong {
   display: block;
-  overflow: hidden;
+  min-width: 0;
   color: #28516a;
   font-size: 14px;
   line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .resource-list small,
 .resource-list em {
@@ -3323,14 +3323,52 @@ a {
   gap: 0;
 }
 .problem-part {
-  padding: 10px 0 2px;
+  padding: 0 0 2px;
   border-top: 1px solid #dce9ed;
 }
+.problem-part > summary,
+.problem-topic > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.problem-part > summary::-webkit-details-marker,
+.problem-topic > summary::-webkit-details-marker {
+  display: none;
+}
+.problem-part > summary::before,
+.problem-topic > summary::before {
+  flex: 0 0 auto;
+  color: #4f879b;
+  content: "＋";
+  font-size: 14px;
+  font-weight: 800;
+}
+.problem-part[open] > summary::before,
+.problem-topic[open] > summary::before {
+  content: "－";
+}
+.problem-part > summary {
+  padding: 10px 2px 9px;
+}
 .problem-part h4 {
-  margin: 0 2px 9px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   color: #183f59;
   font-size: 13px;
   line-height: 1.45;
+}
+.problem-part > summary em,
+.problem-topic > summary em {
+  flex: 0 0 auto;
+  color: #4a8399;
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
 }
 .problem-topic {
   margin: 0 0 11px;
@@ -3338,10 +3376,15 @@ a {
   border-left: 2px solid #b9d2dd;
 }
 .problem-topic h5 {
-  margin: 0 0 6px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   color: #346a83;
   font-size: 12px;
   line-height: 1.45;
+}
+.problem-topic > summary {
+  padding: 5px 5px 6px 0;
 }
 .problem-topic > button {
   display: flex;
@@ -3357,6 +3400,9 @@ a {
   text-align: left;
   cursor: pointer;
 }
+.problem-topic > button > strong {
+  flex: 1 1 auto;
+}
 .problem-topic > button:hover {
   background: #f0f7fa;
 }
@@ -3365,14 +3411,28 @@ a {
   box-shadow: inset 3px 0 #3e7d99;
 }
 .problem-topic > button strong {
+  min-width: 0;
   font-size: 11px;
   font-weight: 650;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .problem-topic > button em {
   flex: 0 0 auto;
   margin: 1px 0 0;
   font-size: 9px;
+  white-space: nowrap;
+}
+.problem-topic > button.catalogue-only {
+  cursor: not-allowed;
+  opacity: .72;
+}
+.problem-topic > button.catalogue-only small {
+  flex: 0 0 auto;
+  color: #a27635;
+  font-size: 9px;
+  white-space: nowrap;
 }
 .problem-solving-room .book-dialogue-messages:empty { display: none; }
 .problem-question-panel { margin: 14px 0 18px; padding: 20px; border: 1px solid #d5e5eb; border-radius: 12px; background: #fff; }

@@ -156,6 +156,7 @@ type ResourceSegment = {
   importance: number;
   recommended: boolean;
   sequence: number;
+  completeQuestion?: boolean;
 };
 type BookFullTextHit = {
   section: string;
@@ -3006,31 +3007,44 @@ export default function StudyPlanPage() {
                               ) : bookChapters.length ? (
                                 isProblemSolvingBook(resource) ? (
                                   selectedBookOutline.map((part) => (
-                                    <section
+                                    <details
                                       className="problem-part"
                                       key={part.section}
+                                      open
                                     >
-                                      <h4>{part.section}</h4>
+                                      <summary>
+                                        <h4>{part.section}</h4>
+                                        <em>{part.topics.reduce((total, topic) => total + topic.questions.length, 0)} 題型</em>
+                                      </summary>
                                       {part.topics.map((topic) => (
-                                        <div
+                                        <details
                                           className="problem-topic"
                                           key={`${part.section}-${topic.topic}`}
+                                          open={topic.questions.some((question) => question.id === selectedChapterId)}
                                         >
-                                          <h5>{topic.topic}</h5>
+                                          <summary>
+                                            <h5>{topic.topic}</h5>
+                                            <em>{topic.questions.length} 題型</em>
+                                          </summary>
                                           {topic.questions.map((chapter) => (
                                             <button
+                                              type="button"
                                               key={chapter.id}
+                                              disabled={chapter.completeQuestion === false}
                                               className={
-                                                selectedChapter?.id ===
+                                                `${selectedChapter?.id ===
                                                 chapter.id
                                                   ? "active"
-                                                  : ""
+                                                  : ""}${chapter.completeQuestion === false ? " catalogue-only" : ""}`
                                               }
                                               onClick={() =>
                                                 void startBookChapter(chapter)
                                               }
                                             >
-                                              <strong>{chapter.title}</strong>
+                                              <strong title={chapter.title}>{chapter.title}</strong>
+                                              {chapter.completeQuestion === false && (
+                                                <small>題文整理中</small>
+                                              )}
                                               {chapter.pageStart && (
                                                 <em>
                                                   第 {chapter.pageStart}
@@ -3044,9 +3058,9 @@ export default function StudyPlanPage() {
                                               )}
                                             </button>
                                           ))}
-                                        </div>
+                                        </details>
                                       ))}
-                                    </section>
+                                    </details>
                                   ))
                                 ) : (
                                   bookChapters.map((chapter, index) => (

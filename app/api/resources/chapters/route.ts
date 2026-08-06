@@ -254,31 +254,27 @@ export async function GET(request: Request) {
     const usableChapters = problemBook
       ? chapters.filter(isCompleteProblemQuestion)
       : chapters;
-    if (
-      usableChapters.length &&
-      (!problemBook || usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS)
-    ) {
-      return Response.json({
-        chapters: usableChapters,
-        generated: false,
-        ready: true,
-        status: "completed",
-        progress,
-      });
-    }
-
+    // The catalogue is useful before every stem has been recovered.  Returning
+    // an empty array here made the real saved outline disappear whenever a
+    // resumable extraction was interrupted.  Keep the catalogue visible and
+    // let the UI distinguish complete questions from catalogue-only rows.
     if (problemBook && chapters.length) {
       return Response.json({
-        chapters: [],
+        chapters: chapters.map((chapter) => ({
+          ...chapter,
+          completeQuestion: isCompleteProblemQuestion(chapter),
+        })),
         generated: false,
-        ready: false,
-        status: "needs_rebuild",
-        invalidCount: chapters.length,
+        ready: usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS,
+        status: usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS
+          ? "completed"
+          : "partial",
+        catalogueCount: chapters.length,
+        completeQuestionCount: usableChapters.length,
         progress,
-        message:
-          usableChapters.length > 0
-            ? `目前只擷取到 ${usableChapters.length} 道完整題目，明顯未涵蓋整本解題書；請到後台重新分批擷取。`
-            : `現有 ${chapters.length} 筆只有主題名稱，尚未擷取題型與完整題目；請到後台重新擷取題型。`,
+        message: usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS
+          ? undefined
+          : `已先顯示 ${chapters.length} 筆真實目錄；其中 ${usableChapters.length} 題已具備完整題文，剩餘部分會由後台接續整理。`,
       });
     }
 
@@ -381,6 +377,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       resourceId?: number;
       rebuild?: boolean;
+      restart?: boolean;
     };
     resourceId = Number(body.resourceId);
     if (!Number.isInteger(resourceId) || resourceId < 1)
@@ -395,21 +392,35 @@ export async function POST(request: Request) {
     if (!resource || resource.resourceType !== "book")
       return Response.json({ error: "找不到書籍" }, { status: 404 });
 
+    const progressRecord = await readChapterProgressRecord(resourceId);
+    let activeProgress = progressRecord.progress;
     const problemBook = isProblemBook(resource);
     const existing = await readChapters(resourceId);
+    const pendingExisting = problemBook ? await readPendingChapters(resourceId) : [];
     const validExisting = problemBook
       ? existing.filter(isCompleteProblemQuestion)
       : existing;
-    if (validExisting.length && !body.rebuild)
+    // `rebuild` used to be sent by the old admin button and caused a complete
+    // saved queue to be deleted and started again.  A normal retry is always a
+    // resume; only the explicit, currently-unused `restart` flag may reset a
+    // queue.
+    const explicitRestart = body.restart === true;
+    if (
+      validExisting.length &&
+      !pendingExisting.length &&
+      !explicitRestart &&
+      (!problemBook ||
+        activeProgress.state === "completed" ||
+        !activeProgress.totalTopics ||
+        (activeProgress.completedTopics ?? 0) >= activeProgress.totalTopics)
+    )
       return Response.json({
         chapters: validExisting,
         generated: false,
         reused: true,
         status: "completed",
+        progress: progressForResponse(activeProgress, progressRecord.updatedAt),
       });
-
-    const progressRecord = await readChapterProgressRecord(resourceId);
-    let activeProgress = progressRecord.progress;
 
     if (!resource.documentId)
       return Response.json(
@@ -450,22 +461,12 @@ export async function POST(request: Request) {
     // most one topic, so a timeout or rate limit cannot discard the topics
     // already completed. A request with an existing checkpoint continues it.
     let topics = problemBook ? activeProgress.topics : undefined;
-    const shouldRestartCompleted = problemBook && activeProgress.state === "failed"
-      && activeProgress.totalTopics != null
-      && activeProgress.completedTopics != null
-      && activeProgress.completedTopics >= activeProgress.totalTopics;
-    if (problemBook && (!topics?.length || shouldRestartCompleted)) {
-      const pending = await readPendingChapters(resourceId);
-      if (pending.length) {
-        await db.delete(resourceSegments).where(
-          and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, PENDING_CHAPTER_TYPE)),
-        );
-      }
+    if (problemBook && (!topics?.length || explicitRestart)) {
       await writeChapterProgress(resourceId, {
         state: "building", phase: "outline", completedTopics: 0,
-        totalTopics: 0, foundQuestions: 0,
+        totalTopics: 0, foundQuestions: pendingExisting.length,
       });
-      activeProgress = { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 };
+      activeProgress = { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: pendingExisting.length };
       topics = undefined;
     }
     const extractionModel =
