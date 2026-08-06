@@ -12,7 +12,7 @@ import {
 } from "../../../../lib/document-analysis";
 import { openAIJson } from "../../../../lib/openai";
 
-const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
+const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline", "book_chapter_pending"] as const;
 // Temporary rows keep a resumable extraction invisible to students until the
 // minimum complete-question threshold is reached and the job is finalized.
 const PENDING_CHAPTER_TYPE = "book_chapter_pending";

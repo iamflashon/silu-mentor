@@ -61,7 +61,10 @@ export async function GET() {
       documentTagsJson: documents.tagsJson,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
       segmentCount: sql<number>`count(${resourceSegments.id})`,
-      chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') then 1 else 0 end)`,
+      // Resumable problem-book extraction stores already-saved rows as
+      // book_chapter_pending. They are real catalogue data and must not make
+      // the card report 0 while the progress panel has found questions.
+      chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline', 'book_chapter_pending') then 1 else 0 end)`,
       updatedAt: learningResources.updatedAt,
     })
     .from(learningResources)
