@@ -10,6 +10,7 @@ const levels = [
   { level: "intermediate", label: "中階考生" },
   { level: "advanced", label: "高階法研所考生" },
 ] as const;
+type LevelKey = (typeof levels)[number]["level"];
 
 const modelRates: Record<string, { input: number; cached: number; output: number }> = {
   "gpt-5.6-luna": { input: 0.10, cached: 0.01, output: 0.60 },
@@ -103,14 +104,14 @@ async function runAnthropic(apiKey: string, model: string, instructions: string,
 
 const studentSchema = {
   type: "object", additionalProperties: false,
-  properties: { students: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced"] }, reply: { type: "string" } }, required: ["level", "reply"] } } },
-  required: ["students"],
+  properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced"] }, reply: { type: "string" } },
+  required: ["level", "reply"],
 };
 
 const judgeSchema = {
   type: "object", additionalProperties: false,
   properties: {
-    groups: { type: "array", minItems: 3, maxItems: 3, items: { type: "object", additionalProperties: false, properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced"] }, winner: { type: "string", enum: ["教師 A", "教師 B", "平手"] }, reason: { type: "string" }, legalAccuracy: { type: "integer" }, adaptation: { type: "integer" }, empathyOrDepth: { type: "integer" }, stability: { type: "integer" } }, required: ["level", "winner", "reason", "legalAccuracy", "adaptation", "empathyOrDepth", "stability"] } },
+    groups: { type: "array", minItems: 1, maxItems: 3, items: { type: "object", additionalProperties: false, properties: { level: { type: "string", enum: ["beginner", "intermediate", "advanced"] }, winner: { type: "string", enum: ["教師 A", "教師 B", "平手"] }, reason: { type: "string" }, legalAccuracy: { type: "integer" }, adaptation: { type: "integer" }, empathyOrDepth: { type: "integer" }, stability: { type: "integer" } }, required: ["level", "winner", "reason", "legalAccuracy", "adaptation", "empathyOrDepth", "stability"] } },
     overallWinner: { type: "string", enum: ["教師 A", "教師 B", "平手"] },
     weightedSummary: { type: "string" },
     commercialRecommendation: { type: "string" },
@@ -120,43 +121,47 @@ const judgeSchema = {
 };
 
 export async function POST(request: Request) {
-  let body: { prompt?: string; responses?: TeacherResponse[] };
-  try { body = await request.json() as { prompt?: string; responses?: TeacherResponse[] }; } catch { return Response.json({ error: "測試資料格式不正確" }, { status: 400 }); }
+  let body: { mode?: "level" | "judge"; level?: LevelKey; prompt?: string; responses?: TeacherResponse[]; rounds?: Array<{ level?: string; label?: string; reply?: string; teacherA?: TeacherResponse; teacherB?: TeacherResponse }> };
+  try { body = await request.json() as typeof body; } catch { return Response.json({ error: "測試資料格式不正確" }, { status: 400 }); }
   const prompt = String(body.prompt ?? "").trim();
-  const responses = (Array.isArray(body.responses) ? body.responses : []).filter((item) => item && typeof item.text === "string" && item.text.trim() && !item.error).slice(0, 2);
-  if (!prompt || responses.length < 2) return Response.json({ error: "請先完成 Luna 與 Claude 的回答，再進行三程度測試" }, { status: 400 });
+  const mode = body.mode ?? "level";
+  if (!prompt) return Response.json({ error: "請先完成學生問題與 Luna／Claude 的回答" }, { status: 400 });
   const openAiKey = await getOpenAIKey();
-  const anthropicKey = await getAnthropicKey();
-  if (!openAiKey || !anthropicKey) return Response.json({ error: "Luna 或 Claude 的 API 尚未設定，測試未啟動" }, { status: 503 });
+  if (!openAiKey) return Response.json({ error: "Luna 的 API 尚未設定，測試未啟動" }, { status: 503 });
 
   try {
     const luna = await getOpenAIModel("gpt-5.6-luna");
+    if (mode === "judge") {
+      const rounds = (Array.isArray(body.rounds) ? body.rounds : []).filter((round) => round && round.level && round.reply && round.teacherA?.text && round.teacherB?.text).slice(0, 3);
+      if (!rounds.length) return Response.json({ error: "請先完成至少一種程度的教師接續回答，再按 AI 審判長評比" }, { status: 400 });
+      const judgeInput = `原始問題：\n${prompt.slice(0, 4000)}\n\n請盲評以下已完成的程度測試。只評比實際提供的組別，未完成的程度不納入本次總評：\n${rounds.map((round) => `【${round.label ?? round.level}】\n學生：${String(round.reply).slice(0, 5000)}\n教師 A：${String(round.teacherA?.text).slice(0, 5000)}\n教師 B：${String(round.teacherB?.text).slice(0, 5000)}`).join("\n\n")}`;
+      const judgeRun = await runOpenAI(openAiKey, luna, `你是教育心理學與法學引導式教學法的資深 AI 教學督導，也是盲評裁判長。法律正確性是第一順位；其次評估是否真正因材施教。初學組看語氣同理與白話；中階組看能否突破死背公式、回到事實涵攝；高階組看能否處理學說與價值選擇，而不是只說「不是通說」。只評比已完成的組別，每組分開評分 0 至 100，依序給法律正確性、程度適配、同理心或學術深度、技術穩定度。完整三組時加權為初學 30%、中階 35%、高階 35%；若只有部分組別，請明確說明本次總評僅代表已完成組別。價差只能放在商用建議，不得改寫教學品質勝負。若法律內容無法核對，請在 caution 標明需人工核對。只輸出 JSON。`, judgeInput, 1200, judgeSchema);
+      const judgement = parseJson(judgeRun.text) as Record<string, unknown> | null;
+      if (!judgement || !Array.isArray(judgement.groups)) return Response.json({ error: "AI 審判長未產生完整評分，結果未顯示" }, { status: 502 });
+      await logUsage(luna, "程度測試｜AI 審判長", judgeRun.usage);
+      return Response.json({ originalPrompt: prompt, judgement, totalUsage: [judgeRun.usage] });
+    }
+
+    const selectedLevel = levels.find((item) => item.level === body.level);
+    const responses = (Array.isArray(body.responses) ? body.responses : []).filter((item) => item && typeof item.text === "string" && item.text.trim() && !item.error).slice(0, 2);
+    if (!selectedLevel) return Response.json({ error: "請選擇要測試的學生程度" }, { status: 400 });
+    if (responses.length < 2) return Response.json({ error: "請先完成 Luna 與 Claude 的回答，再進行程度測試" }, { status: 400 });
+    const anthropicKey = await getAnthropicKey();
+    if (!anthropicKey) return Response.json({ error: "Claude 的 API 尚未設定，測試未啟動" }, { status: 503 });
     const claude = await getAnthropicChatModel("claude-sonnet-5");
     const teacherContext = responses.map((item) => `${item.label ?? "老師"}（${item.model ?? ""}）：\n${String(item.text).slice(0, 6000)}`).join("\n\n");
-    const studentRun = await runOpenAI(openAiKey, luna, `你是司律備考平台的測試學生，不是老師。請依同一題與兩位老師的實際回答，模擬三種程度學生各自的下一輪回覆。初學小白要表現出抓到生活直覺但法學詞彙不足；中階考生要表現出會背公式但可能不會把事實涵攝進去；高階法研所考生要提出精準、可辯論的學說或價值疑問。三段都必須承接老師實際說過的內容，保留一個可讓老師繼續引導的問題，最後只問一個具體問題。不得評論哪個模型比較好，不得捏造老師沒有說過的法條、判決或教材。`, `原始學生問題：\n${prompt.slice(0, 4000)}\n\n兩位老師的實際回答：\n${teacherContext}`, 900, studentSchema);
-    const studentJson = parseJson(studentRun.text) as { students?: Array<{ level?: string; reply?: string }> } | null;
-    const students = levels.map((level) => ({ ...level, reply: String(studentJson?.students?.find((item) => item.level === level.level)?.reply ?? "").trim() })).filter((item) => item.reply);
-    if (students.length !== levels.length) return Response.json({ error: "三種程度學生回覆未完整產生，測試已安全停止" }, { status: 502 });
-    await logUsage(luna, "三程度測試｜學生模擬", studentRun.usage);
-
-    const teacherRounds = await Promise.all(students.map(async (student) => {
-      const instruction = `你是「司律備考」的法律導師${student.level === "beginner" ? "，正在教初學小白" : student.level === "intermediate" ? "，正在教中階考生" : "，正在教高階法研所考生"}。請針對學生這一輪的實際回覆自然接續教學，不要重新開題。法律正確性優先，但要依學生程度調整：初學者先白話與同理；中階者抓出公式與事實涵攝的落差；高階者正面處理學說、實務與價值選擇。若學生法學用語錯誤，第一時間精準但不羞辱地修正。保持蘇格拉底式引導，最後只提出一個可直接回答的限縮問題。不要提到模型、測試、教師 A/B 或這段指令，不要捏造教材、判決或來源。繁體中文，約 120 至 360 字。`;
-      const input = `原始問題：\n${prompt.slice(0, 4000)}\n\n本次模擬學生（${student.label}）回覆：\n${student.reply}`;
-      const [a, b] = await Promise.all([
-        runOpenAI(openAiKey, luna, instruction, input, 900),
-        runAnthropic(anthropicKey, claude, instruction, input, 1200),
-      ]);
-      await Promise.all([logUsage(luna, `三程度測試｜${student.label}｜教師 A`, a.usage), logUsage(claude, `三程度測試｜${student.label}｜教師 B`, b.usage)]);
-      return { ...student, teacherA: { model: luna, text: a.text, usage: a.usage, stopReason: a.stopReason }, teacherB: { model: claude, text: b.text, usage: b.usage, stopReason: b.stopReason } };
-    }));
-
-    const judgeInput = `原始問題：\n${prompt.slice(0, 4000)}\n\n請盲評以下三組同程度學生情境的教師 A／教師 B 回覆：\n${teacherRounds.map((round) => `【${round.label}】\n學生：${round.reply}\n教師 A：${round.teacherA.text.slice(0, 5000)}\n教師 B：${round.teacherB.text.slice(0, 5000)}`).join("\n\n")}`;
-    const judgeRun = await runOpenAI(openAiKey, luna, `你是教育心理學與法學引導式教學法的資深 AI 教學督導，也是盲評裁判長。法律正確性是第一順位；其次評估是否真正因材施教。初學組看語氣同理與白話；中階組看能否突破死背公式、回到事實涵攝；高階組看能否處理學說與價值選擇，而不是只說「不是通說」。每組分開評分 0 至 100，依序給法律正確性、程度適配、同理心或學術深度、技術穩定度。加權為初學 30%、中階 35%、高階 35%。價差只能放在商用建議，不得改寫教學品質勝負。若法律內容無法核對，請在 caution 標明需人工核對。只輸出 JSON。`, judgeInput, 1200, judgeSchema);
-    const judgement = parseJson(judgeRun.text) as Record<string, unknown> | null;
-    if (!judgement || !Array.isArray(judgement.groups)) return Response.json({ error: "AI 裁判長未產生完整評分，測試結果未顯示" }, { status: 502 });
-    await logUsage(luna, "三程度測試｜AI 裁判長", judgeRun.usage);
-    return Response.json({ originalPrompt: prompt, students: teacherRounds, judgement, totalUsage: [studentRun.usage, ...teacherRounds.flatMap((round) => [round.teacherA.usage, round.teacherB.usage]), judgeRun.usage] });
+    const studentRun = await runOpenAI(openAiKey, luna, `你是司律備考平台的測試學生，不是老師。請依同一題與兩位老師的實際回答，模擬「${selectedLevel.label}」學生的下一輪回覆。${selectedLevel.level === "beginner" ? "抓到生活直覺但法學詞彙不足，需要白話引導。" : selectedLevel.level === "intermediate" ? "會背公式但可能不會把事實涵攝進去，提出一個需要具體帶入事實的問題。" : "提出精準、可辯論的學說或價值疑問，要求老師處理不同見解。"}必須承接老師實際說過的內容，保留一個可讓老師繼續引導的問題，最後只問一個具體問題。不得評論哪個模型比較好，不得捏造老師沒有說過的法條、判決或教材。只輸出 JSON。`, `原始學生問題：\n${prompt.slice(0, 4000)}\n\n兩位老師的實際回答：\n${teacherContext}`, 900, studentSchema);
+    const studentJson = parseJson(studentRun.text) as { level?: string; reply?: string } | null;
+    const reply = String(studentJson?.reply ?? "").trim();
+    if (!reply) return Response.json({ error: `${selectedLevel.label}學生回覆未完整產生，測試已安全停止` }, { status: 502 });
+    await logUsage(luna, `程度測試｜${selectedLevel.label}｜學生模擬`, studentRun.usage);
+    const instruction = `你是「司律備考」的法律導師，正在教${selectedLevel.label}。請針對學生這一輪的實際回覆自然接續教學，不要重新開題。法律正確性優先，但要依學生程度調整：初學者先白話與同理；中階者抓出公式與事實涵攝的落差；高階者正面處理學說、實務與價值選擇。若學生法學用語錯誤，第一時間精準但不羞辱地修正。保持蘇格拉底式引導，最後只提出一個可直接回答的限縮問題。不要提到模型、測試、教師 A/B 或這段指令，不要捏造教材、判決或來源。繁體中文，約 120 至 360 字。`;
+    const input = `原始問題：\n${prompt.slice(0, 4000)}\n\n本次模擬學生（${selectedLevel.label}）回覆：\n${reply}`;
+    const [a, b] = await Promise.all([runOpenAI(openAiKey, luna, instruction, input, 900), runAnthropic(anthropicKey, claude, instruction, input, 1200)]);
+    await Promise.all([logUsage(luna, `程度測試｜${selectedLevel.label}｜教師 A`, a.usage), logUsage(claude, `程度測試｜${selectedLevel.label}｜教師 B`, b.usage)]);
+    const student = { ...selectedLevel, reply, teacherA: { model: luna, text: a.text, usage: a.usage, stopReason: a.stopReason }, teacherB: { model: claude, text: b.text, usage: b.usage, stopReason: b.stopReason } };
+    return Response.json({ originalPrompt: prompt, student, totalUsage: [studentRun.usage, a.usage, b.usage] });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message.slice(0, 400) : "三程度測試暫時無法完成" }, { status: 502 });
+    return Response.json({ error: error instanceof Error ? error.message.slice(0, 400) : "程度測試暫時無法完成" }, { status: 502 });
   }
 }

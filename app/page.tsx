@@ -19,12 +19,9 @@ type ComparisonResponse = {
 };
 type ModelComparison = { id: number; sourceStatus: string; responses: ComparisonResponse[] };
 type EvaluationUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
-type TeachingEvaluation = {
-  originalPrompt: string;
-  students: Array<{ level: string; label: string; reply: string; teacherA: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null } }>;
-  judgement: { groups: Array<{ level: string; winner: string; reason: string; legalAccuracy: number; adaptation: number; empathyOrDepth: number; stability: number }>; overallWinner: string; weightedSummary: string; commercialRecommendation: string; caution: string };
-  totalUsage: EvaluationUsage[];
-};
+type TeachingLevel = "beginner" | "intermediate" | "advanced";
+type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
+type TeachingJudgement = { groups: Array<{ level: string; winner: string; reason: string; legalAccuracy: number; adaptation: number; empathyOrDepth: number; stability: number }>; overallWinner: string; weightedSummary: string; commercialRecommendation: string; caution: string };
 type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; comparison?: ModelComparison };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
@@ -79,12 +76,12 @@ function ModelComparisonCard({ comparison, onRate }: { comparison: ModelComparis
     </div>
   </section>;
 }
-function TeachingEvaluationCard({ evaluation }: { evaluation: TeachingEvaluation }) {
-  const groupMap = new Map(evaluation.judgement.groups.map((group) => [group.level, group]));
-  return <section className="teaching-evaluation-card" aria-label="三程度教學測試結果">
-    <header><div><b>三程度教學測試</b><span>同一題、三種程度、兩位老師接續回答</span></div><small>法律正確性優先；初學 30% · 中階 35% · 高階 35%</small></header>
+function TeachingEvaluationCard({ rounds, judgement, totalUsage }: { rounds: TeachingRound[]; judgement: TeachingJudgement | null; totalUsage: EvaluationUsage[] }) {
+  const groupMap = new Map((judgement?.groups ?? []).map((group) => [group.level, group]));
+  return <section className="teaching-evaluation-card" aria-label="程度教學測試結果">
+    <header><div><b>程度教學測試結果</b><span>每種程度獨立測試；完成後再單獨請 AI 審判長評比</span></div><small>目前完成 {rounds.length}/3 組 · 審判長不會自動執行</small></header>
     <div className="teaching-evaluation-rounds">
-      {evaluation.students.map((student) => {
+      {rounds.map((student) => {
         const group = groupMap.get(student.level);
         return <article key={student.level}>
           <div className="teaching-evaluation-level"><strong>{student.label}</strong><span>{group?.winner ? `${group.winner}勝出` : "尚未判定"}</span></div>
@@ -94,8 +91,8 @@ function TeachingEvaluationCard({ evaluation }: { evaluation: TeachingEvaluation
         </article>;
       })}
     </div>
-    <div className="teaching-evaluation-verdict"><strong>最終裁決：{evaluation.judgement.overallWinner}</strong><p>{evaluation.judgement.weightedSummary}</p><p><b>商用建議：</b>{evaluation.judgement.commercialRecommendation}</p>{evaluation.judgement.caution && <small>核對提醒：{evaluation.judgement.caution}</small>}</div>
-    <small className="teaching-evaluation-cost">本次測試共 {evaluation.totalUsage.length} 次模型呼叫 · 約 US$ {evaluation.totalUsage.reduce((sum, item) => sum + item.estimatedCostUsd, 0).toFixed(5)}</small>
+    {judgement ? <div className="teaching-evaluation-verdict"><strong>AI 審判長裁決：{judgement.overallWinner}</strong><p>{judgement.weightedSummary}</p><p><b>商用建議：</b>{judgement.commercialRecommendation}</p>{judgement.caution && <small>核對提醒：{judgement.caution}</small>}</div> : <div className="teaching-evaluation-pending">已完成的程度可以先查看教師回覆；請按「AI 審判長評比」才會產生裁決。</div>}
+    <small className="teaching-evaluation-cost">本次已執行 {totalUsage.length} 次模型呼叫 · 約 US$ {totalUsage.reduce((sum, item) => sum + item.estimatedCostUsd, 0).toFixed(5)}</small>
   </section>;
 }
 export default function Home() {
@@ -119,8 +116,11 @@ export default function Home() {
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const [modelMode, setModelMode] = useState<"luna" | "dual">("luna");
   const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
-  const [teachingEvaluation, setTeachingEvaluation] = useState<TeachingEvaluation | null>(null);
-  const [evaluatingTeaching, setEvaluatingTeaching] = useState(false);
+  const [teachingRounds, setTeachingRounds] = useState<TeachingRound[]>([]);
+  const [teachingJudgement, setTeachingJudgement] = useState<TeachingJudgement | null>(null);
+  const [teachingUsage, setTeachingUsage] = useState<EvaluationUsage[]>([]);
+  const [evaluatingLevel, setEvaluatingLevel] = useState<TeachingLevel | null>(null);
+  const [evaluatingJudge, setEvaluatingJudge] = useState(false);
   const messageListRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -159,6 +159,7 @@ export default function Home() {
   const magazineArticles = homeFeed?.magazine?.articles ?? [];
   const selectedMagazineArticle = magazineArticles.find((article) => article.id === selectedMagazineArticleId) ?? magazineArticles[0] ?? null;
   const latestComparison = [...messages].reverse().find((message) => message.role === "mentor" && message.comparison)?.comparison ?? null;
+  const evaluatingTeaching = Boolean(evaluatingLevel || evaluatingJudge);
 
   useEffect(() => {
     const refreshTaipeiClock = () => {
@@ -424,6 +425,9 @@ export default function Home() {
     const attachedImage = imageDraft ? await prepareQuestionImage(imageDraft) : undefined;
     const nextMessages: Message[] = [...messages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
     setMessages(nextMessages);
+    setTeachingRounds([]);
+    setTeachingJudgement(null);
+    setTeachingUsage([]);
     setInput("");
     setDailyChoiceVisible(false);
     setImageDraft(null);
@@ -500,24 +504,51 @@ export default function Home() {
     }
   }
 
-  async function runTeachingEvaluation() {
+  async function runTeachingLevel(level: TeachingLevel) {
     if (thinking || generatingStudentReply || evaluatingTeaching || !latestComparison) return;
     const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
-    setEvaluatingTeaching(true);
-    setTeachingEvaluation(null);
+    if (!latestStudent) {
+      setMessages((current) => [...current, { role: "mentor", text: "請先送出一題學生問題，再開始程度測試。" }]);
+      return;
+    }
+    setEvaluatingLevel(level);
     try {
       const response = await fetch("/api/chat/teaching-evaluation", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: latestStudent, responses: latestComparison.responses.map((item) => ({ label: item.label, model: item.model, text: item.text, error: item.error })) }),
+        body: JSON.stringify({ mode: "level", level, prompt: latestStudent, responses: latestComparison.responses.map((item) => ({ label: item.label, model: item.model, text: item.text, error: item.error })) }),
       });
-      const result = await response.json() as { originalPrompt?: string; students?: TeachingEvaluation["students"]; judgement?: TeachingEvaluation["judgement"]; totalUsage?: EvaluationUsage[]; error?: string };
-      if (!response.ok || !result.students || !result.judgement || !result.totalUsage) throw new Error(result.error ?? "三程度教學測試未完成");
-      setTeachingEvaluation({ originalPrompt: result.originalPrompt ?? latestStudent, students: result.students, judgement: result.judgement, totalUsage: result.totalUsage });
+      const result = await response.json() as { student?: TeachingRound; totalUsage?: EvaluationUsage[]; error?: string };
+      if (!response.ok || !result.student || !result.totalUsage) throw new Error(result.error ?? "程度教學測試未完成");
+      setTeachingRounds((current) => [...current.filter((item) => item.level !== level), result.student!].sort((a, b) => ["beginner", "intermediate", "advanced"].indexOf(a.level) - ["beginner", "intermediate", "advanced"].indexOf(b.level)));
+      setTeachingJudgement(null);
+      setTeachingUsage((current) => [...current, ...result.totalUsage!]);
     } catch (error) {
-      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "三程度教學測試暫時無法完成。" }]);
+      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "程度教學測試暫時無法完成。" }]);
     } finally {
-      setEvaluatingTeaching(false);
+      setEvaluatingLevel(null);
+    }
+  }
+
+  async function runTeachingJudge() {
+    if (thinking || generatingStudentReply || evaluatingTeaching || !latestComparison || !teachingRounds.length) return;
+    const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
+    if (!latestStudent) return;
+    setEvaluatingJudge(true);
+    try {
+      const response = await fetch("/api/chat/teaching-evaluation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "judge", prompt: latestStudent, rounds: teachingRounds }),
+      });
+      const result = await response.json() as { judgement?: TeachingJudgement; totalUsage?: EvaluationUsage[]; error?: string };
+      if (!response.ok || !result.judgement || !result.totalUsage) throw new Error(result.error ?? "AI 審判長評比未完成");
+      setTeachingJudgement(result.judgement);
+      setTeachingUsage((current) => [...current, ...result.totalUsage!]);
+    } catch (error) {
+      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "AI 審判長評比暫時無法完成。" }]);
+    } finally {
+      setEvaluatingJudge(false);
     }
   }
 
@@ -613,7 +644,7 @@ export default function Home() {
           <div ref={endRef} />
         </div>}
 
-        {!practiceQuestion && teachingEvaluation && <TeachingEvaluationCard evaluation={teachingEvaluation} />}
+        {!practiceQuestion && (teachingRounds.length > 0 || teachingJudgement) && <TeachingEvaluationCard rounds={teachingRounds} judgement={teachingJudgement} totalUsage={teachingUsage} />}
 
         {!practiceQuestion && dailyChoiceVisible && yesterday && <section className="daily-handoff" aria-label="昨日學習接續選擇">
           <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
@@ -675,7 +706,7 @@ export default function Home() {
       </div>
 
       {!practiceQuestion && <div className={`composer-wrap rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""}`}>
-        <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>回答模型</span><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna＋Claude Sonnet 比較</button><button type="button" className="student-test-prompt" onClick={latestComparison ? generateStudentFollowUp : insertStudentTestPrompt} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{generatingStudentReply ? "✦ 整理老師回覆中…" : latestComparison ? "✦ 依老師回覆生成同學回覆" : "✦ 貼上學生測試回答"}</button>{latestComparison && <button type="button" className="teaching-evaluation-trigger" onClick={() => void runTeachingEvaluation()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingTeaching ? "✦ 三程度測試中…" : "✦ 三程度教學測試"}</button>}<small>{evaluatingTeaching ? "正在模擬三種程度學生、讓兩位老師接續，再由 AI 裁判長盲評" : latestComparison ? "可生成接續學生回覆，或進行三程度教學測試" : modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : "一般對話使用 Luna"}</small></div>
+        <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>回答模型</span><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna＋Claude Sonnet 比較</button><button type="button" className="student-test-prompt" onClick={latestComparison ? generateStudentFollowUp : insertStudentTestPrompt} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{generatingStudentReply ? "✦ 整理老師回覆中…" : latestComparison ? "✦ 依老師回覆生成同學回覆" : "✦ 貼上學生測試回答"}</button>{latestComparison && <div className="teaching-test-buttons" role="group" aria-label="分開測試學生程度"><button type="button" className="teaching-level-beginner" onClick={() => void runTeachingLevel("beginner")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "beginner" ? "測試中…" : teachingRounds.some((item) => item.level === "beginner") ? "初學小白 ✓" : "初學小白測試"}</button><button type="button" className="teaching-level-intermediate" onClick={() => void runTeachingLevel("intermediate")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "intermediate" ? "測試中…" : teachingRounds.some((item) => item.level === "intermediate") ? "中階考生 ✓" : "中階考生測試"}</button><button type="button" className="teaching-level-advanced" onClick={() => void runTeachingLevel("advanced")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "advanced" ? "測試中…" : teachingRounds.some((item) => item.level === "advanced") ? "高階考生 ✓" : "高階考生測試"}</button><button type="button" className="teaching-evaluation-trigger" onClick={() => void runTeachingJudge()} disabled={thinking || generatingStudentReply || evaluatingTeaching || !teachingRounds.length}>{evaluatingJudge ? "審判中…" : teachingJudgement ? "AI 審判長 ✓" : "AI 審判長評比"}</button></div>}<small>{evaluatingLevel ? `正在測試${evaluatingLevel === "beginner" ? "初學小白" : evaluatingLevel === "intermediate" ? "中階考生" : "高階考生"}，只執行這一組` : evaluatingJudge ? "AI 審判長正在評比已完成的程度，不會自動測試其他程度" : latestComparison ? "三種程度與 AI 審判長都可分開按；每次只執行你選的按鈕" : modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : "一般對話使用 Luna"}</small></div>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />

@@ -14511,6 +14511,12 @@ a {
 }
 .model-mode-switch button.active { border-color: #4d8b9c; background: #e8f5f6; color: #245d6a; font-weight: 800; }
 .model-mode-switch button:disabled { opacity: .55; cursor: wait; }
+.teaching-test-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.teaching-test-buttons button { white-space: nowrap; }
+.model-mode-switch .teaching-level-beginner { border-color: #d8c79e; background: #fffaf0; color: #8a6728; font-weight: 800; }
+.model-mode-switch .teaching-level-intermediate { border-color: #c6dbe0; background: #f1f9fa; color: #3f7180; font-weight: 800; }
+.model-mode-switch .teaching-level-advanced { border-color: #c7d2e5; background: #f3f6fc; color: #456486; font-weight: 800; }
+.model-mode-switch .teaching-level-beginner:hover:not(:disabled), .model-mode-switch .teaching-level-intermediate:hover:not(:disabled), .model-mode-switch .teaching-level-advanced:hover:not(:disabled) { filter: brightness(.97); }
 .model-mode-switch small { color: #8b9ca3; }
 .model-mode-switch .student-test-prompt {
   border-color: #d8c79e;
@@ -14576,7 +14582,9 @@ a {
 .teaching-evaluation-verdict p { margin: 0; }
 .teaching-evaluation-verdict small, .teaching-evaluation-cost { color: #7d929d; font-size: 11px; }
 .teaching-evaluation-cost { display: block; margin-top: 9px; }
+.teaching-evaluation-pending { margin-top: 12px; padding: 10px 12px; border-radius: 9px; background: #f8fbfd; color: #718797; font-size: 12px; line-height: 1.6; }
 @media (max-width: 720px) {
   .teaching-evaluation-card > header { display: grid; gap: 3px; }
   .teaching-evaluation-teachers { grid-template-columns: 1fr; }
+  .teaching-test-buttons { width: 100%; }
 }
