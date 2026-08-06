@@ -28,6 +28,9 @@ const CHAPTER_INSERT_BATCH_SIZE = 4;
 type ChapterPayload = {
   chapters?: Array<{
     title?: string;
+    name?: string;
+    label?: string;
+    chapter_title?: string;
     section?: string;
     topic?: string;
     stem?: string;
@@ -52,6 +55,8 @@ type StoredDocumentAnalysis = {
     topic?: string;
     summary?: string;
     content?: string;
+    body?: string;
+    original_text?: string;
     text?: string;
     stem?: string;
     page_start?: number | null;
@@ -62,8 +67,13 @@ type StoredDocumentAnalysis = {
   questions?: Array<{
     number?: string;
     title?: string;
+    name?: string;
+    label?: string;
+    chapter_title?: string;
     question_title?: string;
     content?: string;
+    body?: string;
+    original_text?: string;
     stem?: string;
     question?: string;
     chapter?: string;
@@ -206,7 +216,7 @@ function storedCatalogueRows(
   return sourceRows
     .map((item, index) => {
       const title = String(
-        item.title ?? item.question_title ?? item.question_no ?? item.number ?? "",
+        item.title ?? item.name ?? item.label ?? item.chapter_title ?? item.question_title ?? item.question_no ?? item.number ?? "",
       ).trim();
       if (!title) return null;
       const section = String(
@@ -216,7 +226,7 @@ function storedCatalogueRows(
         item.chapter ?? item.topic ?? item.theme ?? item.subject ?? "",
       ).trim() || (mode === "chapters" ? "教材章節" : "其他題型");
       const text = String(
-        item.content ?? item.text ?? item.stem ?? item.question_text ?? item.question ?? "",
+        item.content ?? item.text ?? item.body ?? item.original_text ?? item.stem ?? item.question_text ?? item.question ?? "",
       ).trim();
       const summary = String(item.summary ?? "").trim();
       return {

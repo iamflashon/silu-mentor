@@ -20,6 +20,21 @@ function firstArray(records: Array<UnknownRecord | null>, keys: string[]) {
   return [];
 }
 
+function firstArrayDeep(records: Array<UnknownRecord | null>, keys: string[]) {
+  const direct = firstArray(records, keys);
+  if (direct.length) return direct;
+  for (const record of records) {
+    if (!record) continue;
+    for (const value of Object.values(record)) {
+      const nested = asRecord(value);
+      if (!nested) continue;
+      const found = firstArray([nested], keys);
+      if (found.length) return found;
+    }
+  }
+  return [];
+}
+
 function firstNumber(records: Array<UnknownRecord | null>, keys: string[]) {
   for (const record of records) {
     for (const key of keys) {
@@ -55,8 +70,8 @@ export function storedDocumentAnalysis(value: string) {
   return {
     ...root,
     ...(nested ?? {}),
-    chapters: firstArray(candidates, ["chapters", "chapterCandidates"]),
-    questions: firstArray(candidates, ["questions", "questionCandidates"]),
+    chapters: firstArrayDeep(candidates, ["chapters", "chapterCandidates", "chapter_candidates", "sections", "outline"]),
+    questions: firstArrayDeep(candidates, ["questions", "questionCandidates", "question_candidates"]),
     storedChapterCount: firstNumber(candidates, ["chapterCount", "topicCount"]),
     storedQuestionCount: firstNumber(candidates, ["questionCount"]),
   };
