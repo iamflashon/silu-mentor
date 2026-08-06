@@ -48,8 +48,16 @@ type StoredDocumentAnalysis = {
   chapters?: Array<{
     title?: string;
     path?: string;
+    section?: string;
+    topic?: string;
+    summary?: string;
+    content?: string;
+    text?: string;
+    stem?: string;
     page_start?: number | null;
     page_end?: number | null;
+    pageStart?: number | null;
+    pageEnd?: number | null;
   }>;
   questions?: Array<{
     number?: string;
@@ -189,37 +197,43 @@ function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
 function storedCatalogueRows(
   resourceId: number,
   document: typeof documents.$inferSelect,
+  mode: "questions" | "chapters" = "questions",
 ) {
   const analysis = readStoredDocumentAnalysis(document);
-  const questions = Array.isArray(analysis?.questions) ? analysis.questions : [];
-  return questions
-    .map((question, index) => {
+  const sourceRows = mode === "chapters"
+    ? (Array.isArray(analysis?.chapters) ? analysis.chapters : [])
+    : (Array.isArray(analysis?.questions) ? analysis.questions : []);
+  return sourceRows
+    .map((item, index) => {
       const title = String(
-        question.title ?? question.question_title ?? question.question_no ?? question.number ?? "",
+        item.title ?? item.question_title ?? item.question_no ?? item.number ?? "",
       ).trim();
       if (!title) return null;
       const section = String(
-        question.section ?? question.part ?? question.section_path ?? "",
+        item.section ?? item.part ?? item.section_path ?? item.path ?? "",
       ).trim();
       const topic = String(
-        question.chapter ?? question.topic ?? question.theme ?? question.subject ?? "",
-      ).trim() || "其他題型";
+        item.chapter ?? item.topic ?? item.theme ?? item.subject ?? "",
+      ).trim() || (mode === "chapters" ? "教材章節" : "其他題型");
       const text = String(
-        question.content ?? question.stem ?? question.question_text ?? question.question ?? "",
+        item.content ?? item.text ?? item.stem ?? item.question_text ?? item.question ?? "",
       ).trim();
+      const summary = String(item.summary ?? "").trim();
       return {
         id: -(index + 1),
         resourceId,
         segmentType: "book_outline",
-        lessonLabel: `${section || "題型目錄"}｜${topic}`.slice(0, 160),
+        lessonLabel: `${section || (mode === "chapters" ? "教材章節" : "題型目錄")}｜${topic}`.slice(0, 160),
         title,
-        pageStart: question.page_start ?? (question as { pageStart?: number | null }).pageStart ?? null,
-        pageEnd: question.page_end ?? (question as { pageEnd?: number | null }).pageEnd ?? null,
+        pageStart: item.page_start ?? item.pageStart ?? null,
+        pageEnd: item.page_end ?? item.pageEnd ?? null,
         startSeconds: null,
         endSeconds: null,
         sourceUrl: "",
         text,
-        summary: text ? "已擷取完整題目" : "目錄資料已確認；完整題文正在整理",
+        summary: summary || (text
+          ? mode === "chapters" ? "已保存教材章節內容" : "已擷取完整題目"
+          : "已保存教材目錄；完整內容尚未附在分析結果中"),
         importance: 0,
         recommended: false,
         reviewStatus: text ? "ai_reviewed" : "catalogue_only",
@@ -229,6 +243,21 @@ function storedCatalogueRows(
       };
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
+function storedRowsForResource(
+  resourceId: number,
+  document: typeof documents.$inferSelect,
+  problemBook: boolean,
+) {
+  // Problem books save question-level entries; ordinary books save chapter-
+  // level entries. Both are already real extraction results and must be
+  // readable before a separate resource_segments index is created.
+  const preferred = storedCatalogueRows(resourceId, document, problemBook ? "questions" : "chapters");
+  if (preferred.length) return preferred;
+  return problemBook
+    ? storedCatalogueRows(resourceId, document, "chapters")
+    : storedCatalogueRows(resourceId, document, "questions");
 }
 
 async function readChapterProgressRecord(resourceId: number) {
@@ -393,7 +422,7 @@ export async function GET(request: Request) {
             .limit(1)
         : [];
       const storedCatalogue = document
-        ? storedCatalogueRows(resourceId, document)
+        ? storedRowsForResource(resourceId, document, problemBook)
         : [];
       if (storedCatalogue.length) {
         return Response.json({
@@ -440,8 +469,8 @@ export async function GET(request: Request) {
       .from(documents)
       .where(eq(documents.id, resource.documentId))
       .limit(1);
-    if (problemBook && document) {
-      const storedCatalogue = storedCatalogueRows(resourceId, document);
+    if (document) {
+      const storedCatalogue = storedRowsForResource(resourceId, document, problemBook);
       if (storedCatalogue.length) {
         return Response.json({
           chapters: storedCatalogue,
@@ -450,7 +479,9 @@ export async function GET(request: Request) {
           status: "catalogue",
           incompleteCount: storedCatalogue.filter((item) => !item.text).length,
           progress,
-          message: "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。",
+          message: problemBook
+            ? "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。"
+            : "已直接讀取教材分析時保存的真實章節；可先檢視內容與頁碼，不需重新上傳或重新拆解。",
         });
       }
     }
