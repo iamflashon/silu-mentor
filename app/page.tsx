@@ -42,6 +42,7 @@ export default function Home() {
   const [greeting, setGreeting] = useState(() => taipeiGreeting());
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
   const [input, setInput] = useState("");
@@ -171,12 +172,21 @@ export default function Home() {
   useEffect(() => {
     const saved = window.localStorage.getItem("silu-command-rail-side");
     if (saved === "left" || saved === "right") setRailSide(saved);
+    setRailCollapsed(window.localStorage.getItem("silu-command-rail-collapsed") === "true");
   }, []);
 
   function toggleRailSide() {
     const next = railSide === "right" ? "left" : "right";
     setRailSide(next);
     window.localStorage.setItem("silu-command-rail-side", next);
+  }
+
+  function toggleRailCollapsed() {
+    setRailCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem("silu-command-rail-collapsed", String(next));
+      return next;
+    });
   }
 
   function toggleMusic(event: MouseEvent<HTMLButtonElement>) {
@@ -411,19 +421,22 @@ export default function Home() {
         className={`mobile-rail-toggle rail-${railSide}`}
         onClick={() => setMobileRailOpen(true)}
         aria-expanded={mobileRailOpen}
-        aria-controls="mobile-command-rail"
+        aria-controls="command-rail"
       >
         <span aria-hidden="true">工具</span>
         <b>學習工具</b>
       </button>
       {mobileRailOpen && <button type="button" className="mobile-rail-backdrop" aria-label="關閉作戰資訊側欄" onClick={() => setMobileRailOpen(false)} />}
 
-      <div className={`command-layout rail-${railSide} ${mobileRailOpen ? "mobile-rail-open" : ""}`}>
+      <div className={`command-layout rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""} ${mobileRailOpen ? "mobile-rail-open" : ""}`}>
       <section className="conversation" aria-live="polite">
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
           <h1>今天，照計畫前進。</h1>
           <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
+          <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
+            {railCollapsed ? "展開學習工具" : "收合側欄"}
+          </button>
         </div>
         {todayTasks.length > 0 && <details className="today-plan-card">
           <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.status !== "completed")?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
@@ -483,7 +496,7 @@ export default function Home() {
         )}
       </section>
 
-      <aside className="command-rail" id="mobile-command-rail" aria-label="作戰資訊側欄">
+      <aside className="command-rail" id="command-rail" aria-label="作戰資訊側欄">
         <div className="mobile-rail-head">
           <strong>學習工具</strong>
           <div>
@@ -522,7 +535,7 @@ export default function Home() {
       </aside>
       </div>
 
-      {!practiceQuestion && <div className={`composer-wrap rail-${railSide}`}>
+      {!practiceQuestion && <div className={`composer-wrap rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""}`}>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
