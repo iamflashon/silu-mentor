@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EssayHistory } from "./essay-history";
 
 type PracticeQuestion = {
   id: number;
@@ -18,6 +19,14 @@ type PracticeQuestion = {
 type EssayGrading = {
   score: number;
   overall: string;
+  solution_steps?: Array<{
+    step: number;
+    title: string;
+    focus: string;
+    analysis: string;
+    student_performance: string;
+    next_action: string;
+  }>;
   dimensions: Array<{
     criterion: string;
     score: number;
@@ -30,6 +39,19 @@ type EssayGrading = {
   priority_fixes: string[];
   next_step: string;
   source_used: string;
+};
+
+type EssayModelMode = "sol" | "claude" | "dual";
+type EssayComparison = {
+  scoreDifference: number;
+  agreements: string[];
+  differences: Array<{ criterion: string; sol: number; claude: number }>;
+};
+type EssayModelFailure = {
+  model: "sol" | "claude";
+  label: string;
+  message: string;
+  retryable: boolean;
 };
 
 type CoachMessage = { role: "mentor" | "student"; text: string };
@@ -50,6 +72,113 @@ type PracticeFacets = {
 };
 type EssayMode = "guided" | "exam";
 
+type EssayBatchAttempt = {
+  id: number;
+  questionId: number;
+  year: string;
+  subject: string;
+  questionNumber: string;
+  answer: string;
+  savedAt: string;
+};
+
+const gradingAnimationSteps = [
+  { title: "審題定位", note: "確認題目要求與作答範圍" },
+  { title: "抓出爭點", note: "對照參考擬答整理關鍵爭點" },
+  { title: "核對規範", note: "檢查法條、要件與法律理由" },
+  { title: "檢查涵攝", note: "逐段比對事實涵攝與結論" },
+  { title: "整理分數", note: "形成解題步驟與下一步修正" },
+];
+
+function EssayBatchGrading() {
+  const [attempts, setAttempts] = useState<EssayBatchAttempt[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [model, setModel] = useState<EssayModelMode>("sol");
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    fetch("/api/essay-grading")
+      .then(async (response) => {
+        const result = (await response.json()) as { attempts?: EssayBatchAttempt[] };
+        setAttempts(result.attempts ?? []);
+      })
+      .catch(() => setMessage("已保存作答暫時無法讀取，請稍後再試。"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const allSelected = attempts.length > 0 && attempts.every((attempt) => selectedIds.has(attempt.id));
+
+  function toggleAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(attempts.map((attempt) => attempt.id)));
+  }
+
+  function toggle(id: number) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function startBatch() {
+    const selected = attempts.filter((attempt) => selectedIds.has(attempt.id));
+    if (!selected.length || running) return;
+    setRunning(true);
+    setProgress(0);
+    setMessage("");
+    let completed = 0;
+    let failed = 0;
+    for (const attempt of selected) {
+      try {
+        const response = await fetch("/api/essay-grading", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ questionId: attempt.questionId, answer: attempt.answer, mode: model }),
+        });
+        if (!response.ok) failed += 1;
+      } catch {
+        failed += 1;
+      }
+      completed += 1;
+      setProgress(Math.round((completed / selected.length) * 100));
+    }
+    setRunning(false);
+    setMessage(failed ? `批次批改完成 ${completed - failed} 題，${failed} 題失敗，可到歷次批改查看結果。` : `批次批改完成，共 ${completed} 題；結果已保存至我的歷次批改。`);
+  }
+
+  return (
+    <section className="essay-batch-page" aria-label="批次批改">
+      <header className="essay-batch-head">
+        <div>
+          <p>ESSAY BATCH GRADING</p>
+          <h2>批次批改</h2>
+          <span>一次勾選多份已保存的二試申論作答，系統會依序完成批改並保存結果。</span>
+        </div>
+        <strong>{selectedIds.size} 題已選</strong>
+      </header>
+      <div className="essay-batch-toolbar">
+        <label className="essay-batch-select-all"><input type="checkbox" checked={allSelected} onChange={toggleAll} /> 全選</label>
+        <label>批改模型<select value={model} onChange={(event) => setModel(event.target.value as EssayModelMode)} disabled={running}><option value="sol">GPT-5.6 Sol</option><option value="claude">Claude Opus 5</option><option value="dual">Sol＋Claude 雙模型覆核</option></select></label>
+        <button type="button" className="primary-btn" disabled={!selectedIds.size || running} onClick={() => void startBatch()}>{running ? `批改中 ${progress}%` : "開始批次批改"}</button>
+      </div>
+      {message && <p className="essay-batch-message">{message}</p>}
+      {loading ? <div className="essay-batch-empty">正在讀取已保存的申論作答…</div> : attempts.length ? (
+        <div className="essay-batch-list">
+          {attempts.map((attempt) => (
+            <label className={`essay-batch-card ${selectedIds.has(attempt.id) ? "selected" : ""}`} key={attempt.id}>
+              <input type="checkbox" checked={selectedIds.has(attempt.id)} onChange={() => toggle(attempt.id)} disabled={running} />
+              <span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>已保存作答 · {attempt.answer.length.toLocaleString()} 字</small></span>
+            </label>
+          ))}
+        </div>
+      ) : <div className="essay-batch-empty">目前沒有可批次處理的已保存作答。先到「二試申論題」完成作答並保存，之後就能在這裡一次批改多題。</div>}
+    </section>
+  );
+}
+
 export function PracticeLab({ initialType }: Props) {
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
   const [question, setQuestion] = useState<PracticeQuestion | null>(null);
@@ -59,7 +188,19 @@ export function PracticeLab({ initialType }: Props) {
   const [essay, setEssay] = useState("");
   const [essayFeedback, setEssayFeedback] = useState("");
   const [essayGrading, setEssayGrading] = useState<EssayGrading | null>(null);
+  const [essayReviews, setEssayReviews] = useState<{
+    sol: EssayGrading;
+    claude: EssayGrading;
+  } | null>(null);
+  const [essayComparison, setEssayComparison] =
+    useState<EssayComparison | null>(null);
+  const [essayModelFailures, setEssayModelFailures] = useState<EssayModelFailure[]>([]);
+  const [essayModelMode, setEssayModelMode] =
+    useState<EssayModelMode | null>(null);
+  const [essayResultMode, setEssayResultMode] =
+    useState<EssayModelMode>("sol");
   const [submitting, setSubmitting] = useState(false);
+  const [gradingAnimationStep, setGradingAnimationStep] = useState(0);
   const [coachInput, setCoachInput] = useState("");
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
   const [coachGap, setCoachGap] = useState("");
@@ -85,6 +226,7 @@ export function PracticeLab({ initialType }: Props) {
   const [secondsLeft, setSecondsLeft] = useState(90 * 60);
   const [stemOpen, setStemOpen] = useState(true);
   const [draftSavedAt, setDraftSavedAt] = useState("");
+  const [essaySubPage, setEssaySubPage] = useState<"question" | "batch" | "history">("question");
   const essayRef = useRef<HTMLTextAreaElement | null>(null);
   const draftKey = useMemo(
     () => (question ? `silu-essay-draft:${question.id}` : ""),
@@ -92,6 +234,20 @@ export function PracticeLab({ initialType }: Props) {
   );
   const clockText = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const essayPages = Math.max(1, Math.ceil(essay.length / 650));
+
+  useEffect(() => {
+    if (!submitting) {
+      setGradingAnimationStep(0);
+      return;
+    }
+    setGradingAnimationStep(0);
+    const timer = window.setInterval(() => {
+      setGradingAnimationStep((current) =>
+        Math.min(current + 1, gradingAnimationSteps.length - 1),
+      );
+    }, 850);
+    return () => window.clearInterval(timer);
+  }, [submitting]);
 
   function insertEssayMarker(marker: string) {
     const textarea = essayRef.current;
@@ -148,6 +304,11 @@ export function PracticeLab({ initialType }: Props) {
     setFeedback("");
     setEssayFeedback("");
     setEssayGrading(null);
+    setEssayReviews(null);
+    setEssayComparison(null);
+    setEssayModelFailures([]);
+    setEssayResultMode("sol");
+    setEssayModelMode(null);
     setEssay("");
     setCoachInput("");
     setCoachMessages([]);
@@ -347,31 +508,244 @@ export function PracticeLab({ initialType }: Props) {
 
   async function submitEssay() {
     if (!question || !essay.trim() || submitting) return;
+    if (!essayModelMode) {
+      setEssayFeedback("請先選擇申論批改模型，再開始批改。");
+      return;
+    }
     setSubmitting(true);
     setEssayFeedback("");
-    setEssayGrading(null);
     try {
       const response = await fetch("/api/essay-grading", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ questionId: question.id, answer: essay }),
+        body: JSON.stringify({
+          questionId: question.id,
+          answer: essay,
+          mode: essayModelMode,
+        }),
       });
       const result = (await response.json()) as {
+        mode?: EssayModelMode;
+        saved?: boolean;
         grading?: EssayGrading;
+        reviews?: { sol?: EssayGrading; claude?: EssayGrading };
+        comparison?: EssayComparison | null;
+        modelFailures?: EssayModelFailure[];
+        retryable?: boolean;
+        failedModel?: "sol" | "claude";
         source?: { label?: string };
         error?: string;
       };
       if (response.ok && result.grading) {
+        const resultMode = result.mode ?? essayModelMode;
+        setEssayResultMode(resultMode);
         setEssayGrading(result.grading);
+        setEssayModelFailures(result.modelFailures ?? []);
+        if (result.reviews?.sol && result.reviews.claude) {
+          setEssayReviews({ sol: result.reviews.sol, claude: result.reviews.claude });
+          setEssayComparison(result.comparison ?? null);
+        } else {
+          setEssayReviews(null);
+          setEssayComparison(null);
+        }
+        const failures = result.modelFailures ?? [];
         setEssayFeedback(
-          `本次依${result.source?.label ?? "老師參考擬答"}批改。`,
+          failures.length > 0
+            ? (resultMode === "dual" ? "Sol 批改已完成並保存；" : "批改尚未完成；") + failures.map((item) => item.message).join("；") + " 你的答案已保留，可重新選擇模型批改。"
+            : resultMode === "dual"
+              ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
+              : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
         );
-      } else setEssayFeedback(result.error ?? "申論批改暫時無法使用");
+      } else {
+        setEssayModelFailures(result.failedModel ? [{
+          model: result.failedModel,
+          label: result.failedModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+          message: result.error ?? "申論批改暫時無法使用",
+          retryable: result.retryable ?? false,
+        }] : []);
+        setEssayFeedback(
+          result.retryable
+            ? (result.error ?? "模型服務目前繁忙，請稍後重試。") + " 你的答案已保留，可再次批改。"
+            : result.error ?? "申論批改暫時無法使用",
+        );
+      }
     } catch {
-      setEssayFeedback("申論審題暫時無法使用，請稍後再試。");
+      setEssayFeedback("申論批改暫時無法連線，請稍後重試。你的答案已保留。");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function essayModelPicker() {
+    const options: Array<{ value: EssayModelMode; label: string; note: string }> = [
+      { value: "sol", label: "GPT-5.6 Sol", note: "預設批改" },
+      { value: "claude", label: "Claude Opus 5", note: "另一模型測試" },
+      { value: "dual", label: "Sol＋Claude 雙模型覆核", note: "兩份評分並列比較" },
+    ];
+    return (
+      <fieldset className="essay-model-picker" disabled={submitting}>
+        <legend>申論批改模型</legend>
+        <div>
+          {options.map((option) => (
+            <label
+              key={option.value}
+              className={essayModelMode === option.value ? "selected" : ""}
+              onClick={() => setEssayModelMode(option.value)}
+            >
+              <input
+                type="radio"
+                name="essay-grading-model"
+                value={option.value}
+                checked={essayModelMode === option.value}
+                onChange={() => setEssayModelMode(option.value)}
+              />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.note}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+        {essayModelMode === "dual" && (
+          <p>兩個模型會取得完全相同的題目、老師擬答與學生答案，完成後分開顯示分數與採分差異。</p>
+        )}
+        {!essayModelMode && <p>請先選擇一種批改方式；未選擇模型時不會送出批改。</p>}
+      </fieldset>
+    );
+  }
+
+  function renderEssayGrading(grading: EssayGrading, title?: string) {
+    return (
+      <div className="essay-grading-result">
+        {title && (
+          <header className="essay-model-result-heading">
+            <strong>{title}</strong>
+            <span>獨立評分結果</span>
+          </header>
+        )}
+        <div className="essay-score">
+          <b>{grading.score}</b>
+          <span>/ 100</span>
+        </div>
+        <p>{grading.overall}</p>
+        {grading.solution_steps?.length ? (
+          <section className="essay-solution-steps" aria-label="解題過程步驟">
+            <header><strong>解題過程步驟</strong><span>從審題一路看到結論</span></header>
+            <ol>
+              {grading.solution_steps.map((step, index) => (
+                <li key={`${step.step}-${step.title}-${index}`}>
+                  <div className="essay-solution-step-head"><b>{step.step || index + 1}</b><strong>{step.title}</strong></div>
+                  <p><em>本步處理</em>{step.focus}</p>
+                  <p><em>解題分析</em>{step.analysis}</p>
+                  <p><em>你的表現</em>{step.student_performance}</p>
+                  <p><em>下一動作</em>{step.next_action}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
+        <div className="essay-dimensions">
+          {grading.dimensions.map((item) => (
+            <article key={item.criterion}>
+              <strong>
+                {item.criterion}　{item.score}/{item.max_score}
+              </strong>
+              <p>{item.result}</p>
+              {item.evidence && <small>你的作答依據：{item.evidence}</small>}
+              {item.missing && <small>待補強：{item.missing}</small>}
+            </article>
+          ))}
+        </div>
+        {grading.priority_fixes.length > 0 && (
+          <div>
+            <strong>優先修正</strong>
+            <ul>
+              {grading.priority_fixes.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="essay-next-step">
+          <strong>下一步</strong>
+          <p>{grading.next_step}</p>
+        </div>
+      </div>
+    );
+  }
+
+  function renderGradingAnimation() {
+    if (!submitting) return null;
+    return (
+      <section className="essay-grading-animation" aria-live="polite" aria-label="申論批改進度">
+        <div className="essay-grading-animation-head">
+          <span className="essay-grading-orbit" aria-hidden="true"><i /><i /><i /></span>
+          <div>
+            <strong>AI 正在逐步批改你的答案</strong>
+            <small>{gradingAnimationSteps[gradingAnimationStep].note}</small>
+          </div>
+          <b>{gradingAnimationStep + 1}/{gradingAnimationSteps.length}</b>
+        </div>
+        <ol>
+          {gradingAnimationSteps.map((step, index) => (
+            <li
+              className={index < gradingAnimationStep ? "done" : index === gradingAnimationStep ? "active" : ""}
+              key={step.title}
+            >
+              <span aria-hidden="true">{index < gradingAnimationStep ? "✓" : index + 1}</span>
+              <strong>{step.title}</strong>
+            </li>
+          ))}
+        </ol>
+      </section>
+    );
+  }
+
+  function renderEssayResult() {
+    if (!essayGrading) return null;
+    if (!essayReviews || essayResultMode !== "dual") {
+      return renderEssayGrading(
+        essayGrading,
+        essayResultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+      );
+    }
+    return (
+      <section className="essay-dual-review" aria-label="雙模型申論覆核結果">
+        <header>
+          <div>
+            <strong>Sol＋Claude 雙模型覆核</strong>
+            <span>兩個模型獨立評分，先看各自判斷，再看採分差異。</span>
+          </div>
+          {essayComparison && (
+            <b>總分差距 {essayComparison.scoreDifference} 分</b>
+          )}
+        </header>
+        <div className="essay-dual-models">
+          {renderEssayGrading(essayReviews.sol, "GPT-5.6 Sol")}
+          {renderEssayGrading(essayReviews.claude, "Claude Opus 5")}
+        </div>
+        {essayComparison && (
+          <div className="essay-comparison">
+            <strong>覆核摘要</strong>
+            {essayComparison.agreements.length > 0 && (
+              <p>
+                <b>配分一致：</b>{essayComparison.agreements.join("、")}
+              </p>
+            )}
+            {essayComparison.differences.length > 0 ? (
+              <p>
+                <b>配分差異：</b>
+                {essayComparison.differences
+                  .map((item) => `${item.criterion}（Sol ${item.sol}／Claude ${item.claude}）`)
+                  .join("、")}
+              </p>
+            ) : (
+              <p><b>配分差異：</b>兩個模型在已辨識的採分項目沒有分數差異。</p>
+            )}
+          </div>
+        )}
+      </section>
+    );
   }
 
   function essayToolbar() {
@@ -448,6 +822,7 @@ export function PracticeLab({ initialType }: Props) {
             className={examType === "mcq" ? "active" : ""}
             onClick={() => {
               setExamType("mcq");
+              setEssaySubPage("question");
               void loadQuestion("mcq");
             }}
           >
@@ -457,13 +832,34 @@ export function PracticeLab({ initialType }: Props) {
             className={examType === "essay" ? "active" : ""}
             onClick={() => {
               setExamType("essay");
+              setEssaySubPage("question");
               void loadQuestion("essay");
             }}
           >
             二試申論題
           </button>
+          {examType === "essay" && (
+            <button
+              type="button"
+              className={essaySubPage === "batch" ? "active" : ""}
+              onClick={() => setEssaySubPage("batch")}
+            >
+              批次批改
+            </button>
+          )}
+          {examType === "essay" && (
+            <button
+              type="button"
+              className={essaySubPage === "history" ? "active" : ""}
+              onClick={() => setEssaySubPage("history")}
+            >
+              我的歷次批改
+            </button>
+          )}
         </div>
       </div>
+      {examType === "essay" && essaySubPage === "history" && <EssayHistory />}
+      {examType === "essay" && essaySubPage === "batch" && <EssayBatchGrading />}
       {examType === "mcq" ? (
         <section className="practice-feature-guide" aria-label="一試功能解說">
           <header>
@@ -586,7 +982,7 @@ export function PracticeLab({ initialType }: Props) {
             </section>
           )}
         </section>
-      ) : (
+      ) : essaySubPage === "question" ? (
         <section
           className="practice-feature-guide essay-guide"
           aria-label="二試作答模式"
@@ -713,8 +1109,8 @@ export function PracticeLab({ initialType }: Props) {
             <b>你會看到：</b>
             總分與分項分數、學生原文依據、漏寫內容、優先修正項目及下一步。不同但有法律理由的見解，不會只因文字與擬答不同就判錯。
           </p>
-        </section>
-      )}
+          </section>
+      ) : null}
       <div className="practice-lab-note">
         <b>
           {examType === "mcq"
@@ -801,19 +1197,25 @@ export function PracticeLab({ initialType }: Props) {
                   disabled={
                     !essay.trim() ||
                     submitting ||
-                    examSubmitted ||
+                    !essayModelMode ||
                     !question.hasTeacherAnswer
                   }
                   onClick={submitMockExam}
                 >
                   {submitting
                     ? "正在批改…"
+                    : essayGrading
+                    ? "再次批改"
                     : examSubmitted
-                      ? "已交卷"
+                      ? "已交卷（可重新批改）"
+                      : essayModelFailures.length > 0
+                        ? "重新嘗試批改"
                       : "確認交卷"}
                 </button>
               </footer>
             </section>
+            {essayModelPicker()}
+            {renderGradingAnimation()}
             {!question.hasTeacherAnswer && (
               <p className="mock-exam-warning">
                 本題尚未完成老師擬答核對，目前可作答並儲存，但暫不開放正式交卷批改。
@@ -823,31 +1225,12 @@ export function PracticeLab({ initialType }: Props) {
               <div className="essay-feedback">
                 <strong>AI 申論批改</strong>
                 <p>{essayFeedback}</p>
+                {essayModelFailures.length > 0 && (
+                  <small>失敗模型：{essayModelFailures.map((item) => item.label).join("、")}</small>
+                )}
               </div>
             )}
-            {essayGrading && (
-              <div className="essay-grading-result">
-                <div className="essay-score">
-                  <b>{essayGrading.score}</b>
-                  <span>/ 100</span>
-                </div>
-                <p>{essayGrading.overall}</p>
-                <div className="essay-dimensions">
-                  {essayGrading.dimensions.map((item) => (
-                    <article key={item.criterion}>
-                      <strong>
-                        {item.criterion}　{item.score}/{item.max_score}
-                      </strong>
-                      <p>{item.result}</p>
-                      {item.evidence && (
-                        <small>你的作答依據：{item.evidence}</small>
-                      )}
-                      {item.missing && <small>待補強：{item.missing}</small>}
-                    </article>
-                  ))}
-                </div>
-              </div>
-            )}
+            {renderEssayResult()}
           </article>
         )}
       {loading ? (
@@ -1116,58 +1499,33 @@ export function PracticeLab({ initialType }: Props) {
                   <b>字數 {essay.length}／5,200</b>
                 </footer>
               </section>
+              {essayModelPicker()}
               <button
                 className="essay-submit-wide"
                 disabled={
-                  !essay.trim() || submitting || !question.hasTeacherAnswer
+                  !essay.trim() || submitting || !essayModelMode || !question.hasTeacherAnswer
                 }
                 onClick={() => void submitEssay()}
               >
-                {submitting ? "AI 分項批改中…" : "送出 AI 分項批改"}
+                {submitting
+                  ? "AI 分項批改中…"
+                  : essayGrading
+                  ? "再次批改"
+                  : essayModelFailures.length > 0
+                    ? "重新嘗試批改"
+                    : "送出 AI 分項批改"}
               </button>
+              {renderGradingAnimation()}
               {essayFeedback && (
                 <div className="essay-feedback">
                   <strong>AI 申論批改</strong>
                   <p>{essayFeedback}</p>
-                </div>
-              )}
-              {essayGrading && (
-                <div className="essay-grading-result">
-                  <div className="essay-score">
-                    <b>{essayGrading.score}</b>
-                    <span>/ 100</span>
-                  </div>
-                  <p>{essayGrading.overall}</p>
-                  <div className="essay-dimensions">
-                    {essayGrading.dimensions.map((item) => (
-                      <article key={item.criterion}>
-                        <strong>
-                          {item.criterion}　{item.score}/{item.max_score}
-                        </strong>
-                        <p>{item.result}</p>
-                        {item.evidence && (
-                          <small>你的作答依據：{item.evidence}</small>
-                        )}
-                        {item.missing && <small>待補強：{item.missing}</small>}
-                      </article>
-                    ))}
-                  </div>
-                  {essayGrading.priority_fixes.length > 0 && (
-                    <div>
-                      <strong>優先修正</strong>
-                      <ul>
-                        {essayGrading.priority_fixes.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
+                  {essayModelFailures.length > 0 && (
+                    <small>失敗模型：{essayModelFailures.map((item) => item.label).join("、")}</small>
                   )}
-                  <div className="essay-next-step">
-                    <strong>下一步</strong>
-                    <p>{essayGrading.next_step}</p>
-                  </div>
                 </div>
               )}
+              {renderEssayResult()}
             </div>
           )}
         </article>

@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
+import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
 type Uploaded = {
@@ -13,6 +14,24 @@ type Uploaded = {
   subject: string;
   size: string;
   status: string;
+  type?: string;
+  processingStage?: string;
+  processingMessage?: string;
+  pageCount?: number | null;
+  extractedChars?: number;
+  chapterCount?: number;
+  topicCount?: number;
+  questionCount?: number;
+  tags?: string[];
+  fullTextIndexed?: boolean;
+  vectorIndexed?: boolean;
+  summary?: string;
+  sourceFileName?: string;
+  indexedFileName?: string;
+  extractionNote?: string;
+  analysisStatus?: string;
+  chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
+  questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
   error?: string | null;
 };
 type QueueItem = {
@@ -92,6 +111,15 @@ type LearningResource = {
   analyzedArticleCount?: number;
   failedArticleCount?: number;
   pendingArticleCount?: number;
+  documentStatus?: string | null;
+  documentError?: string | null;
+  documentProcessingStage?: string | null;
+  documentProcessingMessage?: string | null;
+  documentChapterCount?: number;
+  documentTopicCount?: number;
+  documentQuestionCount?: number;
+  documentExtractedChars?: number;
+  documentTags?: string[];
   articlePreviews?: Array<{
     id: number;
     title: string;
@@ -142,7 +170,7 @@ function chapterProgressPercent(progress?: ChapterProgress) {
 function chapterProgressLabel(progress?: ChapterProgress) {
   if (!progress) return "尚未開始解析";
   if (progress.state === "completed") return "解析完成";
-  if (progress.state === "paused") return "解析暫停，原資料仍保留";
+  if (progress.state === "paused") return "AI 目前較忙，將自動重試；原資料仍保留";
   if (progress.state === "failed") return "解析未完成，原資料仍保留";
   if (progress.phase === "outline") return "正在讀取原書的部分與主題目錄";
   if (progress.phase === "saving") return "正在保存已完成的題型";
@@ -377,6 +405,8 @@ export default function AdminPage() {
   const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(null);
   const [selectedCollectionResourceId, setSelectedCollectionResourceId] = useState("");
   const [chapterProgress, setChapterProgress] = useState<Record<number, ChapterProgress>>({});
+  const chapterProgressRef = useRef<Record<number, ChapterProgress>>({});
+  const chapterJobsRef = useRef(new Set<number>());
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceCreator, setResourceCreator] = useState("");
@@ -514,6 +544,23 @@ export default function AdminPage() {
             type: string;
             sizeBytes: number;
             status: string;
+            processingStage?: string;
+            processingMessage?: string;
+            pageCount?: number | null;
+            extractedChars?: number;
+            chapterCount?: number;
+            topicCount?: number;
+            questionCount?: number;
+            tags?: string[];
+            fullTextIndexed?: boolean;
+            vectorIndexed?: boolean;
+            summary?: string;
+            sourceFileName?: string;
+            indexedFileName?: string;
+            extractionNote?: string;
+            analysisStatus?: string;
+            chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
+            questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
             error?: string | null;
           }>;
           stats?: DocumentStats;
@@ -525,10 +572,30 @@ export default function AdminPage() {
             subject: item.subject,
             size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
             status: item.status,
+            type: item.type,
+            processingStage: item.processingStage,
+            processingMessage: item.processingMessage,
+            pageCount: item.pageCount,
+            extractedChars: item.extractedChars,
+            chapterCount: item.chapterCount,
+            topicCount: item.topicCount,
+            questionCount: item.questionCount,
+            tags: item.tags,
+            fullTextIndexed: item.fullTextIndexed,
+            vectorIndexed: item.vectorIndexed,
+            summary: item.summary,
+            sourceFileName: item.sourceFileName,
+            indexedFileName: item.indexedFileName,
+            extractionNote: item.extractionNote,
+            analysisStatus: item.analysisStatus,
+            chapters: item.chapters,
+            questions: item.questions,
             error: item.error,
           })),
         );
         if (result.stats) setDocumentStats(result.stats);
+        const resumable = (result.documents ?? []).filter((item) => ["queued", "uploaded", "extracting", "indexing", "analyzing", "in_progress"].includes(item.processingStage ?? item.status)).map((item) => item.id);
+        if (resumable.length) window.setTimeout(() => { void Promise.all(resumable.slice(0, 3).map((id) => processDocument(id))); }, 250);
       })
       .catch(() => undefined);
     fetch("/api/usage")
@@ -1739,14 +1806,17 @@ export default function AdminPage() {
       ),
     );
     setNotice(
-      `${resource.title} 已${documentId ? "綁定教材 PDF" : "解除教材綁定"}。`,
+      `${resource.title} 已${documentId ? "綁定教材文件" : "解除教材綁定"}。`,
     );
+    if (documentId && result.resource.documentStatus === "completed" && isProblemSolvingResource(result.resource)) {
+      void startAutomaticChapterIndex(result.resource);
+    }
   }
 
   async function buildBookChapters(resource: LearningResource) {
     if (chapterBuildRunningRef.current.has(resource.id)) return;
     if (!resource.documentId) {
-      setNotice("請先替這本書綁定已完成索引的教材 PDF。");
+      setNotice("請先替這本書綁定已完成索引的教材文件。");
       return;
     }
     chapterBuildRunningRef.current.add(resource.id);
@@ -1825,17 +1895,36 @@ export default function AdminPage() {
     }
   }
 
-  // A page refresh must resume an interrupted real extraction without asking
-  // the administrator to press the old rebuild button again.
+  async function startAutomaticChapterIndex(resource: LearningResource) {
+    if (
+      !resource.documentId ||
+      resource.documentStatus !== "completed" ||
+      !isProblemSolvingResource(resource) ||
+      chapterJobsRef.current.has(resource.id) ||
+      chapterProgressRef.current[resource.id]?.state === "completed"
+    ) return;
+    chapterJobsRef.current.add(resource.id);
+    try {
+      await buildBookChapters(resource);
+    } finally {
+      chapterJobsRef.current.delete(resource.id);
+    }
+  }
+
   useEffect(() => {
-    resources
-      .filter((resource) => resource.resourceType === "book" && isProblemSolvingResource(resource))
-      .filter((resource) => ["building", "paused"].includes(chapterProgress[resource.id]?.state ?? ""))
-      .forEach((resource) => void buildBookChapters(resource));
-    // The function is intentionally kept local so it can access the existing
-    // admin state; the running-set guard prevents duplicate resume requests.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resources, chapterProgress]);
+    chapterProgressRef.current = chapterProgress;
+  }, [chapterProgress]);
+
+  useEffect(() => {
+    const candidates = resources.filter(
+      (resource) =>
+        resource.resourceType === "book" &&
+        resource.documentId &&
+        resource.documentStatus === "completed" &&
+        isProblemSolvingResource(resource),
+    );
+    for (const resource of candidates) void startAutomaticChapterIndex(resource);
+  }, [resources]);
 
   async function bindCourseBook(
     resource: LearningResource,
@@ -2275,55 +2364,67 @@ export default function AdminPage() {
     if (response.ok) setUsage({ ...usage, showCosts: next });
   }
 
-  async function startIndex(documentId: number) {
+  async function processDocument(documentId: number, retry = false) {
     setFiles((current) =>
       current.map((item) =>
         item.id === documentId
-          ? { ...item, status: "uploading_to_index", error: null }
+          ? { ...item, status: "processing", processingStage: retry ? "queued" : item.processingStage, error: null }
           : item,
       ),
     );
-    setNotice("正在把 PDF 送入教材索引服務…");
     try {
-      const response = await fetch("/api/documents/index", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ documentId }),
-      });
-      const result = (await readJson(response)) as {
-        status?: string;
-        error?: string;
-      };
-      if (!response.ok) throw new Error(result.error ?? "建立索引失敗");
-      setFiles((current) =>
-        current.map((item) =>
-          item.id === documentId
-            ? { ...item, status: result.status ?? "in_progress" }
-            : item,
-        ),
-      );
-      setNotice("索引服務已接收文件，完成後會自動改為「可供搜尋」。");
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const response = await fetch("/api/documents/process", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ documentId, retry: retry && attempt === 0 }),
+        });
+        const result = (await readJson(response)) as { status?: string; stage?: string; message?: string; error?: string; document?: Uploaded };
+        if (!response.ok && response.status !== 202) throw new Error(result.error ?? "教材自動處理失敗");
+        setFiles((current) => current.map((item) => item.id === documentId ? { ...item, status: result.status ?? "processing", processingStage: result.stage ?? item.processingStage, processingMessage: result.message ?? item.processingMessage } : item));
+        setNotice(result.message ?? "教材正在自動處理…");
+        if (result.status === "completed") {
+          const refreshed = await fetch("/api/documents", { cache: "no-store" });
+          if (refreshed.ok) {
+            const data = await refreshed.json() as { documents?: Array<Record<string, unknown>>; stats?: DocumentStats };
+            const current = (data.documents ?? []).find((item) => Number(item.id) === documentId);
+            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), topicCount: Number(current.topicCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
+            if (data.stats) setDocumentStats(data.stats);
+            const resourcesResponse = await fetch("/api/resources", { cache: "no-store" });
+            if (resourcesResponse.ok) {
+              const loaded = ((await resourcesResponse.json()) as { resources?: LearningResource[] }).resources ?? [];
+              setResources(loaded);
+              void refreshChapterProgress(loaded.filter((item) => item.resourceType === "book").map((item) => item.id));
+            }
+          }
+          return true;
+        }
+        if (result.status === "failed") throw new Error(result.error ?? "教材自動處理失敗");
+        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+      }
+      throw new Error("教材處理時間較長，進度已保存；稍後會自動接續");
     } catch (error) {
       const message = error instanceof Error ? error.message : "建立索引失敗";
       setFiles((current) =>
         current.map((item) =>
           item.id === documentId
-            ? { ...item, status: "failed", error: message }
+            ? { ...item, status: "failed", processingStage: "failed", processingMessage: message, error: message }
             : item,
         ),
       );
       setNotice(message);
+      return false;
     }
+  }
+
+  async function startIndex(documentId: number) {
+    await processDocument(documentId, true);
   }
 
   function chooseFiles(list: FileList | File[] | null) {
     const incoming = Array.from(list ?? []);
-    const pdfs = incoming.filter(
-      (file) =>
-        file.type === "application/pdf" ||
-        file.name.toLowerCase().endsWith(".pdf"),
-    );
-    const rejected = incoming.length - pdfs.length;
+    const documents = incoming.filter((file) => /\.(pdf|jsonl|txt|zip)$/i.test(file.name));
+    const rejected = incoming.length - documents.length;
     setQueue((current) => {
       const known = new Set(
         current.map(
@@ -2331,7 +2432,7 @@ export default function AdminPage() {
             `${item.file.name}-${item.file.size}-${item.file.lastModified}`,
         ),
       );
-      const additions = pdfs
+      const additions = documents
         .filter(
           (file) =>
             !known.has(`${file.name}-${file.size}-${file.lastModified}`),
@@ -2345,9 +2446,9 @@ export default function AdminPage() {
       return [...current, ...additions];
     });
     setNotice(
-      pdfs.length
-        ? `已加入 ${pdfs.length} 份 PDF${rejected ? `，另排除 ${rejected} 個非 PDF 檔案` : ""}。確認科目與類型後即可依序上傳。`
-        : "拖入的檔案沒有 PDF，請重新選擇。",
+      documents.length
+        ? `已加入 ${documents.length} 份教材（PDF／JSONL／TXT／ZIP）${rejected ? `，另排除 ${rejected} 個不支援檔案` : ""}。確認科目與類型後即可自動處理。`
+        : "拖入的檔案不是 PDF、JSONL、TXT 或 ZIP，請重新選擇。",
     );
   }
 
@@ -2359,6 +2460,13 @@ export default function AdminPage() {
 
   async function uploadOne(item: QueueItem, position: number, total: number) {
     const selected = item.file;
+    const documentContentType = selected.name.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : selected.name.toLowerCase().endsWith(".jsonl")
+        ? "application/jsonl"
+        : selected.name.toLowerCase().endsWith(".zip")
+          ? "application/zip"
+          : "text/plain";
     patchQueue(item.key, {
       status: "uploading",
       progress: 0,
@@ -2369,10 +2477,10 @@ export default function AdminPage() {
     const initResponse = await fetch("/api/documents/multipart", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        action: "init",
-        fileName: selected.name,
-        contentType: "application/pdf",
+        body: JSON.stringify({
+          action: "init",
+          fileName: selected.name,
+          contentType: documentContentType,
       }),
     });
     const init = (await readJson(initResponse)) as {
@@ -2425,7 +2533,7 @@ export default function AdminPage() {
         uploadId: init.uploadId,
         parts,
         fileName: selected.name,
-        contentType: "application/pdf",
+        contentType: documentContentType,
         sizeBytes: selected.size,
         subject,
         documentType: type,
@@ -2443,31 +2551,18 @@ export default function AdminPage() {
         id: newId,
         name: selected.name,
         subject,
-        size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`,
-        status: "uploaded",
+        size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${documentContentType}`,
+        status: "processing",
+        type: documentContentType,
+        processingStage: "queued",
+        processingMessage: "等待自動處理",
       },
       ...current,
     ]);
     setDocumentPage(1);
     patchQueue(item.key, { status: "indexing", progress: 92 });
-
-    const indexResponse = await fetch("/api/documents/index", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ documentId: newId }),
-    });
-    const indexed = (await readJson(indexResponse)) as {
-      status?: string;
-      error?: string;
-    };
-    if (!indexResponse.ok) throw new Error(indexed.error ?? "建立索引失敗");
-    setFiles((current) =>
-      current.map((file) =>
-        file.id === newId
-          ? { ...file, status: indexed.status ?? "in_progress" }
-          : file,
-      ),
-    );
+    const processed = await processDocument(newId);
+    if (!processed) throw new Error("教材自動處理失敗，請查看文件卡片後重新處理");
     patchQueue(item.key, { status: "done", progress: 100 });
   }
 
@@ -2702,7 +2797,7 @@ export default function AdminPage() {
               <div>
                 <h2>AI 使用成本</h2>
                 <p className="panel-sub">
-                  依實際 API usage 記錄，供未來方案與收費評估。
+                  依實際 API usage 記錄，供未來方案與收費評估；台幣以 1 USD ≈ NT$ {USD_TO_TWD_RATE} 暫估。
                 </p>
               </div>
               <label className="cost-toggle">
@@ -2752,7 +2847,7 @@ export default function AdminPage() {
                   US${" "}
                   {(Number(usage?.totals.costMicros ?? 0) / 1_000_000).toFixed(
                     4,
-                  )}
+                  )} · 約 NT$ {formatTwd(Number(usage?.totals.costMicros ?? 0) / 1_000_000, 2)}
                 </strong>
               </div>
             </div>
@@ -2793,7 +2888,7 @@ export default function AdminPage() {
                             US${" "}
                             {(row.estimatedCostUsdMicros / 1_000_000).toFixed(
                               5,
-                            )}
+                            )} ·<br />約 NT$ {formatTwd(row.estimatedCostUsdMicros / 1_000_000, 2)}
                           </td>
                         </tr>
                       ))}
@@ -2843,7 +2938,7 @@ export default function AdminPage() {
             <form className="panel" onSubmit={submit}>
               <h2>上傳教材</h2>
               <p className="panel-sub">
-                PDF 將自動解析、切分並建立搜尋索引，供司律備考回答與教學。
+                上傳後由系統自動檢查檔案、擷取文字、整理章節／題目、建立標籤，並完成全文／向量索引，供司律備考回答與教學。
               </p>
               <label
                 className={`upload-zone ${dragActive ? "drag-active" : ""}`}
@@ -2871,7 +2966,7 @@ export default function AdminPage() {
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="application/pdf"
+                  accept=".pdf,.jsonl,.txt,.zip,application/pdf,application/jsonl,text/plain,application/zip"
                   multiple
                   hidden
                   onChange={(e) => chooseFiles(e.target.files)}
@@ -2881,13 +2976,13 @@ export default function AdminPage() {
                   {dragActive
                     ? "放開滑鼠，加入批次佇列"
                     : queue.length
-                      ? `已選擇 ${queue.length} 份 PDF`
-                      : "拖曳大量 PDF 到這裡"}
+                      ? `已選擇 ${queue.length} 份教材`
+                    : "拖曳 PDF、JSONL、TXT 或 ZIP 到這裡"}
                 </strong>
                 <span>
                   {queue.length
                     ? `共 ${(queue.reduce((sum, item) => sum + item.file.size, 0) / 1024 / 1024).toFixed(1)} MB · 還可以繼續拖入更多檔案`
-                    : "或點此批次選取；系統將逐本上傳與建立索引"}
+                    : "或點此批次選取；系統會逐份檢查、解析、分類並建立索引"}
                 </span>
               </label>
               {queue.length > 0 && (
@@ -2904,9 +2999,9 @@ export default function AdminPage() {
                               : item.status === "uploading"
                                 ? `上傳中 ${item.progress}%`
                                 : item.status === "indexing"
-                                  ? "送入索引中"
-                                  : item.status === "done"
-                                    ? "已送出索引"
+                                  ? "AI 自動檢查／解析／索引中"
+                                : item.status === "done"
+                                    ? "已完成自動處理"
                                     : `失敗 · ${item.error ?? "請重試"}`}
                           </span>
                         </div>
@@ -2962,47 +3057,91 @@ export default function AdminPage() {
                   ? "批次處理中，請勿關閉頁面…"
                   : queue.some((item) => item.status === "failed")
                     ? "重試失敗項目"
-                    : `依序上傳 ${queue.length || ""} 份並建立索引`}
+                    : `依序上傳 ${queue.length || ""} 份並自動處理`}
               </button>
               {notice && <div className="notice">{notice}</div>}
             </form>
             <section className="panel document-panel">
               <h2>文件處理狀態</h2>
               <p className="panel-sub">
-                只有完成索引的內容，才會進入教材優先檢索。
+                上傳後會自動完成檔案檢查、文字擷取、分類、章節／題目整理與全文／向量索引；不需要另外按處理。
               </p>
               {files.length === 0 ? (
                 <div className="empty-state">
                   尚未上傳教材
                   <br />
-                  第一份 PDF 會顯示在這裡
+                  第一份教材會顯示在這裡
                 </div>
               ) : (
                 <div className="file-list">
                   {visibleFiles.map((file) => {
                     const ready = file.status === "completed";
                     const failed = file.status === "failed";
-                    const waiting = file.status === "uploaded";
+                    const waiting = ["uploaded", "queued"].includes(file.processingStage ?? file.status);
+                    const stageLabel = file.processingStage === "extracting"
+                      ? "檔案檢查／文字擷取"
+                      : file.processingStage === "indexing" || file.status === "in_progress"
+                        ? "全文／向量索引"
+                        : file.processingStage === "analyzing"
+                          ? "AI 章節／題目／分類分析"
+                          : file.processingStage === "completed"
+                            ? "已完成"
+                            : file.processingMessage ?? "等待自動處理";
                     return (
                       <div className="file-card" key={file.id}>
-                        <span className="file-type">PDF</span>
+                        <span className="file-type">{file.name.split(".").pop()?.toUpperCase() ?? "FILE"}</span>
                         <div className="file-info">
                           <strong>{file.name}</strong>
                           <span>
                             {file.subject} · {file.size}
-                            {file.error ? ` · ${file.error}` : ""}
                           </span>
+                          <small>{stageLabel}{file.error ? ` · ${file.error}` : ""}</small>
+                          {(ready || file.processingStage === "analyzing") && (
+                            <small className="document-facts">
+                              {file.pageCount ? `${file.pageCount} 頁 · ` : ""}
+                              {file.extractedChars ? `${file.extractedChars.toLocaleString()} 字 · ` : file.name.toLowerCase().endsWith(".pdf") || file.name.toLowerCase().endsWith(".zip") ? "PDF文字由索引服務擷取 · " : ""}
+                              {file.chapterCount ?? 0} 章 · {file.questionCount ?? 0} 題
+                              {file.tags?.length ? ` · ${file.tags.slice(0, 5).join("、")}` : ""}
+                            </small>
+                          )}
+                          {ready && (file.summary || file.chapters?.length || file.questions?.length) && (
+                            <details className="document-result">
+                              <summary>查看自動處理結果</summary>
+                              {file.sourceFileName && file.sourceFileName !== file.name && (
+                                <small>ZIP 來源：{file.sourceFileName}；實際索引：{file.indexedFileName ?? file.name}</small>
+                              )}
+                              {file.summary && <p>{file.summary}</p>}
+                              <div className="document-result-columns">
+                                {file.chapters?.length ? (
+                                  <div>
+                                    <strong>章節／主題</strong>
+                                    <ul>{file.chapters.slice(0, 8).map((chapter, index) => <li key={`${chapter.title}-${index}`}>{chapter.path && `${chapter.path}｜`}{chapter.title}</li>)}</ul>
+                                    {(file.chapterCount ?? 0) > 8 && <small>另有 {(file.chapterCount ?? 0) - 8} 章已保存於索引</small>}
+                                  </div>
+                                ) : null}
+                                {file.questions?.length ? (
+                                  <div>
+                                    <strong>題目／題型</strong>
+                                    <ul>{file.questions.slice(0, 8).map((question, index) => <li key={`${question.number}-${question.title}-${index}`}>{question.number ? `第 ${question.number} 題｜` : ""}{question.title}</li>)}</ul>
+                                    {(file.questionCount ?? 0) > 8 && <small>另有 {(file.questionCount ?? 0) - 8} 題已保存於索引</small>}
+                                  </div>
+                                ) : null}
+                              </div>
+                              {file.extractionNote && <small className="document-result-note">{file.extractionNote}</small>}
+                              <div className="document-index-badges"><span>{file.fullTextIndexed ? "✓ 全文索引" : "○ 全文索引"}</span><span>{file.vectorIndexed ? "✓ 向量索引" : "○ 向量索引"}</span><span>{file.analysisStatus === "completed" ? "✓ AI 結構分析" : "已完成技術索引"}</span></div>
+                            </details>
+                          )}
                         </div>
-                        {waiting || failed ? (
+                        {failed ? (
                           <button
                             className="index-btn"
                             onClick={() => startIndex(file.id)}
                           >
-                            {failed ? "重新索引" : "開始索引"}
+                            重新處理
                           </button>
                         ) : (
                           <span className={`status ${ready ? "" : "pending"}`}>
-                            {ready ? "可供搜尋" : "建立索引中"}
+                            {ready ? "可供 AI 搜尋" : waiting ? "即將自動處理" : "自動處理中"}
                           </span>
                         )}
                       </div>
@@ -3072,7 +3211,7 @@ export default function AdminPage() {
               <div>
                 <h2>{activeTab === "trials" ? "知識達試聽管理" : "書籍與課程管理"}</h2>
                 <p className="panel-sub">
-                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材 PDF 並管理書封；影音課程可嵌入 YouTube 單支影片、播放清單或 HLS／MP4，並可搭配字幕整理學習重點。"}
+                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材文件並管理書封；影音課程可嵌入 YouTube 單支影片、播放清單或 HLS／MP4，並可搭配字幕整理學習重點。"}
                 </p>
               </div>
               <span className="source-count">{resources.length} 項資源</span>
@@ -3121,7 +3260,7 @@ export default function AdminPage() {
                 </label>
               ) : (
                 <div className="field resource-create-hint">
-                  <span>教材 PDF</span>
+                  <span>教材文件</span>
                   <strong>建立後在書卡上選擇</strong>
                 </div>
               )}
@@ -3163,8 +3302,10 @@ export default function AdminPage() {
                       <small>
                         {resource.resourceType === "book"
                           ? resource.documentId
-                            ? "已綁定教材 PDF，AI 將從文件索引搜尋"
-                            : "尚未綁定教材 PDF"
+                            ? resource.documentStatus === "completed"
+                              ? `已完成教材解析與索引（${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"}／${resource.documentQuestionCount ?? 0} 題）`
+                              : "教材已綁定，正在自動解析與建立索引"
+                            : "尚未綁定教材文件"
                           : resource.sourceUrl
                             ? "已設定課程來源網址"
                             : "尚未設定課程來源網址"}
@@ -3181,19 +3322,44 @@ export default function AdminPage() {
                       {resource.resourceType === "book" && (
                         <>
                           <select
-                            aria-label={`${resource.title}綁定教材 PDF`}
+                            aria-label={`${resource.title}綁定教材文件`}
                             value={resource.documentId ?? ""}
                             onChange={(e) =>
                               bindBookDocument(resource, e.target.value)
                             }
                           >
-                            <option value="">選擇教材 PDF</option>
+                            <option value="">選擇教材文件</option>
                             {files.map((file) => (
                               <option key={file.id} value={file.id}>
                                 {file.name}
                               </option>
                             ))}
                           </select>
+                          {resource.documentId && (
+                            <div className="chapter-progress-panel completed" role="status">
+                              <div className="chapter-progress-heading">
+                                <strong>{resource.documentStatus === "completed" ? "教材檔案已完成檢查、全文／向量索引" : resource.documentProcessingMessage ?? "教材正在自動處理"}</strong>
+                              </div>
+                              <div className="chapter-progress-meta">
+                                <span>
+                                  {resource.documentStatus === "completed"
+                                    ? (() => {
+                                        const progress = chapterProgress[resource.id];
+                                        const storedTopics = Math.max(resource.documentTopicCount ?? 0, resource.documentChapterCount ?? 0);
+                                        const storedQuestions = resource.documentQuestionCount ?? 0;
+                                        const topics = storedTopics || (progress?.completedTopics ?? 0);
+                                        const questions = storedQuestions || (progress?.foundQuestions ?? 0);
+                                        const running = progress && progress.state !== "completed" && progress.totalTopics;
+                                        return running
+                                          ? `檔案分析已整理 ${progress.completedTopics ?? 0}／${progress.totalTopics} 個主題 · 已找到 ${questions} 題`
+                                          : `檔案分析已整理 ${topics} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${questions} 題`;
+                                      })()
+                                    : "完成後會自動更新章節、題目與分類結果"}
+                                </span>
+                                {!!resource.documentTags?.length && <small>標籤：{resource.documentTags.slice(0, 8).join("、")}</small>}
+                              </div>
+                            </div>
+                          )}
                           <button
                             type="button"
                             className="subtitle-open"

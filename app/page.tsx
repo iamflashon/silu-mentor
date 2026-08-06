@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ListeningPlayer, ListeningFeed } from "./listening-player";
 import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
+import { formatTwd } from "../lib/currency";
 
 type Message = { role: "mentor" | "student"; text: string; sources?: string[] };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
@@ -471,7 +472,7 @@ export default function Home() {
           </div>
         </section>}
 
-        {!practiceQuestion && source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)}</span> : null}</div>}
+        {!practiceQuestion && source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(lastUsage.estimatedCostUsd)}</span> : null}</div>}
 
         {!practiceQuestion && historyLoaded && messages.length === 1 && (
           <div className="quick-starts">

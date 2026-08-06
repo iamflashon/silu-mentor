@@ -6,6 +6,10 @@ import {
   learningResources,
   resourceSegments,
 } from "../../../../db/schema";
+import {
+  storedDocumentAnalysis,
+  storedDocumentStats,
+} from "../../../../lib/document-analysis";
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline", "book_chapter_pending"] as const;
@@ -37,6 +41,36 @@ type ProblemOutlinePayload = {
   topics?: Array<{
     section?: string;
     topic?: string;
+  }>;
+};
+
+type StoredDocumentAnalysis = {
+  chapters?: Array<{
+    title?: string;
+    path?: string;
+    page_start?: number | null;
+    page_end?: number | null;
+  }>;
+  questions?: Array<{
+    number?: string;
+    title?: string;
+    question_title?: string;
+    content?: string;
+    stem?: string;
+    question?: string;
+    chapter?: string;
+    topic?: string;
+    theme?: string;
+    section?: string;
+    section_path?: string;
+    part?: string;
+    subject?: string;
+    question_no?: string;
+    question_text?: string;
+    pageStart?: number | null;
+    pageEnd?: number | null;
+    page_start?: number | null;
+    page_end?: number | null;
   }>;
 };
 
@@ -145,6 +179,58 @@ function isCompleteProblemQuestion(chapter: {
   return /題型\s*\d+(?:\.\d+)+|第\s*\d+\s*題/.test(title) && stem.length >= 30;
 }
 
+function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
+  const parsed = storedDocumentAnalysis(document.processingResultJson || "{}");
+  return parsed && (Array.isArray(parsed.questions) || Array.isArray(parsed.chapters))
+    ? (parsed as StoredDocumentAnalysis)
+    : null;
+}
+
+function storedCatalogueRows(
+  resourceId: number,
+  document: typeof documents.$inferSelect,
+) {
+  const analysis = readStoredDocumentAnalysis(document);
+  const questions = Array.isArray(analysis?.questions) ? analysis.questions : [];
+  return questions
+    .map((question, index) => {
+      const title = String(
+        question.title ?? question.question_title ?? question.question_no ?? question.number ?? "",
+      ).trim();
+      if (!title) return null;
+      const section = String(
+        question.section ?? question.part ?? question.section_path ?? "",
+      ).trim();
+      const topic = String(
+        question.chapter ?? question.topic ?? question.theme ?? question.subject ?? "",
+      ).trim() || "其他題型";
+      const text = String(
+        question.content ?? question.stem ?? question.question_text ?? question.question ?? "",
+      ).trim();
+      return {
+        id: -(index + 1),
+        resourceId,
+        segmentType: "book_outline",
+        lessonLabel: `${section || "題型目錄"}｜${topic}`.slice(0, 160),
+        title,
+        pageStart: question.page_start ?? (question as { pageStart?: number | null }).pageStart ?? null,
+        pageEnd: question.page_end ?? (question as { pageEnd?: number | null }).pageEnd ?? null,
+        startSeconds: null,
+        endSeconds: null,
+        sourceUrl: "",
+        text,
+        summary: text ? "已擷取完整題目" : "目錄資料已確認；完整題文正在整理",
+        importance: 0,
+        recommended: false,
+        reviewStatus: text ? "ai_reviewed" : "catalogue_only",
+        sequence: index + 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
 async function readChapterProgressRecord(resourceId: number) {
   const db = await getDb();
   const [setting] = await db
@@ -247,7 +333,47 @@ export async function GET(request: Request) {
     const progressRecord = await readChapterProgressRecord(resourceId);
     const progress = progressForResponse(progressRecord.progress, progressRecord.updatedAt);
     if (new URL(request.url).searchParams.get("progress") === "1") {
-      return Response.json({ resourceId, status: progress.state, progress });
+      const [document] = resource.documentId
+        ? await db
+            .select()
+            .from(documents)
+            .where(eq(documents.id, resource.documentId))
+            .limit(1)
+        : [];
+      const stored = document
+        ? storedDocumentStats(
+            document.processingResultJson,
+            document.chapterCount,
+            document.questionCount,
+          )
+        : { chapterCount: 0, topicCount: 0, questionCount: 0 };
+      const storedAnalysis = document
+        ? storedDocumentAnalysis(document.processingResultJson)
+        : null;
+      const hasCompletedStoredAnalysis = Boolean(
+        document &&
+          document.status === "completed" &&
+          stored.questionCount > 0 &&
+          (Array.isArray(storedAnalysis?.questions) ||
+            Array.isArray(storedAnalysis?.chapters)),
+      );
+      const effectiveProgress = hasCompletedStoredAnalysis
+        ? {
+            ...progress,
+            state: "completed" as const,
+            phase: "saving" as const,
+            completedTopics: stored.topicCount || stored.chapterCount,
+            totalTopics: stored.topicCount || stored.chapterCount,
+            foundQuestions: stored.questionCount,
+            currentTopic: "",
+            error: undefined,
+          }
+        : progress;
+      return Response.json({
+        resourceId,
+        status: effectiveProgress.state,
+        progress: effectiveProgress,
+      });
     }
     const status = progress.state;
     const problemBook = isProblemBook(resource);
@@ -259,6 +385,27 @@ export async function GET(request: Request) {
     // resumable extraction was interrupted.  Keep the catalogue visible and
     // let the UI distinguish complete questions from catalogue-only rows.
     if (problemBook && chapters.length) {
+      const [document] = resource.documentId
+        ? await db
+            .select()
+            .from(documents)
+            .where(eq(documents.id, resource.documentId))
+            .limit(1)
+        : [];
+      const storedCatalogue = document
+        ? storedCatalogueRows(resourceId, document)
+        : [];
+      if (storedCatalogue.length) {
+        return Response.json({
+          chapters: storedCatalogue,
+          generated: false,
+          ready: true,
+          status: "catalogue",
+          incompleteCount: storedCatalogue.filter((item) => !item.text).length,
+          progress,
+          message: "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。",
+        });
+      }
       return Response.json({
         chapters: chapters.map((chapter) => ({
           ...chapter,
@@ -293,6 +440,20 @@ export async function GET(request: Request) {
       .from(documents)
       .where(eq(documents.id, resource.documentId))
       .limit(1);
+    if (problemBook && document) {
+      const storedCatalogue = storedCatalogueRows(resourceId, document);
+      if (storedCatalogue.length) {
+        return Response.json({
+          chapters: storedCatalogue,
+          generated: false,
+          ready: true,
+          status: "catalogue",
+          incompleteCount: storedCatalogue.filter((item) => !item.text).length,
+          progress,
+          message: "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。",
+        });
+      }
+    }
     if (!document?.openaiFileId) {
       return Response.json({
         chapters: [],

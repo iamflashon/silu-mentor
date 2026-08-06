@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { studyRecords } from "../../../db/schema";
 import { taipeiDate } from "../../../lib/taipei-time";
@@ -32,4 +32,23 @@ export async function PUT(request: Request) {
     await db.update(studyRecords).set({ actualMinutes: Math.max(0, Math.min(720, Number(body.actualMinutes) || 0)), reflection: body.reflection?.trim() ?? "", weakness: body.weakness?.trim() ?? "", nextStep: body.nextStep?.trim() ?? "" }).where(and(eq(studyRecords.id, id), eq(studyRecords.userKey, userKey(request))));
     return Response.json({ id });
   } catch { return Response.json({ error: "無法更新學習紀錄" }, { status: 500 }); }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json() as { ids?: unknown };
+    const ids = Array.isArray(body.ids)
+      ? [...new Set(body.ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
+      : [];
+    if (!ids.length) return Response.json({ error: "請先選擇要刪除的學習紀錄" }, { status: 400 });
+
+    const db = await getDb();
+    await db.delete(studyRecords).where(and(
+      eq(studyRecords.userKey, userKey(request)),
+      inArray(studyRecords.id, ids),
+    ));
+    return Response.json({ deleted: ids.length });
+  } catch {
+    return Response.json({ error: "學習紀錄刪除失敗" }, { status: 500 });
+  }
 }
