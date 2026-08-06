@@ -20,7 +20,7 @@ type ComparisonResponse = {
 type ModelComparison = { id: number; sourceStatus: string; responses: ComparisonResponse[] };
 type EvaluationUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
 type TeachingLevel = "beginner" | "intermediate" | "advanced";
-type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
+type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
 type TeachingJudgement = { groups: Array<{ level: string; winner: string; reason: string; legalAccuracy: number; adaptation: number; empathyOrDepth: number; stability: number }>; overallWinner: string; weightedSummary: string; commercialRecommendation: string; caution: string };
 type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; comparison?: ModelComparison };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
@@ -79,18 +79,18 @@ function ModelComparisonCard({ comparison, onRate }: { comparison: ModelComparis
 function TeachingEvaluationCard({ rounds, judgement, totalUsage }: { rounds: TeachingRound[]; judgement: TeachingJudgement | null; totalUsage: EvaluationUsage[] }) {
   const groupMap = new Map((judgement?.groups ?? []).map((group) => [group.level, group]));
   return <section className="teaching-evaluation-card" aria-label="程度教學測試結果">
-    <header><div><b>程度教學測試結果</b><span>每種程度獨立測試；完成後再單獨請 AI 審判長評比</span></div><small>目前完成 {rounds.length}/3 組 · 審判長不會自動執行</small></header>
-    <div className="teaching-evaluation-rounds">
+    <header><div><b>AI 審判長評比</b><span>只評比已經在主對話框完成的雙模型教學回合</span></div><small>審判長不會自動執行</small></header>
+    {rounds.length > 0 && <div className="teaching-evaluation-rounds">
       {rounds.map((student) => {
         const group = groupMap.get(student.level);
         return <article key={student.level}>
           <div className="teaching-evaluation-level"><strong>{student.label}</strong><span>{group?.winner ? `${group.winner}勝出` : "尚未判定"}</span></div>
           <p className="teaching-evaluation-student"><b>模擬學生</b>{student.reply}</p>
-          <div className="teaching-evaluation-teachers"><div><strong>教師 A · {student.teacherA.model}</strong><p>{student.teacherA.text || "未產生回答"}</p></div><div><strong>教師 B · {student.teacherB.model}</strong><p>{student.teacherB.text || "未產生回答"}</p></div></div>
+          <div className="teaching-evaluation-teachers"><div><strong>教師 A · {student.teacherA.model}</strong><p>{student.teacherA.text || "未產生回答"}</p></div>{student.teacherB && <div><strong>教師 B · {student.teacherB.model}</strong><p>{student.teacherB.text || "未產生回答"}</p></div>}</div>
           {group && <div className="teaching-evaluation-score"><span>法律 {group.legalAccuracy}</span><span>適配 {group.adaptation}</span><span>{student.level === "beginner" ? "同理" : "深度"} {group.empathyOrDepth}</span><span>穩定 {group.stability}</span><p>{group.reason}</p></div>}
         </article>;
       })}
-    </div>
+    </div>}
     {judgement ? <div className="teaching-evaluation-verdict"><strong>AI 審判長裁決：{judgement.overallWinner}</strong><p>{judgement.weightedSummary}</p><p><b>商用建議：</b>{judgement.commercialRecommendation}</p>{judgement.caution && <small>核對提醒：{judgement.caution}</small>}</div> : <div className="teaching-evaluation-pending">已完成的程度可以先查看教師回覆；請按「AI 審判長評比」才會產生裁決。</div>}
     <small className="teaching-evaluation-cost">本次已執行 {totalUsage.length} 次模型呼叫 · 約 US$ {totalUsage.reduce((sum, item) => sum + item.estimatedCostUsd, 0).toFixed(5)}</small>
   </section>;
@@ -121,6 +121,7 @@ export default function Home() {
   const [teachingUsage, setTeachingUsage] = useState<EvaluationUsage[]>([]);
   const [evaluatingLevel, setEvaluatingLevel] = useState<TeachingLevel | null>(null);
   const [evaluatingJudge, setEvaluatingJudge] = useState(false);
+  const [pendingTeachingLevel, setPendingTeachingLevel] = useState<TeachingLevel | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -158,7 +159,15 @@ export default function Home() {
   }, [homeFeed?.examCountdowns, today]);
   const magazineArticles = homeFeed?.magazine?.articles ?? [];
   const selectedMagazineArticle = magazineArticles.find((article) => article.id === selectedMagazineArticleId) ?? magazineArticles[0] ?? null;
-  const latestComparison = [...messages].reverse().find((message) => message.role === "mentor" && message.comparison)?.comparison ?? null;
+  const latestTeacherTurn = [...messages].reverse().find((message) => message.role === "mentor" && message.text.trim()) ?? null;
+  const latestTeacherMessage = latestTeacherTurn && !latestTeacherTurn.comparison ? latestTeacherTurn : null;
+  const actualLatestComparison = latestTeacherTurn?.comparison ?? null;
+  const latestComparison = actualLatestComparison ?? (latestTeacherMessage ? { id: -1, sourceStatus: "unavailable", responses: [{ id: -1, label: "Luna", model: lastUsage?.model ?? "gpt-5.6-luna", text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] } satisfies ModelComparison : null);
+  const latestTeacherResponses: ComparisonResponse[] = latestComparison?.responses.filter((response) => !response.error && response.text.trim())
+    ?? (latestTeacherMessage ? [{ id: -1, label: "Luna", model: lastUsage?.model ?? "gpt-5.6-luna", text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] : []);
+  const selectedTeacherResponses = modelMode === "dual" ? latestTeacherResponses : latestTeacherResponses.filter((response) => response.label === "Luna").slice(0, 1);
+  const canGenerateStudentReply = selectedTeacherResponses.length > 0;
+  const canJudgeTeaching = teachingRounds.some((round) => Boolean(round.teacherB?.text));
   const evaluatingTeaching = Boolean(evaluatingLevel || evaluatingJudge);
 
   useEffect(() => {
@@ -421,13 +430,15 @@ export default function Home() {
     composerInputRef.current?.blur();
     const value = text.trim();
     if ((!value && !imageDraft) || thinking) return;
+    const sentTeachingLevel = pendingTeachingLevel;
     const question = value || "請先辨識這張圖片中的題目，帶我一步一步審題。";
     const attachedImage = imageDraft ? await prepareQuestionImage(imageDraft) : undefined;
     const nextMessages: Message[] = [...messages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
     setMessages(nextMessages);
-    setTeachingRounds([]);
+    if (!sentTeachingLevel) setTeachingRounds([]);
     setTeachingJudgement(null);
-    setTeachingUsage([]);
+    if (!sentTeachingLevel) setTeachingUsage([]);
+    setPendingTeachingLevel(null);
     setInput("");
     setDailyChoiceVisible(false);
     setImageDraft(null);
@@ -444,6 +455,22 @@ export default function Home() {
       setMessages((current) => [...current, { role: "mentor", text: result.reply!, sources: result.sources ?? [], citationStatus: result.citationStatus, comparison: result.comparison ?? undefined }]);
       setSource(result.source ?? "AI 補充");
       setLastUsage(result.usage ?? null);
+      if (sentTeachingLevel) {
+        const lunaResponse = result.comparison?.responses.find((item) => item.label === "Luna") ?? null;
+        const claudeResponse = result.comparison?.responses.find((item) => item.label === "Claude Sonnet") ?? null;
+        const teacherA = {
+          model: lunaResponse?.model ?? result.usage?.model ?? "gpt-5.6-luna",
+          text: result.reply!,
+          usage: lunaResponse?.usage ?? { inputTokens: result.usage?.inputTokens ?? 0, cachedTokens: result.usage?.cachedTokens ?? 0, outputTokens: result.usage?.outputTokens ?? 0, estimatedCostUsd: result.usage?.estimatedCostUsd ?? 0, durationMs: 0 },
+          stopReason: lunaResponse?.stopReason ?? null,
+        };
+        const teacherB = claudeResponse ? { model: claudeResponse.model, text: claudeResponse.text, usage: claudeResponse.usage, stopReason: claudeResponse.stopReason ?? null } : undefined;
+        // 審判長只比較實際存在的雙模型回合；Luna 單獨回答時不建立審判回合。
+        if (teacherB) {
+          setTeachingRounds((current) => [...current.filter((item) => item.level !== sentTeachingLevel), { level: sentTeachingLevel, label: sentTeachingLevel === "beginner" ? "初學小白" : sentTeachingLevel === "intermediate" ? "中階考生" : "高階法研所考生", reply: question, teacherA, teacherB }]);
+        }
+        setTeachingUsage((current) => [...current, ...(result.comparison?.responses ?? []).map((item) => ({ model: item.model, inputTokens: item.usage.inputTokens, cachedTokens: item.usage.cachedTokens, outputTokens: item.usage.outputTokens, durationMs: item.usage.durationMs, estimatedCostUsd: item.usage.estimatedCostUsd }))]);
+      }
       if (result.sessionId) setSessionId(result.sessionId);
     } catch (error) {
       setMessages((current) => [...current, {
@@ -470,68 +497,50 @@ export default function Home() {
 
   function insertStudentTestPrompt() {
     if (thinking || generatingStudentReply) return;
-    setModelMode("dual");
     setInput(trustPrincipleStudentTest);
     window.setTimeout(() => composerInputRef.current?.focus(), 0);
   }
 
-  async function generateStudentFollowUp() {
+  async function generateStudentFollowUp(level?: TeachingLevel) {
     if (thinking || generatingStudentReply) return;
-    if (!latestComparison) {
+    if (!canGenerateStudentReply) {
       insertStudentTestPrompt();
       return;
     }
     const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
     setGeneratingStudentReply(true);
+    setEvaluatingLevel(level ?? null);
     try {
       const response = await fetch("/api/chat/student-follow-up", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           prompt: latestStudent,
-          responses: latestComparison.responses.map((item) => ({ label: item.label, model: item.model, text: item.text, error: item.error })),
+          level,
+          responses: selectedTeacherResponses.map((item) => ({ label: item.label, model: item.model, text: item.text, error: item.error })),
         }),
       });
       const result = await response.json() as { reply?: string; error?: string };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "目前無法產生同學接續回覆");
-      setModelMode("dual");
+      setPendingTeachingLevel(level ?? null);
       setInput(result.reply);
       window.setTimeout(() => composerInputRef.current?.focus(), 0);
     } catch (error) {
       setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "目前無法產生同學接續回覆。" }]);
     } finally {
       setGeneratingStudentReply(false);
-    }
-  }
-
-  async function runTeachingLevel(level: TeachingLevel) {
-    if (thinking || generatingStudentReply || evaluatingTeaching || !latestComparison) return;
-    const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
-    if (!latestStudent) {
-      setMessages((current) => [...current, { role: "mentor", text: "請先送出一題學生問題，再開始程度測試。" }]);
-      return;
-    }
-    setEvaluatingLevel(level);
-    try {
-      const response = await fetch("/api/chat/teaching-evaluation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode: "level", level, prompt: latestStudent, responses: latestComparison.responses.map((item) => ({ label: item.label, model: item.model, text: item.text, error: item.error })) }),
-      });
-      const result = await response.json() as { student?: TeachingRound; totalUsage?: EvaluationUsage[]; error?: string };
-      if (!response.ok || !result.student || !result.totalUsage) throw new Error(result.error ?? "程度教學測試未完成");
-      setTeachingRounds((current) => [...current.filter((item) => item.level !== level), result.student!].sort((a, b) => ["beginner", "intermediate", "advanced"].indexOf(a.level) - ["beginner", "intermediate", "advanced"].indexOf(b.level)));
-      setTeachingJudgement(null);
-      setTeachingUsage((current) => [...current, ...result.totalUsage!]);
-    } catch (error) {
-      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "程度教學測試暫時無法完成。" }]);
-    } finally {
       setEvaluatingLevel(null);
     }
   }
 
+  // 程度按鈕沿用「依老師回覆生成同學回覆」的互動：只把學生訊息放進輸入框，
+  // 不在下方直接產生教師解析；送出時才由目前選定的模型回答。
+  async function runTeachingLevel(level: TeachingLevel) {
+    await generateStudentFollowUp(level);
+  }
+
   async function runTeachingJudge() {
-    if (thinking || generatingStudentReply || evaluatingTeaching || !latestComparison || !teachingRounds.length) return;
+    if (thinking || generatingStudentReply || evaluatingTeaching || !canJudgeTeaching || !teachingRounds.length) return;
     const latestStudent = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
     if (!latestStudent) return;
     setEvaluatingJudge(true);
@@ -644,7 +653,7 @@ export default function Home() {
           <div ref={endRef} />
         </div>}
 
-        {!practiceQuestion && (teachingRounds.length > 0 || teachingJudgement) && <TeachingEvaluationCard rounds={teachingRounds} judgement={teachingJudgement} totalUsage={teachingUsage} />}
+        {!practiceQuestion && teachingJudgement && <TeachingEvaluationCard rounds={teachingRounds} judgement={teachingJudgement} totalUsage={teachingUsage} />}
 
         {!practiceQuestion && dailyChoiceVisible && yesterday && <section className="daily-handoff" aria-label="昨日學習接續選擇">
           <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>

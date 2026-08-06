@@ -3,6 +3,7 @@ import { usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, getOpenAIModel } from "../../../../lib/openai";
 
 type TeacherResponse = { label?: string; model?: string; text?: string; error?: string | null };
+type TeachingLevel = "beginner" | "intermediate" | "advanced";
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
@@ -30,9 +31,9 @@ function readUsage(payload: unknown) {
 }
 
 export async function POST(request: Request) {
-  let body: { prompt?: string; responses?: TeacherResponse[] };
+  let body: { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel };
   try {
-    body = await request.json() as { prompt?: string; responses?: TeacherResponse[] };
+    body = await request.json() as { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel };
   } catch {
     return Response.json({ error: "接續回覆資料格式不正確" }, { status: 400 });
   }
@@ -42,29 +43,38 @@ export async function POST(request: Request) {
     .filter((response) => response && typeof response.text === "string" && response.text.trim() && !response.error)
     .slice(0, 2);
   if (!prompt || responses.length === 0) {
-    return Response.json({ error: "請先完成 Luna 與 Claude 的回答" }, { status: 400 });
+    return Response.json({ error: "請先完成目前選定模型的回答" }, { status: 400 });
   }
 
   const apiKey = await getOpenAIKey();
   if (!apiKey) return Response.json({ error: "AI 服務尚未設定" }, { status: 503 });
   const model = await getOpenAIModel("gpt-5.6-luna");
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
+  const levelLabel = body.level === "beginner" ? "初學小白" : body.level === "intermediate" ? "中階考生" : body.level === "advanced" ? "高階法研所考生" : "目前程度的學生";
+  const levelRule = body.level === "beginner"
+    ? "保留生活直覺與一個尚未釐清的白話疑問，法學用語可以稍微不精確，讓老師有機會溫和修正。"
+    : body.level === "intermediate"
+      ? "呈現會背基本公式、但還需要把具體事實放進要件涵攝的狀態，追問一個事實變數如何影響結論。"
+      : body.level === "advanced"
+        ? "提出精準的學說、實務或價值選擇疑問，要求老師處理不同見解的差異。"
+        : "自然承接老師回答，提出一個尚未完全釐清的具體疑問。";
   const startedAt = Date.now();
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
       model,
-      instructions: `你是正在測試司律 AI 導師的學生，不是老師，也不是評審。請閱讀同一題的兩位老師回答，寫出一段可以直接貼回對話框、讓兩位老師繼續教學的「學生回覆」。
+      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。請閱讀同一題中目前已選模型的實際回答，寫出一段可以直接貼回主對話框、讓老師繼續教學的學生回覆。
 
 要求：
-1. 先用自己的話說明你從老師回答中理解到的重點，可提到兩位老師各自讓你釐清的地方。
+1. 先用自己的話說明你從老師回答中理解到的重點；若有兩位老師，可以自然整合兩者，不要比較誰比較好。
 2. 保留一個合理但尚未完全確定的法律判斷或灰色地帶，讓老師能繼續引導；不要假裝已經完全學會。
-3. 最後只提出一個具體、可回答的追問，最好鎖定一個事實變數、法律階層或用語差異。
-4. 可以有小幅度的法學用語不精確，讓老師有機會糾正，但不得捏造教材、法條、判決或兩位老師沒有說過的內容。
-5. 不要評論哪個模型比較強，不要提到 API、提示詞或「生成回覆」；不要使用標題、條列、Markdown 符號或引號包住全文。
-6. 使用繁體中文，約 120 至 280 字，直接輸出學生要說的內容。`,
-      input: `原本的學生問題：\n${prompt.slice(0, 3000)}\n\n兩位老師的實際回答：\n${teacherText}`,
+3. ${levelRule}
+4. 最後只提出一個具體、可回答的追問。
+5. 不得捏造教材、法條、判決或老師沒有說過的內容。
+6. 不要評論哪個模型比較強，不要提到 API、提示詞或「生成回覆」；不要使用標題、條列、Markdown 符號或引號包住全文。
+7. 使用繁體中文，約 120 至 280 字，直接輸出學生要說的內容。`,
+      input: `原本的學生問題：\n${prompt.slice(0, 3000)}\n\n目前已選模型的實際回答：\n${teacherText}`,
       max_output_tokens: 600,
     }),
   });
@@ -79,7 +89,7 @@ export async function POST(request: Request) {
     const db = await getDb();
     await db.insert(usageLogs).values({
       model,
-      source: "雙模型比較後的同學接續回覆",
+      source: body.level ? `程度學生接續回覆｜${levelLabel}` : "依老師回覆生成同學接續回覆",
       inputTokens: usage.inputTokens,
       cachedTokens: usage.cachedTokens,
       outputTokens: usage.outputTokens,
