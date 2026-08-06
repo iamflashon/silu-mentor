@@ -392,7 +392,7 @@ export async function GET(request: Request) {
       const hasCompletedStoredAnalysis = Boolean(
         document &&
           document.status === "completed" &&
-          stored.questionCount > 0 &&
+          (stored.chapterCount > 0 || stored.questionCount > 0) &&
           (Array.isArray(storedAnalysis?.questions) ||
             Array.isArray(storedAnalysis?.chapters)),
       );

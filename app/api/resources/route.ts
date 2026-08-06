@@ -8,7 +8,7 @@ import {
   learningResources,
   resourceSegments,
 } from "../../../db/schema";
-import { storedDocumentStats } from "../../../lib/document-analysis";
+import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
 
 function isPlayableCourseUrl(value: string) {
   try {
@@ -128,8 +128,26 @@ export async function GET() {
       const analyzedArticleCount = articlePreviews.filter((article) => article.analysisState === "analyzed").length;
       const failedArticleCount = articlePreviews.filter((article) => article.analysisState === "failed").length;
       const { documentProcessingResultJson, ...publicRow } = row;
+      const storedAnalysis = storedDocumentAnalysis(documentProcessingResultJson ?? "{}");
+      const storedChapterRows = Array.isArray(storedAnalysis.chapters)
+        ? storedAnalysis.chapters
+        : [];
+      const storedQuestionRows = Array.isArray(storedAnalysis.questions)
+        ? storedAnalysis.questions
+        : [];
+      // The document processor already saves a real chapter/question catalogue
+      // in processing_result_json.  It is usable by the viewer even when the
+      // optional resource_segments chapter index has not been materialized.
+      // Expose that fact so the admin page does not ask for the same sync on
+      // every visit.
+      const storedCatalogueCount = Math.max(
+        storedChapterRows.length,
+        storedQuestionRows.length,
+      );
       return {
         ...publicRow,
+        hasStoredChapterCatalogue: storedCatalogueCount > 0,
+        storedChapterCatalogueCount: storedCatalogueCount,
         ...(() => {
           const counts = storedDocumentStats(
             documentProcessingResultJson ?? "{}",

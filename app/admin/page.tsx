@@ -118,6 +118,8 @@ type LearningResource = {
   documentChapterCount?: number;
   documentTopicCount?: number;
   documentQuestionCount?: number;
+  hasStoredChapterCatalogue?: boolean;
+  storedChapterCatalogueCount?: number;
   documentExtractedChars?: number;
   documentTags?: string[];
   articlePreviews?: Array<{
@@ -1970,17 +1972,6 @@ export default function AdminPage() {
     chapterProgressRef.current = chapterProgress;
   }, [chapterProgress]);
 
-  useEffect(() => {
-    const candidates = resources.filter(
-      (resource) =>
-        resource.resourceType === "book" &&
-        resource.documentId &&
-        resource.documentStatus === "completed" &&
-        isProblemSolvingResource(resource),
-    );
-    for (const resource of candidates) void startAutomaticChapterIndex(resource);
-  }, [resources]);
-
   async function bindCourseBook(
     resource: LearningResource,
     linkedBookId: string,
@@ -3426,22 +3417,29 @@ export default function AdminPage() {
                           >
                             {chapterViewerLoading === resource.id ? "讀取章節中…" : "查看章節內容"}
                           </button>
-                          <button
-                            type="button"
-                            className="subtitle-open"
-                            disabled={!resource.documentId}
-                            onClick={() => void buildBookChapters(resource)}
-                          >
-                            {isProblemSolvingResource(resource)
-                              ? chapterProgress[resource.id]?.state === "completed"
-                                ? "重新整理題型"
-                                : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
-                                  ? "接續整理題型"
-                                  : "開始整理題型與完整題目"
-                              : Number(resource.chapterCount ?? 0) > 0
-                                ? "重新整理章節索引"
-                                : "建立章節索引（一次）"}
-                          </button>
+                          {resource.hasStoredChapterCatalogue && Number(resource.chapterCount ?? 0) === 0 && (
+                            <span className="chapter-index-complete" role="status">
+                              ✓ 已沿用教材分析保存的真實內容（{resource.storedChapterCatalogueCount ?? resource.documentChapterCount ?? 0} 筆）
+                            </span>
+                          )}
+                          {(!resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (
+                            <button
+                              type="button"
+                              className="subtitle-open"
+                              disabled={!resource.documentId}
+                              onClick={() => void buildBookChapters(resource)}
+                            >
+                              {isProblemSolvingResource(resource)
+                                ? chapterProgress[resource.id]?.state === "completed"
+                                  ? "重新整理題型"
+                                  : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
+                                    ? "接續整理題型"
+                                    : "開始整理題型與完整題目"
+                                : Number(resource.chapterCount ?? 0) > 0
+                                  ? "重新整理章節索引"
+                                  : "建立章節索引（一次）"}
+                            </button>
+                          )}
                           {isProblemSolvingResource(resource) && (() => {
                             const progress = chapterProgress[resource.id];
                             const percent = chapterProgressPercent(progress);
