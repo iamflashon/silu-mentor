@@ -3348,7 +3348,17 @@ export default function AdminPage() {
                               <div className="chapter-progress-meta">
                                 <span>
                                   {resource.documentStatus === "completed"
-                                    ? `檔案分析已整理 ${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${resource.documentQuestionCount ?? 0} 題`
+                                    ? (() => {
+                                        const progress = chapterProgress[resource.id];
+                                        const storedTopics = Math.max(resource.documentTopicCount ?? 0, resource.documentChapterCount ?? 0);
+                                        const storedQuestions = resource.documentQuestionCount ?? 0;
+                                        const topics = storedTopics || (progress?.completedTopics ?? 0);
+                                        const questions = storedQuestions || (progress?.foundQuestions ?? 0);
+                                        const running = progress && progress.state !== "completed" && progress.totalTopics;
+                                        return running
+                                          ? `檔案分析已整理 ${progress.completedTopics ?? 0}／${progress.totalTopics} 個主題 · 已找到 ${questions} 題`
+                                          : `檔案分析已整理 ${topics} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${questions} 題`;
+                                      })()
                                     : "完成後會自動更新章節、題目與分類結果"}
                                 </span>
                                 {!!resource.documentTags?.length && <small>標籤：{resource.documentTags.slice(0, 8).join("、")}</small>}

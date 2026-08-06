@@ -10,6 +10,26 @@ function asArray(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
+function firstArray(records: Array<UnknownRecord | null>, keys: string[]) {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = asArray(record?.[key]);
+      if (value.length) return value;
+    }
+  }
+  return [];
+}
+
+function firstNumber(records: Array<UnknownRecord | null>, keys: string[]) {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = Number(record?.[key]);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+  }
+  return 0;
+}
+
 export function parseStoredProcessingResult(value: string) {
   try {
     const parsed = JSON.parse(value || "{}");
@@ -27,15 +47,18 @@ export function parseStoredProcessingResult(value: string) {
 export function storedDocumentAnalysis(value: string) {
   const root = parseStoredProcessingResult(value);
   const nested = asRecord(root.analysis);
+  const result = asRecord(root.result);
+  const data = asRecord(root.data);
+  const nestedResult = asRecord(nested?.result);
+  const facts = asRecord(root.facts) ?? asRecord(nested?.facts);
+  const candidates = [root, nested, result, data, nestedResult, facts];
   return {
     ...root,
     ...(nested ?? {}),
-    chapters: asArray(root.chapters).length
-      ? asArray(root.chapters)
-      : asArray(nested?.chapters),
-    questions: asArray(root.questions).length
-      ? asArray(root.questions)
-      : asArray(nested?.questions),
+    chapters: firstArray(candidates, ["chapters", "chapterCandidates"]),
+    questions: firstArray(candidates, ["questions", "questionCandidates"]),
+    storedChapterCount: firstNumber(candidates, ["chapterCount", "topicCount"]),
+    storedQuestionCount: firstNumber(candidates, ["questionCount"]),
   };
 }
 
@@ -70,12 +93,18 @@ export function storedDocumentStats(
   );
   const topicCount = Math.max(topics.size, chapters.length);
   return {
-    chapterCount: Math.max(fallbackChapterCount, topicCount, chapterCandidates.length),
+    chapterCount: Math.max(
+      fallbackChapterCount,
+      topicCount,
+      chapterCandidates.length,
+      Number(analysis.storedChapterCount ?? 0),
+    ),
     topicCount,
     questionCount: Math.max(
       fallbackQuestionCount,
       questions.length,
       questionCandidates.length,
+      Number(analysis.storedQuestionCount ?? 0),
     ),
   };
 }

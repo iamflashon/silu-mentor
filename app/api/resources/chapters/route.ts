@@ -61,7 +61,13 @@ type StoredDocumentAnalysis = {
     topic?: string;
     theme?: string;
     section?: string;
+    section_path?: string;
     part?: string;
+    subject?: string;
+    question_no?: string;
+    question_text?: string;
+    pageStart?: number | null;
+    pageEnd?: number | null;
     page_start?: number | null;
     page_end?: number | null;
   }>;
@@ -188,15 +194,17 @@ function storedCatalogueRows(
   return questions
     .map((question, index) => {
       const title = String(
-        question.title ?? question.question_title ?? question.number ?? "",
+        question.title ?? question.question_title ?? question.question_no ?? question.number ?? "",
       ).trim();
       if (!title) return null;
-      const section = String(question.section ?? question.part ?? "").trim();
+      const section = String(
+        question.section ?? question.part ?? question.section_path ?? "",
+      ).trim();
       const topic = String(
-        question.chapter ?? question.topic ?? question.theme ?? "",
+        question.chapter ?? question.topic ?? question.theme ?? question.subject ?? "",
       ).trim() || "其他題型";
       const text = String(
-        question.content ?? question.stem ?? question.question ?? "",
+        question.content ?? question.stem ?? question.question_text ?? question.question ?? "",
       ).trim();
       return {
         id: -(index + 1),
@@ -204,8 +212,8 @@ function storedCatalogueRows(
         segmentType: "book_outline",
         lessonLabel: `${section || "題型目錄"}｜${topic}`.slice(0, 160),
         title,
-        pageStart: question.page_start ?? null,
-        pageEnd: question.page_end ?? null,
+        pageStart: question.page_start ?? (question as { pageStart?: number | null }).pageStart ?? null,
+        pageEnd: question.page_end ?? (question as { pageEnd?: number | null }).pageEnd ?? null,
         startSeconds: null,
         endSeconds: null,
         sourceUrl: "",
