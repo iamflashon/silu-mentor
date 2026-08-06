@@ -10951,10 +10951,10 @@ a {
     transform: translateX(0);
   }
   .mobile-rail-toggle {
-    position: fixed;
+    position: absolute;
     z-index: 38;
     right: 14px;
-    bottom: 106px;
+    bottom: calc(100% + 6px);
     display: flex;
     align-items: center;
     gap: 7px;
@@ -10985,6 +10985,10 @@ a {
   .mobile-rail-toggle.rail-left {
     right: auto;
     left: 14px;
+  }
+  .mobile-rail-toggle-practice {
+    position: fixed;
+    bottom: calc(18px + env(safe-area-inset-bottom));
   }
   .mobile-rail-backdrop {
     position: fixed;

@@ -593,16 +593,16 @@ export default function Home() {
 
       <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button><button type="button" onClick={() => startPractice("essay")} disabled={practiceLoading}>二試申論題</button></div></section></div>
 
-      <button
+      {practiceQuestion && <button
         type="button"
-        className={`mobile-rail-toggle rail-${railSide}`}
+        className={`mobile-rail-toggle mobile-rail-toggle-practice rail-${railSide}`}
         onClick={() => setMobileRailOpen(true)}
         aria-expanded={mobileRailOpen}
         aria-controls="command-rail"
       >
         <span aria-hidden="true">工具</span>
         <b>學習工具</b>
-      </button>
+      </button>}
       {mobileRailOpen && <button type="button" className="mobile-rail-backdrop" aria-label="關閉作戰資訊側欄" onClick={() => setMobileRailOpen(false)} />}
 
       <div className={`command-layout rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""} ${mobileRailOpen ? "mobile-rail-open" : ""}`}>
@@ -715,6 +715,16 @@ export default function Home() {
       </div>
 
       {!practiceQuestion && <div className={`composer-wrap rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""}`}>
+        <button
+          type="button"
+          className={`mobile-rail-toggle rail-${railSide}`}
+          onClick={() => setMobileRailOpen(true)}
+          aria-expanded={mobileRailOpen}
+          aria-controls="command-rail"
+        >
+          <span aria-hidden="true">工具</span>
+          <b>學習工具</b>
+        </button>
         <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>回答模型</span><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna＋Claude Sonnet 比較</button><button type="button" className="student-test-prompt" onClick={latestComparison ? generateStudentFollowUp : insertStudentTestPrompt} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{generatingStudentReply ? "✦ 整理老師回覆中…" : latestComparison ? "✦ 依老師回覆生成同學回覆" : "✦ 貼上學生測試回答"}</button>{latestComparison && <div className="teaching-test-buttons" role="group" aria-label="分開測試學生程度"><button type="button" className="teaching-level-beginner" onClick={() => void runTeachingLevel("beginner")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "beginner" ? "測試中…" : teachingRounds.some((item) => item.level === "beginner") ? "初學小白 ✓" : "初學小白測試"}</button><button type="button" className="teaching-level-intermediate" onClick={() => void runTeachingLevel("intermediate")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "intermediate" ? "測試中…" : teachingRounds.some((item) => item.level === "intermediate") ? "中階考生 ✓" : "中階考生測試"}</button><button type="button" className="teaching-level-advanced" onClick={() => void runTeachingLevel("advanced")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "advanced" ? "測試中…" : teachingRounds.some((item) => item.level === "advanced") ? "高階考生 ✓" : "高階考生測試"}</button><button type="button" className="teaching-evaluation-trigger" onClick={() => void runTeachingJudge()} disabled={thinking || generatingStudentReply || evaluatingTeaching || !teachingRounds.length}>{evaluatingJudge ? "審判中…" : teachingJudgement ? "AI 審判長 ✓" : "AI 審判長評比"}</button></div>}<small>{evaluatingLevel ? `正在測試${evaluatingLevel === "beginner" ? "初學小白" : evaluatingLevel === "intermediate" ? "中階考生" : "高階考生"}，只執行這一組` : evaluatingJudge ? "AI 審判長正在評比已完成的程度，不會自動測試其他程度" : latestComparison ? "三種程度與 AI 審判長都可分開按；每次只執行你選的按鈕" : modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : "一般對話使用 Luna"}</small></div>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
