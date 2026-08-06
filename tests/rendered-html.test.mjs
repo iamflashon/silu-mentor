@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const developmentPreviewMeta =
@@ -30,4 +31,12 @@ test("renders development preview metadata", async () => {
     /^text\/html\b/i,
   );
   assert.match(await response.text(), developmentPreviewMeta);
+});
+
+test("student follow-up click never serializes a React event", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /onClick=\{latestComparison \? generateStudentFollowUp/);
+  assert.match(source, /level === "beginner" \|\| level === "intermediate" \|\| level === "advanced"/);
+  assert.match(source, /level: requestedLevel/);
 });
