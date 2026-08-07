@@ -13,9 +13,19 @@ type CoachProgress = {
   readyForEssay: boolean;
 };
 
-const coachStageLabels = ["拆解甲的行為", "處理第一個行為", "處理第二個行為", "處理結果與因果關係", "三段論法練習", "正式作答"];
+function coachStageLabelsFor(subject: string) {
+  const normalized = subject.toLowerCase();
+  if (normalized.includes("刑法") && !normalized.includes("刑事訴訟")) {
+    return ["拆解甲的行為", "處理第一個行為", "處理第二個行為", "處理結果與因果關係", "三段論法練習", "正式作答"];
+  }
+  if (normalized.includes("公司") || normalized.includes("商事")) {
+    return ["辨認法律關係與爭點", "確認公司機關與當事人地位", "找出規範並涵攝事實", "處理學說與實務分歧", "三段論法練習", "正式作答"];
+  }
+  return ["整理題目事實與爭點", "確認法律關係與請求基礎", "找出規範並涵攝事實", "處理爭議與反面觀點", "三段論法練習", "正式作答"];
+}
 
-function coachProgress(studentCount: number): CoachProgress {
+function coachProgress(studentCount: number, subject: string): CoachProgress {
+  const coachStageLabels = coachStageLabelsFor(subject);
   const stage = Math.min(Math.max(studentCount, 0), coachStageLabels.length - 1);
   return {
     stage,
@@ -138,18 +148,34 @@ export async function POST(request: Request) {
     const history = (Array.isArray(body.messages) ? body.messages : []).slice(-10).map((message) => `${message.role === "student" ? "學生" : message.role === "scholar" ? "AI學霸" : "AI導師"}：${String(message.text).slice(0, 800)}`).join("\n");
     const resourceContext = resources.map((item) => `ID ${item.segmentId}｜${item.resourceType}｜${item.resourceTitle}｜${item.lessonLabel} ${item.segmentTitle}｜${item.summary || item.text.slice(0, 220)}`).join("\n");
     const lawContext = laws.map((item) => `ID ${item.id}｜${item.title} ${item.articleNo}｜${item.content.slice(0, 360)}`).join("\n");
+    const criminalSubject = question.subject.includes("刑法") && !question.subject.includes("刑事訴訟");
+    const companySubject = question.subject.includes("公司") || question.subject.includes("商事");
+    const subjectFrame = criminalSubject
+      ? "本題是刑法申論，才可以使用甲的行為、犯罪構成、故意、因果關係等刑法語彙。"
+      : companySubject
+        ? "本題是公司法／商事法申論，不得把題目改寫成刑法案例，也不要使用犯罪行為、犯罪故意或因果關係作為預設框架；應聚焦公司機關、股東／董事身分、法律關係、權利義務、決議效力、規範與涵攝。"
+        : `本題科目是${question.subject}，必須依該科目的法律關係與規範進行，不得套用刑法的犯罪行為框架。`;
     const actionInstruction = action === "start"
-      ? "這是第一次引導。先肯定學生開始練習，接著只問一個問題：先不要急著找法條，請學生拆出題目中甲分別做了哪些可能涉及刑責的行為。不要直接公布答案。"
+      ? criminalSubject
+        ? "這是第一次引導。先肯定學生開始練習，接著只問一個問題：先不要急著找法條，請學生拆出題目中甲分別做了哪些可能涉及刑責的行為。不要直接公布答案。"
+        : companySubject
+          ? "這是第一次引導。先肯定學生開始練習，接著只問一個問題：請學生先整理題目中的當事人、公司機關、法律關係與最可能的爭點，不要先寫完整答案。"
+          : "這是第一次引導。先肯定學生開始練習，接著只問一個問題：請學生先整理題目事實中的當事人、法律關係與最可能爭點，不要直接公布完整答案。"
       : action === "variation_basic"
         ? "依原真題改一個關鍵事實，出一題基礎模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
         : action === "variation_advanced"
           ? "依原真題改變程序階段、當事人主張或關鍵要件，出一題進階模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
           : "根據學生剛才的回答診斷理解缺口。先肯定已掌握部分，再只問一個學生可直接回答的小問題；完整處理目前階段後，必須明確銜接下一階段，不能在一個爭點結束。";
     const studentCount = Array.isArray(body.messages) ? body.messages.filter((message) => message.role === "student" || message.role === "scholar").length : 0;
-    const progress = coachProgress(studentCount);
+    const progress = coachProgress(studentCount, question.subject);
     const stage = progress.current;
     const teachingTone = body.teachingLevel === "beginner" ? "用法律小白聽得懂的語句，少用術語並逐步解釋。" : body.teachingLevel === "advanced" || body.teachingLevel === "super" ? "可追問學說、實務分歧與精準涵攝，但每次仍只問一個問題。" : "維持司律考生可理解的自然教練語氣。";
-    const instructions = `你是台灣司律考試的申論 AI 導師。只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n每次回覆 120 至 260 字，像首頁的自然對話一樣：先回應學生剛才說的內容，再提出一個學生可以直接回答的小問題。不要把回答寫成表格、講義或完整擬答。你必須依序引導：先拆解題目中甲的行為，再逐一處理每個行為的爭點、規範、涵攝、結論，最後才進入正式作答。學生答對目前階段後，必須在同一則回覆明確說明「這一段完成了」，並自然銜接下一段，例如「B 的部分完成了，接下來我們看 C」；不得在只列出一個爭點後結束。學生答錯時，指出錯誤方向並留在目前階段追問。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
+    const flow = criminalSubject
+      ? "先拆解題目中甲的行為，再逐一處理每個行為的爭點、規範、涵攝、結論，最後才進入正式作答。"
+      : companySubject
+        ? "先整理當事人與公司法律關係，再逐一處理公司機關、權利義務、決議效力或其他題目爭點，依規範、涵攝、結論逐段完成，最後才進入正式作答。"
+        : "先整理題目事實與法律關係，再逐一處理各爭點的規範、涵攝、結論，最後才進入正式作答。";
+    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n每次回覆 120 至 260 字，像首頁的自然對話一樣：先回應學生剛才說的內容，再提出一個學生可以直接回答的小問題。不要把回答寫成表格、講義或完整擬答。你必須${flow}學生答對目前階段後，必須在同一則回覆明確說明「這一段完成了」，並自然銜接下一段；不得在只列出一個爭點後結束。學生答錯時，指出錯誤方向並留在目前階段追問。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
     const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
     const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
       try { return await runProvider(provider, instructions, input); }

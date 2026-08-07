@@ -38,9 +38,9 @@ function readUsage(payload: unknown) {
 }
 
 export async function POST(request: Request) {
-  let body: { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel };
+  let body: { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel; subject?: string; question?: string };
   try {
-    body = await request.json() as { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel };
+    body = await request.json() as { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel; subject?: string; question?: string };
   } catch {
     return Response.json({ error: "接續回覆資料格式不正確" }, { status: 400 });
   }
@@ -56,6 +56,13 @@ export async function POST(request: Request) {
   const apiKey = await getOpenAIKey();
   if (!apiKey) return Response.json({ error: "AI 服務尚未設定" }, { status: 503 });
   const model = await getOpenAIModel("gpt-5.6-luna");
+  const subject = String(body.subject ?? "綜合").trim() || "綜合";
+  const question = String(body.question ?? "").trim();
+  const subjectRule = subject.includes("公司") || subject.includes("商事")
+    ? "這是公司法／商事法題目。只能使用公司機關、股東／董事身分、法律關係、權利義務、決議效力、規範與涵攝等語彙；不得把它寫成刑法案例，不得自行加入犯罪、故意、未遂或因果關係。"
+    : subject.includes("刑法") && !subject.includes("刑事訴訟")
+      ? "這是刑法題目，可以依題目內容討論行為、犯罪構成、故意、未遂、共犯與因果關係，但不得捏造題目沒有的事實。"
+      : `這是${subject}題目，請依該科目的法律關係與規範回答，不要套用其他法科的固定模板。`;
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
   const levelLabel = body.level === "beginner" ? "法律小白" : body.level === "intermediate" ? "基礎考生" : body.level === "advanced" ? "進階考生" : body.level === "super" ? "頂尖學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
@@ -73,7 +80,7 @@ export async function POST(request: Request) {
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
       model,
-      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。請閱讀同一題中目前已選模型的實際回答，寫出一段可以直接貼回主對話框、讓老師繼續教學的學生回覆。
+      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。這題的科目是${subject}。${subjectRule}請閱讀同一題中目前已選模型的實際回答，寫出一段可以直接貼回主對話框、讓老師繼續教學的學生回覆。
 
 要求：
 1. 先用自己的話說明你從老師回答中理解到的重點；若有兩位老師，可以自然整合兩者，不要比較誰比較好。
@@ -83,7 +90,7 @@ export async function POST(request: Request) {
 5. 不得捏造教材、法條、判決或老師沒有說過的內容。
 6. 不要評論哪個模型比較強，不要提到 API、提示詞或「生成回覆」；不要使用標題、條列、Markdown 符號或引號包住全文。
 7. 使用繁體中文，約 120 至 280 字，直接輸出學生要說的內容。`,
-      input: `原本的學生問題：\n${prompt.slice(0, 3000)}\n\n目前已選模型的實際回答：\n${teacherText}`,
+      input: `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}\n\n原本的學生問題：\n${prompt.slice(0, 3000)}\n\n目前已選模型的實際回答：\n${teacherText}`,
       max_output_tokens: 600,
     }),
   });

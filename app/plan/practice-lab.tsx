@@ -91,9 +91,19 @@ type EssayBatchAttempt = {
   savedAt: string;
 };
 
-const coachStageLabels = ["拆解甲的行為", "處理第一個行為", "處理第二個行為", "處理結果與因果關係", "三段論法練習", "正式作答"];
+function coachStageLabelsFor(subject?: string) {
+  const normalized = String(subject ?? "").toLowerCase();
+  if (normalized.includes("刑法") && !normalized.includes("刑事訴訟")) {
+    return ["拆解甲的行為", "處理第一個行為", "處理第二個行為", "處理結果與因果關係", "三段論法練習", "正式作答"];
+  }
+  if (normalized.includes("公司") || normalized.includes("商事")) {
+    return ["辨認法律關係與爭點", "確認公司機關與當事人地位", "找出規範並涵攝事實", "處理學說與實務分歧", "三段論法練習", "正式作答"];
+  }
+  return ["整理題目事實與爭點", "確認法律關係與請求基礎", "找出規範並涵攝事實", "處理爭議與反面觀點", "三段論法練習", "正式作答"];
+}
 
-function defaultCoachProgress(studentCount: number): CoachProgress {
+function defaultCoachProgress(studentCount: number, subject?: string): CoachProgress {
+  const coachStageLabels = coachStageLabelsFor(subject);
   const stage = Math.min(Math.max(studentCount, 0), coachStageLabels.length - 1);
   return {
     stage,
@@ -238,6 +248,7 @@ export function PracticeLab({ initialType }: Props) {
   const [coachSettingsPinned, setCoachSettingsPinned] = useState(false);
   const [coachComparisons, setCoachComparisons] = useState<CoachComparison[]>([]);
   const [coachStarted, setCoachStarted] = useState(false);
+  const [coachInputRole, setCoachInputRole] = useState<"student" | "scholar">("student");
   const [coachProgress, setCoachProgress] = useState<CoachProgress>(() => defaultCoachProgress(0));
   const coachEndRef = useRef<HTMLDivElement | null>(null);
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("today");
@@ -375,6 +386,7 @@ export function PracticeLab({ initialType }: Props) {
     setCoachRecommendations([]);
     setCoachComparisons([]);
     setCoachStarted(false);
+    setCoachInputRole("student");
     setCoachProgress(defaultCoachProgress(0));
     try {
       const params = new URLSearchParams({ type });
@@ -388,6 +400,7 @@ export function PracticeLab({ initialType }: Props) {
         message?: string;
       };
       setQuestion(result.question ?? null);
+      setCoachProgress(defaultCoachProgress(0, result.question?.subject));
       if (!result.question) setFeedback(result.message ?? "題庫尚未準備完成");
     } catch {
       setQuestion(null);
@@ -512,7 +525,7 @@ export function PracticeLab({ initialType }: Props) {
       return;
     const studentMessage =
       suppliedMessage ?? (action === "coach"
-        ? { role: "student" as const, text: coachInput.trim() }
+        ? { role: coachInputRole, text: coachInput.trim() }
         : null);
     const messages = studentMessage
       ? [...coachMessages, studentMessage]
@@ -550,9 +563,10 @@ export function PracticeLab({ initialType }: Props) {
       setCoachIssue(result.keyIssue ?? "");
       setCoachRecommendations(result.recommendations ?? []);
       setCoachComparisons(result.comparisons ?? []);
-      setCoachProgress(result.progress ?? defaultCoachProgress(messages.filter((message) => message.role === "student").length));
+      setCoachProgress(result.progress ?? defaultCoachProgress(messages.filter((message) => message.role === "student" || message.role === "scholar").length, question.subject));
       setCoachStarted(true);
       setCoachInput("");
+      setCoachInputRole("student");
     } else
       setCoachMessages((current) => [
         ...current,
@@ -576,18 +590,20 @@ export function PracticeLab({ initialType }: Props) {
         body: JSON.stringify({
           prompt: latestMentor.text,
           level: coachTeachingLevel,
+          subject: question.subject,
+          question: question.stem,
           responses: [{ label: "AI 導師", model: coachModelMode, text: latestMentor.text }],
         }),
       });
       const result = (await response.json()) as { reply?: string; error?: string };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "學霸暫時無法接續");
-      const scholarMessage: CoachMessage = { role: "scholar", text: result.reply };
-      const nextMessages = [...coachMessages, scholarMessage];
-      setCoachMessages(nextMessages);
+      // 學霸只是先替學生準備一段可修改的回覆；按送出後才進入對話紀錄。
+      setCoachInput(result.reply);
+      setCoachInputRole("scholar");
+      window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".essay-chat-composer textarea")?.focus(), 0);
       setCoaching(false);
-      await askCoach("coach", scholarMessage);
     } catch (error) {
-      setCoachMessages((current) => [...current, { role: "scholar", text: error instanceof Error ? error.message : "學霸暫時無法接續，請直接回答 AI 導師。" }]);
+      setCoachIssue(error instanceof Error ? error.message : "學霸暫時無法接續，請直接回答 AI 導師。");
       setCoaching(false);
     }
   }
@@ -595,7 +611,9 @@ export function PracticeLab({ initialType }: Props) {
   function startEssayCoach() {
     setCoachMessages([]);
     setCoachComparisons([]);
-    setCoachProgress(defaultCoachProgress(0));
+    setCoachProgress(defaultCoachProgress(0, question?.subject));
+    setCoachInput("");
+    setCoachInputRole("student");
     setCoachStarted(true);
     void askCoach("start");
   }
@@ -1453,32 +1471,30 @@ export function PracticeLab({ initialType }: Props) {
                     <h3>{coachStarted ? "像在首頁一樣，一問一答把這題解出來" : "先選好 AI 角色，再開始這題的自然對話"}</h3>
                     <p>你先回答，AI 再依你的程度追問、提示與修正；每完成一段會自動接續下一段，不會只停在列出爭點。</p>
                   </div>
-                  <div className="essay-chat-quick-actions">
-                    {!coachStarted && <button className="essay-chat-start" disabled={coaching} onClick={startEssayCoach}>開始對話</button>}
-                    <button disabled={coaching || !coachStarted} onClick={() => void askCoach("variation_basic")}>基礎提示</button>
-                    <button disabled={coaching || !coachStarted} onClick={() => void askCoach("variation_advanced")}>進階提示</button>
-                  </div>
                 </header>
-
-                <div className="essay-chat-settings model-mode-switch" aria-label="AI 學習設定">
-                  <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{coachTeachingLevel === "general" ? "自由提問" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · {coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : coachModelMode === "luna" ? "Luna" : coachModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}{coachSettingsPinned ? " · 已固定" : ""}</span></div>
-                  <div className="model-mode-fields">
-                    <label><span>學生</span><select value={coachTeachingLevel} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as CoachTeachingLevel; setCoachTeachingLevel(value); persistCoachSetting(value, coachModelMode); }}><option value="general">自由提問</option><option value="beginner">法律小白</option><option value="intermediate">基礎考生</option><option value="advanced">進階考生</option><option value="super">頂尖學霸</option></select></label>
-                    <label><span>回答</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] : coachModelMode} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as "luna" | "sonnet" | "deepseek"; setCoachModelMode(value); persistCoachSetting(coachTeachingLevel, value); }}><option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option></select></label>
-                    <label><span>比較</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length) : "none"} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value; const next = value === "none" ? (coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] as CoachModelMode : coachModelMode) : `compare-${value}` as CoachModelMode; setCoachModelMode(next); persistCoachSetting(coachTeachingLevel, next); }}><option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option></select></label>
-                  </div>
-                  <div className={`model-settings-pin-row ${coachSettingsPinned ? "is-pinned" : ""}`}><label className="model-settings-pin"><input type="checkbox" checked={coachSettingsPinned} onChange={(event) => toggleCoachSettingsPinned(event.target.checked)} disabled={coaching} /><span>固定此角色與模型</span></label><small>{coachSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "勾選後會記住目前學生角色、回答模型與比較方式。"}</small></div>
-                </div>
 
                 <div className="essay-chat-column">
                     <div className="essay-chat-messages" aria-live="polite">
-                      {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>按「開始對話」後，我會先請你拆出甲的行為，再一步一步處理每個爭點。</p></div></div>}
+                      {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。</p></div></div>}
                       {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>{message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? "霸" : "律"}</span>}<div className="essay-chat-bubble"><b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? "AI 學霸" : "我"}</b><p>{message.text}</p></div></div>)}
                       {coaching && <div className="essay-chat-message mentor"><span className="mentor-avatar">律</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
                       <div ref={coachEndRef} />
                     </div>
-                    {coachStarted && <div className="essay-chat-composer-wrap"><div className="essay-chat-composer-actions"><span>你可以直接回答，也可以讓 AI 學霸先模擬接話</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching || !coachMessages.some((message) => message.role === "mentor")}>產生接續提問</button></div><form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder="告訴我你想學什麼，或直接回答 AI 導師……" rows={1} disabled={coaching} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachInput.trim()}>↑</button></form></div>}
-                    {!coachStarted && <button className="essay-chat-start-bottom" disabled={coaching} onClick={startEssayCoach}>開始這題的 AI 對話</button>}
+                    <div className="essay-chat-composer-wrap">
+                      <div className="essay-chat-settings model-mode-switch" aria-label="AI 學習設定">
+                        <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{coachTeachingLevel === "general" ? "自由提問" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · {coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : coachModelMode === "luna" ? "Luna" : coachModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}{coachSettingsPinned ? " · 已固定" : ""}</span></div>
+                        <div className="model-mode-fields">
+                          <label><span>學生</span><select value={coachTeachingLevel} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as CoachTeachingLevel; setCoachTeachingLevel(value); persistCoachSetting(value, coachModelMode); }}><option value="general">自由提問</option><option value="beginner">法律小白</option><option value="intermediate">基礎考生</option><option value="advanced">進階考生</option><option value="super">頂尖學霸</option></select></label>
+                          <label><span>回答</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] : coachModelMode} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as "luna" | "sonnet" | "deepseek"; setCoachModelMode(value); persistCoachSetting(coachTeachingLevel, value); }}><option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option></select></label>
+                          <label><span>比較</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length) : "none"} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value; const next = value === "none" ? (coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] as CoachModelMode : coachModelMode) : `compare-${value}` as CoachModelMode; setCoachModelMode(next); persistCoachSetting(coachTeachingLevel, next); }}><option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option></select></label>
+                        </div>
+                        <div className={`model-settings-pin-row ${coachSettingsPinned ? "is-pinned" : ""}`}><label className="model-settings-pin"><input type="checkbox" checked={coachSettingsPinned} onChange={(event) => toggleCoachSettingsPinned(event.target.checked)} disabled={coaching} /><span>固定此角色與模型</span></label><small>{coachSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "勾選後會記住目前學生角色、回答模型與比較方式。"}</small></div>
+                      </div>
+                      <div className="essay-chat-composer-actions">
+                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>{coachInputRole === "scholar" ? "這是 AI 學霸草稿；你可以修改後按右側箭頭送出" : "你可以直接回答，也可以讓 AI 學霸先模擬接話"}</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching || !coachMessages.some((message) => message.role === "mentor")}>{coachTeachingLevel === "super" ? "模擬頂尖學霸提問" : "產生接續提問"}</button></>}
+                      </div>
+                      <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "告訴我你想學什麼，或直接回答 AI 導師……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
+                    </div>
                 </div>
                 {(coachIssue || coachGap) && <div className="practice-diagnosis essay-chat-diagnosis">{coachIssue && <p><b>目前爭點</b>{coachIssue}</p>}{coachGap && <p><b>需要加強</b>{coachGap}</p>}</div>}
                 {coachComparisons.length > 1 && <div className="essay-coach-comparisons"><b>AI 模型測試比較</b><div>{coachComparisons.map((item) => <article key={`${item.label}-${item.model}`}><strong>{item.label}</strong><small>{item.model}</small><p>{item.text}</p><em>{item.inputTokens + item.outputTokens} tokens · US$ {item.estimatedCostUsd.toFixed(5)}</em></article>)}</div></div>}

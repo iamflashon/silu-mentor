@@ -7351,6 +7351,8 @@ a {
 }
 .essay-chat-message { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
 .essay-chat-message.student { justify-content: flex-end; }
+.essay-chat-message.scholar { justify-content: flex-end; }
+.essay-chat-message.scholar .mentor-avatar { order: 2; }
 .essay-chat-message.student .essay-chat-bubble { border-color: #c9dfe8; background: #edf6f9; color: #315c72; border-radius: 17px 7px 17px 17px; }
 .essay-chat-bubble { min-width: 0; max-width: min(680px, 92%); padding: 12px 15px; border: 1px solid #dce9ed; border-radius: 7px 17px 17px 17px; background: #fff; color: #365b6c; box-shadow: 0 6px 18px rgba(35, 72, 92, .045); }
 .essay-chat-bubble b { display: block; margin-bottom: 4px; color: #3d7a74; font-size: 11px; }
