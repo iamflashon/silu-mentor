@@ -6,6 +6,24 @@ import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekMode
 type CoachMessage = { role: "mentor" | "student"; text: string };
 type CoachAction = "start" | "coach" | "variation_basic" | "variation_advanced";
 type CoachProvider = "luna" | "sonnet" | "deepseek";
+type CoachProgress = {
+  stage: number;
+  current: string;
+  items: Array<{ label: string; status: "done" | "current" | "pending" }>;
+  readyForEssay: boolean;
+};
+
+const coachStageLabels = ["拆解甲的行為", "處理第一個行為", "處理第二個行為", "處理結果與因果關係", "三段論法練習", "正式作答"];
+
+function coachProgress(studentCount: number): CoachProgress {
+  const stage = Math.min(Math.max(studentCount, 0), coachStageLabels.length - 1);
+  return {
+    stage,
+    current: coachStageLabels[stage],
+    items: coachStageLabels.map((label, index) => ({ label, status: index < stage ? "done" : index === stage ? "current" : "pending" })),
+    readyForEssay: stage >= 5,
+  };
+}
 
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text;
@@ -128,9 +146,10 @@ export async function POST(request: Request) {
           ? "依原真題改變程序階段、當事人主張或關鍵要件，出一題進階模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
           : "根據學生剛才的回答診斷理解缺口。先肯定已掌握部分，再只問一個學生可直接回答的小問題；完整處理目前階段後，必須明確銜接下一階段，不能在一個爭點結束。";
     const studentCount = Array.isArray(body.messages) ? body.messages.filter((message) => message.role === "student").length : 0;
-    const stage = studentCount === 0 ? "拆解甲的行為" : studentCount === 1 ? "處理甲對第一個人的行為" : studentCount === 2 ? "處理甲對第二個人的行為與交付工具" : studentCount === 3 ? "處理破壞煞車、死亡與介入原因" : studentCount === 4 ? "逐一完成爭點的三段論法" : "整合罪數並準備正式作答";
+    const progress = coachProgress(studentCount);
+    const stage = progress.current;
     const teachingTone = body.teachingLevel === "beginner" ? "用法律小白聽得懂的語句，少用術語並逐步解釋。" : body.teachingLevel === "advanced" || body.teachingLevel === "super" ? "可追問學說、實務分歧與精準涵攝，但每次仍只問一個問題。" : "維持司律考生可理解的自然教練語氣。";
-    const instructions = `你是台灣司律考試的申論 AI 導師。只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n每次回覆 120 至 260 字，先肯定學生已掌握部分，再提出一個可直接回答的問題。你必須依序引導：拆解行為 → 單一行為爭點 → 規範 → 涵攝 → 結論 → 下一階段；不要一次公布完整擬答，不要停在「爭點」後。學生答錯時，指出錯誤方向並留在目前階段追問。不得使用 Markdown 星號、井號或反引號。`;
+    const instructions = `你是台灣司律考試的申論 AI 導師。只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n每次回覆 120 至 260 字，像首頁的自然對話一樣：先回應學生剛才說的內容，再提出一個學生可以直接回答的小問題。不要把回答寫成表格、講義或完整擬答。你必須依序引導：先拆解題目中甲的行為，再逐一處理每個行為的爭點、規範、涵攝、結論，最後才進入正式作答。學生答對目前階段後，必須在同一則回覆明確說明「這一段完成了」，並自然銜接下一段，例如「B 的部分完成了，接下來我們看 C」；不得在只列出一個爭點後結束。學生答錯時，指出錯誤方向並留在目前階段追問。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
     const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
     const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
       try { return await runProvider(provider, instructions, input); }
@@ -145,7 +164,7 @@ export async function POST(request: Request) {
     for (const run of runs) await db.insert(usageLogs).values({ model: run.model, source: "真題教練", inputTokens: run.inputTokens, cachedTokens: 0, outputTokens: run.outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: 0 });
     const recommendedResources = resources.slice(0, 4).map((item) => ({ type: item.resourceType, title: item.resourceTitle, location: item.resourceType === "course" && item.startSeconds != null ? `${item.segmentTitle} · ${Math.floor(item.startSeconds / 60)}:${String(item.startSeconds % 60).padStart(2, "0")}` : [item.lessonLabel, item.pageStart ? `第 ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `–${item.pageEnd}` : ""} 頁` : ""].filter(Boolean).join(" · "), url: item.sourceUrl, startSeconds: item.startSeconds }));
     const recommendedLaws = laws.slice(0, 4).map((item) => ({ type: "law", title: `${item.title} ${item.articleNo}`, location: item.content.slice(0, 140), url: item.sourceUrl, startSeconds: null }));
-    return Response.json({ reply: primary.text, diagnosedGap: "", keyIssue: stage, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: runs.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
+    return Response.json({ reply: primary.text, diagnosedGap: "", keyIssue: stage, progress, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: runs.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 280) : "真題教練暫時無法回應" }, { status: 500 });
   }

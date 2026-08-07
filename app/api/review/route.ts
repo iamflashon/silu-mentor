@@ -160,9 +160,7 @@ async function runCommentator(question: string, teacherQuestion: string, scholar
   const instructions = "你是司律評的固定 AI 點評人，使用 gpt-5.6-sol。請像資深閱卷老師一樣，先明確說出本回合真正處理的法律爭點，再點評老師是否把爭點問清楚、學霸是否正面回答、哪個地方仍有漏洞，以及規範與個案涵攝是否完整。不得只偏好文筆；若雙方都有錯，要直接指出。最後給出 100 分制總評、三個最重要的修正，以及一段考場防呆筆記。使用繁體中文，不要使用 Markdown 符號，控制在 700 字內。";
   const answerText = scholarAnswers.map((item) => `【${item.model} 回答】\n${item.text}`).join("\n\n");
   const replyText = scholarReplies.map((item) => `【${item.model} 回應】\n${item.text}`).join("\n\n");
-  const comparisonInstruction = scholarAnswers.length > 1
-    ? "這是多模型對戰，請在點評中明確比較各模型：哪個模型抓到爭點、哪個模型規範較完整、哪個模型涵攝較精準，以及考場最值得採用哪一部分。"
-    : "這是單模型練習，請直接評估回答品質。";
+  const comparisonInstruction = "這是單一學霸模型的角色對話，請直接評估回答品質。";
   const input = `【題目】\n${question}\n\n【老師先問】\n${teacherQuestion}\n\n${answerText}\n\n【老師追問】\n${teacherFollowUp}\n\n${replyText}`;
   const comparison = `${instructions} ${comparisonInstruction}`;
   return runOpenAI(key, await getTeachingJudgeOpenAIModel("gpt-5.6-sol"), comparison, input);
@@ -227,10 +225,12 @@ export async function POST(request: Request) {
     };
     const teacherModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.teacherModel)) ? body.teacherModel as Provider : "luna";
     const scholarModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.scholarModel)) ? body.scholarModel as Provider : "sonnet";
-    const scholarModels: Provider[] = Array.isArray(body.scholarModels)
-      ? body.scholarModels.filter((model): model is Provider => ["luna", "sonnet", "deepseek"].includes(String(model))).slice(0, 3)
-      : [scholarModel];
-    if (!scholarModels.length) scholarModels.push(scholarModel);
+    // 正式司律評是一場老師與學霸的角色對話，學霸只使用一個指定模型。
+    // 不接受前端或舊版請求傳入多模型，避免單一選擇被誤解成模型對戰。
+    const requestedScholarModels = Array.isArray(body.scholarModels)
+      ? body.scholarModels.filter((model): model is Provider => ["luna", "sonnet", "deepseek"].includes(String(model)))
+      : [];
+    const scholarModels: Provider[] = [requestedScholarModels[0] ?? scholarModel];
     const participantMode: ParticipantMode = body.participantMode === "student-scholar" ? "student-scholar" : "ai-scholar";
     const stage: ReviewStage = body.stage ?? "full";
     const argumentStage: ArgumentStage = body.argumentStage === "minor-premise" || body.argumentStage === "conclusion" ? body.argumentStage : "major-premise";

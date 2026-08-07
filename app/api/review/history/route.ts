@@ -63,7 +63,7 @@ export async function GET(request: Request) {
       attempts: rows.map((row, index) => ({ ...row, attemptNumber: rows.length - index, scholarModels: safeJson(row.scholarModelsJson, []) })),
     });
   } catch {
-    return Response.json({ error: "司律評歷次對戰紀錄暫時無法讀取" }, { status: 503 });
+    return Response.json({ error: "司律評歷次對話紀錄暫時無法讀取" }, { status: 503 });
   }
 }
 
@@ -83,12 +83,12 @@ export async function POST(request: Request) {
       result?: unknown;
     };
     const questionId = Number(body.questionId || 0);
-    if (!questionId || !body.result) return Response.json({ error: "缺少本次對戰的完整結果" }, { status: 400 });
+    if (!questionId || !body.result) return Response.json({ error: "缺少本次對話的完整結果" }, { status: 400 });
     const db = await getDb();
     const question = await db.select({ id: examQuestions.id }).from(examQuestions)
       .where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"))).limit(1);
     if (!question[0]) return Response.json({ error: "找不到可保存的已發布題目" }, { status: 404 });
-    const scholarModels = Array.isArray(body.scholarModels) ? body.scholarModels.filter((item) => typeof item === "string").slice(0, 3) : [];
+    const scholarModels = Array.isArray(body.scholarModels) ? body.scholarModels.filter((item) => typeof item === "string").slice(0, 1) : [];
     const totals = usageTotals(body.result);
     const inserted = await db.insert(reviewRuns).values({
       userKey: userKey(request),
