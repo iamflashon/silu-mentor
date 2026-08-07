@@ -7,6 +7,8 @@ type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
+  const direct = (payload as { output_text?: unknown }).output_text;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
   const output = (payload as { output?: unknown[] }).output;
   if (!Array.isArray(output)) return "";
   return output.flatMap((item) => {
@@ -15,7 +17,12 @@ function extractText(payload: unknown) {
     if (!Array.isArray(content)) return [];
     return content.map((part) => {
       if (!part || typeof part !== "object") return "";
-      return typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "";
+      const text = (part as { text?: unknown }).text;
+      if (typeof text === "string") return text;
+      if (text && typeof text === "object" && typeof (text as { value?: unknown }).value === "string") {
+        return (text as { value: string }).value;
+      }
+      return "";
     });
   }).join("").trim();
 }

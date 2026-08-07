@@ -45,6 +45,22 @@ function jsonError(payload: unknown, fallback: string) {
   return fallback;
 }
 
+async function readProviderPayload(response: Response, provider: string) {
+  const raw = await response.text();
+  if (!raw.trim()) return {} as unknown;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    // Upstream gateways occasionally return an HTML error page. Never expose
+    // the raw page or the browser's "Unexpected token <" parser message to a
+    // student; turn it into a useful, provider-specific diagnostic instead.
+    const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
+    const status = response.status ? `HTTP ${response.status}` : "無狀態碼";
+    const contentHint = contentType && contentType !== "application/json" ? `，內容類型 ${contentType}` : "";
+    throw new Error(`${provider} 模型服務回傳無法解析的內容（${status}${contentHint}）。請檢查 API 路由與模型設定後再試。`);
+  }
+}
+
 function questionContext(question: typeof examQuestions.$inferSelect) {
   const rubric = question.rubricJson?.trim() ? `\n評分重點：${question.rubricJson.slice(0, 5000)}` : "";
   const teacher = question.teacherAnswer?.trim() ? `\n老師參考擬答（只作為核對依據，不可冒充官方答案）：\n${question.teacherAnswer.slice(0, 10000)}` : "";
@@ -63,7 +79,7 @@ async function runOpenAI(apiKey: string, model: string, instructions: string, in
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({ model, instructions, input, max_output_tokens: 2200 }),
   });
-  const payload = await response.json() as unknown;
+  const payload = await readProviderPayload(response, "Luna");
   if (!response.ok) throw new Error(`${jsonError(payload, "OpenAI 回覆失敗")}（HTTP ${response.status}）`);
   const text = readOpenAIText(payload);
   if (!text) throw new Error("OpenAI 未產生可顯示內容");
@@ -78,7 +94,7 @@ async function runAnthropic(apiKey: string, model: string, instructions: string,
     headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({ model, system: instructions, messages: [{ role: "user", content: input }], max_tokens: 2200 }),
   });
-  const payload = await response.json() as unknown;
+  const payload = await readProviderPayload(response, "Claude Sonnet");
   if (!response.ok) throw new Error(`${jsonError(payload, "Claude 回覆失敗")}（HTTP ${response.status}）`);
   const text = readAnthropicText(payload);
   if (!text) throw new Error("Claude 未產生可顯示內容");
@@ -93,7 +109,7 @@ async function runDeepSeek(apiKey: string, model: string, instructions: string, 
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({ model, messages: [{ role: "system", content: instructions }, { role: "user", content: input }], max_tokens: 2200 }),
   });
-  const payload = await response.json() as unknown;
+  const payload = await readProviderPayload(response, "DeepSeek V4-Pro");
   if (!response.ok) throw new Error(`${jsonError(payload, "DeepSeek 回覆失敗")}（HTTP ${response.status}）`);
   const text = readDeepSeekText(payload);
   if (!text) throw new Error("DeepSeek 未產生可顯示內容");

@@ -21,6 +21,15 @@ function cleanReviewText(text: string) {
   return text.replace(/```(?:[\w-]+)?\s*\n?/g, "").replace(/```/g, "").replace(/^\s*#{1,6}\s*/gm, "").replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/`([^`]+)`/g, "$1").replace(/^\s*[-*+]\s+/gm, "• ").replace(/[ \t]+\n/g, "\n").trim();
 }
 
+async function readReviewJson<T>(response: Response) {
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(`司律評服務回傳無法解析的內容（HTTP ${response.status}）。請稍後重試；若持續發生，請檢查模型服務設定。`);
+  }
+}
+
 export default function ReviewPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [question, setQuestion] = useState<Question | null>(null);
@@ -42,7 +51,7 @@ export default function ReviewPage() {
 
   useEffect(() => {
     fetch("/api/review").then(async (response) => {
-      const data = await response.json() as { questions?: Question[]; question?: Question | null };
+      const data = await readReviewJson<{ questions?: Question[]; question?: Question | null }>(response);
       const nextQuestions = data.questions ?? [];
       const first = data.question ?? nextQuestions[0] ?? null;
       setQuestions(nextQuestions); setQuestion(first);
@@ -77,7 +86,7 @@ export default function ReviewPage() {
     setRunning(true); setResult(null); setDebateCompleted(false); setActivePanel("debate"); setSavedComment("");
     try {
       const response = await fetch("/api/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: question.id, teacherModel, scholarModel, participantMode, stage: participantMode === "student-scholar" ? "start" : "full" }) });
-      const data = await response.json() as ReviewResult & { error?: string };
+      const data = await readReviewJson<ReviewResult & { error?: string }>(response);
       if (!response.ok) throw new Error(data.error ?? "司律評暫時無法開始");
       setResult(data);
     } catch (error) {
@@ -170,7 +179,7 @@ function StudentScholarPanel({ question, result, running, teacherModel, onGoQues
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: liveResult.question.id, teacherModel, participantMode: "student-scholar", stage: "submit-answer", teacherQuestion: liveResult.teacherQuestion.text, studentAnswer: answer.trim() }) });
-      const data = await response.json() as ReviewResult & { error?: string };
+      const data = await readReviewJson<ReviewResult & { error?: string }>(response);
       if (!response.ok) throw new Error(data.error ?? "老師追問暫時無法產生");
       setStudentResult(data); setStage("teacher-follow-up");
     } catch (cause) {
@@ -183,7 +192,7 @@ function StudentScholarPanel({ question, result, running, teacherModel, onGoQues
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: liveResult.question.id, teacherModel, participantMode: "student-scholar", stage: "submit-reply", teacherQuestion: liveResult.teacherQuestion.text, studentAnswer: answer.trim(), teacherFollowUp: liveResult.teacherFollowUp.text, studentReply: reply.trim() }) });
-      const data = await response.json() as ReviewResult & { error?: string };
+      const data = await readReviewJson<ReviewResult & { error?: string }>(response);
       if (!response.ok) throw new Error(data.error ?? "固定點評暫時無法產生");
       setStudentResult(data); setStage("verdict"); onComplete();
     } catch (cause) {
