@@ -33,6 +33,10 @@ type FollowUpSelection = { key: string; label: string; model: string; text: stri
 type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type ChatModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+const aiSettingsStorageKey = "silu-ai-settings-pinned";
+const chatModelModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+function isTeachingLevel(value: unknown): value is TeachingLevel { return value === "general" || value === "beginner" || value === "intermediate" || value === "advanced" || value === "super"; }
+function isChatModelMode(value: unknown): value is ChatModelMode { return typeof value === "string" && chatModelModes.includes(value as ChatModelMode); }
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
 type TodayRecord = { subject: string; title: string; activityType: string; actualMinutes: number; nextStep: string };
@@ -144,6 +148,7 @@ export default function Home() {
   const [showCosts, setShowCosts] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const [modelMode, setModelMode] = useState<ChatModelMode>("luna");
+  const [settingsPinned, setSettingsPinned] = useState(false);
   const [settingsCollapsed, setSettingsCollapsed] = useState(false);
   const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
   const [teachingRounds, setTeachingRounds] = useState<TeachingRound[]>([]);
@@ -296,7 +301,34 @@ export default function Home() {
     if (saved === "left" || saved === "right") setRailSide(saved);
     setRailCollapsed(window.localStorage.getItem("silu-command-rail-collapsed") === "true");
     setSettingsCollapsed(window.localStorage.getItem("silu-ai-settings-collapsed") === "true");
+    const pinned = window.localStorage.getItem(aiSettingsStorageKey);
+    if (pinned) {
+      try {
+        const parsed = JSON.parse(pinned) as { teachingLevel?: unknown; modelMode?: unknown };
+        if (isTeachingLevel(parsed.teachingLevel) && isChatModelMode(parsed.modelMode)) {
+          setSettingsPinned(true);
+          setPendingTeachingLevel(parsed.teachingLevel === "general" ? null : parsed.teachingLevel);
+          setModelMode(parsed.modelMode);
+        } else {
+          window.localStorage.removeItem(aiSettingsStorageKey);
+        }
+      } catch {
+        window.localStorage.removeItem(aiSettingsStorageKey);
+      }
+    }
   }, []);
+
+  function toggleSettingsPinned(next: boolean) {
+    setSettingsPinned(next);
+    if (!next) {
+      window.localStorage.removeItem(aiSettingsStorageKey);
+      return;
+    }
+    window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({
+      teachingLevel: pendingTeachingLevel ?? "general",
+      modelMode,
+    }));
+  }
 
   function toggleRailSide() {
     const next = railSide === "right" ? "left" : "right";
@@ -479,7 +511,7 @@ export default function Home() {
     if (!sentTeachingLevel) setTeachingRounds([]);
     if (!sentTeachingLevel) setTeachingUsage([]);
     setSelectedFollowUps([]);
-    setPendingTeachingLevel(null);
+    if (!settingsPinned) setPendingTeachingLevel(null);
     setInput("");
     setDailyChoiceVisible(false);
     setImageDraft(null);
@@ -567,7 +599,7 @@ export default function Home() {
       setTeachingRounds([]);
       setTeachingUsage([]);
       setSelectedFollowUps([]);
-      setPendingTeachingLevel(null);
+      if (!settingsPinned) setPendingTeachingLevel(null);
       setImageDraft(null);
       setEditingImage(false);
       window.setTimeout(() => composerInputRef.current?.focus(), 0);
@@ -822,18 +854,22 @@ export default function Home() {
           <b>學習工具</b>
         </button>
         <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
-          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "luna" ? "Luna" : modelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}</span><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "luna" ? "Luna" : modelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}{settingsPinned ? " · 已固定" : ""}</span><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
-            <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+            <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
             </select></label>
-            <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => setModelMode(event.target.value as ChatModelMode)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+            <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => setModelMode(event.target.value as ChatModelMode)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
             </select></label>
-            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else { setModelMode(`compare-${value}` as ChatModelMode); } }} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else { setModelMode(`compare-${value}` as ChatModelMode); } }} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
             </select></label>
+          </div>
+          <div className={`model-settings-pin-row ${settingsPinned ? "is-pinned" : ""}`}>
+            <label className="model-settings-pin"><input type="checkbox" checked={settingsPinned} onChange={(event) => toggleSettingsPinned(event.target.checked)} disabled={thinking || generatingStudentReply || evaluatingTeaching} /><span>固定此角色與模型</span></label>
+            <small>{settingsPinned ? "已固定；取消勾選後即可重新選擇。" : "勾選後會記住目前學生角色、回答模型與比較方式。"}</small>
           </div>
           <div className="teaching-level-action">
             <div>
