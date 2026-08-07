@@ -128,18 +128,34 @@ async function runDeepSeek(apiKey: string, model: string, instructions: string, 
 
 async function runProvider(provider: Provider, prompt: string, speaker: "teacher" | "scholar", stage: "question" | "answer" | "follow-up" | "reply", argumentStage: ArgumentStage = "major-premise") {
   const argumentInstruction = argumentStage === "major-premise"
-    ? "目前是第一段大前提：要找出適用的法規、法理、學說或實務判斷標準。"
+    ? "目前是第一段大前提：先確定本回合唯一的法律爭點，再找出適用的法規、法理、學說或實務判斷標準。"
     : argumentStage === "minor-premise"
-      ? "目前是第二段小前提：要把題目中的具體事實逐一涵攝到法律要件，不能只重述法條。"
-      : "目前是第三段結論：要把前面的規範與涵攝收束成明確的法律結論與考場寫法。";
+      ? "目前是第二段小前提：前一段已經確定法律爭點與規範。本段不得重新辨認、命名或詢問爭點，只能把題目中的具體事實逐一涵攝到既定法律要件，不能只重述法條。"
+      : "目前是第三段結論：前兩段已經確定法律爭點、規範與涵攝。本段不得重新辨認、命名或詢問爭點，只能把前面的推論收束成明確的法律結論與考場寫法。";
   const stageInstruction = stage === "question"
-    ? `你是帶學生拆解司律二試的老師。${argumentInstruction}請先用一句自然的話明確說出『這一回合要處理的單一法律爭點』，再提出一個具體、可直接回答的問題。爭點必須連結題目中的具體事實，例如身分、行為、因果關係或法律效果；不要只說請說明。不要先公布答案，不要一次問兩個問題。`
+    ? argumentStage === "major-premise"
+      ? `你是帶學生拆解司律二試的老師。${argumentInstruction}請先用一句自然的話明確界定『這一回合要處理的單一法律爭點』，再提出一個只關於大前提的具體問題。爭點必須連結題目中的具體事實，例如身分、行為、因果關係或法律效果；不要只說請說明。不要先公布答案，不要一次問兩個問題。`
+      : argumentStage === "minor-premise"
+        ? `你是帶學生拆解司律二試的老師。${argumentInstruction}請直接承接輸入中已確定的同一法律爭點與大前提，提出一個只要求『把題幹事實套入法律要件』的具體問題。開頭不要再說本題爭點是什麼，也不要問學生重新找爭點；不要先公布答案，不要一次問兩個問題。`
+        : `你是帶學生拆解司律二試的老師。${argumentInstruction}請直接承接輸入中已完成的規範與涵攝，提出一個只要求『作成法律結論並說明法律效果』的具體問題。開頭不要再說本題爭點是什麼，也不要問學生重新找爭點；不要先公布答案，不要一次問兩個問題。`
     : stage === "answer"
-      ? `你是程度很高但仍要接受追問的法律學霸。${argumentInstruction}請先明確回應老師剛才界定的那一個爭點，再說明規範與題目事實的涵攝，最後指出一個可能被老師挑戰的漏洞。不要換新爭點，也不要寫成完整申論擬答。`
+      ? argumentStage === "major-premise"
+        ? `你是程度很高但仍要接受追問的法律學霸。${argumentInstruction}請針對老師剛才界定的同一爭點，回答適用規範、要件與判斷標準，最後指出一個可能被老師挑戰的漏洞。不要換新爭點，也不要寫成完整申論擬答。`
+        : argumentStage === "minor-premise"
+          ? `你是程度很高但仍要接受追問的法律學霸。${argumentInstruction}請直接回答題幹事實如何逐一符合或不符合既定法律要件，說明關鍵事實與涵攝理由，最後指出一個可能被老師挑戰的漏洞。不要重新列爭點、不要重述大前提，也不要寫成完整申論擬答。`
+          : `你是程度很高但仍要接受追問的法律學霸。${argumentInstruction}請直接根據前面的規範與涵攝作成明確結論，說明法律效果與考場落筆方式，最後指出一個可能被老師挑戰的漏洞。不要重新列爭點、不要重述前兩段，也不要寫成完整申論擬答。`
       : stage === "follow-up"
-        ? `你是嚴格的司律閱卷老師。${argumentInstruction}請先指出學霸回答在原本那一個爭點上的具體缺口，再只追問一個最關鍵的漏洞或法律效果問題。不得偷偷換成另一個爭點，也不要直接給標準答案。`
-        : `你是法律學霸。${argumentInstruction}請正面承接原本的同一個爭點，回答老師的追問，修正剛才不足之處，補足法源、要件與個案涵攝，最後用一句自然的話說明考場應如何落筆。`;
-  const instructions = `你是台灣司律二試的法律對話模型，使用繁體中文與中華民國法律語境。${stageInstruction}\n只根據題目與提供的核對資料回答，不得虛構判決、法條內容或老師見解。請保持像老師與學生一來一往的自然對話，不要使用 Markdown 標題、星號、反引號或長篇條列。每一段都要讓讀者看得出目前討論的法律爭點，不要只給抽象定義。${stage === "question" || stage === "follow-up" ? "控制在 90 至 190 字。" : "控制在 170 至 330 字。"}`;
+        ? argumentStage === "major-premise"
+          ? `你是嚴格的司律閱卷老師。${argumentInstruction}請指出學霸回答在原本爭點的大前提上缺少哪個規範或判斷標準，再只追問一個最關鍵的漏洞。不得換成另一個爭點，也不要直接給標準答案。`
+          : argumentStage === "minor-premise"
+            ? `你是嚴格的司律閱卷老師。${argumentInstruction}請指出學霸在題幹事實涵攝上的具體缺口，再只追問一個最關鍵的事實對應或要件判斷問題。不得重新詢問爭點，不得回到大前提，也不要直接給標準答案。`
+            : `你是嚴格的司律閱卷老師。${argumentInstruction}請指出學霸在法律結論或法律效果上的具體缺口，再只追問一個最關鍵的收束問題。不得重新詢問爭點，不得回到前兩段，也不要直接給標準答案。`
+        : argumentStage === "major-premise"
+          ? `你是法律學霸。${argumentInstruction}請承接老師的追問，修正大前提中的規範、要件或判斷標準，最後用一句自然的話說明考場應如何落筆。`
+          : argumentStage === "minor-premise"
+            ? `你是法律學霸。${argumentInstruction}請承接老師的追問，補足題幹事實與法律要件的逐一涵攝，最後用一句自然的話說明考場應如何落筆。`
+            : `你是法律學霸。${argumentInstruction}請承接老師的追問，補足法律結論與法律效果的推論，最後用一句自然的話說明考場應如何落筆。`;
+  const instructions = `你是台灣司律二試的法律對話模型，使用繁體中文與中華民國法律語境。${stageInstruction}\n只根據題目與提供的核對資料回答，不得虛構判決、法條內容或老師見解。請保持像老師與學生一來一往的自然對話，不要使用 Markdown 標題、星號、反引號或長篇條列。第二段與第三段的法律爭點已由前段確定，不得重新問『爭點是什麼』或要求重新列出爭點。${stage === "question" || stage === "follow-up" ? "控制在 90 至 190 字。" : "控制在 170 至 330 字。"}`;
   if (provider === "luna") {
     const key = await getOpenAIKey();
     if (!key) throw new Error("OPENAI_API_KEY 尚未設定");
@@ -443,7 +459,14 @@ export async function POST(request: Request) {
     try {
       const previousAnswers = Array.isArray(body.scholarAnswers) ? body.scholarAnswers.map((item) => `${item.model ?? "學霸"}：${item.text ?? ""}`).join("\n") : body.studentAnswer ?? "";
       const previousReplies = Array.isArray(body.scholarReplies) ? body.scholarReplies.map((item) => `${item.model ?? "學霸"}：${item.text ?? ""}`).join("\n") : body.studentReply ?? "";
-      const previous = stage === "next-stage" ? `\n\n前一段對話：\n老師：${body.teacherQuestion ?? ""}\n各模型學霸回答：\n${previousAnswers}\n老師追問：${body.teacherFollowUp ?? ""}\n各模型學霸回應：\n${previousReplies}\n請承接同一個法律爭點，不要重新選題。` : "";
+      const completedContext = Array.isArray(body.completedRounds) && body.completedRounds.length
+        ? body.completedRounds.map((round) => `【已完成${String(round.argumentStage ?? "前段")}】\n老師：${round.teacherQuestion ?? ""}\n學霸：${round.scholarAnswer ?? ""}\n老師追問：${round.teacherFollowUp ?? ""}\n學霸修正：${round.scholarReply ?? ""}`).join("\n\n")
+        : "";
+      // AI 模式進入第二、三段時，前端使用 teacher-question 重新建立該段問題，
+      // 因此不能只在舊的 next-stage 名稱下傳遞前段內容，否則模型會把它當成新題重新問爭點。
+      const previous = argumentStage !== "major-premise" || stage === "next-stage"
+        ? `\n\n【前段已完成內容】\n${[completedContext, `老師：${body.teacherQuestion ?? ""}\n學霸：${previousAnswers}\n老師追問：${body.teacherFollowUp ?? ""}\n學霸回應：${previousReplies}`].filter(Boolean).join("\n\n")}\n\n請承接前段已確定的同一個法律爭點；第二段只做事實涵攝，第三段只做結論，不得重新選題或重新詢問爭點。`
+        : "";
       teacherQuestion = await runProvider(teacherModel, `${context}${previous}`, "teacher", "question", argumentStage);
       const answerResult = await runScholarModels(scholarModels, `${context}${previous}\n\n【老師的問題】\n${teacherQuestion.text}`, argumentStage);
       scholarAnswers = answerResult.answers;
