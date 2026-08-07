@@ -46,6 +46,7 @@ type EssayAttempt = {
     agreements: string[];
     differences: Array<{ criterion: string; sol: number; claude: number }>;
   } | null;
+  usage?: Array<{ model: string; inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsdMicros: number }>;
 };
 
 function asText(value: unknown, fallback = "") {
@@ -242,7 +243,7 @@ export function EssayHistory() {
             return (
               <details className="essay-history-card" key={attempt.id}>
                 <summary>
-                  <span className="essay-history-summary-main"><input type="checkbox" checked={selectedIds.has(attempt.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelected(attempt.id)} aria-label={`選取 ${attempt.year} ${attempt.subject} 第 ${attempt.questionNumber} 題`} /><span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>{dateLabel(attempt.savedAt)} · {modeLabel(attempt.mode)} · 已自動保存</small></span></span>
+                  <span className="essay-history-summary-main"><input type="checkbox" checked={selectedIds.has(attempt.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelected(attempt.id)} aria-label={`選取 ${attempt.year} ${attempt.subject} 第 ${attempt.questionNumber} 題`} /><span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>{dateLabel(attempt.savedAt)} · {modeLabel(attempt.mode)} · {attempt.usage?.length ? `${attempt.usage.reduce((sum, item) => sum + item.inputTokens + item.outputTokens, 0).toLocaleString()} tokens · US$ ${(attempt.usage.reduce((sum, item) => sum + item.estimatedCostUsdMicros, 0) / 1_000_000).toFixed(5)}` : "成本資料待重新批改"} · 已自動保存</small></span></span>
                   <strong>{primary ? `${primary.score} 分` : "查看結果"}</strong>
                 </summary>
                 <div className="essay-history-body">

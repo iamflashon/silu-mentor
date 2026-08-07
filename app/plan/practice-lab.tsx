@@ -55,6 +55,7 @@ type EssayModelFailure = {
   message: string;
   retryable: boolean;
 };
+type EssayUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsdMicros: number };
 
 type CoachMessage = { role: "mentor" | "student" | "scholar"; text: string };
 type CoachTeachingLevel = "general" | "beginner" | "intermediate" | "advanced" | "super";
@@ -239,6 +240,7 @@ export function PracticeLab({ initialType }: Props) {
   const [essay, setEssay] = useState("");
   const [essayFeedback, setEssayFeedback] = useState("");
   const [essayGrading, setEssayGrading] = useState<EssayGrading | null>(null);
+  const [essayUsage, setEssayUsage] = useState<EssayUsage[]>([]);
   const [essayReviews, setEssayReviews] = useState<{
     sol: EssayGrading;
     claude: EssayGrading;
@@ -781,6 +783,7 @@ export function PracticeLab({ initialType }: Props) {
         reviews?: { sol?: EssayGrading; claude?: EssayGrading };
         comparison?: EssayComparison | null;
         modelFailures?: EssayModelFailure[];
+        usage?: EssayUsage[];
         retryable?: boolean;
         failedModel?: "sol" | "claude";
         source?: { label?: string };
@@ -790,6 +793,7 @@ export function PracticeLab({ initialType }: Props) {
         const resultMode = result.mode ?? essayModelMode;
         setEssayResultMode(resultMode);
         setEssayGrading(result.grading);
+        setEssayUsage(result.usage ?? []);
         setEssayModelFailures(result.modelFailures ?? []);
         if (result.reviews?.sol && result.reviews.claude) {
           setEssayReviews({ sol: result.reviews.sol, claude: result.reviews.claude });
@@ -877,6 +881,11 @@ export function PracticeLab({ initialType }: Props) {
           <b>{grading.score}</b>
           <span>/ 100</span>
         </div>
+        {essayUsage.length > 0 && (
+          <div className="essay-usage-meta" aria-label="本次申論批改用量">
+            {essayUsage.map((item) => <span key={`${item.model}-${item.estimatedCostUsdMicros}`}><b>{item.model.includes("opus") ? "Claude Opus 5" : "GPT-5.6 Sol"}</b> · 輸入 {item.inputTokens.toLocaleString()} · 輸出 {item.outputTokens.toLocaleString()} · 合計 {(item.inputTokens + item.outputTokens).toLocaleString()} tokens · US$ {(item.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</span>)}
+          </div>
+        )}
         <p>{grading.overall}</p>
         {grading.solution_steps?.length ? (
           <section className="essay-solution-steps" aria-label="解題過程步驟">

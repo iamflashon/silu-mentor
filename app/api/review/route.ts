@@ -2,12 +2,13 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examQuestions } from "../../../db/schema";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel } from "../../../lib/openai";
+import { estimateCostUsdMicros } from "../../../lib/usage";
 
 type Provider = "luna" | "sonnet" | "deepseek";
 type ParticipantMode = "ai-scholar" | "student-scholar";
 type ArgumentStage = "major-premise" | "minor-premise" | "conclusion";
 type ReviewStage = "full" | "start" | "teacher-question" | "scholar-answer" | "teacher-follow-up" | "scholar-reply" | "finalize" | "submit-answer" | "submit-reply" | "next-stage" | "grade-answer";
-type ModelRun = { model: string; provider?: string; text: string; durationMs: number; inputTokens: number; outputTokens: number; cachedTokens: number };
+type ModelRun = { model: string; provider?: string; text: string; durationMs: number; inputTokens: number; outputTokens: number; cachedTokens: number; estimatedCostUsdMicros?: number };
 type ReviewResultLike = { teacherQuestion?: ModelRun | null; scholarAnswer?: ModelRun | null; teacherFollowUp?: ModelRun | null; scholarReply?: ModelRun | null; scholarAnswers?: ModelRun[]; scholarReplies?: ModelRun[]; scholarErrors?: Record<string, string>; teacherError?: string; scholarError?: string; commentator?: ModelRun | null; commentatorError?: string; answerPack?: { teacherAnswer: string; answerSource: string; aiSuggestedAnswer: ModelRun | null; aiSuggestedError: string } };
 
 const labels: Record<Provider, string> = {
@@ -93,7 +94,10 @@ async function runOpenAI(apiKey: string, model: string, instructions: string, in
   const text = readOpenAIText(payload);
   if (!text) throw new Error("OpenAI 未產生可顯示內容");
   const usage = payload && typeof payload === "object" ? (payload as { usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } }).usage : undefined;
-  return { model, text, durationMs: Date.now() - startedAt, inputTokens: Number(usage?.input_tokens ?? 0), outputTokens: Number(usage?.output_tokens ?? 0), cachedTokens: Number(usage?.input_tokens_details?.cached_tokens ?? 0) };
+  const inputTokens = Number(usage?.input_tokens ?? 0);
+  const outputTokens = Number(usage?.output_tokens ?? 0);
+  const cachedTokens = Number(usage?.input_tokens_details?.cached_tokens ?? 0);
+  return { model, text, durationMs: Date.now() - startedAt, inputTokens, outputTokens, cachedTokens, estimatedCostUsdMicros: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) };
 }
 
 async function runAnthropic(apiKey: string, model: string, instructions: string, input: string) {
@@ -108,7 +112,9 @@ async function runAnthropic(apiKey: string, model: string, instructions: string,
   const text = readAnthropicText(payload);
   if (!text) throw new Error("Claude 未產生可顯示內容");
   const usage = payload && typeof payload === "object" ? (payload as { usage?: { input_tokens?: number; output_tokens?: number } }).usage : undefined;
-  return { model, text, durationMs: Date.now() - startedAt, inputTokens: Number(usage?.input_tokens ?? 0), outputTokens: Number(usage?.output_tokens ?? 0), cachedTokens: 0 };
+  const inputTokens = Number(usage?.input_tokens ?? 0);
+  const outputTokens = Number(usage?.output_tokens ?? 0);
+  return { model, text, durationMs: Date.now() - startedAt, inputTokens, outputTokens, cachedTokens: 0, estimatedCostUsdMicros: estimateCostUsdMicros(model, { inputTokens, outputTokens }) };
 }
 
 async function runDeepSeek(apiKey: string, model: string, instructions: string, input: string) {
@@ -123,7 +129,9 @@ async function runDeepSeek(apiKey: string, model: string, instructions: string, 
   const text = readDeepSeekText(payload);
   if (!text) throw new Error("DeepSeek 未產生可顯示內容");
   const usage = payload && typeof payload === "object" ? (payload as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage : undefined;
-  return { model, text, durationMs: Date.now() - startedAt, inputTokens: Number(usage?.prompt_tokens ?? 0), outputTokens: Number(usage?.completion_tokens ?? 0), cachedTokens: 0 };
+  const inputTokens = Number(usage?.prompt_tokens ?? 0);
+  const outputTokens = Number(usage?.completion_tokens ?? 0);
+  return { model, text, durationMs: Date.now() - startedAt, inputTokens, outputTokens, cachedTokens: 0, estimatedCostUsdMicros: estimateCostUsdMicros(model, { inputTokens, outputTokens }) };
 }
 
 async function runProvider(provider: Provider, prompt: string, speaker: "teacher" | "scholar", stage: "question" | "answer" | "follow-up" | "reply", argumentStage: ArgumentStage = "major-premise") {

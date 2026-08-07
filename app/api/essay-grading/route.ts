@@ -8,6 +8,7 @@ import {
   getEssayOpenAIModel,
   getOpenAIKey,
 } from "../../../lib/openai";
+import { estimateCostUsdMicros } from "../../../lib/usage";
 
 type EssayModelMode = "sol" | "claude" | "dual";
 
@@ -42,6 +43,7 @@ type ModelRun = {
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
+  estimatedCostUsdMicros: number;
 };
 
 type ModelFailure = {
@@ -290,6 +292,11 @@ async function runSol(
     inputTokens: Number(payload.usage?.input_tokens ?? 0),
     outputTokens: Number(payload.usage?.output_tokens ?? 0),
     cachedTokens: Number(payload.usage?.input_tokens_details?.cached_tokens ?? 0),
+    estimatedCostUsdMicros: estimateCostUsdMicros(model, {
+      inputTokens: Number(payload.usage?.input_tokens ?? 0),
+      outputTokens: Number(payload.usage?.output_tokens ?? 0),
+      cachedTokens: Number(payload.usage?.input_tokens_details?.cached_tokens ?? 0),
+    }),
   };
 }
 
@@ -338,6 +345,11 @@ async function runClaude(
     inputTokens: Number(payload.usage?.input_tokens ?? 0),
     outputTokens: Number(payload.usage?.output_tokens ?? 0),
     cachedTokens: 0,
+    estimatedCostUsdMicros: estimateCostUsdMicros(payload.model || model, {
+      inputTokens: Number(payload.usage?.input_tokens ?? 0),
+      outputTokens: Number(payload.usage?.output_tokens ?? 0),
+      cachedTokens: 0,
+    }),
   };
 }
 
@@ -362,14 +374,6 @@ function compareGradings(sol: EssayGrading, claude: EssayGrading) {
   };
 }
 
-function estimatedOpenAICost(inputTokens: number, cachedTokens: number, outputTokens: number) {
-  return Math.round(((Math.max(0, inputTokens - cachedTokens) * 2.5 + cachedTokens * 0.25 + outputTokens * 15) / 1_000_000) * 1_000_000);
-}
-
-function estimatedAnthropicCost(inputTokens: number, outputTokens: number) {
-  return Math.round(((inputTokens * 5 + outputTokens * 25) / 1_000_000) * 1_000_000);
-}
-
 function parseStoredGrading(raw: string) {
   try {
     return JSON.parse(raw) as {
@@ -380,6 +384,9 @@ function parseStoredGrading(raw: string) {
       claude?: EssayGrading;
       comparison?: ReturnType<typeof compareGradings> | null;
       failures?: ModelFailure[];
+      usage?: Array<Pick<ModelRun, "model" | "inputTokens" | "cachedTokens" | "outputTokens" | "estimatedCostUsdMicros">>;
+      solUsage?: Pick<ModelRun, "model" | "inputTokens" | "cachedTokens" | "outputTokens" | "estimatedCostUsdMicros">;
+      claudeUsage?: Pick<ModelRun, "model" | "inputTokens" | "cachedTokens" | "outputTokens" | "estimatedCostUsdMicros">;
     };
   } catch {
     return null;
@@ -431,6 +438,9 @@ export async function GET(request: Request) {
         reviews: stored.mode === "dual" ? { sol: stored.sol, claude: stored.claude } : undefined,
         comparison: stored.comparison ?? null,
         modelFailures: stored.failures ?? [],
+        usage: stored.usage ?? (stored.mode === "dual"
+          ? [stored.solUsage, stored.claudeUsage].filter(Boolean)
+          : stored.usage ? [stored.usage] : []),
       }];
     });
     return Response.json({ attempts });
@@ -510,9 +520,16 @@ export async function POST(request: Request) {
       throw new Error("沒有取得申論批改結果");
     }
     const comparison = mode === "dual" && solRun && claudeRun ? compareGradings(solRun.grading, claudeRun.grading) : null;
+    const usage = runs.map((run) => ({
+      model: run.model,
+      inputTokens: run.inputTokens,
+      cachedTokens: run.cachedTokens,
+      outputTokens: run.outputTokens,
+      estimatedCostUsdMicros: run.estimatedCostUsdMicros,
+    }));
     const storedGrading = mode === "dual"
-      ? { mode, sol: solRun?.grading, claude: claudeRun?.grading, comparison, failures }
-      : { mode, model: primary.model, grading: primary.grading };
+      ? { mode, sol: solRun?.grading, claude: claudeRun?.grading, comparison, failures, usage, solUsage: solRun && usage.find((item) => item.model === solRun.model), claudeUsage: claudeRun && usage.find((item) => item.model === claudeRun.model) }
+      : { mode, model: primary.model, grading: primary.grading, usage };
 
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId, selectedAnswer: null, correct: null, answerText: answer, gradingJson: JSON.stringify(storedGrading) });
     const date = taipeiDate();
@@ -525,9 +542,7 @@ export async function POST(request: Request) {
         cachedTokens: run.cachedTokens,
         outputTokens: run.outputTokens,
         fileSearchCalls: 0,
-        estimatedCostUsdMicros: run.model === solModel
-          ? estimatedOpenAICost(run.inputTokens, run.cachedTokens, run.outputTokens)
-          : estimatedAnthropicCost(run.inputTokens, run.outputTokens),
+        estimatedCostUsdMicros: run.estimatedCostUsdMicros,
       });
     }
 
@@ -537,6 +552,7 @@ export async function POST(request: Request) {
       grading: primary.grading,
       reviews: mode === "dual" ? { sol: solRun?.grading, claude: claudeRun?.grading } : undefined,
       comparison,
+      usage,
       modelFailures: failures,
       models: { sol: solRun?.model ?? solModel, claude: claudeRun?.model ?? claudeModel },
       source: { label: question.answerSource || "高點名師參考擬答", status: question.answerStatus },

@@ -660,6 +660,21 @@ a {
   line-height: 1.5;
 }
 .message-usage b { color: #4b7383; font-weight: 800; }
+
+.review-usage-meta,
+.essay-usage-meta {
+  display: block;
+  color: #6d8490;
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 8px;
+}
+
+.review-usage-meta { border-top: 1px solid rgba(77, 119, 133, .12); padding-top: 7px; }
+.essay-usage-meta { background: #f5fafb; border: 1px solid #dcecef; border-radius: 10px; padding: 8px 10px; }
+.essay-usage-meta span { display: block; }
+.review-usage-meta b,
+.essay-usage-meta b { color: #356b82; font-weight: 800; }
 .student .message-bubble {
   color: white;
   background: #2b5d86;

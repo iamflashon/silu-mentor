@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { examQuestions, reviewRuns } from "../../../../db/schema";
+import { examQuestions, reviewRuns, usageLogs } from "../../../../db/schema";
+import { estimateCostUsdMicros } from "../../../../lib/usage";
 
 function userKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
@@ -11,7 +12,7 @@ function asNumber(value: unknown) {
 }
 
 function usageTotals(value: unknown) {
-  const totals = { inputTokens: 0, cachedTokens: 0, outputTokens: 0, durationMs: 0 };
+  const totals = { inputTokens: 0, cachedTokens: 0, outputTokens: 0, durationMs: 0, estimatedCostUsdMicros: 0 };
   function visit(node: unknown) {
     if (Array.isArray(node)) {
       node.forEach(visit);
@@ -23,6 +24,10 @@ function usageTotals(value: unknown) {
     totals.cachedTokens += asNumber(item.cachedTokens);
     totals.outputTokens += asNumber(item.outputTokens);
     totals.durationMs += asNumber(item.durationMs);
+    const storedCost = asNumber(item.estimatedCostUsdMicros);
+    totals.estimatedCostUsdMicros += storedCost || (typeof item.model === "string" && (asNumber(item.inputTokens) > 0 || asNumber(item.outputTokens) > 0)
+      ? estimateCostUsdMicros(item.model, { inputTokens: asNumber(item.inputTokens), cachedTokens: asNumber(item.cachedTokens), outputTokens: asNumber(item.outputTokens) })
+      : 0);
     Object.values(item).forEach(visit);
   }
   visit(value);
@@ -71,6 +76,25 @@ function safeJson(value: string, fallback: unknown) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
+function collectUsageRuns(value: unknown) {
+  const runs: Array<{ model: string; inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsdMicros?: number }> = [];
+  function visit(node: unknown) {
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    if (!node || typeof node !== "object") return;
+    const item = node as Record<string, unknown>;
+    const model = typeof item.model === "string" ? item.model : "";
+    const inputTokens = Number(item.inputTokens ?? 0);
+    const outputTokens = Number(item.outputTokens ?? 0);
+    const cachedTokens = Number(item.cachedTokens ?? 0);
+    if (model && (inputTokens > 0 || outputTokens > 0)) {
+      runs.push({ model, inputTokens, cachedTokens, outputTokens, estimatedCostUsdMicros: Number(item.estimatedCostUsdMicros ?? 0) || undefined });
+    }
+    Object.values(item).forEach(visit);
+  }
+  visit(value);
+  return runs;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as {
@@ -102,6 +126,17 @@ export async function POST(request: Request) {
       resultJson: JSON.stringify(body.result),
       ...totals,
     }).returning({ id: reviewRuns.id, createdAt: reviewRuns.createdAt });
+    for (const run of collectUsageRuns(body.result)) {
+      await db.insert(usageLogs).values({
+        model: run.model,
+        source: `司律評對話／${run.model}`,
+        inputTokens: run.inputTokens,
+        cachedTokens: run.cachedTokens,
+        outputTokens: run.outputTokens,
+        fileSearchCalls: 0,
+        estimatedCostUsdMicros: run.estimatedCostUsdMicros ?? estimateCostUsdMicros(run.model, run),
+      });
+    }
     return Response.json({ ok: true, attempt: inserted[0] });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "司律評紀錄保存失敗" }, { status: 503 });
