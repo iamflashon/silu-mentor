@@ -108,6 +108,7 @@ export default function Home() {
   const [showCosts, setShowCosts] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const [modelMode, setModelMode] = useState<ChatModelMode>("luna");
+  const [settingsCollapsed, setSettingsCollapsed] = useState(false);
   const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
   const [teachingRounds, setTeachingRounds] = useState<TeachingRound[]>([]);
   const [, setTeachingUsage] = useState<EvaluationUsage[]>([]);
@@ -258,6 +259,7 @@ export default function Home() {
     const saved = window.localStorage.getItem("silu-command-rail-side");
     if (saved === "left" || saved === "right") setRailSide(saved);
     setRailCollapsed(window.localStorage.getItem("silu-command-rail-collapsed") === "true");
+    setSettingsCollapsed(window.localStorage.getItem("silu-ai-settings-collapsed") === "true");
   }, []);
 
   function toggleRailSide() {
@@ -446,6 +448,8 @@ export default function Home() {
     setDailyChoiceVisible(false);
     setImageDraft(null);
     setEditingImage(false);
+    setSettingsCollapsed(true);
+    window.localStorage.setItem("silu-ai-settings-collapsed", "true");
     setThinking(true);
     try {
       const response = await fetch("/api/chat", {
@@ -769,8 +773,9 @@ export default function Home() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-        <section className="model-mode-switch" aria-label="AI 學習設定">
-          <div className="model-mode-heading"><strong>AI 學習設定</strong><span>選好後直接提問</span><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+        <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "luna" ? "Luna" : modelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}</span><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          {!settingsCollapsed && <>
           <div className="model-mode-fields">
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
@@ -778,7 +783,7 @@ export default function Home() {
             <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => setModelMode(event.target.value as ChatModelMode)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
             </select></label>
-            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else setModelMode(value as ChatModelMode); }} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else { setModelMode(`compare-${value}` as ChatModelMode); } }} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
             </select></label>
           </div>
@@ -792,6 +797,7 @@ export default function Home() {
             </button>
           </div>
           <div className="model-mode-status">{selectedFollowUps.length > 0 ? `已選 ${selectedFollowUps.length} 段回答作為追問依據` : evaluatingLevel ? `正在產生${teachingLevelLabels[evaluatingLevel]}提問` : modelMode.startsWith("compare-") ? `同一題並列${modelMode.split("-").length - 1}份回答，可比較 Token 與成本` : "回答會依目前選擇的模型產生"}</div>
+          </>}
         </section>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>

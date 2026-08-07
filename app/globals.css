@@ -14974,8 +14974,28 @@ a {
 .book-ai-heading strong { color: #315d73; font-size: 12px; letter-spacing: .02em; }
 .model-mode-heading span,
 .book-ai-heading span { color: #91a2a8; font-size: 10px; }
-.model-mode-heading .new-topic-button {
+.model-mode-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-settings-toggle {
   margin-left: auto;
+  border: 1px solid #b9d0d8;
+  border-radius: 7px;
+  background: #fff;
+  color: #3f7180;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.model-settings-toggle:hover { border-color: #6c9eaa; background: #eef7f8; color: #245d6a; }
+.model-mode-switch.is-collapsed { padding-bottom: 8px; }
+.model-mode-heading .new-topic-button {
+  margin-left: 0;
   border: 0;
   border-bottom: 1px solid #a7bcc4;
   border-radius: 0;
