@@ -35,6 +35,7 @@ export async function GET() {
         ratedResponses: comparisonRatings.length,
         lunaPreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "openai").length,
         claudePreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "anthropic").length,
+        deepseekPreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "deepseek").length,
         averageScore: comparisonRatings.length
           ? comparisonRatings.reduce((sum, rating) => sum + Number(rating.score || 0), 0) / comparisonRatings.length
           : 0,

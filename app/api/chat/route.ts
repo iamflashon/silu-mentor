@@ -12,8 +12,18 @@ import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekMode
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
-type ChatModelMode = "luna" | "sonnet" | "deepseek" | "dual";
+type ChatProvider = "luna" | "sonnet" | "deepseek";
+type ChatModelMode = ChatProvider | "compare-luna-sonnet" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
+
+function activeProviders(mode: ChatModelMode): ChatProvider[] {
+  if (mode.startsWith("compare-")) return mode.slice("compare-".length).split("-") as ChatProvider[];
+  return [mode];
+}
+
+function providerLabel(provider: ChatProvider) {
+  return provider === "luna" ? "Luna" : provider === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro";
+}
 
 type TeachingEvidence = {
   status: "verified" | "full_text_search" | "unavailable";
@@ -581,18 +591,25 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: ChatModelMode; teachingLevel?: TeachingLevel };
-    const modelMode: ChatModelMode = body.modelMode === "dual" ? "dual" : body.modelMode === "sonnet" ? "sonnet" : body.modelMode === "deepseek" ? "deepseek" : "luna";
-    const apiKey = modelMode === "sonnet" || modelMode === "deepseek" ? "" : await getOpenAIKey();
-    if (modelMode !== "sonnet" && modelMode !== "deepseek" && !apiKey) {
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel };
+    const requestedMode = String(body.modelMode ?? "luna");
+    const allowedModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+    const modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "luna";
+    const providers = activeProviders(modelMode);
+    const isComparison = providers.length > 1;
+    const needsOpenAi = providers.includes("luna");
+    const needsAnthropic = providers.includes("sonnet");
+    const needsDeepSeek = providers.includes("deepseek");
+    const apiKey = needsOpenAi ? await getOpenAIKey() : "";
+    if (needsOpenAi && !apiKey) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
-    const deepSeekKey = modelMode === "deepseek" ? await getDeepSeekKey() : "";
-    if (modelMode === "deepseek" && !deepSeekKey) {
+    const deepSeekKey = needsDeepSeek ? await getDeepSeekKey() : "";
+    if (needsDeepSeek && !deepSeekKey) {
       return Response.json({ error: "DEEPSEEK_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
-    const anthropicKey = modelMode === "luna" || modelMode === "deepseek" ? "" : await getAnthropicKey();
-    if (modelMode !== "luna" && modelMode !== "deepseek" && !anthropicKey) {
+    const anthropicKey = needsAnthropic ? await getAnthropicKey() : "";
+    if (needsAnthropic && !anthropicKey) {
       return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
@@ -750,12 +767,15 @@ export async function POST(request: Request) {
     // A verified local chapter is already scoped to the selected resource and
     // segment. Do not add the global vector store in that case: an unscoped
     // file_search result could silently teach from another book or chapter.
-    const allowFileSearch = modelMode !== "deepseek" && Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
+    const allowFileSearch = needsOpenAi && Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
     if (allowFileSearch) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
     let payload: unknown = {};
+    let openAiPayload: unknown = {};
     let openAiDurationMs = 0;
+    let openAiError = "";
     let deepSeekRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number } | null = null;
-    if (modelMode === "deepseek") {
+    let deepSeekError = "";
+    if (needsDeepSeek) {
       const startedAt = Date.now();
       const response = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
@@ -768,16 +788,19 @@ export async function POST(request: Request) {
         }),
       });
       payload = await response.json();
-      if (!response.ok) return Response.json({ error: "DeepSeek V4-Pro 暫時無法回應" }, { status: 502 });
+      if (!response.ok) deepSeekError = "DeepSeek V4-Pro 暫時無法回應";
       const deepPayload = payload as { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
-      deepSeekRun = {
-        model: deepPayload.model || deepSeekModel,
-        reply: deepPayload.choices?.[0]?.message?.content?.trim() || "",
-        inputTokens: Number(deepPayload.usage?.prompt_tokens ?? 0),
-        outputTokens: Number(deepPayload.usage?.completion_tokens ?? 0),
-        durationMs: Math.max(0, Date.now() - startedAt),
-      };
-    } else if (modelMode !== "sonnet") {
+      if (response.ok) {
+        deepSeekRun = {
+          model: deepPayload.model || deepSeekModel,
+          reply: deepPayload.choices?.[0]?.message?.content?.trim() || "",
+          inputTokens: Number(deepPayload.usage?.prompt_tokens ?? 0),
+          outputTokens: Number(deepPayload.usage?.completion_tokens ?? 0),
+          durationMs: Math.max(0, Date.now() - startedAt),
+        };
+      }
+    }
+    if (needsOpenAi) {
       const openAiStartedAt = Date.now();
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -801,12 +824,12 @@ export async function POST(request: Request) {
       });
 
       payload = await response.json();
-      if (!response.ok) {
-        return Response.json({ error: "AI 服務暫時無法回應" }, { status: 502 });
-      }
+      openAiPayload = payload;
+      if (!response.ok) openAiError = "Luna 暫時無法回應";
       openAiDurationMs = Math.max(0, Date.now() - openAiStartedAt);
     }
-    let reply = deepSeekRun?.reply || extractText(payload);
+    const openAiReply = extractText(payload);
+    let reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : "").find(Boolean) ?? "";
     const planCall = readPlanCall(payload);
     const deleteCall = readDeleteCall(payload);
     let planSaved = false;
@@ -832,15 +855,15 @@ export async function POST(request: Request) {
       } catch { /* keep the conversation available */ }
     }
 
-    const searchedFiles = modelMode !== "deepseek" && usedFileSearch(payload);
+    const searchedFiles = needsOpenAi && usedFileSearch(payload);
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
     const sharedRetrievalContext = searchedFiles ? extractFileSearchContext(payload) : "";
-    const comparisonClaudeModel = modelMode === "sonnet" || modelMode === "dual" ? await getAnthropicChatModel("claude-sonnet-5") : "";
+    const comparisonClaudeModel = needsAnthropic ? await getAnthropicChatModel("claude-sonnet-5") : "";
     let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number; stopReason: string | null } | null = null;
     let claudeError = "";
-    if (modelMode === "sonnet" || modelMode === "dual") {
+    if (needsAnthropic) {
       try {
         claudeRun = await runAnthropicTutor(
           anthropicKey,
@@ -854,7 +877,8 @@ export async function POST(request: Request) {
         claudeError = error instanceof Error ? error.message.slice(0, 500) : "Claude Sonnet 回覆失敗";
       }
     }
-    if (modelMode === "sonnet") reply = claudeRun?.reply ?? "";
+    if (providers[0] === "sonnet") reply = claudeRun?.reply ?? "";
+    if (!reply) reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : claudeRun?.reply ?? "").find(Boolean) ?? "";
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
     const fileSearchConfirmedForBook = Boolean(
@@ -902,36 +926,87 @@ export async function POST(request: Request) {
     const citationStatus = context.type === "book"
       ? effectiveTeachingEvidence?.status ?? "unavailable"
       : searchedFiles && sources.length ? "full_text_search" : "unavailable";
-    const usage = deepSeekRun ? { inputTokens: deepSeekRun.inputTokens, cachedTokens: 0, outputTokens: deepSeekRun.outputTokens } : readUsage(payload);
-    const billedModel = deepSeekRun?.model ?? selectedModel;
-    const rates = modelRates[billedModel] ?? (/deepseek-v4-pro/i.test(billedModel) ? modelRates["deepseek-v4-pro"] : modelRates["gpt-5.6-luna"]);
-    const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens);
-    const tokenCost = (nonCachedInput * rates.input + usage.cachedTokens * rates.cached + usage.outputTokens * rates.output) / 1_000_000;
-    const fileSearchCost = searchedFiles ? 0.0025 : 0;
-    const estimatedCostUsd = tokenCost + fileSearchCost;
+    const openAiUsage = needsOpenAi ? readUsage(openAiPayload) : { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
+    const openAiRates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
+    const openAiCostUsd = needsOpenAi
+      ? (Math.max(0, openAiUsage.inputTokens - openAiUsage.cachedTokens) * openAiRates.input + openAiUsage.cachedTokens * openAiRates.cached + openAiUsage.outputTokens * openAiRates.output) / 1_000_000 + (searchedFiles ? 0.0025 : 0)
+      : 0;
+    const deepSeekUsage = deepSeekRun
+      ? { inputTokens: deepSeekRun.inputTokens, cachedTokens: 0, outputTokens: deepSeekRun.outputTokens }
+      : { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
+    const deepSeekCostUsd = deepSeekRun
+      ? (deepSeekRun.inputTokens * modelRates["deepseek-v4-pro"].input + deepSeekRun.outputTokens * modelRates["deepseek-v4-pro"].output) / 1_000_000
+      : 0;
     const claudePricing = anthropicRates(claudeRun?.model || comparisonClaudeModel);
     const claudeCostUsd = claudeRun
       ? (claudeRun.inputTokens * claudePricing.input + claudeRun.outputTokens * claudePricing.output) / 1_000_000
       : 0;
-    const primaryModel = modelMode === "sonnet" ? (claudeRun?.model || comparisonClaudeModel) : billedModel;
-    const primaryUsage = modelMode === "sonnet"
-      ? { inputTokens: claudeRun?.inputTokens ?? 0, cachedTokens: 0, outputTokens: claudeRun?.outputTokens ?? 0 }
-      : usage;
-    const primaryDurationMs = modelMode === "sonnet" ? claudeRun?.durationMs ?? 0 : deepSeekRun?.durationMs ?? openAiDurationMs;
-    const primaryEstimatedCostUsd = modelMode === "sonnet" ? claudeCostUsd : estimatedCostUsd;
+    const modelResults = providers.map((provider) => {
+      if (provider === "luna") return {
+        provider,
+        providerName: "openai",
+        model: selectedModel,
+        label: providerLabel(provider),
+        text: openAiReply,
+        inputTokens: openAiUsage.inputTokens,
+        cachedTokens: openAiUsage.cachedTokens,
+        outputTokens: openAiUsage.outputTokens,
+        estimatedCostUsd: openAiCostUsd,
+        durationMs: openAiDurationMs,
+        error: openAiError || (!openAiReply ? "Luna 未產生可顯示內容" : ""),
+        stopReason: null as string | null,
+      };
+      if (provider === "deepseek") return {
+        provider,
+        providerName: "deepseek",
+        model: deepSeekRun?.model || deepSeekModel,
+        label: providerLabel(provider),
+        text: deepSeekRun?.reply || "",
+        inputTokens: deepSeekUsage.inputTokens,
+        cachedTokens: deepSeekUsage.cachedTokens,
+        outputTokens: deepSeekUsage.outputTokens,
+        estimatedCostUsd: deepSeekCostUsd,
+        durationMs: deepSeekRun?.durationMs ?? 0,
+        error: deepSeekError || (!deepSeekRun?.reply ? "DeepSeek V4-Pro 未產生可顯示內容" : ""),
+        stopReason: null as string | null,
+      };
+      return {
+        provider,
+        providerName: "anthropic",
+        model: claudeRun?.model || comparisonClaudeModel,
+        label: providerLabel(provider),
+        text: claudeRun?.reply || "",
+        inputTokens: claudeRun?.inputTokens ?? 0,
+        cachedTokens: 0,
+        outputTokens: claudeRun?.outputTokens ?? 0,
+        estimatedCostUsd: claudeCostUsd,
+        durationMs: claudeRun?.durationMs ?? 0,
+        error: claudeError || (!claudeRun?.reply ? "Claude Sonnet 未產生可顯示內容" : ""),
+        stopReason: claudeRun?.stopReason ?? null,
+      };
+    });
+    const primaryResult = modelResults[0];
+    const primaryModel = primaryResult.model;
+    const primaryUsage = { inputTokens: primaryResult.inputTokens, cachedTokens: primaryResult.cachedTokens, outputTokens: primaryResult.outputTokens };
+    const primaryDurationMs = primaryResult.durationMs;
+    const primaryEstimatedCostUsd = primaryResult.estimatedCostUsd;
     let comparison: Record<string, unknown> | null = null;
     try {
       const db = await getDb();
-      await db.insert(usageLogs).values({
-        model: primaryModel,
-        source: fromFiles ? "教材" : "AI 補充",
-        inputTokens: primaryUsage.inputTokens,
-        cachedTokens: primaryUsage.cachedTokens,
-        outputTokens: primaryUsage.outputTokens,
-        fileSearchCalls: modelMode === "sonnet" ? 0 : searchedFiles ? 1 : 0,
-        estimatedCostUsdMicros: Math.round(primaryEstimatedCostUsd * 1_000_000),
-      });
-      if (modelMode === "dual") {
+      for (const result of modelResults) {
+        if (result.inputTokens || result.outputTokens || result.text) {
+          await db.insert(usageLogs).values({
+            model: result.model,
+            source: isComparison ? `AI 導師模型比較（${result.label}）` : fromFiles ? "教材" : "AI 補充",
+            inputTokens: result.inputTokens,
+            cachedTokens: result.cachedTokens,
+            outputTokens: result.outputTokens,
+            fileSearchCalls: result.provider === "luna" && searchedFiles ? 1 : 0,
+            estimatedCostUsdMicros: Math.round(result.estimatedCostUsd * 1_000_000),
+          });
+        }
+      }
+      if (isComparison) {
         const [comparisonRow] = await db.insert(chatComparisons).values({
           userKey: request.headers.get("oai-authenticated-user-email") ?? "default-owner",
           sessionId: session.id,
@@ -940,48 +1015,21 @@ export async function POST(request: Request) {
           sourceStatus: citationStatus,
           sourceJson: JSON.stringify(sources),
         }).returning();
-        const responseRows = await db.insert(chatComparisonResponses).values([
-          {
-            comparisonId: comparisonRow.id,
-            provider: "openai",
-            model: selectedModel,
-            label: "Luna",
-            text: reply,
-            source: fromFiles ? "教材" : "AI 補充",
-            citationsJson: sources.length ? JSON.stringify(sources) : null,
-            inputTokens: usage.inputTokens,
-            cachedTokens: usage.cachedTokens,
-            outputTokens: usage.outputTokens,
-            estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
-            durationMs: openAiDurationMs,
-          },
-          {
-            comparisonId: comparisonRow.id,
-            provider: "anthropic",
-            model: claudeRun?.model || comparisonClaudeModel,
-            label: "Claude Sonnet",
-            text: claudeRun?.reply || "",
-            source: fromFiles ? "教材" : "AI 補充",
-            citationsJson: sources.length ? JSON.stringify(sources) : null,
-            inputTokens: claudeRun?.inputTokens ?? 0,
-            cachedTokens: 0,
-            outputTokens: claudeRun?.outputTokens ?? 0,
-            estimatedCostUsdMicros: Math.round(claudeCostUsd * 1_000_000),
-            durationMs: claudeRun?.durationMs ?? 0,
-            error: claudeError || null,
-          },
-        ]).returning();
-        if (claudeRun) {
-          await db.insert(usageLogs).values({
-            model: claudeRun.model,
-            source: "AI 導師雙模型比較（Claude Sonnet）",
-            inputTokens: claudeRun.inputTokens,
-            cachedTokens: 0,
-            outputTokens: claudeRun.outputTokens,
-            fileSearchCalls: 0,
-            estimatedCostUsdMicros: Math.round(claudeCostUsd * 1_000_000),
-          });
-        }
+        const responseRows = await db.insert(chatComparisonResponses).values(modelResults.map((result) => ({
+          comparisonId: comparisonRow.id,
+          provider: result.providerName,
+          model: result.model,
+          label: result.label,
+          text: result.text,
+          source: fromFiles ? "教材" : "AI 補充",
+          citationsJson: sources.length ? JSON.stringify(sources) : null,
+          inputTokens: result.inputTokens,
+          cachedTokens: result.cachedTokens,
+          outputTokens: result.outputTokens,
+          estimatedCostUsdMicros: Math.round(result.estimatedCostUsd * 1_000_000),
+          durationMs: result.durationMs,
+          error: result.error || null,
+        }))).returning();
         comparison = {
           id: comparisonRow.id,
           sourceStatus: citationStatus,
@@ -1001,7 +1049,7 @@ export async function POST(request: Request) {
               estimatedCostUsd: row.estimatedCostUsdMicros / 1_000_000,
               durationMs: row.durationMs,
             },
-            stopReason: row.label === "Claude Sonnet" ? claudeRun?.stopReason ?? null : null,
+            stopReason: modelResults.find((result) => result.label === row.label)?.stopReason ?? null,
           })),
         };
       }
@@ -1035,7 +1083,7 @@ export async function POST(request: Request) {
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
-      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: modelMode === "sonnet" ? 0 : searchedFiles ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd },
+      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: primaryResult.provider === "luna" && searchedFiles ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd },
       planSaved,
       replacedTasks,
       tasksDeleted,

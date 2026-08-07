@@ -31,6 +31,7 @@ type TeachingRound = { level: TeachingLevel; label: string; reply: string; teach
 type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; model?: string; comparison?: ModelComparison };
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
+type ChatModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
 type TodayRecord = { subject: string; title: string; activityType: string; actualMinutes: number; nextStep: string };
@@ -106,7 +107,7 @@ export default function Home() {
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
   const [showCosts, setShowCosts] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
-  const [modelMode, setModelMode] = useState<"luna" | "sonnet" | "deepseek" | "dual">("luna");
+  const [modelMode, setModelMode] = useState<ChatModelMode>("luna");
   const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
   const [teachingRounds, setTeachingRounds] = useState<TeachingRound[]>([]);
   const [, setTeachingUsage] = useState<EvaluationUsage[]>([]);
@@ -161,7 +162,7 @@ export default function Home() {
   const latestTeacherPrompt = latestTeacherIndex >= 0 ? pairedStudentPrompt(messages, latestTeacherIndex) : "";
   const actualLatestComparison = latestTeacherTurn?.comparison ?? null;
   const latestTeacherModel = latestTeacherMessage?.model ?? lastUsage?.model ?? "gpt-5.6-luna";
-  const latestTeacherLabel = /claude/i.test(latestTeacherModel) ? "Claude Sonnet" : "Luna";
+  const latestTeacherLabel = /claude/i.test(latestTeacherModel) ? "Claude Sonnet" : /deepseek/i.test(latestTeacherModel) ? "DeepSeek V4-Pro" : "Luna";
   const latestComparison = actualLatestComparison ?? (latestTeacherMessage ? { id: -1, sourceStatus: "unavailable", responses: [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] } satisfies ModelComparison : null);
   const latestTeacherResponses: ComparisonResponse[] = latestComparison?.responses.filter((response) => !response.error && response.text.trim())
     ?? (latestTeacherMessage ? [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] : []);
@@ -757,14 +758,14 @@ export default function Home() {
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
             </select></label>
-            <label><span>回答</span><select value={modelMode === "dual" ? "luna" : modelMode} onChange={(event) => setModelMode(event.target.value as "luna" | "sonnet" | "deepseek")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+            <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => setModelMode(event.target.value as ChatModelMode)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
             </select></label>
-            <label><span>比較</span><select value={modelMode === "dual" ? "luna-claude" : "none"} onChange={(event) => setModelMode(event.target.value === "luna-claude" ? "dual" : (modelMode === "dual" ? "luna" : modelMode))} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
-              <option value="none">不比較</option><option value="luna-claude">Luna＋Claude</option>
+            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else setModelMode(value as ChatModelMode); }} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+              <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
             </select></label>
           </div>
-          <div className="model-mode-status">{selectedFollowUps.length > 0 ? `已選 ${selectedFollowUps.length} 段回答作為追問依據` : evaluatingLevel ? `正在產生${teachingLevelLabels[evaluatingLevel]}提問` : modelMode === "dual" ? "同一題並列兩份回答，可再評分比較" : "回答會依目前選擇的模型產生"}</div>
+          <div className="model-mode-status">{selectedFollowUps.length > 0 ? `已選 ${selectedFollowUps.length} 段回答作為追問依據` : evaluatingLevel ? `正在產生${teachingLevelLabels[evaluatingLevel]}提問` : modelMode.startsWith("compare-") ? `同一題並列${modelMode.split("-").length - 1}份回答，可比較 Token 與成本` : "回答會依目前選擇的模型產生"}</div>
         </section>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>

@@ -66,6 +66,7 @@ type UsageData = {
     ratedResponses: number;
     lunaPreferred: number;
     claudePreferred: number;
+    deepseekPreferred: number;
     averageScore: number;
   };
   recentComparisons?: Array<{
@@ -2915,9 +2916,9 @@ export default function AdminPage() {
               </div>
             </div>
             <section className="comparison-admin-summary" aria-label="雙模型比較統計">
-              <div className="cost-heading"><div><h3>AI 導師雙模型比較</h3><p className="panel-sub">前台測試者可在 Luna 與 Claude Sonnet 回答中評分或選擇較佳回答；這裡顯示實際保存結果。</p></div><span className="source-count">{usage?.comparisonStats?.comparisons ?? 0} 次比較</span></div>
-              <div className="cost-metrics comparison-metrics"><div><span>已評分回答</span><strong>{usage?.comparisonStats?.ratedResponses ?? 0}</strong></div><div><span>Luna 被選較多</span><strong>{usage?.comparisonStats?.lunaPreferred ?? 0}</strong></div><div><span>Claude 被選較多</span><strong>{usage?.comparisonStats?.claudePreferred ?? 0}</strong></div><div><span>平均評分</span><strong>{Number(usage?.comparisonStats?.averageScore ?? 0).toFixed(2)} / 5</strong></div></div>
-              {usage?.recentComparisons?.length ? <div className="comparison-admin-list">{usage.recentComparisons.slice(0, 10).map((comparison) => <article key={comparison.id}><header><strong>#{comparison.id}</strong><span>{comparison.promptText.slice(0, 100)}</span><small>{new Date(comparison.createdAt).toLocaleString("zh-TW")}</small></header><div>{comparison.responses.map((response) => <p key={response.id}><b>{response.label}</b><span>{response.inputTokens + response.outputTokens} tokens · {response.durationMs.toLocaleString()} ms · US$ {(response.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</span><em>{response.ratings.length ? `評分 ${response.ratings.map((rating) => rating.score).join("、")}` : "尚未評分"}{response.error ? ` · ${response.error}` : ""}</em></p>)}</div></article>)}</div> : <p className="usage-empty">尚未產生雙模型比較。前台切換「Luna＋Claude Sonnet 比較」後，結果會出現在這裡。</p>}
+              <div className="cost-heading"><div><h3>AI 導師模型比較</h3><p className="panel-sub">前台測試者可比較 Luna、Claude Sonnet 與 DeepSeek V4-Pro；這裡顯示各模型的實際回覆、Token、耗時、成本與回饋。</p></div><span className="source-count">{usage?.comparisonStats?.comparisons ?? 0} 次比較</span></div>
+              <div className="cost-metrics comparison-metrics"><div><span>已評分回答</span><strong>{usage?.comparisonStats?.ratedResponses ?? 0}</strong></div><div><span>Luna 被選較多</span><strong>{usage?.comparisonStats?.lunaPreferred ?? 0}</strong></div><div><span>Sonnet 被選較多</span><strong>{usage?.comparisonStats?.claudePreferred ?? 0}</strong></div><div><span>DeepSeek 被選較多</span><strong>{usage?.comparisonStats?.deepseekPreferred ?? 0}</strong></div><div><span>平均評分</span><strong>{Number(usage?.comparisonStats?.averageScore ?? 0).toFixed(2)} / 5</strong></div></div>
+              {usage?.recentComparisons?.length ? <div className="comparison-admin-list">{usage.recentComparisons.slice(0, 10).map((comparison) => <article key={comparison.id}><header><strong>#{comparison.id}</strong><span>{comparison.promptText.slice(0, 100)}</span><small>{new Date(comparison.createdAt).toLocaleString("zh-TW")}</small></header><div>{comparison.responses.map((response) => <p key={response.id}><b>{response.label}</b><span>{response.inputTokens + response.outputTokens} tokens · {response.durationMs.toLocaleString()} ms · US$ {(response.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</span><em>{response.ratings.length ? `評分 ${response.ratings.map((rating) => rating.score).join("、")}` : "尚未評分"}{response.error ? ` · ${response.error}` : ""}</em></p>)}</div></article>)}</div> : <p className="usage-empty">尚未產生模型比較。前台選擇任一比較組合後，結果會出現在這裡。</p>}
             </section>
             {usage?.recent?.length ? (
               <>

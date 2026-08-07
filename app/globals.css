@@ -4639,6 +4639,7 @@ a {
 }
 .book-model-comparison {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
 }
 .book-model-comparison article {
@@ -14613,7 +14614,7 @@ a {
 .comparison-admin-list header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: baseline; color: #56727d; font-size: 12px; }
 .comparison-admin-list header span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .comparison-admin-list header small, .comparison-admin-list p span, .comparison-admin-list p em { color: #81939a; font-size: 11px; font-style: normal; }
-.comparison-admin-list > article > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.comparison-admin-list > article > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; }
 .comparison-admin-list p { display: grid; gap: 3px; margin: 0; padding: 8px; border-radius: 8px; background: #f5fafb; }
 @media (max-width: 720px) {
   .comparison-admin-list header { grid-template-columns: 1fr; gap: 3px; }
@@ -14661,7 +14662,7 @@ a {
 .model-comparison-card > header div { display: grid; gap: 3px; }
 .model-comparison-card > header b { color: #245d6a; font-size: 15px; }
 .model-comparison-card > header span, .model-comparison-card > header small { color: #718892; font-size: 11px; line-height: 1.6; }
-.model-comparison-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-top: 12px; }
+.model-comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; padding-top: 12px; }
 .model-comparison-response { min-width: 0; padding: 13px; border: 1px solid #d6e5e9; border-radius: 12px; background: #fbfdfd; }
 .model-comparison-response.follow-up-selected { border-color: #78afb0; background: #f1fbf8; box-shadow: 0 0 0 2px rgba(103, 170, 164, .12); }
 .model-comparison-response-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid #e6eff1; }

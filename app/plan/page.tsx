@@ -184,6 +184,7 @@ type TeachingEvidence = {
   message: string;
 };
 type BookUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
+type BookModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type BookComparison = {
   responses: Array<{
     id: number;
@@ -585,7 +586,7 @@ export default function StudyPlanPage() {
   } | null>(null);
   const [bookInput, setBookInput] = useState("");
   const [bookChatLoading, setBookChatLoading] = useState(false);
-  const [bookModelMode, setBookModelMode] = useState<"luna" | "sonnet" | "deepseek" | "dual">("luna");
+  const [bookModelMode, setBookModelMode] = useState<BookModelMode>("luna");
   const [bookTeachingLevel, setBookTeachingLevel] = useState<"beginner" | "intermediate" | "advanced" | "super" | null>(null);
   const [bookTestNotice, setBookTestNotice] = useState("");
   const [bookChaptersLoading, setBookChaptersLoading] = useState(false);
@@ -3369,11 +3370,11 @@ export default function StudyPlanPage() {
                               <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); setBookTestNotice(`已切換為${bookTeachingLevelLabels.general}`); } else if (selectedChapter) { prepareBookLevelQuestion(value); } }} disabled={!selectedChapter || bookChatLoading}>
                                 <option value="general">{bookTeachingLevelLabels.general}</option><option value="beginner">{bookTeachingLevelLabels.beginner}</option><option value="intermediate">{bookTeachingLevelLabels.intermediate}</option><option value="advanced">{bookTeachingLevelLabels.advanced}</option><option value="super">{bookTeachingLevelLabels.super}</option>
                               </select></label>
-                              <label><span>回答</span><select value={bookModelMode === "dual" ? "luna" : bookModelMode} onChange={(event) => setBookModelMode(event.target.value as "luna" | "sonnet" | "deepseek")} disabled={bookChatLoading}>
+                              <label><span>回答</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] : bookModelMode} onChange={(event) => setBookModelMode(event.target.value as BookModelMode)} disabled={bookChatLoading}>
                                 <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
                               </select></label>
-                              <label><span>比較</span><select value={bookModelMode === "dual" ? "luna-claude" : "none"} onChange={(event) => setBookModelMode(event.target.value === "luna-claude" ? "dual" : (bookModelMode === "dual" ? "luna" : bookModelMode))} disabled={bookChatLoading}>
-                                <option value="none">不比較</option><option value="luna-claude">Luna＋Claude</option>
+                              <label><span>比較</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setBookModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as BookModelMode : current); } else setBookModelMode(value as BookModelMode); }} disabled={bookChatLoading}>
+                                <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
                               </select></label>
                             </div>
                             <small>{bookTestNotice || "選擇學生身分後，系統會把對應的提問帶入輸入框。"}</small>
