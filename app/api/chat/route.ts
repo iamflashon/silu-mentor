@@ -13,7 +13,7 @@ import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
 type ChatProvider = "luna" | "sonnet" | "deepseek";
-type ChatModelMode = ChatProvider | "compare-luna-sonnet" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+type ChatModelMode = ChatProvider | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 function activeProviders(mode: ChatModelMode): ChatProvider[] {
@@ -593,7 +593,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel };
     const requestedMode = String(body.modelMode ?? "luna");
-    const allowedModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+    const allowedModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     const modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "luna";
     const providers = activeProviders(modelMode);
     const isComparison = providers.length > 1;

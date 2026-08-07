@@ -184,7 +184,7 @@ type TeachingEvidence = {
   message: string;
 };
 type BookUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
-type BookModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+type BookModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type BookComparison = {
   responses: Array<{
     id: number;
@@ -3374,7 +3374,7 @@ export default function StudyPlanPage() {
                                 <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
                               </select></label>
                               <label><span>比較</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setBookModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as BookModelMode : current); } else setBookModelMode(value as BookModelMode); }} disabled={bookChatLoading}>
-                                <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
+                                <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
                               </select></label>
                             </div>
                             <small>{bookTestNotice || "選擇學生身分後，系統會把對應的提問帶入輸入框。"}</small>
