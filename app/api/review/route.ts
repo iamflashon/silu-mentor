@@ -97,13 +97,13 @@ async function runDeepSeek(apiKey: string, model: string, instructions: string, 
 
 async function runProvider(provider: Provider, prompt: string, speaker: "teacher" | "scholar", stage: "question" | "answer" | "follow-up" | "reply") {
   const stageInstruction = stage === "question"
-    ? "你是帶學生拆解司律二試的老師。請只提出一個具體、可直接回答的法律問題，鎖定本題最容易漏寫或混淆的爭點。不要先公布答案，不要一次問兩個問題。"
+    ? "你是帶學生拆解司律二試的老師。請先用一句自然的話明確說出『這一回合要處理的單一法律爭點』，再提出一個具體、可直接回答的問題。爭點必須連結題目中的具體事實，例如身分、行為、因果關係或法律效果；不要只說請說明。不要先公布答案，不要一次問兩個問題。"
     : stage === "answer"
-      ? "你是程度很高但仍要接受追問的法律學霸。請直接回答老師剛才的問題，指出爭點、規範與涵攝，並主動說明一個可能被老師挑戰的漏洞。不要寫成完整申論擬答。"
+      ? "你是程度很高但仍要接受追問的法律學霸。請先明確回應老師剛才界定的那一個爭點，再說明規範與題目事實的涵攝，最後指出一個可能被老師挑戰的漏洞。不要換新爭點，也不要寫成完整申論擬答。"
       : stage === "follow-up"
-        ? "你是嚴格的司律閱卷老師。請針對學霸剛才的回答，只追問一個最關鍵的漏洞或法律效果問題，要求對方補上具體涵攝。不要直接給標準答案。"
-        : "你是法律學霸。請正面回應老師的追問，修正剛才可能不足的地方，補足法源、要件與個案涵攝，最後用一句話說明考場應如何落筆。";
-  const instructions = `你是台灣司律二試的法律對話模型，使用繁體中文與中華民國法律語境。${stageInstruction}\n只根據題目與提供的核對資料回答，不得虛構判決、法條內容或老師見解。請保持自然對話，不要使用 Markdown 標題、星號、反引號或長篇條列。${stage === "question" || stage === "follow-up" ? "控制在 120 至 260 字。" : "控制在 220 至 450 字。"}`;
+        ? "你是嚴格的司律閱卷老師。請先指出學霸回答在原本那一個爭點上的具體缺口，再只追問一個最關鍵的漏洞或法律效果問題。不得偷偷換成另一個爭點，也不要直接給標準答案。"
+        : "你是法律學霸。請正面承接原本的同一個爭點，回答老師的追問，修正剛才不足之處，補足法源、要件與個案涵攝，最後用一句自然的話說明考場應如何落筆。";
+  const instructions = `你是台灣司律二試的法律對話模型，使用繁體中文與中華民國法律語境。${stageInstruction}\n只根據題目與提供的核對資料回答，不得虛構判決、法條內容或老師見解。請保持像老師與學生一來一往的自然對話，不要使用 Markdown 標題、星號、反引號或長篇條列。每一段都要讓讀者看得出目前討論的法律爭點，不要只給抽象定義。${stage === "question" || stage === "follow-up" ? "控制在 90 至 190 字。" : "控制在 170 至 330 字。"}`;
   if (provider === "luna") {
     const key = await getOpenAIKey();
     if (!key) throw new Error("OPENAI_API_KEY 尚未設定");
@@ -122,7 +122,7 @@ async function runProvider(provider: Provider, prompt: string, speaker: "teacher
 async function runCommentator(question: string, teacherQuestion: string, scholarAnswer: string, teacherFollowUp: string, scholarReply: string) {
   const key = await getOpenAIKey();
   if (!key) throw new Error("固定點評 Sol 需要 OPENAI_API_KEY");
-  const instructions = "你是司律評的固定 AI 點評人，使用 gpt-5.6-sol。請像資深閱卷老師一樣，點評老師是否問到真正爭點、學霸是否正面回答、哪個地方仍有漏洞，以及規範與個案涵攝是否完整。不得只偏好文筆；若雙方都有錯，要直接指出。最後給出 100 分制總評、三個最重要的修正，以及一段考場防呆筆記。使用繁體中文，不要使用 Markdown 符號，控制在 700 字內。";
+  const instructions = "你是司律評的固定 AI 點評人，使用 gpt-5.6-sol。請像資深閱卷老師一樣，先明確說出本回合真正處理的法律爭點，再點評老師是否把爭點問清楚、學霸是否正面回答、哪個地方仍有漏洞，以及規範與個案涵攝是否完整。不得只偏好文筆；若雙方都有錯，要直接指出。最後給出 100 分制總評、三個最重要的修正，以及一段考場防呆筆記。使用繁體中文，不要使用 Markdown 符號，控制在 700 字內。";
   const input = `【題目】\n${question}\n\n【老師先問】\n${teacherQuestion}\n\n【學霸回答】\n${scholarAnswer}\n\n【老師追問】\n${teacherFollowUp}\n\n【學霸回應】\n${scholarReply}`;
   return runOpenAI(key, await getTeachingJudgeOpenAIModel("gpt-5.6-sol"), instructions, input);
 }
