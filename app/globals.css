@@ -4773,6 +4773,11 @@ a {
   max-width: min(88%, 680px);
   margin-left: auto;
 }
+.book-dialogue-message.scholar {
+  width: fit-content;
+  max-width: min(88%, 680px);
+  margin-left: auto;
+}
 .book-dialogue-message > span {
   display: block;
   margin-bottom: 4px;
@@ -4797,6 +4802,15 @@ a {
   border-radius: 12px 12px 3px 12px;
   background: #1d4763;
   color: #fff;
+}
+.book-dialogue-message.scholar p {
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border-radius: 12px 12px 3px 12px;
+  background: #e3f3ef;
+  border: 1px solid #b9ded4;
+  color: #245f5d;
 }
 .book-message-reply {
   display: flex;

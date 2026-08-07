@@ -195,7 +195,7 @@ type BookComparison = {
     usage: { inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
   }>;
 };
-type TutorMessage = { role: "mentor" | "student"; text: string; model?: string; usage?: BookUsage; comparison?: BookComparison; teachingEvidence?: TeachingEvidence | null };
+type TutorMessage = { role: "mentor" | "student" | "scholar"; text: string; model?: string; usage?: BookUsage; comparison?: BookComparison; teachingEvidence?: TeachingEvidence | null };
 type ChatDay = {
   id: number;
   date: string;
@@ -427,13 +427,6 @@ function isProblemSolvingBook(
   );
 }
 
-function bookLevelPrompt(level: "beginner" | "intermediate" | "advanced" | "super") {
-  if (level === "beginner") return "我是法律小白，剛開始學這本教材，容易把故事、概念和法律要件混在一起。請先用最白話的方式帶我找出第一個關鍵點，再只問我一個可以直接回答的小問題。";
-  if (level === "intermediate") return "我是基礎考生，知道一些基本法條與解題方法，但常常不會把教材內容真正涵攝進題目。請指出我現在最應該抓住的內容，並只問我一個具體問題。";
-  if (level === "advanced") return "我是進階考生，想從學說、實務與不同法律效果比較這個主題。請先指出最有爭議的理論分岔，再只問我一個需要精準理解或涵攝的問題。";
-  return "我是頂尖學霸，請把這個主題當成高難度壓力測試，檢查我是否能處理隱藏前提、反例、學說邊界與考場取捨，最後只問我一個最難但可以直接回答的問題。";
-}
-
 const bookTeachingLevelLabels: Record<"general" | "beginner" | "intermediate" | "advanced" | "super", string> = {
   general: "自由提問",
   beginner: "法律小白",
@@ -588,6 +581,7 @@ export default function StudyPlanPage() {
   const [bookChatLoading, setBookChatLoading] = useState(false);
   const [bookSelectedMessageIndex, setBookSelectedMessageIndex] = useState<number | null>(null);
   const [bookSettingsOpen, setBookSettingsOpen] = useState(true);
+  const [bookSettingsPinned, setBookSettingsPinned] = useState(false);
   const [bookModelMode, setBookModelMode] = useState<BookModelMode>("luna");
   const [bookTeachingLevel, setBookTeachingLevel] = useState<"beginner" | "intermediate" | "advanced" | "super" | null>(null);
   const [bookTestNotice, setBookTestNotice] = useState("");
@@ -625,6 +619,19 @@ export default function StudyPlanPage() {
 
   useEffect(() => {
     setActiveTab(requestedPlanTab());
+  }, []);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("silu-book-ai-settings-pinned");
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as { pinned?: boolean; modelMode?: string; teachingLevel?: string | null };
+      const allowedModes: BookModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+      if (parsed.pinned) setBookSettingsPinned(true);
+      if (allowedModes.includes(parsed.modelMode as BookModelMode)) setBookModelMode(parsed.modelMode as BookModelMode);
+      if (["beginner", "intermediate", "advanced", "super"].includes(String(parsed.teachingLevel))) setBookTeachingLevel(parsed.teachingLevel as "beginner" | "intermediate" | "advanced" | "super");
+    } catch {
+      window.localStorage.removeItem("silu-book-ai-settings-pinned");
+    }
   }, []);
   const [resourceMessage, setResourceMessage] = useState("");
   const [coursePlayerError, setCoursePlayerError] = useState("");
@@ -1920,10 +1927,66 @@ export default function StudyPlanPage() {
     return () => window.clearTimeout(timer);
   }, [bookChapters, lastBookProgress, selectedChapterId, selectedResourceId]);
 
+  function toggleBookSettingsPinned(checked: boolean) {
+    setBookSettingsPinned(checked);
+    window.localStorage.setItem("silu-book-ai-settings-pinned", JSON.stringify({
+      pinned: checked,
+      modelMode: bookModelMode,
+      teachingLevel: bookTeachingLevel,
+    }));
+  }
+
+  async function answerBookTeacherMessage() {
+    if (!selectedChapter || !selectedResource || bookChatLoading) return;
+    const selectedMessage = bookSelectedMessageIndex !== null && bookMessages[bookSelectedMessageIndex]?.role === "mentor"
+      ? bookMessages[bookSelectedMessageIndex]
+      : [...bookMessages].reverse().find((message) => message.role === "mentor" && message.text.trim());
+    if (!selectedMessage) return;
+    if (bookModelMode.startsWith("compare-")) {
+      setBookTestNotice("AI 學霸回答老師問題時請先選一個單一模型；比較模式保留給模型測試。" );
+      return;
+    }
+    setBookSelectedMessageIndex(null);
+    setBookChatLoading(true);
+    try {
+      const response = await fetch("/api/book-learning/scholar-answer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: bookSessionId,
+          teacherText: selectedMessage.text,
+          subject: selectedResource.subject,
+          resourceTitle: selectedResource.title,
+          segmentTitle: selectedChapter.title,
+          chapterText: selectedChapter.text,
+          level: bookTeachingLevel ?? undefined,
+          modelMode: bookModelMode,
+        }),
+      });
+      const result = await response.json() as { reply?: string; error?: string; model?: string; sessionId?: number | null; usage?: BookUsage };
+      if (!response.ok || !result.reply) throw new Error(result.error ?? "AI 學霸暫時無法回答老師的問題");
+      setBookSessionId(result.sessionId ?? bookSessionId);
+      setBookMessages((current) => [...current, {
+        role: "scholar",
+        text: result.reply!,
+        model: result.model,
+        usage: result.usage,
+      }].slice(-12));
+    } catch (error) {
+      setBookMessages((current) => [...current, { role: "scholar", text: error instanceof Error ? error.message : "AI 學霸暫時無法回答老師的問題" }].slice(-12));
+    } finally {
+      setBookChatLoading(false);
+    }
+  }
+
   async function submitBookMessage() {
     const text = bookInput.trim();
-    if (!text || !selectedChapter || !selectedResource || bookChatLoading)
+    if (!selectedChapter || !selectedResource || bookChatLoading) return;
+    // 留白送出時，直接複用「老師問題 → 學霸回答」流程；只有學生自行輸入文字時，才走一般教材對話。
+    if (!text) {
+      await answerBookTeacherMessage();
       return;
+    }
     const selectedMessage =
       bookSelectedMessageIndex !== null &&
       bookMessages[bookSelectedMessageIndex]?.role === "mentor"
@@ -2002,9 +2065,8 @@ export default function StudyPlanPage() {
 
   function prepareBookLevelQuestion(level: "beginner" | "intermediate" | "advanced" | "super") {
     setBookTeachingLevel(level);
-    setBookInput(bookLevelPrompt(level));
-    setBookTestNotice(`${bookTeachingLevelLabels[level]}提問已帶入；可直接送出或再修改。`);
-    window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".book-dialogue-form textarea")?.focus(), 0);
+    setBookInput("");
+    setBookTestNotice(`已設定為${bookTeachingLevelLabels[level]}；按「送出訊息」後，AI 學霸會直接回答老師的問題。`);
   }
 
   function captureMagazineSelection() {
@@ -3426,7 +3488,9 @@ export default function StudyPlanPage() {
                                   <span>
                                     {message.role === "mentor"
                                       ? "AI 導師"
-                                      : "你"}
+                                      : message.role === "scholar"
+                                        ? "AI 學霸"
+                                        : "你"}
                                   </span>
                                     {message.comparison ? (
                                       <div className="book-model-comparison" aria-label="解題書雙模型回答比較">
@@ -3475,11 +3539,7 @@ export default function StudyPlanPage() {
                               {bookChatLoading && (
                                 <div className="book-dialogue-message mentor">
                                   <span>AI 教練</span>
-                                  <p className="book-typing">
-                                    {selectedBookIsProblemSolving
-                                      ? "正在分析這一題…"
-                                      : "正在整理本章內容…"}
-                                  </p>
+                                  <p className="book-typing">AI 學霸正在回答 AI 導師的問題…</p>
                                 </div>
                               )}
                               <div ref={bookDialogueEndRef} />
@@ -3493,33 +3553,37 @@ export default function StudyPlanPage() {
                                 </div>
                                 {bookSettingsOpen && <>
                                   <div className="book-ai-fields">
-                                    <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); setBookTestNotice(`已切換為${bookTeachingLevelLabels.general}`); } else if (selectedChapter) { prepareBookLevelQuestion(value); } }} disabled={bookChatLoading}>
+                                    <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); setBookTestNotice(`已切換為${bookTeachingLevelLabels.general}`); } else if (selectedChapter) { prepareBookLevelQuestion(value); } }} disabled={bookSettingsPinned || bookChatLoading}>
                                       <option value="general">{bookTeachingLevelLabels.general}</option><option value="beginner">{bookTeachingLevelLabels.beginner}</option><option value="intermediate">{bookTeachingLevelLabels.intermediate}</option><option value="advanced">{bookTeachingLevelLabels.advanced}</option><option value="super">{bookTeachingLevelLabels.super}</option>
                                     </select></label>
-                                    <label><span>回答</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] : bookModelMode} onChange={(event) => setBookModelMode(event.target.value as BookModelMode)} disabled={bookChatLoading}>
+                                    <label><span>回答</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] : bookModelMode} onChange={(event) => setBookModelMode(event.target.value as BookModelMode)} disabled={bookSettingsPinned || bookChatLoading}>
                                       <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
                                     </select></label>
-                                    <label><span>比較</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setBookModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as BookModelMode : current); } else setBookModelMode(value as BookModelMode); }} disabled={bookChatLoading}>
+                                    <label><span>比較</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setBookModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as BookModelMode : current); } else setBookModelMode(value as BookModelMode); }} disabled={bookSettingsPinned || bookChatLoading}>
                                       <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
                                     </select></label>
                                   </div>
-                                  <small>{bookTestNotice || "可直接在下方對話；選取學生程度後，也可以把提問帶入輸入框。"}</small>
+                                  <div className={`model-settings-pin-row ${bookSettingsPinned ? "is-pinned" : ""}`}>
+                                    <label className="model-settings-pin"><input type="checkbox" checked={bookSettingsPinned} onChange={(event) => toggleBookSettingsPinned(event.target.checked)} disabled={bookChatLoading} /><span>固定此角色與模型</span></label>
+                                    <small>{bookSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "固定後所有智能書都沿用目前的學生角色與回答模型。"}</small>
+                                  </div>
+                                  <small>{bookTestNotice || "下方留白按「送出訊息」，AI 學霸會直接回答 AI 導師的問題。"}</small>
                                 </>}
                               </section>
                               <div className="book-dialogue-composer-actions">
-                                <span>{bookSelectedMessageIndex === null ? "可直接送出，不指定特定訊息" : "已指定一則 AI 導師訊息"}</span>
-                                <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || !bookInput.trim()}>{bookSelectedMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button>
+                                <span>{bookSelectedMessageIndex === null ? "留白送出：回答 AI 導師最新問題" : "已指定一則 AI 導師訊息；留白送出即可回答"}</span>
+                                <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || (!bookInput.trim() && !bookMessages.some((message) => message.role === "mentor"))}>送出訊息</button>
                               </div>
                               <form className="book-dialogue-form" onSubmit={sendBookMessage}>
                                 <textarea
                                   value={bookInput}
                                   onChange={(event) => setBookInput(event.target.value)}
-                                  placeholder={bookSelectedMessageIndex === null ? (selectedBookIsProblemSolving ? "寫下你看到的關鍵事實或爭點……" : "回覆 AI 導師，繼續這一章……") : "回覆指定的 AI 導師訊息……"}
+                                  placeholder={bookSelectedMessageIndex === null ? "回答 AI 導師的問題……（留白由 AI 學霸直接回答）" : "回答指定的 AI 導師問題……（留白由 AI 學霸直接回答）"}
                                   disabled={bookChatLoading}
                                   rows={1}
                                   onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitBookMessage(); } }}
                                 />
-                                <button type="submit" aria-label="送出訊息" disabled={bookChatLoading || !bookInput.trim()}>↑</button>
+                                <button type="submit" aria-label="送出訊息" disabled={bookChatLoading || (!bookInput.trim() && !bookMessages.some((message) => message.role === "mentor"))}>↑</button>
                               </form>
                             </div>
                           </div>
