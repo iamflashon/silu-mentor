@@ -7160,6 +7160,43 @@ a {
   font-size: 12px;
   line-height: 1.65;
 }
+.essay-coach-settings {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #d9e8e1;
+  border-radius: 11px;
+  background: rgba(255,255,255,.72);
+}
+.essay-coach-settings-head { display:flex; align-items:center; gap:8px; color:#315f50; font-size:12px; }
+.essay-coach-settings-head small { color:#8a9b96; font-size:10px; }
+.essay-coach-setting-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.essay-coach-setting-fields label { display:grid; gap:4px; }
+.essay-coach-setting-fields label span { color:#6c847a; font-size:10px; font-weight:800; }
+.essay-coach-setting-fields select { min-width:0; height:32px; padding:0 8px; border:1px solid #c9ddd4; border-radius:7px; background:#fff; color:#315f50; font:inherit; font-size:11px; }
+.essay-coach-pin { display:flex; align-items:center; gap:6px; color:#52766a; font-size:11px; font-weight:800; }
+.essay-coach-pin input { accent-color:#4d8b9c; }
+.essay-coach-pin small { color:#8da09a; font-size:10px; font-weight:400; }
+.essay-coach-progress { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:11px; padding:9px 11px; border-radius:9px; background:#edf7f1; color:#477466; font-size:11px; }
+.essay-coach-progress > div { display:flex; gap:5px; }
+.essay-coach-progress i { display:grid; place-items:center; width:21px; height:21px; border:1px solid #bdd8ca; border-radius:50%; color:#88a69a; font-style:normal; font-size:10px; }
+.essay-coach-progress i.active { border-color:#4d8b9c; background:#4d8b9c; color:#fff; }
+.essay-coach-progress i.done { border-color:#6ea78f; background:#d5eee0; color:#34775f; }
+.essay-coach-start { border-color:#6ea78f !important; background:#34775f !important; color:#fff !important; }
+.essay-coach-comparisons { margin-top:14px; }
+.essay-coach-comparisons > b { color:#315f50; font-size:13px; }
+.essay-coach-comparisons > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:7px; }
+.essay-coach-comparisons article { padding:10px; border:1px solid #d7e4df; border-radius:9px; background:#fff; }
+.essay-coach-comparisons article strong, .essay-coach-comparisons article small { display:block; }
+.essay-coach-comparisons article strong { color:#315f50; font-size:12px; }
+.essay-coach-comparisons article small, .essay-coach-comparisons article em { color:#8a9b96; font-size:10px; }
+.essay-coach-comparisons article p { margin:6px 0; color:#41675a; font-size:12px; line-height:1.65; white-space:pre-wrap; }
+@media (max-width:720px) {
+  .essay-coach-setting-fields { grid-template-columns:1fr; }
+  .essay-coach-progress { align-items:flex-start; flex-direction:column; }
+  .essay-coach-comparisons > div { grid-template-columns:1fr; }
+}
 .guided-answer-sheet {
   overflow: hidden;
   border: 1px solid #c9d9e1;

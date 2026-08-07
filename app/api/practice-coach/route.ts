@@ -1,12 +1,14 @@
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examCoachMessages, examQuestions, learningResources, legalArticles, legalDocuments, resourceSegments, usageLogs } from "../../../db/schema";
-import { openAIJson } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIModel, openAIJson } from "../../../lib/openai";
 
 type CoachMessage = { role: "mentor" | "student"; text: string };
-type CoachAction = "coach" | "variation_basic" | "variation_advanced";
+type CoachAction = "start" | "coach" | "variation_basic" | "variation_advanced";
+type CoachProvider = "luna" | "sonnet" | "deepseek";
 
 function outputText(payload: Record<string, unknown>) {
+  if (typeof payload.output_text === "string") return payload.output_text;
   for (const item of Array.isArray(payload.output) ? payload.output : []) {
     if (!item || typeof item !== "object") continue;
     for (const part of Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []) {
@@ -14,6 +16,46 @@ function outputText(payload: Record<string, unknown>) {
     }
   }
   return "";
+}
+
+function providersFor(mode: string): CoachProvider[] {
+  const allowed = ["luna", "sonnet", "deepseek"];
+  if (mode.startsWith("compare-")) return mode.slice(8).split("-").filter((item): item is CoachProvider => allowed.includes(item));
+  return allowed.includes(mode) ? [mode as CoachProvider] : ["luna"];
+}
+
+function providerLabel(provider: CoachProvider) { return provider === "luna" ? "Luna" : provider === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"; }
+
+function anthropicText(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const content = (payload as { content?: unknown[] }).content;
+  return Array.isArray(content) ? content.map((item) => item && typeof item === "object" ? String((item as { text?: unknown }).text ?? "") : "").join(" ").trim() : "";
+}
+
+async function runProvider(provider: CoachProvider, instructions: string, input: string) {
+  if (provider === "sonnet") {
+    const key = await getAnthropicKey();
+    if (!key) throw new Error("Claude Sonnet API Key 尚未設定");
+    const model = await getAnthropicChatModel("claude-sonnet-5");
+    const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model, max_tokens: 4000, system: instructions, messages: [{ role: "user", content: input }] }) });
+    const payload = await response.json() as Record<string, unknown>;
+    if (!response.ok) throw new Error("Claude Sonnet 暫時無法回應");
+    const usage = payload.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+    return { provider, label: providerLabel(provider), model, text: anthropicText(payload), inputTokens: Number(usage?.input_tokens ?? 0), outputTokens: Number(usage?.output_tokens ?? 0) };
+  }
+  if (provider === "deepseek") {
+    const key = await getDeepSeekKey();
+    if (!key) throw new Error("DeepSeek API Key 尚未設定");
+    const model = await getDeepSeekModel("deepseek-v4-pro");
+    const response = await fetch("https://api.deepseek.com/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "system", content: instructions }, { role: "user", content: input }], max_tokens: 4000 }) });
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+    if (!response.ok) throw new Error("DeepSeek V4-Pro 暫時無法回應");
+    return { provider, label: providerLabel(provider), model: payload.model || model, text: payload.choices?.[0]?.message?.content?.trim() || "", inputTokens: Number(payload.usage?.prompt_tokens ?? 0), outputTokens: Number(payload.usage?.completion_tokens ?? 0) };
+  }
+  const model = await getOpenAIModel("gpt-5.6-luna");
+  const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions, input }) });
+  const usage = payload.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+  return { provider, label: providerLabel(provider), model, text: outputText(payload), inputTokens: Number(usage?.input_tokens ?? 0), outputTokens: Number(usage?.output_tokens ?? 0) };
 }
 
 const subjectLawMap: Record<string, string[]> = {
@@ -39,9 +81,9 @@ function userKey(request: Request) { return request.headers.get("oai-authenticat
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[] };
+    const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[]; modelMode?: string; teachingLevel?: string };
     const questionId = Number(body.questionId);
-    const action: CoachAction = ["variation_basic", "variation_advanced"].includes(String(body.action)) ? body.action as CoachAction : "coach";
+    const action: CoachAction = ["start", "variation_basic", "variation_advanced"].includes(String(body.action)) ? body.action as CoachAction : "coach";
     if (!Number.isInteger(questionId)) return Response.json({ error: "缺少真題資料" }, { status: 400 });
     const db = await getDb();
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"))).limit(1);
@@ -78,28 +120,32 @@ export async function POST(request: Request) {
     const history = (Array.isArray(body.messages) ? body.messages : []).slice(-8).map((message) => `${message.role === "student" ? "學生" : "教練"}：${String(message.text).slice(0, 800)}`).join("\n");
     const resourceContext = resources.map((item) => `ID ${item.segmentId}｜${item.resourceType}｜${item.resourceTitle}｜${item.lessonLabel} ${item.segmentTitle}｜${item.summary || item.text.slice(0, 220)}`).join("\n");
     const lawContext = laws.map((item) => `ID ${item.id}｜${item.title} ${item.articleNo}｜${item.content.slice(0, 360)}`).join("\n");
-    const actionInstruction = action === "variation_basic"
-      ? "依原真題改一個關鍵事實，出一題基礎模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
-      : action === "variation_advanced"
-        ? "依原真題改變程序階段、當事人主張或關鍵要件，出一題進階模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
-        : "根據學生剛才的回答診斷理解缺口。先肯定已掌握部分，再只問一個學生可直接回答的小問題；不要立刻傾倒完整解析。";
-    const model = action === "variation_advanced" ? "gpt-5.6-terra" : "gpt-5.6-luna";
-    const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
-      model,
-      instructions: `你是台灣司律考試真題教練。只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${actionInstruction} 回覆 120 至 260 字。diagnosed_gap 要具體指出是法條記憶、程序階段、爭點辨認、要件理解、選項比較或涵攝哪一種缺口。key_issue 用一句話寫出本題核心法律問題。只推薦與本題直接相關的候選 ID；沒有合適資料就回傳空陣列。不得使用 Markdown 星號。`,
-      input: `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n正確答案：${question.correctAnswer || "申論題"}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生選項：${body.selectedAnswer || "未提供"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`,
-      text: { format: { type: "json_schema", name: "practice_coach", strict: true, schema: { type: "object", additionalProperties: false, properties: { reply: { type: "string" }, diagnosed_gap: { type: "string" }, key_issue: { type: "string" }, recommended_resource_ids: { type: "array", items: { type: "integer" } }, recommended_law_ids: { type: "array", items: { type: "integer" } } }, required: ["reply", "diagnosed_gap", "key_issue", "recommended_resource_ids", "recommended_law_ids"] } } },
-    }) });
-    const parsed = JSON.parse(outputText(payload)) as { reply: string; diagnosed_gap: string; key_issue: string; recommended_resource_ids: number[]; recommended_law_ids: number[] };
+    const actionInstruction = action === "start"
+      ? "這是第一次引導。先肯定學生開始練習，接著只問一個問題：先不要急著找法條，請學生拆出題目中甲分別做了哪些可能涉及刑責的行為。不要直接公布答案。"
+      : action === "variation_basic"
+        ? "依原真題改一個關鍵事實，出一題基礎模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
+        : action === "variation_advanced"
+          ? "依原真題改變程序階段、當事人主張或關鍵要件，出一題進階模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
+          : "根據學生剛才的回答診斷理解缺口。先肯定已掌握部分，再只問一個學生可直接回答的小問題；完整處理目前階段後，必須明確銜接下一階段，不能在一個爭點結束。";
+    const studentCount = Array.isArray(body.messages) ? body.messages.filter((message) => message.role === "student").length : 0;
+    const stage = studentCount === 0 ? "拆解甲的行為" : studentCount === 1 ? "處理甲對第一個人的行為" : studentCount === 2 ? "處理甲對第二個人的行為與交付工具" : studentCount === 3 ? "處理破壞煞車、死亡與介入原因" : studentCount === 4 ? "逐一完成爭點的三段論法" : "整合罪數並準備正式作答";
+    const teachingTone = body.teachingLevel === "beginner" ? "用法律小白聽得懂的語句，少用術語並逐步解釋。" : body.teachingLevel === "advanced" || body.teachingLevel === "super" ? "可追問學說、實務分歧與精準涵攝，但每次仍只問一個問題。" : "維持司律考生可理解的自然教練語氣。";
+    const instructions = `你是台灣司律考試的申論 AI 導師。只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n每次回覆 120 至 260 字，先肯定學生已掌握部分，再提出一個可直接回答的問題。你必須依序引導：拆解行為 → 單一行為爭點 → 規範 → 涵攝 → 結論 → 下一階段；不要一次公布完整擬答，不要停在「爭點」後。學生答錯時，指出錯誤方向並留在目前階段追問。不得使用 Markdown 星號、井號或反引號。`;
+    const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
+    const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
+      try { return await runProvider(provider, instructions, input); }
+      catch (error) { return { provider, label: providerLabel(provider), model: provider, text: `【${providerLabel(provider)}暫時無法回應】`, inputTokens: 0, outputTokens: 0, error: error instanceof Error ? error.message : "模型暫時無法回應" }; }
+    }));
+    const primary = runs.find((run) => !run.error && run.text.trim()) ?? runs[0];
+    if (!primary?.text?.trim()) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
     const key = userKey(request);
     const latestStudent = Array.isArray(body.messages) ? [...body.messages].reverse().find((message) => message.role === "student" && message.text.trim()) : null;
     if (latestStudent) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "student", text: latestStudent.text.trim() });
-    if (parsed.reply?.trim()) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "mentor", text: parsed.reply.trim() });
-    const recommendedResources = resources.filter((item) => parsed.recommended_resource_ids.includes(item.segmentId)).slice(0, 4).map((item) => ({ type: item.resourceType, title: item.resourceTitle, location: item.resourceType === "course" && item.startSeconds != null ? `${item.segmentTitle} · ${Math.floor(item.startSeconds / 60)}:${String(item.startSeconds % 60).padStart(2, "0")}` : [item.lessonLabel, item.pageStart ? `第 ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `–${item.pageEnd}` : ""} 頁` : ""].filter(Boolean).join(" · "), url: item.sourceUrl, startSeconds: item.startSeconds }));
-    const recommendedLaws = laws.filter((item) => parsed.recommended_law_ids.includes(item.id)).slice(0, 4).map((item) => ({ type: "law", title: `${item.title} ${item.articleNo}`, location: item.content.slice(0, 140), url: item.sourceUrl, startSeconds: null }));
-    const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
-    await db.insert(usageLogs).values({ model: String(payload.model ?? model), source: "真題教練", inputTokens: usage?.input_tokens ?? 0, cachedTokens: usage?.input_tokens_details?.cached_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0, fileSearchCalls: 0, estimatedCostUsdMicros: 0 });
-    return Response.json({ reply: parsed.reply, diagnosedGap: parsed.diagnosed_gap, keyIssue: parsed.key_issue, recommendations: [...recommendedLaws, ...recommendedResources] });
+    if (primary.text?.trim()) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "mentor", text: primary.text.trim() });
+    for (const run of runs) await db.insert(usageLogs).values({ model: run.model, source: "真題教練", inputTokens: run.inputTokens, cachedTokens: 0, outputTokens: run.outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: 0 });
+    const recommendedResources = resources.slice(0, 4).map((item) => ({ type: item.resourceType, title: item.resourceTitle, location: item.resourceType === "course" && item.startSeconds != null ? `${item.segmentTitle} · ${Math.floor(item.startSeconds / 60)}:${String(item.startSeconds % 60).padStart(2, "0")}` : [item.lessonLabel, item.pageStart ? `第 ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `–${item.pageEnd}` : ""} 頁` : ""].filter(Boolean).join(" · "), url: item.sourceUrl, startSeconds: item.startSeconds }));
+    const recommendedLaws = laws.slice(0, 4).map((item) => ({ type: "law", title: `${item.title} ${item.articleNo}`, location: item.content.slice(0, 140), url: item.sourceUrl, startSeconds: null }));
+    return Response.json({ reply: primary.text, diagnosedGap: "", keyIssue: stage, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: runs.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 280) : "真題教練暫時無法回應" }, { status: 500 });
   }

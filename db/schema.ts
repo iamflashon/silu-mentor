@@ -585,3 +585,25 @@ export const judicialCases = sqliteTable("judicial_cases", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+export const reviewRuns = sqliteTable("review_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  questionId: integer("question_id")
+    .notNull()
+    .references(() => examQuestions.id, { onDelete: "cascade" }),
+  participantMode: text("participant_mode").notNull().default("ai-scholar"),
+  teacherModel: text("teacher_model").notNull(),
+  scholarModelsJson: text("scholar_models_json").notNull().default("[]"),
+  commentatorModel: text("commentator_model").notNull().default("gpt-5.6-sol"),
+  stageCount: integer("stage_count").notNull().default(0),
+  status: text("status").notNull().default("completed"),
+  resultJson: text("result_json").notNull().default("{}"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  cachedTokens: integer("cached_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  durationMs: integer("duration_ms").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

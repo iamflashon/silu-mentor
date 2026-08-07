@@ -225,6 +225,13 @@
       "when": 1786002720930,
       "tag": "0031_living_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1786101895292,
+      "tag": "0032_pretty_johnny_storm",
+      "breakpoints": true
     }
   ]
 }
