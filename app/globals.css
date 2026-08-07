@@ -843,11 +843,13 @@ a {
   cursor: pointer;
 }
 .daily-handoff {
+  align-self: flex-start;
+  width: min(660px, calc(100% - 46px));
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 12px 0 4px;
+  margin: -8px 0 4px 46px;
   padding: 11px 13px;
   border: 1px solid #d7e9e3;
   border-radius: 12px;
@@ -15447,6 +15449,8 @@ a {
     align-items: stretch;
     flex-direction: column;
     gap: 9px;
+    width: calc(100% - 46px);
+    margin-left: 46px;
   }
   .daily-handoff-actions {
     justify-content: flex-start;

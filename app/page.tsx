@@ -759,6 +759,14 @@ export default function Home() {
               <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} onAnswerAction={runAnswerAction} disabled={thinking} showLearningActions={false} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)}</span></small> : null}{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{!message.comparison && <button type="button" className="message-follow-up-button" onClick={() => runAnswerAction("follow-up", { label: modelLabel(message.model ?? "gpt-5.6-luna"), model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index), excerpts: answerParagraphs(message.text) })} disabled={thinking}>針對此訊息追問</button>}{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
             </div>
           ))}
+          {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="昨日學習接續選擇">
+            <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
+            <div className="daily-handoff-actions">
+              <button type="button" onClick={() => void send("我想繼續昨天的進度，請先告訴我昨天完成到哪裡，再從未完成的任務或最後接續點開始。")}>繼續昨天進度</button>
+              <button type="button" onClick={() => void send("我今天想開始新的單元，請依照今天的任務直接帶我開始。")}>開始今天新單元</button>
+              <button type="button" onClick={() => void send("請考考我昨天的學習成效，先出一個我可以直接回答的小問題，不要先公布答案。")}>考考昨天成效</button>
+            </div>
+          </section>}
           {thinking && (
             <div className="message-row mentor">
               <span className="mentor-avatar">律</span>
@@ -767,16 +775,6 @@ export default function Home() {
           )}
           <div ref={endRef} />
         </div>}
-
-
-        {!practiceQuestion && dailyChoiceVisible && yesterday && <section className="daily-handoff" aria-label="昨日學習接續選擇">
-          <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
-          <div className="daily-handoff-actions">
-            <button type="button" onClick={() => void send("我想繼續昨天的進度，請先告訴我昨天完成到哪裡，再從未完成的任務或最後接續點開始。")}>繼續昨天進度</button>
-            <button type="button" onClick={() => void send("我今天想開始新的單元，請依照今天的任務直接帶我開始。")}>開始今天新單元</button>
-            <button type="button" onClick={() => void send("請考考我昨天的學習成效，先出一個我可以直接回答的小問題，不要先公布答案。")}>考考昨天成效</button>
-          </div>
-        </section>}
 
         {!practiceQuestion && source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(lastUsage.estimatedCostUsd)}</span> : null}</div>}
 
