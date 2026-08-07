@@ -196,6 +196,16 @@ type BookComparison = {
   }>;
 };
 type TutorMessage = { role: "mentor" | "student" | "scholar"; text: string; model?: string; usage?: BookUsage; comparison?: BookComparison; teachingEvidence?: TeachingEvidence | null };
+
+async function fetchBookConversation(input: string, init: RequestInit, timeoutMs = 90_000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 type ChatDay = {
   id: number;
   date: string;
@@ -579,6 +589,7 @@ export default function StudyPlanPage() {
   } | null>(null);
   const [bookInput, setBookInput] = useState("");
   const [bookChatLoading, setBookChatLoading] = useState(false);
+  const [bookLoadingRole, setBookLoadingRole] = useState<"mentor" | "scholar" | null>(null);
   const [bookSelectedMessageIndex, setBookSelectedMessageIndex] = useState<number | null>(null);
   const [bookSettingsOpen, setBookSettingsOpen] = useState(true);
   const [bookSettingsPinned, setBookSettingsPinned] = useState(false);
@@ -595,7 +606,7 @@ export default function StudyPlanPage() {
   const [bookFullTextMessage, setBookFullTextMessage] = useState("");
   const chapterBuildAttemptedRef = useRef<Set<number>>(new Set());
   const restoredBookProgressRef = useRef(false);
-  const bookDialogueEndRef = useRef<HTMLDivElement | null>(null);
+  const bookDialogueMessagesRef = useRef<HTMLDivElement | null>(null);
   const [resourceProgress, setResourceProgress] = useState<
     Record<
       string,
@@ -931,11 +942,15 @@ export default function StudyPlanPage() {
   }, [resources, selectedResourceId, activeTab]);
 
   useEffect(() => {
-    if (activeTab === "books")
-      bookDialogueEndRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
+    if (activeTab !== "books") return;
+    const messages = bookDialogueMessagesRef.current;
+    if (!messages) return;
+    // 只捲動訊息容器；不要使用 scrollIntoView，否則會連同整個頁面把
+    // 下方的輸入框一起推到畫面外。
+    const frame = window.requestAnimationFrame(() => {
+      messages.scrollTop = messages.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [activeTab, bookMessages, bookChatLoading, selectedChapterId]);
 
   const days = useMemo(() => {
@@ -1754,6 +1769,7 @@ export default function StudyPlanPage() {
     setBookTestNotice("");
     if (selectedBookIsProblemSolving && !forceRestart) {
       setBookChatLoading(false);
+      setBookLoadingRole(null);
       setLastBookProgress({
         resourceId: selectedResource.id,
         segmentId: chapter.id,
@@ -1765,6 +1781,7 @@ export default function StudyPlanPage() {
       return;
     }
     setBookChatLoading(true);
+    setBookLoadingRole("mentor");
     if (!forceRestart) {
       try {
         const historyResponse = await fetch(
@@ -1782,6 +1799,7 @@ export default function StudyPlanPage() {
             segmentId: chapter.id,
           });
           setBookChatLoading(false);
+          setBookLoadingRole(null);
           return;
         }
       } catch {
@@ -1845,6 +1863,7 @@ export default function StudyPlanPage() {
       ]);
     } finally {
       setBookChatLoading(false);
+      setBookLoadingRole(null);
     }
   }
 
@@ -1948,8 +1967,9 @@ export default function StudyPlanPage() {
     }
     setBookSelectedMessageIndex(null);
     setBookChatLoading(true);
+    setBookLoadingRole("scholar");
     try {
-      const response = await fetch("/api/book-learning/scholar-answer", {
+      const response = await fetchBookConversation("/api/book-learning/scholar-answer", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1966,16 +1986,70 @@ export default function StudyPlanPage() {
       const result = await response.json() as { reply?: string; error?: string; model?: string; sessionId?: number | null; usage?: BookUsage };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "AI 學霸暫時無法回答老師的問題");
       setBookSessionId(result.sessionId ?? bookSessionId);
-      setBookMessages((current) => [...current, {
+      const scholarMessage: TutorMessage = {
         role: "scholar",
         text: result.reply!,
         model: result.model,
         usage: result.usage,
-      }].slice(-12));
+      };
+      const messagesAfterScholar = [...bookMessages, scholarMessage].slice(-12);
+      setBookMessages(messagesAfterScholar);
+
+      // 學霸回答完成後，立即由 AI 導師針對這個回答給回饋，不能再要求
+      // 使用者按第二次送出。學霸訊息以 scholar 身分傳給導師，並由 API
+      // 只保存導師回饋，不重複保存一筆假的學生訊息。
+      setBookLoadingRole("mentor");
+      setBookTestNotice("AI 學霸已回答，AI 導師正在立即回饋…");
+      try {
+        const feedbackResponse = await fetchBookConversation("/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            messages: messagesAfterScholar.map(({ role, text }) => ({ role, text })),
+            visibleStudentText: "",
+            persistStudentMessage: false,
+            teacherFeedback: true,
+            sessionId: result.sessionId ?? bookSessionId,
+            context: {
+              type: "book",
+              resourceId: selectedResource.id,
+              segmentId: selectedChapter.id,
+              resourceTitle: selectedResource.title,
+              segmentTitle: selectedChapter.title,
+            },
+            modelMode: bookModelMode,
+            teachingLevel: bookTeachingLevel ?? undefined,
+          }),
+        });
+        const feedback = await feedbackResponse.json() as {
+          reply?: string;
+          error?: string;
+          sessionId?: number;
+          usage?: BookUsage;
+          comparison?: BookComparison | null;
+          teachingEvidence?: TeachingEvidence | null;
+        };
+        setBookSessionId(feedback.sessionId ?? result.sessionId ?? bookSessionId);
+        setBookMessages((current) => [...current, {
+          role: "mentor",
+          text: feedbackResponse.ok ? (feedback.reply ?? "我先針對剛才的回答給你回饋。") : (feedback.error ?? "AI 導師暫時無法回饋這次回答"),
+          model: feedback.usage?.model,
+          usage: feedback.usage,
+          comparison: feedback.comparison ?? undefined,
+          teachingEvidence: feedbackResponse.ok ? feedback.teachingEvidence ?? null : null,
+        }].slice(-12));
+      } catch {
+        setBookMessages((current) => [...current, {
+          role: "mentor",
+          text: "AI 學霸已完成回答，但 AI 導師的即時回饋逾時；請稍後再送出一次。",
+        }].slice(-12));
+      }
+      setBookTestNotice("");
     } catch (error) {
       setBookMessages((current) => [...current, { role: "scholar", text: error instanceof Error ? error.message : "AI 學霸暫時無法回答老師的問題" }].slice(-12));
     } finally {
       setBookChatLoading(false);
+      setBookLoadingRole(null);
     }
   }
 
@@ -1998,6 +2072,8 @@ export default function StudyPlanPage() {
     setBookInput("");
     setBookSelectedMessageIndex(null);
     setBookChatLoading(true);
+    setBookLoadingRole("mentor");
+    setBookTestNotice("學生回答已送出，AI 導師正在立即回饋…");
     try {
       const apiMessages = nextMessages.map((message, index) =>
         index === nextMessages.length - 1 && message.role === "student"
@@ -2007,7 +2083,7 @@ export default function StudyPlanPage() {
             }
           : message,
       );
-      const response = await fetch("/api/chat", {
+      const response = await fetchBookConversation("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -2047,6 +2123,7 @@ export default function StudyPlanPage() {
           teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
+      setBookTestNotice("");
     } catch {
       setBookMessages((current) => [
         ...current,
@@ -2054,6 +2131,7 @@ export default function StudyPlanPage() {
       ]);
     } finally {
       setBookChatLoading(false);
+      setBookLoadingRole(null);
     }
   }
 
@@ -3479,7 +3557,7 @@ export default function StudyPlanPage() {
                                 </button>
                               </div>
                             )}
-                            <div className="book-dialogue-messages">
+                            <div ref={bookDialogueMessagesRef} className="book-dialogue-messages">
                               {bookMessages.map((message, index) => (
                                 <div
                                   key={`${message.role}-${index}`}
@@ -3538,11 +3616,10 @@ export default function StudyPlanPage() {
                               ))}
                               {bookChatLoading && (
                                 <div className="book-dialogue-message mentor">
-                                  <span>AI 教練</span>
-                                  <p className="book-typing">AI 學霸正在回答 AI 導師的問題…</p>
+                                  <span>{bookLoadingRole === "scholar" ? "AI 學霸" : "AI 導師"}</span>
+                                  <p className="book-typing">{bookLoadingRole === "scholar" ? "AI 學霸正在回答 AI 導師的問題…" : "AI 導師正在立即回饋你的回答…"}</p>
                                 </div>
                               )}
-                              <div ref={bookDialogueEndRef} />
                             </div>
                             <div className="book-dialogue-composer-wrap">
                               <section className={`book-ai-controls model-mode-switch ${bookSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">

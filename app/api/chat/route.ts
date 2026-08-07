@@ -1,4 +1,4 @@
-type ClientMessage = { role: "mentor" | "student"; text: string };
+type ClientMessage = { role: "mentor" | "student" | "scholar"; text: string };
 type ChatContext =
   | { type: "home" }
   | { type: "book"; resourceId: number; segmentId: number; resourceTitle: string; segmentTitle: string }
@@ -591,7 +591,7 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean };
     const requestedMode = String(body.modelMode ?? "luna");
     const allowedModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     const modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "luna";
@@ -619,7 +619,7 @@ export async function POST(request: Request) {
     const planningConstraint = body.planningConstraint?.mode === "single" && allowedPlanningSubjects.has(body.planningConstraint.subject)
       ? body.planningConstraint
       : body.planningConstraint?.mode === "all" ? body.planningConstraint : null;
-    const latestStudent = [...messages].reverse().find((message) => message.role === "student");
+    const latestStudent = [...messages].reverse().find((message) => message.role === "student" || message.role === "scholar");
     const rawContext = body.context;
     const context: ChatContext = rawContext?.type === "book" && Number.isInteger(rawContext.resourceId) && Number.isInteger(rawContext.segmentId)
       ? { type: "book", resourceId: rawContext.resourceId, segmentId: rawContext.segmentId, resourceTitle: String(rawContext.resourceTitle || "教材"), segmentTitle: String(rawContext.segmentTitle || "目前章節") }
@@ -638,7 +638,11 @@ export async function POST(request: Request) {
         .filter((message) => message.role === "student" || message.role === "mentor")
         .map((message) => ({ role: message.role as ClientMessage["role"], text: message.text }));
     }
-    const storedStudentText = context.type === "home" ? (latestStudent?.text ?? "") : String(body.visibleStudentText ?? "").trim();
+    const storedStudentText = body.persistStudentMessage === false
+      ? ""
+      : context.type === "home"
+        ? (latestStudent?.text ?? "")
+        : String(body.visibleStudentText ?? "").trim();
     if (storedStudentText) {
       const db = await getDb();
       await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: storedStudentText });
@@ -703,8 +707,11 @@ export async function POST(request: Request) {
           : body.teachingLevel === "super"
             ? `\n\n【本輪學生身分：頂尖學霸】要求處理體系一致性、隱藏前提、反例、學說邊界與考場策略；發現概念偷換時直接精準指出，並用一個高難度反事實追問測試論證是否穩定。`
             : "";
+    const teacherFeedbackInstruction = body.teacherFeedback && context.type === "book"
+      ? "\n\n【立即回饋模式】AI 學霸剛剛已回答你上一個問題。請立即針對這份回答給回饋：先指出他已掌握的部分，再精準指出一個需要修正或補強的地方，必要時補上規範與涵攝，最後只提出一個可以直接回答的下一步問題。不要重新開一個主題，不要只說稱讚語，也不要把 AI 學霸的回答改寫成新的題目。"
+      : "";
     const instructions = (context.type === "book"
-      ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。${bookEvidenceInstruction}`
+      ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。${bookEvidenceInstruction}${teacherFeedbackInstruction}`
       : context.type === "magazine"
         ? `${baseInstructions}\n\n這是獨立的法學教室試讀文章問答，不是首頁每日導師對話。只根據目前期數、文章標題、摘要、核心爭點與學生框選的文字回答。若試讀內容不足以確認全文脈絡，必須明確標示限制，不得補造作者主張、判決內容或文章結論；不得建立、修改或刪除行事曆。`
         : context.type === "my-course" || context.type === "public-course"

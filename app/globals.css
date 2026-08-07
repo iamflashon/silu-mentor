@@ -4687,6 +4687,7 @@ a {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 .book-ai-heading {
   display: flex;
@@ -4760,6 +4761,8 @@ a {
 .book-dialogue-messages {
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 22px;
   background: #fcfefe;
   scroll-behavior: smooth;
@@ -4961,7 +4964,14 @@ a {
   opacity: 0.45;
   cursor: not-allowed;
 }
-.book-dialogue-composer-wrap { margin: 10px 12px 12px; }
+.book-dialogue-composer-wrap {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  z-index: 2;
+  margin: 10px 12px 12px;
+  background: #fff;
+}
 .book-dialogue-composer-actions {
   display: flex;
   align-items: center;
