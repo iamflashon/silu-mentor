@@ -6061,6 +6061,7 @@ a {
 .review-section-heading h3 { margin: 0; color: #163859; font-family: Georgia, "Noto Serif TC", serif; font-size: 22px; font-weight: 500; }
 .review-section-heading p { max-width: 320px; margin: 0; color: #7e8c97; font-size: 11px; line-height: 1.7; text-align: right; }
 .review-model-pickers { display: grid; grid-template-columns: minmax(0, 1fr) 62px minmax(0, 1fr); align-items: center; gap: 17px; margin-top: 21px; }
+.review-model-pickers.student-mode { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .review-model-picker { display: grid; gap: 10px; min-width: 0; padding: 19px; border: 1px solid #d4dadd; background: #fff; cursor: pointer; }
 .review-model-picker.positive { border-top: 4px solid #164d7c; }
 .review-model-picker.negative { border-top: 4px solid #a33a3a; }
@@ -7339,8 +7340,8 @@ a {
 .essay-chat-settings { width: 100%; margin: 0 0 14px; }
 .essay-chat-column { min-width: 0; }
 .essay-chat-messages {
-  min-height: 310px;
-  max-height: 560px;
+  min-height: 128px;
+  max-height: min(54vh, 520px);
   display: flex;
   flex-direction: column;
   gap: 13px;
@@ -7366,7 +7367,7 @@ a {
 .essay-chat-empty strong { display: block; margin-bottom: 5px; color: #315f68; font-size: 14px; }
 .essay-chat-empty p { margin: 0; font-size: 13px; line-height: 1.7; }
 .essay-chat-composer { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 8px; align-items: end; margin-top: 8px; padding: 8px; border: 1px solid #c8dde2; border-radius: 12px; background: #fff; box-shadow: 0 7px 20px rgba(40, 85, 99, .06); }
-.essay-chat-composer textarea { width: 100%; min-height: 38px; max-height: 150px; resize: vertical; border: 0; outline: 0; padding: 7px 8px; background: transparent; color: #31586a; font: inherit; font-size: 14px; line-height: 1.55; }
+.essay-chat-composer textarea { width: 100%; min-height: 38px; max-height: 150px; resize: none; overflow-y: auto; border: 0; outline: 0; padding: 7px 8px; background: transparent; color: #31586a; font: inherit; font-size: 14px; line-height: 1.55; }
 .essay-chat-composer textarea::placeholder { color: #8ba4ad; }
 .essay-chat-composer button { width: 38px; height: 38px; border: 0; border-radius: 10px; background: #3e8079; color: white; font-size: 22px; line-height: 1; cursor: pointer; }
 .essay-chat-composer button:disabled { opacity: .45; cursor: wait; }
