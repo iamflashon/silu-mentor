@@ -530,6 +530,16 @@ export default function Home() {
     window.setTimeout(() => composerInputRef.current?.focus(), 0);
   }
 
+  function teachingStarterPrompt(level: Exclude<TeachingLevel, "general">) {
+    const prefix: Record<Exclude<TeachingLevel, "general">, string> = {
+      beginner: "我是法律小白，請把我當成第一次接觸這個爭點的學生，",
+      intermediate: "我是基礎考生，我知道一些基本概念但常常不會涵攝，",
+      advanced: "我是進階考生，想檢驗學說與實務分歧，",
+      super: "我是頂尖學霸，想做高難度的體系與反例測試，",
+    };
+    return `${prefix[level]}請用信賴原則舉一個司律考試會考的情境，先不要直接公布完整答案，請先問我一個可以回答的問題。`;
+  }
+
   function toggleFollowUpSelection(selection: FollowUpSelection) {
     setSelectedFollowUps((current) => current.some((item) => item.key === selection.key)
       ? current.filter((item) => item.key !== selection.key)
@@ -544,7 +554,13 @@ export default function Home() {
     const requestedLevel: TeachingLevel | undefined =
       level === "beginner" || level === "intermediate" || level === "advanced" || level === "super" ? level : undefined;
     if (!canGenerateStudentReply) {
-      insertStudentTestPrompt();
+      if (requestedLevel) {
+        setPendingTeachingLevel(requestedLevel);
+        setInput(teachingStarterPrompt(requestedLevel));
+        window.setTimeout(() => composerInputRef.current?.focus(), 0);
+      } else {
+        insertStudentTestPrompt();
+      }
       return;
     }
     const followUpResponses = selectedFollowUps.length > 0 ? selectedFollowUps : latestTeacherResponses.map((item) => ({ key: `latest:${item.id}:${item.label}`, label: item.label, model: item.model, text: item.text, prompt: latestTeacherPrompt }));
@@ -764,6 +780,15 @@ export default function Home() {
             <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else setModelMode(value as ChatModelMode); }} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
             </select></label>
+          </div>
+          <div className="teaching-level-action">
+            <div>
+              <strong>{pendingTeachingLevel ? `模擬${teachingLevelLabels[pendingTeachingLevel]}提問` : "模擬同學提問"}</strong>
+              <span>{pendingTeachingLevel ? canGenerateStudentReply ? "依上一輪 AI 回答產生接續問題，送出前可修改" : "先帶入一段該程度的示範提問，送出前可修改" : "選擇學生身分後，讓 AI 用該程度接續思考"}</span>
+            </div>
+            <button type="button" onClick={() => pendingTeachingLevel && void runTeachingLevel(pendingTeachingLevel)} disabled={!pendingTeachingLevel || thinking || generatingStudentReply || evaluatingTeaching}>
+              {evaluatingLevel ? "產生中…" : canGenerateStudentReply ? "產生接續提問" : "帶入示範提問"}
+            </button>
           </div>
           <div className="model-mode-status">{selectedFollowUps.length > 0 ? `已選 ${selectedFollowUps.length} 段回答作為追問依據` : evaluatingLevel ? `正在產生${teachingLevelLabels[evaluatingLevel]}提問` : modelMode.startsWith("compare-") ? `同一題並列${modelMode.split("-").length - 1}份回答，可比較 Token 與成本` : "回答會依目前選擇的模型產生"}</div>
         </section>

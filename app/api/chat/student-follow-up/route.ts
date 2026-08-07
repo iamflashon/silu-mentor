@@ -41,7 +41,7 @@ export async function POST(request: Request) {
   const prompt = String(body.prompt ?? "").trim();
   const responses = (Array.isArray(body.responses) ? body.responses : [])
     .filter((response) => response && typeof response.text === "string" && response.text.trim() && !response.error)
-    .slice(0, 2);
+    .slice(0, 3);
   if (!prompt || responses.length === 0) {
     return Response.json({ error: "請先完成目前選定模型的回答" }, { status: 400 });
   }
