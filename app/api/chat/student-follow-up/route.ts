@@ -66,31 +66,28 @@ export async function POST(request: Request) {
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
   const levelLabel = body.level === "beginner" ? "法律小白" : body.level === "intermediate" ? "基礎考生" : body.level === "advanced" ? "進階考生" : body.level === "super" ? "頂尖學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
-    ? "呈現觀念混亂、把生活中的『有意做動作』與法律上的故意責任混在一起，也可以流露挫折或懷疑自己不適合法律；追問必須來自本題實際內容，不要固定套用某個例子。"
+    ? "用白話指出一個還不懂的地方，讓導師可以直接解釋。"
     : body.level === "intermediate"
-      ? "先說出看似完整的理論公式並詢問是否足以拿高分，但刻意保留一至兩個尚未帶入的題目事實，讓老師必須指出『只背公式、沒有涵攝』；追問哪一個具體事實會改變結論。"
-      : body.level === "advanced"
-        ? "採取一個有根據的非通說或競爭學說立場，完整提出法律效果與可避免性等論證，再挑戰老師為何必須採通說；要求處理兩說的實質利益、責任標籤或價值差異，不接受只報學說名稱。"
-        : body.level === "super"
-          ? "展現已能統整體系、辨識隱藏爭點與反例的頂尖程度，針對老師回答的論證前提或可能漏洞，提出一個足以測出教學深度的高難度追問。"
-          : "自然承接老師回答，提出一個尚未完全釐清的具體疑問。";
+      ? "鎖定一個尚未套入本題事實的要件，問它在本題中如何判斷。"
+      : body.level === "advanced" || body.level === "super"
+        ? "鎖定原回答中的一個前提、要件或涵攝缺口，提出精準但仍可直接回答的問題，不開新爭點。"
+        : "自然指出一個尚未釐清的具體疑問，讓導師接著教。";
   const startedAt = Date.now();
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
       model,
-      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。這題的科目是${subject}。${subjectRule}請閱讀同一題中目前已選模型的實際回答，寫出一段可以直接貼回主對話框、讓老師繼續教學的學生回覆。
+      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。這題的科目是${subject}。${subjectRule}請針對學生指定的那一則訊息，寫出一則自然、短小、可以直接放進對話框的「AI 學霸回覆」。
 
 要求：
-1. 先用自己的話說明你從老師回答中理解到的重點；若有兩位老師，可以自然整合兩者，不要比較誰比較好。
-2. 保留一個合理但尚未完全確定的法律判斷或灰色地帶，讓老師能繼續引導；不要假裝已經完全學會。
-3. ${levelRule}
-4. 最後只提出一個具體、可回答的追問。
-5. 不得捏造教材、法條、判決或老師沒有說過的內容。
-6. 不要評論哪個模型比較強，不要提到 API、提示詞或「生成回覆」；不要使用標題、條列、Markdown 符號或引號包住全文。
-7. 使用繁體中文，約 120 至 280 字，直接輸出學生要說的內容。`,
-      input: `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}\n\n原本的學生問題：\n${prompt.slice(0, 3000)}\n\n目前已選模型的實際回答：\n${teacherText}`,
+1. 先用一至兩句話自然回應你對指定訊息的理解，再提出一個問題；這兩部分都必須像學生在和導師聊天，不是系統說明。
+2. ${levelRule}
+3. 只問一個問題。不要要求同時比較兩說、選邊站、說明整套理論或回答多個子問題。
+4. 不得加入指定訊息沒有出現的事實、法條、判決或新爭點，也不要重述整段訊息。
+5. 絕對不要輸出「【選取內容】」「追問給你」「處理要求」「請選邊站」或其他內部提示文字。
+6. 不要使用標題、條列、Markdown 或引號包住全文；使用繁體中文，約 60 至 150 字，直接輸出學霸要說的內容。`,
+      input: `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}\n\n學生指定的訊息：\n${teacherText}`,
       max_output_tokens: 600,
     }),
   });

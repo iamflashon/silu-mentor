@@ -1767,16 +1767,17 @@ export function PracticeLab({ initialType }: Props) {
                     <div ref={coachMessagesRef} className="essay-chat-messages" aria-live="polite">
                       {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。</p></div></div>}
                       {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
-                        <label className={`essay-message-select ${selectedCoachMessageIndex === index ? "is-selected" : ""}`}>
-                          <input
-                            type="checkbox"
-                            checked={selectedCoachMessageIndex === index}
-                            onChange={() => setSelectedCoachMessageIndex((current) => current === index ? null : index)}
-                            disabled={coaching}
-                            aria-label={`指定回應第 ${index + 1} 則${message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? "AI 學霸" : "自己"}訊息`}
-                          />
+                        <button
+                          type="button"
+                          className={`essay-message-select ${selectedCoachMessageIndex === index ? "is-selected" : ""}`}
+                          aria-pressed={selectedCoachMessageIndex === index}
+                          aria-label={`${selectedCoachMessageIndex === index ? "取消指定" : "指定回應"}第 ${index + 1} 則${message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? "AI 學霸" : "自己"}訊息`}
+                          title={selectedCoachMessageIndex === index ? "取消指定這則訊息" : "指定這則訊息，讓 AI 學霸重新理解並提問"}
+                          onClick={() => setSelectedCoachMessageIndex((current) => current === index ? null : index)}
+                          disabled={coaching}
+                        >
                           <span aria-hidden="true" />
-                        </label>
+                        </button>
                         {message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span>}
                         <div className="essay-chat-message-content">
                           <div className="essay-chat-bubble">
@@ -1804,7 +1805,7 @@ export function PracticeLab({ initialType }: Props) {
                         </>}
                       </div>
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>{selectedCoachMessageIndex === null ? "請先勾選一則訊息，再讓 AI 學霸回應" : "已指定這一則訊息；AI 學霸會重新理解後提出問題"}</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching || selectedCoachMessageIndex === null}>回應</button></>}
+                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>{selectedCoachMessageIndex === null ? "先勾選一則訊息，再讓 AI 學霸針對它提問" : "已指定這一則訊息；AI 學霸會在對話中自然回應並提出一個問題"}</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching || selectedCoachMessageIndex === null}>回應這則</button></>}
                       </div>
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
                     </div>
