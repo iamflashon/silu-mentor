@@ -572,6 +572,15 @@ export default function Home() {
     await generateStudentFollowUp(level);
   }
 
+  function selectTeachingLevel(value: string) {
+    const level = value as TeachingLevel;
+    if (level === "general") {
+      setPendingTeachingLevel(null);
+      return;
+    }
+    setPendingTeachingLevel(level);
+  }
+
   useEffect(() => {
     if (!historyLoaded || handoffHandled.current) return;
     const prompt = new URLSearchParams(window.location.search).get("prompt")?.trim();
@@ -735,7 +744,21 @@ export default function Home() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-        <div className="model-mode-switch" role="group" aria-label="AI 模型與學生程度測試"><span>回答模型</span><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>＋ 開新主題</button><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna</button><button type="button" className={modelMode === "sonnet" ? "active" : ""} onClick={() => setModelMode("sonnet")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Claude Sonnet</button><button type="button" className={modelMode === "deepseek" ? "active" : ""} onClick={() => setModelMode("deepseek")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>DeepSeek V4-Pro 測試</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna＋Claude Sonnet 比較</button>{!latestComparison && <button type="button" className="student-test-prompt" onClick={insertStudentTestPrompt} disabled={thinking || generatingStudentReply || evaluatingTeaching}>✦ 貼上學生測試回答</button>}{latestComparison && <div className="teaching-test-buttons" role="group" aria-label="分開測試學生程度"><button type="button" className="teaching-level-beginner" onClick={() => void runTeachingLevel("beginner")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "beginner" ? "測試中…" : teachingRounds.some((item) => item.level === "beginner") ? "初學小白 ✓" : "初學小白測試"}</button><button type="button" className="teaching-level-intermediate" onClick={() => void runTeachingLevel("intermediate")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "intermediate" ? "測試中…" : teachingRounds.some((item) => item.level === "intermediate") ? "中階考生 ✓" : "中階考生測試"}</button><button type="button" className="teaching-level-advanced" onClick={() => void runTeachingLevel("advanced")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "advanced" ? "測試中…" : teachingRounds.some((item) => item.level === "advanced") ? "高階法研所考生 ✓" : "高階法研所考生測試"}</button><button type="button" className="student-test-prompt" onClick={() => void runTeachingLevel("super")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "super" ? "✦ 測試中…" : teachingRounds.some((item) => item.level === "super") ? "✦ 超級學霸 ✓" : "✦ 超級學霸測試"}</button></div>}<span className="follow-up-selection-summary">{selectedFollowUps.length > 0 ? `已勾選 ${selectedFollowUps.length} 段老師回答；學霸將只針對勾選內容追問` : "可先選模型，再用程度按鈕測試不同學生的接續提問"}</span><small>{evaluatingLevel ? `正在測試${evaluatingLevel === "beginner" ? "初學小白" : evaluatingLevel === "intermediate" ? "中階考生" : evaluatingLevel === "advanced" ? "高階考生" : "超級學霸"}` : latestComparison ? "四種程度可分開測試；每次只執行你選的按鈕" : modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : modelMode === "sonnet" ? "目前只由 Claude Sonnet 回答" : modelMode === "deepseek" ? "目前只由 DeepSeek V4-Pro 回答；本次會計算 Token 與成本" : "目前只由 Luna 回答"}</small></div>
+        <section className="model-mode-switch" aria-label="AI 學習設定">
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span>選好後直接提問</span><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          <div className="model-mode-fields">
+            <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+              <option value="general">一般提問</option><option value="beginner">初學</option><option value="intermediate">中階</option><option value="advanced">高階</option><option value="super">超級學霸</option>
+            </select></label>
+            <label><span>回答</span><select value={modelMode === "dual" ? "luna" : modelMode} onChange={(event) => setModelMode(event.target.value as "luna" | "sonnet" | "deepseek")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+              <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
+            </select></label>
+            <label><span>比較</span><select value={modelMode === "dual" ? "luna-claude" : "none"} onChange={(event) => setModelMode(event.target.value === "luna-claude" ? "dual" : (modelMode === "dual" ? "luna" : modelMode))} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
+              <option value="none">不比較</option><option value="luna-claude">Luna＋Claude</option>
+            </select></label>
+          </div>
+          <div className="model-mode-status">{selectedFollowUps.length > 0 ? `已選 ${selectedFollowUps.length} 段回答作為追問依據` : evaluatingLevel ? `正在產生${evaluatingLevel === "beginner" ? "初學" : evaluatingLevel === "intermediate" ? "中階" : evaluatingLevel === "advanced" ? "高階" : "學霸"}提問` : modelMode === "dual" ? "同一題並列兩份回答，可再評分比較" : "回答會依目前選擇的模型產生"}</div>
+        </section>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />

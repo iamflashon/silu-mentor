@@ -14733,3 +14733,102 @@ a {
   .teaching-evaluation-teachers { grid-template-columns: 1fr; }
   .teaching-test-buttons { width: 100%; }
 }
+
+/* Compact AI selectors: one calm control surface instead of a row of pills. */
+.model-mode-switch {
+  width: min(800px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 9px;
+  padding: 10px 12px 9px;
+  border: 1px solid #dbe7eb;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfefe 0%, #f5fafb 100%);
+  color: #66808a;
+  font-size: 12px;
+}
+.model-mode-heading,
+.book-ai-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.model-mode-heading strong,
+.book-ai-heading strong { color: #315d73; font-size: 12px; letter-spacing: .02em; }
+.model-mode-heading span,
+.book-ai-heading span { color: #91a2a8; font-size: 10px; }
+.model-mode-heading .new-topic-button {
+  margin-left: auto;
+  border: 0;
+  border-bottom: 1px solid #a7bcc4;
+  border-radius: 0;
+  background: transparent;
+  color: #5c7c89;
+  padding: 1px 0;
+  font-size: 11px;
+}
+.model-mode-heading .new-topic-button:hover:not(:disabled) { background: transparent; color: #245d6a; }
+.model-mode-fields,
+.book-ai-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.model-mode-fields label,
+.book-ai-fields label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.model-mode-fields label > span,
+.book-ai-fields label > span {
+  color: #6f8790;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.model-mode-fields select,
+.book-ai-fields select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #cddfe4;
+  border-radius: 8px;
+  background: #fff;
+  color: #355e70;
+  padding: 0 28px 0 10px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.model-mode-fields select:focus,
+.book-ai-fields select:focus {
+  border-color: #6eabb6;
+  box-shadow: 0 0 0 3px rgba(91, 156, 170, .13);
+}
+.model-mode-fields select:disabled,
+.book-ai-fields select:disabled { opacity: .55; cursor: wait; }
+.model-mode-status {
+  color: #8a9ba1;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.book-ai-controls {
+  display: grid;
+  gap: 9px;
+  padding: 11px 12px 10px;
+  border: 1px solid #dbe7eb;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #fbfefe 0%, #f5fafb 100%);
+}
+.book-ai-heading span { margin-right: auto; }
+.book-ai-controls > small { color: #899aa0; font-size: 10px; line-height: 1.45; }
+@media (max-width: 620px) {
+  .model-mode-switch { padding-inline: 9px; }
+  .model-mode-fields,
+  .book-ai-fields { grid-template-columns: 1fr; }
+  .model-mode-fields select,
+  .book-ai-fields select { height: 36px; }
+}

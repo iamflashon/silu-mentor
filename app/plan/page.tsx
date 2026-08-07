@@ -3355,22 +3355,20 @@ export default function StudyPlanPage() {
                           </small>
                         </div>
                         {selectedBookIsProblemSolving && (
-                          <section className="book-ai-controls" aria-label="解題書 AI 模型與學生程度測試">
-                            <div className="book-ai-control-row">
-                              <strong>回答模型</strong>
-                              <button type="button" className={bookModelMode === "luna" ? "active" : ""} onClick={() => setBookModelMode("luna")} disabled={bookChatLoading}>Luna</button>
-                              <button type="button" className={bookModelMode === "sonnet" ? "active" : ""} onClick={() => setBookModelMode("sonnet")} disabled={bookChatLoading}>Claude Sonnet</button>
-                              <button type="button" className={bookModelMode === "deepseek" ? "active" : ""} onClick={() => setBookModelMode("deepseek")} disabled={bookChatLoading}>DeepSeek V4-Pro 測試</button>
-                              <button type="button" className={bookModelMode === "dual" ? "active" : ""} onClick={() => setBookModelMode("dual")} disabled={bookChatLoading}>Luna＋Claude Sonnet 比較</button>
+                          <section className="book-ai-controls" aria-label="解題書 AI 學習設定">
+                            <div className="book-ai-heading"><strong>AI 學習設定</strong><span>選好後開始提問</span></div>
+                            <div className="book-ai-fields">
+                              <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); setBookTestNotice("已切換為一般提問"); } else if (selectedChapter) { prepareBookLevelQuestion(value); } }} disabled={!selectedChapter || bookChatLoading}>
+                                <option value="general">一般提問</option><option value="beginner">初學</option><option value="intermediate">中階</option><option value="advanced">高階</option><option value="super">超級學霸</option>
+                              </select></label>
+                              <label><span>回答</span><select value={bookModelMode === "dual" ? "luna" : bookModelMode} onChange={(event) => setBookModelMode(event.target.value as "luna" | "sonnet" | "deepseek")} disabled={bookChatLoading}>
+                                <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
+                              </select></label>
+                              <label><span>比較</span><select value={bookModelMode === "dual" ? "luna-claude" : "none"} onChange={(event) => setBookModelMode(event.target.value === "luna-claude" ? "dual" : (bookModelMode === "dual" ? "luna" : bookModelMode))} disabled={bookChatLoading}>
+                                <option value="none">不比較</option><option value="luna-claude">Luna＋Claude</option>
+                              </select></label>
                             </div>
-                            <div className="book-ai-control-row book-level-row">
-                              <strong>學生程度發問</strong>
-                              <button type="button" className="beginner" onClick={() => prepareBookLevelQuestion("beginner")} disabled={!selectedChapter || bookChatLoading}>初學小白</button>
-                              <button type="button" className="intermediate" onClick={() => prepareBookLevelQuestion("intermediate")} disabled={!selectedChapter || bookChatLoading}>中階考生</button>
-                              <button type="button" className="advanced" onClick={() => prepareBookLevelQuestion("advanced")} disabled={!selectedChapter || bookChatLoading}>高階法研所考生</button>
-                              <button type="button" className="super" onClick={() => prepareBookLevelQuestion("super")} disabled={!selectedChapter || bookChatLoading}>✦ 超級學霸</button>
-                            </div>
-                            <small>{bookTestNotice || "先選回答模型；程度按鈕會帶入對應學生的提問，再由目前模型回答。"}</small>
+                            <small>{bookTestNotice || "選擇學生程度後，系統會把對應的提問帶入輸入框。"}</small>
                           </section>
                         )}
                         {selectedChapter ? (
