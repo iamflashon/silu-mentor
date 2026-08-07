@@ -5974,8 +5974,15 @@ a {
 .review-side-title span { font-family: Georgia, serif; font-size: 20px; }
 .review-side-title b { color: #d9bf70; font-size: 10px; }
 .review-filter { padding: 23px 0; }
+.review-filter-caption { margin-bottom: 12px; color: #d9bf70; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
 .review-filter label { display: grid; gap: 8px; color: #aabccb; font-size: 11px; font-weight: 700; }
+.review-filter label + label { margin-top: 12px; }
 .review-filter select { width: 100%; min-height: 42px; border: 1px solid rgba(205, 221, 234, .28); border-radius: 0; background: #102f52; color: white; padding: 0 10px; font-size: 11px; outline: none; }
+.review-filter select:focus { border-color: #d9bf70; box-shadow: 0 0 0 2px rgba(217, 191, 112, .16); }
+.review-selected-path { display: grid; gap: 4px; margin: 0 0 19px; padding: 12px 11px; border-left: 2px solid #d9bf70; background: rgba(217, 191, 112, .09); color: #afbdca; font-size: 10px; line-height: 1.5; }
+.review-selected-path span { color: #8ea4b7; font-size: 9px; letter-spacing: .1em; }
+.review-selected-path b { color: #f4df9d; font-size: 11px; }
+.review-selected-path small { color: #cbd5dd; font-size: 10px; }
 .review-steps { display: grid; gap: 3px; }
 .review-steps button { display: flex; align-items: center; gap: 13px; padding: 13px 9px; border: 0; border-left: 2px solid transparent; background: transparent; color: #aebdcb; text-align: left; cursor: pointer; }
 .review-steps button:hover, .review-steps button.active { border-left-color: #d7b958; background: rgba(217, 191, 112, .11); color: white; }

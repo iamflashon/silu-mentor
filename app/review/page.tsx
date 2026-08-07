@@ -23,6 +23,8 @@ function cleanReviewText(text: string) {
 export default function ReviewPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [question, setQuestion] = useState<Question | null>(null);
+  const [filterYear, setFilterYear] = useState("");
+  const [filterSubject, setFilterSubject] = useState("");
   const [teacherModel, setTeacherModel] = useState<Provider>("luna");
   const [scholarModel, setScholarModel] = useState<Provider>("sonnet");
   const [debateMode, setDebateMode] = useState<DebateMode>("countdown");
@@ -39,11 +41,34 @@ export default function ReviewPage() {
   useEffect(() => {
     fetch("/api/review").then(async (response) => {
       const data = await response.json() as { questions?: Question[]; question?: Question | null };
-      setQuestions(data.questions ?? []); setQuestion(data.question ?? null);
+      const nextQuestions = data.questions ?? [];
+      const first = data.question ?? nextQuestions[0] ?? null;
+      setQuestions(nextQuestions); setQuestion(first);
+      setFilterYear(first?.year ?? ""); setFilterSubject(first?.subject ?? "");
     }).catch(() => undefined).finally(() => setLoading(false));
   }, []);
 
+  const years = useMemo(() => [...new Set(questions.map((item) => item.year))].sort((a, b) => Number(b) - Number(a)), [questions]);
+  const subjectsForYear = useMemo(() => [...new Set(questions.filter((item) => !filterYear || item.year === filterYear).map((item) => item.subject))], [questions, filterYear]);
+  const questionsForSelection = useMemo(() => questions.filter((item) => (!filterYear || item.year === filterYear) && (!filterSubject || item.subject === filterSubject)), [questions, filterSubject, filterYear]);
   const questionMeta = useMemo(() => question ? `${question.year}｜${question.subject}｜第${question.questionNumber}題` : "尚未選擇題目", [question]);
+
+  function chooseYear(year: string) {
+    const nextSubject = [...new Set(questions.filter((item) => item.year === year).map((item) => item.subject))][0] ?? "";
+    const nextQuestion = questions.find((item) => item.year === year && (!nextSubject || item.subject === nextSubject)) ?? null;
+    setFilterYear(year); setFilterSubject(nextSubject); setQuestion(nextQuestion); setResult(null); setDebateCompleted(false); setActivePanel("question");
+  }
+
+  function chooseSubject(subject: string) {
+    const nextQuestion = questions.find((item) => item.year === filterYear && item.subject === subject) ?? questions.find((item) => item.subject === subject) ?? null;
+    setFilterSubject(subject); setQuestion(nextQuestion); setResult(null); setDebateCompleted(false); setActivePanel("question");
+  }
+
+  function chooseQuestion(id: string) {
+    const next = questions.find((item) => item.id === Number(id));
+    if (!next) return;
+    setQuestion(next); setFilterYear(next.year); setFilterSubject(next.subject); setResult(null); setDebateCompleted(false); setActivePanel("question");
+  }
 
   async function startDebate() {
     if (!question || running) return;
@@ -68,7 +93,7 @@ export default function ReviewPage() {
     <header className="review-topbar"><Link href="/" className="review-brand" aria-label="回到司律備考"><span className="review-mark">評</span><span><b>司律評</b><small>看懂一題，學會怎麼答</small></span></Link><nav aria-label="司律評導覽"><a className="active" href="#battle">對話觀戰</a><a href="#model-pk">模型選擇</a><a href="#expert">專業點評</a><Link href="/">回司律備考</Link></nav></header>
     <section className="review-hero"><div className="review-hero-copy"><p className="review-kicker">THE LAWYER DIALOGUE ROOM</p><h1>老師一句，<em>學霸接招</em>，<br />把漏洞問出來。</h1><p>不再一次攤開長篇答案。老師先問一個關鍵問題，學霸回答後，老師再追問漏洞，最後交給固定的 Sol 整理考場寫法。</p><div className="review-hero-actions"><a href="#battle" className="review-primary">開始一場對話 <span>↘</span></a><span className="review-status-dot"><i />共用司律備考真題與教材</span></div></div><div className="review-seal" aria-hidden="true"><span>司</span><strong>律</strong><b>評</b></div><div className="review-hero-lines" aria-hidden="true"><i /><i /><i /></div></section>
     <section className="review-workspace" id="battle">
-      <aside className="review-sidebar"><div className="review-side-title"><span>今日觀戰</span><b>{questions.length ? `${questions.length} 題可選` : "題庫同步中"}</b></div><div className="review-filter"><label>選擇歷屆題目<select value={question?.id ?? ""} onChange={(event) => { const next = questions.find((item) => item.id === Number(event.target.value)); if (next) { setQuestion(next); setResult(null); setDebateCompleted(false); setActivePanel("question"); } }} disabled={!questions.length}><option value="">{loading ? "讀取已發布題目…" : questions.length ? "請選擇題目" : "尚無已發布申論題"}</option>{questions.map((item) => <option value={item.id} key={item.id}>{item.year}｜{item.subject}｜第{item.questionNumber}題</option>)}</select></label></div><div className="review-steps"><button className={activePanel === "question" ? "active" : ""} onClick={() => setActivePanel("question")}><b>01</b><span>先讀題目<small>確認對話背景</small></span></button><button className={activePanel === "debate" ? "active" : ""} onClick={() => setActivePanel("debate")}><b>02</b><span>老師問・學霸答<small>一問一答抓漏洞</small></span></button><button className={activePanel === "verdict" ? "active" : ""} onClick={() => setActivePanel("verdict")}><b>03</b><span>聽固定點評<small>Sol 整理考場寫法</small></span></button></div><div className="review-side-note"><span>司律評的核心</span><p>老師不直接公布答案，而是把一個個關鍵問題問出來，讓學霸回答、修正，再由點評人收束。</p></div></aside>
+      <aside className="review-sidebar"><div className="review-side-title"><span>今日觀戰</span><b>{questions.length ? `${questions.length} 題可選` : "題庫同步中"}</b></div><div className="review-filter"><div className="review-filter-caption">依序選擇題目</div><label>年度<select value={filterYear} onChange={(event) => chooseYear(event.target.value)} disabled={!years.length}><option value="">{loading ? "讀取中…" : "選擇年度"}</option>{years.map((year) => <option value={year} key={year}>{year} 年</option>)}</select></label><label>類科<select value={filterSubject} onChange={(event) => chooseSubject(event.target.value)} disabled={!subjectsForYear.length}><option value="">選擇類科</option>{subjectsForYear.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label><label>題目<select value={question?.id ?? ""} onChange={(event) => chooseQuestion(event.target.value)} disabled={!questionsForSelection.length}><option value="">{questionsForSelection.length ? "選擇題目" : "尚無可選題目"}</option>{questionsForSelection.map((item) => <option value={item.id} key={item.id}>第 {item.questionNumber} 題</option>)}</select></label></div><div className="review-selected-path">{question ? <><span>目前選擇</span><b>{question.year} 年｜{question.subject}</b><small>第 {question.questionNumber} 題</small></> : <span>請先選擇年度、類科與題目</span>}</div><div className="review-steps"><button className={activePanel === "question" ? "active" : ""} onClick={() => setActivePanel("question")}><b>01</b><span>先讀題目<small>確認對話背景</small></span></button><button className={activePanel === "debate" ? "active" : ""} onClick={() => setActivePanel("debate")}><b>02</b><span>老師問・學霸答<small>一問一答抓漏洞</small></span></button><button className={activePanel === "verdict" ? "active" : ""} onClick={() => setActivePanel("verdict")}><b>03</b><span>聽固定點評<small>Sol 整理考場寫法</small></span></button></div><div className="review-side-note"><span>司律評的核心</span><p>老師不直接公布答案，而是把一個個關鍵問題問出來，讓學霸回答、修正，再由點評人收束。</p></div></aside>
       <div className="review-main"><div className="review-main-head"><div><p>{questionMeta}</p><h2>{activePanel === "question" ? "先讀題目，再安排對話" : activePanel === "debate" ? "老師問・學霸答" : "固定點評人的判斷"}</h2></div><span className="review-confidential">資料依據 <b>{question?.hasTeacherAnswer ? "已連結老師擬答" : "題目資料已連結"}</b></span></div>
         {activePanel === "question" && <section className="review-question-card"><div className="review-question-label"><span>CASE FILE</span><b>{question?.hasTeacherAnswer ? "題目＋老師擬答" : "正式題目"}</b></div>{question ? <><h3>{question.stem.slice(0, 220)}{question.stem.length > 220 ? "…" : ""}</h3><details><summary>展開完整題目</summary><p>{question.stem}</p></details><div className="review-source-row"><span>來源：司律備考已發布題庫</span>{question.answerSource ? <span>核對：{question.answerSource}</span> : <span>老師擬答：尚未連結</span>}</div></> : <div className="review-empty">{loading ? "正在從司律備考讀取已發布的二試題目…" : "目前沒有已發布的二試申論題。請先在管理後台完成題目發布。"}</div>}</section>}
         {activePanel === "question" && <section className="review-model-stage" id="model-pk"><div className="review-section-heading"><div><span>BEFORE THE DIALOGUE</span><h3>先安排老師與學霸</h3></div><p>兩個角色都可以更換模型做測試；固定點評人仍由 GPT-5.6 Sol 擔任，負責最後判斷與整理。</p></div><div className="review-model-pickers"><ModelPicker tone="positive" title="老師／追問模型" subtitle="提出問題／抓出論證漏洞" value={teacherModel} onChange={setTeacherModel} /><div className="review-versus">↔</div><ModelPicker tone="negative" title="學霸／回答模型" subtitle="回答問題／補足規範涵攝" value={scholarModel} onChange={setScholarModel} /></div><div className="review-fixed-judge"><span className="review-judge-badge">S</span><div><b>固定 AI 點評人｜GPT-5.6 Sol</b><small>最後整理本回合真正爭點、誰抓到漏洞、哪裡仍需修正，以及考場應如何寫。</small></div><i>LOCKED</i></div><div className="review-watch-settings"><div><b>對話方式</b><small>每次只出現一個小問題；你可以按繼續，也可以讓倒數結束後自動進入下一句。</small></div><div className="review-watch-mode"><button type="button" className={debateMode === "manual" ? "selected" : ""} onClick={() => setDebateMode("manual")}>手動繼續</button><button type="button" className={debateMode === "countdown" ? "selected" : ""} onClick={() => setDebateMode("countdown")}>倒數自動</button></div>{debateMode === "countdown" && <label className="review-countdown-select">每句間隔<select value={countdownSeconds} onChange={(event) => setCountdownSeconds(Number(event.target.value))}><option value={15}>15 秒</option><option value={20}>20 秒</option><option value={30}>30 秒</option><option value={45}>45 秒</option></select></label>}</div><button className="review-start-button" onClick={() => void startDebate()} disabled={!question || running}>{running ? <><span className="review-spinner" />正在準備老師的第一個問題…</> : <>開始老師與學霸的對話 <span>→</span></>}</button></section>}
