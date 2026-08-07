@@ -851,8 +851,12 @@ export function PracticeLab({ initialType }: Props) {
   }
 
   async function generateScholarFollowUp() {
-    if (!question || coaching || selectedCoachMessageIndex === null) return;
-    const selectedMessage = coachMessages[selectedCoachMessageIndex];
+    if (!question || coaching) return;
+    // 沒有勾選時，學霸直接回應目前最後一則導師訊息；
+    // 勾選時，勾選的訊息只代表跳過它，改接續最後一則未跳過的導師訊息。
+    const mentorIndexes = [...coachMessages].map((message, index) => message.role === "mentor" ? index : -1).filter((index) => index >= 0);
+    const targetIndex = [...mentorIndexes].reverse().find((index) => index !== selectedCoachMessageIndex) ?? -1;
+    const selectedMessage = targetIndex >= 0 ? coachMessages[targetIndex] : null;
     if (!selectedMessage) return;
     setCoachTypingRole("scholar");
     setCoachSettingsOpen(false);
@@ -862,7 +866,9 @@ export function PracticeLab({ initialType }: Props) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          prompt: `學生指定回覆這一則${selectedMessage.role === "mentor" ? "AI 導師" : selectedMessage.role === "scholar" ? "AI 學霸" : "自己先前"}訊息，請重新理解它的內容，再提出一個可以繼續學習的具體問題：\n${selectedMessage.text}`,
+          prompt: selectedCoachMessageIndex === null
+            ? `請直接接續目前申論引導對話，回應最新一則 AI 導師訊息，形成自然的「回答＋一個可以繼續學習的問題」，不要輸出內部分析或處理說明：\n${selectedMessage.text}`
+            : `學生勾選了一則訊息表示要跳過它。請不要回應被勾選的訊息，改接續下一則未被跳過的 AI 導師訊息，形成自然的「回答＋一個可以繼續學習的問題」，不要輸出內部分析或處理說明：\n${selectedMessage.text}`,
           level: coachTeachingLevel,
           subject: question.subject,
           question: question.stem,
@@ -1771,8 +1777,8 @@ export function PracticeLab({ initialType }: Props) {
                           type="button"
                           className={`essay-message-select ${selectedCoachMessageIndex === index ? "is-selected" : ""}`}
                           aria-pressed={selectedCoachMessageIndex === index}
-                          aria-label={`${selectedCoachMessageIndex === index ? "取消指定" : "指定回應"}第 ${index + 1} 則${message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? "AI 學霸" : "自己"}訊息`}
-                          title={selectedCoachMessageIndex === index ? "取消指定這則訊息" : "指定這則訊息，讓 AI 學霸重新理解並提問"}
+                          aria-label={`${selectedCoachMessageIndex === index ? "取消跳過" : "跳過"}第 ${index + 1} 則${message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? "AI 學霸" : "自己"}訊息`}
+                          title={selectedCoachMessageIndex === index ? "取消跳過這則訊息" : "跳過這則訊息，讓 AI 學霸接續下一則"}
                           onClick={() => setSelectedCoachMessageIndex((current) => current === index ? null : index)}
                           disabled={coaching}
                         >
@@ -1805,7 +1811,7 @@ export function PracticeLab({ initialType }: Props) {
                         </>}
                       </div>
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>{selectedCoachMessageIndex === null ? "先勾選一則訊息，再讓 AI 學霸針對它提問" : "已指定這一則訊息；AI 學霸會在對話中自然回應並提出一個問題"}</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching || selectedCoachMessageIndex === null}>回應這則</button></>}
+                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>{selectedCoachMessageIndex === null ? "不勾選也可以直接回應目前訊息" : "已勾選跳過這則訊息，AI 學霸會接續下一則"}</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "回應這則" : "跳過並回應"}</button></>}
                       </div>
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
                     </div>
