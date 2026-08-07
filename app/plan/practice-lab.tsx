@@ -66,8 +66,8 @@ const coachTeachingLevelLabels: Record<CoachTeachingLevel, string> = {
 const coachTeachingLevelShortLabels: Record<CoachTeachingLevel, string> = {
   general: "問",
   beginner: "白",
-  intermediate: "基",
-  advanced: "進",
+  intermediate: "初",
+  advanced: "高",
   super: "霸",
 };
 type CoachModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
