@@ -1633,11 +1633,6 @@ export function PracticeLab({ initialType }: Props) {
                         <div className="essay-chat-bubble">
                           <b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? `AI ${coachTeachingLevelLabels[coachTeachingLevel]}` : "我"}</b>
                           <p>{message.text}</p>
-                          {message.role === "mentor" && <div className="essay-coach-message-actions" aria-label="針對這則 AI 導師回覆操作">
-                            <button type="button" onClick={() => askCoachAboutReply("plain", message)} disabled={coaching}>白話解釋</button>
-                            <button type="button" onClick={() => askCoachAboutReply("detailed", message)} disabled={coaching}>詳解解析</button>
-                            <button type="button" onClick={() => askCoachAboutReply("follow-up", message)} disabled={coaching}>延伸追問</button>
-                          </div>}
                         </div>
                       </div>)}
                       {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
