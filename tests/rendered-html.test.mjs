@@ -39,6 +39,12 @@ test("student follow-up click never serializes a React event", async () => {
   assert.doesNotMatch(source, /onClick=\{latestComparison \? generateStudentFollowUp/);
   assert.match(source, /level === "beginner" \|\| level === "intermediate" \|\| level === "advanced"/);
   assert.match(source, /level: requestedLevel/);
+  assert.match(source, /const latestTeacherPrompt = latestTeacherIndex >= 0/);
+  assert.match(source, /responses: followUpResponses\.map/);
+  assert.doesNotMatch(source, /selectedTeacherResponses\.map/);
+  assert.match(source, /針對這段追問/);
+  assert.match(source, /const followUpResponses = selectedFollowUps\.length > 0/);
+  assert.match(source, /message\.audience !== "judge"/);
 });
 
 test("teaching verdict uses the independent Sol judge", async () => {

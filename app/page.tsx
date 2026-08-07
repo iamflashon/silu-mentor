@@ -24,6 +24,7 @@ type TeachingRound = { level: TeachingLevel; label: string; reply: string; teach
 type TeachingJudgement = { groups: Array<{ level: string; winner: string; reason: string; legalAccuracy: number; adaptation: number; empathyOrDepth: number; stability: number }>; overallWinner: string; weightedSummary: string; commercialRecommendation: string; caution: string; dialogue: string };
 type JudgeTurn = { role: "student" | "judge"; text: string };
 type Message = { role: "mentor" | "student" | "judge"; text: string; model?: string; audience?: "teacher" | "judge"; sources?: string[]; citationStatus?: string; comparison?: ModelComparison; judgeUsage?: EvaluationUsage };
+type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string };
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
 type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
@@ -44,6 +45,9 @@ const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題
 const trustPrincipleStudentTest = "我理解信賴原則是，駕駛人可以相信行人會遵守交通規則。可是如果行人只是站在路邊等紅綠燈，駕駛人應該可以信賴他不會突然衝出來；但如果行人已經有明顯要違規的樣子，例如一直往車道靠近，駕駛人就不能再主張信賴原則。那本題中，要怎麼判斷這個行人的動作已經達到「顯然即將違規」的程度？如果我主張駕駛人仍可相信行人不會衝出來，這樣的論證有機會成立嗎？";
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
 function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/尚未匯入|尚未準備|暫時無法|沒有連上|API|錯誤|請稍後|管理者/.test(clean)) return false; return /法條|爭點|要件|涵攝|解題|判斷|原則|例外|學說|實務|教材|刑法|民法|訴訟法|憲法|行政法/.test(clean); }
+function pairedStudentPrompt(messages: Message[], teacherIndex: number) {
+  return [...messages.slice(0, teacherIndex)].reverse().find((message) => message.role === "student" && message.audience !== "judge")?.text ?? "";
+}
 function youtubeId(value: string) { try { const url = new URL(value); const id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? ""); return id.split(/[?&]/)[0]; } catch { return ""; } }
 function youtubeEmbedUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1&enablejsapi=1` : ""; }
 function youtubeWatchUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : ""; }
@@ -59,18 +63,19 @@ function citationStatusLabel(status?: string) {
   if (status === "full_text_search") return "引用狀態：全文命中，章節／頁碼待核對";
   return "引用狀態：未取得可核對教材";
 }
-function ModelComparisonCard({ comparison, onRate }: { comparison: ModelComparison; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void> }) {
+function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedKeys, onRate, onToggleFollowUp }: { comparison: ModelComparison; messageIndex: number; pairedPrompt: string; selectedKeys: string[]; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void>; onToggleFollowUp: (selection: FollowUpSelection) => void }) {
   const [scores, setScores] = useState<Record<number, number>>({});
   const [saved, setSaved] = useState<number | null>(null);
   return <section className="model-comparison-card" aria-label="Luna 與 Claude Sonnet 雙模型比較">
     <header><div><b>Luna／Claude Sonnet 雙模型比較</b><span>{comparisonSourceLabel(comparison.sourceStatus)}</span></div><small>兩個模型使用同一個問題；若有教材片段，會在同一次檢索脈絡下比較。</small></header>
     <div className="model-comparison-grid">
-      {comparison.responses.map((response) => <article className="model-comparison-response" key={response.id}>
+      {comparison.responses.map((response) => <article className={`model-comparison-response ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`} key={response.id}>
         <div className="model-comparison-response-head"><strong>{response.label}</strong><small>{response.model}</small></div>
         {response.error ? <p className="model-comparison-error">{response.error}</p> : <p className="model-comparison-text">{response.text}</p>}
         {response.stopReason === "max_tokens" && <small className="model-comparison-truncated">⚠ Claude 回答達到輸出上限，這次內容可能不完整</small>}
         {response.sources.length > 0 && <small className="model-comparison-sources">來源：{response.sources.join("、")}</small>}
         <div className="model-comparison-meta"><span>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms</span><span>US$ {response.usage.estimatedCostUsd.toFixed(5)} · NT$ {(response.usage.estimatedCostUsd * 32.5).toFixed(3)}</span></div>
+        {!response.error && <label className="follow-up-check"><input type="checkbox" checked={selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`)} onChange={() => onToggleFollowUp({ key: `teacher:${messageIndex}:${response.id}:${response.label}`, label: response.label, model: response.model, text: response.text, prompt: pairedPrompt })} /><span>針對這段追問</span></label>}
         {!response.error && <div className="model-comparison-actions"><label>測試評分<select value={scores[response.id] ?? 0} onChange={(event) => setScores((current) => ({ ...current, [response.id]: Number(event.target.value) }))}><option value={0}>請評分</option>{[1, 2, 3, 4, 5].map((score) => <option value={score} key={score}>{score} 分</option>)}</select></label><button type="button" disabled={!scores[response.id] || saved === response.id} onClick={async () => { await onRate(response.id, "rated", scores[response.id]); setSaved(response.id); }}>送出評分</button><button type="button" className="comparison-preferred" onClick={async () => { await onRate(response.id, "preferred", 5); setSaved(response.id); }}>選這個比較好</button></div>}
         {saved === response.id && <small className="model-comparison-saved">已記錄測試回饋</small>}
       </article>)}
@@ -101,6 +106,7 @@ export default function Home() {
   const [teachingRounds, setTeachingRounds] = useState<TeachingRound[]>([]);
   const [teachingJudgement, setTeachingJudgement] = useState<TeachingJudgement | null>(null);
   const [, setTeachingUsage] = useState<EvaluationUsage[]>([]);
+  const [selectedFollowUps, setSelectedFollowUps] = useState<FollowUpSelection[]>([]);
   const [evaluatingLevel, setEvaluatingLevel] = useState<TeachingLevel | null>(null);
   const [evaluatingJudge, setEvaluatingJudge] = useState(false);
   const [pendingTeachingLevel, setPendingTeachingLevel] = useState<TeachingLevel | null>(null);
@@ -143,21 +149,28 @@ export default function Home() {
   }, [homeFeed?.examCountdowns, today]);
   const magazineArticles = homeFeed?.magazine?.articles ?? [];
   const selectedMagazineArticle = magazineArticles.find((article) => article.id === selectedMagazineArticleId) ?? magazineArticles[0] ?? null;
-  const latestTeacherTurn = [...messages].reverse().find((message) => message.role === "mentor" && message.text.trim()) ?? null;
+  // The follow-up buttons must use the last completed teacher turn on screen,
+  // not whichever model toggle is currently selected. A user may switch from
+  // Luna to Sonnet (or from dual to single) after the answer was already shown.
+  const latestTeacherIndex = [...messages].map((message, index) => ({ message, index })).reverse().find(({ message }) =>
+    message.role === "mentor" && (message.text.trim() || message.comparison?.responses.some((response) => !response.error && response.text.trim())),
+  )?.index ?? -1;
+  const latestTeacherTurn = latestTeacherIndex >= 0 ? messages[latestTeacherIndex] : null;
   const latestTeacherMessage = latestTeacherTurn && !latestTeacherTurn.comparison ? latestTeacherTurn : null;
-  const latestStudentMessage = [...messages].reverse().find((message) => message.role === "student" && message.audience !== "judge") ?? null;
+  const latestTeacherPrompt = latestTeacherIndex >= 0 ? pairedStudentPrompt(messages, latestTeacherIndex) : "";
   const actualLatestComparison = latestTeacherTurn?.comparison ?? null;
   const latestTeacherModel = latestTeacherMessage?.model ?? lastUsage?.model ?? "gpt-5.6-luna";
   const latestTeacherLabel = /claude/i.test(latestTeacherModel) ? "Claude Sonnet" : "Luna";
   const latestComparison = actualLatestComparison ?? (latestTeacherMessage ? { id: -1, sourceStatus: "unavailable", responses: [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] } satisfies ModelComparison : null);
   const latestTeacherResponses: ComparisonResponse[] = latestComparison?.responses.filter((response) => !response.error && response.text.trim())
     ?? (latestTeacherMessage ? [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] : []);
-  const selectedTeacherResponses = modelMode === "dual"
-    ? latestTeacherResponses
-    : latestTeacherResponses.filter((response) => response.label === (modelMode === "sonnet" ? "Claude Sonnet" : "Luna")).slice(0, 1);
-  const canGenerateStudentReply = selectedTeacherResponses.length > 0;
-  const canJudgeTeaching = teachingRounds.some((round) => Boolean(round.teacherA?.text || round.teacherB?.text)) || Boolean(latestStudentMessage && latestTeacherResponses.length > 0);
+  // This is intentionally independent of modelMode. It represents the actual
+  // answer(s) immediately above the composer, which is what "超級學霸測試"
+  // promises to challenge.
+  const canGenerateStudentReply = Boolean(latestTeacherPrompt && latestTeacherResponses.length > 0);
+  const canJudgeTeaching = teachingRounds.some((round) => Boolean(round.teacherA?.text || round.teacherB?.text)) || Boolean(latestTeacherPrompt && latestTeacherResponses.length > 0);
   const evaluatingTeaching = Boolean(evaluatingLevel || evaluatingJudge);
+  const selectedFollowUpKeys = selectedFollowUps.map((selection) => selection.key);
 
   useEffect(() => {
     const refreshTaipeiClock = () => {
@@ -457,6 +470,7 @@ export default function Home() {
     if (!sentTeachingLevel) setTeachingRounds([]);
     setTeachingJudgement(null);
     if (!sentTeachingLevel) setTeachingUsage([]);
+    setSelectedFollowUps([]);
     setPendingTeachingLevel(null);
     setInput("");
     setDailyChoiceVisible(false);
@@ -531,6 +545,7 @@ export default function Home() {
       setTeachingRounds([]);
       setTeachingJudgement(null);
       setTeachingUsage([]);
+      setSelectedFollowUps([]);
       setPendingTeachingLevel(null);
       setJudgeConversationActive(false);
       setJudgeHistory([]);
@@ -548,6 +563,12 @@ export default function Home() {
     window.setTimeout(() => composerInputRef.current?.focus(), 0);
   }
 
+  function toggleFollowUpSelection(selection: FollowUpSelection) {
+    setSelectedFollowUps((current) => current.some((item) => item.key === selection.key)
+      ? current.filter((item) => item.key !== selection.key)
+      : [...current, selection]);
+  }
+
   async function generateStudentFollowUp(level?: TeachingLevel) {
     if (thinking || generatingStudentReply) return;
     // React click handlers receive a SyntheticEvent as their first argument.
@@ -559,7 +580,8 @@ export default function Home() {
       insertStudentTestPrompt();
       return;
     }
-    const latestStudent = [...messages].reverse().find((message) => message.role === "student" && message.audience !== "judge")?.text ?? "";
+    const followUpResponses = selectedFollowUps.length > 0 ? selectedFollowUps : latestTeacherResponses.map((item) => ({ key: `latest:${item.id}:${item.label}`, label: item.label, model: item.model, text: item.text, prompt: latestTeacherPrompt }));
+    const followUpPrompt = followUpResponses.map((item) => item.prompt).filter(Boolean).filter((prompt, index, all) => all.indexOf(prompt) === index).join("\n\n") || latestTeacherPrompt;
     setGeneratingStudentReply(true);
     setEvaluatingLevel(level ?? null);
     try {
@@ -567,9 +589,9 @@ export default function Home() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          prompt: latestStudent,
+          prompt: followUpPrompt,
           level: requestedLevel,
-          responses: selectedTeacherResponses.map((item) => ({ label: item.label, model: item.model, text: item.text, error: item.error })),
+          responses: followUpResponses.map((item) => ({ label: item.label, model: item.model, text: item.text })),
         }),
       });
       const result = await response.json() as { reply?: string; error?: string };
@@ -594,7 +616,7 @@ export default function Home() {
 
   async function runTeachingJudge() {
     if (thinking || generatingStudentReply || evaluatingTeaching || !canJudgeTeaching) return;
-    const latestStudent = [...messages].reverse().find((message) => message.role === "student" && message.audience !== "judge")?.text ?? "";
+    const latestStudent = latestTeacherPrompt;
     if (!latestStudent) return;
     const directRound: TeachingRound | null = latestTeacherResponses.length > 0 ? {
       level: "general",
@@ -725,7 +747,7 @@ export default function Home() {
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
               {message.role === "judge" && <span className="judge-avatar">審</span>}
-              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} onRate={rateComparison} /> : <><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} /> : <><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}{message.role === "mentor" && message.text.trim() && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}:single:${message.model ?? ""}`, label: /claude/i.test(message.model ?? "") ? "Claude Sonnet" : "Luna", model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>針對這段追問</span></label>}</>}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
               {message.role === "judge" && <div className="judge-message-meta"><b>Sol 審判長</b>{showCosts && message.judgeUsage ? <span>{message.judgeUsage.inputTokens + message.judgeUsage.outputTokens} tokens · US$ {message.judgeUsage.estimatedCostUsd.toFixed(5)}</span> : <span>可直接在下方追問</span>}</div>}
             </div>
           ))}
@@ -809,7 +831,7 @@ export default function Home() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-        <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>{judgeConversationActive ? "目前對話" : "回答模型"}</span><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>＋ 開新主題</button>{judgeConversationActive ? <div className="judge-conversation-state"><b>Sol 審判長</b><button type="button" onClick={() => setJudgeConversationActive(false)}>回到教師對話</button></div> : <><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna</button><button type="button" className={modelMode === "sonnet" ? "active" : ""} onClick={() => setModelMode("sonnet")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Claude Sonnet</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna＋Claude Sonnet 比較</button></>}{!judgeConversationActive && !latestComparison && <button type="button" className="student-test-prompt" onClick={insertStudentTestPrompt} disabled={thinking || generatingStudentReply || evaluatingTeaching}>✦ 貼上學生測試回答</button>}{!judgeConversationActive && latestComparison && <div className="teaching-test-buttons" role="group" aria-label="分開測試學生程度"><button type="button" className="teaching-level-beginner" onClick={() => void runTeachingLevel("beginner")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "beginner" ? "測試中…" : teachingRounds.some((item) => item.level === "beginner") ? "初學小白 ✓" : "初學小白測試"}</button><button type="button" className="teaching-level-intermediate" onClick={() => void runTeachingLevel("intermediate")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "intermediate" ? "測試中…" : teachingRounds.some((item) => item.level === "intermediate") ? "中階考生 ✓" : "中階考生測試"}</button><button type="button" className="teaching-level-advanced" onClick={() => void runTeachingLevel("advanced")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "advanced" ? "測試中…" : teachingRounds.some((item) => item.level === "advanced") ? "高階考生 ✓" : "高階考生測試"}</button><button type="button" className="student-test-prompt" onClick={() => void runTeachingLevel("super")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "super" ? "✦ 測試中…" : teachingRounds.some((item) => item.level === "super") ? "✦ 超級學霸 ✓" : "✦ 超級學霸測試"}</button><button type="button" className="teaching-evaluation-trigger" onClick={() => void runTeachingJudge()} disabled={thinking || generatingStudentReply || evaluatingTeaching || !canJudgeTeaching}>{evaluatingJudge ? "Sol 審判中…" : teachingJudgement ? "重新請 Sol 評比" : "Sol 審判長評比"}</button></div>}<small>{judgeConversationActive ? "正在與 Sol 審判長對話；可追問兩位老師的差異、法律錯誤或商用選擇" : evaluatingLevel ? `正在測試${evaluatingLevel === "beginner" ? "初學小白" : evaluatingLevel === "intermediate" ? "中階考生" : evaluatingLevel === "advanced" ? "高階考生" : "超級學霸"}，只執行這一組` : evaluatingJudge ? "Sol 審判長正在評比已完成的程度，不會自動測試其他程度" : latestComparison ? "四種程度與 Sol 審判長都可分開按；每次只執行你選的按鈕" : modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : modelMode === "sonnet" ? "目前只由 Claude Sonnet 回答" : "目前只由 Luna 回答"}</small></div>
+        <div className="model-mode-switch" role="group" aria-label="AI 模型模式"><span>{judgeConversationActive ? "目前對話" : "回答模型"}</span><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>＋ 開新主題</button>{judgeConversationActive ? <div className="judge-conversation-state"><b>Sol 審判長</b><button type="button" onClick={() => setJudgeConversationActive(false)}>回到教師對話</button></div> : <><button type="button" className={modelMode === "luna" ? "active" : ""} onClick={() => setModelMode("luna")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna</button><button type="button" className={modelMode === "sonnet" ? "active" : ""} onClick={() => setModelMode("sonnet")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Claude Sonnet</button><button type="button" className={modelMode === "dual" ? "active" : ""} onClick={() => setModelMode("dual")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>Luna＋Claude Sonnet 比較</button></>}{!judgeConversationActive && !latestComparison && <button type="button" className="student-test-prompt" onClick={insertStudentTestPrompt} disabled={thinking || generatingStudentReply || evaluatingTeaching}>✦ 貼上學生測試回答</button>}{!judgeConversationActive && latestComparison && <div className="teaching-test-buttons" role="group" aria-label="分開測試學生程度"><button type="button" className="teaching-level-beginner" onClick={() => void runTeachingLevel("beginner")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "beginner" ? "測試中…" : teachingRounds.some((item) => item.level === "beginner") ? "初學小白 ✓" : "初學小白測試"}</button><button type="button" className="teaching-level-intermediate" onClick={() => void runTeachingLevel("intermediate")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "intermediate" ? "測試中…" : teachingRounds.some((item) => item.level === "intermediate") ? "中階考生 ✓" : "中階考生測試"}</button><button type="button" className="teaching-level-advanced" onClick={() => void runTeachingLevel("advanced")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "advanced" ? "測試中…" : teachingRounds.some((item) => item.level === "advanced") ? "高階考生 ✓" : "高階考生測試"}</button><button type="button" className="student-test-prompt" onClick={() => void runTeachingLevel("super")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>{evaluatingLevel === "super" ? "✦ 測試中…" : teachingRounds.some((item) => item.level === "super") ? "✦ 超級學霸 ✓" : "✦ 超級學霸測試"}</button><button type="button" className="teaching-evaluation-trigger" onClick={() => void runTeachingJudge()} disabled={thinking || generatingStudentReply || evaluatingTeaching || !canJudgeTeaching}>{evaluatingJudge ? "Sol 審判中…" : teachingJudgement ? "重新請 Sol 評比" : "Sol 審判長評比"}</button></div>}{selectedFollowUps.length > 0 && <span className="follow-up-selection-summary">已勾選 {selectedFollowUps.length} 段老師回答；學霸將只針對勾選內容追問</span>}<small>{judgeConversationActive ? "正在與 Sol 審判長對話；可追問兩位老師的差異、法律錯誤或商用選擇" : evaluatingLevel ? `正在測試${evaluatingLevel === "beginner" ? "初學小白" : evaluatingLevel === "intermediate" ? "中階考生" : evaluatingLevel === "advanced" ? "高階考生" : "超級學霸"}，只執行這一組` : evaluatingJudge ? "Sol 審判長正在評比已完成的程度，不會自動測試其他程度" : latestComparison ? "四種程度與 Sol 審判長都可分開按；每次只執行你選的按鈕" : modelMode === "dual" ? "兩份回答都會保存 token、成本、耗時與評分" : modelMode === "sonnet" ? "目前只由 Claude Sonnet 回答" : "目前只由 Luna 回答"}</small></div>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
