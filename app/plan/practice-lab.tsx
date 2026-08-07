@@ -56,6 +56,20 @@ type EssayModelFailure = {
 
 type CoachMessage = { role: "mentor" | "student" | "scholar"; text: string };
 type CoachTeachingLevel = "general" | "beginner" | "intermediate" | "advanced" | "super";
+const coachTeachingLevelLabels: Record<CoachTeachingLevel, string> = {
+  general: "自由提問",
+  beginner: "法律小白",
+  intermediate: "基礎考生",
+  advanced: "進階考生",
+  super: "頂尖學霸",
+};
+const coachTeachingLevelShortLabels: Record<CoachTeachingLevel, string> = {
+  general: "問",
+  beginner: "白",
+  intermediate: "基",
+  advanced: "進",
+  super: "霸",
+};
 type CoachModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type CoachComparison = { label: string; model: string; text: string; inputTokens: number; outputTokens: number; estimatedCostUsd: number };
 type CoachProgress = {
@@ -666,6 +680,16 @@ export function PracticeLab({ initialType }: Props) {
     } catch {
       return item.url;
     }
+  }
+
+  function askCoachAboutReply(action: "plain" | "detailed" | "follow-up", message: CoachMessage) {
+    const actionLabel = action === "plain" ? "白話解釋" : action === "detailed" ? "詳解解析" : "延伸追問";
+    const prompt = action === "plain"
+      ? `請針對你剛才這則回覆，用白話重新解釋，讓我能理解這則回覆的法律推理：\n「${message.text}」`
+      : action === "detailed"
+        ? `請針對你剛才這則回覆做詳解解析，逐層說明爭點、規範、涵攝、結論，以及這則回覆還可能漏掉的地方：\n「${message.text}」`
+        : `請針對你剛才這則回覆提出一個我可以直接回答的延伸問題，繼續同一個申論爭點，不要重新開始：\n「${message.text}」`;
+    void askCoach("coach", { role: "student", text: `${actionLabel}：${prompt}` });
   }
 
   async function submitEssay() {
@@ -1511,8 +1535,19 @@ export function PracticeLab({ initialType }: Props) {
                 <div className="essay-chat-column">
                     <div ref={coachMessagesRef} className="essay-chat-messages" aria-live="polite">
                       {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。</p></div></div>}
-                      {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>{message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? "霸" : "律"}</span>}<div className="essay-chat-bubble"><b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? "AI 學霸" : "我"}</b><p>{message.text}</p></div></div>)}
-                      {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? "霸" : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
+                      {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
+                        {message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span>}
+                        <div className="essay-chat-bubble">
+                          <b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? `AI ${coachTeachingLevelLabels[coachTeachingLevel]}` : "我"}</b>
+                          <p>{message.text}</p>
+                          {message.role === "mentor" && <div className="essay-coach-message-actions" aria-label="針對這則 AI 導師回覆操作">
+                            <button type="button" onClick={() => askCoachAboutReply("plain", message)} disabled={coaching}>白話解釋</button>
+                            <button type="button" onClick={() => askCoachAboutReply("detailed", message)} disabled={coaching}>詳解解析</button>
+                            <button type="button" onClick={() => askCoachAboutReply("follow-up", message)} disabled={coaching}>延伸追問</button>
+                          </div>}
+                        </div>
+                      </div>)}
+                      {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
                     </div>
                     <div className="essay-chat-composer-wrap">
                       <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">

@@ -7358,6 +7358,10 @@ a {
 .essay-chat-bubble { min-width: 0; max-width: min(680px, 92%); padding: 12px 15px; border: 1px solid #dce9ed; border-radius: 7px 17px 17px 17px; background: #fff; color: #365b6c; box-shadow: 0 6px 18px rgba(35, 72, 92, .045); }
 .essay-chat-bubble b { display: block; margin-bottom: 4px; color: #3d7a74; font-size: 11px; }
 .essay-chat-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; }
+.essay-coach-message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(117, 159, 164, .22); }
+.essay-coach-message-actions button { border: 1px solid #a7cdd0; border-radius: 8px; padding: 5px 9px; background: #fff; color: #387078; font-size: 11px; cursor: pointer; }
+.essay-coach-message-actions button:hover:not(:disabled) { background: #edf8f8; border-color: #6daeb2; }
+.essay-coach-message-actions button:disabled { opacity: .5; cursor: wait; }
 .essay-chat-bubble.typing { display: flex; align-items: center; gap: 4px; min-height: 43px; }
 .essay-chat-bubble.typing i { width: 6px; height: 6px; border-radius: 50%; background: #79a9ad; animation: essay-chat-blink 1s infinite ease-in-out; }
 .essay-chat-bubble.typing i:nth-child(2) { animation-delay: .15s; }
