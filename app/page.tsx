@@ -29,7 +29,8 @@ const teachingLevelLabels: Record<TeachingLevel, string> = {
 };
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
 type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; model?: string; usage?: ReplyUsage; comparison?: ModelComparison };
-type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string };
+type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
+type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type ChatModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
@@ -69,7 +70,42 @@ function citationStatusLabel(status?: string) {
   if (status === "full_text_search") return "引用狀態：全文命中，章節／頁碼待核對";
   return "引用狀態：未取得可核對教材";
 }
-function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedKeys, onRate, onToggleFollowUp }: { comparison: ModelComparison; messageIndex: number; pairedPrompt: string; selectedKeys: string[]; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void>; onToggleFollowUp: (selection: FollowUpSelection) => void }) {
+function answerParagraphs(text: string) {
+  const clean = cleanMessageText(text).trim();
+  return clean.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+}
+function modelLabel(model: string) {
+  return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : "Luna";
+}
+function MentorAnswerText({ text, selectionPrefix, label, model, prompt, selectedKeys, onToggleFollowUp, onAnswerAction, disabled }: { text: string; selectionPrefix: string; label: string; model: string; prompt: string; selectedKeys: string[]; onToggleFollowUp: (selection: FollowUpSelection) => void; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean }) {
+  const paragraphs = answerParagraphs(text);
+  const selectedExcerpts = paragraphs.filter((_, index) => selectedKeys.includes(`${selectionPrefix}:paragraph:${index}`));
+  const selectedCount = selectedExcerpts.length;
+  const focus = selectedCount > 0 ? selectedExcerpts : paragraphs;
+  const actionSelection = { label, model, text, prompt, excerpts: focus };
+  return <>
+    <div className="mentor-answer-text">
+      {paragraphs.map((paragraph, index) => {
+        const key = `${selectionPrefix}:paragraph:${index}`;
+        const checked = selectedKeys.includes(key);
+        return <div className={`mentor-answer-paragraph ${checked ? "is-selected" : ""}`} key={key}>
+          <label className="paragraph-select" title="勾選這一段，讓 AI 只針對這段回答">
+            <input type="checkbox" checked={checked} disabled={disabled} onChange={() => onToggleFollowUp({ key, label, model, text, prompt, excerpt: paragraph })} aria-label={`勾選第 ${index + 1} 段回答`} />
+            <span aria-hidden="true">✓</span>
+          </label>
+          <p>{paragraph}</p>
+        </div>;
+      })}
+    </div>
+    {!disabled && <div className="answer-learning-actions">
+      <span className="answer-selection-hint">{selectedCount > 0 ? `已勾選 ${selectedCount} 段` : "可勾選段落後再處理"}</span>
+      <button type="button" onClick={() => onAnswerAction("plain", actionSelection)}>白話解釋</button>
+      <button type="button" onClick={() => onAnswerAction("detailed", actionSelection)}>詳解解析</button>
+      <button type="button" className="answer-follow-up-button" onClick={() => onAnswerAction("follow-up", actionSelection)}>延伸追問</button>
+    </div>}
+  </>;
+}
+function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedKeys, onRate, onToggleFollowUp, onAnswerAction, thinking }: { comparison: ModelComparison; messageIndex: number; pairedPrompt: string; selectedKeys: string[]; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void>; onToggleFollowUp: (selection: FollowUpSelection) => void; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; thinking?: boolean }) {
   const [scores, setScores] = useState<Record<number, number>>({});
   const [saved, setSaved] = useState<number | null>(null);
   return <section className="model-comparison-card" aria-label="AI 模型測試比較">
@@ -77,7 +113,7 @@ function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedK
     <div className="model-comparison-grid">
       {comparison.responses.map((response) => <article className={`model-comparison-response ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`} key={response.id}>
         <div className="model-comparison-response-head"><strong>{response.label}</strong><small>{response.model}</small></div>
-        {response.error ? <p className="model-comparison-error">{response.error}</p> : <p className="model-comparison-text">{response.text}</p>}
+        {response.error ? <p className="model-comparison-error">{response.error}</p> : <MentorAnswerText text={response.text} selectionPrefix={`teacher:${messageIndex}:${response.id}:${response.label}`} label={response.label} model={response.model} prompt={pairedPrompt} selectedKeys={selectedKeys} onToggleFollowUp={onToggleFollowUp} onAnswerAction={onAnswerAction} disabled={thinking} />}
         {response.stopReason === "max_tokens" && <small className="model-comparison-truncated">⚠ Claude 回答達到輸出上限，這次內容可能不完整</small>}
         {response.sources.length > 0 && <small className="model-comparison-sources">來源：{response.sources.join("、")}</small>}
         <div className="model-comparison-meta"><span>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms</span><span>US$ {response.usage.estimatedCostUsd.toFixed(5)} · NT$ {(response.usage.estimatedCostUsd * 32.5).toFixed(3)}</span></div>
@@ -488,6 +524,18 @@ export default function Home() {
     }
   }
 
+  function runAnswerAction(action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) {
+    if (thinking) return;
+    const excerpt = selection.excerpts.join("\n\n").slice(0, 9000);
+    const subject = action === "plain" ? "白話解釋" : action === "detailed" ? "詳解解析" : "延伸追問";
+    const instruction = action === "plain"
+      ? "請把這段回答改用法律初學者也能理解的白話說明。先說核心意思，再用一個生活化但法律上不失真的例子；不要省略重要法律條件。"
+      : action === "detailed"
+        ? "請針對這段回答做詳解解析。逐層說明爭點、規範依據、要件、涵攝、結論，以及這段回答容易被誤解或漏寫的地方；若涉及教材或法條，請只在確實有依據時引用。"
+        : "請針對這段回答提出一個能繼續推進理解的追問，先不要直接公布完整答案；問題要讓學生可以直接回答。";
+    void send(`請針對老師${selection.label ? `（${selection.label}）` : ""}回答中的以下內容，進行「${subject}」。\n\n【選取內容】\n${excerpt}\n\n【處理要求】\n${instruction}`);
+  }
+
   async function rateComparison(responseId: number, feedbackType: "preferred" | "rated", score: number) {
     await fetch("/api/chat/feedback", {
       method: "POST",
@@ -578,7 +626,7 @@ export default function Home() {
         body: JSON.stringify({
           prompt: followUpPrompt,
           level: requestedLevel,
-          responses: followUpResponses.map((item) => ({ label: item.label, model: item.model, text: item.text })),
+          responses: followUpResponses.map((item) => ({ label: item.label, model: item.model, text: item.excerpt ? `老師回答中被勾選的段落：\n${item.excerpt}` : item.text })),
         }),
       });
       const result = await response.json() as { reply?: string; error?: string };
@@ -690,7 +738,7 @@ export default function Home() {
           {messages.map((message, index) => (
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
-              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} /> : <><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.usage ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)}</span></small> : null}{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}{message.role === "mentor" && message.text.trim() && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}:single:${message.model ?? ""}`, label: /claude/i.test(message.model ?? "") ? "Claude Sonnet" : "Luna", model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>針對這段追問</span></label>}</>}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} selectionPrefix={`teacher:${index}:single:${message.model ?? "gpt-5.6-luna"}`} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} disabled={thinking} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)}</span></small> : null}{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
             </div>
           ))}
           {thinking && (

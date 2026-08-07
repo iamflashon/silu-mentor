@@ -572,6 +572,85 @@ a {
 .message-text {
   white-space: pre-wrap;
 }
+.mentor-answer-text {
+  display: grid;
+  gap: 8px;
+}
+.mentor-answer-paragraph {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 3px 5px 3px 2px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  transition: background .16s ease, border-color .16s ease;
+}
+.mentor-answer-paragraph:hover,
+.mentor-answer-paragraph.is-selected {
+  background: #f0f8f7;
+  border-color: #c9e3df;
+}
+.mentor-answer-paragraph p {
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+}
+.paragraph-select {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 4px;
+  cursor: pointer;
+}
+.paragraph-select input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #3a7d8d;
+  cursor: pointer;
+}
+.paragraph-select span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+.answer-learning-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e5edf0;
+}
+.answer-learning-actions button {
+  padding: 6px 10px;
+  border: 1px solid #bdd6dc;
+  border-radius: 8px;
+  background: #fff;
+  color: #376879;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.answer-learning-actions button:hover {
+  background: #edf7f7;
+  border-color: #82b8b8;
+}
+.answer-learning-actions .answer-follow-up-button {
+  background: #eaf5f3;
+  border-color: #9ccbc4;
+  color: #286d70;
+}
+.answer-selection-hint {
+  margin-right: auto;
+  color: #81949d;
+  font-size: 10px;
+}
 .message-sources {
   display: block;
   margin-top: 10px;
