@@ -6,8 +6,9 @@ import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekMode
 type Provider = "luna" | "sonnet" | "deepseek";
 type ParticipantMode = "ai-scholar" | "student-scholar";
 type ArgumentStage = "major-premise" | "minor-premise" | "conclusion";
-type ReviewStage = "full" | "start" | "submit-answer" | "submit-reply" | "next-stage" | "grade-answer";
+type ReviewStage = "full" | "start" | "teacher-question" | "scholar-answer" | "teacher-follow-up" | "scholar-reply" | "finalize" | "submit-answer" | "submit-reply" | "next-stage" | "grade-answer";
 type ModelRun = { model: string; provider?: string; text: string; durationMs: number; inputTokens: number; outputTokens: number; cachedTokens: number };
+type ReviewResultLike = { teacherQuestion?: ModelRun | null; scholarAnswer?: ModelRun | null; teacherFollowUp?: ModelRun | null; scholarReply?: ModelRun | null; scholarAnswers?: ModelRun[]; scholarReplies?: ModelRun[]; scholarErrors?: Record<string, string>; teacherError?: string; scholarError?: string; commentator?: ModelRun | null; commentatorError?: string; answerPack?: { teacherAnswer: string; answerSource: string; aiSuggestedAnswer: ModelRun | null; aiSuggestedError: string } };
 
 const labels: Record<Provider, string> = {
   luna: "Luna",
@@ -242,6 +243,7 @@ export async function POST(request: Request) {
       argumentStage?: ArgumentStage;
       teacherQuestion?: string;
       studentAnswer?: string;
+      scholarAnswer?: string;
       teacherFollowUp?: string;
       studentReply?: string;
       scholarModels?: Provider[];
@@ -375,6 +377,57 @@ export async function POST(request: Request) {
         } catch (error) {
           return Response.json({ error: error instanceof Error ? error.message : "固定點評暫時無法產生" }, { status: 502 });
         }
+      }
+    }
+
+    if (participantMode === "ai-scholar" && ["teacher-question", "scholar-answer", "teacher-follow-up", "scholar-reply", "finalize"].includes(stage)) {
+      const stageResult = (values: Partial<ReviewResultLike>) => Response.json({
+        question: publicQuestion(question),
+        argumentStage,
+        models: { teacher: labels[teacherModel], scholar: labels[scholarModels[0]], scholarModels: scholarModels.map((model) => labels[model]), scholarProviders: scholarModels, commentator: values.commentator?.model ?? "gpt-5.6-sol" },
+        scholarModels,
+        scholarAnswers: values.scholarAnswers ?? [], scholarReplies: values.scholarReplies ?? [], scholarErrors: values.scholarErrors ?? {},
+        teacherQuestion: values.teacherQuestion ?? null, scholarAnswer: values.scholarAnswer ?? null, teacherFollowUp: values.teacherFollowUp ?? null, scholarReply: values.scholarReply ?? null,
+        teacherError: values.teacherError ?? "", scholarError: values.scholarError ?? "", commentator: values.commentator ?? null, commentatorError: values.commentatorError ?? "", answerPack: values.answerPack,
+        participantMode,
+      });
+      const priorConversation = body.teacherQuestion ? `\n\n前一段對話：\n導師：${body.teacherQuestion}\n學霸：${body.scholarAnswer ?? ""}\n導師追問：${body.teacherFollowUp ?? ""}\n學霸回應：${body.scholarReply ?? ""}\n請承接同一個法律爭點，不要重新選題。` : "";
+      try {
+        if (stage === "teacher-question") {
+          const teacherQuestion = await runProvider(teacherModel, `${context}${priorConversation}`, "teacher", "question", argumentStage);
+          return stageResult({ teacherQuestion });
+        }
+        const teacherQuestion = body.teacherQuestion?.trim() ?? "";
+        const scholarAnswer = body.scholarAnswer?.trim() || body.scholarAnswers?.[0]?.text?.trim() || "";
+        const teacherFollowUp = body.teacherFollowUp?.trim() ?? "";
+        const scholarReply = body.scholarReply?.trim() || body.scholarReplies?.[0]?.text?.trim() || "";
+        if (!teacherQuestion) return Response.json({ error: "缺少導師的問題" }, { status: 400 });
+        if (stage === "scholar-answer") {
+          const answer = await runProvider(scholarModels[0], `${context}\n\n【導師的問題】\n${teacherQuestion}`, "scholar", "answer", argumentStage);
+          return stageResult({ teacherQuestion: { model: labels[teacherModel], text: teacherQuestion, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarAnswer: { ...answer, provider: scholarModels[0] }, scholarAnswers: [{ ...answer, provider: scholarModels[0] }] });
+        }
+        if (stage === "teacher-follow-up") {
+          if (!scholarAnswer) return Response.json({ error: "缺少學霸回答" }, { status: 400 });
+          const followUp = await runProvider(teacherModel, `${context}\n\n【導師先問】\n${teacherQuestion}\n\n【學霸回答】\n${scholarAnswer}`, "teacher", "follow-up", argumentStage);
+          return stageResult({ teacherQuestion: { model: labels[teacherModel], text: teacherQuestion, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarAnswer: { model: labels[scholarModels[0]], text: scholarAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarAnswers: [{ model: labels[scholarModels[0]], text: scholarAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }], teacherFollowUp: followUp });
+        }
+        if (stage === "scholar-reply") {
+          if (!scholarAnswer || !teacherFollowUp) return Response.json({ error: "缺少學霸回答或導師追問" }, { status: 400 });
+          const reply = await runProvider(scholarModels[0], `${context}\n\n【導師先問】\n${teacherQuestion}\n\n【你的回答】\n${scholarAnswer}\n\n【導師追問】\n${teacherFollowUp}`, "scholar", "reply", argumentStage);
+          return stageResult({ teacherQuestion: { model: labels[teacherModel], text: teacherQuestion, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarAnswer: { model: labels[scholarModels[0]], text: scholarAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarAnswers: [{ model: labels[scholarModels[0]], text: scholarAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }], teacherFollowUp: { model: labels[teacherModel], text: teacherFollowUp, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarReply: { ...reply, provider: scholarModels[0] }, scholarReplies: [{ ...reply, provider: scholarModels[0] }] });
+        }
+        if (stage === "finalize") {
+          if (!scholarAnswer || !teacherFollowUp || !scholarReply) return Response.json({ error: "本段對話尚未完整，無法進入固定點評" }, { status: 400 });
+          const scholarRun = { model: labels[scholarModels[0]], text: scholarAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+          const replyRun = { model: labels[scholarModels[0]], text: scholarReply, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+          const commentator = await runCommentator(context, teacherQuestion, [scholarRun], teacherFollowUp, [replyRun]);
+          let aiSuggestedAnswer: ModelRun | null = null;
+          let aiSuggestedError = "";
+          try { aiSuggestedAnswer = await runSuggestedAnswer(context, dialogueText(body.completedRounds, { teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply })); } catch (error) { aiSuggestedError = error instanceof Error ? error.message : "AI 建議擬答暫時無法產生"; }
+          return stageResult({ teacherQuestion: { model: labels[teacherModel], text: teacherQuestion, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarAnswer: scholarRun, scholarAnswers: [scholarRun], teacherFollowUp: { model: labels[teacherModel], text: teacherFollowUp, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }, scholarReply: replyRun, scholarReplies: [replyRun], commentator, answerPack: { teacherAnswer: question.teacherAnswer?.trim() ?? "", answerSource: question.answerSource ?? "", aiSuggestedAnswer, aiSuggestedError } });
+        }
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : "對話暫時無法接續" }, { status: 502 });
       }
     }
 
