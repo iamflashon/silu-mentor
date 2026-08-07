@@ -3,7 +3,7 @@ import { getDb } from "../../../db";
 import { examCoachMessages, examQuestions, learningResources, legalArticles, legalDocuments, resourceSegments, usageLogs } from "../../../db/schema";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIModel, openAIJson } from "../../../lib/openai";
 
-type CoachMessage = { role: "mentor" | "student"; text: string };
+type CoachMessage = { role: "mentor" | "student" | "scholar"; text: string };
 type CoachAction = "start" | "coach" | "variation_basic" | "variation_advanced";
 type CoachProvider = "luna" | "sonnet" | "deepseek";
 type CoachProgress = {
@@ -135,7 +135,7 @@ export async function POST(request: Request) {
       return { id: article.id, title: doc.title, articleNo: article.articleNo, content: article.content, sourceUrl: doc.sourceUrl };
     });
 
-    const history = (Array.isArray(body.messages) ? body.messages : []).slice(-8).map((message) => `${message.role === "student" ? "學生" : "教練"}：${String(message.text).slice(0, 800)}`).join("\n");
+    const history = (Array.isArray(body.messages) ? body.messages : []).slice(-10).map((message) => `${message.role === "student" ? "學生" : message.role === "scholar" ? "AI學霸" : "AI導師"}：${String(message.text).slice(0, 800)}`).join("\n");
     const resourceContext = resources.map((item) => `ID ${item.segmentId}｜${item.resourceType}｜${item.resourceTitle}｜${item.lessonLabel} ${item.segmentTitle}｜${item.summary || item.text.slice(0, 220)}`).join("\n");
     const lawContext = laws.map((item) => `ID ${item.id}｜${item.title} ${item.articleNo}｜${item.content.slice(0, 360)}`).join("\n");
     const actionInstruction = action === "start"
@@ -145,7 +145,7 @@ export async function POST(request: Request) {
         : action === "variation_advanced"
           ? "依原真題改變程序階段、當事人主張或關鍵要件，出一題進階模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
           : "根據學生剛才的回答診斷理解缺口。先肯定已掌握部分，再只問一個學生可直接回答的小問題；完整處理目前階段後，必須明確銜接下一階段，不能在一個爭點結束。";
-    const studentCount = Array.isArray(body.messages) ? body.messages.filter((message) => message.role === "student").length : 0;
+    const studentCount = Array.isArray(body.messages) ? body.messages.filter((message) => message.role === "student" || message.role === "scholar").length : 0;
     const progress = coachProgress(studentCount);
     const stage = progress.current;
     const teachingTone = body.teachingLevel === "beginner" ? "用法律小白聽得懂的語句，少用術語並逐步解釋。" : body.teachingLevel === "advanced" || body.teachingLevel === "super" ? "可追問學說、實務分歧與精準涵攝，但每次仍只問一個問題。" : "維持司律考生可理解的自然教練語氣。";
@@ -158,7 +158,7 @@ export async function POST(request: Request) {
     const primary = runs.find((run) => !run.error && run.text.trim()) ?? runs[0];
     if (!primary?.text?.trim()) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
     const key = userKey(request);
-    const latestStudent = Array.isArray(body.messages) ? [...body.messages].reverse().find((message) => message.role === "student" && message.text.trim()) : null;
+    const latestStudent = Array.isArray(body.messages) ? [...body.messages].reverse().find((message) => (message.role === "student" || message.role === "scholar") && message.text.trim()) : null;
     if (latestStudent) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "student", text: latestStudent.text.trim() });
     if (primary.text?.trim()) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "mentor", text: primary.text.trim() });
     for (const run of runs) await db.insert(usageLogs).values({ model: run.model, source: "真題教練", inputTokens: run.inputTokens, cachedTokens: 0, outputTokens: run.outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: 0 });

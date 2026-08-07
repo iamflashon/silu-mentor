@@ -7297,7 +7297,7 @@ a {
 .essay-coach-comparisons article small, .essay-coach-comparisons article em { color:#8a9b96; font-size:10px; }
 .essay-coach-comparisons article p { margin:6px 0; color:#41675a; font-size:12px; line-height:1.65; white-space:pre-wrap; }
 
-/* 二試申論採用首頁同款的自然對話結構：訊息串流在左、解題路徑在右。 */
+/* 二試申論採用首頁同款的自然對話結構：只保留訊息串流與輸入框。 */
 .essay-chat-mode {
   margin-bottom: 16px;
   padding: 18px;
@@ -7337,7 +7337,6 @@ a {
 .essay-chat-start-bottom { border-color: #3f8177; background: #39786e; color: #fff; }
 .essay-chat-start-bottom { display: block; width: fit-content; margin: 12px auto 2px; padding-inline: 17px; }
 .essay-chat-settings { width: 100%; margin: 0 0 14px; }
-.essay-chat-grid { display: grid; grid-template-columns: minmax(0, 1fr) 224px; gap: 14px; align-items: start; }
 .essay-chat-column { min-width: 0; }
 .essay-chat-messages {
   min-height: 310px;
@@ -7369,6 +7368,14 @@ a {
 .essay-chat-composer textarea::placeholder { color: #8ba4ad; }
 .essay-chat-composer button { width: 38px; height: 38px; border: 0; border-radius: 10px; background: #3e8079; color: white; font-size: 22px; line-height: 1; cursor: pointer; }
 .essay-chat-composer button:disabled { opacity: .45; cursor: wait; }
+.essay-chat-composer-wrap { margin-top: 10px; }
+.essay-chat-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; color: #78939d; font-size: 11px; line-height: 1.45; }
+.scholar-follow-up-button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid #74aeb0; border-radius: 8px; background: #f4fbfb; color: #337c7c; font-size: 11px; font-weight: 850; cursor: pointer; }
+.scholar-follow-up-button:hover:not(:disabled) { border-color: #3e8079; background: #e6f5f3; }
+.scholar-follow-up-button:disabled { opacity: .45; cursor: wait; }
+.essay-chat-message.scholar .essay-chat-bubble { border-color: #ded4b7; background: #fffaf0; color: #665b3f; }
+.essay-chat-message.scholar .essay-chat-bubble b { color: #967433; }
+.scholar-avatar { background: #a27d32 !important; }
 .essay-chat-progress-card { position: sticky; top: 104px; padding: 14px; border: 1px solid #d3e6df; border-radius: 12px; background: #f6fcf8; }
 .essay-chat-progress-card header { display: grid; gap: 4px; margin-bottom: 12px; }
 .essay-chat-progress-card header strong { color: #315f50; font-size: 13px; }
@@ -7391,11 +7398,9 @@ a {
   .essay-coach-comparisons > div { grid-template-columns:1fr; }
   .essay-chat-heading { flex-direction: column; }
   .essay-chat-quick-actions { width: 100%; justify-content: flex-start; }
-  .essay-chat-grid { grid-template-columns: 1fr; }
-  .essay-chat-progress-card { position: static; }
-  .essay-chat-progress-card ol { grid-template-columns: 1fr 1fr; }
   .essay-chat-bubble { max-width: 94%; }
   .essay-chat-composer { grid-template-columns: minmax(0, 1fr) 40px; }
+  .essay-chat-composer-actions { align-items: flex-start; flex-direction: column; }
 }
 .guided-answer-sheet {
   overflow: hidden;
