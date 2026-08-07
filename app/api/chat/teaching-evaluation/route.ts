@@ -3,6 +3,7 @@ import { usageLogs } from "../../../../db/schema";
 import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel } from "../../../../lib/openai";
 
 type TeacherResponse = { label?: string; model?: string; text?: string; error?: string | null };
+type JudgeSelection = { key?: string; kind?: "student" | "teacher"; label?: string; model?: string; text?: string };
 type Usage = { inputTokens: number; outputTokens: number; cachedTokens: number; durationMs: number; estimatedCostUsd: number; model: string };
 
 const levels = [
@@ -123,16 +124,35 @@ const judgeSchema = {
 };
 
 export async function POST(request: Request) {
-  let body: { mode?: "level" | "judge" | "judge-followup"; level?: LevelKey; prompt?: string; question?: string; responses?: TeacherResponse[]; rounds?: Array<{ level?: string; label?: string; reply?: string; teacherA?: TeacherResponse; teacherB?: TeacherResponse }>; judgement?: Record<string, unknown>; history?: Array<{ role?: string; text?: string }> };
+  let body: { mode?: "level" | "judge" | "judge-followup"; level?: LevelKey; prompt?: string; question?: string; responses?: TeacherResponse[]; selections?: JudgeSelection[]; rounds?: Array<{ level?: string; label?: string; reply?: string; teacherA?: TeacherResponse; teacherB?: TeacherResponse }>; judgement?: Record<string, unknown>; history?: Array<{ role?: string; text?: string }> };
   try { body = await request.json() as typeof body; } catch { return Response.json({ error: "測試資料格式不正確" }, { status: 400 }); }
   const prompt = String(body.prompt ?? "").trim();
   const mode = body.mode ?? "level";
   if (mode === "level" && !prompt) return Response.json({ error: "請先完成學生問題與 Luna／Claude 的回答" }, { status: 400 });
+  if (mode === "judge-followup") return Response.json({ error: "Sol 審判長是單次測試工具，不開放繼續追問；請重新勾選內容後再評比" }, { status: 410 });
   const openAiKey = await getOpenAIKey();
   if (!openAiKey) return Response.json({ error: "Luna 的 API 尚未設定，測試未啟動" }, { status: 503 });
 
   try {
     const luna = await getOpenAIModel("gpt-5.6-luna");
+    if (mode === "judge") {
+      const judgeModel = await getTeachingJudgeOpenAIModel("gpt-5.6-sol");
+      const selections = (Array.isArray(body.selections) ? body.selections : []).filter((item) => item && (item.kind === "student" || item.kind === "teacher") && typeof item.text === "string" && item.text.trim()).slice(0, 12);
+      if (!selections.length) return Response.json({ error: "請先勾選至少一段學生問題或老師回答，再按 Sol 審判長評比" }, { status: 400 });
+      const judgeInput = selections.map((item, index) => {
+        const kindLabel = item.kind === "student" ? "學生問題" : `老師回答｜${item.label ?? "未標示模型"}`;
+        const modelLabel = item.model ? `（${item.model}）` : "";
+        return `【選取 ${index + 1}｜${kindLabel}${modelLabel}】\n${String(item.text).slice(0, 5000)}`;
+      }).join("\n\n");
+      const inputChars = judgeInput.length;
+      const judgeRun = await runOpenAI(openAiKey, judgeModel, `你是「Sol 審判長」，現在執行一項獨立的 AI 教學品質測試。你只能分析下方明確勾選的內容，不得自行讀取或推測聊天室其他內容，也不得虛構未提供的另一位老師。法律正確性優先，其次評估學生程度適配、論證完整度、同理心或學術深度與技術穩定性。
+
+請把學生問題與老師回答視為測試材料：指出 Luna 或 Claude Sonnet 真正抓到的法律死穴、加分亮點、遺漏、可能誤導處與可直接改寫的考場寫法。若只有單一模型，直接評論單一模型；只有同時提供兩位老師內容時才比較優劣。若勾選內容缺少學生問題或缺少老師回答，請明確說明判斷限制。不要把自己寫成可對話的第三位老師，不要邀請追問，不要提出下一個問題。輸出繁體中文、自然但完整的測試評語，並只輸出符合指定 JSON schema 的內容。`, judgeInput, 1200, judgeSchema);
+      const judgement = parseJson(judgeRun.text) as Record<string, unknown> | null;
+      if (!judgement || !Array.isArray(judgement.groups)) return Response.json({ error: "AI 審判長未產生完整評比；這次勾選資料已保留，請稍後重試" }, { status: 502 });
+      await logUsage(judgeModel, "程度測試｜Sol 審判長｜勾選評比", judgeRun.usage);
+      return Response.json({ originalPrompt: prompt, judgement, totalUsage: [judgeRun.usage], diagnostics: { selectedItems: selections.length, inputChars, estimatedInputTokens: Math.ceil(inputChars / 4), inputTokens: judgeRun.usage.inputTokens, cachedTokens: judgeRun.usage.cachedTokens, outputTokens: judgeRun.usage.outputTokens, durationMs: judgeRun.usage.durationMs, estimatedCostUsd: judgeRun.usage.estimatedCostUsd, model: judgeRun.usage.model } });
+    }
     if (mode === "judge" || mode === "judge-followup") {
       const judgeModel = await getTeachingJudgeOpenAIModel("gpt-5.6-sol");
       const rounds = (Array.isArray(body.rounds) ? body.rounds : []).filter((round) => round && round.level && round.reply && (round.teacherA?.text || round.teacherB?.text)).slice(0, 4);

@@ -14611,10 +14611,29 @@ a {
 .model-comparison-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .model-comparison-actions .comparison-preferred { background: #eaf5f3; border-color: #9ecbc4; font-weight: 800; }
 .model-comparison-saved { display: block; margin-top: 8px; color: #3c806f; font-size: 11px; }
+.judge-selection-check { display: inline-flex; align-items: center; gap: 5px; margin: 5px 0 0; color: #557183; font-size: 11px; line-height: 1.4; cursor: pointer; }
+.model-comparison-card .judge-selection-check { display: none; }
+.judge-selection-check input, .judge-selection-option input { accent-color: #527f9f; }
+.model-comparison-response.judge-selected { border-color: #91aeca; background: #f5f8fd; }
+.judge-selection-panel { width: min(940px, 100%); margin: 12px auto 0; padding: 13px; border: 1px solid #cbdce8; border-radius: 14px; background: #f8fbfd; color: #4b687a; }
+.judge-selection-panel > header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding-bottom: 9px; border-bottom: 1px solid #dce8ef; }
+.judge-selection-panel > header div { display: grid; gap: 3px; }
+.judge-selection-panel > header strong { color: #315f86; font-size: 14px; }
+.judge-selection-panel > header span, .judge-selection-panel > header small { color: #718797; font-size: 11px; line-height: 1.6; }
+.judge-selection-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 10px; }
+.judge-selection-option { display: flex; gap: 8px; align-items: flex-start; min-width: 0; padding: 9px 10px; border: 1px solid #dce8ef; border-radius: 9px; background: #fff; cursor: pointer; }
+.judge-selection-option.selected { border-color: #82a8c5; background: #eef6fc; box-shadow: 0 0 0 2px rgba(87, 133, 168, .1); }
+.judge-selection-option > span { display: grid; gap: 3px; min-width: 0; }
+.judge-selection-option b { color: #3d6c8a; font-size: 11px; }
+.judge-selection-option small { overflow: hidden; color: #607985; font-size: 11px; line-height: 1.55; text-overflow: ellipsis; }
+.judge-selection-summary { color: #456f8c; font-size: 11px; font-weight: 800; }
+.teaching-evaluation-dialogue { margin-top: 12px; padding: 12px; border-radius: 10px; background: #f1f7fb; color: #3f5e70; line-height: 1.8; white-space: pre-wrap; }
 @media (max-width: 720px) {
   .model-comparison-card > header { display: grid; gap: 4px; }
   .model-comparison-grid { grid-template-columns: 1fr; }
   .model-mode-switch { padding-inline: 4px; }
+  .judge-selection-panel > header { display: grid; gap: 3px; }
+  .judge-selection-list { grid-template-columns: 1fr; }
 }
 .teaching-evaluation-card { width: min(940px, 100%); margin: 16px auto 8px; padding: 14px; border: 1px solid #ccdce9; border-radius: 15px; background: #fbfdff; color: #35536c; }
 .teaching-evaluation-card > header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding-bottom: 11px; border-bottom: 1px solid #dce7ef; }
