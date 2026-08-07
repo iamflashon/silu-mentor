@@ -499,6 +499,24 @@ a {
   gap: 6px;
   margin: 10px 0 -5px;
 }
+.message-follow-up-button {
+  padding: 5px 8px;
+  border: 1px solid #bdd6dc;
+  border-radius: 7px;
+  background: #f3faf9;
+  color: #286d70;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.message-follow-up-button:hover {
+  background: #e7f5f2;
+  border-color: #82b8b8;
+}
+.message-follow-up-button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
 .follow-up-check {
   display: inline-flex;
   align-items: center;
@@ -578,11 +596,8 @@ a {
 }
 .mentor-answer-paragraph {
   position: relative;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-  padding: 3px 5px 3px 2px;
+  display: block;
+  padding: 3px 0;
   border: 1px solid transparent;
   border-radius: 9px;
   transition: background .16s ease, border-color .16s ease;
@@ -596,27 +611,6 @@ a {
   min-width: 0;
   margin: 0;
   white-space: pre-wrap;
-}
-.paragraph-select {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 4px;
-  cursor: pointer;
-}
-.paragraph-select input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: #3a7d8d;
-  cursor: pointer;
-}
-.paragraph-select span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
 }
 .answer-learning-actions {
   display: flex;
@@ -645,11 +639,6 @@ a {
   background: #eaf5f3;
   border-color: #9ccbc4;
   color: #286d70;
-}
-.answer-selection-hint {
-  margin-right: auto;
-  color: #81949d;
-  font-size: 10px;
 }
 .message-sources {
   display: block;
