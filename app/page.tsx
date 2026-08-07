@@ -81,8 +81,10 @@ function answerParagraphs(text: string) {
 function modelLabel(model: string) {
   return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : "Luna";
 }
-function MentorAnswerText({ text, selectionPrefix, label, model, prompt, selectedKeys, onToggleFollowUp, onAnswerAction, disabled }: { text: string; selectionPrefix: string; label: string; model: string; prompt: string; selectedKeys: string[]; onToggleFollowUp: (selection: FollowUpSelection) => void; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean }) {
+function MentorAnswerText({ text, selectionPrefix, label, model, prompt, selectedKeys, onToggleFollowUp, onAnswerAction, disabled, showWholeAnswerFollowUp = true }: { text: string; selectionPrefix: string; label: string; model: string; prompt: string; selectedKeys: string[]; onToggleFollowUp: (selection: FollowUpSelection) => void; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean; showWholeAnswerFollowUp?: boolean }) {
   const paragraphs = answerParagraphs(text);
+  const answerKey = `${selectionPrefix}:answer`;
+  const answerSelected = selectedKeys.includes(answerKey);
   const selectedExcerpts = paragraphs.filter((_, index) => selectedKeys.includes(`${selectionPrefix}:paragraph:${index}`));
   const selectedCount = selectedExcerpts.length;
   const focus = selectedCount > 0 ? selectedExcerpts : paragraphs;
@@ -106,6 +108,10 @@ function MentorAnswerText({ text, selectionPrefix, label, model, prompt, selecte
       <button type="button" onClick={() => onAnswerAction("plain", actionSelection)}>白話解釋</button>
       <button type="button" onClick={() => onAnswerAction("detailed", actionSelection)}>詳解解析</button>
       <button type="button" className="answer-follow-up-button" onClick={() => onAnswerAction("follow-up", actionSelection)}>延伸追問</button>
+      {showWholeAnswerFollowUp && <label className={`follow-up-check message-follow-up-check ${answerSelected ? "follow-up-selected" : ""}`} title="勾選後，模擬同學會針對這則老師回覆追問">
+        <input type="checkbox" checked={answerSelected} onChange={() => onToggleFollowUp({ key: answerKey, label, model, text, prompt })} />
+        <span>針對這則回覆追問</span>
+      </label>}
     </div>}
   </>;
 }
@@ -117,7 +123,7 @@ function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedK
     <div className="model-comparison-grid">
       {comparison.responses.map((response) => <article className={`model-comparison-response ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`} key={response.id}>
         <div className="model-comparison-response-head"><strong>{response.label}</strong><small>{response.model}</small></div>
-        {response.error ? <p className="model-comparison-error">{response.error}</p> : <MentorAnswerText text={response.text} selectionPrefix={`teacher:${messageIndex}:${response.id}:${response.label}`} label={response.label} model={response.model} prompt={pairedPrompt} selectedKeys={selectedKeys} onToggleFollowUp={onToggleFollowUp} onAnswerAction={onAnswerAction} disabled={thinking} />}
+        {response.error ? <p className="model-comparison-error">{response.error}</p> : <MentorAnswerText text={response.text} selectionPrefix={`teacher:${messageIndex}:${response.id}:${response.label}`} label={response.label} model={response.model} prompt={pairedPrompt} selectedKeys={selectedKeys} onToggleFollowUp={onToggleFollowUp} onAnswerAction={onAnswerAction} disabled={thinking} showWholeAnswerFollowUp={false} />}
         {response.stopReason === "max_tokens" && <small className="model-comparison-truncated">⚠ Claude 回答達到輸出上限，這次內容可能不完整</small>}
         {response.sources.length > 0 && <small className="model-comparison-sources">來源：{response.sources.join("、")}</small>}
         <div className="model-comparison-meta"><span>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms</span><span>US$ {response.usage.estimatedCostUsd.toFixed(5)} · NT$ {(response.usage.estimatedCostUsd * 32.5).toFixed(3)}</span></div>
