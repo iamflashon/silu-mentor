@@ -535,8 +535,9 @@ export function PracticeLab({ initialType }: Props) {
   async function askCoach(
     action: "start" | "coach" | "variation_basic" | "variation_advanced" = "coach",
     suppliedMessage?: CoachMessage,
+    options?: { allowWhileCoaching?: boolean },
   ) {
-    if (!question || coaching || (action === "coach" && !coachInput.trim() && !suppliedMessage))
+    if (!question || (coaching && !options?.allowWhileCoaching) || (action === "coach" && !coachInput.trim() && !suppliedMessage))
       return;
     const studentMessage =
       suppliedMessage ?? (action === "coach"
@@ -630,7 +631,10 @@ export function PracticeLab({ initialType }: Props) {
       const result = (await response.json()) as { reply?: string; error?: string };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "學霸暫時無法接續");
       // 學霸是對話中的右側角色，內容直接進入訊息串流，不放進學生輸入框。
-      setCoachMessages((current) => [...current, { role: "scholar", text: result.reply! }]);
+      const scholarMessage: CoachMessage = { role: "scholar", text: result.reply };
+      setCoachMessages((current) => [...current, scholarMessage]);
+      // 學霸回答完成後，導師立即自動接續，不再要求使用者按第二個按鈕。
+      await askCoach("coach", scholarMessage, { allowWhileCoaching: true });
     } catch (error) {
       setCoachIssue(error instanceof Error ? error.message : "學霸暫時無法接續，請直接回答 AI 導師。");
     } finally {
@@ -1527,7 +1531,7 @@ export function PracticeLab({ initialType }: Props) {
                         </>}
                       </div>
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>你可以直接回答 AI 導師；學霸回答會顯示在右側</span><button type="button" className="scholar-follow-up-button" onClick={() => { const latest = coachMessages[coachMessages.length - 1]; if (latest?.role === "scholar") void askCoach("coach", latest); else void generateScholarFollowUp(); }} disabled={coaching || !coachMessages.length}>{coachMessages[coachMessages.length - 1]?.role === "scholar" ? "讓 AI 導師接續追問" : "讓 AI 學霸回答"}</button></>}
+                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>按下後由 AI 學霸回答；回答完成後 AI 導師會自動接續</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching || !coachMessages.length}>讓 AI 學霸回答</button></>}
                       </div>
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
                     </div>
