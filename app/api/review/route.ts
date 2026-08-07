@@ -5,12 +5,19 @@ import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekMode
 
 type Provider = "luna" | "sonnet" | "deepseek";
 type ParticipantMode = "ai-scholar" | "student-scholar";
-type ReviewStage = "full" | "start" | "submit-answer" | "submit-reply";
+type ArgumentStage = "major-premise" | "minor-premise" | "conclusion";
+type ReviewStage = "full" | "start" | "submit-answer" | "submit-reply" | "next-stage";
 
 const labels: Record<Provider, string> = {
   luna: "Luna",
   sonnet: "Claude Sonnet",
   deepseek: "DeepSeek V4-Pro",
+};
+
+const stageLabels: Record<ArgumentStage, string> = {
+  "major-premise": "第一段大前提",
+  "minor-premise": "第二段小前提",
+  conclusion: "第三段結論",
 };
 
 function readOpenAIText(payload: unknown) {
@@ -117,14 +124,19 @@ async function runDeepSeek(apiKey: string, model: string, instructions: string, 
   return { model, text, durationMs: Date.now() - startedAt, inputTokens: Number(usage?.prompt_tokens ?? 0), outputTokens: Number(usage?.completion_tokens ?? 0), cachedTokens: 0 };
 }
 
-async function runProvider(provider: Provider, prompt: string, speaker: "teacher" | "scholar", stage: "question" | "answer" | "follow-up" | "reply") {
+async function runProvider(provider: Provider, prompt: string, speaker: "teacher" | "scholar", stage: "question" | "answer" | "follow-up" | "reply", argumentStage: ArgumentStage = "major-premise") {
+  const argumentInstruction = argumentStage === "major-premise"
+    ? "目前是第一段大前提：要找出適用的法規、法理、學說或實務判斷標準。"
+    : argumentStage === "minor-premise"
+      ? "目前是第二段小前提：要把題目中的具體事實逐一涵攝到法律要件，不能只重述法條。"
+      : "目前是第三段結論：要把前面的規範與涵攝收束成明確的法律結論與考場寫法。";
   const stageInstruction = stage === "question"
-    ? "你是帶學生拆解司律二試的老師。請先用一句自然的話明確說出『這一回合要處理的單一法律爭點』，再提出一個具體、可直接回答的問題。爭點必須連結題目中的具體事實，例如身分、行為、因果關係或法律效果；不要只說請說明。不要先公布答案，不要一次問兩個問題。"
+    ? `你是帶學生拆解司律二試的老師。${argumentInstruction}請先用一句自然的話明確說出『這一回合要處理的單一法律爭點』，再提出一個具體、可直接回答的問題。爭點必須連結題目中的具體事實，例如身分、行為、因果關係或法律效果；不要只說請說明。不要先公布答案，不要一次問兩個問題。`
     : stage === "answer"
-      ? "你是程度很高但仍要接受追問的法律學霸。請先明確回應老師剛才界定的那一個爭點，再說明規範與題目事實的涵攝，最後指出一個可能被老師挑戰的漏洞。不要換新爭點，也不要寫成完整申論擬答。"
+      ? `你是程度很高但仍要接受追問的法律學霸。${argumentInstruction}請先明確回應老師剛才界定的那一個爭點，再說明規範與題目事實的涵攝，最後指出一個可能被老師挑戰的漏洞。不要換新爭點，也不要寫成完整申論擬答。`
       : stage === "follow-up"
-        ? "你是嚴格的司律閱卷老師。請先指出學霸回答在原本那一個爭點上的具體缺口，再只追問一個最關鍵的漏洞或法律效果問題。不得偷偷換成另一個爭點，也不要直接給標準答案。"
-        : "你是法律學霸。請正面承接原本的同一個爭點，回答老師的追問，修正剛才不足之處，補足法源、要件與個案涵攝，最後用一句自然的話說明考場應如何落筆。";
+        ? `你是嚴格的司律閱卷老師。${argumentInstruction}請先指出學霸回答在原本那一個爭點上的具體缺口，再只追問一個最關鍵的漏洞或法律效果問題。不得偷偷換成另一個爭點，也不要直接給標準答案。`
+        : `你是法律學霸。${argumentInstruction}請正面承接原本的同一個爭點，回答老師的追問，修正剛才不足之處，補足法源、要件與個案涵攝，最後用一句自然的話說明考場應如何落筆。`;
   const instructions = `你是台灣司律二試的法律對話模型，使用繁體中文與中華民國法律語境。${stageInstruction}\n只根據題目與提供的核對資料回答，不得虛構判決、法條內容或老師見解。請保持像老師與學生一來一往的自然對話，不要使用 Markdown 標題、星號、反引號或長篇條列。每一段都要讓讀者看得出目前討論的法律爭點，不要只給抽象定義。${stage === "question" || stage === "follow-up" ? "控制在 90 至 190 字。" : "控制在 170 至 330 字。"}`;
   if (provider === "luna") {
     const key = await getOpenAIKey();
@@ -170,6 +182,7 @@ export async function POST(request: Request) {
       scholarModel?: Provider;
       participantMode?: ParticipantMode;
       stage?: ReviewStage;
+      argumentStage?: ArgumentStage;
       teacherQuestion?: string;
       studentAnswer?: string;
       teacherFollowUp?: string;
@@ -179,6 +192,7 @@ export async function POST(request: Request) {
     const scholarModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.scholarModel)) ? body.scholarModel as Provider : "sonnet";
     const participantMode: ParticipantMode = body.participantMode === "student-scholar" ? "student-scholar" : "ai-scholar";
     const stage: ReviewStage = body.stage ?? "full";
+    const argumentStage: ArgumentStage = body.argumentStage === "minor-premise" || body.argumentStage === "conclusion" ? body.argumentStage : "major-premise";
     const db = await getDb();
     const rows = await db.select().from(examQuestions).where(eq(examQuestions.status, "published")).orderBy(desc(examQuestions.id)).limit(80);
     const question = rows.find((row) => row.id === Number(body.questionId) && row.examType === "essay") ?? rows.find((row) => row.examType === "essay");
@@ -188,9 +202,10 @@ export async function POST(request: Request) {
     if (participantMode === "student-scholar") {
       if (stage === "start") {
         try {
-          const teacherQuestion = await runProvider(teacherModel, context, "teacher", "question");
+          const teacherQuestion = await runProvider(teacherModel, context, "teacher", "question", "major-premise");
           return Response.json({
             question: publicQuestion(question),
+            argumentStage: "major-premise",
             models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", commentator: "gpt-5.6-sol" },
             teacherQuestion,
             scholarAnswer: null,
@@ -213,12 +228,23 @@ export async function POST(request: Request) {
       const studentReply = body.studentReply?.trim() ?? "";
       if (!teacherQuestion) return Response.json({ error: "缺少老師的第一個問題" }, { status: 400 });
 
+      if (stage === "next-stage") {
+        const nextPrompt = `${context}\n\n目前要進入${stageLabels[argumentStage]}。\n\n上一段老師提問：${teacherQuestion}\n上一段學霸回答：${studentAnswer}\n上一段老師追問：${teacherFollowUp}\n上一段學霸回應：${studentReply}\n\n請承接同一個法律爭點，不要重新選題。`;
+        try {
+          const nextTeacherQuestion = await runProvider(teacherModel, nextPrompt, "teacher", "question", argumentStage);
+          return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", commentator: "gpt-5.6-sol" }, teacherQuestion: nextTeacherQuestion, scholarAnswer: null, teacherFollowUp: null, scholarReply: null, teacherError: "", scholarError: "", commentator: null, commentatorError: "", participantMode });
+        } catch (error) {
+          return Response.json({ error: error instanceof Error ? error.message : "下一段老師問題暫時無法產生" }, { status: 502 });
+        }
+      }
+
       if (stage === "submit-answer") {
         if (!studentAnswer) return Response.json({ error: "請先輸入學霸回答" }, { status: 400 });
         try {
-          const followUp = await runProvider(teacherModel, `${context}\n\n【老師先問】\n${teacherQuestion}\n\n【同學扮演學霸的回答】\n${studentAnswer}`, "teacher", "follow-up");
+          const followUp = await runProvider(teacherModel, `${context}\n\n【老師先問】\n${teacherQuestion}\n\n【同學扮演學霸的回答】\n${studentAnswer}`, "teacher", "follow-up", argumentStage);
           return Response.json({
             question: publicQuestion(question),
+            argumentStage,
             models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", commentator: "gpt-5.6-sol" },
             teacherQuestion: { model: labels[teacherModel], text: teacherQuestion },
             scholarAnswer: { model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
@@ -236,11 +262,12 @@ export async function POST(request: Request) {
       }
 
       if (stage === "submit-reply") {
-        if (!studentAnswer || !teacherFollowUp || !studentReply) return Response.json({ error: "缺少完整的兩段學霸回答與老師追問" }, { status: 400 });
+        if (!studentAnswer || !teacherFollowUp || !studentReply) return Response.json({ error: "缺少完整的本段學霸回答與老師追問" }, { status: 400 });
         try {
           const commentator = await runCommentator(context, teacherQuestion, studentAnswer, teacherFollowUp, studentReply);
           return Response.json({
             question: publicQuestion(question),
+            argumentStage,
             models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", commentator: commentator.model },
             teacherQuestion: { model: labels[teacherModel], text: teacherQuestion },
             scholarAnswer: { model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
@@ -265,10 +292,11 @@ export async function POST(request: Request) {
     let teacherError = "";
     let scholarError = "";
     try {
-      teacherQuestion = await runProvider(teacherModel, context, "teacher", "question");
-      scholarAnswer = await runProvider(scholarModel, `${context}\n\n【老師的問題】\n${teacherQuestion.text}`, "scholar", "answer");
-      teacherFollowUp = await runProvider(teacherModel, `${context}\n\n【老師的問題】\n${teacherQuestion.text}\n\n【學霸的回答】\n${scholarAnswer.text}`, "teacher", "follow-up");
-      scholarReply = await runProvider(scholarModel, `${context}\n\n【老師的問題】\n${teacherQuestion.text}\n\n【學霸的回答】\n${scholarAnswer.text}\n\n【老師的追問】\n${teacherFollowUp.text}`, "scholar", "reply");
+      const previous = stage === "next-stage" ? `\n\n前一段對話：\n老師：${body.teacherQuestion ?? ""}\n學霸：${body.studentAnswer ?? ""}\n老師追問：${body.teacherFollowUp ?? ""}\n學霸回應：${body.studentReply ?? ""}\n請承接同一個法律爭點，不要重新選題。` : "";
+      teacherQuestion = await runProvider(teacherModel, `${context}${previous}`, "teacher", "question", argumentStage);
+      scholarAnswer = await runProvider(scholarModel, `${context}${previous}\n\n【老師的問題】\n${teacherQuestion.text}`, "scholar", "answer", argumentStage);
+      teacherFollowUp = await runProvider(teacherModel, `${context}${previous}\n\n【老師的問題】\n${teacherQuestion.text}\n\n【學霸的回答】\n${scholarAnswer.text}`, "teacher", "follow-up", argumentStage);
+      scholarReply = await runProvider(scholarModel, `${context}${previous}\n\n【老師的問題】\n${teacherQuestion.text}\n\n【學霸的回答】\n${scholarAnswer.text}\n\n【老師的追問】\n${teacherFollowUp.text}`, "scholar", "reply", argumentStage);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!teacherQuestion || !teacherFollowUp) teacherError = message;
@@ -276,12 +304,12 @@ export async function POST(request: Request) {
     }
     let commentator = null;
     let commentatorError = "";
-    if (teacherQuestion?.text && scholarAnswer?.text && teacherFollowUp?.text && scholarReply?.text) {
+    if (argumentStage === "conclusion" && teacherQuestion?.text && scholarAnswer?.text && teacherFollowUp?.text && scholarReply?.text) {
       try { commentator = await runCommentator(context, teacherQuestion.text, scholarAnswer.text, teacherFollowUp.text, scholarReply.text); } catch (error) { commentatorError = error instanceof Error ? error.message : "固定點評暫時無法產生"; }
-    } else {
-      commentatorError = "老師與學霸的四句對話尚未完整，固定點評才能開始";
+    } else if (argumentStage === "conclusion") {
+      commentatorError = "老師與學霸的三段對話尚未完整，固定點評才能開始";
     }
-    return Response.json({ question: publicQuestion(question), models: { teacher: labels[teacherModel], scholar: labels[scholarModel], commentator: commentator?.model ?? "gpt-5.6-sol" }, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError, participantMode });
+    return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: labels[scholarModel], commentator: commentator?.model ?? "gpt-5.6-sol" }, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError, participantMode });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "司律評暫時無法開始" }, { status: 500 });
   }

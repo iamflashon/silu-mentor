@@ -6147,6 +6147,21 @@ a {
 .review-argument-bubble footer span { padding: 4px 6px; background: #f0f3f2; color: #7d8b93; font-size: 10px; }
 .review-transition-note { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 14px; color: #8d6e25; font-size: 11px; }
 .review-pulse { width: 8px; height: 8px; border-radius: 50%; background: #b89539; box-shadow: 0 0 0 5px rgba(184, 149, 57, .13); animation: review-live-pulse 1s ease-in-out infinite; }
+.review-stage-transition { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; margin-top: 18px; padding: 16px 18px; border: 1px solid #d9c78e; border-left: 4px solid #b08b32; background: #fffaf0; }
+.review-stage-transition > div { min-width: 0; }
+.review-stage-transition b { color: #6f5720; font-size: 13px; }
+.review-stage-transition p { margin: 5px 0 0; color: #817455; font-size: 11px; line-height: 1.7; }
+.review-stage-transition .review-continue-button { min-height: 44px; white-space: nowrap; }
+.review-stage-transition .review-continue-button:disabled { opacity: .55; cursor: wait; }
+.review-completed-rounds { display: grid; gap: 8px; margin: 0 0 18px; padding: 13px 15px; border: 1px solid #dce3e1; background: #f8faf9; }
+.review-completed-rounds > span { color: #71827d; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.review-completed-rounds details { border: 1px solid #e0e6e4; background: white; }
+.review-completed-rounds summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; color: #49665e; cursor: pointer; list-style: none; font-size: 11px; }
+.review-completed-rounds summary::-webkit-details-marker { display: none; }
+.review-completed-rounds summary small { color: #8b9a96; font-size: 10px; }
+.review-completed-rounds details > div { display: grid; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid #e8edeb; }
+.review-completed-rounds p { margin: 0; color: #60716d; font-size: 12px; line-height: 1.75; white-space: pre-wrap; }
+.review-completed-rounds p strong { display: inline-block; min-width: 58px; margin-right: 6px; color: #8b6c28; font-size: 10px; }
 .review-turn-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; margin-top: 19px; }
 .review-continue-button { display: flex; align-items: center; justify-content: space-between; min-height: 52px; padding: 0 17px; border: 0; background: #0d3156; color: white; cursor: pointer; font-size: 12px; font-weight: 900; }
 .review-continue-button:hover { background: #164a77; }
@@ -6248,6 +6263,8 @@ a {
   .review-section-heading p { text-align: left; }
   .review-conversation-head { align-items: flex-start; }
   .review-focus-note { display: grid; gap: 6px; }
+  .review-stage-transition { grid-template-columns: auto minmax(0, 1fr); }
+  .review-stage-transition .review-continue-button { grid-column: 1 / -1; width: 100%; }
   .review-countdown { width: 68px; height: 68px; }
   .review-countdown b { font-size: 23px; }
   .review-countdown small { margin-top: -19px; }
