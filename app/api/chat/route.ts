@@ -8,11 +8,11 @@ type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: stri
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { storedDocumentAnalysis } from "../../../lib/document-analysis";
-import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
-type ChatModelMode = "luna" | "sonnet" | "dual";
+type ChatModelMode = "luna" | "sonnet" | "deepseek" | "dual";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 type TeachingEvidence = {
@@ -359,6 +359,7 @@ const modelRates: Record<string, { input: number; cached: number; output: number
   "gpt-5.6-luna": { input: 0.10, cached: 0.01, output: 0.60 },
   "gpt-5.6-terra": { input: 1.00, cached: 0.10, output: 6.00 },
   "gpt-5.6-sol": { input: 2.50, cached: 0.25, output: 15.00 },
+  "deepseek-v4-pro": { input: 0.435, cached: 0.003625, output: 0.87 },
 };
 
 function anthropicRates(model: string) {
@@ -581,13 +582,17 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: ChatModelMode; teachingLevel?: TeachingLevel };
-    const modelMode: ChatModelMode = body.modelMode === "dual" ? "dual" : body.modelMode === "sonnet" ? "sonnet" : "luna";
-    const apiKey = modelMode === "sonnet" ? "" : await getOpenAIKey();
-    if (modelMode !== "sonnet" && !apiKey) {
+    const modelMode: ChatModelMode = body.modelMode === "dual" ? "dual" : body.modelMode === "sonnet" ? "sonnet" : body.modelMode === "deepseek" ? "deepseek" : "luna";
+    const apiKey = modelMode === "sonnet" || modelMode === "deepseek" ? "" : await getOpenAIKey();
+    if (modelMode !== "sonnet" && modelMode !== "deepseek" && !apiKey) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
-    const anthropicKey = modelMode === "luna" ? "" : await getAnthropicKey();
-    if (modelMode !== "luna" && !anthropicKey) {
+    const deepSeekKey = modelMode === "deepseek" ? await getDeepSeekKey() : "";
+    if (modelMode === "deepseek" && !deepSeekKey) {
+      return Response.json({ error: "DEEPSEEK_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
+    }
+    const anthropicKey = modelMode === "luna" || modelMode === "deepseek" ? "" : await getAnthropicKey();
+    if (modelMode !== "luna" && modelMode !== "deepseek" && !anthropicKey) {
       return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
@@ -691,6 +696,7 @@ export async function POST(request: Request) {
     // 「Luna」是明確的單模型選擇，不得被環境變數或問題長度偷偷切換
     // 成 Terra／Sol；只有使用者選擇雙模型比較時，才另外呼叫 Claude。
     const selectedModel = await getOpenAIModel("gpt-5.6-luna");
+    const deepSeekModel = await getDeepSeekModel("deepseek-v4-pro");
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
       name: "save_study_plan",
@@ -744,11 +750,34 @@ export async function POST(request: Request) {
     // A verified local chapter is already scoped to the selected resource and
     // segment. Do not add the global vector store in that case: an unscoped
     // file_search result could silently teach from another book or chapter.
-    const allowFileSearch = Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
+    const allowFileSearch = modelMode !== "deepseek" && Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
     if (allowFileSearch) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
     let payload: unknown = {};
     let openAiDurationMs = 0;
-    if (modelMode !== "sonnet") {
+    let deepSeekRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number } | null = null;
+    if (modelMode === "deepseek") {
+      const startedAt = Date.now();
+      const response = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${deepSeekKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          model: deepSeekModel,
+          messages: [{ role: "system", content: instructions }, ...modelMessages.map((message) => ({ role: message.role === "mentor" ? "assistant" : "user", content: message.text }))],
+          thinking: { type: "enabled" },
+          max_tokens: 4000,
+        }),
+      });
+      payload = await response.json();
+      if (!response.ok) return Response.json({ error: "DeepSeek V4-Pro 暫時無法回應" }, { status: 502 });
+      const deepPayload = payload as { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+      deepSeekRun = {
+        model: deepPayload.model || deepSeekModel,
+        reply: deepPayload.choices?.[0]?.message?.content?.trim() || "",
+        inputTokens: Number(deepPayload.usage?.prompt_tokens ?? 0),
+        outputTokens: Number(deepPayload.usage?.completion_tokens ?? 0),
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    } else if (modelMode !== "sonnet") {
       const openAiStartedAt = Date.now();
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -777,7 +806,7 @@ export async function POST(request: Request) {
       }
       openAiDurationMs = Math.max(0, Date.now() - openAiStartedAt);
     }
-    let reply = extractText(payload);
+    let reply = deepSeekRun?.reply || extractText(payload);
     const planCall = readPlanCall(payload);
     const deleteCall = readDeleteCall(payload);
     let planSaved = false;
@@ -803,15 +832,15 @@ export async function POST(request: Request) {
       } catch { /* keep the conversation available */ }
     }
 
-    const searchedFiles = usedFileSearch(payload);
+    const searchedFiles = modelMode !== "deepseek" && usedFileSearch(payload);
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
     const sharedRetrievalContext = searchedFiles ? extractFileSearchContext(payload) : "";
-    const comparisonClaudeModel = modelMode !== "luna" ? await getAnthropicChatModel("claude-sonnet-5") : "";
+    const comparisonClaudeModel = modelMode === "sonnet" || modelMode === "dual" ? await getAnthropicChatModel("claude-sonnet-5") : "";
     let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number; stopReason: string | null } | null = null;
     let claudeError = "";
-    if (modelMode !== "luna") {
+    if (modelMode === "sonnet" || modelMode === "dual") {
       try {
         claudeRun = await runAnthropicTutor(
           anthropicKey,
@@ -873,8 +902,9 @@ export async function POST(request: Request) {
     const citationStatus = context.type === "book"
       ? effectiveTeachingEvidence?.status ?? "unavailable"
       : searchedFiles && sources.length ? "full_text_search" : "unavailable";
-    const usage = readUsage(payload);
-    const rates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
+    const usage = deepSeekRun ? { inputTokens: deepSeekRun.inputTokens, cachedTokens: 0, outputTokens: deepSeekRun.outputTokens } : readUsage(payload);
+    const billedModel = deepSeekRun?.model ?? selectedModel;
+    const rates = modelRates[billedModel] ?? (/deepseek-v4-pro/i.test(billedModel) ? modelRates["deepseek-v4-pro"] : modelRates["gpt-5.6-luna"]);
     const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens);
     const tokenCost = (nonCachedInput * rates.input + usage.cachedTokens * rates.cached + usage.outputTokens * rates.output) / 1_000_000;
     const fileSearchCost = searchedFiles ? 0.0025 : 0;
@@ -883,11 +913,11 @@ export async function POST(request: Request) {
     const claudeCostUsd = claudeRun
       ? (claudeRun.inputTokens * claudePricing.input + claudeRun.outputTokens * claudePricing.output) / 1_000_000
       : 0;
-    const primaryModel = modelMode === "sonnet" ? (claudeRun?.model || comparisonClaudeModel) : selectedModel;
+    const primaryModel = modelMode === "sonnet" ? (claudeRun?.model || comparisonClaudeModel) : billedModel;
     const primaryUsage = modelMode === "sonnet"
       ? { inputTokens: claudeRun?.inputTokens ?? 0, cachedTokens: 0, outputTokens: claudeRun?.outputTokens ?? 0 }
       : usage;
-    const primaryDurationMs = modelMode === "sonnet" ? claudeRun?.durationMs ?? 0 : openAiDurationMs;
+    const primaryDurationMs = modelMode === "sonnet" ? claudeRun?.durationMs ?? 0 : deepSeekRun?.durationMs ?? openAiDurationMs;
     const primaryEstimatedCostUsd = modelMode === "sonnet" ? claudeCostUsd : estimatedCostUsd;
     let comparison: Record<string, unknown> | null = null;
     try {

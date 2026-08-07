@@ -25,6 +25,14 @@ export async function getAnthropicKey() {
   return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
 }
 
+export async function getDeepSeekKey() {
+  const configured = process.env.DEEPSEEK_API_KEY;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeKey = env.DEEPSEEK_API_KEY;
+  return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
+}
+
 export async function getOpenAIModel(fallback = "gpt-5.6-luna") {
   const configured = process.env.OPENAI_MODEL;
   if (configured?.trim()) return configured.trim();
@@ -80,6 +88,14 @@ export async function getAnthropicChatModel(fallback = "claude-sonnet-5") {
   if (configured?.trim()) return configured.trim();
   const env = await runtimeEnv();
   const runtimeModel = env.ANTHROPIC_CHAT_MODEL || env.ANTHROPIC_MODEL;
+  return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
+}
+
+export async function getDeepSeekModel(fallback = "deepseek-v4-pro") {
+  const configured = process.env.DEEPSEEK_MODEL;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeModel = env.DEEPSEEK_MODEL;
   return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
 }
 
