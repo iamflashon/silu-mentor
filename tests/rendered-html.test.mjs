@@ -54,6 +54,9 @@ test("teaching verdict uses the independent Sol judge", async () => {
 
   assert.match(route, /getTeachingJudgeOpenAIModel\("gpt-5\.6-sol"\)/);
   assert.match(route, /runOpenAI\(openAiKey, judgeModel,/);
+  assert.match(route, /output_text\?: unknown/);
+  assert.match(route, /judgeInput, 1800, judgeSchema/);
+  assert.match(route, /輸出在 JSON 完成前達到上限/);
   assert.match(models, /OPENAI_TEACHING_JUDGE_MODEL/);
   assert.match(page, /Sol 審判長評比/);
 });
