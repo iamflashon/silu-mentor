@@ -6,7 +6,7 @@ import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekMode
 type Provider = "luna" | "sonnet" | "deepseek";
 type ParticipantMode = "ai-scholar" | "student-scholar";
 type ArgumentStage = "major-premise" | "minor-premise" | "conclusion";
-type ReviewStage = "full" | "start" | "submit-answer" | "submit-reply" | "next-stage";
+type ReviewStage = "full" | "start" | "submit-answer" | "submit-reply" | "next-stage" | "grade-answer";
 type ModelRun = { model: string; provider?: string; text: string; durationMs: number; inputTokens: number; outputTokens: number; cachedTokens: number };
 
 const labels: Record<Provider, string> = {
@@ -77,7 +77,7 @@ function questionContext(question: typeof examQuestions.$inferSelect) {
 }
 
 function publicQuestion(question: typeof examQuestions.$inferSelect) {
-  return { id: question.id, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource ?? "" };
+  return { id: question.id, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), teacherAnswer: question.teacherAnswer?.trim() ?? "", answerSource: question.answerSource ?? "" };
 }
 
 async function runOpenAI(apiKey: string, model: string, instructions: string, input: string) {
@@ -166,6 +166,31 @@ async function runCommentator(question: string, teacherQuestion: string, scholar
   return runOpenAI(key, await getTeachingJudgeOpenAIModel("gpt-5.6-sol"), comparison, input);
 }
 
+async function runSuggestedAnswer(question: string, dialogue: string) {
+  const key = await getOpenAIKey();
+  if (!key) throw new Error("AI 建議擬答需要 OPENAI_API_KEY");
+  const instructions = "你是台灣司律二試的資深閱卷老師。請根據題目、老師參考擬答與本次三段論法對話，整理一份獨立的 AI 建議擬答。不得宣稱是唯一標準答案，也不得虛構法條或判決。必須以大前提、小前提、結論形成完整法律論證，指出題目事實的涵攝，並使用繁體中文。不要使用 Markdown 標題、星號或反引號；控制在 900 字內。";
+  return runOpenAI(key, await getTeachingJudgeOpenAIModel("gpt-5.6-sol"), instructions, `${question}\n\n【本次三段論法對話】\n${dialogue}`);
+}
+
+async function runStudentGrader(question: string, teacherAnswer: string, aiAnswer: string, studentAnswer: string) {
+  const key = await getOpenAIKey();
+  if (!key) throw new Error("AI 批改需要 OPENAI_API_KEY");
+  const instructions = "你是台灣司律二試申論批改老師。請只針對學生實際送出的答案進行批改，不得補造學生沒有寫的內容，也不得在模型失敗時提供固定評語。請依序評估：一、爭點辨識；二、大前提規範；三、小前提事實涵攝；四、結論與法律效果；五、文字與答題結構。明確指出漏寫、寫錯、論證跳躍與可直接修改的句子，最後給出 100 分制參考分數與一份重寫方向。老師擬答是參考依據，AI 擬答只是比較材料，不得把任一者宣稱為唯一標準答案。使用繁體中文，不要使用 Markdown 標題、星號或反引號，控制在 1100 字內。";
+  const input = `【題目】\n${question}\n\n【老師擬答】\n${teacherAnswer || "目前沒有可供核對的老師擬答。"}\n\n【AI 建議擬答】\n${aiAnswer || "目前沒有可供核對的 AI 建議擬答。"}\n\n【學生實際作答】\n${studentAnswer}`;
+  return runOpenAI(key, await getTeachingJudgeOpenAIModel("gpt-5.6-sol"), instructions, input);
+}
+
+function dialogueText(rounds: unknown, current: { teacherQuestion?: string; scholarAnswer?: string; teacherFollowUp?: string; scholarReply?: string }) {
+  const previous = Array.isArray(rounds) ? rounds.map((round) => {
+    if (!round || typeof round !== "object") return "";
+    const item = round as Record<string, unknown>;
+    return `【${String(item.argumentStage ?? "前段")}】\n老師：${String(item.teacherQuestion ?? "")}\n學霸：${String(item.scholarAnswer ?? "")}\n老師追問：${String(item.teacherFollowUp ?? "")}\n學霸修正：${String(item.scholarReply ?? "")}`;
+  }).filter(Boolean).join("\n\n") : "";
+  const currentText = `【目前段落】\n老師：${current.teacherQuestion ?? ""}\n學霸：${current.scholarAnswer ?? ""}\n老師追問：${current.teacherFollowUp ?? ""}\n學霸修正：${current.scholarReply ?? ""}`;
+  return [previous, currentText].filter(Boolean).join("\n\n");
+}
+
 async function runScholarModels(models: Provider[], prompt: string, argumentStage: ArgumentStage) {
   const settled = await Promise.allSettled(models.map((model) => runProvider(model, prompt, "scholar", "answer", argumentStage)));
   const answers: ModelRun[] = [];
@@ -198,7 +223,7 @@ export async function GET(request: Request) {
     const db = await getDb();
     const selectedId = Number(new URL(request.url).searchParams.get("id"));
     const rows = await db.select().from(examQuestions).where(eq(examQuestions.status, "published")).orderBy(desc(examQuestions.id)).limit(80);
-    const essays = rows.filter((row) => row.examType === "essay").map((row) => ({ id: row.id, year: row.year, subject: row.subject, questionNumber: row.questionNumber, stem: row.stem, hasTeacherAnswer: Boolean(row.teacherAnswer?.trim()), answerSource: row.answerSource ?? "" }));
+    const essays = rows.filter((row) => row.examType === "essay").map((row) => publicQuestion(row));
     const question = essays.find((row) => row.id === selectedId) ?? essays[0] ?? null;
     return Response.json({ questions: essays, question });
   } catch (error) {
@@ -222,6 +247,9 @@ export async function POST(request: Request) {
       scholarModels?: Provider[];
       scholarAnswers?: Array<{ model?: string; text?: string }>;
       scholarReplies?: Array<{ model?: string; text?: string }>;
+      completedRounds?: Array<{ argumentStage?: string; teacherQuestion?: string; scholarAnswer?: string; teacherFollowUp?: string; scholarReply?: string }>;
+      aiSuggestedAnswer?: string;
+      studentAnswerForGrading?: string;
     };
     const teacherModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.teacherModel)) ? body.teacherModel as Provider : "luna";
     const scholarModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.scholarModel)) ? body.scholarModel as Provider : "sonnet";
@@ -239,6 +267,17 @@ export async function POST(request: Request) {
     const question = rows.find((row) => row.id === Number(body.questionId) && row.examType === "essay") ?? rows.find((row) => row.examType === "essay");
     if (!question) return Response.json({ error: "目前沒有已發布的二試申論題" }, { status: 404 });
     const context = questionContext(question);
+
+    if (stage === "grade-answer") {
+      const studentAnswerForGrading = body.studentAnswerForGrading?.trim() ?? "";
+      if (!studentAnswerForGrading) return Response.json({ error: "請先輸入要批改的申論答案" }, { status: 400 });
+      try {
+        const studentGrade = await runStudentGrader(context, question.teacherAnswer?.trim() ?? "", body.aiSuggestedAnswer?.trim() ?? "", studentAnswerForGrading);
+        return Response.json({ studentGrade, question: publicQuestion(question) });
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : "AI 批改暫時無法產生" }, { status: 502 });
+      }
+    }
 
     if (participantMode === "student-scholar") {
       if (stage === "start") {
@@ -307,7 +346,16 @@ export async function POST(request: Request) {
       if (stage === "submit-reply") {
         if (!studentAnswer || !teacherFollowUp || !studentReply) return Response.json({ error: "缺少完整的本段學霸回答與老師追問" }, { status: 400 });
         try {
-          const commentator = await runCommentator(context, teacherQuestion, [{ model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }], teacherFollowUp, [{ model: "student", text: studentReply, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }]);
+          const studentRun = { model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+          const replyRun = { model: "student", text: studentReply, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+          const commentator = await runCommentator(context, teacherQuestion, [studentRun], teacherFollowUp, [replyRun]);
+          let aiSuggestedAnswer = null;
+          let aiSuggestedError = "";
+          try {
+            aiSuggestedAnswer = await runSuggestedAnswer(context, dialogueText(body.completedRounds, { teacherQuestion, scholarAnswer: studentAnswer, teacherFollowUp, scholarReply: studentReply }));
+          } catch (error) {
+            aiSuggestedError = error instanceof Error ? error.message : "AI 建議擬答暫時無法產生";
+          }
           return Response.json({
             question: publicQuestion(question),
             argumentStage,
@@ -321,6 +369,7 @@ export async function POST(request: Request) {
             scholarError: "",
             commentator,
             commentatorError: "",
+            answerPack: { teacherAnswer: question.teacherAnswer?.trim() ?? "", answerSource: question.answerSource ?? "", aiSuggestedAnswer, aiSuggestedError },
             participantMode,
           });
         } catch (error) {
@@ -360,12 +409,21 @@ export async function POST(request: Request) {
     }
     let commentator = null;
     let commentatorError = "";
+    let answerPack: { teacherAnswer: string; answerSource: string; aiSuggestedAnswer: ModelRun | null; aiSuggestedError: string } | undefined;
     if (argumentStage === "conclusion" && teacherQuestion?.text && scholarAnswers.length && teacherFollowUp?.text && scholarReplies.length) {
       try { commentator = await runCommentator(context, teacherQuestion.text, scholarAnswers, teacherFollowUp.text, scholarReplies); } catch (error) { commentatorError = error instanceof Error ? error.message : "固定點評暫時無法產生"; }
+      let aiSuggestedAnswer: ModelRun | null = null;
+      let aiSuggestedError = "";
+      try {
+        aiSuggestedAnswer = await runSuggestedAnswer(context, dialogueText(body.completedRounds, { teacherQuestion: teacherQuestion.text, scholarAnswer: scholarAnswer?.text, teacherFollowUp: teacherFollowUp.text, scholarReply: scholarReply?.text }));
+      } catch (error) {
+        aiSuggestedError = error instanceof Error ? error.message : "AI 建議擬答暫時無法產生";
+      }
+      answerPack = { teacherAnswer: question.teacherAnswer?.trim() ?? "", answerSource: question.answerSource ?? "", aiSuggestedAnswer, aiSuggestedError };
     } else if (argumentStage === "conclusion") {
       commentatorError = "老師與學霸的三段對話尚未完整，固定點評才能開始";
     }
-    return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: labels[scholarModels[0]], scholarModels: scholarModels.map((model) => labels[model]), scholarProviders: scholarModels, commentator: commentator?.model ?? "gpt-5.6-sol" }, scholarModels, scholarAnswers, scholarReplies, scholarErrors, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError, participantMode });
+    return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: labels[scholarModels[0]], scholarModels: scholarModels.map((model) => labels[model]), scholarProviders: scholarModels, commentator: commentator?.model ?? "gpt-5.6-sol" }, scholarModels, scholarAnswers, scholarReplies, scholarErrors, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError, answerPack, participantMode });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "司律評暫時無法開始" }, { status: 500 });
   }

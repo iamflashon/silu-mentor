@@ -3458,6 +3458,55 @@ a {
   }
 }
 
+/* Answer loop shown only after the three-part dialogue is complete. */
+.review-answer-lab { margin-top: 28px; padding: 25px 26px 27px; border: 1px solid #d9dfe0; border-top: 4px solid #b08b32; background: #fbfcfa; }
+.review-answer-lab-head { display: flex; align-items: end; justify-content: space-between; gap: 22px; padding-bottom: 18px; border-bottom: 1px solid #e5e8e5; }
+.review-answer-lab-head > div > span, .review-student-essay-head span { color: #9a7b2e; font-size: 10px; font-weight: 900; letter-spacing: .18em; }
+.review-answer-lab-head h3 { margin: 7px 0 0; color: #1d3a53; font-family: Georgia, "Noto Serif TC", serif; font-size: 23px; font-weight: 500; }
+.review-answer-lab-head p { max-width: 390px; margin: 0; color: #71818c; font-size: 11px; line-height: 1.8; }
+.review-answer-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.review-answer-card { border: 1px solid #d6dfdf; background: #fff; }
+.review-answer-card.teacher { border-top: 3px solid #8b6b28; }
+.review-answer-card.ai { border-top: 3px solid #376879; }
+.review-answer-card summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; color: #2d465a; cursor: pointer; font-size: 13px; font-weight: 900; list-style: none; }
+.review-answer-card summary::-webkit-details-marker { display: none; }
+.review-answer-card summary::after { content: "⌄"; color: #9b7b31; font-size: 15px; }
+.review-answer-card:not([open]) summary::after { content: "›"; }
+.review-answer-card summary small { margin-left: auto; color: #8a9ca0; font-size: 10px; font-weight: 500; }
+.review-answer-card > div { padding: 0 16px 17px; }
+.review-answer-card p { margin: 0; color: #485c68; font-size: 13px; line-height: 2; white-space: pre-wrap; }
+.review-answer-empty { color: #9a8c72 !important; }
+.review-student-essay { margin-top: 18px; padding: 19px; border: 1px solid #e0cccc; border-left: 4px solid #a23b3b; background: #fffafa; }
+.review-student-essay-head { display: flex; align-items: end; justify-content: space-between; gap: 15px; }
+.review-student-essay-head h4 { margin: 5px 0 0; color: #783737; font-family: Georgia, "Noto Serif TC", serif; font-size: 18px; font-weight: 500; }
+.review-student-essay-head small { color: #a27a7a; font-size: 10px; }
+.review-student-essay textarea { display: block; width: 100%; min-height: 190px; margin-top: 15px; padding: 14px; resize: vertical; border: 1px solid #ddc6c6; background: #fff; color: #455866; font: inherit; font-size: 14px; line-height: 1.9; outline: none; }
+.review-student-essay textarea:focus { border-color: #a23b3b; box-shadow: 0 0 0 3px rgba(162, 59, 59, .09); }
+.review-student-essay-actions { display: flex; align-items: center; gap: 13px; margin-top: 12px; }
+.review-student-essay-actions button { min-height: 42px; padding: 0 15px; border: 0; background: #8d3030; color: #fff; cursor: pointer; font-size: 11px; font-weight: 900; }
+.review-student-essay-actions button:disabled { cursor: wait; opacity: .55; }
+.review-student-essay-actions button span { margin-left: 10px; }
+.review-student-essay-actions small { color: #9b7e7e; font-size: 10px; line-height: 1.6; }
+.review-answer-error { margin: 12px 0 0; color: #a23b3b; font-size: 11px; }
+.review-grade-card { margin-top: 18px; padding: 19px 20px; border: 1px solid #c8d8da; border-top: 4px solid #376879; background: #f6fbfa; }
+.review-grade-head { display: flex; align-items: center; gap: 11px; padding-bottom: 12px; border-bottom: 1px solid #dce8e8; }
+.review-grade-head > div { display: grid; gap: 3px; }
+.review-grade-head b { color: #376879; font-size: 10px; }
+.review-grade-head strong { color: #234d59; font-size: 15px; font-weight: 800; }
+.review-grade-head small { margin-left: auto; color: #789397; font-size: 10px; }
+.review-grade-card > p { margin: 15px 0 0; color: #3f5a61; font-size: 13px; line-height: 2; white-space: pre-wrap; }
+@media (max-width: 720px) {
+  .review-answer-lab { padding: 20px 16px 22px; }
+  .review-answer-lab-head, .review-student-essay-head { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .review-answer-columns { grid-template-columns: 1fr; }
+  .review-answer-card summary { align-items: flex-start; flex-wrap: wrap; }
+  .review-answer-card summary small { width: 100%; margin-left: 0; }
+  .review-student-essay-actions { align-items: stretch; flex-direction: column; }
+  .review-student-essay-actions button { width: 100%; }
+  .review-grade-head { align-items: flex-start; flex-wrap: wrap; }
+  .review-grade-head small { width: 100%; margin-left: 0; }
+}
+
 .resource-learning-hub {
   width: min(100%, 1240px);
   margin: 0 auto;
