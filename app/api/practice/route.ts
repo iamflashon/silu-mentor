@@ -12,12 +12,14 @@ export async function GET(request: Request) {
     const subject = (url.searchParams.get("subject") ?? "").trim();
     const year = (url.searchParams.get("year") ?? "").trim();
     const law = (url.searchParams.get("law") ?? "").trim();
+    const questionId = Number(url.searchParams.get("questionId") ?? "");
     const excludeAnswered = url.searchParams.get("excludeAnswered") === "1";
     const db = await getDb();
     const baseFilters = [eq(examQuestions.status, "published"), eq(examQuestions.examType, examType)];
     if (subject) baseFilters.push(eq(examQuestions.subject, subject));
     if (year) baseFilters.push(eq(examQuestions.year, year));
     if (law) baseFilters.push(sql`${examQuestions.stem} like ${`%${law}%`}`);
+    if (Number.isInteger(questionId) && questionId > 0) baseFilters.push(eq(examQuestions.id, questionId));
     if (excludeAnswered) {
       const attempted = await db.selectDistinct({ questionId: examAttempts.questionId }).from(examAttempts).where(eq(examAttempts.userKey, userKey(request)));
       if (attempted.length) baseFilters.push(notInArray(examQuestions.id, attempted.map((row) => row.questionId)));
@@ -36,6 +38,18 @@ export async function GET(request: Request) {
       }
       const frequentLaws = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([title, count]) => ({ title, count }));
       return Response.json({ years: years.map((row) => row.value).filter(Boolean), subjects: subjects.map((row) => row.value).filter(Boolean), frequentLaws });
+    }
+    if (url.searchParams.get("list") === "1") {
+      const rows = await db.select({
+        id: examQuestions.id,
+        year: examQuestions.year,
+        subject: examQuestions.subject,
+        questionNumber: examQuestions.questionNumber,
+        stem: examQuestions.stem,
+        hasTeacherAnswer: examQuestions.teacherAnswer,
+        answerSource: examQuestions.answerSource,
+      }).from(examQuestions).where(where).orderBy(sql`${examQuestions.year} desc`, examQuestions.subject, examQuestions.questionNumber).limit(500);
+      return Response.json({ questions: rows.map((row) => ({ ...row, hasTeacherAnswer: Boolean(row.hasTeacherAnswer?.trim()) })) });
     }
     const [question] = await db.select().from(examQuestions).where(where).orderBy(sql`random()`).limit(1);
     if (!question) {

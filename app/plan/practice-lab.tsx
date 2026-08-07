@@ -16,6 +16,8 @@ type PracticeQuestion = {
   answerStatus?: string;
 };
 
+type EssayQuestionOption = Pick<PracticeQuestion, "id" | "year" | "subject" | "questionNumber" | "stem" | "hasTeacherAnswer" | "answerSource">;
+
 type EssayGrading = {
   score: number;
   overall: string;
@@ -280,6 +282,12 @@ export function PracticeLab({ initialType }: Props) {
   const [excludeAnswered, setExcludeAnswered] = useState(true);
   const [selectedLaw, setSelectedLaw] = useState("");
   const [essayMode, setEssayMode] = useState<EssayMode>("guided");
+  const [essayQuestionCatalog, setEssayQuestionCatalog] = useState<EssayQuestionOption[]>([]);
+  const [essayPickerYear, setEssayPickerYear] = useState("");
+  const [essayPickerSubject, setEssayPickerSubject] = useState("");
+  const [essayPickerId, setEssayPickerId] = useState("");
+  const [essayPickerOpen, setEssayPickerOpen] = useState(true);
+  const [essayPickerLoading, setEssayPickerLoading] = useState(false);
   const [examStarted, setExamStarted] = useState(false);
   const [examSubmitted, setExamSubmitted] = useState(false);
   const [examMinutes, setExamMinutes] = useState(90);
@@ -294,6 +302,10 @@ export function PracticeLab({ initialType }: Props) {
   );
   const clockText = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const essayPages = Math.max(1, Math.ceil(essay.length / 650));
+  const essayPickerYears = [...new Set(essayQuestionCatalog.map((item) => item.year).filter(Boolean))];
+  const essayPickerSubjects = [...new Set(essayQuestionCatalog.filter((item) => !essayPickerYear || item.year === essayPickerYear).map((item) => item.subject).filter(Boolean))];
+  const essayPickerQuestions = essayQuestionCatalog.filter((item) => (!essayPickerYear || item.year === essayPickerYear) && (!essayPickerSubject || item.subject === essayPickerSubject));
+  const selectedEssayOption = essayQuestionCatalog.find((item) => String(item.id) === essayPickerId) ?? null;
 
   useEffect(() => {
     try {
@@ -384,6 +396,7 @@ export function PracticeLab({ initialType }: Props) {
       subject?: string;
       law?: string;
       excludeAnswered?: boolean;
+      questionId?: number;
     },
   ) {
     setLoading(true);
@@ -414,6 +427,7 @@ export function PracticeLab({ initialType }: Props) {
       if (filters?.subject) params.set("subject", filters.subject);
       if (filters?.law) params.set("law", filters.law);
       if (filters?.excludeAnswered) params.set("excludeAnswered", "1");
+      if (filters?.questionId) params.set("questionId", String(filters.questionId));
       const response = await fetch(`/api/practice?${params}`);
       const result = (await response.json()) as {
         question?: PracticeQuestion | null;
@@ -432,7 +446,16 @@ export function PracticeLab({ initialType }: Props) {
 
   useEffect(() => {
     setExamType(initialType);
-    void loadQuestion(initialType);
+    if (initialType === "essay") {
+      setQuestion(null);
+      setEssayPickerOpen(true);
+      setCoachMessages([]);
+      setCoachStarted(false);
+      setCoachProgress(defaultCoachProgress(0));
+      setFeedback("");
+    } else {
+      void loadQuestion(initialType);
+    }
     // The gateway intentionally loads the selected exam type immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialType]);
@@ -443,6 +466,19 @@ export function PracticeLab({ initialType }: Props) {
         if (response.ok) setFacets((await response.json()) as PracticeFacets);
       })
       .catch(() => undefined);
+  }, [examType]);
+
+  useEffect(() => {
+    if (examType !== "essay") return;
+    setEssayPickerLoading(true);
+    fetch("/api/practice?type=essay&list=1")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as { questions?: EssayQuestionOption[] };
+        setEssayQuestionCatalog(result.questions ?? []);
+      })
+      .catch(() => setEssayQuestionCatalog([]))
+      .finally(() => setEssayPickerLoading(false));
   }, [examType]);
 
   useEffect(() => {
@@ -510,6 +546,33 @@ export function PracticeLab({ initialType }: Props) {
   function chooseMode(mode: PracticeMode) {
     setPracticeMode(mode);
     setFeedback("");
+  }
+
+  function clearEssayQuestion() {
+    setQuestion(null);
+    setEssay("");
+    setCoachInput("");
+    setCoachMessages([]);
+    setCoachGap("");
+    setCoachIssue("");
+    setCoachRecommendations([]);
+    setCoachComparisons([]);
+    setCoachStarted(false);
+    setCoachProgress(defaultCoachProgress(0));
+    setExamStarted(false);
+    setExamSubmitted(false);
+    setFeedback("");
+  }
+
+  function chooseEssayQuestion(questionId: number) {
+    setEssayPickerId(String(questionId));
+    setEssayPickerOpen(false);
+    void loadQuestion("essay", { questionId });
+  }
+
+  function reopenEssayPicker() {
+    setEssayPickerOpen(true);
+    setExamStarted(false);
   }
 
   function startCustomPractice() {
@@ -1020,7 +1083,8 @@ export function PracticeLab({ initialType }: Props) {
             onClick={() => {
               setExamType("essay");
               setEssaySubPage("question");
-              void loadQuestion("essay");
+              clearEssayQuestion();
+              setEssayPickerOpen(true);
             }}
           >
             二試申論題
@@ -1190,6 +1254,7 @@ export function PracticeLab({ initialType }: Props) {
               onClick={() => {
                 setEssayMode("guided");
                 setExamStarted(false);
+                setEssayPickerOpen(!question);
               }}
             >
               <span>GUIDED PRACTICE</span>
@@ -1200,7 +1265,7 @@ export function PracticeLab({ initialType }: Props) {
             <button
               type="button"
               className={essayMode === "exam" ? "active exam" : "exam"}
-              onClick={() => setEssayMode("exam")}
+              onClick={() => { setEssayMode("exam"); setEssayPickerOpen(!question); }}
             >
               <span>MOCK EXAM</span>
               <strong>擬真考試</strong>
@@ -1208,6 +1273,25 @@ export function PracticeLab({ initialType }: Props) {
               <em>適合整題實戰測驗</em>
             </button>
           </div>
+          <section className={`essay-question-picker ${essayPickerOpen || !question ? "is-open" : ""}`} aria-label="選擇二試申論題">
+            <header>
+              <div>
+                <b>先挑一題，再開始練習</b>
+                <span>請依「年度 → 類科 → 題目」選擇，不會由系統自動出題。</span>
+              </div>
+              {!essayPickerOpen && question && <button type="button" onClick={reopenEssayPicker}>重新挑題</button>}
+            </header>
+            {(essayPickerOpen || !question) && <>
+              <div className="essay-question-picker-fields">
+                <label><span>年度</span><select value={essayPickerYear} onChange={(event) => { setEssayPickerYear(event.target.value); setEssayPickerSubject(""); setEssayPickerId(""); }} disabled={essayPickerLoading}><option value="">選擇年度</option>{essayPickerYears.map((year) => <option key={year} value={year}>{year} 年</option>)}</select></label>
+                <label><span>類科</span><select value={essayPickerSubject} onChange={(event) => { setEssayPickerSubject(event.target.value); setEssayPickerId(""); }} disabled={!essayPickerYear || essayPickerLoading}><option value="">選擇類科</option>{essayPickerSubjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
+                <label><span>題目</span><select value={essayPickerId} onChange={(event) => setEssayPickerId(event.target.value)} disabled={!essayPickerSubject || essayPickerLoading}><option value="">選擇題目</option>{essayPickerQuestions.map((item) => <option key={item.id} value={item.id}>第 {item.questionNumber} 題</option>)}</select></label>
+              </div>
+              {essayPickerLoading && <p className="essay-question-picker-status">正在讀取已發布的二試題目…</p>}
+              {!essayPickerLoading && essayPickerYear && essayPickerSubject && !essayPickerQuestions.length && <p className="essay-question-picker-status">這個年度與類科目前沒有可選題目。</p>}
+              {selectedEssayOption && String(selectedEssayOption.id) === essayPickerId && <div className="essay-question-picker-preview"><div><b>{selectedEssayOption.year} 年｜{selectedEssayOption.subject}｜第 {selectedEssayOption.questionNumber} 題</b><p>{selectedEssayOption.stem.slice(0, 180)}{selectedEssayOption.stem.length > 180 ? "…" : ""}</p></div><button type="button" className="essay-question-picker-confirm" onClick={() => chooseEssayQuestion(selectedEssayOption.id)}>{essayMode === "exam" ? "使用這一題，進入擬真考試" : "使用這一題，開始引導"}</button></div>}
+            </>}
+          </section>
           {essayMode === "exam" && !examStarted && (
             <div className="mock-exam-setup">
               <label>
@@ -1313,9 +1397,8 @@ export function PracticeLab({ initialType }: Props) {
               ? "考試中不提供提示，交卷後才會批改。"
               : "先寫出你的審題與答題骨架，再讓 AI 帶你修正。"}
         </span>
-        {!(essayMode === "exam" && examStarted) && (
-          <button onClick={() => void loadQuestion()}>換一題</button>
-        )}
+        {examType === "mcq" && <button onClick={() => void loadQuestion()}>換一題</button>}
+        {examType === "essay" && question && !(essayMode === "exam" && examStarted) && <button onClick={reopenEssayPicker}>重新挑題</button>}
       </div>
       {examType === "essay" &&
         essayMode === "exam" &&
@@ -1528,7 +1611,7 @@ export function PracticeLab({ initialType }: Props) {
                 <header className="essay-chat-heading">
                   <div>
                     <span>AI 申論導師｜{coachProgress.current}</span>
-                    <h3>{coachStarted ? "像在首頁一樣，一問一答把這題解出來" : "先選好 AI 角色，再開始這題的自然對話"}</h3>
+                    <h3>{coachStarted ? "AI 導師陪你把這題拆解出來" : "先選好 AI 角色，再開始這題的自然對話"}</h3>
                     <p>你先回答，AI 再依你的程度追問、提示與修正；每完成一段會自動接續下一段，不會只停在列出爭點。</p>
                   </div>
                 </header>
