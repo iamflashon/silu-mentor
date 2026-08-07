@@ -4,6 +4,8 @@ import { examQuestions } from "../../../db/schema";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel } from "../../../lib/openai";
 
 type Provider = "luna" | "sonnet" | "deepseek";
+type ParticipantMode = "ai-scholar" | "student-scholar";
+type ReviewStage = "full" | "start" | "submit-answer" | "submit-reply";
 
 const labels: Record<Provider, string> = {
   luna: "Luna",
@@ -48,6 +50,10 @@ function questionContext(question: typeof examQuestions.$inferSelect) {
   const teacher = question.teacherAnswer?.trim() ? `\n老師參考擬答（只作為核對依據，不可冒充官方答案）：\n${question.teacherAnswer.slice(0, 10000)}` : "";
   const notes = question.teacherNotes?.trim() ? `\n老師補充：${question.teacherNotes.slice(0, 3000)}` : "";
   return `年度：${question.year}\n科目：${question.subject}\n題號：${question.questionNumber}\n題目：\n${question.stem.slice(0, 18000)}${teacher}${notes}${rubric}`;
+}
+
+function publicQuestion(question: typeof examQuestions.$inferSelect) {
+  return { id: question.id, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource ?? "" };
 }
 
 async function runOpenAI(apiKey: string, model: string, instructions: string, input: string) {
@@ -142,14 +148,100 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { questionId?: number; teacherModel?: Provider; scholarModel?: Provider };
+    const body = await request.json() as {
+      questionId?: number;
+      teacherModel?: Provider;
+      scholarModel?: Provider;
+      participantMode?: ParticipantMode;
+      stage?: ReviewStage;
+      teacherQuestion?: string;
+      studentAnswer?: string;
+      teacherFollowUp?: string;
+      studentReply?: string;
+    };
     const teacherModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.teacherModel)) ? body.teacherModel as Provider : "luna";
     const scholarModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.scholarModel)) ? body.scholarModel as Provider : "sonnet";
+    const participantMode: ParticipantMode = body.participantMode === "student-scholar" ? "student-scholar" : "ai-scholar";
+    const stage: ReviewStage = body.stage ?? "full";
     const db = await getDb();
     const rows = await db.select().from(examQuestions).where(eq(examQuestions.status, "published")).orderBy(desc(examQuestions.id)).limit(80);
     const question = rows.find((row) => row.id === Number(body.questionId) && row.examType === "essay") ?? rows.find((row) => row.examType === "essay");
     if (!question) return Response.json({ error: "目前沒有已發布的二試申論題" }, { status: 404 });
     const context = questionContext(question);
+
+    if (participantMode === "student-scholar") {
+      if (stage === "start") {
+        try {
+          const teacherQuestion = await runProvider(teacherModel, context, "teacher", "question");
+          return Response.json({
+            question: publicQuestion(question),
+            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", commentator: "gpt-5.6-sol" },
+            teacherQuestion,
+            scholarAnswer: null,
+            teacherFollowUp: null,
+            scholarReply: null,
+            teacherError: "",
+            scholarError: "",
+            commentator: null,
+            commentatorError: "",
+            participantMode,
+          });
+        } catch (error) {
+          return Response.json({ error: error instanceof Error ? error.message : "老師的第一個問題暫時無法產生" }, { status: 502 });
+        }
+      }
+
+      const teacherQuestion = body.teacherQuestion?.trim() ?? "";
+      const studentAnswer = body.studentAnswer?.trim() ?? "";
+      const teacherFollowUp = body.teacherFollowUp?.trim() ?? "";
+      const studentReply = body.studentReply?.trim() ?? "";
+      if (!teacherQuestion) return Response.json({ error: "缺少老師的第一個問題" }, { status: 400 });
+
+      if (stage === "submit-answer") {
+        if (!studentAnswer) return Response.json({ error: "請先輸入學霸回答" }, { status: 400 });
+        try {
+          const followUp = await runProvider(teacherModel, `${context}\n\n【老師先問】\n${teacherQuestion}\n\n【同學扮演學霸的回答】\n${studentAnswer}`, "teacher", "follow-up");
+          return Response.json({
+            question: publicQuestion(question),
+            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", commentator: "gpt-5.6-sol" },
+            teacherQuestion: { model: labels[teacherModel], text: teacherQuestion },
+            scholarAnswer: { model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+            teacherFollowUp: followUp,
+            scholarReply: null,
+            teacherError: "",
+            scholarError: "",
+            commentator: null,
+            commentatorError: "",
+            participantMode,
+          });
+        } catch (error) {
+          return Response.json({ error: error instanceof Error ? error.message : "老師追問暫時無法產生" }, { status: 502 });
+        }
+      }
+
+      if (stage === "submit-reply") {
+        if (!studentAnswer || !teacherFollowUp || !studentReply) return Response.json({ error: "缺少完整的兩段學霸回答與老師追問" }, { status: 400 });
+        try {
+          const commentator = await runCommentator(context, teacherQuestion, studentAnswer, teacherFollowUp, studentReply);
+          return Response.json({
+            question: publicQuestion(question),
+            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", commentator: commentator.model },
+            teacherQuestion: { model: labels[teacherModel], text: teacherQuestion },
+            scholarAnswer: { model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+            teacherFollowUp: { model: labels[teacherModel], text: teacherFollowUp },
+            scholarReply: { model: "student", text: studentReply, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+            teacherError: "",
+            scholarError: "",
+            commentator,
+            commentatorError: "",
+            participantMode,
+          });
+        } catch (error) {
+          return Response.json({ error: error instanceof Error ? error.message : "固定點評暫時無法產生" }, { status: 502 });
+        }
+      }
+    }
+
     let teacherQuestion = null;
     let scholarAnswer = null;
     let teacherFollowUp = null;
@@ -173,7 +265,7 @@ export async function POST(request: Request) {
     } else {
       commentatorError = "老師與學霸的四句對話尚未完整，固定點評才能開始";
     }
-    return Response.json({ question: { id: question.id, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource ?? "" }, models: { teacher: labels[teacherModel], scholar: labels[scholarModel], commentator: commentator?.model ?? "gpt-5.6-sol" }, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError });
+    return Response.json({ question: publicQuestion(question), models: { teacher: labels[teacherModel], scholar: labels[scholarModel], commentator: commentator?.model ?? "gpt-5.6-sol" }, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError, participantMode });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "司律評暫時無法開始" }, { status: 500 });
   }
