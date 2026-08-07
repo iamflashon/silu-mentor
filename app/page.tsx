@@ -20,6 +20,13 @@ type ComparisonResponse = {
 type ModelComparison = { id: number; sourceStatus: string; responses: ComparisonResponse[] };
 type EvaluationUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
 type TeachingLevel = "general" | "beginner" | "intermediate" | "advanced" | "super";
+const teachingLevelLabels: Record<TeachingLevel, string> = {
+  general: "自由提問",
+  beginner: "法律小白",
+  intermediate: "基礎考生",
+  advanced: "進階考生",
+  super: "頂尖學霸",
+};
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
 type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; model?: string; comparison?: ModelComparison };
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string };
@@ -462,7 +469,7 @@ export default function Home() {
           stopReason: lunaResponse?.stopReason ?? null,
         };
         const teacherB = claudeResponse ? { label: "Claude Sonnet", model: claudeResponse.model, text: claudeResponse.text, usage: claudeResponse.usage, stopReason: claudeResponse.stopReason ?? null } : undefined;
-        setTeachingRounds((current) => [...current.filter((item) => item.level !== sentTeachingLevel), { level: sentTeachingLevel, label: sentTeachingLevel === "beginner" ? "初學小白" : sentTeachingLevel === "intermediate" ? "中階考生" : sentTeachingLevel === "advanced" ? "高階法研所考生" : "超級學霸", reply: question, teacherA, teacherB }]);
+        setTeachingRounds((current) => [...current.filter((item) => item.level !== sentTeachingLevel), { level: sentTeachingLevel, label: teachingLevelLabels[sentTeachingLevel], reply: question, teacherA, teacherB }]);
         setTeachingUsage((current) => [...current, ...(result.comparison?.responses ?? []).map((item) => ({ model: item.model, inputTokens: item.usage.inputTokens, cachedTokens: item.usage.cachedTokens, outputTokens: item.usage.outputTokens, durationMs: item.usage.durationMs, estimatedCostUsd: item.usage.estimatedCostUsd }))]);
       }
       if (result.sessionId) setSessionId(result.sessionId);
@@ -748,7 +755,7 @@ export default function Home() {
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span>選好後直接提問</span><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
           <div className="model-mode-fields">
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
-              <option value="general">一般提問</option><option value="beginner">初學</option><option value="intermediate">中階</option><option value="advanced">高階</option><option value="super">超級學霸</option>
+              <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
             </select></label>
             <label><span>回答</span><select value={modelMode === "dual" ? "luna" : modelMode} onChange={(event) => setModelMode(event.target.value as "luna" | "sonnet" | "deepseek")} disabled={thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
@@ -757,7 +764,7 @@ export default function Home() {
               <option value="none">不比較</option><option value="luna-claude">Luna＋Claude</option>
             </select></label>
           </div>
-          <div className="model-mode-status">{selectedFollowUps.length > 0 ? `已選 ${selectedFollowUps.length} 段回答作為追問依據` : evaluatingLevel ? `正在產生${evaluatingLevel === "beginner" ? "初學" : evaluatingLevel === "intermediate" ? "中階" : evaluatingLevel === "advanced" ? "高階" : "學霸"}提問` : modelMode === "dual" ? "同一題並列兩份回答，可再評分比較" : "回答會依目前選擇的模型產生"}</div>
+          <div className="model-mode-status">{selectedFollowUps.length > 0 ? `已選 ${selectedFollowUps.length} 段回答作為追問依據` : evaluatingLevel ? `正在產生${teachingLevelLabels[evaluatingLevel]}提問` : modelMode === "dual" ? "同一題並列兩份回答，可再評分比較" : "回答會依目前選擇的模型產生"}</div>
         </section>
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>

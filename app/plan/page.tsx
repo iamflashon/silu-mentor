@@ -427,11 +427,19 @@ function isProblemSolvingBook(
 }
 
 function bookLevelPrompt(level: "beginner" | "intermediate" | "advanced" | "super") {
-  if (level === "beginner") return "我是剛開始學刑法的初學小白，看到這一題很容易把故事和法律要件混在一起。請先用最白話的方式帶我找出第一個關鍵事實，再只問我一個可以直接回答的小問題。";
-  if (level === "intermediate") return "我是中階考生，知道一些基本法條與解題公式，但常常不會把題目事實真正涵攝進去。請指出我現在最應該帶入哪一個事實，並只問我一個具體問題。";
-  if (level === "advanced") return "我是高階法研所考生，想從學說、實務與不同法律效果比較這一題。請先指出本題最有爭議的理論分岔，再只問我一個需要精準涵攝的問題。";
-  return "我是超級學霸，請把這一題當成高難度壓力測試，檢查我是否能處理隱藏前提、反例、學說邊界與考場取捨，最後只問我一個最難但可以直接回答的問題。";
+  if (level === "beginner") return "我是法律小白，剛開始學刑法，看到這一題很容易把故事和法律要件混在一起。請先用最白話的方式帶我找出第一個關鍵事實，再只問我一個可以直接回答的小問題。";
+  if (level === "intermediate") return "我是基礎考生，知道一些基本法條與解題公式，但常常不會把題目事實真正涵攝進去。請指出我現在最應該帶入哪一個事實，並只問我一個具體問題。";
+  if (level === "advanced") return "我是進階考生，想從學說、實務與不同法律效果比較這一題。請先指出本題最有爭議的理論分岔，再只問我一個需要精準涵攝的問題。";
+  return "我是頂尖學霸，請把這一題當成高難度壓力測試，檢查我是否能處理隱藏前提、反例、學說邊界與考場取捨，最後只問我一個最難但可以直接回答的問題。";
 }
+
+const bookTeachingLevelLabels: Record<"general" | "beginner" | "intermediate" | "advanced" | "super", string> = {
+  general: "自由提問",
+  beginner: "法律小白",
+  intermediate: "基礎考生",
+  advanced: "進階考生",
+  super: "頂尖學霸",
+};
 
 function problemBookOutline(chapters: ResourceSegment[]) {
   const sections = new Map<string, Map<string, ResourceSegment[]>>();
@@ -1981,7 +1989,7 @@ export default function StudyPlanPage() {
   function prepareBookLevelQuestion(level: "beginner" | "intermediate" | "advanced" | "super") {
     setBookTeachingLevel(level);
     setBookInput(bookLevelPrompt(level));
-    setBookTestNotice(`${level === "beginner" ? "初學小白" : level === "intermediate" ? "中階考生" : level === "advanced" ? "高階法研所考生" : "超級學霸"}提問已帶入；可直接送出或再修改。`);
+    setBookTestNotice(`${bookTeachingLevelLabels[level]}提問已帶入；可直接送出或再修改。`);
     window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".book-dialogue-form textarea")?.focus(), 0);
   }
 
@@ -3358,8 +3366,8 @@ export default function StudyPlanPage() {
                           <section className="book-ai-controls" aria-label="解題書 AI 學習設定">
                             <div className="book-ai-heading"><strong>AI 學習設定</strong><span>選好後開始提問</span></div>
                             <div className="book-ai-fields">
-                              <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); setBookTestNotice("已切換為一般提問"); } else if (selectedChapter) { prepareBookLevelQuestion(value); } }} disabled={!selectedChapter || bookChatLoading}>
-                                <option value="general">一般提問</option><option value="beginner">初學</option><option value="intermediate">中階</option><option value="advanced">高階</option><option value="super">超級學霸</option>
+                              <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); setBookTestNotice(`已切換為${bookTeachingLevelLabels.general}`); } else if (selectedChapter) { prepareBookLevelQuestion(value); } }} disabled={!selectedChapter || bookChatLoading}>
+                                <option value="general">{bookTeachingLevelLabels.general}</option><option value="beginner">{bookTeachingLevelLabels.beginner}</option><option value="intermediate">{bookTeachingLevelLabels.intermediate}</option><option value="advanced">{bookTeachingLevelLabels.advanced}</option><option value="super">{bookTeachingLevelLabels.super}</option>
                               </select></label>
                               <label><span>回答</span><select value={bookModelMode === "dual" ? "luna" : bookModelMode} onChange={(event) => setBookModelMode(event.target.value as "luna" | "sonnet" | "deepseek")} disabled={bookChatLoading}>
                                 <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
@@ -3368,7 +3376,7 @@ export default function StudyPlanPage() {
                                 <option value="none">不比較</option><option value="luna-claude">Luna＋Claude</option>
                               </select></label>
                             </div>
-                            <small>{bookTestNotice || "選擇學生程度後，系統會把對應的提問帶入輸入框。"}</small>
+                            <small>{bookTestNotice || "選擇學生身分後，系統會把對應的提問帶入輸入框。"}</small>
                           </section>
                         )}
                         {selectedChapter ? (

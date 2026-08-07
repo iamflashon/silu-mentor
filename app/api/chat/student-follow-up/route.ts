@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   if (!apiKey) return Response.json({ error: "AI 服務尚未設定" }, { status: 503 });
   const model = await getOpenAIModel("gpt-5.6-luna");
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
-  const levelLabel = body.level === "beginner" ? "初學小白" : body.level === "intermediate" ? "中階考生" : body.level === "advanced" ? "高階法研所考生" : body.level === "super" ? "超級學霸" : "目前程度的學生";
+  const levelLabel = body.level === "beginner" ? "法律小白" : body.level === "intermediate" ? "基礎考生" : body.level === "advanced" ? "進階考生" : body.level === "super" ? "頂尖學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
     ? "呈現觀念混亂、把生活中的『有意做動作』與法律上的故意責任混在一起，也可以流露挫折或懷疑自己不適合法律；追問必須來自本題實際內容，不要固定套用某個例子。"
     : body.level === "intermediate"
