@@ -3464,6 +3464,10 @@ a {
 .review-answer-lab-head > div > span, .review-student-essay-head span { color: #9a7b2e; font-size: 10px; font-weight: 900; letter-spacing: .18em; }
 .review-answer-lab-head h3 { margin: 7px 0 0; color: #1d3a53; font-family: Georgia, "Noto Serif TC", serif; font-size: 23px; font-weight: 500; }
 .review-answer-lab-head p { max-width: 390px; margin: 0; color: #71818c; font-size: 11px; line-height: 1.8; }
+.review-answer-source-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-top: 15px; padding: 10px 13px; border: 1px solid #e4dfcb; background: #fffdf5; color: #7d725e; font-size: 11px; line-height: 1.6; }
+.review-answer-source-note b { color: #8b6b28; font-weight: 900; }
+.review-answer-source-note span { position: relative; }
+.review-answer-source-note span + span::before { content: "｜"; position: absolute; left: -12px; color: #cbbf9f; }
 .review-answer-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
 .review-answer-card { border: 1px solid #d6dfdf; background: #fff; }
 .review-answer-card.teacher { border-top: 3px solid #8b6b28; }
@@ -3498,6 +3502,8 @@ a {
 @media (max-width: 720px) {
   .review-answer-lab { padding: 20px 16px 22px; }
   .review-answer-lab-head, .review-student-essay-head { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .review-answer-source-note { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .review-answer-source-note span + span::before { display: none; }
   .review-answer-columns { grid-template-columns: 1fr; }
   .review-answer-card summary { align-items: flex-start; flex-wrap: wrap; }
   .review-answer-card summary small { width: 100%; margin-left: 0; }
