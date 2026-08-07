@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EssayHistory } from "./essay-history";
 
 type PracticeQuestion = {
@@ -107,6 +107,39 @@ type EssayBatchAttempt = {
   questionNumber: string;
   answer: string;
   savedAt: string;
+};
+
+type GuidedPracticeState = {
+  essay?: string;
+  coachInput?: string;
+  coachMessages?: CoachMessage[];
+  coachGap?: string;
+  coachIssue?: string;
+  coachRecommendations?: CoachRecommendation[];
+  coachComparisons?: CoachComparison[];
+  coachStarted?: boolean;
+  coachInputRole?: "student" | "scholar";
+  coachTeachingLevel?: CoachTeachingLevel;
+  coachModelMode?: CoachModelMode;
+  coachSettingsOpen?: boolean;
+  coachProgress?: CoachProgress;
+  essayPickerYear?: string;
+  essayPickerSubject?: string;
+  essayPickerId?: string;
+  essayPickerOpen?: boolean;
+  essayModelMode?: EssayModelMode | null;
+};
+
+type GuidedResumeSession = {
+  questionId: number;
+  mode: string;
+  status: string;
+  updatedAt: string;
+  year: string;
+  subject: string;
+  questionNumber: string;
+  stem: string;
+  state: GuidedPracticeState;
 };
 
 function coachStageLabelsFor(subject?: string) {
@@ -296,12 +329,11 @@ export function PracticeLab({ initialType }: Props) {
   const [secondsLeft, setSecondsLeft] = useState(90 * 60);
   const [stemOpen, setStemOpen] = useState(true);
   const [draftSavedAt, setDraftSavedAt] = useState("");
+  const [guidedResumeSessions, setGuidedResumeSessions] = useState<GuidedResumeSession[]>([]);
+  const [guidedStateReady, setGuidedStateReady] = useState(false);
+  const [guidedSaveStatus, setGuidedSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [essaySubPage, setEssaySubPage] = useState<"question" | "batch" | "history">("question");
   const essayRef = useRef<HTMLTextAreaElement | null>(null);
-  const draftKey = useMemo(
-    () => (question ? `silu-essay-draft:${question.id}` : ""),
-    [question],
-  );
   const clockText = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const essayPages = Math.max(1, Math.ceil(essay.length / 650));
   const essayPickerYears = [...new Set(essayQuestionCatalog.map((item) => item.year).filter(Boolean))];
@@ -391,6 +423,132 @@ export function PracticeLab({ initialType }: Props) {
     document.execCommand(command);
   }
 
+  function restoreGuidedSession(questionId: number) {
+    let restored = false;
+    return fetch(`/api/guided-practice?questionId=${questionId}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("引導紀錄讀取失敗");
+        const result = (await response.json()) as {
+          session?: { state?: GuidedPracticeState; updatedAt?: string } | null;
+        };
+        const session = result.session;
+        const state = session?.state;
+        if (state) {
+          setEssay(state.essay ?? "");
+          setCoachInput(state.coachInput ?? "");
+          setCoachMessages(Array.isArray(state.coachMessages) ? state.coachMessages : []);
+          setCoachGap(state.coachGap ?? "");
+          setCoachIssue(state.coachIssue ?? "");
+          setCoachRecommendations(Array.isArray(state.coachRecommendations) ? state.coachRecommendations : []);
+          setCoachComparisons(Array.isArray(state.coachComparisons) ? state.coachComparisons : []);
+          setCoachStarted(Boolean(state.coachStarted));
+          setCoachInputRole(state.coachInputRole === "scholar" ? "scholar" : "student");
+          if (state.coachTeachingLevel) setCoachTeachingLevel(state.coachTeachingLevel);
+          if (state.coachModelMode) setCoachModelMode(state.coachModelMode);
+          if (typeof state.coachSettingsOpen === "boolean") setCoachSettingsOpen(state.coachSettingsOpen);
+          if (state.coachProgress) setCoachProgress(state.coachProgress);
+          if (typeof state.essayPickerYear === "string") setEssayPickerYear(state.essayPickerYear);
+          if (typeof state.essayPickerSubject === "string") setEssayPickerSubject(state.essayPickerSubject);
+          if (typeof state.essayPickerId === "string") setEssayPickerId(state.essayPickerId);
+          if (typeof state.essayPickerOpen === "boolean") setEssayPickerOpen(state.essayPickerOpen);
+          if (state.essayModelMode === "sol" || state.essayModelMode === "claude" || state.essayModelMode === "dual") {
+            setEssayModelMode(state.essayModelMode);
+          }
+          setDraftSavedAt(
+            session?.updatedAt
+              ? new Date(session.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })
+              : "",
+          );
+          setGuidedSaveStatus("saved");
+        }
+        restored = true;
+      })
+      .catch(() => {
+        // 紀錄服務暫時無法連線時，仍可繼續本次練習；下一次輸入會再嘗試保存。
+        setGuidedSaveStatus("error");
+      })
+      .finally(() => setGuidedStateReady(restored));
+  }
+
+  function resumeGuidedSession(session: GuidedResumeSession) {
+    setEssayMode("guided");
+    setEssayPickerYear(session.year);
+    setEssayPickerSubject(session.subject);
+    setEssayPickerId(String(session.questionId));
+    setEssayPickerOpen(false);
+    void loadQuestion("essay", { questionId: session.questionId });
+  }
+
+  useEffect(() => {
+    if (examType !== "essay" || essayMode !== "guided" || !question || !guidedStateReady) return;
+    const timer = window.setTimeout(() => {
+      setGuidedSaveStatus("saving");
+      void fetch("/api/guided-practice", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          questionId: question.id,
+          mode: "guided",
+          state: {
+            essay,
+            coachInput,
+            coachMessages,
+            coachGap,
+            coachIssue,
+            coachRecommendations,
+            coachComparisons,
+            coachStarted,
+            coachInputRole,
+            coachTeachingLevel,
+            coachModelMode,
+            coachSettingsOpen,
+            coachProgress,
+            essayPickerYear,
+            essayPickerSubject,
+            essayPickerId,
+            essayPickerOpen,
+            essayModelMode,
+          } satisfies GuidedPracticeState,
+        }),
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("save failed");
+          const result = (await response.json()) as { updatedAt?: string };
+          setGuidedSaveStatus("saved");
+          setDraftSavedAt(
+            result.updatedAt
+              ? new Date(result.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })
+              : new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }),
+          );
+        })
+        .catch(() => setGuidedSaveStatus("error"));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    examType,
+    essayMode,
+    question,
+    guidedStateReady,
+    essay,
+    coachInput,
+    coachMessages,
+    coachGap,
+    coachIssue,
+    coachRecommendations,
+    coachComparisons,
+    coachStarted,
+    coachInputRole,
+    coachTeachingLevel,
+    coachModelMode,
+    coachSettingsOpen,
+    coachProgress,
+    essayPickerYear,
+    essayPickerSubject,
+    essayPickerId,
+    essayPickerOpen,
+    essayModelMode,
+  ]);
+
   async function loadQuestion(
     type = examType,
     filters?: {
@@ -401,6 +559,8 @@ export function PracticeLab({ initialType }: Props) {
       questionId?: number;
     },
   ) {
+    setGuidedStateReady(false);
+    setGuidedSaveStatus("idle");
     setLoading(true);
     setSelected(null);
     setFeedback("");
@@ -437,7 +597,14 @@ export function PracticeLab({ initialType }: Props) {
       };
       setQuestion(result.question ?? null);
       setCoachProgress(defaultCoachProgress(0, result.question?.subject));
-      if (!result.question) setFeedback(result.message ?? "題庫尚未準備完成");
+      if (!result.question) {
+        setGuidedStateReady(false);
+        setFeedback(result.message ?? "題庫尚未準備完成");
+      } else if (type === "essay") {
+        await restoreGuidedSession(result.question.id);
+      } else {
+        setGuidedStateReady(false);
+      }
     } catch {
       setQuestion(null);
       setFeedback("題庫暫時無法讀取，請稍後再試。");
@@ -450,6 +617,7 @@ export function PracticeLab({ initialType }: Props) {
     setExamType(initialType);
     if (initialType === "essay") {
       setQuestion(null);
+      setGuidedStateReady(false);
       setEssayPickerOpen(true);
       setCoachMessages([]);
       setCoachStarted(false);
@@ -481,27 +649,14 @@ export function PracticeLab({ initialType }: Props) {
       })
       .catch(() => setEssayQuestionCatalog([]))
       .finally(() => setEssayPickerLoading(false));
+    fetch("/api/guided-practice")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as { sessions?: GuidedResumeSession[] };
+        setGuidedResumeSessions(result.sessions ?? []);
+      })
+      .catch(() => setGuidedResumeSessions([]));
   }, [examType]);
-
-  useEffect(() => {
-    if (!draftKey || typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(draftKey);
-    if (saved && !essay) setEssay(saved);
-  }, [draftKey]);
-
-  useEffect(() => {
-    if (!draftKey || !essay || typeof window === "undefined") return;
-    const timer = window.setTimeout(() => {
-      window.localStorage.setItem(draftKey, essay);
-      setDraftSavedAt(
-        new Date().toLocaleTimeString("zh-TW", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      );
-    }, 500);
-    return () => window.clearTimeout(timer);
-  }, [draftKey, essay]);
 
   useEffect(() => {
     if (!examStarted || examSubmitted || essayMode !== "exam") return;
@@ -552,6 +707,8 @@ export function PracticeLab({ initialType }: Props) {
 
   function clearEssayQuestion() {
     setQuestion(null);
+    setGuidedStateReady(false);
+    setGuidedSaveStatus("idle");
     setEssay("");
     setCoachInput("");
     setCoachMessages([]);
@@ -1291,6 +1448,22 @@ export function PracticeLab({ initialType }: Props) {
               {!essayPickerOpen && question && <button type="button" onClick={reopenEssayPicker}>重新挑題</button>}
             </header>
             {(essayPickerOpen || !question) && <>
+              {guidedResumeSessions.length > 0 && (
+                <div className="guided-resume-panel" aria-label="繼續上次的引導學習">
+                  <div>
+                    <strong>繼續上次的引導</strong>
+                    <span>中斷的對話、目前階段與作答內容都已保存。</span>
+                  </div>
+                  <div className="guided-resume-list">
+                    {guidedResumeSessions.slice(0, 3).map((session) => (
+                      <button type="button" key={session.questionId} onClick={() => resumeGuidedSession(session)}>
+                        <span>{session.year}｜{session.subject}｜第 {session.questionNumber} 題</span>
+                        <small>繼續引導 →</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="essay-question-picker-fields">
                 <label><span>年度</span><select value={essayPickerYear} onChange={(event) => { setEssayPickerYear(event.target.value); setEssayPickerSubject(""); setEssayPickerId(""); }} disabled={essayPickerLoading}><option value="">選擇年度</option>{essayPickerYears.map((year) => <option key={year} value={year}>{year} 年</option>)}</select></label>
                 <label><span>類科</span><select value={essayPickerSubject} onChange={(event) => { setEssayPickerSubject(event.target.value); setEssayPickerId(""); }} disabled={!essayPickerYear || essayPickerLoading}><option value="">選擇類科</option>{essayPickerSubjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
@@ -1355,40 +1528,6 @@ export function PracticeLab({ initialType }: Props) {
               </button>
             </div>
           )}
-          <ol className="essay-workflow">
-            <li>
-              <span>1</span>
-              <div>
-                <strong>審題引導</strong>
-                <p>先辨認人物、行為、法律關係與可能爭點。</p>
-              </div>
-            </li>
-            <li>
-              <span>2</span>
-              <div>
-                <strong>完整作答</strong>
-                <p>依考場方式寫出規範、涵攝與結論。</p>
-              </div>
-            </li>
-            <li>
-              <span>3</span>
-              <div>
-                <strong>採分點批改</strong>
-                <p>分別檢查爭點、法條、規範、涵攝、立場及結構表達。</p>
-              </div>
-            </li>
-            <li>
-              <span>4</span>
-              <div>
-                <strong>安排補強</strong>
-                <p>把漏失爭點連回教材、法條與下一次重寫。</p>
-              </div>
-            </li>
-          </ol>
-          <p className="grading-scope-note">
-            <b>你會看到：</b>
-            總分與分項分數、學生原文依據、漏寫內容、優先修正項目及下一步。不同但有法律理由的見解，不會只因文字與擬答不同就判錯。
-          </p>
           </section>
       ) : null}
       <div className="practice-lab-note">
@@ -1622,6 +1761,9 @@ export function PracticeLab({ initialType }: Props) {
                     <span>AI 申論導師｜{coachProgress.current}</span>
                     <h3>{coachStarted ? "AI 導師陪你把這題拆解出來" : "先選好 AI 角色，再開始這題的自然對話"}</h3>
                     <p>你先回答，AI 再依你的程度追問、提示與修正；每完成一段會自動接續下一段，不會只停在列出爭點。</p>
+                    <small className={`guided-save-status is-${guidedSaveStatus}`} aria-live="polite">
+                      {guidedSaveStatus === "saving" ? "正在保存引導進度…" : guidedSaveStatus === "error" ? "進度保存連線中斷，稍後會再嘗試" : draftSavedAt ? `已保存｜${draftSavedAt}` : "引導進度會自動保存"}
+                    </small>
                   </div>
                 </header>
 
@@ -1630,9 +1772,21 @@ export function PracticeLab({ initialType }: Props) {
                       {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。</p></div></div>}
                       {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
                         {message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span>}
-                        <div className="essay-chat-bubble">
-                          <b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? `AI ${coachTeachingLevelLabels[coachTeachingLevel]}` : "我"}</b>
-                          <p>{message.text}</p>
+                        <div className="essay-chat-message-content">
+                          <div className="essay-chat-bubble">
+                            <b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? `AI ${coachTeachingLevelLabels[coachTeachingLevel]}` : "我"}</b>
+                            <p>{message.text}</p>
+                          </div>
+                          {message.role === "mentor" && (
+                            <button
+                              type="button"
+                              className="essay-message-follow-up"
+                              onClick={() => askCoachAboutReply("follow-up", message)}
+                              disabled={coaching}
+                            >
+                              針對此則回覆追問
+                            </button>
+                          )}
                         </div>
                       </div>)}
                       {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}

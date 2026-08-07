@@ -6942,6 +6942,36 @@ a {
 .essay-question-picker-fields select:disabled { color: #9aaeb7; cursor: not-allowed; opacity: .72; }
 .essay-question-picker-fields select:focus { outline: 2px solid #8bb9c1; outline-offset: 1px; }
 .essay-question-picker-status { margin: 11px 0 0; color: #78909b; font-size: 11px; }
+.guided-resume-panel {
+  display: grid;
+  gap: 9px;
+  margin: 0 0 13px;
+  padding: 11px 12px;
+  border: 1px solid #d8c89c;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+.guided-resume-panel > div:first-child { display: grid; gap: 3px; }
+.guided-resume-panel strong { color: #765a32; font-size: 12px; }
+.guided-resume-panel span { color: #927d5d; font-size: 11px; line-height: 1.5; }
+.guided-resume-list { display: grid; gap: 6px; }
+.guided-resume-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e2d5b6;
+  border-radius: 6px;
+  background: #fff;
+  color: #315f73;
+  text-align: left;
+  cursor: pointer;
+}
+.guided-resume-list button:hover { border-color: #c49c3c; background: #fffdf8; }
+.guided-resume-list button > span { min-width: 0; overflow: hidden; color: #315f73; font-size: 11px; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
+.guided-resume-list button small { flex: 0 0 auto; color: #b1842f; font-size: 10px; font-weight: 900; }
 .essay-question-picker-preview {
   display: flex;
   align-items: center;
@@ -7433,6 +7463,10 @@ a {
 .essay-chat-heading span { color: #397b73; font-size: 11px; font-weight: 850; letter-spacing: .07em; }
 .essay-chat-heading h3 { margin: 5px 0 0; color: #234d61; font-size: 20px; line-height: 1.4; }
 .essay-chat-heading p { max-width: 700px; margin: 6px 0 0; color: #68818c; font-size: 12px; line-height: 1.65; }
+.guided-save-status { display: block; margin-top: 7px; color: #6f8790; font-size: 11px; font-weight: 750; }
+.guided-save-status.is-saving { color: #b1842f; }
+.guided-save-status.is-saved { color: #397b73; }
+.guided-save-status.is-error { color: #a76055; }
 .essay-chat-quick-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .essay-chat-quick-actions button,
 .essay-chat-start-bottom {
@@ -7469,10 +7503,17 @@ a {
 .essay-chat-message.student { justify-content: flex-end; }
 .essay-chat-message.scholar { justify-content: flex-end; }
 .essay-chat-message.scholar .mentor-avatar { order: 2; }
+.essay-chat-message-content { display: grid; justify-items: start; min-width: 0; max-width: min(680px, 92%); }
+.essay-chat-message.student .essay-chat-message-content,
+.essay-chat-message.scholar .essay-chat-message-content { justify-items: end; }
+.essay-chat-message-content .essay-chat-bubble { max-width: 100%; }
 .essay-chat-message.student .essay-chat-bubble { border-color: #c9dfe8; background: #edf6f9; color: #315c72; border-radius: 17px 7px 17px 17px; }
 .essay-chat-bubble { min-width: 0; max-width: min(680px, 92%); padding: 12px 15px; border: 1px solid #dce9ed; border-radius: 7px 17px 17px 17px; background: #fff; color: #365b6c; box-shadow: 0 6px 18px rgba(35, 72, 92, .045); }
 .essay-chat-bubble b { display: block; margin-bottom: 4px; color: #3d7a74; font-size: 11px; }
 .essay-chat-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; }
+.essay-message-follow-up { margin-top: 6px; padding: 5px 9px; border: 1px solid #a7cdd0; border-radius: 7px; background: #fff; color: #387078; font-size: 10px; font-weight: 800; cursor: pointer; }
+.essay-message-follow-up:hover:not(:disabled) { border-color: #6daeb2; background: #edf8f8; }
+.essay-message-follow-up:disabled { opacity: .5; cursor: wait; }
 .essay-coach-message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(117, 159, 164, .22); }
 .essay-coach-message-actions button { border: 1px solid #a7cdd0; border-radius: 8px; padding: 5px 9px; background: #fff; color: #387078; font-size: 11px; cursor: pointer; }
 .essay-coach-message-actions button:hover:not(:disabled) { background: #edf8f8; border-color: #6daeb2; }

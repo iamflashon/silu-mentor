@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const documents = sqliteTable("documents", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -256,6 +256,32 @@ export const examCoachMessages = sqliteTable("exam_coach_messages", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+export const guidedPracticeSessions = sqliteTable(
+  "guided_practice_sessions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    questionId: integer("question_id")
+      .notNull()
+      .references(() => examQuestions.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull().default("guided"),
+    status: text("status").notNull().default("in_progress"),
+    stateJson: text("state_json").notNull().default("{}"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userQuestionUnique: uniqueIndex("guided_practice_user_question_idx").on(
+      table.userKey,
+      table.questionId,
+    ),
+  }),
+);
 
 export const examSources = sqliteTable("exam_sources", {
   id: integer("id").primaryKey({ autoIncrement: true }),
