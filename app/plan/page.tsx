@@ -183,7 +183,18 @@ type TeachingEvidence = {
   excerpt: string;
   message: string;
 };
-type TutorMessage = { role: "mentor" | "student"; text: string; teachingEvidence?: TeachingEvidence | null };
+type BookUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
+type BookComparison = {
+  responses: Array<{
+    id: number;
+    label: string;
+    model: string;
+    text: string;
+    error?: string | null;
+    usage: { inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
+  }>;
+};
+type TutorMessage = { role: "mentor" | "student"; text: string; model?: string; usage?: BookUsage; comparison?: BookComparison; teachingEvidence?: TeachingEvidence | null };
 type ChatDay = {
   id: number;
   date: string;
@@ -415,6 +426,13 @@ function isProblemSolvingBook(
   );
 }
 
+function bookLevelPrompt(level: "beginner" | "intermediate" | "advanced" | "super") {
+  if (level === "beginner") return "我是剛開始學刑法的初學小白，看到這一題很容易把故事和法律要件混在一起。請先用最白話的方式帶我找出第一個關鍵事實，再只問我一個可以直接回答的小問題。";
+  if (level === "intermediate") return "我是中階考生，知道一些基本法條與解題公式，但常常不會把題目事實真正涵攝進去。請指出我現在最應該帶入哪一個事實，並只問我一個具體問題。";
+  if (level === "advanced") return "我是高階法研所考生，想從學說、實務與不同法律效果比較這一題。請先指出本題最有爭議的理論分岔，再只問我一個需要精準涵攝的問題。";
+  return "我是超級學霸，請把這一題當成高難度壓力測試，檢查我是否能處理隱藏前提、反例、學說邊界與考場取捨，最後只問我一個最難但可以直接回答的問題。";
+}
+
 function problemBookOutline(chapters: ResourceSegment[]) {
   const sections = new Map<string, Map<string, ResourceSegment[]>>();
   for (const chapter of chapters) {
@@ -466,7 +484,7 @@ export default function StudyPlanPage() {
     weakness: "",
     nextStep: "",
   });
-  const [activeTab, setActiveTab] = useState<PlanTab>(requestedPlanTab);
+  const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
   const [hotSubject, setHotSubject] = useState("全部");
   const [publicCourseSubject, setPublicCourseSubject] = useState("全部");
   const [selectedPublicCourseId, setSelectedPublicCourseId] = useState<number | null>(null);
@@ -559,6 +577,9 @@ export default function StudyPlanPage() {
   } | null>(null);
   const [bookInput, setBookInput] = useState("");
   const [bookChatLoading, setBookChatLoading] = useState(false);
+  const [bookModelMode, setBookModelMode] = useState<"luna" | "sonnet" | "deepseek" | "dual">("luna");
+  const [bookTeachingLevel, setBookTeachingLevel] = useState<"beginner" | "intermediate" | "advanced" | "super" | null>(null);
+  const [bookTestNotice, setBookTestNotice] = useState("");
   const [bookChaptersLoading, setBookChaptersLoading] = useState(false);
   const [bookChapterMessage, setBookChapterMessage] = useState("");
   const [bookSearchQuery, setBookSearchQuery] = useState("");
@@ -590,6 +611,10 @@ export default function StudyPlanPage() {
       return {};
     }
   });
+
+  useEffect(() => {
+    setActiveTab(requestedPlanTab());
+  }, []);
   const [resourceMessage, setResourceMessage] = useState("");
   const [coursePlayerError, setCoursePlayerError] = useState("");
   const [courseCapture, setCourseCapture] = useState("");
@@ -1706,6 +1731,8 @@ export default function StudyPlanPage() {
     setBookMessages([]);
     setBookSessionId(null);
     setBookInput("");
+    setBookTeachingLevel(null);
+    setBookTestNotice("");
     if (selectedBookIsProblemSolving && !forceRestart) {
       setBookChatLoading(false);
       setLastBookProgress({
@@ -1755,6 +1782,7 @@ export default function StudyPlanPage() {
         body: JSON.stringify({
           messages: [{ role: "student", text: prompt }],
           visibleStudentText: "",
+          modelMode: bookModelMode,
           context: {
             type: "book",
             resourceId: selectedResource.id,
@@ -1768,6 +1796,8 @@ export default function StudyPlanPage() {
         reply?: string;
         error?: string;
         sessionId?: number;
+        usage?: BookUsage;
+        comparison?: BookComparison | null;
         teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? null);
@@ -1781,6 +1811,9 @@ export default function StudyPlanPage() {
           text: response.ok
             ? (result.reply ?? "我們先從這一章開始。")
             : (result.error ?? "AI 教學暫時無法開始"),
+          model: result.usage?.model,
+          usage: result.usage,
+          comparison: result.comparison ?? undefined,
           teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
@@ -1909,12 +1942,16 @@ export default function StudyPlanPage() {
             resourceTitle: selectedResource.title,
             segmentTitle: selectedChapter.title,
           },
+          modelMode: bookModelMode,
+          teachingLevel: bookTeachingLevel ?? undefined,
         }),
       });
       const result = (await response.json()) as {
         reply?: string;
         error?: string;
         sessionId?: number;
+        usage?: BookUsage;
+        comparison?: BookComparison | null;
         teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? bookSessionId);
@@ -1925,6 +1962,9 @@ export default function StudyPlanPage() {
           text: response.ok
             ? (result.reply ?? "我們接著往下釐清。")
             : (result.error ?? "AI 教學暫時無法回應"),
+          model: result.usage?.model,
+          usage: result.usage,
+          comparison: result.comparison ?? undefined,
           teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
@@ -1936,6 +1976,13 @@ export default function StudyPlanPage() {
     } finally {
       setBookChatLoading(false);
     }
+  }
+
+  function prepareBookLevelQuestion(level: "beginner" | "intermediate" | "advanced" | "super") {
+    setBookTeachingLevel(level);
+    setBookInput(bookLevelPrompt(level));
+    setBookTestNotice(`${level === "beginner" ? "初學小白" : level === "intermediate" ? "中階考生" : level === "advanced" ? "高階法研所考生" : "超級學霸"}提問已帶入；可直接送出或再修改。`);
+    window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".book-dialogue-form textarea")?.focus(), 0);
   }
 
   function captureMagazineSelection() {
@@ -1958,7 +2005,7 @@ export default function StudyPlanPage() {
     if (!question || !selectedMagazine || magazineAiLoading) return;
     const nextMessages: TutorMessage[] = [
       ...magazineMessages,
-      { role: "student", text: question },
+      { role: "student" as const, text: question },
     ].slice(-12);
     setMagazineMessages(nextMessages);
     setMagazineInput("");
@@ -2240,7 +2287,7 @@ export default function StudyPlanPage() {
       const result = (await response.json()) as { reply?: string; error?: string; sessionId?: number };
       if (!response.ok) throw new Error(result.error ?? "AI 暫時無法回應");
       setMyCourseSessionId(result.sessionId ?? myCourseSessionId);
-      setMyCourseChatMessages((current) => [...current, { role: "mentor", text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
+      setMyCourseChatMessages((current) => [...current, { role: "mentor" as const, text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
       setMyCourseAiReply(result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。");
       setMyCourseAiInput("");
     } catch (error) {
@@ -2383,7 +2430,7 @@ export default function StudyPlanPage() {
       const result = (await response.json()) as { reply?: string; error?: string; sessionId?: number };
       if (!response.ok) throw new Error(result.error ?? "AI 暫時無法回應");
       setPublicCourseSessionId(result.sessionId ?? publicCourseSessionId);
-      setPublicCourseChatMessages((current) => [...current, { role: "mentor", text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
+      setPublicCourseChatMessages((current) => [...current, { role: "mentor" as const, text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
       setPublicCourseAiReply(result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。");
       setPublicCourseAiInput("");
     } catch (error) {
@@ -3307,6 +3354,25 @@ export default function StudyPlanPage() {
                                 : "從左側書本下方展開章節，AI 會直接開始教你"}
                           </small>
                         </div>
+                        {selectedBookIsProblemSolving && (
+                          <section className="book-ai-controls" aria-label="解題書 AI 模型與學生程度測試">
+                            <div className="book-ai-control-row">
+                              <strong>回答模型</strong>
+                              <button type="button" className={bookModelMode === "luna" ? "active" : ""} onClick={() => setBookModelMode("luna")} disabled={bookChatLoading}>Luna</button>
+                              <button type="button" className={bookModelMode === "sonnet" ? "active" : ""} onClick={() => setBookModelMode("sonnet")} disabled={bookChatLoading}>Claude Sonnet</button>
+                              <button type="button" className={bookModelMode === "deepseek" ? "active" : ""} onClick={() => setBookModelMode("deepseek")} disabled={bookChatLoading}>DeepSeek V4-Pro 測試</button>
+                              <button type="button" className={bookModelMode === "dual" ? "active" : ""} onClick={() => setBookModelMode("dual")} disabled={bookChatLoading}>Luna＋Claude Sonnet 比較</button>
+                            </div>
+                            <div className="book-ai-control-row book-level-row">
+                              <strong>學生程度發問</strong>
+                              <button type="button" className="beginner" onClick={() => prepareBookLevelQuestion("beginner")} disabled={!selectedChapter || bookChatLoading}>初學小白</button>
+                              <button type="button" className="intermediate" onClick={() => prepareBookLevelQuestion("intermediate")} disabled={!selectedChapter || bookChatLoading}>中階考生</button>
+                              <button type="button" className="advanced" onClick={() => prepareBookLevelQuestion("advanced")} disabled={!selectedChapter || bookChatLoading}>高階法研所考生</button>
+                              <button type="button" className="super" onClick={() => prepareBookLevelQuestion("super")} disabled={!selectedChapter || bookChatLoading}>✦ 超級學霸</button>
+                            </div>
+                            <small>{bookTestNotice || "先選回答模型；程度按鈕會帶入對應學生的提問，再由目前模型回答。"}</small>
+                          </section>
+                        )}
                         {selectedChapter ? (
                           <>
                             {selectedBookIsProblemSolving && (
@@ -3359,7 +3425,18 @@ export default function StudyPlanPage() {
                                       ? "AI 教練"
                                       : "你"}
                                     </span>
-                                    <p>{message.text}</p>
+                                    {message.comparison ? (
+                                      <div className="book-model-comparison" aria-label="解題書雙模型回答比較">
+                                        {message.comparison.responses.map((response) => (
+                                          <article key={`${response.id}-${response.label}`}>
+                                            <header><strong>{response.label}</strong><small>{response.model}</small></header>
+                                            {response.error ? <p className="book-model-error">{response.error}</p> : <p>{response.text}</p>}
+                                            <footer>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms · US$ {response.usage.estimatedCostUsd.toFixed(5)}</footer>
+                                          </article>
+                                        ))}
+                                      </div>
+                                    ) : <p>{message.text}</p>}
+                                    {message.usage && !message.comparison && <small className="book-ai-usage">{message.usage.model} · {message.usage.inputTokens + message.usage.outputTokens} tokens · {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)}</small>}
                                     {message.role === "mentor" && message.teachingEvidence && (
                                       <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
                                         <strong>

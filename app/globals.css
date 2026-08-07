@@ -4551,6 +4551,44 @@ a {
   line-height: 1.5;
   text-align: right;
 }
+.book-ai-controls {
+  display: grid;
+  gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #e1edf0;
+  background: #fbfefe;
+}
+.book-ai-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.book-ai-control-row > strong {
+  margin-right: 2px;
+  color: #537789;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.book-ai-control-row button {
+  padding: 5px 9px;
+  border: 1px solid #c7dbe3;
+  border-radius: 999px;
+  background: #fff;
+  color: #456c7f;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.book-ai-control-row button:hover:not(:disabled) { border-color: #75a8b8; background: #f1f9fb; }
+.book-ai-control-row button.active { border-color: #2b7089; background: #2b7089; color: #fff; box-shadow: 0 3px 8px rgba(43, 112, 137, .16); }
+.book-ai-control-row button:disabled { opacity: .45; cursor: not-allowed; }
+.book-level-row button.beginner { border-color: #dfc98e; color: #8a6829; background: #fffdf7; }
+.book-level-row button.intermediate { border-color: #bfdde1; color: #39727d; background: #f3fbfc; }
+.book-level-row button.advanced { border-color: #c8d5e9; color: #456587; background: #f5f8fd; }
+.book-level-row button.super { border-color: #dfc38c; color: #8f6129; background: #fffaf0; }
+.book-ai-controls > small { color: #81959e; font-size: 10px; line-height: 1.45; }
 .book-dialogue-messages {
   min-height: 0;
   overflow: auto;
@@ -4592,6 +4630,36 @@ a {
   background: #1d4763;
   color: #fff;
 }
+.book-ai-usage {
+  display: block;
+  margin-top: 6px;
+  color: #8297a0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.book-model-comparison {
+  display: grid;
+  gap: 8px;
+}
+.book-model-comparison article {
+  padding: 10px;
+  border: 1px solid #d6e5ea;
+  border-radius: 10px;
+  background: #fff;
+}
+.book-model-comparison article header,
+.book-model-comparison article footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.book-model-comparison article header strong { color: #356b82; font-size: 12px; }
+.book-model-comparison article header small,
+.book-model-comparison article footer { color: #8499a2; font-size: 10px; }
+.book-model-comparison article p { margin-top: 7px; }
+.book-model-comparison article footer { justify-content: flex-start; margin-top: 7px; }
+.book-model-error { color: #9b5353 !important; }
 .book-teaching-evidence {
   display: grid;
   gap: 4px;
