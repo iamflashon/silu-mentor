@@ -64,6 +64,7 @@ const coachTeachingLevelLabels: Record<CoachTeachingLevel, string> = {
   super: "頂尖學霸",
 };
 const coachTeachingLevelShortLabels: Record<CoachTeachingLevel, string> = {
+  // 對話徽章隨學生身分切換，避免所有角色固定顯示「霸」。
   general: "問",
   beginner: "白",
   intermediate: "初",
