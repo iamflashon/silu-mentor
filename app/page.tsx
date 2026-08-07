@@ -49,6 +49,16 @@ function isLearningNote(text: string) { const clean = cleanMessageText(text); if
 function pairedStudentPrompt(messages: Message[], teacherIndex: number) {
   return [...messages.slice(0, teacherIndex)].reverse().find((message) => message.role === "student" && message.audience !== "judge")?.text ?? "";
 }
+function buildJudgeOptions(messages: Message[]): JudgeSelection[] {
+  return messages.flatMap((message, messageIndex) => {
+    if (message.role === "student" && message.audience !== "judge" && message.text.trim()) return [{ key: `judge:student:${messageIndex}`, kind: "student" as const, label: "學生問題", text: message.text, messageIndex }];
+    if (message.role !== "mentor") return [];
+    if (!message.comparison && !message.model) return [];
+    if (message.comparison) return message.comparison.responses.filter((response) => !response.error && response.text.trim()).map((response) => ({ key: `judge:teacher:${messageIndex}:${response.id}:${response.label}`, kind: "teacher" as const, label: response.label, model: response.model, text: response.text, messageIndex }));
+    if (!message.text.trim()) return [];
+    return [{ key: `judge:teacher:${messageIndex}:single:${message.model ?? ""}`, kind: "teacher" as const, label: /claude/i.test(message.model ?? "") ? "Claude Sonnet" : "Luna", model: message.model ?? "gpt-5.6-luna", text: message.text, messageIndex }];
+  });
+}
 function youtubeId(value: string) { try { const url = new URL(value); const id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? ""); return id.split(/[?&]/)[0]; } catch { return ""; } }
 function youtubeEmbedUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1&enablejsapi=1` : ""; }
 function youtubeWatchUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : ""; }
@@ -96,14 +106,7 @@ function TeachingEvaluationCard({ judgement, diagnostics }: { judgement: Teachin
 }
 
 function JudgeSelectionPanel({ messages, selectedKeys, onToggle }: { messages: Message[]; selectedKeys: string[]; onToggle: (selection: JudgeSelection) => void }) {
-  const options = messages.flatMap((message, messageIndex) => {
-    if (message.role === "student" && message.audience !== "judge" && message.text.trim()) return [{ key: `judge:student:${messageIndex}`, kind: "student" as const, label: "學生問題", text: message.text, messageIndex }];
-    if (message.role !== "mentor") return [];
-    if (!message.comparison && !message.model) return [];
-    if (message.comparison) return message.comparison.responses.filter((response) => !response.error && response.text.trim()).map((response) => ({ key: `judge:teacher:${messageIndex}:${response.id}:${response.label}`, kind: "teacher" as const, label: response.label, model: response.model, text: response.text, messageIndex }));
-    if (!message.text.trim()) return [];
-    return [{ key: `judge:teacher:${messageIndex}:single:${message.model ?? ""}`, kind: "teacher" as const, label: /claude/i.test(message.model ?? "") ? "Claude Sonnet" : "Luna", model: message.model ?? "gpt-5.6-luna", text: message.text, messageIndex }];
-  });
+  const options = buildJudgeOptions(messages);
   if (!options.length) return null;
   return <section className="judge-selection-panel" aria-label="選取 Sol 審判長測試內容"><header><div><strong>Sol 審判資料選取</strong><span>像 LINE 回覆一樣，分別勾選學生問題或任一位老師的回答</span></div><small>只送出勾選內容；審判長結果不會進入主對話</small></header><div className="judge-selection-list">{options.map((option) => <label className={`judge-selection-option ${selectedKeys.includes(option.key) ? "selected" : ""}`} key={option.key}><input type="checkbox" checked={selectedKeys.includes(option.key)} onChange={() => onToggle(option)} /><span><b>{option.kind === "student" ? "學生問題" : option.label}</b><small>{option.text.replace(/\s+/g, " ").slice(0, 180)}{option.text.length > 180 ? "…" : ""}</small></span></label>)}</div></section>;
 }
@@ -196,10 +199,17 @@ export default function Home() {
   // answer(s) immediately above the composer, which is what "超級學霸測試"
   // promises to challenge.
   const canGenerateStudentReply = Boolean(latestTeacherPrompt && latestTeacherResponses.length > 0);
-  const canJudgeTeaching = selectedJudgeItems.length > 0;
   const evaluatingTeaching = Boolean(evaluatingLevel || evaluatingJudge);
   const selectedFollowUpKeys = selectedFollowUps.map((selection) => selection.key);
   const selectedJudgeKeys = selectedJudgeItems.map((selection) => selection.key);
+  // Selection state stores keys only. Resolve the actual text from the current
+  // message list immediately before judging so a re-evaluation can never reuse
+  // an older captured response.
+  const liveJudgeItems = useMemo(() => {
+    const byKey = new Map(buildJudgeOptions(messages).map((item) => [item.key, item]));
+    return selectedJudgeKeys.map((key) => byKey.get(key)).filter((item): item is JudgeSelection => Boolean(item));
+  }, [messages, selectedJudgeKeys.join("\u0000")]);
+  const canJudgeTeaching = liveJudgeItems.length > 0;
 
   useEffect(() => {
     const refreshTaipeiClock = () => {
@@ -570,9 +580,11 @@ export default function Home() {
   }
 
   function toggleJudgeSelection(selection: JudgeSelection) {
+    setTeachingJudgement(null);
+    setJudgeDiagnostics(null);
     setSelectedJudgeItems((current) => current.some((item) => item.key === selection.key)
       ? current.filter((item) => item.key !== selection.key)
-      : [...current, selection]);
+      : [...current, { ...selection, text: "" }]);
   }
 
   async function generateStudentFollowUp(level?: TeachingLevel) {
@@ -626,7 +638,7 @@ export default function Home() {
       const response = await fetch("/api/chat/teaching-evaluation", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode: "judge", prompt: selectedJudgeItems.find((item) => item.kind === "student")?.text ?? "", selections: selectedJudgeItems.map(({ key, kind, label, model, text }) => ({ key, kind, label, model, text })) }),
+        body: JSON.stringify({ mode: "judge", prompt: liveJudgeItems.find((item) => item.kind === "student")?.text ?? "", selections: liveJudgeItems.map(({ key, kind, label, model, text }) => ({ key, kind, label, model, text })) }),
       });
       const result = await response.json().catch(() => null) as { judgement?: TeachingJudgement; totalUsage?: EvaluationUsage[]; diagnostics?: JudgeDiagnostics; error?: string } | null;
       if (!result) throw new Error("AI 審判長連線中斷，請再按一次；已完成的雙模型回合仍保留，不必重新測試。");
@@ -726,7 +738,7 @@ export default function Home() {
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
               {message.role === "judge" && <span className="judge-avatar">審</span>}
-              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} /> : <><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}{message.role === "mentor" && message.text.trim() && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}:single:${message.model ?? ""}`, label: /claude/i.test(message.model ?? "") ? "Claude Sonnet" : "Luna", model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>針對這段追問</span></label>}</>}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} selectedJudgeKeys={selectedJudgeKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onToggleJudge={toggleJudgeSelection} /> : <><span className="message-text">{cleanMessageText(message.text)}</span>{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}{message.role === "mentor" && message.text.trim() && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}:single:${message.model ?? ""}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}:single:${message.model ?? ""}`, label: /claude/i.test(message.model ?? "") ? "Claude Sonnet" : "Luna", model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>針對這段追問</span></label>}</>}{message.role === "mentor" && <div className="message-actions">{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
               {message.role === "judge" && <div className="judge-message-meta"><b>Sol 審判長</b>{showCosts && message.judgeUsage ? <span>{message.judgeUsage.inputTokens + message.judgeUsage.outputTokens} tokens · US$ {message.judgeUsage.estimatedCostUsd.toFixed(5)}</span> : <span>可直接在下方追問</span>}</div>}
             </div>
           ))}
