@@ -12,7 +12,7 @@ import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, getOpenAIModel } 
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
-type ChatModelMode = "luna" | "dual";
+type ChatModelMode = "luna" | "sonnet" | "dual";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 type TeachingEvidence = {
@@ -580,15 +580,14 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 
 export async function POST(request: Request) {
   try {
-    const apiKey = await getOpenAIKey();
-    if (!apiKey) {
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: ChatModelMode; teachingLevel?: TeachingLevel };
+    const modelMode: ChatModelMode = body.modelMode === "dual" ? "dual" : body.modelMode === "sonnet" ? "sonnet" : "luna";
+    const apiKey = modelMode === "sonnet" ? "" : await getOpenAIKey();
+    if (modelMode !== "sonnet" && !apiKey) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
-
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: ChatModelMode; teachingLevel?: TeachingLevel };
-    const modelMode: ChatModelMode = body.modelMode === "dual" ? "dual" : "luna";
-    const anthropicKey = modelMode === "dual" ? await getAnthropicKey() : "";
-    if (modelMode === "dual" && !anthropicKey) {
+    const anthropicKey = modelMode === "luna" ? "" : await getAnthropicKey();
+    if (modelMode !== "luna" && !anthropicKey) {
       return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
@@ -747,33 +746,37 @@ export async function POST(request: Request) {
     // file_search result could silently teach from another book or chapter.
     const allowFileSearch = Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
     if (allowFileSearch) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
-    const openAiStartedAt = Date.now();
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        instructions,
-        input: modelMessages.map((message, index) => ({
-          role: message.role === "mentor" ? "assistant" : "user",
-          content: imageDataUrl && message.role === "student" && index === modelMessages.length - 1 ? [
-            { type: "input_text", text: message.text },
-            { type: "input_image", image_url: imageDataUrl, detail: "high" },
-          ] : message.text,
-        })),
-        ...(allowFileSearch ? { include: ["file_search_call.results"] } : {}),
-        tools,
-      }),
-    });
+    let payload: unknown = {};
+    let openAiDurationMs = 0;
+    if (modelMode !== "sonnet") {
+      const openAiStartedAt = Date.now();
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          instructions,
+          input: modelMessages.map((message, index) => ({
+            role: message.role === "mentor" ? "assistant" : "user",
+            content: imageDataUrl && message.role === "student" && index === modelMessages.length - 1 ? [
+              { type: "input_text", text: message.text },
+              { type: "input_image", image_url: imageDataUrl, detail: "high" },
+            ] : message.text,
+          })),
+          ...(allowFileSearch ? { include: ["file_search_call.results"] } : {}),
+          tools,
+        }),
+      });
 
-    const payload = await response.json();
-    if (!response.ok) {
-      return Response.json({ error: "AI 服務暫時無法回應" }, { status: 502 });
+      payload = await response.json();
+      if (!response.ok) {
+        return Response.json({ error: "AI 服務暫時無法回應" }, { status: 502 });
+      }
+      openAiDurationMs = Math.max(0, Date.now() - openAiStartedAt);
     }
-    const openAiDurationMs = Math.max(0, Date.now() - openAiStartedAt);
     let reply = extractText(payload);
     const planCall = readPlanCall(payload);
     const deleteCall = readDeleteCall(payload);
@@ -805,10 +808,10 @@ export async function POST(request: Request) {
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
     const sharedRetrievalContext = searchedFiles ? extractFileSearchContext(payload) : "";
-    const comparisonClaudeModel = modelMode === "dual" ? await getAnthropicChatModel("claude-sonnet-5") : "";
+    const comparisonClaudeModel = modelMode !== "luna" ? await getAnthropicChatModel("claude-sonnet-5") : "";
     let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number; stopReason: string | null } | null = null;
     let claudeError = "";
-    if (modelMode === "dual") {
+    if (modelMode !== "luna") {
       try {
         claudeRun = await runAnthropicTutor(
           anthropicKey,
@@ -822,6 +825,7 @@ export async function POST(request: Request) {
         claudeError = error instanceof Error ? error.message.slice(0, 500) : "Claude Sonnet 回覆失敗";
       }
     }
+    if (modelMode === "sonnet") reply = claudeRun?.reply ?? "";
     if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
 
     const fileSearchConfirmedForBook = Boolean(
@@ -879,17 +883,23 @@ export async function POST(request: Request) {
     const claudeCostUsd = claudeRun
       ? (claudeRun.inputTokens * claudePricing.input + claudeRun.outputTokens * claudePricing.output) / 1_000_000
       : 0;
+    const primaryModel = modelMode === "sonnet" ? (claudeRun?.model || comparisonClaudeModel) : selectedModel;
+    const primaryUsage = modelMode === "sonnet"
+      ? { inputTokens: claudeRun?.inputTokens ?? 0, cachedTokens: 0, outputTokens: claudeRun?.outputTokens ?? 0 }
+      : usage;
+    const primaryDurationMs = modelMode === "sonnet" ? claudeRun?.durationMs ?? 0 : openAiDurationMs;
+    const primaryEstimatedCostUsd = modelMode === "sonnet" ? claudeCostUsd : estimatedCostUsd;
     let comparison: Record<string, unknown> | null = null;
     try {
       const db = await getDb();
       await db.insert(usageLogs).values({
-        model: selectedModel,
+        model: primaryModel,
         source: fromFiles ? "教材" : "AI 補充",
-        inputTokens: usage.inputTokens,
-        cachedTokens: usage.cachedTokens,
-        outputTokens: usage.outputTokens,
-        fileSearchCalls: searchedFiles ? 1 : 0,
-        estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
+        inputTokens: primaryUsage.inputTokens,
+        cachedTokens: primaryUsage.cachedTokens,
+        outputTokens: primaryUsage.outputTokens,
+        fileSearchCalls: modelMode === "sonnet" ? 0 : searchedFiles ? 1 : 0,
+        estimatedCostUsdMicros: Math.round(primaryEstimatedCostUsd * 1_000_000),
       });
       if (modelMode === "dual") {
         const [comparisonRow] = await db.insert(chatComparisons).values({
@@ -973,8 +983,8 @@ export async function POST(request: Request) {
         citationsJson: sources.length ? JSON.stringify(sources) : null,
         citationStatus,
         comparisonJson: comparison ? JSON.stringify(comparison) : null,
-        model: selectedModel,
-        estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1_000_000),
+        model: primaryModel,
+        estimatedCostUsdMicros: Math.round(primaryEstimatedCostUsd * 1_000_000),
       });
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply.replace(/\s+/g, " ").slice(0, 500), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
       if (context.type === "home" && latestStudent && latestStudent.text.trim().length >= 6) {
@@ -995,7 +1005,7 @@ export async function POST(request: Request) {
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
-      usage: { model: selectedModel, ...usage, fileSearchCalls: searchedFiles ? 1 : 0, estimatedCostUsd },
+      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: modelMode === "sonnet" ? 0 : searchedFiles ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd },
       planSaved,
       replacedTasks,
       tasksDeleted,
