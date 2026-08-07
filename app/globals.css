@@ -6220,6 +6220,59 @@ a {
 .review-footer p { margin: 0; }
 .review-footer a { color: #8e7129; font-weight: 800; }
 .review-entry-link { color: #a07624 !important; }
+
+.review-model-battle-picker { min-width: 0; padding: 19px; border: 1px solid #e2caca; border-top: 4px solid #a33a3a; background: #fffafa; }
+.review-model-battle-picker > p { margin: 8px 0 13px; color: #8f7777; font-size: 10px; line-height: 1.6; }
+.review-model-choice-list { display: grid; gap: 7px; }
+.review-model-choice-list button { display: flex; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid #ead6d6; background: #fff; color: #623d3d; text-align: left; cursor: pointer; }
+.review-model-choice-list button.selected { border-color: #a33a3a; background: #fff1ef; box-shadow: inset 0 0 0 1px #a33a3a; }
+.review-model-choice-list button > i { display: grid; place-items: center; flex: 0 0 auto; width: 17px; height: 17px; border: 1px solid #cdaaaa; color: #a33a3a; font-size: 11px; font-style: normal; font-weight: 900; }
+.review-model-choice-list button > span { display: grid; gap: 2px; min-width: 0; }
+.review-model-choice-list b { color: #6b3d3d; font-size: 11px; }
+.review-model-choice-list small { color: #a47777; font-size: 9px; }
+.review-model-battle-hint { display: block; margin-top: 11px; color: #9a3b3b; font-size: 10px; font-weight: 800; line-height: 1.5; }
+.review-model-comparison { margin: 16px 0; border: 1px solid #d7e0e0; background: #f7faf9; overflow: hidden; }
+.review-model-comparison-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #d7e0e0; background: #eef5f3; }
+.review-model-comparison-head span { color: #9b7d33; font-size: 9px; font-weight: 900; letter-spacing: .15em; }
+.review-model-comparison-head h4 { margin: 5px 0 0; color: #254b55; font-size: 14px; }
+.review-model-comparison-head small { color: #71827d; font-size: 10px; white-space: nowrap; }
+.review-model-comparison-scroll { overflow-x: auto; }
+.review-model-comparison table { width: 100%; min-width: 650px; border-collapse: collapse; table-layout: fixed; }
+.review-model-comparison th, .review-model-comparison td { padding: 13px 14px; border-right: 1px solid #dce6e4; border-bottom: 1px solid #dce6e4; vertical-align: top; text-align: left; }
+.review-model-comparison thead th { color: #315c65; background: #e9f2f0; font-size: 12px; font-weight: 900; }
+.review-model-comparison thead th:first-child { width: 105px; color: #71827d; }
+.review-model-comparison tbody th { width: 105px; color: #8b6c28; background: #fffdf4; font-size: 11px; white-space: nowrap; }
+.review-model-comparison td { color: #455866; background: #fff; font-size: 13px; line-height: 1.85; white-space: pre-wrap; }
+.review-model-comparison tr:last-child th, .review-model-comparison tr:last-child td { border-bottom: 0; }
+.review-model-comparison th:last-child, .review-model-comparison td:last-child { border-right: 0; }
+.review-model-comparison.compact { margin: 15px 0 0; }
+.review-model-comparison.compact .review-model-comparison-head { padding: 11px 13px; }
+.review-model-comparison.compact .review-model-comparison-head h4 { font-size: 12px; }
+.review-model-comparison.compact th, .review-model-comparison.compact td { padding: 10px 11px; font-size: 11px; line-height: 1.7; }
+.review-history-panel { margin-top: 28px; padding: 23px; border-top: 3px solid #b08b32; background: #f8faf9; }
+.review-history-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.review-history-head > div > span { color: #9b7d33; font-size: 9px; font-weight: 900; letter-spacing: .15em; }
+.review-history-head h3 { margin: 7px 0 0; color: #183b55; font-family: Georgia, "Noto Serif TC", serif; font-size: 22px; font-weight: 500; }
+.review-history-head p { max-width: 330px; margin: 0; color: #7b8992; font-size: 11px; line-height: 1.7; }
+.review-history-head button { padding: 10px 13px; border: 1px solid #c4ad65; background: #fffdf4; color: #806321; cursor: pointer; font-size: 11px; font-weight: 900; white-space: nowrap; }
+.review-history-head button b { font-size: 16px; font-weight: 400; }
+.review-history-list { display: grid; gap: 9px; margin-top: 18px; }
+.review-history-item { border: 1px solid #dce5e2; background: #fff; }
+.review-history-item summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 15px; color: #3f5e63; cursor: pointer; list-style: none; }
+.review-history-item summary::-webkit-details-marker { display: none; }
+.review-history-item summary > span { display: grid; gap: 4px; min-width: 0; }
+.review-history-item summary b { color: #8b6c28; font-size: 13px; }
+.review-history-item summary small { color: #7b8992; font-size: 10px; }
+.review-history-item summary > strong { padding: 5px 8px; border-radius: 5px; background: #eef5f3; color: #38616a; font-size: 11px; white-space: nowrap; }
+.review-history-body { padding: 0 15px 15px; border-top: 1px solid #e3ebe8; }
+.review-history-meta { display: flex; flex-wrap: wrap; gap: 8px 15px; padding: 12px 0 0; color: #71827d; font-size: 10px; }
+.review-history-verdict { margin-top: 13px; padding: 13px; border: 1px solid #dae5e3; background: #f8fbfa; }
+.review-history-verdict b { color: #315c65; font-size: 11px; }
+.review-history-verdict p { margin: 6px 0 0; color: #526b72; font-size: 12px; line-height: 1.8; white-space: pre-wrap; }
+.review-history-empty { margin-top: 17px; padding: 20px; border: 1px dashed #cddbd8; color: #71827d; font-size: 12px; line-height: 1.7; text-align: center; }
+.review-jump-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.review-jump-actions button { min-height: 43px; padding: 0 14px; border: 1px solid #c7d3d5; background: white; color: #526c75; cursor: pointer; font-size: 11px; font-weight: 800; }
+.review-jump-actions button.selected { border-color: #0d3156; background: #0d3156; color: white; }
 @media (max-width: 820px) {
   .review-topbar { padding-inline: 18px; }
   .review-topbar nav { gap: 14px; }
@@ -6244,6 +6297,8 @@ a {
   .review-watch-mode { width: 100%; }
   .review-watch-mode button { flex: 1; }
   .review-countdown-select select { width: 100%; }
+  .review-history-head { display: grid; gap: 12px; }
+  .review-history-head p { max-width: none; }
 }
 @media (max-width: 560px) {
   .review-brand b { font-size: 18px; }

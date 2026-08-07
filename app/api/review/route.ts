@@ -329,12 +329,12 @@ export async function POST(request: Request) {
       }
     }
 
-    let teacherQuestion = null;
+    let teacherQuestion: ModelRun | null = null;
     let scholarAnswer: ModelRun | null = null;
     let scholarAnswers: ModelRun[] = [];
     let scholarReplies: ModelRun[] = [];
     let scholarErrors: Record<string, string> = {};
-    let teacherFollowUp = null;
+    let teacherFollowUp: ModelRun | null = null;
     let scholarReply = null;
     let teacherError = "";
     let scholarError = "";
