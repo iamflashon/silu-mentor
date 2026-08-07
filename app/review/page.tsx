@@ -10,7 +10,7 @@ type Question = { id: number; year: string; subject: string; questionNumber: str
 type Usage = { inputTokens: number; outputTokens: number; cachedTokens: number; durationMs: number };
 type ModelRun = { model: string; provider?: string; text: string; usage?: Usage; durationMs?: number; inputTokens?: number; outputTokens?: number; cachedTokens?: number };
 type ArgumentStage = "major-premise" | "minor-premise" | "conclusion";
-type ReviewResult = { question: Question; models: { teacher: string; scholar: string; scholarModels?: string[]; commentator: string }; scholarModels?: Provider[]; scholarAnswers?: ModelRun[]; scholarReplies?: ModelRun[]; scholarErrors?: Record<string, string>; argumentStage?: ArgumentStage; teacherQuestion: ModelRun | null; scholarAnswer: ModelRun | null; teacherFollowUp: ModelRun | null; scholarReply: ModelRun | null; teacherError?: string | null; scholarError?: string | null; commentator: ModelRun | null; commentatorError?: string; participantMode?: ParticipantMode };
+type ReviewResult = { question: Question; models: { teacher: string; scholar: string; scholarModels?: string[]; scholarProviders?: string[]; commentator: string }; scholarModels?: Provider[]; scholarAnswers?: ModelRun[]; scholarReplies?: ModelRun[]; scholarErrors?: Record<string, string>; argumentStage?: ArgumentStage; teacherQuestion: ModelRun | null; scholarAnswer: ModelRun | null; teacherFollowUp: ModelRun | null; scholarReply: ModelRun | null; teacherError?: string | null; scholarError?: string | null; commentator: ModelRun | null; commentatorError?: string; participantMode?: ParticipantMode };
 type Phase = "teacher-question" | "scholar-answer" | "teacher-follow-up" | "scholar-reply" | "transition-stage" | "transition-verdict" | "verdict";
 type ReviewHistoryEntry = { id: number; attemptNumber: number; questionId: number; year: string; subject: string; questionNumber: string; participantMode: ParticipantMode; teacherModel: string; scholarModels: string[]; commentatorModel: string; stageCount: number; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; createdAt: string | Date; resultJson: string };
 
@@ -203,7 +203,8 @@ function ModelComparisonTable({ result, compact = false }: { result: ReviewResul
   if (models.length < 2) return null;
   const answers = result.scholarAnswers ?? [];
   const replies = result.scholarReplies ?? [];
-  const findRun = (runs: ModelRun[], index: number) => runs.find((run) => run.provider === ["luna", "sonnet", "deepseek"][index]) ?? runs[index];
+  const providers = result.models.scholarProviders ?? ["luna", "sonnet", "deepseek"].slice(0, models.length);
+  const findRun = (runs: ModelRun[], index: number) => runs.find((run) => run.provider === providers[index]) ?? runs[index];
   return <section className={`review-model-comparison ${compact ? "compact" : ""}`}><div className="review-model-comparison-head"><div><span>MODEL BATTLE</span><h4>同題同提示詞｜模型回答並列比較</h4></div><small>{models.length} 個模型</small></div><div className="review-model-comparison-scroll"><table><thead><tr><th>對話節點</th>{models.map((model) => <th key={model}>{model}</th>)}</tr></thead><tbody><tr><th>學霸回答</th>{models.map((model, index) => <td key={`${model}-answer`}>{cleanReviewText(findRun(answers, index)?.text ?? result.scholarErrors?.[["luna", "sonnet", "deepseek"][index]] ?? "尚未產生")}</td>)}</tr><tr><th>學霸回應</th>{models.map((model, index) => <td key={`${model}-reply`}>{cleanReviewText(findRun(replies, index)?.text ?? result.scholarErrors?.[["luna", "sonnet", "deepseek"][index]] ?? "尚未產生")}</td>)}</tr></tbody></table></div></section>;
 }
 

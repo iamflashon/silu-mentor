@@ -247,7 +247,7 @@ export async function POST(request: Request) {
           return Response.json({
             question: publicQuestion(question),
             argumentStage: "major-premise",
-            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["student"], commentator: "gpt-5.6-sol" },
+            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["同學（學霸角色）"], scholarProviders: ["student"], commentator: "gpt-5.6-sol" },
             scholarAnswers: [], scholarReplies: [], scholarErrors: {},
             teacherQuestion,
             scholarAnswer: null,
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
         const nextPrompt = `${context}\n\n目前要進入${stageLabels[argumentStage]}。\n\n上一段老師提問：${teacherQuestion}\n上一段學霸回答：${studentAnswer}\n上一段老師追問：${teacherFollowUp}\n上一段學霸回應：${studentReply}\n\n請承接同一個法律爭點，不要重新選題。`;
         try {
           const nextTeacherQuestion = await runProvider(teacherModel, nextPrompt, "teacher", "question", argumentStage);
-          return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["student"], commentator: "gpt-5.6-sol" }, scholarAnswers: [], scholarReplies: [], scholarErrors: {}, teacherQuestion: nextTeacherQuestion, scholarAnswer: null, teacherFollowUp: null, scholarReply: null, teacherError: "", scholarError: "", commentator: null, commentatorError: "", participantMode });
+          return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["同學（學霸角色）"], scholarProviders: ["student"], commentator: "gpt-5.6-sol" }, scholarAnswers: [], scholarReplies: [], scholarErrors: {}, teacherQuestion: nextTeacherQuestion, scholarAnswer: null, teacherFollowUp: null, scholarReply: null, teacherError: "", scholarError: "", commentator: null, commentatorError: "", participantMode });
         } catch (error) {
           return Response.json({ error: error instanceof Error ? error.message : "下一段老師問題暫時無法產生" }, { status: 502 });
         }
@@ -287,7 +287,7 @@ export async function POST(request: Request) {
           return Response.json({
             question: publicQuestion(question),
             argumentStage,
-            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["student"], commentator: "gpt-5.6-sol" },
+            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["同學（學霸角色）"], scholarProviders: ["student"], commentator: "gpt-5.6-sol" },
             scholarAnswers: [{ model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }], scholarReplies: [], scholarErrors: {},
             teacherQuestion: { model: labels[teacherModel], text: teacherQuestion },
             scholarAnswer: { model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
@@ -311,7 +311,7 @@ export async function POST(request: Request) {
           return Response.json({
             question: publicQuestion(question),
             argumentStage,
-            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["student"], commentator: commentator.model },
+            models: { teacher: labels[teacherModel], scholar: "同學（學霸角色）", scholarModels: ["同學（學霸角色）"], scholarProviders: ["student"], commentator: commentator.model },
             scholarAnswers: [{ model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }], scholarReplies: [{ model: "student", text: studentReply, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 }], scholarErrors: {},
             teacherQuestion: { model: labels[teacherModel], text: teacherQuestion },
             scholarAnswer: { model: "student", text: studentAnswer, durationMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
@@ -365,7 +365,7 @@ export async function POST(request: Request) {
     } else if (argumentStage === "conclusion") {
       commentatorError = "老師與學霸的三段對話尚未完整，固定點評才能開始";
     }
-    return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: labels[scholarModels[0]], scholarModels: scholarModels.map((model) => labels[model]), commentator: commentator?.model ?? "gpt-5.6-sol" }, scholarModels, scholarAnswers, scholarReplies, scholarErrors, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError, participantMode });
+    return Response.json({ question: publicQuestion(question), argumentStage, models: { teacher: labels[teacherModel], scholar: labels[scholarModels[0]], scholarModels: scholarModels.map((model) => labels[model]), scholarProviders: scholarModels, commentator: commentator?.model ?? "gpt-5.6-sol" }, scholarModels, scholarAnswers, scholarReplies, scholarErrors, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError, participantMode });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "司律評暫時無法開始" }, { status: 500 });
   }
