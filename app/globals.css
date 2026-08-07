@@ -5987,7 +5987,7 @@ a {
 .review-commentator-head b { color: #89702b; font-size: 10px; }
 .review-commentator-head strong { color: #4d3e1d; font-family: Georgia, serif; font-size: 16px; font-weight: 500; }
 .review-expert-tag { margin-left: auto; color: #af943d; font-size: 9px; letter-spacing: .12em; }
-.review-commentator-card p { margin: 16px 0 0; color: #4a4b3e; font-size: 12px; line-height: 1.9; white-space: pre-wrap; }
+.review-commentator-card p { margin: 16px 0 0; color: #4a4b3e; font-size: 15px; line-height: 2; white-space: pre-wrap; }
 .review-commentator-empty { margin-top: 14px; color: #9a8c5d; font-size: 12px; line-height: 1.75; }
 .review-jump-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 14px; }
 .review-jump-actions button { padding: 8px 11px; border: 1px solid #d5dde0; background: white; color: #597082; cursor: pointer; font-size: 10px; }
@@ -5998,8 +5998,8 @@ a {
 .review-conversation-live { display: inline-flex; align-items: center; gap: 7px; color: #a07d27; font-size: 9px; font-weight: 900; letter-spacing: .17em; }
 .review-conversation-live i { width: 7px; height: 7px; border-radius: 50%; background: #bb4c42; box-shadow: 0 0 0 4px rgba(187, 76, 66, .12); animation: review-live-pulse 1.3s ease-in-out infinite; }
 @keyframes review-live-pulse { 50% { opacity: .35; transform: scale(.75); } }
-.review-conversation-head h3 { margin: 8px 0 5px; color: #163957; font-family: Georgia, "Noto Serif TC", serif; font-size: 22px; font-weight: 500; }
-.review-conversation-head p { margin: 0; color: #788790; font-size: 11px; line-height: 1.65; }
+.review-conversation-head h3 { margin: 8px 0 5px; color: #163957; font-family: Georgia, "Noto Serif TC", serif; font-size: 25px; font-weight: 500; }
+.review-conversation-head p { margin: 0; color: #788790; font-size: 13px; line-height: 1.75; }
 .review-countdown { display: grid; flex: 0 0 auto; place-items: center; width: 82px; height: 82px; border: 1px solid #c4a44e; border-radius: 50%; background: #fffdf4; box-shadow: inset 0 0 0 5px rgba(207, 181, 92, .12); }
 .review-countdown b { color: #8f7027; font-family: Georgia, serif; font-size: 28px; line-height: 1; }
 .review-countdown small { margin-top: -23px; color: #9b8c61; font-size: 9px; }
@@ -6010,22 +6010,28 @@ a {
 .review-judge-line { display: flex; align-items: flex-start; gap: 10px; max-width: 88%; margin: 0 auto; padding: 11px 15px; border: 1px solid #e1d5aa; background: #fffcf1; color: #65552b; }
 .review-judge-line.active { box-shadow: 0 7px 18px rgba(145, 113, 40, .08); }
 .review-judge-line .review-judge-badge { width: 27px; height: 27px; }
-.review-judge-line p { margin: 0; font-size: 11px; line-height: 1.7; }
+.review-judge-line p { margin: 0; font-size: 13px; line-height: 1.8; }
 .review-judge-line b { display: block; margin-bottom: 2px; color: #8d6e25; font-size: 9px; letter-spacing: .1em; }
 .review-argument-bubble { width: min(88%, 680px); border: 1px solid #d6dde0; background: white; box-shadow: 0 10px 25px rgba(18, 44, 69, .05); }
 .review-argument-bubble.positive { justify-self: start; border-top: 4px solid #174d7a; }
 .review-argument-bubble.negative { justify-self: end; border-top: 4px solid #a23b3b; }
-.review-argument-bubble header { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid #e7ebea; }
-.review-argument-bubble header > span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: white; background: #174d7a; font-family: serif; font-size: 16px; }
-.review-argument-bubble.negative header > span { background: #a23b3b; }
-.review-argument-bubble header div { display: grid; gap: 3px; min-width: 0; }
-.review-argument-bubble header b { color: #18344f; font-size: 12px; }
-.review-argument-bubble header small { color: #8a969e; font-size: 10px; }
-.review-argument-bubble header i { margin-left: auto; color: #9babb3; font-size: 9px; font-style: normal; letter-spacing: .12em; }
-.review-argument-bubble p { margin: 0; padding: 18px 20px; color: #455866; font-size: 12px; line-height: 1.9; white-space: pre-wrap; }
+.review-argument-bubble > summary { list-style: none; }
+.review-argument-bubble > summary::-webkit-details-marker { display: none; }
+.review-argument-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; }
+.review-argument-summary > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: white; background: #174d7a; font-family: serif; font-size: 18px; }
+.review-argument-bubble.negative .review-argument-summary > span { background: #a23b3b; }
+.review-argument-summary > div { display: grid; gap: 3px; min-width: 0; }
+.review-argument-summary b { color: #18344f; font-size: 14px; }
+.review-argument-summary small { overflow: hidden; color: #8a969e; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.review-argument-summary > i { display: flex; align-items: center; gap: 10px; margin-left: auto; color: #9babb3; font-size: 10px; font-style: normal; letter-spacing: .12em; white-space: nowrap; }
+.review-argument-summary > i em { color: #7f8e96; font-size: 10px; font-style: normal; letter-spacing: 0; }
+.review-argument-bubble:not([open]) .review-bubble-open { display: none; }
+.review-argument-bubble[open] .review-bubble-closed { display: none; }
+.review-argument-content { border-top: 1px solid #e7ebea; }
+.review-argument-bubble p { margin: 0; padding: 20px 22px; color: #455866; font-size: 15px; line-height: 2; white-space: pre-wrap; }
 .review-argument-bubble p.error { color: #a33a3a; }
 .review-argument-bubble footer { display: flex; flex-wrap: wrap; gap: 6px; padding: 11px 16px; border-top: 1px solid #e7e9e9; }
-.review-argument-bubble footer span { padding: 4px 6px; background: #f0f3f2; color: #7d8b93; font-size: 9px; }
+.review-argument-bubble footer span { padding: 4px 6px; background: #f0f3f2; color: #7d8b93; font-size: 10px; }
 .review-transition-note { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 14px; color: #8d6e25; font-size: 11px; }
 .review-pulse { width: 8px; height: 8px; border-radius: 50%; background: #b89539; box-shadow: 0 0 0 5px rgba(184, 149, 57, .13); animation: review-live-pulse 1s ease-in-out infinite; }
 .review-turn-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; margin-top: 19px; }
@@ -15178,4 +15184,83 @@ a {
   .teaching-level-action { align-items: flex-start; flex-direction: column; }
   .teaching-level-action span { white-space: normal; }
   .teaching-level-action button { width: 100%; }
+}
+
+/* Mobile conversation width guard.
+   Long CJK教材／AI 回覆 must be allowed to shrink with the flex row;
+   otherwise the bubble keeps its desktop min-content width and pushes the
+   page beyond the phone viewport. */
+@media (max-width: 720px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .coach-shell,
+  .command-layout,
+  .conversation,
+  .message-list,
+  .composer-wrap,
+  .model-mode-switch,
+  .composer {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .command-layout,
+  .conversation,
+  .message-list {
+    overflow-x: hidden;
+  }
+
+  .message-row {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .message-bubble {
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .message-row.mentor .message-bubble {
+    width: calc(100% - 46px);
+    max-width: calc(100% - 46px);
+  }
+
+  .message-text,
+  .message-bubble p,
+  .message-bubble small,
+  .model-comparison-card,
+  .model-comparison-text,
+  .model-comparison-sources {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .model-comparison-grid,
+  .model-comparison-response,
+  .model-mode-heading,
+  .model-mode-fields,
+  .teaching-level-action {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .composer-wrap {
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+
+  .composer textarea {
+    width: 100%;
+    min-width: 0;
+  }
 }

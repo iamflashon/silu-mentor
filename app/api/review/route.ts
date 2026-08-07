@@ -95,11 +95,15 @@ async function runDeepSeek(apiKey: string, model: string, instructions: string, 
   return { model, text, durationMs: Date.now() - startedAt, inputTokens: Number(usage?.prompt_tokens ?? 0), outputTokens: Number(usage?.completion_tokens ?? 0), cachedTokens: 0 };
 }
 
-async function runProvider(provider: Provider, prompt: string, role: "positive" | "negative") {
-  const roleInstruction = role === "positive"
-    ? "你是申論題攻防中的正方。站在檢察官、原告或主張成立的一方，先做行為定位，再提出最有力的爭點、規範與涵攝。你可以承認爭議，但要清楚說明為何本方結論較可採。"
-    : "你是申論題攻防中的反方。站在辯護人、被告或主張不成立的一方，找出正方論證的漏洞，提出反駁與替代涵攝。不要只說正方錯，要精準指出事實、要件或法律效果的斷點。";
-  const instructions = `你是台灣司律二試的法律攻防模型。使用繁體中文與中華民國法律語境。${roleInstruction}\n只根據題目與提供的核對資料回答，不得虛構判決、法條內容或老師見解。這是觀戰用的開場主張，控制在 500 至 800 字，最後列出本方最想逼對方回答的一個問題。`;
+async function runProvider(provider: Provider, prompt: string, speaker: "teacher" | "scholar", stage: "question" | "answer" | "follow-up" | "reply") {
+  const stageInstruction = stage === "question"
+    ? "你是帶學生拆解司律二試的老師。請只提出一個具體、可直接回答的法律問題，鎖定本題最容易漏寫或混淆的爭點。不要先公布答案，不要一次問兩個問題。"
+    : stage === "answer"
+      ? "你是程度很高但仍要接受追問的法律學霸。請直接回答老師剛才的問題，指出爭點、規範與涵攝，並主動說明一個可能被老師挑戰的漏洞。不要寫成完整申論擬答。"
+      : stage === "follow-up"
+        ? "你是嚴格的司律閱卷老師。請針對學霸剛才的回答，只追問一個最關鍵的漏洞或法律效果問題，要求對方補上具體涵攝。不要直接給標準答案。"
+        : "你是法律學霸。請正面回應老師的追問，修正剛才可能不足的地方，補足法源、要件與個案涵攝，最後用一句話說明考場應如何落筆。";
+  const instructions = `你是台灣司律二試的法律對話模型，使用繁體中文與中華民國法律語境。${stageInstruction}\n只根據題目與提供的核對資料回答，不得虛構判決、法條內容或老師見解。請保持自然對話，不要使用 Markdown 標題、星號、反引號或長篇條列。${stage === "question" || stage === "follow-up" ? "控制在 120 至 260 字。" : "控制在 220 至 450 字。"}`;
   if (provider === "luna") {
     const key = await getOpenAIKey();
     if (!key) throw new Error("OPENAI_API_KEY 尚未設定");
@@ -115,11 +119,11 @@ async function runProvider(provider: Provider, prompt: string, role: "positive" 
   return runDeepSeek(key, await getDeepSeekModel("deepseek-v4-pro"), instructions, prompt);
 }
 
-async function runCommentator(question: string, positive: string, negative: string) {
+async function runCommentator(question: string, teacherQuestion: string, scholarAnswer: string, teacherFollowUp: string, scholarReply: string) {
   const key = await getOpenAIKey();
   if (!key) throw new Error("固定點評 Sol 需要 OPENAI_API_KEY");
-  const instructions = "你是司律評的固定 AI 點評人，使用 gpt-5.6-sol。請像資深閱卷老師一樣，比較正反方的爭點辨識、規範正確性、個案涵攝、攻防完整度與考場可用性。不得只偏好文筆；若雙方都有錯，要直接指出。最後給出 100 分制總評、三個最重要的修正，以及一段考場防呆筆記。使用繁體中文，控制在 700 字內。";
-  const input = `【題目】\n${question}\n\n【正方】\n${positive}\n\n【反方】\n${negative}`;
+  const instructions = "你是司律評的固定 AI 點評人，使用 gpt-5.6-sol。請像資深閱卷老師一樣，點評老師是否問到真正爭點、學霸是否正面回答、哪個地方仍有漏洞，以及規範與個案涵攝是否完整。不得只偏好文筆；若雙方都有錯，要直接指出。最後給出 100 分制總評、三個最重要的修正，以及一段考場防呆筆記。使用繁體中文，不要使用 Markdown 符號，控制在 700 字內。";
+  const input = `【題目】\n${question}\n\n【老師先問】\n${teacherQuestion}\n\n【學霸回答】\n${scholarAnswer}\n\n【老師追問】\n${teacherFollowUp}\n\n【學霸回應】\n${scholarReply}`;
   return runOpenAI(key, await getTeachingJudgeOpenAIModel("gpt-5.6-sol"), instructions, input);
 }
 
@@ -138,27 +142,38 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { questionId?: number; positiveModel?: Provider; negativeModel?: Provider };
-    const positiveModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.positiveModel)) ? body.positiveModel as Provider : "luna";
-    const negativeModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.negativeModel)) ? body.negativeModel as Provider : "sonnet";
+    const body = await request.json() as { questionId?: number; teacherModel?: Provider; scholarModel?: Provider };
+    const teacherModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.teacherModel)) ? body.teacherModel as Provider : "luna";
+    const scholarModel: Provider = ["luna", "sonnet", "deepseek"].includes(String(body.scholarModel)) ? body.scholarModel as Provider : "sonnet";
     const db = await getDb();
     const rows = await db.select().from(examQuestions).where(eq(examQuestions.status, "published")).orderBy(desc(examQuestions.id)).limit(80);
     const question = rows.find((row) => row.id === Number(body.questionId) && row.examType === "essay") ?? rows.find((row) => row.examType === "essay");
     if (!question) return Response.json({ error: "目前沒有已發布的二試申論題" }, { status: 404 });
     const context = questionContext(question);
-    const [positiveRun, negativeRun] = await Promise.allSettled([runProvider(positiveModel, context, "positive"), runProvider(negativeModel, context, "negative")]);
-    const positive = positiveRun.status === "fulfilled" ? positiveRun.value : null;
-    const negative = negativeRun.status === "fulfilled" ? negativeRun.value : null;
-    const positiveError = positiveRun.status === "rejected" ? String(positiveRun.reason instanceof Error ? positiveRun.reason.message : positiveRun.reason) : null;
-    const negativeError = negativeRun.status === "rejected" ? String(negativeRun.reason instanceof Error ? negativeRun.reason.message : negativeRun.reason) : null;
+    let teacherQuestion = null;
+    let scholarAnswer = null;
+    let teacherFollowUp = null;
+    let scholarReply = null;
+    let teacherError = "";
+    let scholarError = "";
+    try {
+      teacherQuestion = await runProvider(teacherModel, context, "teacher", "question");
+      scholarAnswer = await runProvider(scholarModel, `${context}\n\n【老師的問題】\n${teacherQuestion.text}`, "scholar", "answer");
+      teacherFollowUp = await runProvider(teacherModel, `${context}\n\n【老師的問題】\n${teacherQuestion.text}\n\n【學霸的回答】\n${scholarAnswer.text}`, "teacher", "follow-up");
+      scholarReply = await runProvider(scholarModel, `${context}\n\n【老師的問題】\n${teacherQuestion.text}\n\n【學霸的回答】\n${scholarAnswer.text}\n\n【老師的追問】\n${teacherFollowUp.text}`, "scholar", "reply");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!teacherQuestion || !teacherFollowUp) teacherError = message;
+      else scholarError = message;
+    }
     let commentator = null;
     let commentatorError = "";
-    if (positive?.text && negative?.text) {
-      try { commentator = await runCommentator(context, positive.text, negative.text); } catch (error) { commentatorError = error instanceof Error ? error.message : "固定點評暫時無法產生"; }
+    if (teacherQuestion?.text && scholarAnswer?.text && teacherFollowUp?.text && scholarReply?.text) {
+      try { commentator = await runCommentator(context, teacherQuestion.text, scholarAnswer.text, teacherFollowUp.text, scholarReply.text); } catch (error) { commentatorError = error instanceof Error ? error.message : "固定點評暫時無法產生"; }
     } else {
-      commentatorError = "正反方至少需要各自產生一份回答，固定點評才能開始";
+      commentatorError = "老師與學霸的四句對話尚未完整，固定點評才能開始";
     }
-    return Response.json({ question: { id: question.id, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource ?? "" }, models: { positive: labels[positiveModel], negative: labels[negativeModel], commentator: commentator?.model ?? "gpt-5.6-sol" }, positive, negative, positiveError, negativeError, commentator, commentatorError });
+    return Response.json({ question: { id: question.id, year: question.year, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource ?? "" }, models: { teacher: labels[teacherModel], scholar: labels[scholarModel], commentator: commentator?.model ?? "gpt-5.6-sol" }, teacherQuestion, scholarAnswer, teacherFollowUp, scholarReply, teacherError, scholarError, commentator, commentatorError });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "司律評暫時無法開始" }, { status: 500 });
   }
