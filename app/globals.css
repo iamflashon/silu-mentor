@@ -16199,6 +16199,14 @@ a {
 .student-summary-folder-group > summary { padding-left: 22px; background: #f3f8f9; color: #607b83; font-size: 11px; }
 .student-summary-subject-group summary::-webkit-details-marker, .student-summary-folder-group summary::-webkit-details-marker { display: none; }
 .student-summary-subject-group summary small, .student-summary-folder-group summary small { color: #91a4aa; font-size: 10px; }
+.student-summary-folder-tools { display: inline-flex; align-items: center; gap: 7px; }
+.student-summary-folder-tools button { width: 25px; height: 25px; border: 1px solid #d3e1e4; border-radius: 6px; background: #fff; color: #52727c; font-size: 13px; cursor: pointer; }
+.student-summary-folder-tools button:hover { border-color: #7faab3; background: #eaf5f6; }
+.student-summary-folder-rename { display: flex; flex: 1; min-width: 0; align-items: center; gap: 5px; }
+.student-summary-folder-rename input { min-width: 0; flex: 1; border: 1px solid #9fc0c7; border-radius: 7px; padding: 6px 7px; background: #fff; color: #365b68; font-size: 11px; font-weight: 700; }
+.student-summary-folder-rename button { border: 0; border-radius: 6px; padding: 6px 8px; background: #397889; color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }
+.student-summary-folder-rename button.cancel { background: #edf3f4; color: #607b83; }
+.student-summary-folder-rename button:disabled { opacity: .5; cursor: not-allowed; }
 .student-summary-row { display: flex; align-items: stretch; gap: 1px; border-top: 1px solid #edf2f3; }
 .student-summary-row.active { background: #e8f4f5; box-shadow: inset 3px 0 #4f93a0; }
 .student-summary-checkbox { flex: 0 0 37px; justify-content: center; }

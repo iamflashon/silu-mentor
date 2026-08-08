@@ -560,6 +560,8 @@ export default function StudyPlanPage() {
   const [summaryFontSize, setSummaryFontSize] = useState(20);
   const [summaryFolders, setSummaryFolders] = useState<SummaryFolder[]>([]);
   const [summaryFolderDraft, setSummaryFolderDraft] = useState("");
+  const [editingSummaryFolder, setEditingSummaryFolder] = useState<string | null>(null);
+  const [editingSummaryFolderName, setEditingSummaryFolderName] = useState("");
   const [summaryFolderSubject, setSummaryFolderSubject] = useState("刑法");
   const [summaryDestination, setSummaryDestination] = useState("");
   const [summaryCollectionTitle, setSummaryCollectionTitle] = useState("");
@@ -2586,6 +2588,34 @@ export default function StudyPlanPage() {
     catch (error) { setSummaryNotice(error instanceof Error ? error.message : "資料夾保存失敗"); }
   }
 
+  async function renameSummaryFolder(subject: string, oldName: string) {
+    const name = editingSummaryFolderName.trim();
+    if (!name) { setSummaryNotice("資料夾名稱不能空白。"); return; }
+    if (name === oldName) { setEditingSummaryFolder(null); return; }
+    if (summaryFolders.some((folder) => folder.subject === subject && folder.name === name)) {
+      setSummaryNotice(`「${name}」已存在於${subject}，請使用其他名稱。`);
+      return;
+    }
+    setSummarySaving(true);
+    try {
+      const affected = studentSummaries.filter((item) => item.subject === subject && (item.folder || "未分類") === oldName);
+      const updated = await Promise.all(affected.map(async (item) => {
+        const response = await fetch("/api/summaries", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, subject, folder: name }) });
+        const result = await response.json() as { summary?: StudentSummary; error?: string };
+        if (!response.ok || !result.summary) throw new Error(result.error ?? "資料歸屬更新失敗");
+        return result.summary;
+      }));
+      await saveSummaryFolders(summaryFolders.map((folder) => folder.subject === subject && folder.name === oldName ? { ...folder, name } : folder));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setStudentSummaries((items) => items.map((item) => byId.get(item.id) ?? item));
+      if (summaryDestination === `${subject}::${oldName}`) setSummaryDestination(`${subject}::${name}`);
+      setEditingSummaryFolder(null);
+      setEditingSummaryFolderName("");
+      setSummaryNotice(`已將${subject}／「${oldName}」改名為「${name}」。`);
+    } catch (error) { setSummaryNotice(error instanceof Error ? error.message : "資料夾改名失敗"); }
+    finally { setSummarySaving(false); }
+  }
+
   async function moveSelectedSummaries() {
     const [subject, folder] = summaryDestination.split("::");
     const ids = [...selectedSummaryIds];
@@ -3153,8 +3183,17 @@ export default function StudyPlanPage() {
                     {["未分類", ...summaryFolders.filter((folder) => folder.subject === subject).map((folder) => folder.name)].map((folderName) => {
                       const folderItems = studentSummaries.filter((item) => item.subject === subject && (item.folder || "未分類") === folderName);
                       if (!folderItems.length && folderName === "未分類") return null;
-                      return <details className="student-summary-folder-group" key={`${subject}-${folderName}`} open={folderItems.length > 0}>
-                        <summary><span>📁 {folderName}</span><small>{folderItems.length}</small></summary>
+                      const folderKey = `${subject}::${folderName}`;
+                      const isEditingFolder = editingSummaryFolder === folderKey;
+                      return <details className="student-summary-folder-group" key={`${subject}-${folderName}`} open={folderItems.length > 0 || isEditingFolder}>
+                        <summary>
+                          {isEditingFolder ? <span className="student-summary-folder-rename" onClick={(event) => event.preventDefault()}>
+                            <input value={editingSummaryFolderName} onChange={(event) => setEditingSummaryFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void renameSummaryFolder(subject, folderName); } if (event.key === "Escape") setEditingSummaryFolder(null); }} maxLength={80} autoFocus aria-label="修改資料夾名稱" />
+                            <button type="button" onClick={() => void renameSummaryFolder(subject, folderName)} disabled={!editingSummaryFolderName.trim() || summarySaving}>保存</button>
+                            <button type="button" className="cancel" onClick={() => setEditingSummaryFolder(null)}>取消</button>
+                          </span> : <span>📁 {folderName}</span>}
+                          <span className="student-summary-folder-tools"><small>{folderItems.length}</small>{folderName !== "未分類" && !isEditingFolder && <button type="button" title="修改資料夾名稱" aria-label={`修改${folderName}資料夾名稱`} onClick={(event) => { event.preventDefault(); setEditingSummaryFolder(folderKey); setEditingSummaryFolderName(folderName); }}>✎</button>}</span>
+                        </summary>
                         {folderItems.map((item) => <div className={`student-summary-row ${selectedSummaryId === item.id ? "active" : ""}`} key={item.id}>
                           <label className="student-summary-checkbox"><input type="checkbox" checked={selectedSummaryIds.has(item.id)} onChange={() => toggleSummarySelection(item.id)} aria-label={`選取 ${item.name}`} /></label>
                           <button type="button" className="student-summary-item" onClick={() => openStudentSummary(item)}><span>{item.favorite ? "★" : "☆"}</span><div><strong>{item.collectionTitle || item.displayTitle || item.name}</strong><small>{item.status === "completed" ? "已整理" : item.processingMessage || "處理中"}</small></div></button>
