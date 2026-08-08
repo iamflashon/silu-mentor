@@ -76,17 +76,24 @@ const PROBLEM_TOPIC_BATCH_SIZE = 1;
 // Larger topics span more than sixteen vector chunks. Using a full result
 // window prevents the middle pages from silently disappearing.
 const PROBLEM_FILE_SEARCH_RESULTS = 50;
-const MIN_COMPLETE_PROBLEM_QUESTIONS = 8;
 
 type ChapterProgress = {
   state: "not_started" | "building" | "paused" | "failed" | "completed";
-  phase?: "outline" | "questions" | "saving" | "paused" | "failed";
+  phase?: "outline" | "questions" | "pages" | "saving" | "paused" | "failed";
   completedTopics?: number;
   totalTopics?: number;
   foundQuestions?: number;
   currentTopic?: string;
   error?: string;
   topics?: Array<{ section: string; topic: string }>;
+};
+
+type SequentialProblemQuestion = {
+  title: string;
+  pageStart: number;
+  pageEnd: number;
+  text: string;
+  complete: boolean;
 };
 
 type ChapterSourceProgress = {
@@ -415,6 +422,124 @@ function pageTextFromItems(items: unknown[]) {
     output += (item as { hasEOL?: unknown }).hasEOL ? "\n" : " ";
   }
   return cleanSourceText(output);
+}
+
+function problemHeading(line: string) {
+  const value = cleanSourceText(line).replace(/\s+/g, " ").trim();
+  if (!value || value.length > 120) return null;
+  const patterns = [
+    /^(?:題型|案例|例題|實例題|練習題)\s*[一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*/u,
+    /^第\s*[一二三四五六七八九十百\d]+\s*題/u,
+    /^【\s*(?:題型|案例|例題|實例題|練習題)[^】]{0,80}】/u,
+    /^(?:\d{2,3}\s*年|民國\s*\d{2,3}\s*年).{0,70}(?:司法官|律師|司律|高考|特考|考試).{0,20}(?:第\s*)?[一二三四五六七八九十百\d]+\s*題/u,
+  ];
+  return patterns.some((pattern) => pattern.test(value)) ? value : null;
+}
+
+function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$inferSelect>) {
+  const ordered = [...pages]
+    .filter((page) => Number(page.pageStart) > 0)
+    .sort((left, right) => Number(left.pageStart) - Number(right.pageStart));
+  const questions: SequentialProblemQuestion[] = [];
+  let current: { title: string; pageStart: number; parts: string[] } | null = null;
+
+  for (const page of ordered) {
+    const pageNumber = Number(page.pageStart);
+    const lines = page.text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    let cursor = 0;
+    for (let index = 0; index < lines.length; index += 1) {
+      const heading = problemHeading(lines[index]);
+      if (!heading) continue;
+      if (current) {
+        const before = lines.slice(cursor, index).join("\n");
+        if (before) current.parts.push(before);
+        const text = cleanSourceText(current.parts.join("\n\n"));
+        questions.push({
+          title: current.title,
+          pageStart: current.pageStart,
+          pageEnd: pageNumber,
+          text,
+          complete: text.length >= 30,
+        });
+      }
+      current = { title: heading, pageStart: pageNumber, parts: [heading] };
+      cursor = index + 1;
+    }
+    if (current) {
+      const remainder = lines.slice(cursor).join("\n");
+      if (remainder) current.parts.push(remainder);
+    }
+  }
+
+  if (current) {
+    const text = cleanSourceText(current.parts.join("\n\n"));
+    questions.push({
+      title: current.title,
+      pageStart: current.pageStart,
+      pageEnd: ordered.at(-1)?.pageEnd ?? current.pageStart,
+      text,
+      complete: false,
+    });
+  }
+  return questions;
+}
+
+async function saveSequentialProblemQuestions(resourceId: number, totalPages: number) {
+  const db = await getDb();
+  const pages = await readSourcePages(resourceId);
+  const scanned = scanSequentialProblemQuestions(pages);
+  const published = await readChapters(resourceId);
+  const pending = await readPendingChapters(resourceId);
+  const pendingByKey = new Map(
+    pending.map((row) => [`${row.pageStart ?? 0}|${normalizedHeading(row.title)}`, row]),
+  );
+  for (const question of scanned) {
+    const key = `${question.pageStart}|${normalizedHeading(question.title)}`;
+    const staged = pendingByKey.get(key);
+    if (!staged) continue;
+    await db.update(resourceSegments).set({
+      segmentType: question.complete ? "book_chapter" : PENDING_CHAPTER_TYPE,
+      pageEnd: question.pageEnd,
+      text: question.text.slice(0, SOURCE_TEXT_MAX_LENGTH),
+      summary: question.complete ? "由原始 PDF 依題號邊界完整擷取" : "已找到題目起點；等待後續頁面補齊",
+      reviewStatus: question.complete ? "source" : "pending_continuation",
+    }).where(eq(resourceSegments.id, staged.id));
+  }
+  const existingKeys = new Set(
+    [...published, ...pending].map((row) => `${row.pageStart ?? 0}|${normalizedHeading(row.title)}`),
+  );
+  const rows = scanned
+    .filter((question) => !existingKeys.has(`${question.pageStart}|${normalizedHeading(question.title)}`))
+    .map((question, index) => ({
+      resourceId,
+      segmentType: question.complete ? "book_chapter" : PENDING_CHAPTER_TYPE,
+      lessonLabel: "逐頁掃描｜解題書",
+      title: question.title.slice(0, 160),
+      pageStart: question.pageStart,
+      pageEnd: question.pageEnd,
+      text: question.text.slice(0, SOURCE_TEXT_MAX_LENGTH),
+      summary: question.complete ? "由原始 PDF 依題號邊界完整擷取" : "已找到題目起點；等待後續頁面補齊",
+      reviewStatus: question.complete ? "source" : "pending_continuation",
+      sequence: question.pageStart * 100 + index,
+    }));
+  for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
+    await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE));
+  }
+  const currentPublished = await readChapters(resourceId);
+  const currentPending = await readPendingChapters(resourceId);
+  const questionStartPages = new Set(scanned.map((question) => question.pageStart));
+  const emptyPages = pages.filter((page) => page.reviewStatus === "source_empty" || !page.text.trim()).length;
+  const continuationPages = pages.filter((page) => page.text.trim() && !questionStartPages.has(Number(page.pageStart))).length;
+  return {
+    pagesDone: pages.length,
+    totalPages,
+    published: currentPublished.length,
+    pending: currentPending.length,
+    added: rows.length,
+    emptyPages,
+    continuationPages,
+    unprocessedPages: Math.max(0, totalPages - pages.length),
+  };
 }
 
 async function readSourcePages(resourceId: number) {
@@ -844,14 +969,12 @@ export async function GET(request: Request) {
           completeQuestion: isCompleteProblemQuestion(chapter),
         })),
         generated: false,
-        ready: usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS,
-        status: usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS
-          ? "completed"
-          : "partial",
+        ready: usableChapters.length > 0,
+        status: usableChapters.length === chapters.length ? "completed" : "partial",
         catalogueCount: chapters.length,
         completeQuestionCount: usableChapters.length,
         progress,
-        message: usableChapters.length >= MIN_COMPLETE_PROBLEM_QUESTIONS
+        message: usableChapters.length === chapters.length
           ? undefined
           : `已先顯示 ${chapters.length} 筆真實目錄；其中 ${usableChapters.length} 題已具備完整題文，剩餘部分會由後台接續整理。`,
       });
@@ -1041,50 +1164,38 @@ export async function POST(request: Request) {
         return Response.json({ error: "教材尚未完成全文索引，完成後才能補齊章節原文。" }, { status: 409 });
 
       if (problemBook) {
-        const chapters = await readChapters(resourceId);
-        if (!chapters.length)
-          return Response.json({ error: "尚未建立題型目錄；請先整理題型與完整題目。" }, { status: 409 });
-        if (!document.openaiFileId)
-          return Response.json({ error: "這份解題書尚未完成可用的全文／向量索引。" }, { status: 409 });
-        const [setting] = await db.select().from(appSettings)
-          .where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-        if (!setting?.value)
-          return Response.json({ error: "教材向量索引尚未就緒。" }, { status: 409 });
-
-        const readyRows = chapters.filter((chapter) => /^(source|source_index)$/.test(chapter.reviewStatus ?? ""));
-        const target = chapters.find((chapter) => !/^(source|source_index)$/.test(chapter.reviewStatus ?? ""));
-        if (!target) {
-          await writeChapterSourceProgress(resourceId, {});
-          return Response.json({
-            status: "completed", phase: "completed", chaptersReady: readyRows.length,
-            chaptersTotal: chapters.length, failedCount: 0,
-            message: `已補齊 ${readyRows.length} 題的題目、解析與擬答原文。`,
-          });
-        }
-        try {
-          const content = await retrieveIndexedProblemSource(setting.value, document, target);
-          if (content.length < SOURCE_TEXT_MIN_LENGTH)
-            throw new Error("限定這一本解題書後，仍未找到足夠可核對的題目與解析全文");
-          await db.update(resourceSegments).set({ text: content, reviewStatus: "source_index" })
-            .where(eq(resourceSegments.id, target.id));
-          const completed = readyRows.length + 1;
-          return Response.json({
-            status: completed === chapters.length ? "completed" : "searching",
-            phase: "index", chaptersReady: completed, chaptersTotal: chapters.length,
-            failedCount: 0, currentTitle: target.title,
-            message: completed === chapters.length
-              ? `已補齊 ${completed} 題的題目、解析與擬答原文。`
-              : `正在逐題補抓題目與解析全文：${completed}／${chapters.length}`,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message.slice(0, 160) : "題目與解析原文未命中";
-          if (/較忙|限流|rate.?limit|429|try again/i.test(message)) {
-            return Response.json({ status: "paused", phase: "index", chaptersReady: readyRows.length,
-              chaptersTotal: chapters.length, currentTitle: target.title,
-              message: "全文索引目前較忙；進度已保存，稍後會從這一題接續。" }, { status: 202 });
-          }
-          return Response.json({ error: `「${target.title}」補抓失敗：${message}` }, { status: 422 });
-        }
+        const pageBatch = await extractPdfPageBatch(resourceId, document);
+        if (!pageBatch)
+          return Response.json({ error: "目前只有 PDF 解題書支援逐頁拆解。" }, { status: 409 });
+        const scan = await saveSequentialProblemQuestions(resourceId, pageBatch.totalPages);
+        const completed = scan.pagesDone >= scan.totalPages;
+        await writeChapterProgress(resourceId, {
+          state: completed ? "completed" : "building",
+          phase: completed ? "saving" : "pages",
+          completedTopics: scan.pagesDone,
+          totalTopics: scan.totalPages,
+          foundQuestions: scan.published,
+          currentTopic: completed ? "" : `第 ${scan.pagesDone + 1} 頁`,
+        });
+        return Response.json({
+          status: completed ? "completed" : "extracting",
+          phase: "pages",
+          pagesDone: scan.pagesDone,
+          totalPages: scan.totalPages,
+          chaptersReady: scan.published,
+          chaptersTotal: scan.published + scan.pending,
+          pendingCount: scan.pending,
+          addedCount: scan.added,
+          pageCoverage: {
+            scanned: scan.pagesDone,
+            continuation: scan.continuationPages,
+            empty: scan.emptyPages,
+            unprocessed: scan.unprocessedPages,
+          },
+          message: completed
+            ? `已逐頁掃描 ${scan.totalPages} 頁；正式 ${scan.published} 題，待補 ${scan.pending} 題。`
+            : `正在逐頁掃描原始 PDF：${scan.pagesDone}／${scan.totalPages} 頁；已保存 ${scan.published} 題。`,
+        });
       }
 
       let chapters = await materializeStoredChapters(resourceId, document);
@@ -1533,7 +1644,7 @@ export async function POST(request: Request) {
     }
     const pendingChapters = problemBook ? await readPendingChapters(resourceId) : [];
     const generated = problemBook ? pendingChapters : parsed;
-    if (!generated.length || (problemBook && generated.length < MIN_COMPLETE_PROBLEM_QUESTIONS)) {
+    if (!generated.length) {
       await writeChapterProgress(resourceId, { ...activeProgress, state: "failed", phase: "failed", foundQuestions: generated.length, error: "本次未達最低完整度，原資料未被覆蓋。" });
       return Response.json(
         {
