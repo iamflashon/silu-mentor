@@ -51,48 +51,8 @@ type ProblemOutlinePayload = {
 };
 
 type StoredDocumentAnalysis = {
-  chapters?: Array<{
-    title?: string;
-    path?: string;
-    section?: string;
-    topic?: string;
-    summary?: string;
-    content?: string;
-    body?: string;
-    original_text?: string;
-    text?: string;
-    stem?: string;
-    page_start?: number | null;
-    page_end?: number | null;
-    pageStart?: number | null;
-    pageEnd?: number | null;
-  }>;
-  questions?: Array<{
-    number?: string;
-    title?: string;
-    name?: string;
-    label?: string;
-    chapter_title?: string;
-    question_title?: string;
-    content?: string;
-    body?: string;
-    original_text?: string;
-    stem?: string;
-    question?: string;
-    chapter?: string;
-    topic?: string;
-    theme?: string;
-    section?: string;
-    section_path?: string;
-    part?: string;
-    subject?: string;
-    question_no?: string;
-    question_text?: string;
-    pageStart?: number | null;
-    pageEnd?: number | null;
-    page_start?: number | null;
-    page_end?: number | null;
-  }>;
+  chapters?: unknown[];
+  questions?: unknown[];
 };
 
 // One topic per request keeps each file-search response comfortably below the
@@ -235,28 +195,46 @@ function storedCatalogueRows(
     : (Array.isArray(analysis?.questions) ? analysis.questions : []);
   return sourceRows
     .map((item, index) => {
-      const title = String(
-        item.title ?? item.name ?? item.label ?? item.chapter_title ?? item.question_title ?? item.question_no ?? item.number ?? "",
-      ).trim();
+      // Older document runs saved chapter candidates as plain strings, while
+      // newer runs use heading/title/path objects. Accept both shapes so an
+      // existing 33-chapter analysis is not incorrectly shown as empty.
+      const row = typeof item === "string"
+        ? { title: item }
+        : item && typeof item === "object"
+          ? item as Record<string, unknown>
+          : {};
+      const value = (keys: string[]) => {
+        for (const key of keys) {
+          const candidate = String(row[key] ?? "").trim();
+          if (candidate) return candidate;
+        }
+        return "";
+      };
+      const path = value(["path", "section_path", "sectionPath", "outlinePath"]);
+      const pathTitle = path.split(/[>/\\|]/).map((part) => part.trim()).filter(Boolean).at(-1) ?? "";
+      const title = value([
+        "title", "name", "label", "heading", "chapter_title", "chapterTitle",
+        "displayName", "question_title", "questionTitle", "question_no", "questionNo", "number",
+      ]) || pathTitle;
       if (!title) return null;
-      const section = String(
-        item.section ?? item.part ?? item.section_path ?? item.path ?? "",
-      ).trim();
-      const topic = String(
-        item.chapter ?? item.topic ?? item.theme ?? item.subject ?? "",
-      ).trim() || (mode === "chapters" ? "教材章節" : "其他題型");
-      const text = String(
-        item.content ?? item.text ?? item.body ?? item.original_text ?? item.stem ?? item.question_text ?? item.question ?? "",
-      ).trim();
-      const summary = String(item.summary ?? "").trim();
+      const section = value(["section", "part", "section_path", "sectionPath", "path", "parent", "parentTitle"]);
+      const topic = value(["chapter", "topic", "theme", "subject", "topicTitle"])
+        || (mode === "chapters" ? "教材章節" : "其他題型");
+      const text = value([
+        "content", "text", "body", "original_text", "originalText", "source_text", "sourceText",
+        "rawText", "stem", "question_text", "questionText", "question",
+      ]);
+      const summary = value(["summary", "abstract", "description"]);
+      const pageStart = Number(row.page_start ?? row.pageStart ?? row.page_from ?? row.pageFrom);
+      const pageEnd = Number(row.page_end ?? row.pageEnd ?? row.page_to ?? row.pageTo);
       return {
         id: -(index + 1),
         resourceId,
         segmentType: "book_outline",
         lessonLabel: `${section || (mode === "chapters" ? "教材章節" : "題型目錄")}｜${topic}`.slice(0, 160),
         title,
-        pageStart: item.page_start ?? item.pageStart ?? null,
-        pageEnd: item.page_end ?? item.pageEnd ?? null,
+        pageStart: Number.isFinite(pageStart) && pageStart > 0 ? pageStart : null,
+        pageEnd: Number.isFinite(pageEnd) && pageEnd > 0 ? pageEnd : null,
         startSeconds: null,
         endSeconds: null,
         sourceUrl: "",
@@ -363,6 +341,35 @@ async function readPendingChapters(resourceId: number) {
       ),
     )
     .orderBy(asc(resourceSegments.sequence));
+}
+
+async function materializeStoredChapters(
+  resourceId: number,
+  document: typeof documents.$inferSelect,
+) {
+  const db = await getDb();
+  const existing = await readChapters(resourceId);
+  if (existing.length) return existing;
+
+  const storedRows = storedRowsForResource(resourceId, document, false);
+  if (!storedRows.length) return [];
+
+  const rows = storedRows.map((row, index) => ({
+    resourceId,
+    segmentType: "book_chapter",
+    lessonLabel: row.lessonLabel,
+    title: row.title,
+    pageStart: row.pageStart,
+    pageEnd: row.pageEnd,
+    text: row.text,
+    summary: row.summary,
+    reviewStatus: row.text ? "source" : "catalogue_only",
+    sequence: index + 1,
+  }));
+  for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
+    await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE));
+  }
+  return readChapters(resourceId);
 }
 
 /**
@@ -600,6 +607,7 @@ export async function POST(request: Request) {
       resourceId?: number;
       rebuild?: boolean;
       restart?: boolean;
+      materialize?: boolean;
       enrich?: boolean;
       segmentId?: number;
     };
@@ -629,6 +637,25 @@ export async function POST(request: Request) {
     // resume; only the explicit, currently-unused `restart` flag may reset a
     // queue.
     const explicitRestart = body.restart === true;
+    if (body.materialize === true) {
+      if (problemBook)
+        return Response.json({ error: "解題書請使用「整理題型與完整題目」，不使用章節原文補齊流程。" }, { status: 400 });
+      if (!resource.documentId)
+        return Response.json({ error: "這本書尚未綁定後台教材。" }, { status: 400 });
+      const [document] = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.id, resource.documentId))
+        .limit(1);
+      if (!document)
+        return Response.json({ error: "找不到已綁定的教材文件。" }, { status: 404 });
+      const chapters = await materializeStoredChapters(resourceId, document);
+      return Response.json({
+        status: chapters.length ? "completed" : "not_started",
+        materialized: chapters.length,
+        chapters,
+      });
+    }
     if (body.enrich === true) {
       if (problemBook)
         return Response.json({ error: "解題書請使用「整理題型與完整題目」，不使用章節原文補齊流程。" }, { status: 400 });

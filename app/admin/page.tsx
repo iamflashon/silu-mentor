@@ -1976,8 +1976,35 @@ export default function AdminPage() {
     chapterBuildRunningRef.current.add(resource.id);
     try {
       const response = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
-      const result = (await readJson(response)) as { chapters?: ChapterSegment[]; error?: string };
+      let result = (await readJson(response)) as { chapters?: ChapterSegment[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "章節資料讀取失敗");
+
+      // A completed document may still expose its saved catalogue as virtual
+      // rows with negative ids. Materialize those real saved rows first so
+      // the enrichment request can update normal resource segments. If an
+      // older run only saved the index/count, build the chapter catalogue
+      // from the existing indexed file before attempting source recovery.
+      if (!(result.chapters ?? []).length) {
+        chapterBuildRunningRef.current.delete(resource.id);
+        await buildBookChapters(resource);
+        chapterBuildRunningRef.current.add(resource.id);
+        const refreshed = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
+        result = (await readJson(refreshed)) as { chapters?: ChapterSegment[]; error?: string };
+        if (!refreshed.ok) throw new Error(result.error ?? "章節目錄建立失敗");
+      }
+      if ((result.chapters ?? []).some((chapter) => chapter.id < 0)) {
+        const materializeResponse = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ resourceId: resource.id, materialize: true }),
+        });
+        const materializeResult = (await readJson(materializeResponse)) as { error?: string };
+        if (!materializeResponse.ok) throw new Error(materializeResult.error ?? "章節目錄保存失敗");
+        const refreshed = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
+        result = (await readJson(refreshed)) as { chapters?: ChapterSegment[]; error?: string };
+        if (!refreshed.ok) throw new Error(result.error ?? "章節資料讀取失敗");
+      }
+
       const missing = (result.chapters ?? []).filter((chapter) => !String(chapter.text ?? "").trim());
       if (!missing.length) {
         setNotice(`「${resource.title}」的章節原文已經補齊，不需要重複處理。`);
