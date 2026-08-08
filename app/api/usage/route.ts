@@ -27,10 +27,12 @@ export async function GET() {
     const preferredRatings = simpleRatings.filter((item) => item.feedbackType === "preferred");
     const settings = await db.select().from(appSettings);
     const showCosts = settings.find((item) => item.key === "show_frontend_costs")?.value === "true";
+    const showEvidence = settings.find((item) => item.key === "show_teaching_evidence")?.value === "true";
     return Response.json({
       totals,
       recent,
       showCosts,
+      showEvidence,
       comparisonStats: {
         comparisons: comparisons.length,
         ratedResponses: simpleRatings.length,
@@ -66,13 +68,11 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { showCosts?: boolean };
+    const body = await request.json() as { showCosts?: boolean; showEvidence?: boolean };
     const db = await getDb();
-    await db.insert(appSettings).values({ key: "show_frontend_costs", value: body.showCosts ? "true" : "false" }).onConflictDoUpdate({
-      target: appSettings.key,
-      set: { value: body.showCosts ? "true" : "false", updatedAt: new Date() },
-    });
-    return Response.json({ showCosts: Boolean(body.showCosts) });
+    if (typeof body.showCosts === "boolean") await db.insert(appSettings).values({ key: "show_frontend_costs", value: body.showCosts ? "true" : "false" }).onConflictDoUpdate({ target: appSettings.key, set: { value: body.showCosts ? "true" : "false", updatedAt: new Date() } });
+    if (typeof body.showEvidence === "boolean") await db.insert(appSettings).values({ key: "show_teaching_evidence", value: body.showEvidence ? "true" : "false" }).onConflictDoUpdate({ target: appSettings.key, set: { value: body.showEvidence ? "true" : "false", updatedAt: new Date() } });
+    return Response.json({ showCosts: body.showCosts, showEvidence: body.showEvidence });
   } catch {
     return Response.json({ error: "成本顯示設定無法更新" }, { status: 500 });
   }

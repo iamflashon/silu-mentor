@@ -77,6 +77,7 @@ type UsageData = {
     responses: Array<{ id: number; label: string; model: string; inputTokens: number; outputTokens: number; estimatedCostUsdMicros: number; durationMs: number; error?: string | null; ratings: Array<{ score: number; feedbackType: string }> }>;
   }>;
   showCosts: boolean;
+  showEvidence: boolean;
 };
 type ExamSource = {
   id: number;
@@ -2506,6 +2507,13 @@ export default function AdminPage() {
     if (response.ok) setUsage({ ...usage, showCosts: next });
   }
 
+  async function toggleTeachingEvidence() {
+    if (!usage) return;
+    const next = !usage.showEvidence;
+    const response = await fetch("/api/usage", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ showEvidence: next }) });
+    if (response.ok) setUsage({ ...usage, showEvidence: next });
+  }
+
   async function testGlmConnection() {
     setGlmTesting(true);
     setGlmTestResult(null);
@@ -2978,7 +2986,13 @@ export default function AdminPage() {
                 <span />
                 前台顯示成本
               </label>
+              <label className="cost-toggle">
+                <input type="checkbox" checked={usage?.showEvidence ?? false} onChange={toggleTeachingEvidence} />
+                <span />
+                教材原文驗證模式
+              </label>
             </div>
+            <p className="panel-sub">開啟後，智能書每則回答會顯示可展開的命中片段、頁碼與檢索方式；測試完成後關閉即可恢復簡潔畫面。</p>
             <div className="cost-metrics">
               <div>
                 <span>累計對話</span>

@@ -28,7 +28,8 @@ const teachingLevelLabels: Record<TeachingLevel, string> = {
   super: "頂尖學霸",
 };
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
-type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; model?: string; usage?: ReplyUsage; comparison?: ModelComparison };
+type TeachingEvidence = { status: "verified" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string };
+type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison };
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
@@ -73,6 +74,12 @@ function citationStatusLabel(status?: string) {
   if (status === "verified") return "引用狀態：章節原文已核對";
   if (status === "full_text_search") return "引用狀態：全文命中，章節／頁碼待核對";
   return "引用狀態：未取得可核對教材";
+}
+function TeachingEvidenceDetails({ evidence }: { evidence?: TeachingEvidence | null }) {
+  if (!evidence) return null;
+  const pages = evidence.pageStart ? `第 ${evidence.pageStart}${evidence.pageEnd && evidence.pageEnd !== evidence.pageStart ? `–${evidence.pageEnd}` : ""} 頁` : "頁碼尚未核對";
+  const label = evidence.status === "verified" ? "🟢 已找到章節原文" : evidence.status === "full_text_search" ? "🟡 僅命中全文索引" : "⚪ 未取得教材原文";
+  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>展開驗證證據</span></summary><div><dl><div><dt>書籍／檔案</dt><dd>{evidence.resourceTitle || evidence.fileName || "未提供"}</dd></div><div><dt>實際位置</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("｜")}</dd></div><div><dt>檢索方式</dt><dd>{evidence.retrieval === "chapter_segment" ? "已儲存章節原文" : evidence.retrieval === "stored_analysis" ? "教材解析結果" : evidence.retrieval === "full_text_search" ? "全文索引搜尋" : "未使用教材"}</dd></div></dl>{evidence.excerpt ? <blockquote>{evidence.excerpt}</blockquote> : <p>{evidence.message}</p>}<small>此處顯示的是實際送入教學流程的教材證據；是否直接支持 AI 的每一句判斷，仍需依原文逐項核對。</small></div></details>;
 }
 function answerParagraphs(text: string) {
   const clean = cleanMessageText(text).trim();
@@ -132,6 +139,7 @@ export default function Home() {
   const [thinking, setThinking] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
   const [showCosts, setShowCosts] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const [modelMode, setModelMode] = useState<ChatModelMode>("luna");
   const [settingsPinned, setSettingsPinned] = useState(false);
@@ -277,8 +285,9 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/usage").then(async (response) => {
       if (!response.ok) return;
-      const data = await response.json() as { showCosts?: boolean };
+      const data = await response.json() as { showCosts?: boolean; showEvidence?: boolean };
       setShowCosts(Boolean(data.showCosts));
+      setShowEvidence(Boolean(data.showEvidence));
     }).catch(() => undefined);
   }, []);
 
@@ -511,9 +520,9 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage, modelMode, teachingLevel: sentTeachingLevel }),
       });
-      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
+      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
-      setMessages((current) => [...current, { role: "mentor", text: result.reply!, model: result.usage?.model, usage: result.usage, sources: result.sources ?? [], citationStatus: result.citationStatus, comparison: result.comparison ?? undefined }]);
+      setMessages((current) => [...current, { role: "mentor", text: result.reply!, model: result.usage?.model, usage: result.usage, sources: result.sources ?? [], citationStatus: result.citationStatus, teachingEvidence: result.teachingEvidence, comparison: result.comparison ?? undefined }]);
       setSource(result.source ?? "AI 補充");
       setLastUsage(result.usage ?? null);
       if (sentTeachingLevel) {
@@ -756,6 +765,7 @@ export default function Home() {
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
               <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} onAnswerAction={runAnswerAction} disabled={thinking} showLearningActions={false} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)}</span></small> : null}{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{!message.comparison && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}`, label: modelLabel(message.model ?? "gpt-5.6-luna"), model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>回覆此訊息</span></label>}{isLearningNote(message.text) && <button className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已收到 ✓" : "回饋"}</summary><div><button onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              {message.role === "mentor" && showEvidence && <TeachingEvidenceDetails evidence={message.teachingEvidence} />}
             </div>
           ))}
           {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="昨日學習接續選擇">
