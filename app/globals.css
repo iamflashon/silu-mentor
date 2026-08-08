@@ -131,6 +131,28 @@ a {
   border-left: 1px solid var(--line);
   padding-left: 20px;
 }
+
+.member-signin { display: inline-flex; align-items: center; min-height: 34px; padding: 0 13px; border: 1px solid #285a70; background: #285a70; color: #fff; font-size: 12px; font-weight: 800; text-decoration: none; }
+.member-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 10px 0 5px; border: 1px solid #c9d7dc; background: #fff; color: #365363; text-decoration: none; }
+.member-chip > span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: #315f73; color: #fff; font-size: 11px; font-weight: 900; }
+.member-chip b { max-width: 90px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.member-chip small { color: #8499a3; font-size: 9px; }
+.member-admin-panel { min-height: 480px; }
+.member-admin-notice { margin: 12px 0; padding: 10px 12px; border-left: 3px solid #47788c; background: #eef5f7; color: #365b6b; font-size: 12px; }
+.member-admin-list { display: grid; gap: 10px; margin-top: 18px; }
+.member-admin-row { display: grid; grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(120px, .75fr)) minmax(150px, .9fr); align-items: end; gap: 12px; padding: 14px; border: 1px solid #dbe4e7; background: #fff; }
+.member-identity { display: flex; align-items: center; gap: 10px; align-self: center; min-width: 0; }
+.member-identity > span { display: grid; flex: 0 0 38px; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: #315f73; color: #fff; font-weight: 900; }
+.member-identity div { min-width: 0; }
+.member-identity strong, .member-identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-identity strong { color: #324e5c; font-size: 14px; }
+.member-identity small { margin-top: 3px; color: #82949c; font-size: 10px; }
+.member-admin-row label, .member-last-seen { display: grid; gap: 5px; }
+.member-admin-row label > span, .member-last-seen > span { color: #80949d; font-size: 10px; font-weight: 800; }
+.member-admin-row select, .member-admin-row input { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid #ccdadd; background: #fff; color: #3d5662; font: inherit; font-size: 12px; }
+.member-last-seen strong { min-height: 36px; padding-top: 9px; color: #4b6570; font-size: 11px; font-weight: 600; }
+@media (max-width: 1000px) { .member-admin-row { grid-template-columns: 1fr 1fr; } .member-identity { grid-column: 1 / -1; } }
+@media (max-width: 700px) { .member-admin-row { grid-template-columns: 1fr; } .member-identity { grid-column: auto; } .member-chip b, .member-chip small { display: none; } .member-signin { padding: 0 9px; font-size: 10px; } }
 .top-actions .admin-link:first-child {
   border-left: 0;
   padding-left: 0;

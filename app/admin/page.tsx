@@ -8,6 +8,8 @@ import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, ty
 import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
+type MemberRow = { id: number; email: string; displayName: string; role: "admin" | "teacher" | "student"; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
+
 type Uploaded = {
   id: number;
   name: string;
@@ -400,8 +402,12 @@ export default function AdminPage() {
     | "sources"
     | "questions"
     | "costs"
+    | "members"
     | "homepage"
   >("documents");
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [memberNotice, setMemberNotice] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [subject, setSubject] = useState("刑法");
@@ -2781,6 +2787,28 @@ export default function AdminPage() {
     ?? chapterViewer?.rows[0]
     ?? null;
 
+  useEffect(() => {
+    if (activeTab !== "members") return;
+    setMembersLoading(true);
+    fetch("/api/admin/members")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "無法讀取學員名單");
+        setMembers(data.members ?? []);
+      })
+      .catch((error) => setMemberNotice(error instanceof Error ? error.message : "無法讀取學員名單"))
+      .finally(() => setMembersLoading(false));
+  }, [activeTab]);
+
+  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "status" | "className">>) {
+    setMemberNotice("儲存中…");
+    const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
+    const data = await response.json();
+    if (!response.ok) { setMemberNotice(data.error || "儲存失敗"); return; }
+    setMembers((rows) => rows.map((row) => row.id === id ? data.member : row));
+    setMemberNotice("學員設定已儲存");
+  }
+
   return (
     <main className="admin-shell">
       <header className="topbar">
@@ -2873,12 +2901,34 @@ export default function AdminPage() {
             模型與成本
           </button>
           <button
+            className={activeTab === "members" ? "active" : ""}
+            onClick={() => setActiveTab("members")}
+          >
+            學員管理
+          </button>
+          <button
             className={activeTab === "homepage" ? "active" : ""}
             onClick={() => setActiveTab("homepage")}
           >
             首頁與播放
           </button>
         </nav>
+        {activeTab === "members" && (
+          <section className="panel member-admin-panel">
+            <div className="cost-heading"><div><h2>學員與權限管理</h2><p className="panel-sub">每位登入者都有獨立的對話、角色、智能書進度、練題與批改紀錄。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
+            {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
+            {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
+              {members.map((member) => <article className="member-admin-row" key={member.id}>
+                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small></div></div>
+                <label><span>身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option><option value="admin">管理員</option></select></label>
+                <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
+                <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
+                <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未記錄"}</strong></div>
+              </article>)}
+              {!members.length && <p className="usage-empty">尚無會員。學生首次登入後會自動出現在這裡。</p>}
+            </div>}
+          </section>
+        )}
         {activeTab === "homepage" && (
           <section className="panel site-settings-panel">
             <div className="cost-heading">
