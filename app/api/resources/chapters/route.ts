@@ -10,6 +10,7 @@ import {
   storedDocumentAnalysis,
   storedDocumentStats,
 } from "../../../../lib/document-analysis";
+import { documentExtension, resolveDocumentPayload } from "../../../../lib/document-processing";
 import { openAIJson } from "../../../../lib/openai";
 
 const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline", "book_chapter_pending"] as const;
@@ -17,6 +18,10 @@ const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline", "book_chapter_
 // pending for the admin workflow, but must be readable so an interrupted job
 // never makes the existing catalogue look empty.
 const PENDING_CHAPTER_TYPE = "book_chapter_pending";
+const SOURCE_PAGE_TYPE = "book_source_page";
+const SOURCE_PAGE_BATCH_SIZE = 24;
+const SOURCE_TEXT_MIN_LENGTH = 40;
+const SOURCE_TEXT_MAX_LENGTH = 120_000;
 // D1 limits the number of bound parameters in a single statement. The chapter
 // INSERT currently binds 15 values per row (not ten: Drizzle also binds the
 // defaulted fields we set explicitly), so eight chapters would bind about 120
@@ -73,8 +78,25 @@ type ChapterProgress = {
   topics?: Array<{ section: string; topic: string }>;
 };
 
+type ChapterSourceProgress = {
+  failedSegmentIds?: number[];
+  failures?: Array<{ segmentId: number; title: string; error: string }>;
+};
+
+type VectorSearchResult = {
+  file_id?: string;
+  filename?: string;
+  score?: number;
+  attributes?: Record<string, unknown>;
+  content?: Array<{ type?: string; text?: string }>;
+};
+
 function chapterStatusKey(resourceId: number) {
   return `book_chapters_status:${resourceId}`;
+}
+
+function chapterSourceStatusKey(resourceId: number) {
+  return `book_chapter_source_status:${resourceId}`;
 }
 
 function outputText(payload: Record<string, unknown>) {
@@ -111,23 +133,6 @@ function parseChapterPayload(payload: Record<string, unknown>) {
       .slice(0, 80);
   } catch {
     return [] as ChapterPayload["chapters"];
-  }
-}
-
-function parseChapterContent(payload: Record<string, unknown>) {
-  const raw = outputText(payload)
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-  try {
-    const parsed = JSON.parse(raw) as {
-      content?: string;
-      text?: string;
-      original_text?: string;
-    };
-    return String(parsed.content ?? parsed.text ?? parsed.original_text ?? "").trim();
-  } catch {
-    return raw;
   }
 }
 
@@ -301,6 +306,249 @@ async function writeChapterProgress(resourceId: number, progress: ChapterProgres
       target: appSettings.key,
       set: { value: JSON.stringify(progress), updatedAt: new Date() },
     });
+}
+
+async function readChapterSourceProgress(resourceId: number): Promise<ChapterSourceProgress> {
+  const db = await getDb();
+  const [setting] = await db
+    .select()
+    .from(appSettings)
+    .where(eq(appSettings.key, chapterSourceStatusKey(resourceId)))
+    .limit(1);
+  if (!setting) return {};
+  try {
+    const parsed = JSON.parse(setting.value) as ChapterSourceProgress;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeChapterSourceProgress(resourceId: number, progress: ChapterSourceProgress) {
+  const db = await getDb();
+  await db
+    .insert(appSettings)
+    .values({ key: chapterSourceStatusKey(resourceId), value: JSON.stringify(progress), updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: appSettings.key,
+      set: { value: JSON.stringify(progress), updatedAt: new Date() },
+    });
+}
+
+function cleanSourceText(value: string) {
+  return value
+    .replace(/\u0000/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizedHeading(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-Hant")
+    .replace(/[\s\p{P}\p{S}]+/gu, "")
+    .trim();
+}
+
+function pageTextFromItems(items: unknown[]) {
+  let output = "";
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const text = String((item as { str?: unknown }).str ?? "");
+    if (!text) continue;
+    output += text;
+    output += (item as { hasEOL?: unknown }).hasEOL ? "\n" : " ";
+  }
+  return cleanSourceText(output);
+}
+
+async function readSourcePages(resourceId: number) {
+  const db = await getDb();
+  return db
+    .select()
+    .from(resourceSegments)
+    .where(
+      and(
+        eq(resourceSegments.resourceId, resourceId),
+        eq(resourceSegments.segmentType, SOURCE_PAGE_TYPE),
+      ),
+    )
+    .orderBy(asc(resourceSegments.sequence));
+}
+
+async function extractPdfPageBatch(
+  resourceId: number,
+  document: typeof documents.$inferSelect,
+) {
+  const { env } = await import("cloudflare:workers");
+  const object = await env.BUCKET?.get(document.storageKey);
+  if (!object) throw new Error("找不到已保存的原始教材檔案");
+  const originalBytes = await object.arrayBuffer();
+  const source = resolveDocumentPayload(document.fileName, document.contentType, originalBytes);
+  if (documentExtension(source.fileName) !== "pdf") return null;
+
+  const existingPages = await readSourcePages(resourceId);
+  const existingNumbers = new Set(
+    existingPages.map((row) => Number(row.pageStart)).filter((value) => Number.isInteger(value) && value > 0),
+  );
+  const { getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(source.bytes));
+  try {
+    const totalPages = pdf.numPages;
+    let firstMissing = 1;
+    while (firstMissing <= totalPages && existingNumbers.has(firstMissing)) firstMissing += 1;
+    if (firstMissing > totalPages) {
+      return { totalPages, pagesDone: existingNumbers.size, extracted: 0 };
+    }
+    const pageNumbers: number[] = [];
+    for (let page = firstMissing; page <= totalPages && pageNumbers.length < SOURCE_PAGE_BATCH_SIZE; page += 1) {
+      if (!existingNumbers.has(page)) pageNumbers.push(page);
+    }
+    const rows: Array<typeof resourceSegments.$inferInsert> = [];
+    for (const pageNumber of pageNumbers) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const text = pageTextFromItems(content.items as unknown[]);
+      page.cleanup();
+      rows.push({
+        resourceId,
+        segmentType: SOURCE_PAGE_TYPE,
+        lessonLabel: "原始教材頁面",
+        title: `第 ${pageNumber} 頁`,
+        pageStart: pageNumber,
+        pageEnd: pageNumber,
+        text,
+        summary: text ? "已由原始 PDF 直接擷取" : "此頁沒有可擷取的文字層",
+        reviewStatus: text ? "source" : "source_empty",
+        sequence: pageNumber,
+      });
+    }
+    const db = await getDb();
+    for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
+      await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE));
+    }
+    return {
+      totalPages,
+      pagesDone: Math.min(totalPages, existingNumbers.size + rows.length),
+      extracted: rows.length,
+    };
+  } finally {
+    await pdf.cleanup();
+  }
+}
+
+function locateChapterPage(
+  pages: Array<typeof resourceSegments.$inferSelect>,
+  title: string,
+  preferredPage: number | null,
+  minimumPage: number,
+) {
+  const needle = normalizedHeading(title);
+  if (needle.length < 2) return preferredPage && preferredPage >= minimumPage ? preferredPage : null;
+  const matches = pages
+    .filter((page) => Number(page.pageStart) >= minimumPage)
+    .map((page) => {
+      const lines = page.text.split(/\r?\n/).slice(0, 24).map(normalizedHeading);
+      return {
+        page: Number(page.pageStart),
+        exact: lines.some((line) => line === needle),
+        prefix: needle.length >= 5 && lines.some((line) => line.startsWith(needle)),
+      };
+    });
+  const exactCandidates = matches.filter((match) => match.exact).map((match) => match.page);
+  const candidates = exactCandidates.length
+    ? exactCandidates
+    : matches.filter((match) => match.prefix).map((match) => match.page);
+  if (!candidates.length) return preferredPage && preferredPage >= minimumPage ? preferredPage : null;
+  if (preferredPage && preferredPage >= minimumPage) {
+    return candidates.reduce((best, page) => Math.abs(page - preferredPage) < Math.abs(best - preferredPage) ? page : best);
+  }
+  return candidates[0];
+}
+
+async function fillChaptersFromExtractedPages(resourceId: number) {
+  const db = await getDb();
+  const chapters = (await readChapters(resourceId)).filter((row) => row.segmentType !== PENDING_CHAPTER_TYPE);
+  const pages = await readSourcePages(resourceId);
+  if (!chapters.length || !pages.length) return { updated: 0, total: chapters.length };
+  const pageByNumber = new Map(pages.map((page) => [Number(page.pageStart), page]));
+  const totalPages = Math.max(...pages.map((page) => Number(page.pageStart) || 0));
+  const starts: Array<number | null> = [];
+  let minimumPage = 1;
+  for (const chapter of chapters) {
+    const preferred = chapter.pageStart && chapter.pageStart <= totalPages ? chapter.pageStart : null;
+    const located = locateChapterPage(pages, chapter.title, preferred, minimumPage);
+    starts.push(located);
+    if (located) minimumPage = located;
+  }
+
+  let updated = 0;
+  for (let index = 0; index < chapters.length; index += 1) {
+    const chapter = chapters[index];
+    if (chapter.text.trim().length >= SOURCE_TEXT_MIN_LENGTH) continue;
+    const start = starts[index];
+    if (!start) continue;
+    const nextStart = starts.slice(index + 1).find((value): value is number => Boolean(value && value > start));
+    const storedEnd = chapter.pageEnd && chapter.pageEnd >= start ? chapter.pageEnd : null;
+    const end = Math.min(totalPages, nextStart ? nextStart - 1 : storedEnd ?? totalPages);
+    const text = cleanSourceText(
+      Array.from({ length: Math.max(0, end - start + 1) }, (_, offset) => pageByNumber.get(start + offset)?.text ?? "")
+        .filter(Boolean)
+        .join("\n\n"),
+    ).slice(0, SOURCE_TEXT_MAX_LENGTH);
+    if (text.length < SOURCE_TEXT_MIN_LENGTH) continue;
+    await db
+      .update(resourceSegments)
+      .set({ text, pageStart: start, pageEnd: end, reviewStatus: "source" })
+      .where(eq(resourceSegments.id, chapter.id));
+    updated += 1;
+  }
+  return { updated, total: chapters.length };
+}
+
+function exactSearchText(payload: Record<string, unknown>, fileId: string) {
+  const data = Array.isArray(payload.data) ? payload.data as VectorSearchResult[] : [];
+  const exact = data.filter((row) => row.file_id === fileId);
+  if (!exact.length) return "";
+  const bestScore = Math.max(...exact.map((row) => Number(row.score) || 0));
+  const threshold = Math.max(0.08, bestScore * 0.55);
+  const chunks = exact
+    .filter((row) => (Number(row.score) || 0) >= threshold)
+    .flatMap((row) => Array.isArray(row.content) ? row.content : [])
+    .map((part) => String(part.text ?? "").trim())
+    .filter(Boolean)
+    .filter((text, index, all) => all.indexOf(text) === index);
+  return cleanSourceText(chunks.join("\n\n")).slice(0, SOURCE_TEXT_MAX_LENGTH);
+}
+
+async function retrieveIndexedChapterSource(
+  storeId: string,
+  document: typeof documents.$inferSelect,
+  target: typeof resourceSegments.$inferSelect,
+) {
+  const query = [target.lessonLabel, target.title, target.pageStart ? `第 ${target.pageStart} 頁` : "", "章節原文"]
+    .filter(Boolean)
+    .join(" ");
+  const base = { query, max_num_results: 20, rewrite_query: true };
+  const filtered = await openAIJson(`/vector_stores/${storeId}/search`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...base,
+      attribute_filter: { type: "eq", key: "source_file", value: document.fileName },
+    }),
+  });
+  const filteredText = exactSearchText(filtered, document.openaiFileId ?? "");
+  if (filteredText.length >= SOURCE_TEXT_MIN_LENGTH) return filteredText;
+
+  // Files indexed before attributes were introduced will not match the
+  // metadata filter. Search the same store once more, but still accept only
+  // chunks whose file_id exactly matches this document.
+  const fallback = await openAIJson(`/vector_stores/${storeId}/search`, {
+    method: "POST",
+    body: JSON.stringify(base),
+  });
+  return exactSearchText(fallback, document.openaiFileId ?? "");
 }
 
 function progressForResponse(progress: ChapterProgress, updatedAt: Date | null) {
@@ -491,6 +739,24 @@ export async function GET(request: Request) {
       });
     }
 
+    // Once ordinary-book chapters have been materialized, they are the
+    // canonical rows that enrichment updates. Returning the older virtual
+    // catalogue here hid freshly saved source text behind negative-id rows.
+    if (!problemBook && chapters.length) {
+      const incompleteCount = chapters.filter((chapter) => chapter.text.trim().length < SOURCE_TEXT_MIN_LENGTH).length;
+      return Response.json({
+        chapters,
+        generated: false,
+        ready: true,
+        status: incompleteCount ? "partial" : "completed",
+        incompleteCount,
+        progress,
+        message: incompleteCount
+          ? `已載入 ${chapters.length} 章；其中 ${incompleteCount} 章仍待補齊原文。`
+          : `已載入 ${chapters.length} 章及已保存的教材原文。`,
+      });
+    }
+
     if (!resource.documentId) {
       return Response.json({
         chapters: [],
@@ -602,6 +868,7 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   let resourceId = 0;
+  let sourceBatchRequested = false;
   try {
     const body = (await request.json()) as {
       resourceId?: number;
@@ -609,8 +876,11 @@ export async function POST(request: Request) {
       restart?: boolean;
       materialize?: boolean;
       enrich?: boolean;
+      sourceBatch?: boolean;
+      restartSourceFailures?: boolean;
       segmentId?: number;
     };
+    sourceBatchRequested = body.sourceBatch === true;
     resourceId = Number(body.resourceId);
     if (!Number.isInteger(resourceId) || resourceId < 1)
       return Response.json({ error: "缺少書籍編號" }, { status: 400 });
@@ -637,6 +907,139 @@ export async function POST(request: Request) {
     // resume; only the explicit, currently-unused `restart` flag may reset a
     // queue.
     const explicitRestart = body.restart === true;
+    if (body.sourceBatch === true) {
+      if (problemBook)
+        return Response.json({ error: "解題書請使用「整理題型與完整題目」，不使用章節原文補齊流程。" }, { status: 400 });
+      if (!resource.documentId)
+        return Response.json({ error: "這本書尚未綁定後台教材。" }, { status: 400 });
+      const [document] = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.id, resource.documentId))
+        .limit(1);
+      if (!document)
+        return Response.json({ error: "找不到已綁定的教材文件。" }, { status: 404 });
+      if (document.status !== "completed")
+        return Response.json({ error: "教材尚未完成全文索引，完成後才能補齊章節原文。" }, { status: 409 });
+
+      let chapters = await materializeStoredChapters(resourceId, document);
+      if (!chapters.length)
+        return Response.json({ error: "找不到已保存的真實章節目錄；請先建立章節索引。" }, { status: 409 });
+
+      let sourceProgress = body.restartSourceFailures
+        ? {} as ChapterSourceProgress
+        : await readChapterSourceProgress(resourceId);
+      if (body.restartSourceFailures) await writeChapterSourceProgress(resourceId, sourceProgress);
+
+      const pageBatch = await extractPdfPageBatch(resourceId, document);
+      if (pageBatch && pageBatch.pagesDone < pageBatch.totalPages) {
+        const ready = chapters.filter((chapter) => chapter.text.trim().length >= SOURCE_TEXT_MIN_LENGTH).length;
+        return Response.json({
+          status: "extracting",
+          phase: "pages",
+          pagesDone: pageBatch.pagesDone,
+          totalPages: pageBatch.totalPages,
+          chaptersReady: ready,
+          chaptersTotal: chapters.length,
+          failedCount: sourceProgress.failures?.length ?? 0,
+          message: `正在直接讀取原始 PDF：${pageBatch.pagesDone}／${pageBatch.totalPages} 頁`,
+        });
+      }
+
+      if (pageBatch) await fillChaptersFromExtractedPages(resourceId);
+      chapters = await readChapters(resourceId);
+      let ready = chapters.filter((chapter) => chapter.text.trim().length >= SOURCE_TEXT_MIN_LENGTH).length;
+      if (ready === chapters.length) {
+        await writeChapterSourceProgress(resourceId, {});
+        return Response.json({
+          status: "completed",
+          phase: "completed",
+          pagesDone: pageBatch?.pagesDone ?? 0,
+          totalPages: pageBatch?.totalPages ?? document.pageCount ?? 0,
+          chaptersReady: ready,
+          chaptersTotal: chapters.length,
+          failedCount: 0,
+          message: `已從原始教材補齊 ${ready} 章原文。`,
+        });
+      }
+
+      const failedIds = new Set(sourceProgress.failedSegmentIds ?? []);
+      const missing = chapters.filter((chapter) => chapter.text.trim().length < SOURCE_TEXT_MIN_LENGTH);
+      const target = missing.find((chapter) => !failedIds.has(chapter.id));
+      if (!target) {
+        return Response.json({
+          status: "partial",
+          phase: "completed",
+          pagesDone: pageBatch?.pagesDone ?? 0,
+          totalPages: pageBatch?.totalPages ?? document.pageCount ?? 0,
+          chaptersReady: ready,
+          chaptersTotal: chapters.length,
+          failedCount: sourceProgress.failures?.length ?? missing.length,
+          failures: sourceProgress.failures ?? [],
+          message: `已補齊 ${ready}／${chapters.length} 章；其餘章節在原始 PDF 與限定檔案索引中仍未找到足夠文字。`,
+        });
+      }
+
+      if (!document.openaiFileId)
+        return Response.json({ error: "原始 PDF 文字層不足，且這份教材尚未完成可用的向量索引。" }, { status: 409 });
+      const [setting] = await db
+        .select()
+        .from(appSettings)
+        .where(eq(appSettings.key, "openai_vector_store_id"))
+        .limit(1);
+      if (!setting?.value)
+        return Response.json({ error: "教材向量索引尚未就緒。" }, { status: 409 });
+
+      try {
+        const content = await retrieveIndexedChapterSource(setting.value, document, target);
+        if (content.length < SOURCE_TEXT_MIN_LENGTH) throw new Error("限定這一本教材後，仍未找到足夠可核對的原文片段");
+        await db
+          .update(resourceSegments)
+          .set({ text: content, reviewStatus: "source_index" })
+          .where(eq(resourceSegments.id, target.id));
+        ready += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message.slice(0, 160) : "原文索引未命中";
+        if (/較忙|限流|rate.?limit|429|try again/i.test(message)) {
+          return Response.json({
+            status: "paused",
+            phase: "index",
+            chaptersReady: ready,
+            chaptersTotal: chapters.length,
+            failedCount: sourceProgress.failures?.length ?? 0,
+            currentTitle: target.title,
+            message: "原文索引目前較忙；已保存頁面與章節進度，稍後會從這一章接續。",
+          }, { status: 202 });
+        }
+        const failures = [
+          ...(sourceProgress.failures ?? []).filter((item) => item.segmentId !== target.id),
+          { segmentId: target.id, title: target.title, error: message },
+        ];
+        sourceProgress = {
+          failedSegmentIds: [...failedIds, target.id],
+          failures,
+        };
+        await writeChapterSourceProgress(resourceId, sourceProgress);
+      }
+
+      const remaining = chapters.length - ready - (sourceProgress.failedSegmentIds?.length ?? 0);
+      return Response.json({
+        status: remaining > 0 ? "searching" : ready === chapters.length ? "completed" : "partial",
+        phase: "index",
+        pagesDone: pageBatch?.pagesDone ?? 0,
+        totalPages: pageBatch?.totalPages ?? document.pageCount ?? 0,
+        chaptersReady: ready,
+        chaptersTotal: chapters.length,
+        failedCount: sourceProgress.failures?.length ?? 0,
+        failures: sourceProgress.failures ?? [],
+        currentTitle: target.title,
+        message: remaining > 0
+          ? `正在從限定教材索引補回剩餘章節：${ready}／${chapters.length}`
+          : ready === chapters.length
+            ? `已補齊 ${ready} 章原文。`
+            : `已補齊 ${ready}／${chapters.length} 章；${sourceProgress.failures?.length ?? 0} 章未命中。`,
+      });
+    }
     if (body.materialize === true) {
       if (problemBook)
         return Response.json({ error: "解題書請使用「整理題型與完整題目」，不使用章節原文補齊流程。" }, { status: 400 });
@@ -689,42 +1092,13 @@ export async function POST(request: Request) {
         return Response.json({ status: "completed", segmentId, textLength: target.text.trim().length, reused: true });
       }
 
-      const extractionModel =
-        process.env.OPENAI_EXTRACTION_MODEL ||
-        process.env.OPENAI_MODEL ||
-        "gpt-5.6-luna";
-      const pageHint = target.pageStart || target.pageEnd
-        ? `頁碼範圍：${target.pageStart ?? "?"}–${target.pageEnd ?? "?"}`
-        : "頁碼未知，請以章名與內容位置核對";
-      const payload = await openAIJson("/responses", {
-        method: "POST",
-        body: JSON.stringify({
-          model: extractionModel,
-          instructions: "你是教材原文校對員。必須使用 file_search，只能抄錄指定章節在原書中明確出現的連續原文片段；不得摘要、解釋、改寫、補寫或使用一般知識。若搜尋結果不足以確認原文，content 回傳空字串。保留原書標題、條文、例題與段落文字，排除頁眉、頁腳與頁碼。",
-          input: `教材：《${resource.title}》（原始檔名：${document.fileName}）\n指定章節：${target.title}\n章節路徑：${target.lessonLabel}\n${pageHint}\n請只回傳這一章可核對的原文內容。`,
-          tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 16 }],
-          text: {
-            format: {
-              type: "json_schema",
-              name: "book_chapter_source",
-              strict: true,
-              schema: {
-                type: "object",
-                additionalProperties: false,
-                properties: { content: { type: "string" } },
-                required: ["content"],
-              },
-            },
-          },
-        }),
-      });
-      const content = parseChapterContent(payload).slice(0, 12000);
+      const content = await retrieveIndexedChapterSource(setting.value, document, target);
       if (content.length < 40)
         return Response.json({ error: `「${target.title}」目前仍找不到足夠可核對的原文；請確認檔案已完成全文索引。` }, { status: 422 });
 
       if (segmentId > 0) {
         await db.update(resourceSegments)
-          .set({ text: content, reviewStatus: "source", updatedAt: new Date() })
+          .set({ text: content, reviewStatus: "source_index" })
           .where(eq(resourceSegments.id, segmentId));
       } else {
         const parsedDocument = JSON.parse(document.processingResultJson || "{}") as Record<string, unknown>;
@@ -1038,7 +1412,7 @@ export async function POST(request: Request) {
     const message =
       error instanceof Error ? error.message.slice(0, 240) : "建立章節索引失敗";
     const paused = /較忙|限流|rate.?limit|429|try again/i.test(message);
-    if (resourceId) {
+    if (resourceId && !sourceBatchRequested) {
       try {
         const progress = activeProgress ?? (await readChapterProgressRecord(resourceId)).progress;
         await writeChapterProgress(resourceId, {

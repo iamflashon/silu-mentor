@@ -65,6 +65,8 @@ export async function GET() {
       // rows may temporarily live in book_chapter_pending; excluding them
       // made the card report 0 while the progress panel had real rows.
       chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline', 'book_chapter_pending') then 1 else 0 end)`,
+      chapterSourceReadyCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') and length(trim(${resourceSegments.text})) >= 40 then 1 else 0 end)`,
+      sourcePageCount: sql<number>`sum(case when ${resourceSegments.segmentType} = 'book_source_page' then 1 else 0 end)`,
       updatedAt: learningResources.updatedAt,
     })
     .from(learningResources)
@@ -238,9 +240,10 @@ export async function PUT(request: Request) {
   if (current.resourceType === "book" && current.documentId !== nextDocumentId) {
     await db.delete(resourceSegments).where(and(
       eq(resourceSegments.resourceId, id),
-      inArray(resourceSegments.segmentType, ["book_chapter", "chapter", "book_outline"]),
+      inArray(resourceSegments.segmentType, ["book_chapter", "chapter", "book_outline", "book_chapter_pending", "book_source_page"]),
     ));
     await db.delete(appSettings).where(eq(appSettings.key, `book_chapters_status:${id}`));
+    await db.delete(appSettings).where(eq(appSettings.key, `book_chapter_source_status:${id}`));
   }
   const [row] = await db
     .update(learningResources)

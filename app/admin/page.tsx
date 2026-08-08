@@ -122,6 +122,8 @@ type LearningResource = {
   hasCover: number;
   segmentCount: number;
   chapterCount?: number;
+  chapterSourceReadyCount?: number;
+  sourcePageCount?: number;
   articleCount?: number;
   analyzedArticleCount?: number;
   failedArticleCount?: number;
@@ -446,6 +448,7 @@ export default function AdminPage() {
     incompleteCount?: number;
   } | null>(null);
   const [chapterViewerLoading, setChapterViewerLoading] = useState<number | null>(null);
+  const [chapterSourceRunning, setChapterSourceRunning] = useState<number | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null);
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
@@ -1974,60 +1977,72 @@ export default function AdminPage() {
     }
     if (chapterBuildRunningRef.current.has(resource.id)) return;
     chapterBuildRunningRef.current.add(resource.id);
+    setChapterSourceRunning(resource.id);
     try {
-      const response = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
-      let result = (await readJson(response)) as { chapters?: ChapterSegment[]; error?: string };
-      if (!response.ok) throw new Error(result.error ?? "章節資料讀取失敗");
-
-      // A completed document may still expose its saved catalogue as virtual
-      // rows with negative ids. Materialize those real saved rows first so
-      // the enrichment request can update normal resource segments. If an
-      // older run only saved the index/count, build the chapter catalogue
-      // from the existing indexed file before attempting source recovery.
-      if (!(result.chapters ?? []).length) {
-        chapterBuildRunningRef.current.delete(resource.id);
-        await buildBookChapters(resource);
-        chapterBuildRunningRef.current.add(resource.id);
-        const refreshed = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
-        result = (await readJson(refreshed)) as { chapters?: ChapterSegment[]; error?: string };
-        if (!refreshed.ok) throw new Error(result.error ?? "章節目錄建立失敗");
-      }
-      if ((result.chapters ?? []).some((chapter) => chapter.id < 0)) {
-        const materializeResponse = await fetch("/api/resources/chapters", {
+      setNotice(`正在直接讀取「${resource.title}」的原始教材；進度會逐批保存，可中斷後接續。`);
+      let pausedRetries = 0;
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const response = await fetch("/api/resources/chapters", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ resourceId: resource.id, materialize: true }),
+          body: JSON.stringify({
+            resourceId: resource.id,
+            sourceBatch: true,
+            restartSourceFailures: attempt === 0,
+          }),
         });
-        const materializeResult = (await readJson(materializeResponse)) as { error?: string };
-        if (!materializeResponse.ok) throw new Error(materializeResult.error ?? "章節目錄保存失敗");
-        const refreshed = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
-        result = (await readJson(refreshed)) as { chapters?: ChapterSegment[]; error?: string };
-        if (!refreshed.ok) throw new Error(result.error ?? "章節資料讀取失敗");
-      }
-
-      const missing = (result.chapters ?? []).filter((chapter) => !String(chapter.text ?? "").trim());
-      if (!missing.length) {
-        setNotice(`「${resource.title}」的章節原文已經補齊，不需要重複處理。`);
+        const result = (await readJson(response)) as {
+          status?: "extracting" | "searching" | "paused" | "completed" | "partial";
+          phase?: string;
+          pagesDone?: number;
+          totalPages?: number;
+          chaptersReady?: number;
+          chaptersTotal?: number;
+          failedCount?: number;
+          currentTitle?: string;
+          message?: string;
+          failures?: Array<{ title: string; error: string }>;
+          error?: string;
+        };
+        if (!response.ok && response.status !== 202) throw new Error(result.error ?? "章節原文補齊失敗");
+        if (result.status === "paused") {
+          pausedRetries += 1;
+          if (pausedRetries > 6) {
+            setNotice(result.message ?? "原文索引目前較忙；進度已保存，稍後可按同一按鈕接續。");
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(8000, 1200 * 2 ** pausedRetries)));
+          continue;
+        }
+        pausedRetries = 0;
+        setResources((current) => current.map((item) => item.id === resource.id ? {
+          ...item,
+          chapterCount: result.chaptersTotal ?? item.chapterCount,
+          chapterSourceReadyCount: result.chaptersReady ?? item.chapterSourceReadyCount,
+          sourcePageCount: result.pagesDone ?? item.sourcePageCount,
+        } : item));
+        if (result.message) setNotice(result.message);
+        if (result.status === "extracting" || result.status === "searching") continue;
+        if (result.status === "partial") {
+          const examples = (result.failures ?? []).slice(0, 3).map((item) => item.title).join("、");
+          setNotice(`「${resource.title}」已補齊 ${result.chaptersReady ?? 0}／${result.chaptersTotal ?? 0} 章原文；${result.failedCount ?? 0} 章未命中${examples ? `（${examples}${(result.failedCount ?? 0) > 3 ? "…" : ""}）` : ""}。未命中章節不會用假資料補寫。`);
+        } else {
+          setNotice(`「${resource.title}」已完成，共補齊 ${result.chaptersReady ?? result.chaptersTotal ?? 0} 章原文。`);
+        }
+        const refreshed = await fetch("/api/resources", { cache: "no-store" });
+        if (refreshed.ok) {
+          const refreshedResult = (await readJson(refreshed)) as { resources?: LearningResource[] };
+          setResources(refreshedResult.resources ?? []);
+        }
         await openChapterViewer(resource);
         return;
       }
-      for (let index = 0; index < missing.length; index += 1) {
-        const chapter = missing[index];
-        setNotice(`正在補齊「${resource.title}」章節原文：${index + 1}／${missing.length}｜${chapter.title}`);
-        const enrichResponse = await fetch("/api/resources/chapters", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ resourceId: resource.id, enrich: true, segmentId: chapter.id }),
-        });
-        const enrichResult = (await readJson(enrichResponse)) as { error?: string; textLength?: number };
-        if (!enrichResponse.ok) throw new Error(enrichResult.error ?? `「${chapter.title}」原文補齊失敗`);
-      }
-      setNotice(`「${resource.title}」已補齊 ${missing.length} 章可核對原文。`);
-      await openChapterViewer(resource);
+      setNotice("本次處理時間較長，已保存目前進度；再次按下「補齊章節原文」會接續處理。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "章節原文補齊失敗");
     } finally {
       chapterBuildRunningRef.current.delete(resource.id);
+      setChapterSourceRunning(null);
     }
   }
 
@@ -3509,14 +3524,16 @@ export default function AdminPage() {
                           <button
                             type="button"
                             className="subtitle-open"
-                            disabled={!resource.documentId}
+                            disabled={!resource.documentId || chapterSourceRunning === resource.id}
                             onClick={() => void (isProblemSolvingResource(resource)
                               ? buildBookChapters(resource)
                               : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
                                 ? enrichBookText(resource)
                                 : buildBookChapters(resource))}
                           >
-                            {isProblemSolvingResource(resource)
+                            {chapterSourceRunning === resource.id
+                              ? "補齊原文中…"
+                              : isProblemSolvingResource(resource)
                               ? chapterProgress[resource.id]?.state === "completed"
                                 ? "重新整理題型"
                                 : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
@@ -3526,6 +3543,24 @@ export default function AdminPage() {
                                 ? "補齊章節原文"
                                 : "建立章節索引（一次）"}
                           </button>
+                          {!isProblemSolvingResource(resource) && (resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (() => {
+                            const total = Math.max(Number(resource.chapterCount ?? 0), Number(resource.storedChapterCatalogueCount ?? 0));
+                            const ready = Math.min(total, Number(resource.chapterSourceReadyCount ?? 0));
+                            const percent = total ? Math.round((ready / total) * 100) : 0;
+                            return (
+                              <div className={`chapter-progress-panel ${ready === total && total > 0 ? "completed" : chapterSourceRunning === resource.id ? "building" : "not_started"}`} role="status">
+                                <div className="chapter-progress-heading">
+                                  <strong>章節原文 {ready}／{total}</strong>
+                                  <span>{percent}%</span>
+                                </div>
+                                <div className="chapter-progress-track"><i style={{ width: `${percent}%` }} /></div>
+                                <div className="chapter-progress-meta">
+                                  <span>{resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
+                                  <small>{ready === total && total > 0 ? "智能書可直接引用已保存原文" : "按下後會逐批保存，可中斷後接續"}</small>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {isProblemSolvingResource(resource) && (() => {
                             const progress = chapterProgress[resource.id];
                             const percent = chapterProgressPercent(progress);
