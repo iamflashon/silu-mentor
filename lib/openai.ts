@@ -41,6 +41,14 @@ export async function getZaiKey() {
   return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
 }
 
+export async function getOpenRouterKey() {
+  const configured = process.env.OPENROUTER_API_KEY || process.env.OpenRouter;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeKey = env.OPENROUTER_API_KEY || env.OpenRouter;
+  return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
+}
+
 export async function getZaiModel(fallback = "glm-4.7-flash") {
   const configured = process.env.ZAI_MODEL;
   if (configured?.trim()) return configured.trim();
