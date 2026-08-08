@@ -39,6 +39,8 @@ function summaryView(row: typeof documents.$inferSelect) {
     displayTitle: String(result.title ?? row.fileName),
     subject: row.subject,
     topic: String(result.topic ?? ""),
+    collectionTitle: String(result.collectionTitle ?? result.topic ?? ""),
+    folder: String(result.folder ?? "未分類"),
     sizeBytes: row.sizeBytes,
     contentType: row.contentType,
     status: row.status,
@@ -139,7 +141,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { id?: number; editedSummary?: string; favorite?: boolean; tags?: string[]; title?: string; fontSize?: number; topic?: string };
+    const body = await request.json() as { id?: number; editedSummary?: string; favorite?: boolean; tags?: string[]; title?: string; fontSize?: number; topic?: string; collectionTitle?: string; folder?: string; subject?: string };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id < 1) return Response.json({ error: "摘要編號不正確" }, { status: 400 });
     const db = await getDb();
@@ -151,8 +153,11 @@ export async function PATCH(request: Request) {
     if (Array.isArray(body.tags)) result.tags = body.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20);
     if (typeof body.title === "string") result.title = body.title.trim().slice(0, 120) || row.fileName;
     if (typeof body.topic === "string") result.topic = body.topic.trim().slice(0, 120);
+    if (typeof body.collectionTitle === "string") result.collectionTitle = body.collectionTitle.trim().slice(0, 120);
+    if (typeof body.folder === "string") result.folder = body.folder.trim().slice(0, 80) || "未分類";
     if (typeof body.fontSize === "number" && [16, 18, 20, 22, 24].includes(body.fontSize)) result.fontSize = body.fontSize;
     await db.update(documents).set({
+      subject: typeof body.subject === "string" ? body.subject.trim().slice(0, 40) || row.subject : row.subject,
       processingResultJson: JSON.stringify(result),
       tagsJson: JSON.stringify(Array.isArray(result.tags) ? result.tags : []),
     }).where(eq(documents.id, id));
