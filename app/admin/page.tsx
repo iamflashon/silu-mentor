@@ -166,7 +166,7 @@ type CourseCollection = {
 };
 type ChapterProgress = {
   state: "not_started" | "building" | "paused" | "failed" | "completed" | "needs_rebuild";
-  phase?: "outline" | "questions" | "saving" | "paused" | "failed";
+  phase?: "outline" | "questions" | "pages" | "saving" | "paused" | "failed";
   completedTopics?: number;
   totalTopics?: number;
   foundQuestions?: number;
@@ -174,6 +174,7 @@ type ChapterProgress = {
   error?: string;
   stale?: boolean;
   lastUpdatedAt?: string | null;
+  pageCoverage?: { scanned: number; continuation: number; empty: number; unprocessed: number };
 };
 type ChapterSegment = {
   id: number;
@@ -210,6 +211,7 @@ function chapterProgressLabel(progress?: ChapterProgress) {
   if (progress.state === "paused") return "AI 目前較忙，將自動重試；原資料仍保留";
   if (progress.state === "failed") return "解析未完成，原資料仍保留";
   if (progress.phase === "outline") return "正在讀取原書的部分與主題目錄";
+  if (progress.phase === "pages") return "正在依頁碼順序掃描原始 PDF";
   if (progress.phase === "saving") return "正在保存已完成的題型";
   return "正在逐一擷取題型與完整題目";
 }
@@ -1953,6 +1955,62 @@ export default function AdminPage() {
     }
   }
 
+  async function scanProblemBookPages(resource: LearningResource) {
+    if (!resource.documentId || chapterBuildRunningRef.current.has(resource.id)) return;
+    chapterBuildRunningRef.current.add(resource.id);
+    setChapterSourceRunning(resource.id);
+    try {
+      setNotice(`正在逐頁掃描「${resource.title}」；每批完成後立即保存，可中斷後接續。`);
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const response = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ resourceId: resource.id, sourceBatch: true }),
+        });
+        const result = (await readJson(response)) as {
+          status?: string; pagesDone?: number; totalPages?: number;
+          chaptersReady?: number; chaptersTotal?: number; pendingCount?: number;
+          pageCoverage?: { scanned: number; continuation: number; empty: number; unprocessed: number };
+          message?: string; error?: string;
+        };
+        if (!response.ok) throw new Error(result.error ?? "逐頁拆解失敗");
+        setResources((current) => current.map((item) => item.id === resource.id ? {
+          ...item,
+          sourcePageCount: result.pagesDone ?? item.sourcePageCount,
+          chapterCount: result.chaptersReady ?? item.chapterCount,
+          pendingChapterCount: result.pendingCount ?? item.pendingChapterCount,
+          chapterSourceReadyCount: result.chaptersReady ?? item.chapterSourceReadyCount,
+        } : item));
+        setChapterProgress((current) => ({
+          ...current,
+          [resource.id]: {
+            state: result.status === "completed" ? "completed" : "building",
+            phase: result.status === "completed" ? "saving" : "pages",
+            completedTopics: result.pagesDone ?? 0,
+            totalTopics: result.totalPages ?? 0,
+            foundQuestions: result.chaptersReady ?? 0,
+            pageCoverage: result.pageCoverage,
+          },
+        }));
+        if (result.message) setNotice(result.message);
+        if (result.status === "extracting") continue;
+        const refreshed = await fetch("/api/resources", { cache: "no-store" });
+        if (refreshed.ok) {
+          const data = (await readJson(refreshed)) as { resources?: LearningResource[] };
+          setResources(data.resources ?? []);
+        }
+        await openChapterViewer(resource);
+        return;
+      }
+      setNotice("本次已保存目前頁面；再次按下即可從最後成功頁接續。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "逐頁拆解失敗");
+    } finally {
+      chapterBuildRunningRef.current.delete(resource.id);
+      setChapterSourceRunning(null);
+    }
+  }
+
   async function openChapterViewer(resource: LearningResource) {
     if (!resource.documentId) {
       setNotice("請先替這本書綁定教材文件，才能查看拆解內容。");
@@ -3675,11 +3733,7 @@ export default function AdminPage() {
                             className="subtitle-open"
                             disabled={!resource.documentId || chapterSourceRunning === resource.id}
                             onClick={() => void (isProblemSolvingResource(resource)
-                              ? Number(resource.pendingChapterCount ?? 0) > 0
-                                ? buildBookChapters(resource)
-                                : Number(resource.chapterCount ?? 0) > 0
-                                ? enrichBookText(resource)
-                                : buildBookChapters(resource)
+                              ? scanProblemBookPages(resource)
                               : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
                                 ? enrichBookText(resource)
                                 : buildBookChapters(resource))}
@@ -3687,15 +3741,9 @@ export default function AdminPage() {
                             {chapterSourceRunning === resource.id
                               ? "補齊原文中…"
                               : isProblemSolvingResource(resource)
-                              ? Number(resource.pendingChapterCount ?? 0) > 0
-                                ? "接續核對並完成"
-                                : Number(resource.chapterCount ?? 0) > 0
-                                ? "補齊題目與解析全文"
-                                : chapterProgress[resource.id]?.state === "completed"
-                                ? "補齊題目與解析全文"
-                                : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
-                                  ? "接續整理題型"
-                                  : "開始整理題型與完整題目"
+                              ? Number(resource.sourcePageCount ?? 0) > 0
+                                ? "接續逐頁拆解"
+                                : "開始逐頁拆解整本書"
                               : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
                                 ? "補齊章節原文"
                                 : "建立章節索引（一次）"}
@@ -3705,9 +3753,9 @@ export default function AdminPage() {
                               type="button"
                               className="chapter-view-open"
                               disabled={!resource.documentId || chapterSourceRunning === resource.id}
-                              onClick={() => void buildBookChapters(resource, true)}
+                              onClick={() => void scanProblemBookPages(resource)}
                             >
-                              重新檢查漏拆頁
+                              重新檢查未處理頁
                             </button>
                           )}
                           {(resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (() => {
@@ -3724,8 +3772,10 @@ export default function AdminPage() {
                                 </div>
                                 <div className="chapter-progress-track"><i style={{ width: `${percent}%` }} /></div>
                                 <div className="chapter-progress-meta">
-                                  <span>{isProblemSolvingResource(resource) ? (pending > 0 ? `正式 ${published} 題 · 待覆核 ${pending} 題` : "逐題從限定解題書索引補抓") : resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
-                                  <small>{ready === total && total > 0 ? "智能書可直接引用已保存原文" : pending > 0 ? "完成全部主題核對後才會升格為正式題型" : "按下後會逐批保存，可中斷後接續"}</small>
+                                  <span>{isProblemSolvingResource(resource) ? `正式 ${published} 題 · 待補 ${pending} 題` : resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
+                                  <small>{isProblemSolvingResource(resource) && chapterProgress[resource.id]?.pageCoverage
+                                    ? `頁面覆蓋：已掃描 ${chapterProgress[resource.id].pageCoverage!.scanned} · 續頁 ${chapterProgress[resource.id].pageCoverage!.continuation} · 空白 ${chapterProgress[resource.id].pageCoverage!.empty} · 未處理 ${chapterProgress[resource.id].pageCoverage!.unprocessed}`
+                                    : ready === total && total > 0 ? "智能書可直接引用已保存原文" : pending > 0 ? "找到下一題邊界後會自動轉為正式題型" : "按下後會逐批保存，可中斷後接續"}</small>
                                 </div>
                               </div>
                             );
@@ -5157,8 +5207,8 @@ export default function AdminPage() {
             <div>
               <h2>司法院裁判資料</h2>
               <p className="panel-sub">
-                使用已儲存帳密取得 6 小時 Token；官方 API 僅於每日 00:00 至
-                06:00 開放。
+                使用已儲存帳密取得 6 小時 Token；官方 API 每日 00:00 至
+                06:00 開放，系統會在開放後自動持續下載。
               </p>
             </div>
             <span
@@ -5178,8 +5228,8 @@ export default function AdminPage() {
             </article>
             <article>
               <span>{judicialStatus?.schedule?.enabled ? "實際排程" : "排程狀態"}</span>
-              <strong>{judicialStatus?.schedule?.time ?? "00:30"}</strong>
-              <small>{judicialStatus?.schedule?.enabled ? `每 ${judicialStatus.schedule.intervalMinutes ?? 5} 分鐘自動續傳（台灣時間）` : "尚未啟用"}</small>
+              <strong>{judicialStatus?.schedule?.time ?? "00:00"}</strong>
+              <small>{judicialStatus?.schedule?.enabled ? `每 ${judicialStatus.schedule.intervalMinutes ?? 1} 分鐘自動續傳（台灣時間）` : "尚未啟用"}</small>
             </article>
             <article>
               <span>待下載</span>
@@ -5188,7 +5238,7 @@ export default function AdminPage() {
                   judicialStatus?.settings?.judicial_pending_count ?? 0,
                 ).toLocaleString()}
               </strong>
-              <small>每批 30 筆續傳</small>
+              <small>每批最多 120 筆續傳</small>
             </article>
           </div>
           <div className="judicial-actions">
@@ -5230,7 +5280,7 @@ export default function AdminPage() {
             </p>
             {judicialStatus?.schedule?.enabled && (
               <p className="sync-auto-note">
-                錯誤或中斷後會在 {judicialStatus.schedule.window ?? "00:30–05:55"} 每 {judicialStatus.schedule.intervalMinutes ?? 5} 分鐘自動恢復；不用整晚開著此頁面。
+                錯誤或中斷後會在 {judicialStatus.schedule.window ?? "00:00–05:59"} 每 {judicialStatus.schedule.intervalMinutes ?? 1} 分鐘自動恢復；不用整晚開著此頁面。
               </p>
             )}
             {!!judicialStatus?.failedCount && (
