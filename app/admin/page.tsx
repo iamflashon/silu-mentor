@@ -564,6 +564,8 @@ export default function AdminPage() {
     null,
   );
   const [syncingJudicial, setSyncingJudicial] = useState(false);
+  const [judicialClock, setJudicialClock] = useState(() => Date.now());
+  const [judicialLaunching, setJudicialLaunching] = useState(false);
   const [focusMusicUrl, setFocusMusicUrl] = useState("");
   const [focusMusicDraft, setFocusMusicDraft] = useState("");
   const [savingFocusMusic, setSavingFocusMusic] = useState(false);
@@ -733,6 +735,49 @@ export default function AdminPage() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setJudicialClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!judicialStatus?.schedule?.enabled || syncingJudicial) return;
+    const taipeiNow = new Date(judicialClock + 8 * 3600_000);
+    const hour = taipeiNow.getUTCHours();
+    const minute = taipeiNow.getUTCMinutes();
+    const second = taipeiNow.getUTCSeconds();
+    const inWindow = hour >= 0 && hour < 6;
+    const atNextTick = inWindow && minute > 0 && second === 0;
+    if (atNextTick) {
+      setJudicialLaunching(true);
+      const timer = window.setTimeout(() => setJudicialLaunching(false), 2600);
+      return () => window.clearTimeout(timer);
+    }
+  }, [judicialClock, judicialStatus?.schedule?.enabled, syncingJudicial]);
+
+  function judicialNextRun() {
+    const taipei = new Date(judicialClock + 8 * 3600_000);
+    const hour = taipei.getUTCHours();
+    const minute = taipei.getUTCMinutes();
+    const second = taipei.getUTCSeconds();
+    let seconds = 0;
+    if (hour >= 6) {
+      seconds = ((24 - hour) * 60 * 60) - minute * 60 - second;
+    } else if (hour === 0 && minute === 0 && second === 0) {
+      seconds = 0;
+    } else {
+      seconds = 60 - second;
+    }
+    return Math.max(0, seconds);
+  }
+
+  function formatCountdown(totalSeconds: number) {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
 
   async function refreshCourseCollections() {
     const response = await fetch("/api/course-collections?all=1", { cache: "no-store" });
@@ -5259,6 +5304,17 @@ export default function AdminPage() {
               {syncingJudicial ? "同步中…" : "立即下載一批"}
             </button>
           </div>
+          {judicialStatus?.schedule?.enabled && (
+            <div className={`judicial-schedule-live ${judicialLaunching ? "launching" : ""}`} role="status" aria-live="polite">
+              {judicialLaunching ? (
+                <><span className="download-orbit" aria-hidden="true"><i /><i /><i /></span><div><b>時間到，正在啟動下載</b><small>背景 Worker 已收到本分鐘同步任務，正在取得官方清單…</small></div></>
+              ) : syncingJudicial ? (
+                <><span className="download-spinner" aria-hidden="true" /><div><b>正在下載本批裁判資料</b><small>完成後會自動更新同步狀態</small></div></>
+              ) : (
+                <><span className="countdown-clock" aria-hidden="true">⏱</span><div><b>距離下一次自動啟動</b><strong>{formatCountdown(judicialNextRun())}</strong><small>時間到會先顯示啟動動畫，再由背景自動下載；不用重新按鈕</small></div></>
+              )}
+            </div>
+          )}
           <div className="sync-log">
             <h3>同步狀態</h3>
             <p>
