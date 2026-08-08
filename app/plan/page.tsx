@@ -2817,6 +2817,12 @@ export default function StudyPlanPage() {
             熱考點
           </button>
           <button
+            className={activeTab === "summaries" ? "active" : ""}
+            onClick={() => setActiveTab("summaries")}
+          >
+            整摘要 <span>{studentSummaries.length}</span>
+          </button>
+          <button
             className={activeTab === "books" ? "active" : ""}
             onClick={() => setActiveTab("books")}
           >
@@ -2883,6 +2889,58 @@ export default function StudyPlanPage() {
             筆記收藏 <span>{notes.length}</span>
           </button>
         </nav>
+        {activeTab === "summaries" && (
+          <section className="student-summary-hub" aria-label="整摘要">
+            <header className="student-summary-head">
+              <div>
+                <p>STUDY MATERIAL ORGANIZER</p>
+                <h2>整摘要</h2>
+                <span>上傳照片或檔案，整理成可核對、可編輯、可收藏的學習資料。</span>
+              </div>
+              <div className="student-summary-controls">
+                <label>科目<select value={summarySubject} onChange={(event) => setSummarySubject(event.target.value)}>{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label>
+                <label>整理模型<select value={summaryModel} onChange={(event) => setSummaryModel(event.target.value as "luna" | "sol")}><option value="luna">Luna｜一般整理</option><option value="sol">Sol｜深度考試整理</option></select></label>
+              </div>
+            </header>
+            <form className="student-summary-upload" onSubmit={uploadStudentSummary}>
+              <label className="student-summary-dropzone">
+                <strong>拍照／選擇檔案</strong>
+                <span>PDF、PNG、JPG、WEBP、TXT、JSONL；單檔最多 25MB</span>
+                <input name="summary-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.jsonl,application/pdf,image/png,image/jpeg,image/webp,text/plain,application/jsonl" />
+              </label>
+              <button type="submit" disabled={summaryUploadLoading}>{summaryUploadLoading ? "整理中…" : "上傳並整理"}</button>
+            </form>
+            {summaryNotice && <p className="student-summary-notice">{summaryNotice}</p>}
+            <div className="student-summary-layout">
+              <aside className="student-summary-list" aria-label="我的整理資料">
+                <div className="student-summary-list-head"><strong>我的整理資料</strong><span>{studentSummaries.length} 份</span></div>
+                {studentSummaries.length ? studentSummaries.map((item) => (
+                  <button type="button" key={item.id} className={selectedSummaryId === item.id ? "active" : ""} onClick={() => openStudentSummary(item)}>
+                    <span>{item.favorite ? "★" : "☆"}</span><div><strong>{item.name}</strong><small>{item.subject} · {item.status === "completed" ? "已整理" : item.processingMessage || "處理中"}</small></div>
+                  </button>
+                )) : <div className="student-summary-empty">尚未上傳資料。先上傳一份講義或照片，這裡會保存整理紀錄。</div>}
+              </aside>
+              <section className="student-summary-detail" aria-live="polite">
+                {(() => {
+                  const item = studentSummaries.find((summary) => summary.id === selectedSummaryId) ?? studentSummaries[0];
+                  if (!item) return <div className="student-summary-empty large">選擇左側資料，查看 AI 整理結果。</div>;
+                  if (selectedSummaryId !== item.id && !summaryDraft) { setTimeout(() => openStudentSummary(item), 0); }
+                  return <>
+                    <div className="student-summary-detail-head"><div><span>{item.subject} · {item.name}</span><h3>{item.status === "completed" ? "整理完成，可編輯與收藏" : item.processingMessage}</h3></div><button type="button" className={summaryFavorite ? "favorite active" : "favorite"} onClick={() => setSummaryFavorite((value) => !value)}>{summaryFavorite ? "★ 已收藏" : "☆ 收藏摘要"}</button></div>
+                    {item.status === "completed" ? <>
+                      <label className="student-summary-editor"><span>我的摘要版本（可直接修改）</span><textarea value={summaryDraft || item.editedSummary || item.summary} onChange={(event) => setSummaryDraft(event.target.value)} rows={10} /></label>
+                      <div className="student-summary-block"><b>考試整理</b><p>{item.examFocus || "原檔未明確提供考試整理，請依原文核對。"}</p></div>
+                      <div className="student-summary-columns"><div className="student-summary-block"><b>重點</b><ul>{item.keyPoints.map((point) => <li key={point}>{point}</li>)}</ul></div><div className="student-summary-block"><b>重要爭點</b><ul>{item.issueOutline.map((point) => <li key={point}>{point}</li>)}</ul></div></div>
+                      <div className="student-summary-columns"><div className="student-summary-block"><b>常見錯誤</b><ul>{item.commonMistakes.map((point) => <li key={point}>{point}</li>)}</ul></div><div className="student-summary-block"><b>來源位置</b><ul>{item.sourceNotes.map((point) => <li key={point}>{point}</li>)}</ul></div></div>
+                      {item.flashcards.length > 0 && <div className="student-summary-block"><b>複習卡</b><div className="student-summary-flashcards">{item.flashcards.slice(0, 6).map((card) => <details key={card.question}><summary>{card.question}</summary><p>{card.answer}</p></details>)}</div></div>}
+                      <footer className="student-summary-meta"><span>{item.model || "尚未使用模型"} · {(item.usage?.inputTokens ?? 0) + (item.usage?.outputTokens ?? 0)} tokens · 約 US$ {(item.usage?.estimatedCostUsd ?? 0).toFixed(4)} · 約 NT$ {formatTwd(item.usage?.estimatedCostUsd ?? 0)}</span><button type="button" onClick={() => void saveStudentSummary()} disabled={summarySaving}>{summarySaving ? "保存中…" : "保存我的版本"}</button></footer>
+                    </> : <div className="student-summary-empty large">{item.error || item.processingMessage || "正在處理…"}</div>}
+                  </>;
+                })()}
+              </section>
+            </div>
+          </section>
+        )}
         {activeTab === "hotspots" && (
           <section className="hot-points-hub" aria-label="司律熱考點">
             <header className="hot-points-head">

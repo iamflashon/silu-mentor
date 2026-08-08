@@ -3479,28 +3479,28 @@ export default function AdminPage() {
                               ✓ 已沿用教材分析保存的真實內容（{resource.storedChapterCatalogueCount ?? resource.documentChapterCount ?? 0} 筆）
                             </span>
                           )}
-                          {(!resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0 || !isProblemSolvingResource(resource)) && (
-                            <button
-                              type="button"
-                              className="subtitle-open"
-                              disabled={!resource.documentId}
-                              onClick={() => void (isProblemSolvingResource(resource)
-                                ? buildBookChapters(resource)
-                                : enrichBookText(resource))}
-                            >
-                              {isProblemSolvingResource(resource)
-                                ? chapterProgress[resource.id]?.state === "completed"
-                                  ? "重新整理題型"
-                                  : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
-                                    ? "接續整理題型"
-                                    : "開始整理題型與完整題目"
-                                : resource.hasStoredChapterCatalogue
-                                  ? "補齊章節原文"
-                                  : Number(resource.chapterCount ?? 0) > 0
-                                    ? "重新整理章節索引"
-                                    : "建立章節索引（一次）"}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="subtitle-open"
+                            disabled={!resource.documentId}
+                            onClick={() => void (isProblemSolvingResource(resource)
+                              ? buildBookChapters(resource)
+                              : resource.hasStoredChapterCatalogue
+                                ? enrichBookText(resource)
+                                : buildBookChapters(resource))}
+                          >
+                            {isProblemSolvingResource(resource)
+                              ? chapterProgress[resource.id]?.state === "completed"
+                                ? "重新整理題型"
+                                : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
+                                  ? "接續整理題型"
+                                  : "開始整理題型與完整題目"
+                              : resource.hasStoredChapterCatalogue
+                                ? "補齊章節原文"
+                                : Number(resource.chapterCount ?? 0) > 0
+                                  ? "重新整理章節索引"
+                                  : "建立章節索引（一次）"}
+                          </button>
                           {isProblemSolvingResource(resource) && (() => {
                             const progress = chapterProgress[resource.id];
                             const percent = chapterProgressPercent(progress);
