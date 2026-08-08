@@ -81,7 +81,7 @@ function answerParagraphs(text: string) {
 function modelLabel(model: string) {
   return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : /glm-5\.2/i.test(model) ? "GLM-5.2（付費測試）" : /glm/i.test(model) ? "GLM-4.7-Flash（免費測試）" : "Luna";
 }
-function MentorAnswerText({ text, label, model, prompt, onAnswerAction, disabled, showLearningActions = true }: { text: string; label: string; model: string; prompt: string; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean; showLearningActions?: boolean }) {
+function MentorAnswerText({ text, label, model, prompt, onAnswerAction, disabled, showLearningActions = false }: { text: string; label: string; model: string; prompt: string; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean; showLearningActions?: boolean }) {
   const paragraphs = answerParagraphs(text);
   const actionSelection = { label, model, text, prompt, excerpts: paragraphs };
   return <>
