@@ -125,6 +125,7 @@ type LearningResource = {
   hasCover: number;
   segmentCount: number;
   chapterCount?: number;
+  pendingChapterCount?: number;
   chapterSourceReadyCount?: number;
   sourcePageCount?: number;
   articleCount?: number;
@@ -3674,7 +3675,9 @@ export default function AdminPage() {
                             className="subtitle-open"
                             disabled={!resource.documentId || chapterSourceRunning === resource.id}
                             onClick={() => void (isProblemSolvingResource(resource)
-                              ? Number(resource.chapterCount ?? 0) > 0
+                              ? Number(resource.pendingChapterCount ?? 0) > 0
+                                ? buildBookChapters(resource)
+                                : Number(resource.chapterCount ?? 0) > 0
                                 ? enrichBookText(resource)
                                 : buildBookChapters(resource)
                               : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
@@ -3684,7 +3687,9 @@ export default function AdminPage() {
                             {chapterSourceRunning === resource.id
                               ? "補齊原文中…"
                               : isProblemSolvingResource(resource)
-                              ? Number(resource.chapterCount ?? 0) > 0
+                              ? Number(resource.pendingChapterCount ?? 0) > 0
+                                ? "接續核對並完成"
+                                : Number(resource.chapterCount ?? 0) > 0
                                 ? "補齊題目與解析全文"
                                 : chapterProgress[resource.id]?.state === "completed"
                                 ? "補齊題目與解析全文"
@@ -3706,7 +3711,9 @@ export default function AdminPage() {
                             </button>
                           )}
                           {(resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (() => {
-                            const total = Math.max(Number(resource.chapterCount ?? 0), Number(resource.storedChapterCatalogueCount ?? 0));
+                            const published = Number(resource.chapterCount ?? 0);
+                            const pending = Number(resource.pendingChapterCount ?? 0);
+                            const total = Math.max(published + pending, Number(resource.storedChapterCatalogueCount ?? 0));
                             const ready = Math.min(total, Number(resource.chapterSourceReadyCount ?? 0));
                             const percent = total ? Math.round((ready / total) * 100) : 0;
                             return (
@@ -3717,8 +3724,8 @@ export default function AdminPage() {
                                 </div>
                                 <div className="chapter-progress-track"><i style={{ width: `${percent}%` }} /></div>
                                 <div className="chapter-progress-meta">
-                                  <span>{isProblemSolvingResource(resource) ? "逐題從限定解題書索引補抓" : resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
-                                  <small>{ready === total && total > 0 ? "智能書可直接引用已保存原文" : "按下後會逐批保存，可中斷後接續"}</small>
+                                  <span>{isProblemSolvingResource(resource) ? (pending > 0 ? `正式 ${published} 題 · 待覆核 ${pending} 題` : "逐題從限定解題書索引補抓") : resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
+                                  <small>{ready === total && total > 0 ? "智能書可直接引用已保存原文" : pending > 0 ? "完成全部主題核對後才會升格為正式題型" : "按下後會逐批保存，可中斷後接續"}</small>
                                 </div>
                               </div>
                             );

@@ -13,10 +13,11 @@ import {
 import { documentExtension, resolveDocumentPayload } from "../../../../lib/document-processing";
 import { openAIJson } from "../../../../lib/openai";
 
-const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline", "book_chapter_pending"] as const;
-// Temporary rows are still real saved extraction results.  They remain marked
-// pending for the admin workflow, but must be readable so an interrupted job
-// never makes the existing catalogue look empty.
+// Only published rows belong to the canonical chapter catalogue. Staging rows
+// are read explicitly through `readPendingChapters`; mixing them here made the
+// admin completion counter report staged extraction results as published
+// questions while the viewer correctly showed only the published catalogue.
+const CHAPTER_TYPES = ["book_chapter", "chapter", "book_outline"] as const;
 const PENDING_CHAPTER_TYPE = "book_chapter_pending";
 const SOURCE_PAGE_TYPE = "book_source_page";
 const SOURCE_PAGE_BATCH_SIZE = 24;
@@ -1586,10 +1587,41 @@ export async function POST(request: Request) {
           );
       }
       if (problemBook) {
-        await db.update(resourceSegments).set({ segmentType: "book_chapter" }).where(
+        // A coverage audit is additive: keep previously published questions
+        // that the new pass did not rediscover, while preferring the freshly
+        // verified staging row for duplicates. Replacing the old catalogue
+        // with staging alone could turn 4 published + 56 staged rows into only
+        // 56 rows and silently lose valid material.
+        const byKey = new Map<string, typeof resourceSegments.$inferSelect>();
+        for (const chapter of existing) {
+          byKey.set(`${chapter.lessonLabel.trim()}|${chapter.title.trim()}`, chapter);
+        }
+        for (const chapter of pendingChapters) {
+          byKey.set(`${chapter.lessonLabel.trim()}|${chapter.title.trim()}`, chapter);
+        }
+        const mergedRows = [...byKey.values()]
+          .sort((left, right) => (left.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.pageStart ?? Number.MAX_SAFE_INTEGER) || left.sequence - right.sequence)
+          .map((chapter, index) => ({
+            resourceId,
+            segmentType: "book_chapter",
+            lessonLabel: chapter.lessonLabel,
+            title: chapter.title,
+            pageStart: chapter.pageStart,
+            pageEnd: chapter.pageEnd,
+            text: chapter.text,
+            sequence: index + 1,
+            summary: chapter.summary,
+            reviewStatus: chapter.reviewStatus,
+          }));
+        for (let index = 0; index < mergedRows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
+          inserted.push(...(await db.insert(resourceSegments).values(mergedRows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE)).returning()));
+        }
+        // Clear staging only after every canonical row has been saved. If a
+        // later insert fails, the catch block removes the partial canonical
+        // rows while this resumable staging queue remains available.
+        await db.delete(resourceSegments).where(
           and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, PENDING_CHAPTER_TYPE)),
         );
-        inserted.push(...(await readChapters(resourceId)));
       } else {
         for (
           let index = 0;

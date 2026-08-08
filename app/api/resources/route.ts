@@ -61,11 +61,12 @@ export async function GET() {
       documentTagsJson: documents.tagsJson,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
       segmentCount: sql<number>`count(${resourceSegments.id})`,
-      // A problem-book extraction is resumable.  Its already-saved question
-      // rows may temporarily live in book_chapter_pending; excluding them
-      // made the card report 0 while the progress panel had real rows.
-      chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline', 'book_chapter_pending') then 1 else 0 end)`,
-      chapterSourceReadyCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline', 'book_chapter_pending') and ${resourceSegments.reviewStatus} in ('source', 'source_index') and length(trim(${resourceSegments.text})) >= 40 then 1 else 0 end)`,
+      // Published and staging rows are deliberately counted separately. A
+      // resumable audit may have dozens of real staged results, but they are
+      // not complete until the final validation pass promotes them.
+      chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') then 1 else 0 end)`,
+      pendingChapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} = 'book_chapter_pending' then 1 else 0 end)`,
+      chapterSourceReadyCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') and ${resourceSegments.reviewStatus} in ('source', 'source_index', 'ai_reviewed') and length(trim(${resourceSegments.text})) >= 40 then 1 else 0 end)`,
       sourcePageCount: sql<number>`sum(case when ${resourceSegments.segmentType} = 'book_source_page' then 1 else 0 end)`,
       updatedAt: learningResources.updatedAt,
     })
