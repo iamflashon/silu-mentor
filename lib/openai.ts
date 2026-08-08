@@ -33,6 +33,22 @@ export async function getDeepSeekKey() {
   return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
 }
 
+export async function getZaiKey() {
+  const configured = process.env.ZAI_API_KEY || process.env["GLM-4.7-Flash"];
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeKey = env.ZAI_API_KEY || env["GLM-4.7-Flash"];
+  return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
+}
+
+export async function getZaiModel(fallback = "glm-4.7-flash") {
+  const configured = process.env.ZAI_MODEL;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeModel = env.ZAI_MODEL;
+  return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
+}
+
 export async function getOpenAIModel(fallback = "gpt-5.6-luna") {
   const configured = process.env.OPENAI_MODEL;
   if (configured?.trim()) return configured.trim();

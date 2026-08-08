@@ -419,6 +419,8 @@ export default function AdminPage() {
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [glmTesting, setGlmTesting] = useState(false);
+  const [glmTestResult, setGlmTestResult] = useState<{ ok?: boolean; model?: string; text?: string; inputTokens?: number; outputTokens?: number; totalTokens?: number; durationMs?: number; estimatedCostUsd?: number; error?: string } | null>(null);
   const [usagePage, setUsagePage] = useState(1);
   const [examSources, setExamSources] = useState<ExamSource[]>([]);
   const [sourceUrl, setSourceUrl] = useState("");
@@ -2504,6 +2506,20 @@ export default function AdminPage() {
     if (response.ok) setUsage({ ...usage, showCosts: next });
   }
 
+  async function testGlmConnection() {
+    setGlmTesting(true);
+    setGlmTestResult(null);
+    try {
+      const response = await fetch("/api/model-test/glm", { method: "POST" });
+      const payload = await response.json() as typeof glmTestResult;
+      setGlmTestResult(response.ok ? payload : { error: payload?.error || "GLM 測試失敗" });
+    } catch {
+      setGlmTestResult({ error: "目前無法執行 GLM 測試，請稍後再試。" });
+    } finally {
+      setGlmTesting(false);
+    }
+  }
+
   async function processDocument(documentId: number, retry = false) {
     setFiles((current) =>
       current.map((item) =>
@@ -2936,6 +2952,16 @@ export default function AdminPage() {
         )}
         {activeTab === "costs" && (
           <section className="cost-panel panel">
+            <div className="homepage-setting-block">
+              <div className="setting-block-head">
+                <div>
+                  <h3>智譜 GLM-4.7-Flash</h3>
+                  <p>使用伺服器端金鑰進行最小連線測試；金鑰不會傳到瀏覽器。建議環境變數名稱使用 <code>ZAI_API_KEY</code>。</p>
+                </div>
+                <button type="button" className="primary-btn" disabled={glmTesting} onClick={() => void testGlmConnection()}>{glmTesting ? "測試中…" : "測試 GLM 連線"}</button>
+              </div>
+              {glmTestResult?.ok ? <div className="notice"><strong>連線成功｜{glmTestResult.model}</strong><p>{glmTestResult.text}</p><small>輸入 {glmTestResult.inputTokens ?? 0} · 輸出 {glmTestResult.outputTokens ?? 0} · 合計 {glmTestResult.totalTokens ?? 0} tokens｜{glmTestResult.durationMs ?? 0} ms｜推理費 US$ {(glmTestResult.estimatedCostUsd ?? 0).toFixed(5)}</small></div> : glmTestResult?.error ? <div className="notice error">{glmTestResult.error}</div> : null}
+            </div>
             <div className="cost-heading">
               <div>
                 <h2>AI 使用成本</h2>
