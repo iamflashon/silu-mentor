@@ -2870,7 +2870,7 @@ export default function AdminPage() {
             className={activeTab === "costs" ? "active" : ""}
             onClick={() => setActiveTab("costs")}
           >
-            模型與成本
+            模型、成本與原文驗證
           </button>
           <button
             className={activeTab === "homepage" ? "active" : ""}
@@ -2960,6 +2960,18 @@ export default function AdminPage() {
         )}
         {activeTab === "costs" && (
           <section className="cost-panel panel">
+            <div className="evidence-verification-setting">
+              <div>
+                <span className="evidence-setting-kicker">智能書測試工具</span>
+                <h2>教材原文驗證模式</h2>
+                <p>開啟後，智能書每則回答下方會顯示可展開的教材命中片段、頁碼與檢索方式；測試完成後可隨時關閉。</p>
+              </div>
+              <label className="cost-toggle evidence-main-toggle">
+                <input type="checkbox" checked={usage?.showEvidence ?? false} onChange={toggleTeachingEvidence} />
+                <span />
+                {usage?.showEvidence ? "驗證模式已開啟" : "開啟驗證模式"}
+              </label>
+            </div>
             <div className="homepage-setting-block">
               <div className="setting-block-head">
                 <div>
@@ -2986,13 +2998,7 @@ export default function AdminPage() {
                 <span />
                 前台顯示成本
               </label>
-              <label className="cost-toggle">
-                <input type="checkbox" checked={usage?.showEvidence ?? false} onChange={toggleTeachingEvidence} />
-                <span />
-                教材原文驗證模式
-              </label>
             </div>
-            <p className="panel-sub">開啟後，智能書每則回答會顯示可展開的命中片段、頁碼與檢索方式；測試完成後關閉即可恢復簡潔畫面。</p>
             <div className="cost-metrics">
               <div>
                 <span>累計對話</span>

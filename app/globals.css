@@ -3007,6 +3007,42 @@ a {
 .cost-heading .panel-sub {
   margin-bottom: 18px;
 }
+.evidence-verification-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding: 22px 24px;
+  border: 1px solid #b8d4f5;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f5f9ff 0%, #eef6ff 100%);
+}
+.evidence-verification-setting h2 {
+  margin: 4px 0 8px;
+}
+.evidence-verification-setting p {
+  max-width: 720px;
+  margin: 0;
+  color: #52657b;
+  line-height: 1.65;
+}
+.evidence-setting-kicker {
+  color: #1769c2;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.evidence-main-toggle {
+  flex: 0 0 auto;
+  min-width: 190px;
+  justify-content: center;
+  padding: 12px 16px;
+  border: 1px solid #8bb9ec;
+  border-radius: 12px;
+  background: #fff;
+  font-weight: 800;
+}
 .cost-toggle {
   display: flex;
   align-items: center;
@@ -12545,6 +12581,13 @@ a {
   }
   .cost-heading {
     flex-direction: column;
+  }
+  .evidence-verification-setting {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .evidence-main-toggle {
+    width: 100%;
   }
   .cost-metrics {
     grid-template-columns: repeat(2, 1fr);
