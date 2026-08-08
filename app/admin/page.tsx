@@ -2870,7 +2870,7 @@ export default function AdminPage() {
             className={activeTab === "costs" ? "active" : ""}
             onClick={() => setActiveTab("costs")}
           >
-            模型、成本與原文驗證
+            模型與成本
           </button>
           <button
             className={activeTab === "homepage" ? "active" : ""}
@@ -2960,18 +2960,6 @@ export default function AdminPage() {
         )}
         {activeTab === "costs" && (
           <section className="cost-panel panel">
-            <div className="evidence-verification-setting">
-              <div>
-                <span className="evidence-setting-kicker">智能書測試工具</span>
-                <h2>教材原文驗證模式</h2>
-                <p>開啟後，智能書每則回答下方會顯示可展開的教材命中片段、頁碼與檢索方式；測試完成後可隨時關閉。</p>
-              </div>
-              <label className="cost-toggle evidence-main-toggle">
-                <input type="checkbox" checked={usage?.showEvidence ?? false} onChange={toggleTeachingEvidence} />
-                <span />
-                {usage?.showEvidence ? "驗證模式已開啟" : "開啟驗證模式"}
-              </label>
-            </div>
             <div className="homepage-setting-block">
               <div className="setting-block-head">
                 <div>
@@ -3401,6 +3389,20 @@ export default function AdminPage() {
         )}
         {(activeTab === "resources" || activeTab === "courses" || activeTab === "trials") && (
           <section className="panel resource-manager">
+            {activeTab === "resources" && (
+              <div className="evidence-verification-setting">
+                <div>
+                  <span className="evidence-setting-kicker">智能書測試工具</span>
+                  <h2>教材原文驗證模式</h2>
+                  <p>開啟後，學生在智能書取得 AI 導師回答時，可展開查看實際命中的教材片段、頁碼與檢索方式；測試完成後可隨時關閉。</p>
+                </div>
+                <label className="cost-toggle evidence-main-toggle">
+                  <input type="checkbox" checked={usage?.showEvidence ?? false} onChange={toggleTeachingEvidence} />
+                  <span />
+                  {usage?.showEvidence ? "驗證模式已開啟" : "開啟驗證模式"}
+                </label>
+              </div>
+            )}
             <div className="cost-heading">
               <div>
                 <h2>{activeTab === "trials" ? "知識達試聽管理" : "書籍與課程管理"}</h2>

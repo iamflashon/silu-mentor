@@ -14,14 +14,16 @@ export async function GET() {
       costMicros: sql<number>`coalesce(sum(${usageLogs.estimatedCostUsdMicros}), 0)`,
     }).from(usageLogs);
     const recent = await db.select().from(usageLogs).orderBy(desc(usageLogs.createdAt)).limit(30);
-    const comparisons = await db.select().from(chatComparisons).orderBy(desc(chatComparisons.createdAt)).limit(30);
+    // 模型比較是較晚加入的選用功能。舊環境尚未建立比較資料表時，
+    // 不應連帶讓既有成本統計與顯示設定整頁失效。
+    const comparisons = await db.select().from(chatComparisons).orderBy(desc(chatComparisons.createdAt)).limit(30).catch(() => []);
     const comparisonIds = comparisons.map((item) => item.id);
     const comparisonResponses = comparisonIds.length
-      ? await db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, comparisonIds)).orderBy(desc(chatComparisonResponses.createdAt))
+      ? await db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, comparisonIds)).orderBy(desc(chatComparisonResponses.createdAt)).catch(() => [])
       : [];
     const comparisonResponseIds = comparisonResponses.map((item) => item.id);
     const comparisonRatings = comparisonResponseIds.length
-      ? await db.select().from(chatComparisonRatings).where(inArray(chatComparisonRatings.responseId, comparisonResponseIds)).orderBy(desc(chatComparisonRatings.createdAt))
+      ? await db.select().from(chatComparisonRatings).where(inArray(chatComparisonRatings.responseId, comparisonResponseIds)).orderBy(desc(chatComparisonRatings.createdAt)).catch(() => [])
       : [];
     const simpleRatings = comparisonRatings.filter((item) => item.feedbackType === "preferred" || item.feedbackType === "rated");
     const preferredRatings = simpleRatings.filter((item) => item.feedbackType === "preferred");
