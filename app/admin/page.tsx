@@ -3483,6 +3483,20 @@ export default function AdminPage() {
                               </option>
                             ))}
                           </select>
+                          <details className="resource-manage-details">
+                            <summary>
+                              <span>教材處理與管理</span>
+                              <small>
+                                {chapterSourceRunning === resource.id
+                                  ? "原文補齊中…"
+                                  : Number(resource.chapterCount ?? resource.storedChapterCatalogueCount ?? 0) > 0
+                                    ? `原文 ${Math.min(Number(resource.chapterCount ?? resource.storedChapterCatalogueCount ?? 0), Number(resource.chapterSourceReadyCount ?? 0))}／${Number(resource.chapterCount ?? resource.storedChapterCatalogueCount ?? 0)}`
+                                    : resource.documentId
+                                      ? "尚未建立章節索引"
+                                      : "尚未綁定教材"}
+                              </small>
+                            </summary>
+                            <div className="resource-manage-content">
                           {resource.documentId && (
                             <div className="chapter-progress-panel completed" role="status">
                               <div className="chapter-progress-heading">
@@ -3589,6 +3603,8 @@ export default function AdminPage() {
                               ✓ 已建立好章節索引（{Number(resource.chapterCount)} 章）
                             </span>
                           )}
+                            </div>
+                          </details>
                         </>
                       )}
                       {resource.resourceType === "course" && (
