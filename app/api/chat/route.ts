@@ -68,6 +68,9 @@ function evidenceTerms(value: string) {
     if (!evidenceStopTerms.has(term)) terms.add(term);
   }
   for (const term of legalExampleTerms(value)) terms.add(term);
+  for (const match of value.matchAll(/擴張解釋|限縮解釋|類推適用|目的性限縮|文義解釋|體系解釋|歷史解釋|目的解釋|罪刑法定|不溯及既往|構成要件|保護法益|住宅|樓梯間/gu)) {
+    terms.add(match[0]);
+  }
   return terms;
 }
 
@@ -114,10 +117,19 @@ function evidenceSupportKind(excerpt: string, query: string, reply: string): "di
   const requestedExamples = legalExampleTerms(`${query} ${reply}`);
   const directlyNamedExamples = [...requestedExamples].filter((term) => excerptTerms.has(term));
   const containsClassification = /行為犯|舉動犯|結果犯|危險犯|狀態犯|身分犯|加重結果犯/.test(excerpt);
+  const isTeachingQuestion = /(?:問題|請問|請說明|你認為|如何判斷|屬於哪一種|[？?])/.test(reply);
+  const teachingQuestionConcepts = [
+    "擴張解釋", "限縮解釋", "類推適用", "目的性限縮", "文義解釋", "體系解釋",
+    "歷史解釋", "目的解釋", "住宅", "樓梯間", "構成要件", "保護法益",
+  ].filter((term) => reply.includes(term) && excerpt.includes(term));
 
   // 教材同時逐名列出題目中的具體罪名與其分類時，答案已由原文直接記載；
   // 不應因 AI 以提問方式帶學習，或中文分詞漏字，而降級成「支持不足」。
   if (containsClassification && directlyNamedExamples.length >= 2) return "direct";
+  // 智能書常先依教材中的具體案例出題，而不是立即公布答案。只要題幹、
+  // 選項式判準與教材案例均可逐一回查，這一輪教學內容本身就是直接引用；
+  // 不應因回覆採問句形式而誤降為「支持不足」。
+  if (isTeachingQuestion && teachingQuestionConcepts.length >= 3) return "direct";
   if (longHits.length < 2 && meaningfulHits.length < 4) return "insufficient";
 
   const replyConcepts = [...claimTerms].filter((term) => term.length >= 3);

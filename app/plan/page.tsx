@@ -4108,7 +4108,7 @@ export default function StudyPlanPage() {
                                       <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
                                         <strong>
                                           {message.teachingEvidence.status === "verified"
-                                            ? "✓ 原文直接記載本次答案"
+                                            ? "✓ 教材原文直接支持本次教學內容"
                                             : message.teachingEvidence.status === "applied_inference"
                                               ? "◆ 教材提供判準，AI 依原文涵攝"
                                             : message.teachingEvidence.status === "full_text_search"
@@ -4125,7 +4125,7 @@ export default function StudyPlanPage() {
                                             : message.teachingEvidence.message}
                                         </span>
                                         {message.teachingEvidence.excerpt && !selectedBookIsProblemSolving && (
-                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
+                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}<small>上方章節頁碼是本教材 PDF 的位置；原文註腳中的其他頁碼屬引用書目頁碼。</small>{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
                                         )}
                                       </div>
                                     )}
