@@ -179,7 +179,14 @@ function isCompleteProblemQuestion(chapter: {
 }) {
   const title = String(chapter.title ?? "").trim();
   const stem = String(chapter.text ?? chapter.stem ?? "").trim();
-  return /題型\s*\d+(?:\.\d+)+|第\s*\d+\s*題/.test(title) && stem.length >= 30;
+  // A question extracted from a real problem-book catalogue does not always
+  // use the literal labels「題型 1.1」or「第 1 題」. Some publishers use an
+  // exam name, a case title, or a bare running number instead. Requiring one
+  // specific heading style caused all 60 saved questions in a valid book to
+  // be discarded. At this stage the row already comes from the document's
+  // `questions` collection, so a real title plus a substantive saved stem is
+  // the safer completeness test.
+  return title.length > 0 && stem.length >= 30;
 }
 
 function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
@@ -681,6 +688,45 @@ async function materializeStoredChapters(
   return readChapters(resourceId);
 }
 
+async function materializeStoredProblemQuestions(
+  resourceId: number,
+  document: typeof documents.$inferSelect,
+) {
+  const db = await getDb();
+  const existing = await readChapters(resourceId);
+  if (existing.length) return existing;
+
+  // The upload pipeline has already identified these as questions. Preserve
+  // that verified 1:1 catalogue instead of asking a second model to rediscover
+  // the whole book from a small semantic-search window.
+  const storedRows = storedCatalogueRows(resourceId, document, "questions");
+  if (!storedRows.length) return [];
+  const rows = storedRows.map((row, index) => ({
+    resourceId,
+    segmentType: "book_chapter",
+    lessonLabel: row.lessonLabel,
+    title: row.title,
+    pageStart: row.pageStart,
+    pageEnd: row.pageEnd,
+    text: row.text,
+    summary: row.summary,
+    reviewStatus: row.text.trim().length >= SOURCE_TEXT_MIN_LENGTH ? "source" : "catalogue_only",
+    sequence: index + 1,
+  }));
+  for (let index = 0; index < rows.length; index += CHAPTER_INSERT_BATCH_SIZE) {
+    await db.insert(resourceSegments).values(rows.slice(index, index + CHAPTER_INSERT_BATCH_SIZE));
+  }
+  const materialized = await readChapters(resourceId);
+  await writeChapterProgress(resourceId, {
+    state: "completed",
+    phase: "saving",
+    completedTopics: materialized.length,
+    totalTopics: materialized.length,
+    foundQuestions: materialized.length,
+  });
+  return materialized;
+}
+
 /**
  * Read-only endpoint for students.
  *
@@ -760,27 +806,6 @@ export async function GET(request: Request) {
     // resumable extraction was interrupted.  Keep the catalogue visible and
     // let the UI distinguish complete questions from catalogue-only rows.
     if (problemBook && chapters.length) {
-      const [document] = resource.documentId
-        ? await db
-            .select()
-            .from(documents)
-            .where(eq(documents.id, resource.documentId))
-            .limit(1)
-        : [];
-      const storedCatalogue = document
-        ? storedRowsForResource(resourceId, document, problemBook)
-        : [];
-      if (storedCatalogue.length) {
-        return Response.json({
-          chapters: storedCatalogue,
-          generated: false,
-          ready: true,
-          status: "catalogue",
-          incompleteCount: storedCatalogue.filter((item) => !item.text).length,
-          progress,
-          message: "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。",
-        });
-      }
       return Response.json({
         chapters: chapters.map((chapter) => ({
           ...chapter,
@@ -1275,6 +1300,26 @@ export async function POST(request: Request) {
         },
         { status: 409 },
       );
+
+    if (problemBook && !existing.length && !explicitRestart) {
+      const materialized = await materializeStoredProblemQuestions(resourceId, document);
+      if (materialized.length) {
+        return Response.json({
+          chapters: materialized,
+          generated: false,
+          reused: true,
+          materialized: true,
+          status: "completed",
+          progress: {
+            state: "completed",
+            phase: "saving",
+            completedTopics: materialized.length,
+            totalTopics: materialized.length,
+            foundQuestions: materialized.length,
+          },
+        });
+      }
+    }
 
     const [setting] = await db
       .select()
