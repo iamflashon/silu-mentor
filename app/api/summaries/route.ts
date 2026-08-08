@@ -36,6 +36,7 @@ function summaryView(row: typeof documents.$inferSelect) {
   return {
     id: row.id,
     name: row.fileName,
+    displayTitle: String(result.title ?? row.fileName),
     subject: row.subject,
     sizeBytes: row.sizeBytes,
     contentType: row.contentType,
@@ -64,6 +65,7 @@ function summaryView(row: typeof documents.$inferSelect) {
         }).slice(0, 12)
       : [],
     model: String(result.model ?? ""),
+    fontSize: [16, 18, 20, 22, 24].includes(Number(result.fontSize)) ? Number(result.fontSize) : 20,
     usage: usage
       ? {
           inputTokens: Number(usage.inputTokens ?? 0),
@@ -133,7 +135,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { id?: number; editedSummary?: string; favorite?: boolean; tags?: string[] };
+    const body = await request.json() as { id?: number; editedSummary?: string; favorite?: boolean; tags?: string[]; title?: string; fontSize?: number };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id < 1) return Response.json({ error: "摘要編號不正確" }, { status: 400 });
     const db = await getDb();
@@ -143,6 +145,8 @@ export async function PATCH(request: Request) {
     if (typeof body.editedSummary === "string") result.editedSummary = body.editedSummary.slice(0, 30_000);
     if (typeof body.favorite === "boolean") result.favorite = body.favorite;
     if (Array.isArray(body.tags)) result.tags = body.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20);
+    if (typeof body.title === "string") result.title = body.title.trim().slice(0, 120) || row.fileName;
+    if (typeof body.fontSize === "number" && [16, 18, 20, 22, 24].includes(body.fontSize)) result.fontSize = body.fontSize;
     await db.update(documents).set({
       processingResultJson: JSON.stringify(result),
       tagsJson: JSON.stringify(Array.isArray(result.tags) ? result.tags : []),

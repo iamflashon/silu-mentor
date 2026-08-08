@@ -16083,18 +16083,31 @@ a {
 .student-summary-item strong { overflow: hidden; color: #365b68; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .student-summary-item small { color: #84969b; font-size: 10px; }
 .student-summary-detail { min-width: 0; padding: 24px 28px; }
-.student-summary-detail-head { display: flex; justify-content: space-between; gap: 15px; align-items: start; margin-bottom: 17px; }
+.student-summary-detail-head { display: flex; justify-content: space-between; gap: 18px; align-items: start; margin-bottom: 17px; }
+.student-summary-detail-title { min-width: 0; flex: 1; }
 .student-summary-detail-head span { color: #7b9299; font-size: 11px; }
 .student-summary-detail-head h3 { margin: 5px 0 0; color: #2e5260; font-size: 19px; }
+.student-summary-title-editor { display: grid; gap: 5px; max-width: 520px; margin-top: 12px; color: #66808a; font-size: 11px; font-weight: 800; }
+.student-summary-title-editor input { width: 100%; box-sizing: border-box; border: 1px solid #cbdfe3; border-radius: 9px; padding: 9px 11px; color: #365b68; background: #fff; font: inherit; font-weight: 600; }
+.student-summary-detail-actions { display: flex; align-items: end; gap: 9px; flex-wrap: wrap; justify-content: end; }
+.student-summary-font-control { display: grid; gap: 5px; color: #66808a; font-size: 11px; font-weight: 800; }
+.student-summary-font-control select { min-width: 78px; border: 1px solid #cbdfe3; border-radius: 9px; padding: 9px 8px; color: #365b68; background: #fff; font: inherit; }
 .student-summary-detail-head .favorite { white-space: nowrap; border: 1px solid #d5c18d; border-radius: 9px; padding: 9px 12px; color: #9a772d; background: #fffdf5; cursor: pointer; }
 .student-summary-detail-head .favorite.active { background: #fff3c8; }
 .student-summary-editor { display: grid; gap: 7px; margin-bottom: 16px; color: #66808a; font-size: 12px; font-weight: 800; }
-.student-summary-editor textarea { width: 100%; resize: vertical; border: 1px solid #cbdfe3; border-radius: 10px; padding: 13px; color: #3c5963; line-height: 1.7; font: inherit; font-weight: 500; box-sizing: border-box; }
+.student-summary-editor textarea { width: 100%; min-height: 230px; resize: vertical; border: 1px solid #cbdfe3; border-radius: 10px; padding: 15px; color: #3c5963; line-height: 1.85; font-family: inherit; font-weight: 500; box-sizing: border-box; }
 .student-summary-block { margin-top: 13px; padding: 14px 16px; border: 1px solid #e1ecee; border-radius: 12px; background: #fbfdfd; }
+.student-summary-block-active { margin-top: 12px; }
 .student-summary-block > b { color: #3b7885; font-size: 13px; }
 .student-summary-block p { margin: 8px 0 0; color: #50666e; line-height: 1.7; white-space: pre-wrap; }
 .student-summary-block ul { margin: 9px 0 0; padding-left: 20px; color: #536a72; line-height: 1.7; }
-.student-summary-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.student-summary-subtabs { display: flex; gap: 2px; overflow-x: auto; margin-top: 7px; border-bottom: 1px solid #dce9ec; scrollbar-width: thin; }
+.student-summary-subtabs button { flex: 0 0 auto; border: 0; border-bottom: 3px solid transparent; padding: 11px 13px 9px; background: transparent; color: #718991; font-size: 13px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.student-summary-subtabs button:hover { color: #397889; background: #f5fafb; }
+.student-summary-subtabs button.active { border-bottom-color: #397889; color: #2d6f7d; background: #f4fafb; }
+.student-summary-tabpanel { min-height: 150px; }
+.student-summary-tabpanel .student-summary-block p,
+.student-summary-tabpanel .student-summary-block ul { line-height: 1.85; }
 .student-summary-flashcards { display: grid; gap: 8px; margin-top: 9px; }
 .student-summary-flashcards details { border: 1px solid #e1ecee; border-radius: 8px; padding: 9px 11px; background: #fff; }
 .student-summary-flashcards summary { color: #416d78; cursor: pointer; font-weight: 700; }
@@ -16110,7 +16123,9 @@ a {
   .student-summary-layout { grid-template-columns: 1fr; }
   .student-summary-list { max-height: 220px; overflow-y: auto; border-right: 0; border-bottom: 1px solid #e4edef; }
   .student-summary-detail { padding: 18px 16px; }
-  .student-summary-columns { grid-template-columns: 1fr; }
+  .student-summary-detail-head { display: grid; }
+  .student-summary-detail-actions { justify-content: start; }
+  .student-summary-title-editor { max-width: none; }
   .student-summary-meta { align-items: stretch; flex-direction: column; }
   .student-summary-meta button { width: 100%; }
 }

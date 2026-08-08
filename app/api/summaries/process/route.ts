@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const cachedTokens = Number((usage.input_tokens_details as Record<string, unknown> | undefined)?.cached_tokens ?? 0);
     const outputTokens = Number(usage.output_tokens ?? 0);
     const estimatedCostUsdMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
-    const saved = { ...parsed, editedSummary: "", favorite: false, model, usage: { inputTokens, cachedTokens, outputTokens, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } };
+    const saved = { ...parsed, editedSummary: "", favorite: false, title: document.fileName, fontSize: 20, model, usage: { inputTokens, cachedTokens, outputTokens, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } };
     await db.update(documents).set({ status: "completed", processingStage: "completed", processingMessage: "已完成摘要、考點、爭點與複習卡整理", processingResultJson: JSON.stringify(saved), tagsJson: JSON.stringify(Array.isArray(parsed.tags) ? parsed.tags : []), processedAt: new Date(), indexError: null }).where(eq(documents.id, documentId));
     await db.insert(usageLogs).values({ model, source: "整摘要｜教材整理", inputTokens, cachedTokens, outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros });
     return Response.json({ status: "completed", model, usage: { inputTokens, cachedTokens, outputTokens, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
