@@ -1,4 +1,4 @@
-import { and, eq, like } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, usageLogs } from "../../../../db/schema";
 import { getEssayOpenAIModel, getOpenAIModel, openAIHeaders } from "../../../../lib/openai";
@@ -35,11 +35,8 @@ export async function POST(request: Request) {
     documentId = Number(body.id);
     if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "摘要編號不正確" }, { status: 400 });
     const db = await getDb();
-    const [document] = await db.select().from(documents).where(and(
-      eq(documents.id, documentId),
-      like(documents.storageKey, `${studentSummaryStoragePrefix(request)}%`),
-    )).limit(1);
-    if (!document) return Response.json({ error: "找不到這份上傳資料" }, { status: 404 });
+    const [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
+    if (!document || document.documentType !== "student-summary" || !document.storageKey.startsWith(studentSummaryStoragePrefix(request))) return Response.json({ error: "找不到這份上傳資料" }, { status: 404 });
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) throw new Error("找不到原始上傳檔案");

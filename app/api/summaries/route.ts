@@ -1,4 +1,4 @@
-import { and, desc, eq, like } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { documents } from "../../../db/schema";
 import {
@@ -71,9 +71,10 @@ export async function GET(request: Request) {
   try {
     const db = await getDb();
     const rows = await db.select().from(documents)
-      .where(like(documents.storageKey, `${studentSummaryStoragePrefix(request)}%`))
-      .orderBy(desc(documents.createdAt)).limit(50);
-    return Response.json({ summaries: rows.map(summaryView) });
+      .where(eq(documents.documentType, "student-summary"))
+      .orderBy(desc(documents.createdAt)).limit(200);
+    const prefix = studentSummaryStoragePrefix(request);
+    return Response.json({ summaries: rows.filter((row) => row.storageKey.startsWith(prefix)).slice(0, 50).map(summaryView) });
   } catch {
     return Response.json({ error: "整理摘要資料暫時無法讀取" }, { status: 503 });
   }
@@ -128,11 +129,8 @@ export async function PATCH(request: Request) {
     const id = Number(body.id);
     if (!Number.isInteger(id) || id < 1) return Response.json({ error: "摘要編號不正確" }, { status: 400 });
     const db = await getDb();
-    const [row] = await db.select().from(documents).where(and(
-      eq(documents.id, id),
-      like(documents.storageKey, `${studentSummaryStoragePrefix(request)}%`),
-    )).limit(1);
-    if (!row) return Response.json({ error: "找不到這份整理摘要" }, { status: 404 });
+    const [row] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
+    if (!row || !row.storageKey.startsWith(studentSummaryStoragePrefix(request)) || row.documentType !== "student-summary") return Response.json({ error: "找不到這份整理摘要" }, { status: 404 });
     const result = parseResult(row.processingResultJson);
     if (typeof body.editedSummary === "string") result.editedSummary = body.editedSummary.slice(0, 30_000);
     if (typeof body.favorite === "boolean") result.favorite = body.favorite;

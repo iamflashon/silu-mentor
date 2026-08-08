@@ -543,6 +543,7 @@ export default function StudyPlanPage() {
   const [summarySaving, setSummarySaving] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState("");
   const [summaryFavorite, setSummaryFavorite] = useState(false);
+  const [summarySelectedFile, setSummarySelectedFile] = useState<File | null>(null);
   const [hotSubject, setHotSubject] = useState("全部");
   const [publicCourseSubject, setPublicCourseSubject] = useState("全部");
   const [selectedPublicCourseId, setSelectedPublicCourseId] = useState<number | null>(null);
@@ -2489,8 +2490,8 @@ export default function StudyPlanPage() {
     event.preventDefault();
     const form = event.currentTarget;
     const input = form.elements.namedItem("summary-file") as HTMLInputElement | null;
-    const file = input?.files?.[0];
-    if (!file) { setSummaryNotice("請先選擇 PDF、照片、TXT 或 JSONL。 "); return; }
+    const file = summarySelectedFile ?? input?.files?.[0];
+    if (!file) { setSummaryNotice("請先選擇檔案，或直接在這裡貼上截圖。 "); return; }
     setSummaryUploadLoading(true);
     setSummaryNotice("正在上傳原始資料…");
     try {
@@ -2509,12 +2510,23 @@ export default function StudyPlanPage() {
       const refreshed = await fetch("/api/summaries");
       if (refreshed.ok) setStudentSummaries(((await refreshed.json()) as { summaries?: StudentSummary[] }).summaries ?? []);
       setSummaryNotice("已完成整理；請核對原文與 AI 摘要後再收藏。");
+      setSummarySelectedFile(null);
       form.reset();
     } catch (error) {
       setSummaryNotice(error instanceof Error ? error.message : "上傳或整理失敗");
     } finally {
       setSummaryUploadLoading(false);
     }
+  }
+
+  function handleSummaryPaste(event: ClipboardEvent<HTMLFormElement>) {
+    const imageItem = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"));
+    const image = imageItem?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    const extension = image.type === "image/jpeg" ? "jpg" : image.type === "image/webp" ? "webp" : "png";
+    setSummarySelectedFile(new File([image], `貼上的截圖-${new Date().toISOString().slice(0, 10)}.${extension}`, { type: image.type || "image/png" }));
+    setSummaryNotice("已貼上截圖；確認科目與模型後，按「上傳並整理」。");
   }
 
   function openStudentSummary(item: StudentSummary) {
@@ -2994,11 +3006,12 @@ export default function StudyPlanPage() {
                 <label>整理模型<select value={summaryModel} onChange={(event) => setSummaryModel(event.target.value as "luna" | "sol")}><option value="luna">Luna｜一般整理</option><option value="sol">Sol｜深度考試整理</option></select></label>
               </div>
             </header>
-            <form className="student-summary-upload" onSubmit={uploadStudentSummary}>
-              <label className="student-summary-dropzone">
-                <strong>拍照／選擇檔案</strong>
-                <span>PDF、PNG、JPG、WEBP、TXT、JSONL；單檔最多 25MB</span>
-                <input name="summary-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.jsonl,application/pdf,image/png,image/jpeg,image/webp,text/plain,application/jsonl" />
+            <form className="student-summary-upload" onSubmit={uploadStudentSummary} onPaste={handleSummaryPaste}>
+              <label className="student-summary-dropzone" tabIndex={0}>
+                <strong>拍照／選擇檔案／貼上截圖</strong>
+                <span>PDF、PNG、JPG、WEBP、TXT、JSONL；單檔最多 25MB。也可以按 Ctrl/Cmd+V 直接貼上截圖。</span>
+                {summarySelectedFile && <small className="student-summary-selected-file">已選取：{summarySelectedFile.name}</small>}
+                <input name="summary-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.jsonl,application/pdf,image/png,image/jpeg,image/webp,text/plain,application/jsonl" onChange={(event) => setSummarySelectedFile(event.target.files?.[0] ?? null)} />
               </label>
               <button type="submit" disabled={summaryUploadLoading}>{summaryUploadLoading ? "整理中…" : "上傳並整理"}</button>
             </form>

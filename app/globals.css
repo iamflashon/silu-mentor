@@ -16057,8 +16057,10 @@ a {
 .student-summary-controls select { min-width: 150px; border: 1px solid #ccdfe3; border-radius: 9px; background: #fff; padding: 9px; color: #365664; }
 .student-summary-upload { display: flex; align-items: center; gap: 12px; padding: 18px 26px; background: #fbfdfd; }
 .student-summary-dropzone { display: grid; flex: 1; gap: 4px; padding: 14px 16px; border: 1px dashed #9cc6ce; border-radius: 13px; background: #f4fbfc; cursor: pointer; }
+.student-summary-dropzone:focus-visible { outline: 3px solid rgba(77, 139, 156, .25); outline-offset: 2px; }
 .student-summary-dropzone strong { color: #2f6573; }
 .student-summary-dropzone span { color: #789097; font-size: 12px; }
+.student-summary-selected-file { color: #397889; font-size: 11px; font-weight: 800; }
 .student-summary-dropzone input { margin-top: 5px; font-size: 12px; }
 .student-summary-upload > button, .student-summary-meta button { border: 0; border-radius: 10px; padding: 11px 16px; background: #397889; color: white; font-weight: 800; cursor: pointer; }
 .student-summary-upload > button:disabled, .student-summary-meta button:disabled { opacity: .55; cursor: wait; }
