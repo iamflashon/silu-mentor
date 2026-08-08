@@ -28,7 +28,7 @@ const teachingLevelLabels: Record<TeachingLevel, string> = {
   super: "頂尖學霸",
 };
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
-type TeachingEvidence = { status: "verified" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string };
+type TeachingEvidence = { status: "verified" | "applied_inference" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string; matchedTerms?: string[] };
 type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison };
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
@@ -67,19 +67,21 @@ function requestYoutubePlay(root: Element | null) { const iframe = root?.querySe
 function dateLabel(value: string) { return value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1年$2月$3日") : "今天"; }
 function comparisonSourceLabel(status: string) {
   if (status === "verified") return "教材原文已直接支持";
+  if (status === "applied_inference") return "教材提供判準，AI 完成涵攝";
   if (status === "full_text_search") return "找到相關教材，但直接支持不足";
   return "本次未取得可核對教材引用";
 }
 function citationStatusLabel(status?: string) {
   if (status === "verified") return "引用狀態：原文直接支持";
+  if (status === "applied_inference") return "引用狀態：教材判準＋AI 涵攝";
   if (status === "full_text_search") return "引用狀態：相關原文，直接支持不足";
   return "引用狀態：未取得可核對教材";
 }
 function TeachingEvidenceDetails({ evidence }: { evidence?: TeachingEvidence | null }) {
   if (!evidence) return null;
   const pages = evidence.pageStart ? `第 ${evidence.pageStart}${evidence.pageEnd && evidence.pageEnd !== evidence.pageStart ? `–${evidence.pageEnd}` : ""} 頁` : "頁碼尚未核對";
-  const label = evidence.status === "verified" ? "🟢 原文直接支持本次回答" : evidence.status === "full_text_search" ? (evidence.retrieval === "full_text_search" ? "🟡 僅命中全文索引" : "🟡 已找到相關原文，直接支持不足") : "⚪ 未取得教材原文";
-  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>展開驗證證據</span></summary><div><dl><div><dt>書籍／檔案</dt><dd>{evidence.resourceTitle || evidence.fileName || "未提供"}</dd></div><div><dt>實際位置</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("｜")}</dd></div><div><dt>檢索方式</dt><dd>{evidence.retrieval === "chapter_segment" ? "章節內文比對" : evidence.retrieval === "stored_analysis" ? "教材解析結果比對" : evidence.retrieval === "full_text_search" ? "全文索引搜尋" : "未使用教材"}</dd></div><div><dt>支持度判定</dt><dd>{evidence.message}</dd></div></dl>{evidence.excerpt ? <blockquote>{evidence.excerpt}</blockquote> : null}<small>綠色只代表這段原文直接包含本次回答使用的主要概念或判準；僅同章、同詞或目錄命中不會通過。</small></div></details>;
+  const label = evidence.status === "verified" ? "🟢 原文直接記載本次答案" : evidence.status === "applied_inference" ? "🔵 教材提供判準，AI 依原文涵攝" : evidence.status === "full_text_search" ? (evidence.retrieval === "full_text_search" ? "🟡 僅命中全文索引" : "🟡 已找到相關原文，直接支持不足") : "⚪ 未取得教材原文";
+  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>展開驗證證據</span></summary><div><dl><div><dt>書籍／檔案</dt><dd>{evidence.resourceTitle || evidence.fileName || "未提供"}</dd></div><div><dt>實際位置</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("｜")}</dd></div><div><dt>檢索方式</dt><dd>{evidence.retrieval === "chapter_segment" ? "章節內文比對" : evidence.retrieval === "stored_analysis" ? "教材解析結果比對" : evidence.retrieval === "full_text_search" ? "全文索引搜尋" : "未使用教材"}</dd></div><div><dt>支持度判定</dt><dd>{evidence.message}</dd></div></dl>{evidence.matchedTerms?.length ? <p className="evidence-keywords"><b>命中關鍵：</b>{evidence.matchedTerms.join("、")}</p> : null}{evidence.excerpt ? <><b className="evidence-section-label">教材原文</b><blockquote>{evidence.excerpt}</blockquote></> : null}{evidence.status === "applied_inference" ? <p className="evidence-application"><b>AI 涵攝：</b>原文負責提供抽象判準；本次回答中的具體罪名或事實判斷由 AI 依該判準完成。</p> : null}<small>綠色＝教材直接記載答案；藍色＝教材提供判準、AI 正常涵攝；黃色＝只有相關內容，仍不足以支持回答。</small></div></details>;
 }
 function answerParagraphs(text: string) {
   const clean = cleanMessageText(text).trim();

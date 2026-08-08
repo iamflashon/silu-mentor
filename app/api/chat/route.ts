@@ -37,7 +37,7 @@ function providerReply(
 }
 
 type TeachingEvidence = {
-  status: "verified" | "full_text_search" | "unavailable";
+  status: "verified" | "applied_inference" | "full_text_search" | "unavailable";
   retrieval: "chapter_segment" | "stored_analysis" | "full_text_search" | "none";
   resourceId: number;
   segmentId: number;
@@ -49,6 +49,7 @@ type TeachingEvidence = {
   fileName: string;
   excerpt: string;
   message: string;
+  matchedTerms?: string[];
 };
 
 const evidenceStopTerms = new Set([
@@ -86,13 +87,35 @@ function relevantExcerpt(text: string, query: string) {
   return candidates.sort((a, b) => score(b) - score(a))[0]?.slice(0, 520) || compact.slice(0, 520);
 }
 
-function evidenceDirectlySupports(excerpt: string, query: string, reply: string) {
-  if (excerpt.length < 80 || /目錄|章節目次|世界上有男人、女人|本章將介紹/.test(excerpt.slice(0, 180))) return false;
+function evidenceSupportKind(excerpt: string, query: string, reply: string): "direct" | "applied" | "insufficient" {
+  if (excerpt.length < 80 || /目錄|章節目次|世界上有男人、女人|本章將介紹/.test(excerpt.slice(0, 180))) return "insufficient";
   const excerptTerms = evidenceTerms(excerpt);
-  const claimTerms = evidenceTerms(`${query} ${reply}`);
+  const claimTerms = evidenceTerms(reply);
+  const queryTerms = evidenceTerms(query);
   const meaningfulHits = [...claimTerms].filter((term) => term.length >= 3 && excerptTerms.has(term));
   const longHits = meaningfulHits.filter((term) => term.length >= 4);
-  return longHits.length >= 2 || meaningfulHits.length >= 4;
+  const queryHits = [...queryTerms].filter((term) => term.length >= 3 && excerptTerms.has(term));
+  if (longHits.length < 2 && meaningfulHits.length < 4) return "insufficient";
+
+  const replyConcepts = [...claimTerms].filter((term) => term.length >= 3);
+  const coverage = meaningfulHits.length / Math.max(1, replyConcepts.length);
+  const containsRuleLanguage = /區分|標準|判準|要件|原則|係指|稱為|只要|必須|無須|不以|依據|取決於/.test(excerpt);
+  const appliesToConcreteExamples = queryHits.length >= 2 && [...queryTerms].some((term) => term.length >= 3 && !excerptTerms.has(term));
+
+  // 教材已直接寫出主要結論時列為直接支持；教材提供抽象判準、
+  // 回答再把判準套用到題目罪名或事實時，保留為獨立的涵攝狀態。
+  if (coverage >= 0.62) return "direct";
+  if (containsRuleLanguage && appliesToConcreteExamples) return "applied";
+  return longHits.length >= 3 || meaningfulHits.length >= 6 ? "applied" : "insufficient";
+}
+
+function matchedEvidenceTerms(excerpt: string, query: string, reply: string) {
+  const excerptTerms = evidenceTerms(excerpt);
+  return [...evidenceTerms(`${query} ${reply}`)]
+    .filter((term) => term.length >= 3 && excerptTerms.has(term))
+    .sort((a, b) => b.length - a.length)
+    .filter((term, index, all) => !all.slice(0, index).some((existing) => existing.includes(term)))
+    .slice(0, 8);
 }
 
 function analysisRows(document: typeof documents.$inferSelect, mode: "chapters" | "questions") {
@@ -1017,15 +1040,24 @@ export async function POST(request: Request) {
     );
     const effectiveTeachingEvidence: TeachingEvidence | null = context.type === "book"
       ? bookEvidence?.status === "verified"
-        ? evidenceDirectlySupports(bookEvidence.excerpt, latestStudent?.text ?? "", reply)
+        ? evidenceSupportKind(bookEvidence.excerpt, latestStudent?.text ?? "", reply) === "direct"
           ? {
               ...bookEvidence,
               message: "原文片段直接包含本次回答所使用的主要概念或判準。",
+              matchedTerms: matchedEvidenceTerms(bookEvidence.excerpt, latestStudent?.text ?? "", reply),
             }
+          : evidenceSupportKind(bookEvidence.excerpt, latestStudent?.text ?? "", reply) === "applied"
+            ? {
+                ...bookEvidence,
+                status: "applied_inference",
+                message: "教材原文提供法律判準；AI 依該判準套用到本題事實或罪名完成涵攝。",
+                matchedTerms: matchedEvidenceTerms(bookEvidence.excerpt, latestStudent?.text ?? "", reply),
+              }
           : {
               ...bookEvidence,
               status: "full_text_search",
               message: "已找到相關章節原文，但目前片段不足以直接支持本次回答；不得視為已核對。",
+              matchedTerms: matchedEvidenceTerms(bookEvidence.excerpt, latestStudent?.text ?? "", reply),
             }
         : fileSearchConfirmedForBook
           ? {
@@ -1051,14 +1083,14 @@ export async function POST(request: Request) {
           : bookEvidence
       : null;
     const sources = context.type === "book"
-      ? effectiveTeachingEvidence?.status === "verified"
+      ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "applied_inference"
         ? [`${effectiveTeachingEvidence.resourceTitle}｜${effectiveTeachingEvidence.segmentTitle}`]
       : effectiveTeachingEvidence?.status === "full_text_search"
           ? [effectiveTeachingEvidence.fileName || "教材全文索引（章節待核對）"]
           : []
       : [...new Set([...citationSources, ...searchResultNames])];
     const fromFiles = context.type === "book"
-      ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "full_text_search"
+      ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "applied_inference" || effectiveTeachingEvidence?.status === "full_text_search"
       : sources.length > 0;
     const citationStatus = context.type === "book"
       ? effectiveTeachingEvidence?.status ?? "unavailable"

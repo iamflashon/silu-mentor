@@ -677,6 +677,11 @@ a {
 .teaching-evidence blockquote { margin: 9px 0; padding: 10px 12px; border-left: 3px solid #5f806d; background: #f2f7f3; color: #34473d; line-height: 1.75; }
 .teaching-evidence small { display: block; color: #77857e; line-height: 1.6; }
 .teaching-evidence.full_text_search { border-color: #eadba7; background: #fffdf5; }
+.teaching-evidence.applied_inference { border-color: #9dc9df; background: #f4fbff; }
+.teaching-evidence.applied_inference blockquote { border-left-color: #3d88aa; background: #eaf6fc; }
+.evidence-keywords, .evidence-application { margin: 9px 0; padding: 8px 10px; border-radius: 7px; background: rgba(255,255,255,.78); line-height: 1.65; }
+.evidence-keywords b, .evidence-application b, .evidence-section-label { color: #326f8d; }
+.evidence-section-label { display: block; margin-top: 10px; font-size: 12px; }
 .teaching-evidence.unavailable { border-color: #e3e4e3; background: #fafafa; }
 @media (max-width: 720px) { .teaching-evidence { margin-left: 0; max-width: 100%; } .teaching-evidence dl > div { grid-template-columns: 1fr; gap: 1px; } }
 .message-usage {
@@ -5090,6 +5095,16 @@ a {
 .book-teaching-evidence.full_text_search strong {
   color: #9a741f;
 }
+.book-teaching-evidence.applied_inference {
+  border-color: #a7d0e3;
+  background: #f1f9fd;
+  color: #386f89;
+}
+.book-teaching-evidence.applied_inference strong { color: #24779c; }
+.book-evidence-excerpt { margin-top: 4px; border-top: 1px solid rgba(53, 107, 130, .18); padding-top: 6px; }
+.book-evidence-excerpt summary { cursor: pointer; color: #356b82; font-weight: 800; }
+.book-evidence-excerpt p { margin: 7px 0 !important; padding: 8px 10px; border-left: 3px solid #76abc2; background: rgba(255,255,255,.72); line-height: 1.75 !important; white-space: pre-wrap; }
+.book-evidence-excerpt small { display: block; margin-top: 5px; }
 .book-teaching-evidence.unavailable {
   border-color: #efc7c7;
   background: #fff6f6;

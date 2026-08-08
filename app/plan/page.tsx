@@ -200,7 +200,7 @@ type BookFullTextHit = {
   relevance: string;
 };
 type TeachingEvidence = {
-  status: "verified" | "full_text_search" | "unavailable";
+  status: "verified" | "applied_inference" | "full_text_search" | "unavailable";
   retrieval: "chapter_segment" | "stored_analysis" | "full_text_search" | "none";
   resourceId: number;
   segmentId: number;
@@ -212,6 +212,7 @@ type TeachingEvidence = {
   fileName: string;
   excerpt: string;
   message: string;
+  matchedTerms?: string[];
 };
 type BookUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
 type BookModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -4107,7 +4108,9 @@ export default function StudyPlanPage() {
                                       <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
                                         <strong>
                                           {message.teachingEvidence.status === "verified"
-                                            ? "✓ 原文直接支持本次回答"
+                                            ? "✓ 原文直接記載本次答案"
+                                            : message.teachingEvidence.status === "applied_inference"
+                                              ? "◆ 教材提供判準，AI 依原文涵攝"
                                             : message.teachingEvidence.status === "full_text_search"
                                               ? message.teachingEvidence.retrieval === "full_text_search"
                                                 ? "△ 命中全文索引，章節待核對"
@@ -4115,14 +4118,14 @@ export default function StudyPlanPage() {
                                               : "! 尚未取得本章原文"}
                                         </strong>
                                         <span>
-                                          {message.teachingEvidence.status === "verified"
+                                          {message.teachingEvidence.status === "verified" || message.teachingEvidence.status === "applied_inference"
                                             ? selectedBookIsProblemSolving
                                               ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}`
                                               : `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
                                             : message.teachingEvidence.message}
                                         </span>
                                         {message.teachingEvidence.excerpt && !selectedBookIsProblemSolving && (
-                                          <small>引用片段：{message.teachingEvidence.excerpt.slice(0, 72)}{message.teachingEvidence.excerpt.length > 72 ? "……" : ""}</small>
+                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
                                         )}
                                       </div>
                                     )}
