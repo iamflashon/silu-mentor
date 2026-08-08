@@ -100,6 +100,29 @@ type SavedNote = {
     url: string;
   }>;
 };
+type StudentSummary = {
+  id: number;
+  name: string;
+  subject: string;
+  sizeBytes: number;
+  status: string;
+  processingStage: string;
+  processingMessage: string;
+  error?: string | null;
+  createdAt: string | Date;
+  summary: string;
+  editedSummary: string;
+  favorite: boolean;
+  examFocus: string;
+  keyPoints: string[];
+  issueOutline: string[];
+  commonMistakes: string[];
+  sourceNotes: string[];
+  tags: string[];
+  flashcards: Array<{ question: string; answer: string }>;
+  model: string;
+  usage: { inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsd: number } | null;
+};
 type LearningResource = {
   id: number;
   resourceType: "book" | "course" | "trial" | "magazine";
@@ -350,6 +373,7 @@ type PlanTab =
   | "calendar"
   | "practice"
   | "hotspots"
+  | "summaries"
   | "laws"
   | "books"
   | "courses"
@@ -372,6 +396,7 @@ function requestedPlanTab(): PlanTab {
     "calendar",
     "practice",
     "hotspots",
+    "summaries",
     "laws",
     "books",
     "courses",
@@ -509,6 +534,15 @@ export default function StudyPlanPage() {
     nextStep: "",
   });
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
+  const [studentSummaries, setStudentSummaries] = useState<StudentSummary[]>([]);
+  const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
+  const [summaryModel, setSummaryModel] = useState<"luna" | "sol">("luna");
+  const [summarySubject, setSummarySubject] = useState("刑法");
+  const [summaryUploadLoading, setSummaryUploadLoading] = useState(false);
+  const [summaryNotice, setSummaryNotice] = useState("");
+  const [summarySaving, setSummarySaving] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [summaryFavorite, setSummaryFavorite] = useState(false);
   const [hotSubject, setHotSubject] = useState("全部");
   const [publicCourseSubject, setPublicCourseSubject] = useState("全部");
   const [selectedPublicCourseId, setSelectedPublicCourseId] = useState<number | null>(null);
@@ -751,6 +785,9 @@ export default function StudyPlanPage() {
           ((await response.json()) as { notes?: SavedNote[] }).notes ?? [],
         );
     });
+    fetch("/api/summaries").then(async (response) => {
+      if (response.ok) setStudentSummaries(((await response.json()) as { summaries?: StudentSummary[] }).summaries ?? []);
+    }).catch(() => undefined);
     fetch("/api/home-feed").then(async (response) => {
       if (response.ok) setHomeFeed((await response.json()) as HomeFeed);
     });
@@ -2446,6 +2483,61 @@ export default function StudyPlanPage() {
       ),
     );
     setNoteDraft(null);
+  }
+
+  async function uploadStudentSummary(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const input = form.elements.namedItem("summary-file") as HTMLInputElement | null;
+    const file = input?.files?.[0];
+    if (!file) { setSummaryNotice("請先選擇 PDF、照片、TXT 或 JSONL。 "); return; }
+    setSummaryUploadLoading(true);
+    setSummaryNotice("正在上傳原始資料…");
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      body.set("subject", summarySubject);
+      const upload = await fetch("/api/summaries", { method: "POST", body });
+      const uploaded = await upload.json() as { summary?: StudentSummary; error?: string };
+      if (!upload.ok || !uploaded.summary) throw new Error(uploaded.error ?? "上傳失敗");
+      setStudentSummaries((current) => [uploaded.summary!, ...current]);
+      setSelectedSummaryId(uploaded.summary.id);
+      setSummaryNotice(`已上傳，正在用 ${summaryModel === "sol" ? "Sol" : "Luna"} 整理…`);
+      const process = await fetch("/api/summaries/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: uploaded.summary.id, model: summaryModel }) });
+      const processed = await process.json() as { error?: string };
+      if (!process.ok) throw new Error(processed.error ?? "AI 整理失敗，原始檔案已保留");
+      const refreshed = await fetch("/api/summaries");
+      if (refreshed.ok) setStudentSummaries(((await refreshed.json()) as { summaries?: StudentSummary[] }).summaries ?? []);
+      setSummaryNotice("已完成整理；請核對原文與 AI 摘要後再收藏。");
+      form.reset();
+    } catch (error) {
+      setSummaryNotice(error instanceof Error ? error.message : "上傳或整理失敗");
+    } finally {
+      setSummaryUploadLoading(false);
+    }
+  }
+
+  function openStudentSummary(item: StudentSummary) {
+    setSelectedSummaryId(item.id);
+    setSummaryDraft(item.editedSummary || item.summary);
+    setSummaryFavorite(item.favorite);
+  }
+
+  async function saveStudentSummary() {
+    const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
+    if (!item) return;
+    setSummarySaving(true);
+    try {
+      const response = await fetch("/api/summaries", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, editedSummary: summaryDraft, favorite: summaryFavorite, tags: item.tags }) });
+      const result = await response.json() as { summary?: StudentSummary; error?: string };
+      if (!response.ok || !result.summary) throw new Error(result.error ?? "摘要保存失敗");
+      setStudentSummaries((current) => current.map((summary) => summary.id === item.id ? result.summary! : summary));
+      setSummaryNotice("摘要已保存。");
+    } catch (error) {
+      setSummaryNotice(error instanceof Error ? error.message : "摘要保存失敗");
+    } finally {
+      setSummarySaving(false);
+    }
   }
 
   async function addBlankNote() {

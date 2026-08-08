@@ -1,4 +1,4 @@
-import { desc, like } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { documents } from "../../../db/schema";
 import {
@@ -38,6 +38,8 @@ function summaryView(row: typeof documents.$inferSelect) {
     createdAt: row.createdAt,
     processedAt: row.processedAt,
     summary: String(result.summary ?? ""),
+    editedSummary: String(result.editedSummary ?? ""),
+    favorite: Boolean(result.favorite),
     examFocus: String(result.examFocus ?? ""),
     keyPoints: stringArray(result.keyPoints),
     issueOutline: stringArray(result.issueOutline),
@@ -117,5 +119,31 @@ export async function POST(request: Request) {
       } catch { /* preserve the upload error */ }
     }
     return Response.json({ error: error instanceof Error ? error.message : "檔案上傳失敗" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json() as { id?: number; editedSummary?: string; favorite?: boolean; tags?: string[] };
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id < 1) return Response.json({ error: "摘要編號不正確" }, { status: 400 });
+    const db = await getDb();
+    const [row] = await db.select().from(documents).where(and(
+      eq(documents.id, id),
+      like(documents.storageKey, `${studentSummaryStoragePrefix(request)}%`),
+    )).limit(1);
+    if (!row) return Response.json({ error: "找不到這份整理摘要" }, { status: 404 });
+    const result = parseResult(row.processingResultJson);
+    if (typeof body.editedSummary === "string") result.editedSummary = body.editedSummary.slice(0, 30_000);
+    if (typeof body.favorite === "boolean") result.favorite = body.favorite;
+    if (Array.isArray(body.tags)) result.tags = body.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20);
+    await db.update(documents).set({
+      processingResultJson: JSON.stringify(result),
+      tagsJson: JSON.stringify(Array.isArray(result.tags) ? result.tags : []),
+    }).where(eq(documents.id, id));
+    const [updated] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
+    return Response.json({ summary: updated ? summaryView(updated) : null });
+  } catch {
+    return Response.json({ error: "摘要保存失敗" }, { status: 500 });
   }
 }
