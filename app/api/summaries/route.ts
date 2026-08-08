@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { documents } from "../../../db/schema";
 import {
@@ -22,6 +22,14 @@ function stringArray(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
 }
 
+function publicProcessingMessage(value: string | null | undefined) {
+  const message = String(value ?? "").trim();
+  if (/failed query|select\s+["'`]|\bfrom\s+["'`]|sqlite|database/i.test(message)) {
+    return "資料暫時無法讀取；可刪除後重新上傳。";
+  }
+  return message.slice(0, 500);
+}
+
 function summaryView(row: typeof documents.$inferSelect) {
   const result = parseResult(row.processingResultJson);
   const usage = result.usage && typeof result.usage === "object" ? result.usage as Record<string, unknown> : null;
@@ -33,8 +41,8 @@ function summaryView(row: typeof documents.$inferSelect) {
     contentType: row.contentType,
     status: row.status,
     processingStage: row.processingStage,
-    processingMessage: row.processingMessage,
-    error: row.indexError,
+    processingMessage: publicProcessingMessage(row.processingMessage),
+    error: publicProcessingMessage(row.indexError),
     createdAt: row.createdAt,
     processedAt: row.processedAt,
     summary: String(result.summary ?? ""),
@@ -143,5 +151,33 @@ export async function PATCH(request: Request) {
     return Response.json({ summary: updated ? summaryView(updated) : null });
   } catch {
     return Response.json({ error: "摘要保存失敗" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json() as { ids?: unknown };
+    const ids = Array.isArray(body.ids)
+      ? [...new Set(body.ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
+      : [];
+    if (!ids.length) return Response.json({ error: "請先選取要刪除的摘要" }, { status: 400 });
+    if (ids.length > 50) return Response.json({ error: "一次最多刪除 50 份摘要" }, { status: 400 });
+
+    const prefix = studentSummaryStoragePrefix(request);
+    const db = await getDb();
+    const rows = await db.select({ id: documents.id, storageKey: documents.storageKey })
+      .from(documents)
+      .where(and(eq(documents.documentType, "student-summary"), inArray(documents.id, ids)));
+    const ownedRows = rows.filter((row) => row.storageKey.startsWith(prefix));
+    if (!ownedRows.length) return Response.json({ error: "找不到可刪除的摘要" }, { status: 404 });
+
+    const { env } = await import("cloudflare:workers");
+    if (!env.BUCKET) return Response.json({ error: "檔案儲存空間尚未就緒，摘要未刪除" }, { status: 503 });
+    for (const row of ownedRows) await env.BUCKET.delete(row.storageKey);
+
+    await db.delete(documents).where(and(eq(documents.documentType, "student-summary"), inArray(documents.id, ownedRows.map((row) => row.id))));
+    return Response.json({ ok: true, deletedIds: ownedRows.map((row) => row.id), deletedCount: ownedRows.length });
+  } catch {
+    return Response.json({ error: "摘要刪除失敗，請稍後再試" }, { status: 500 });
   }
 }

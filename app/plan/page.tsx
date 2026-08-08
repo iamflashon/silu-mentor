@@ -536,6 +536,7 @@ export default function StudyPlanPage() {
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
   const [studentSummaries, setStudentSummaries] = useState<StudentSummary[]>([]);
   const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
+  const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<number>>(new Set());
   const [summaryModel, setSummaryModel] = useState<"luna" | "sol">("luna");
   const [summarySubject, setSummarySubject] = useState("刑法");
   const [summaryUploadLoading, setSummaryUploadLoading] = useState(false);
@@ -544,6 +545,7 @@ export default function StudyPlanPage() {
   const [summaryDraft, setSummaryDraft] = useState("");
   const [summaryFavorite, setSummaryFavorite] = useState(false);
   const [summarySelectedFile, setSummarySelectedFile] = useState<File | null>(null);
+  const [summaryDeleting, setSummaryDeleting] = useState(false);
   const [hotSubject, setHotSubject] = useState("全部");
   const [publicCourseSubject, setPublicCourseSubject] = useState("全部");
   const [selectedPublicCourseId, setSelectedPublicCourseId] = useState<number | null>(null);
@@ -2535,6 +2537,53 @@ export default function StudyPlanPage() {
     setSummaryFavorite(item.favorite);
   }
 
+  function toggleSummarySelection(id: number) {
+    setSelectedSummaryIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllSummaries() {
+    setSelectedSummaryIds((current) =>
+      studentSummaries.length > 0 && studentSummaries.every((item) => current.has(item.id))
+        ? new Set()
+        : new Set(studentSummaries.map((item) => item.id)),
+    );
+  }
+
+  async function deleteSelectedSummaries() {
+    const ids = [...selectedSummaryIds];
+    if (!ids.length || !window.confirm(`確定要刪除選取的 ${ids.length} 份摘要嗎？原始檔案與整理結果都會刪除，且無法復原。`)) return;
+    setSummaryDeleting(true);
+    setSummaryNotice("正在刪除選取的摘要…");
+    try {
+      const response = await fetch("/api/summaries", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const result = await response.json() as { deletedIds?: number[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "摘要刪除失敗");
+      const deletedIds = new Set(result.deletedIds ?? ids);
+      const remaining = studentSummaries.filter((item) => !deletedIds.has(item.id));
+      setStudentSummaries(remaining);
+      setSelectedSummaryIds(new Set());
+      const nextSelected = selectedSummaryId !== null && !deletedIds.has(selectedSummaryId)
+        ? remaining.find((item) => item.id === selectedSummaryId)
+        : remaining[0];
+      setSelectedSummaryId(nextSelected?.id ?? null);
+      setSummaryDraft(nextSelected ? nextSelected.editedSummary || nextSelected.summary : "");
+      setSummaryFavorite(nextSelected?.favorite ?? false);
+      setSummaryNotice(`已刪除 ${deletedIds.size} 份摘要。`);
+    } catch (error) {
+      setSummaryNotice(error instanceof Error ? error.message : "摘要刪除失敗");
+    } finally {
+      setSummaryDeleting(false);
+    }
+  }
+
   async function saveStudentSummary() {
     const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
     if (!item) return;
@@ -3018,11 +3067,18 @@ export default function StudyPlanPage() {
             {summaryNotice && <p className="student-summary-notice">{summaryNotice}</p>}
             <div className="student-summary-layout">
               <aside className="student-summary-list" aria-label="我的整理資料">
-                <div className="student-summary-list-head"><strong>我的整理資料</strong><span>{studentSummaries.length} 份</span></div>
+                <div className="student-summary-list-head">
+                  <div><strong>我的整理資料</strong><span>{studentSummaries.length} 份</span></div>
+                  {studentSummaries.length > 0 && <label className="student-summary-select-all"><input type="checkbox" checked={studentSummaries.every((item) => selectedSummaryIds.has(item.id))} onChange={toggleAllSummaries} aria-label="全選摘要" />全選</label>}
+                </div>
+                {studentSummaries.length > 0 && <div className="student-summary-bulkbar"><span>已選 {selectedSummaryIds.size} 份</span><button type="button" onClick={() => void deleteSelectedSummaries()} disabled={selectedSummaryIds.size === 0 || summaryDeleting}>{summaryDeleting ? "刪除中…" : "批次刪除"}</button></div>}
                 {studentSummaries.length ? studentSummaries.map((item) => (
-                  <button type="button" key={item.id} className={selectedSummaryId === item.id ? "active" : ""} onClick={() => openStudentSummary(item)}>
-                    <span>{item.favorite ? "★" : "☆"}</span><div><strong>{item.name}</strong><small>{item.subject} · {item.status === "completed" ? "已整理" : item.processingMessage || "處理中"}</small></div>
-                  </button>
+                  <div className={`student-summary-row ${selectedSummaryId === item.id ? "active" : ""}`} key={item.id}>
+                    <label className="student-summary-checkbox"><input type="checkbox" checked={selectedSummaryIds.has(item.id)} onChange={() => toggleSummarySelection(item.id)} aria-label={`選取 ${item.name}`} /></label>
+                    <button type="button" className="student-summary-item" onClick={() => openStudentSummary(item)}>
+                      <span>{item.favorite ? "★" : "☆"}</span><div><strong>{item.name}</strong><small>{item.subject} · {item.status === "completed" ? "已整理" : item.processingMessage || "處理中"}</small></div>
+                    </button>
+                  </div>
                 )) : <div className="student-summary-empty">尚未上傳資料。先上傳一份講義或照片，這裡會保存整理紀錄。</div>}
               </aside>
               <section className="student-summary-detail" aria-live="polite">
