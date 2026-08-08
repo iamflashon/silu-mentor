@@ -1928,6 +1928,59 @@ export default function StudyPlanPage() {
     }
   }
 
+  async function startBookReview() {
+    if (!selectedChapter || !selectedResource || selectedResource.resourceType !== "book" || bookChatLoading) return;
+    const prompt = `${bookContext(selectedChapter)}\n這是解題書中的題目或題組。請現在直接開始審題：先帶我辨認題型與關鍵事實，再逐步問我可能的爭點；先不要公布完整擬答。`;
+    setBookInput("");
+    setBookSelectedMessageIndex(null);
+    setBookChatLoading(true);
+    setBookLoadingRole("mentor");
+    setBookTestNotice("AI 導師正在開始審題…");
+    try {
+      const response = await fetchBookConversation("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "student", text: prompt }],
+          visibleStudentText: "",
+          modelMode: bookModelMode,
+          context: {
+            type: "book",
+            resourceId: selectedResource.id,
+            segmentId: selectedChapter.id,
+            resourceTitle: selectedResource.title,
+            segmentTitle: selectedChapter.title,
+          },
+        }),
+      });
+      const result = await response.json() as {
+        reply?: string;
+        error?: string;
+        sessionId?: number;
+        usage?: BookUsage;
+        comparison?: BookComparison | null;
+        teachingEvidence?: TeachingEvidence | null;
+      };
+      setBookSessionId(result.sessionId ?? null);
+      setBookMessages([{
+        role: "mentor",
+        text: response.ok ? (result.reply ?? "我們先從審題開始。") : (result.error ?? "AI 審題暫時無法開始"),
+        model: result.usage?.model,
+        usage: result.usage,
+        comparison: result.comparison ?? undefined,
+        teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
+      }]);
+      void loadBookHistory(selectedResource.id);
+      setBookTestNotice("");
+    } catch {
+      setBookMessages([{ role: "mentor", text: "AI 審題暫時沒有回應，請稍後再按一次「開始審題」。" }]);
+      setBookTestNotice("");
+    } finally {
+      setBookChatLoading(false);
+      setBookLoadingRole(null);
+    }
+  }
+
   useEffect(() => {
     if (
       activeTab !== "books" ||
@@ -3650,9 +3703,7 @@ export default function StudyPlanPage() {
                                     className="problem-start-button"
                                     disabled={!selectedChapter.text.trim()}
                                     onClick={() =>
-                                      setBookInput(
-                                        "請帶我審這一題：先辨認題型與關鍵事實，再逐步問我可能的爭點；先不要公布完整擬答。",
-                                      )
+                                      void startBookReview()
                                     }
                                   >
                                     開始審題
