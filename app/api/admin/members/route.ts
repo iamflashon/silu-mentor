@@ -9,6 +9,24 @@ export async function GET(request: Request) {
   return Response.json({ members: rows });
 }
 
+export async function POST(request: Request) {
+  const auth = await requireAdmin(request);
+  if ("error" in auth) return auth.error;
+  const body = await request.json() as { email?: string; displayName?: string; role?: string; canAdmin?: boolean; status?: string; className?: string };
+  const email = body.email?.trim().toLowerCase() ?? "";
+  const displayName = body.displayName?.trim().slice(0, 80) ?? "";
+  const className = body.className?.trim().slice(0, 80) || "未分班";
+  const role = body.role === "teacher" ? "teacher" : "student";
+  const status = body.status === "disabled" ? "disabled" : "active";
+  const canAdmin = body.canAdmin === true;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "請輸入有效的 Email" }, { status: 400 });
+  if (!displayName) return Response.json({ error: "請輸入學員姓名" }, { status: 400 });
+  const [existing] = await auth.db.select({ id: members.id }).from(members).where(eq(members.email, email)).limit(1);
+  if (existing) return Response.json({ error: "這個 Email 已在學員名單中" }, { status: 409 });
+  const [created] = await auth.db.insert(members).values({ email, displayName, role, canAdmin, status, className }).returning();
+  return Response.json({ member: created }, { status: 201 });
+}
+
 export async function PATCH(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;

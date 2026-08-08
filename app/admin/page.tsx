@@ -408,6 +408,8 @@ export default function AdminPage() {
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberNotice, setMemberNotice] = useState("");
+  const [memberCreating, setMemberCreating] = useState(false);
+  const [newMember, setNewMember] = useState({ displayName: "", email: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [subject, setSubject] = useState("刑法");
@@ -2812,6 +2814,24 @@ export default function AdminPage() {
     setMemberNotice("學員設定已儲存");
   }
 
+  async function createMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMemberCreating(true);
+    setMemberNotice("正在新增學員…");
+    try {
+      const response = await fetch("/api/admin/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(newMember) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "新增學員失敗");
+      setMembers((rows) => [data.member, ...rows]);
+      setNewMember({ displayName: "", email: "", className: "", role: "student", status: "active" });
+      setMemberNotice(`已新增學員：${data.member.displayName}`);
+    } catch (error) {
+      setMemberNotice(error instanceof Error ? error.message : "新增學員失敗");
+    } finally {
+      setMemberCreating(false);
+    }
+  }
+
   return (
     <main className="admin-shell">
       <header className="topbar">
@@ -2919,6 +2939,16 @@ export default function AdminPage() {
         {activeTab === "members" && (
           <section className="panel member-admin-panel">
             <div className="cost-heading"><div><h2>學員與權限管理</h2><p className="panel-sub">每位登入者都有獨立的對話、角色、智能書進度、練題與批改紀錄。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
+            <form className="member-create-form" onSubmit={createMember}>
+              <div className="member-create-heading"><div><h3>新增學員</h3><p>先建立帳號；學員日後以相同 Email 登入，即會接上自己的學習平台。</p></div><button type="submit" disabled={memberCreating}>{memberCreating ? "新增中…" : "＋ 新增學員"}</button></div>
+              <div className="member-create-fields">
+                <label><span>姓名</span><input required value={newMember.displayName} onChange={(event) => setNewMember((current) => ({ ...current, displayName: event.target.value }))} placeholder="例如：王小明" /></label>
+                <label><span>Email</span><input required type="email" value={newMember.email} onChange={(event) => setNewMember((current) => ({ ...current, email: event.target.value }))} placeholder="student@example.com" /></label>
+                <label><span>班級</span><input value={newMember.className} onChange={(event) => setNewMember((current) => ({ ...current, className: event.target.value }))} placeholder="例如：司律二試 A 班" /></label>
+                <label><span>學習身分</span><select value={newMember.role} onChange={(event) => setNewMember((current) => ({ ...current, role: event.target.value as MemberRow["role"] }))}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
+                <label><span>帳號狀態</span><select value={newMember.status} onChange={(event) => setNewMember((current) => ({ ...current, status: event.target.value as MemberRow["status"] }))}><option value="active">使用中</option><option value="disabled">暫不開放</option></select></label>
+              </div>
+            </form>
             {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
@@ -2927,7 +2957,7 @@ export default function AdminPage() {
                 <label><span>管理權限</span><select value={member.canAdmin ? "enabled" : "disabled"} onChange={(event) => void updateMember(member.id, { canAdmin: event.target.value === "enabled" })}><option value="disabled">無</option><option value="enabled">管理員</option></select></label>
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
                 <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
-                <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未記錄"}</strong></div>
+                <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未登入"}</strong></div>
               </article>)}
               {!members.length && <p className="usage-empty">尚無會員。學生首次登入後會自動出現在這裡。</p>}
             </div>}
