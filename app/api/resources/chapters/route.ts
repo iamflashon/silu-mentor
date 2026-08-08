@@ -437,6 +437,13 @@ function problemHeading(line: string) {
   return patterns.some((pattern) => pattern.test(value)) ? value : null;
 }
 
+function problemNumberKey(title: string) {
+  const value = cleanSourceText(title).normalize("NFKC");
+  const match = value.match(/(?:題型|案例|例題|實例題|練習題)\s*([一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*)/u)
+    ?? value.match(/^第\s*([一二三四五六七八九十百\d]+)\s*題/u);
+  return match ? match[1].replaceAll("．", ".").replaceAll("、", ".").replaceAll("-", ".") : "";
+}
+
 function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$inferSelect>) {
   const ordered = [...pages]
     .filter((page) => Number(page.pageStart) > 0)
@@ -485,12 +492,66 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
   return questions;
 }
 
+/**
+ * AI/file-search page numbers can be local to a topic or a vector chunk.  The
+ * source-page rows, on the other hand, are numbered directly from the PDF and
+ * are therefore the only authoritative whole-book page coordinates.
+ */
+function canonicalizeProblemQuestionPages<T extends typeof resourceSegments.$inferSelect>(
+  chapters: T[],
+  pages: Array<typeof resourceSegments.$inferSelect>,
+) {
+  const scanned = scanSequentialProblemQuestions(pages);
+  const sourceByNumber = new Map(
+    scanned
+      .map((question) => [problemNumberKey(question.title), question] as const)
+      .filter(([key]) => Boolean(key)),
+  );
+  const byQuestion = new Map<string, T>();
+  const withoutNumber: T[] = [];
+
+  for (const chapter of chapters) {
+    const key = problemNumberKey(chapter.title);
+    const source = key ? sourceByNumber.get(key) : undefined;
+    const canonical = source
+      ? { ...chapter, pageStart: source.pageStart, pageEnd: source.pageEnd }
+      : chapter;
+    if (!key) {
+      withoutNumber.push(canonical as T);
+      continue;
+    }
+    const previous = byQuestion.get(key);
+    // Old semantic-search rows and sequential-scan rows may describe the same
+    // question. Keep one visible row, preferring the richer verified text.
+    if (!previous || canonical.text.trim().length > previous.text.trim().length) {
+      byQuestion.set(key, canonical as T);
+    }
+  }
+  return sortByBookOrder([...byQuestion.values(), ...withoutNumber]);
+}
+
 async function saveSequentialProblemQuestions(resourceId: number, totalPages: number) {
   const db = await getDb();
   const pages = await readSourcePages(resourceId);
   const scanned = scanSequentialProblemQuestions(pages);
   const published = await readChapters(resourceId);
   const pending = await readPendingChapters(resourceId);
+  const scannedByNumber = new Map(
+    scanned
+      .map((question) => [problemNumberKey(question.title), question] as const)
+      .filter(([key]) => Boolean(key)),
+  );
+  // Repair previously published AI rows in place. Their page values may be
+  // local to a chapter; matching the printed problem number gives them the
+  // absolute PDF page range recovered by the sequential scan.
+  for (const row of [...published, ...pending]) {
+    const source = scannedByNumber.get(problemNumberKey(row.title));
+    if (!source || (row.pageStart === source.pageStart && row.pageEnd === source.pageEnd)) continue;
+    await db.update(resourceSegments).set({
+      pageStart: source.pageStart,
+      pageEnd: source.pageEnd,
+    }).where(eq(resourceSegments.id, row.id));
+  }
   const pendingByKey = new Map(
     pending.map((row) => [`${row.pageStart ?? 0}|${normalizedHeading(row.title)}`, row]),
   );
@@ -966,20 +1027,25 @@ export async function GET(request: Request) {
     // resumable extraction was interrupted.  Keep the catalogue visible and
     // let the UI distinguish complete questions from catalogue-only rows.
     if (problemBook && chapters.length) {
+      const sourcePages = await readSourcePages(resourceId);
+      const canonicalChapters = sourcePages.length
+        ? canonicalizeProblemQuestionPages(chapters, sourcePages)
+        : chapters;
+      const canonicalUsableChapters = canonicalChapters.filter(isCompleteProblemQuestion);
       return Response.json({
-        chapters: chapters.map((chapter) => ({
+        chapters: canonicalChapters.map((chapter) => ({
           ...chapter,
           completeQuestion: isCompleteProblemQuestion(chapter),
         })),
         generated: false,
-        ready: usableChapters.length > 0,
-        status: usableChapters.length === chapters.length ? "completed" : "partial",
-        catalogueCount: chapters.length,
-        completeQuestionCount: usableChapters.length,
+        ready: canonicalUsableChapters.length > 0,
+        status: canonicalUsableChapters.length === canonicalChapters.length ? "completed" : "partial",
+        catalogueCount: canonicalChapters.length,
+        completeQuestionCount: canonicalUsableChapters.length,
         progress,
-        message: usableChapters.length === chapters.length
+        message: canonicalUsableChapters.length === canonicalChapters.length
           ? undefined
-          : `已先顯示 ${chapters.length} 筆真實目錄；其中 ${usableChapters.length} 題已具備完整題文，剩餘部分會由後台接續整理。`,
+          : `已先顯示 ${canonicalChapters.length} 筆真實目錄；其中 ${canonicalUsableChapters.length} 題已具備完整題文，剩餘部分會由後台接續整理。`,
       });
     }
 
