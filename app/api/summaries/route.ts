@@ -38,6 +38,7 @@ function summaryView(row: typeof documents.$inferSelect) {
     name: row.fileName,
     displayTitle: String(result.title ?? row.fileName),
     subject: row.subject,
+    topic: String(result.topic ?? ""),
     sizeBytes: row.sizeBytes,
     contentType: row.contentType,
     status: row.status,
@@ -66,6 +67,7 @@ function summaryView(row: typeof documents.$inferSelect) {
       : [],
     model: String(result.model ?? ""),
     fontSize: [16, 18, 20, 22, 24].includes(Number(result.fontSize)) ? Number(result.fontSize) : 20,
+    billing: { status: "not-enabled", points: 0 },
     usage: usage
       ? {
           inputTokens: Number(usage.inputTokens ?? 0),
@@ -96,6 +98,7 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const file = form.get("file");
     const subject = String(form.get("subject") ?? "綜合").trim() || "綜合";
+    const topic = String(form.get("topic") ?? "").trim().slice(0, 120);
     if (!(file instanceof File) || !isSupportedStudentSummaryFile(file.name, file.type)) {
       return Response.json({ error: "請上傳 PDF、PNG、JPG、WEBP、TXT 或 JSONL" }, { status: 400 });
     }
@@ -107,7 +110,7 @@ export async function POST(request: Request) {
     storageKey = `${studentSummaryStoragePrefix(request)}${Date.now()}-${crypto.randomUUID()}-${safeStudentSummaryName(file.name)}`;
     await env.BUCKET.put(storageKey, file.stream(), {
       httpMetadata: { contentType: summaryContentType(file.name, file.type) },
-      customMetadata: { originalName: file.name, subject, purpose: "student-summary" },
+      customMetadata: { originalName: file.name, subject, topic, purpose: "student-summary" },
     });
     const db = await getDb();
     const [row] = await db.insert(documents).values({
@@ -120,6 +123,7 @@ export async function POST(request: Request) {
       status: "uploaded",
       processingStage: "queued",
       processingMessage: "等待 AI 整理",
+      processingResultJson: JSON.stringify({ topic }),
     }).returning();
     return Response.json({ summary: summaryView(row) }, { status: 201 });
   } catch (error) {
@@ -135,7 +139,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { id?: number; editedSummary?: string; favorite?: boolean; tags?: string[]; title?: string; fontSize?: number };
+    const body = await request.json() as { id?: number; editedSummary?: string; favorite?: boolean; tags?: string[]; title?: string; fontSize?: number; topic?: string };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id < 1) return Response.json({ error: "摘要編號不正確" }, { status: 400 });
     const db = await getDb();
@@ -146,6 +150,7 @@ export async function PATCH(request: Request) {
     if (typeof body.favorite === "boolean") result.favorite = body.favorite;
     if (Array.isArray(body.tags)) result.tags = body.tags.map((tag) => String(tag).trim()).filter(Boolean).slice(0, 20);
     if (typeof body.title === "string") result.title = body.title.trim().slice(0, 120) || row.fileName;
+    if (typeof body.topic === "string") result.topic = body.topic.trim().slice(0, 120);
     if (typeof body.fontSize === "number" && [16, 18, 20, 22, 24].includes(body.fontSize)) result.fontSize = body.fontSize;
     await db.update(documents).set({
       processingResultJson: JSON.stringify(result),

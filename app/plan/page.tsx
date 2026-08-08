@@ -105,6 +105,7 @@ type StudentSummary = {
   name: string;
   displayTitle?: string;
   subject: string;
+  topic?: string;
   sizeBytes: number;
   status: string;
   processingStage: string;
@@ -540,8 +541,9 @@ export default function StudyPlanPage() {
   const [studentSummaries, setStudentSummaries] = useState<StudentSummary[]>([]);
   const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<number>>(new Set());
-  const [summaryModel, setSummaryModel] = useState<"luna" | "sol">("luna");
+  const [summaryModel, setSummaryModel] = useState<"luna" | "sol" | "claude">("luna");
   const [summarySubject, setSummarySubject] = useState("刑法");
+  const [summaryTopic, setSummaryTopic] = useState("");
   const [summaryUploadLoading, setSummaryUploadLoading] = useState(false);
   const [summaryNotice, setSummaryNotice] = useState("");
   const [summarySaving, setSummarySaving] = useState(false);
@@ -2506,12 +2508,13 @@ export default function StudyPlanPage() {
       const body = new FormData();
       body.set("file", file);
       body.set("subject", summarySubject);
+      body.set("topic", summaryTopic);
       const upload = await fetch("/api/summaries", { method: "POST", body });
       const uploaded = await upload.json() as { summary?: StudentSummary; error?: string };
       if (!upload.ok || !uploaded.summary) throw new Error(uploaded.error ?? "上傳失敗");
       setStudentSummaries((current) => [uploaded.summary!, ...current]);
       setSelectedSummaryId(uploaded.summary.id);
-      setSummaryNotice(`已上傳，正在用 ${summaryModel === "sol" ? "Sol" : "Luna"} 整理…`);
+      setSummaryNotice(`已上傳，正在用 ${summaryModel === "sol" ? "Sol" : summaryModel === "claude" ? "Claude Sonnet 5" : "Luna"} 整理…`);
       const process = await fetch("/api/summaries/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: uploaded.summary.id, model: summaryModel }) });
       const processed = await process.json() as { error?: string };
       if (!process.ok) throw new Error(processed.error ?? "AI 整理失敗，原始檔案已保留");
@@ -2543,6 +2546,7 @@ export default function StudyPlanPage() {
     setSummaryFavorite(item.favorite);
     setSummarySection("exam");
     setSummaryTitleDraft(item.displayTitle || item.name);
+    setSummaryTopic(item.topic || "");
     setSummaryFontSize([16, 18, 20, 22, 24].includes(item.fontSize ?? 20) ? item.fontSize ?? 20 : 20);
   }
 
@@ -2598,7 +2602,7 @@ export default function StudyPlanPage() {
     if (!item) return;
     setSummarySaving(true);
     try {
-      const response = await fetch("/api/summaries", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, editedSummary: summaryDraft, favorite: summaryFavorite, tags: item.tags, title: summaryTitleDraft, fontSize: summaryFontSize }) });
+      const response = await fetch("/api/summaries", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, editedSummary: summaryDraft, favorite: summaryFavorite, tags: item.tags, title: summaryTitleDraft, topic: summaryTopic, fontSize: summaryFontSize }) });
       const result = await response.json() as { summary?: StudentSummary; error?: string };
       if (!response.ok || !result.summary) throw new Error(result.error ?? "摘要保存失敗");
       setStudentSummaries((current) => current.map((summary) => summary.id === item.id ? result.summary! : summary));
@@ -3061,7 +3065,8 @@ export default function StudyPlanPage() {
               </div>
               <div className="student-summary-controls">
                 <label>科目<select value={summarySubject} onChange={(event) => setSummarySubject(event.target.value)}>{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label>
-                <label>整理模型<select value={summaryModel} onChange={(event) => setSummaryModel(event.target.value as "luna" | "sol")}><option value="luna">Luna｜一般整理</option><option value="sol">Sol｜深度考試整理</option></select></label>
+                <label>分類主題<input value={summaryTopic} maxLength={120} onChange={(event) => setSummaryTopic(event.target.value)} placeholder="例如：不作為犯／遺產稅" /></label>
+                <label>整理模型<select value={summaryModel} onChange={(event) => setSummaryModel(event.target.value as "luna" | "sol" | "claude")}><option value="luna">Luna｜一般整理</option><option value="sol">Sol｜深度考試整理</option><option value="claude">Claude Sonnet 5｜完整整理</option></select></label>
               </div>
             </header>
             <form className="student-summary-upload" onSubmit={uploadStudentSummary} onPaste={handleSummaryPaste}>
