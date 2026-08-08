@@ -26,6 +26,16 @@ function providerLabel(provider: ChatProvider) {
   return provider === "luna" ? "Luna" : provider === "sonnet" ? "Claude Sonnet" : provider === "glm" ? "GLM-4.7-Flash（免費測試）" : provider === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro";
 }
 
+function providerReply(
+  provider: ChatProvider,
+  replies: { luna: string; deepseek: string; zai: string; sonnet?: string },
+) {
+  if (provider === "luna") return replies.luna;
+  if (provider === "deepseek") return replies.deepseek;
+  if (provider === "glm" || provider === "glm52") return replies.zai;
+  return replies.sonnet ?? "";
+}
+
 type TeachingEvidence = {
   status: "verified" | "full_text_search" | "unavailable";
   retrieval: "chapter_segment" | "stored_analysis" | "full_text_search" | "none";
@@ -887,7 +897,11 @@ export async function POST(request: Request) {
       openAiDurationMs = Math.max(0, Date.now() - openAiStartedAt);
     }
     const openAiReply = extractText(payload);
-    let reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : provider === "glm" ? zaiRun?.reply ?? "" : "").find(Boolean) ?? "";
+    let reply = providers.map((provider) => providerReply(provider, {
+      luna: openAiReply,
+      deepseek: deepSeekRun?.reply ?? "",
+      zai: zaiRun?.reply ?? "",
+    })).find(Boolean) ?? "";
     const planCall = readPlanCall(payload);
     const deleteCall = readDeleteCall(payload);
     let planSaved = false;
@@ -936,7 +950,12 @@ export async function POST(request: Request) {
       }
     }
     if (providers[0] === "sonnet") reply = claudeRun?.reply ?? "";
-    if (!reply) reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : provider === "glm" ? zaiRun?.reply ?? "" : claudeRun?.reply ?? "").find(Boolean) ?? "";
+    if (!reply) reply = providers.map((provider) => providerReply(provider, {
+      luna: openAiReply,
+      deepseek: deepSeekRun?.reply ?? "",
+      zai: zaiRun?.reply ?? "",
+      sonnet: claudeRun?.reply ?? "",
+    })).find(Boolean) ?? "";
     if (!reply) return Response.json({ error: zaiError || openAiError || deepSeekError || claudeError || "AI 未產生可顯示內容" }, { status: 502 });
 
     const fileSearchConfirmedForBook = Boolean(
