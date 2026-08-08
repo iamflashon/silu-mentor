@@ -1868,7 +1868,7 @@ export default function AdminPage() {
     }
   }
 
-  async function buildBookChapters(resource: LearningResource) {
+  async function buildBookChapters(resource: LearningResource, restart = false) {
     if (chapterBuildRunningRef.current.has(resource.id)) return;
     if (!resource.documentId) {
       setNotice("請先替這本書綁定已完成索引的教材文件。");
@@ -1877,7 +1877,9 @@ export default function AdminPage() {
     chapterBuildRunningRef.current.add(resource.id);
     try {
       const previous = chapterProgress[resource.id];
-      setNotice(`正在從「${resource.title}」已建立的教材索引接續整理；不會重新上傳、刪除或重新拆解既有資料…`);
+      setNotice(restart
+        ? `正在逐頁重新核對「${resource.title}」的題型；完成前會保留目前可用資料…`
+        : `正在從「${resource.title}」已建立的教材索引接續整理；不會重新上傳、刪除或重新拆解既有資料…`);
       setChapterProgress((current) => ({
         ...current,
         [resource.id]: current[resource.id] ?? {
@@ -1891,7 +1893,7 @@ export default function AdminPage() {
           headers: { "content-type": "application/json" },
           // Never send the old `rebuild` flag: a retry must resume the saved
           // queue instead of deleting pending real rows and starting at 0%.
-          body: JSON.stringify({ resourceId: resource.id }),
+          body: JSON.stringify({ resourceId: resource.id, restart: restart && attempt === 0 }),
         });
         const result = (await readJson(response)) as {
           chapters?: unknown[];
@@ -3693,6 +3695,16 @@ export default function AdminPage() {
                                 ? "補齊章節原文"
                                 : "建立章節索引（一次）"}
                           </button>
+                          {isProblemSolvingResource(resource) && Number(resource.chapterCount ?? 0) > 0 && (
+                            <button
+                              type="button"
+                              className="chapter-view-open"
+                              disabled={!resource.documentId || chapterSourceRunning === resource.id}
+                              onClick={() => void buildBookChapters(resource, true)}
+                            >
+                              重新檢查漏拆頁
+                            </button>
+                          )}
                           {(resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (() => {
                             const total = Math.max(Number(resource.chapterCount ?? 0), Number(resource.storedChapterCatalogueCount ?? 0));
                             const ready = Math.min(total, Number(resource.chapterSourceReadyCount ?? 0));

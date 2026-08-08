@@ -55,6 +55,14 @@ type ProblemOutlinePayload = {
   }>;
 };
 
+type ProblemQuestionCataloguePayload = {
+  questions?: Array<{
+    title?: string;
+    page_start?: number | null;
+    page_end?: number | null;
+  }>;
+};
+
 type StoredDocumentAnalysis = {
   chapters?: unknown[];
   questions?: unknown[];
@@ -64,7 +72,9 @@ type StoredDocumentAnalysis = {
 // model's tokens-per-minute ceiling. A larger batch can retrieve tens of
 // thousands of tokens even though the calls themselves are sequential.
 const PROBLEM_TOPIC_BATCH_SIZE = 1;
-const PROBLEM_FILE_SEARCH_RESULTS = 16;
+// Larger topics span more than sixteen vector chunks. Using a full result
+// window prevents the middle pages from silently disappearing.
+const PROBLEM_FILE_SEARCH_RESULTS = 50;
 const MIN_COMPLETE_PROBLEM_QUESTIONS = 8;
 
 type ChapterProgress = {
@@ -159,6 +169,27 @@ function parseProblemOutline(payload: Record<string, unknown>) {
       .slice(0, 36);
   } catch {
     return [] as Array<{ section: string; topic: string }>;
+  }
+}
+
+function parseProblemQuestionCatalogue(payload: Record<string, unknown>) {
+  const raw = outputText(payload)
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(raw) as ProblemQuestionCataloguePayload;
+    return (parsed.questions ?? [])
+      .map((item) => ({
+        title: String(item.title ?? "").trim(),
+        page_start: item.page_start == null ? null : Number(item.page_start),
+        page_end: item.page_end == null ? null : Number(item.page_end),
+      }))
+      .filter((item) => item.title)
+      .filter((item, index, all) => all.findIndex((candidate) => candidate.title === item.title) === index)
+      .slice(0, 80);
+  } catch {
+    return [] as Array<{ title: string; page_start: number | null; page_end: number | null }>;
   }
 }
 
@@ -1337,6 +1368,17 @@ export async function POST(request: Request) {
     // already completed. A request with an existing checkpoint continues it.
     let topics = problemBook ? activeProgress.topics : undefined;
     if (problemBook && (!topics?.length || explicitRestart)) {
+      if (explicitRestart) {
+        // Keep the currently published catalogue readable while rebuilding,
+        // but discard an older incomplete staging queue so every page is
+        // checked again from a clean audit run.
+        await db.delete(resourceSegments).where(
+          and(
+            eq(resourceSegments.resourceId, resourceId),
+            eq(resourceSegments.segmentType, PENDING_CHAPTER_TYPE),
+          ),
+        );
+      }
       await writeChapterProgress(resourceId, {
         state: "building", phase: "outline", completedTopics: 0,
         totalTopics: 0, foundQuestions: pendingExisting.length,
@@ -1409,12 +1451,23 @@ export async function POST(request: Request) {
           currentTopic: `${batch[0]?.section ?? ""}｜${batch[0]?.topic ?? ""}`,
         };
         await writeChapterProgress(resourceId, activeProgress);
+        const cataloguePayload = await openAIJson("/responses", {
+          method: "POST",
+          body: JSON.stringify({
+            model: extractionModel,
+            instructions: "你是台灣司律解題書的逐頁目錄核對員。必須使用 file_search，針對指定主題列出原書中每一個題型標題與起訖頁。不得省略中間頁、不得合併不同題型、不得補造；無法確認頁碼填 null。只做清單核對，不要整理解析。",
+            input: `教材：《${resource.title}》（${document.fileName}）\n請完整核對下列主題內全部題型，特別檢查連續頁面是否有漏列：\n${batch.map((item) => `${item.section}｜${item.topic}`).join("\n")}`,
+            tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: PROBLEM_FILE_SEARCH_RESULTS }],
+            text: { format: { type: "json_schema", name: "problem_question_catalogue", strict: true, schema: { type: "object", additionalProperties: false, properties: { questions: { type: "array", maxItems: 80, items: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, page_start: { type: ["integer", "null"] }, page_end: { type: ["integer", "null"] } }, required: ["title", "page_start", "page_end"] } } }, required: ["questions"] } } },
+          }),
+        });
+        const catalogue = parseProblemQuestionCatalogue(cataloguePayload);
         const payload = await openAIJson("/responses", {
           method: "POST",
           body: JSON.stringify({
             model: extractionModel,
-            instructions: "你是台灣司律考試解題書編輯。必須使用 file_search 逐一搜尋指定主題，只能抄錄書中明確存在的題型、完整題目與該題後方的解析或擬答。title 原樣保留題型編號與名稱；stem 只放完整題目本文；content 依原書順序保存該題完整題目、爭點解析、規範、涵攝、結論與擬答，不得自行摘要或補造。section、topic 必須使用指定目錄名稱。保留原書順序；找不到解析時 content 仍須填入 stem，不得用一般法律知識補寫。",
-            input: `教材：《${resource.title}》（${document.fileName}）\n本批只擷取下列主題中的全部題型與完整題目：\n${batch.map((item) => `${item.section}｜${item.topic}`).join("\n")}`,
+            instructions: "你是台灣司律考試解題書編輯。必須使用 file_search 逐題搜尋指定清單，不能只挑相似度最高的幾題。只能抄錄書中明確存在的完整題目與該題後方解析或擬答。title 原樣保留；stem 只放完整題目；content 依原書順序保存完整題目、爭點解析、規範、涵攝、結論與擬答，不得摘要或補造。section、topic 必須使用指定名稱。逐一覆核清單，不得跳過中間頁；找不到解析時 content 仍須填入 stem。",
+            input: `教材：《${resource.title}》（${document.fileName}）\n本批主題：\n${batch.map((item) => `${item.section}｜${item.topic}`).join("\n")}\n\n逐頁清單核對到的題型（必須逐一擷取）：\n${catalogue.length ? catalogue.map((item, itemIndex) => `${itemIndex + 1}. ${item.title}${item.page_start ? `（第${item.page_start}${item.page_end && item.page_end !== item.page_start ? `–${item.page_end}` : ""}頁）` : ""}`).join("\n") : "清單未能辨識；請重新搜尋本主題全部題型並檢查頁碼連續性。"}`,
             tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: PROBLEM_FILE_SEARCH_RESULTS }],
             text: { format: { type: "json_schema", name: "problem_book_questions", strict: true, schema: problemQuestionSchema } },
           }),
