@@ -195,7 +195,18 @@ type BookComparison = {
     usage: { inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
   }>;
 };
-type TutorMessage = { role: "mentor" | "student" | "scholar"; text: string; model?: string; usage?: BookUsage; comparison?: BookComparison; teachingEvidence?: TeachingEvidence | null };
+type BookHistoryEntry = {
+  id: number;
+  resourceId: number | null;
+  segmentId: number | null;
+  title: string;
+  summary: string;
+  updatedAt: string | Date;
+  messageCount: number;
+  lastRole: string | null;
+  lastText: string;
+};
+type TutorMessage = { role: "mentor" | "student" | "scholar"; text: string; model?: string; usage?: BookUsage; comparison?: BookComparison; teachingEvidence?: TeachingEvidence | null; createdAt?: string | Date };
 
 async function fetchBookConversation(input: string, init: RequestInit, timeoutMs = 90_000) {
   const controller = new AbortController();
@@ -583,6 +594,9 @@ export default function StudyPlanPage() {
   );
   const [bookMessages, setBookMessages] = useState<TutorMessage[]>([]);
   const [bookSessionId, setBookSessionId] = useState<number | null>(null);
+  const [bookHistory, setBookHistory] = useState<BookHistoryEntry[]>([]);
+  const [bookHistoryOpen, setBookHistoryOpen] = useState(false);
+  const [bookHistoryLoading, setBookHistoryLoading] = useState(false);
   const [lastBookProgress, setLastBookProgress] = useState<{
     resourceId: number;
     segmentId: number;
@@ -925,6 +939,19 @@ export default function StudyPlanPage() {
     }
   }
 
+  async function loadBookHistory(resourceId: number) {
+    setBookHistoryLoading(true);
+    try {
+      const response = await fetch(`/api/book-learning?resourceId=${resourceId}`);
+      const result = await response.json() as { history?: BookHistoryEntry[] };
+      if (response.ok) setBookHistory(result.history ?? []);
+    } catch {
+      setBookHistory([]);
+    } finally {
+      setBookHistoryLoading(false);
+    }
+  }
+
   useEffect(() => {
     const resource =
       resources.find((item) => item.id === selectedResourceId) ??
@@ -936,8 +963,11 @@ export default function StudyPlanPage() {
         : null);
     if (!resource || resource.resourceType !== "book" || activeTab !== "books")
       return;
+    setBookHistory([]);
+    setBookHistoryOpen(false);
     const timer = window.setTimeout(() => {
       void loadBookChapters(resource.id);
+      void loadBookHistory(resource.id);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [resources, selectedResourceId, activeTab]);
@@ -1769,21 +1799,8 @@ export default function StudyPlanPage() {
     setBookQuestionOpen(true);
     setBookTeachingLevel(null);
     setBookTestNotice("");
-    if (selectedBookIsProblemSolving && !forceRestart) {
-      setBookChatLoading(false);
-      setBookLoadingRole(null);
-      setLastBookProgress({
-        resourceId: selectedResource.id,
-        segmentId: chapter.id,
-      });
-      updateResourceProgress(selectedResource.id, {
-        segmentId: chapter.id,
-        page: chapter.pageStart ?? 1,
-      });
-      return;
-    }
     setBookChatLoading(true);
-    setBookLoadingRole("mentor");
+    setBookLoadingRole(selectedBookIsProblemSolving ? null : "mentor");
     if (!forceRestart) {
       try {
         const historyResponse = await fetch(
@@ -1792,7 +1809,9 @@ export default function StudyPlanPage() {
         const history = (await historyResponse.json()) as {
           sessionId?: number | null;
           messages?: TutorMessage[];
+          history?: BookHistoryEntry[];
         };
+        if (history.history) setBookHistory(history.history);
         if (historyResponse.ok && history.messages?.length) {
           setBookSessionId(history.sessionId ?? null);
           setBookMessages(history.messages);
@@ -1807,6 +1826,19 @@ export default function StudyPlanPage() {
       } catch {
         /* start a fresh chapter below */
       }
+    }
+    if (selectedBookIsProblemSolving) {
+      setBookChatLoading(false);
+      setBookLoadingRole(null);
+      setLastBookProgress({
+        resourceId: selectedResource.id,
+        segmentId: chapter.id,
+      });
+      updateResourceProgress(selectedResource.id, {
+        segmentId: chapter.id,
+        page: chapter.pageStart ?? 1,
+      });
+      return;
     }
     const focus = focusPoint
       ? `\n本次從熱考點「${focusPoint}」進入，請先在本章教材中定位與這個考點最相關的內容；若本章沒有足夠依據，請明確告知，不要補造。`
@@ -1856,6 +1888,7 @@ export default function StudyPlanPage() {
           teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
+      void loadBookHistory(selectedResource.id);
     } catch {
       setBookMessages([
         {
@@ -1863,6 +1896,32 @@ export default function StudyPlanPage() {
           text: "教材章節已開啟，但 AI 暫時沒有回應。請稍後再按一次章節。",
         },
       ]);
+    } finally {
+      setBookChatLoading(false);
+      setBookLoadingRole(null);
+    }
+  }
+
+  async function openBookHistory(entry: BookHistoryEntry) {
+    if (!selectedResource || selectedResource.resourceType !== "book" || bookChatLoading) return;
+    const chapter = bookChapters.find((item) => item.id === entry.segmentId);
+    if (chapter) {
+      setSelectedChapterId(chapter.id);
+      setLastBookProgress({ resourceId: selectedResource.id, segmentId: chapter.id });
+      updateResourceProgress(selectedResource.id, { segmentId: chapter.id, page: chapter.pageStart ?? 1 });
+    }
+    setBookChatLoading(true);
+    setBookLoadingRole(null);
+    try {
+      const response = await fetchBookConversation(`/api/book-learning?sessionId=${entry.id}`, { method: "GET" });
+      const result = await response.json() as { sessionId?: number; messages?: TutorMessage[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "這段學習紀錄暫時無法讀取");
+      setBookSessionId(result.sessionId ?? entry.id);
+      setBookMessages(result.messages ?? []);
+      setBookHistoryOpen(false);
+      setBookTestNotice("");
+    } catch (error) {
+      setBookTestNotice(error instanceof Error ? error.message : "這段學習紀錄暫時無法讀取");
     } finally {
       setBookChatLoading(false);
       setBookLoadingRole(null);
@@ -2032,7 +2091,7 @@ export default function StudyPlanPage() {
           teachingEvidence?: TeachingEvidence | null;
         };
         setBookSessionId(feedback.sessionId ?? result.sessionId ?? bookSessionId);
-        setBookMessages((current) => [...current, {
+      setBookMessages((current) => [...current, {
           role: "mentor",
           text: feedbackResponse.ok ? (feedback.reply ?? "我先針對剛才的回答給你回饋。") : (feedback.error ?? "AI 導師暫時無法回饋這次回答"),
           model: feedback.usage?.model,
@@ -2040,6 +2099,7 @@ export default function StudyPlanPage() {
           comparison: feedback.comparison ?? undefined,
           teachingEvidence: feedbackResponse.ok ? feedback.teachingEvidence ?? null : null,
         }].slice(-12));
+      void loadBookHistory(selectedResource.id);
       } catch {
         setBookMessages((current) => [...current, {
           role: "mentor",
@@ -2125,6 +2185,7 @@ export default function StudyPlanPage() {
           teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
+      void loadBookHistory(selectedResource.id);
       setBookTestNotice("");
     } catch {
       setBookMessages((current) => [
@@ -3518,6 +3579,34 @@ export default function StudyPlanPage() {
                                 : "從左側書本下方展開章節，AI 會直接開始教你"}
                           </small>
                         </div>
+                        {bookHistory.length > 0 && (
+                          <section className={`book-history-panel ${bookHistoryOpen ? "is-open" : ""}`} aria-label="智能書學習紀錄">
+                            <div className="book-history-heading">
+                              <div>
+                                <strong>之前的對話學習紀錄</strong>
+                                <span>{bookHistoryLoading ? "正在讀取…" : `已保存 ${bookHistory.length} 次學習`}</span>
+                              </div>
+                              <button type="button" onClick={() => setBookHistoryOpen((open) => !open)} aria-expanded={bookHistoryOpen}>
+                                {bookHistoryOpen ? "收起紀錄" : "查看紀錄"}
+                              </button>
+                            </div>
+                            {bookHistoryOpen && (
+                              <div className="book-history-list">
+                                {bookHistory.map((entry) => {
+                                  const historyChapter = bookChapters.find((item) => item.id === entry.segmentId);
+                                  const date = new Date(entry.updatedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                                  return (
+                                    <button type="button" key={entry.id} className={`book-history-item ${bookSessionId === entry.id ? "active" : ""}`} onClick={() => void openBookHistory(entry)} disabled={!historyChapter || bookChatLoading}>
+                                      <span>{historyChapter?.title ?? entry.title.replace(/^書籍｜[^｜]+｜/, "")}</span>
+                                      <small>{date} · {entry.messageCount} 則對話</small>
+                                      <em>{bookSessionId === entry.id ? "目前紀錄" : "開啟這段對話"}</em>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </section>
+                        )}
                         {selectedChapter ? (
                           <div className="book-dialogue-body">
                             {selectedBookIsProblemSolving && (
