@@ -23,6 +23,7 @@ const JUDICIAL_SCHEDULE = {
   cron: ["*/1 16-21 * * *"],
   intervalMinutes: 1,
   window: "00:00–05:59",
+  mode: "worker-cron",
 };
 
 type JsonObject = Record<string, unknown>;

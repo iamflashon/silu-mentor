@@ -1029,7 +1029,10 @@ export default function AdminPage() {
     const response = await fetch("/api/judicial-sync", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, limit: 30 }),
+      // Manual run uses the same batch size as the scheduled Worker. The
+      // button is an immediate kick-off, not the mechanism required for
+      // continued downloading.
+      body: JSON.stringify({ action, limit: 120 }),
     });
     const result = (await readJson(response)) as {
       message?: string;
