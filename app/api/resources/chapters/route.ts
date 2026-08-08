@@ -551,6 +551,34 @@ async function retrieveIndexedChapterSource(
   return exactSearchText(fallback, document.openaiFileId ?? "");
 }
 
+async function retrieveIndexedProblemSource(
+  storeId: string,
+  document: typeof documents.$inferSelect,
+  target: typeof resourceSegments.$inferSelect,
+) {
+  const query = [
+    target.lessonLabel,
+    target.title,
+    target.pageStart ? `第 ${target.pageStart} 頁` : "",
+    "完整題目 解題解析 擬答 爭點 規範 涵攝 結論",
+  ].filter(Boolean).join(" ");
+  const base = { query, max_num_results: 30, rewrite_query: true };
+  const filtered = await openAIJson(`/vector_stores/${storeId}/search`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...base,
+      attribute_filter: { type: "eq", key: "source_file", value: document.fileName },
+    }),
+  });
+  const filteredText = exactSearchText(filtered, document.openaiFileId ?? "");
+  if (filteredText.length >= SOURCE_TEXT_MIN_LENGTH) return filteredText;
+  const fallback = await openAIJson(`/vector_stores/${storeId}/search`, {
+    method: "POST",
+    body: JSON.stringify(base),
+  });
+  return exactSearchText(fallback, document.openaiFileId ?? "");
+}
+
 function progressForResponse(progress: ChapterProgress, updatedAt: Date | null) {
   const stale = progress.state === "building" && updatedAt
     ? Date.now() - updatedAt.getTime() > 120_000
@@ -908,8 +936,6 @@ export async function POST(request: Request) {
     // queue.
     const explicitRestart = body.restart === true;
     if (body.sourceBatch === true) {
-      if (problemBook)
-        return Response.json({ error: "解題書請使用「整理題型與完整題目」，不使用章節原文補齊流程。" }, { status: 400 });
       if (!resource.documentId)
         return Response.json({ error: "這本書尚未綁定後台教材。" }, { status: 400 });
       const [document] = await db
@@ -921,6 +947,53 @@ export async function POST(request: Request) {
         return Response.json({ error: "找不到已綁定的教材文件。" }, { status: 404 });
       if (document.status !== "completed")
         return Response.json({ error: "教材尚未完成全文索引，完成後才能補齊章節原文。" }, { status: 409 });
+
+      if (problemBook) {
+        const chapters = await readChapters(resourceId);
+        if (!chapters.length)
+          return Response.json({ error: "尚未建立題型目錄；請先整理題型與完整題目。" }, { status: 409 });
+        if (!document.openaiFileId)
+          return Response.json({ error: "這份解題書尚未完成可用的全文／向量索引。" }, { status: 409 });
+        const [setting] = await db.select().from(appSettings)
+          .where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
+        if (!setting?.value)
+          return Response.json({ error: "教材向量索引尚未就緒。" }, { status: 409 });
+
+        const readyRows = chapters.filter((chapter) => /^(source|source_index)$/.test(chapter.reviewStatus ?? ""));
+        const target = chapters.find((chapter) => !/^(source|source_index)$/.test(chapter.reviewStatus ?? ""));
+        if (!target) {
+          await writeChapterSourceProgress(resourceId, {});
+          return Response.json({
+            status: "completed", phase: "completed", chaptersReady: readyRows.length,
+            chaptersTotal: chapters.length, failedCount: 0,
+            message: `已補齊 ${readyRows.length} 題的題目、解析與擬答原文。`,
+          });
+        }
+        try {
+          const content = await retrieveIndexedProblemSource(setting.value, document, target);
+          if (content.length < SOURCE_TEXT_MIN_LENGTH)
+            throw new Error("限定這一本解題書後，仍未找到足夠可核對的題目與解析全文");
+          await db.update(resourceSegments).set({ text: content, reviewStatus: "source_index" })
+            .where(eq(resourceSegments.id, target.id));
+          const completed = readyRows.length + 1;
+          return Response.json({
+            status: completed === chapters.length ? "completed" : "searching",
+            phase: "index", chaptersReady: completed, chaptersTotal: chapters.length,
+            failedCount: 0, currentTitle: target.title,
+            message: completed === chapters.length
+              ? `已補齊 ${completed} 題的題目、解析與擬答原文。`
+              : `正在逐題補抓題目與解析全文：${completed}／${chapters.length}`,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message.slice(0, 160) : "題目與解析原文未命中";
+          if (/較忙|限流|rate.?limit|429|try again/i.test(message)) {
+            return Response.json({ status: "paused", phase: "index", chaptersReady: readyRows.length,
+              chaptersTotal: chapters.length, currentTitle: target.title,
+              message: "全文索引目前較忙；進度已保存，稍後會從這一題接續。" }, { status: 202 });
+          }
+          return Response.json({ error: `「${target.title}」補抓失敗：${message}` }, { status: 422 });
+        }
+      }
 
       let chapters = await materializeStoredChapters(resourceId, document);
       if (!chapters.length)
@@ -1203,7 +1276,7 @@ export async function POST(request: Request) {
               page_start: { type: ["integer", "null"] },
               page_end: { type: ["integer", "null"] },
             },
-            required: ["title", "section", "topic", "stem", "summary", "page_start", "page_end"],
+            required: ["title", "section", "topic", "stem", "summary", "content", "page_start", "page_end"],
           },
         },
       },
@@ -1248,7 +1321,7 @@ export async function POST(request: Request) {
           method: "POST",
           body: JSON.stringify({
             model: extractionModel,
-            instructions: "你是台灣司律考試解題書編輯。必須使用 file_search 逐一搜尋指定主題，只能抄錄書中明確存在的題型與完整題目。title 原樣保留題型編號與名稱；stem 必須是完整題目本文，不得放解析；section、topic 必須使用指定目錄名稱。不得用一般法律知識補題。保留原書順序。",
+            instructions: "你是台灣司律考試解題書編輯。必須使用 file_search 逐一搜尋指定主題，只能抄錄書中明確存在的題型、完整題目與該題後方的解析或擬答。title 原樣保留題型編號與名稱；stem 只放完整題目本文；content 依原書順序保存該題完整題目、爭點解析、規範、涵攝、結論與擬答，不得自行摘要或補造。section、topic 必須使用指定目錄名稱。保留原書順序；找不到解析時 content 仍須填入 stem，不得用一般法律知識補寫。",
             input: `教材：《${resource.title}》（${document.fileName}）\n本批只擷取下列主題中的全部題型與完整題目：\n${batch.map((item) => `${item.section}｜${item.topic}`).join("\n")}`,
             tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: PROBLEM_FILE_SEARCH_RESULTS }],
             text: { format: { type: "json_schema", name: "problem_book_questions", strict: true, schema: problemQuestionSchema } },
@@ -1266,7 +1339,7 @@ export async function POST(request: Request) {
             title: String(chapter.title ?? "").trim().slice(0, 160),
             pageStart: chapter.page_start == null ? null : Math.max(1, Number(chapter.page_start) || 1),
             pageEnd: chapter.page_end == null ? null : Math.max(1, Number(chapter.page_end) || 1),
-            text: String(chapter.stem ?? "").trim().slice(0, 12000),
+            text: String(chapter.content ?? chapter.stem ?? "").trim().slice(0, SOURCE_TEXT_MAX_LENGTH),
             sequence: index * 1000 + localIndex + 1,
             summary: String(chapter.summary ?? "").trim().slice(0, 240),
             reviewStatus: "ai_reviewed",

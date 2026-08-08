@@ -65,7 +65,7 @@ export async function GET() {
       // rows may temporarily live in book_chapter_pending; excluding them
       // made the card report 0 while the progress panel had real rows.
       chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline', 'book_chapter_pending') then 1 else 0 end)`,
-      chapterSourceReadyCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') and length(trim(${resourceSegments.text})) >= 40 then 1 else 0 end)`,
+      chapterSourceReadyCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline', 'book_chapter_pending') and ${resourceSegments.reviewStatus} in ('source', 'source_index') and length(trim(${resourceSegments.text})) >= 40 then 1 else 0 end)`,
       sourcePageCount: sql<number>`sum(case when ${resourceSegments.segmentType} = 'book_source_page' then 1 else 0 end)`,
       updatedAt: learningResources.updatedAt,
     })

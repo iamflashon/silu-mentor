@@ -3566,7 +3566,9 @@ export default function AdminPage() {
                             className="subtitle-open"
                             disabled={!resource.documentId || chapterSourceRunning === resource.id}
                             onClick={() => void (isProblemSolvingResource(resource)
-                              ? buildBookChapters(resource)
+                              ? Number(resource.chapterCount ?? 0) > 0
+                                ? enrichBookText(resource)
+                                : buildBookChapters(resource)
                               : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
                                 ? enrichBookText(resource)
                                 : buildBookChapters(resource))}
@@ -3574,8 +3576,10 @@ export default function AdminPage() {
                             {chapterSourceRunning === resource.id
                               ? "補齊原文中…"
                               : isProblemSolvingResource(resource)
-                              ? chapterProgress[resource.id]?.state === "completed"
-                                ? "重新整理題型"
+                              ? Number(resource.chapterCount ?? 0) > 0
+                                ? "補齊題目與解析全文"
+                                : chapterProgress[resource.id]?.state === "completed"
+                                ? "補齊題目與解析全文"
                                 : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
                                   ? "接續整理題型"
                                   : "開始整理題型與完整題目"
@@ -3583,25 +3587,25 @@ export default function AdminPage() {
                                 ? "補齊章節原文"
                                 : "建立章節索引（一次）"}
                           </button>
-                          {!isProblemSolvingResource(resource) && (resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (() => {
+                          {(resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (() => {
                             const total = Math.max(Number(resource.chapterCount ?? 0), Number(resource.storedChapterCatalogueCount ?? 0));
                             const ready = Math.min(total, Number(resource.chapterSourceReadyCount ?? 0));
                             const percent = total ? Math.round((ready / total) * 100) : 0;
                             return (
                               <div className={`chapter-progress-panel ${ready === total && total > 0 ? "completed" : chapterSourceRunning === resource.id ? "building" : "not_started"}`} role="status">
                                 <div className="chapter-progress-heading">
-                                  <strong>章節原文 {ready}／{total}</strong>
+                                  <strong>{isProblemSolvingResource(resource) ? "題目與解析全文" : "章節原文"} {ready}／{total}</strong>
                                   <span>{percent}%</span>
                                 </div>
                                 <div className="chapter-progress-track"><i style={{ width: `${percent}%` }} /></div>
                                 <div className="chapter-progress-meta">
-                                  <span>{resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
+                                  <span>{isProblemSolvingResource(resource) ? "逐題從限定解題書索引補抓" : resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
                                   <small>{ready === total && total > 0 ? "智能書可直接引用已保存原文" : "按下後會逐批保存，可中斷後接續"}</small>
                                 </div>
                               </div>
                             );
                           })()}
-                          {isProblemSolvingResource(resource) && (() => {
+                          {isProblemSolvingResource(resource) && Number(resource.chapterCount ?? 0) === 0 && (() => {
                             const progress = chapterProgress[resource.id];
                             const percent = chapterProgressPercent(progress);
                             return (
