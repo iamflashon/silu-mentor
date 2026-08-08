@@ -54,7 +54,19 @@ export async function GET(){
 export async function POST(request:Request){
   try{const body=await request.json() as {questionId?:number;provider?:Provider}; const q=benchmarkCases.find(x=>x.id===Number(body.questionId)); const provider=body.provider; if(!q||!provider||!providerLabels[provider]) return Response.json({error:"測試參數不完整"},{status:400}); const db=await getDb(); const existing=await db.select().from(chatComparisons).where(eq(chatComparisons.contextType,"model-benchmark-v2")); let comparison=existing.find(x=>{try{return JSON.parse(x.sourceJson).benchmarkId===q.id}catch{return false}}); if(!comparison){[comparison]=await db.insert(chatComparisons).values({userKey:"benchmark",contextType:"model-benchmark-v2",promptText:q.prompt,sourceStatus:"benchmark_card",sourceJson:JSON.stringify({benchmarkId:q.id,rule:q.rule,expected:q.expected})}).returning();}
     const prior=await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId,comparison.id),eq(chatComparisonResponses.label,providerLabels[provider]))).limit(1); if(prior[0]) return Response.json({ok:true,skipped:true});
-    const run=await runCandidate(provider,q.prompt); const cost=estimateUsageCostUsd(run.model,{inputTokens:run.input,cachedTokens:0,outputTokens:run.output}); const [row]=await db.insert(chatComparisonResponses).values({comparisonId:comparison.id,provider,model:run.model,label:providerLabels[provider],text:run.text,inputTokens:run.input,outputTokens:run.output,durationMs:run.duration,estimatedCostUsdMicros:Math.round(cost*1e6)}).returning(); await db.insert(usageLogs).values({model:run.model,source:"50題法律模型測試",inputTokens:run.input,outputTokens:run.output,estimatedCostUsdMicros:Math.round(cost*1e6)});
+    let benchmarkPrompt=q.prompt;
+    if(q.group==="連續追問"&&q.round>1){
+      const previousCases=benchmarkCases.filter(x=>x.group==="連續追問"&&x.title===q.title&&x.round<q.round);
+      const transcript:string[]=[];
+      for(const previousCase of previousCases){
+        const previousComparison=existing.find(x=>{try{return JSON.parse(x.sourceJson).benchmarkId===previousCase.id}catch{return false}});
+        if(!previousComparison)continue;
+        const [previousAnswer]=await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId,previousComparison.id),eq(chatComparisonResponses.label,providerLabels[provider]))).limit(1);
+        if(previousAnswer)transcript.push(`學生：${previousCase.prompt}\n助教：${previousAnswer.text}`);
+      }
+      benchmarkPrompt=`以下是同一段對話的既有內容，必須承接且不得遺忘：\n${transcript.join("\n\n")}\n\n學生現在追問：${q.prompt}`;
+    }
+    const run=await runCandidate(provider,benchmarkPrompt); const cost=estimateUsageCostUsd(run.model,{inputTokens:run.input,cachedTokens:0,outputTokens:run.output}); const [row]=await db.insert(chatComparisonResponses).values({comparisonId:comparison.id,provider,model:run.model,label:providerLabels[provider],text:run.text,inputTokens:run.input,outputTokens:run.output,durationMs:run.duration,estimatedCostUsdMicros:Math.round(cost*1e6)}).returning(); await db.insert(usageLogs).values({model:run.model,source:"50題法律模型測試",inputTokens:run.input,outputTokens:run.output,estimatedCostUsdMicros:Math.round(cost*1e6)});
     const j=await judge(q,run.text); const judgeCost=estimateUsageCostUsd(j.model,{inputTokens:j.input,cachedTokens:0,outputTokens:j.output}); await db.insert(chatComparisonRatings).values({comparisonId:comparison.id,responseId:row.id,userKey:"sol-judge",score:j.score,feedbackType:"sol_benchmark",note:JSON.stringify({...j,judgeCostUsd:judgeCost})}); await db.insert(usageLogs).values({model:j.model,source:"50題法律測試 Sol 自動判卷",inputTokens:j.input,outputTokens:j.output,estimatedCostUsdMicros:Math.round(judgeCost*1e6)}); return Response.json({ok:true,score:j.score});
   }catch(error){return Response.json({error:error instanceof Error?error.message:"測試失敗"},{status:500});}
 }
