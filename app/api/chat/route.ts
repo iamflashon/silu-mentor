@@ -1092,7 +1092,7 @@ export async function POST(request: Request) {
           title: `AI 對話｜${latestStudent.text.trim().slice(0, 72)}`,
           activityType: "AI 對話學習",
           actualMinutes: learningMinutes,
-          reflection: "已完成一次 AI 引導學習對話。",
+          reflection: `學生提問：${latestStudent.text.trim()}\n\n司律導師：${reply}`.slice(0, 12000),
           nextStep: reply.replace(/\s+/g, " ").slice(0, 180),
         });
       }

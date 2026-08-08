@@ -11724,6 +11724,69 @@ a {
 .record-list article > div {
   min-width: 0;
 }
+.record-content {
+  flex: 1;
+}
+.record-title-button {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.record-title-button strong {
+  flex: 1;
+}
+.record-expand-label {
+  display: inline-flex !important;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px !important;
+  color: #2e7897 !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+.record-expand-label > span {
+  margin: 0;
+  color: inherit;
+  transform: rotate(0deg);
+  transition: transform 160ms ease;
+}
+.record-list article.is-expanded .record-expand-label > span {
+  transform: rotate(180deg);
+}
+.record-details {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-top: 1px solid #dce8ed;
+  border-radius: 0 0 10px 10px;
+  background: #f8fbfc;
+}
+.record-details b {
+  display: block;
+  margin-bottom: 4px;
+  color: #284a62;
+  font-size: 12px;
+}
+.record-details p {
+  margin: 0;
+  color: #405e72;
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.record-details .record-empty-detail {
+  color: #768b99;
+}
 .record-list strong,
 .record-list span,
 .record-list small {

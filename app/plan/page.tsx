@@ -512,6 +512,7 @@ export default function StudyPlanPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [message, setMessage] = useState("");
   const [records, setRecords] = useState<StudyRecord[]>([]);
+  const [expandedRecordIds, setExpandedRecordIds] = useState<Set<number>>(new Set());
   const [chatDays, setChatDays] = useState<ChatDay[]>([]);
   const [examConversations, setExamConversations] = useState<
     ExamCoachConversation[]
@@ -2420,6 +2421,14 @@ export default function StudyPlanPage() {
 
   function toggleRecord(id: number) {
     setSelectedRecordIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleRecordDetails(id: number) {
+    setExpandedRecordIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
@@ -4908,14 +4917,25 @@ export default function StudyPlanPage() {
             </div>}
             {visibleRecords.length ? (
               <div className="record-list">
-                {visibleRecords.map((record) => (
-                  <article key={record.id}>
+                {visibleRecords.map((record) => {
+                  const expanded = expandedRecordIds.has(record.id);
+                  return (
+                  <article key={record.id} className={expanded ? "is-expanded" : ""}>
                     <input type="checkbox" checked={selectedRecordIds.has(record.id)} onChange={() => toggleRecord(record.id)} aria-label={`選取 ${record.subject} ${record.title}`} />
                     <time>{record.recordDate}</time>
-                    <div>
+                    <div className="record-content">
+                      <button
+                        type="button"
+                        className="record-title-button"
+                        onClick={() => toggleRecordDetails(record.id)}
+                        aria-expanded={expanded}
+                        aria-controls={`record-details-${record.id}`}
+                      >
                       <strong>
                         {record.subject} · {record.title}
                       </strong>
+                      <span className="record-expand-label">{expanded ? "收合完整紀錄" : "查看完整紀錄"}<span aria-hidden="true">⌄</span></span>
+                      </button>
                       <span>
                         {record.activityType} · 實際 {record.actualMinutes} 分鐘
                         {record.correct === null
@@ -4924,15 +4944,24 @@ export default function StudyPlanPage() {
                             ? " · 答對"
                             : " · 待補強"}
                       </span>
-                      {record.weakness && (
+                      {!expanded && record.weakness && (
                         <small>弱點：{record.weakness}</small>
                       )}
-                      {record.nextStep && (
+                      {!expanded && record.nextStep && (
                         <small>下次接續：{record.nextStep}</small>
+                      )}
+                      {expanded && (
+                        <div className="record-details" id={`record-details-${record.id}`}>
+                          <div><b>完整學習內容</b><p>{record.reflection || record.title}</p></div>
+                          {record.weakness && <div><b>發現的弱點</b><p>{record.weakness}</p></div>}
+                          {record.nextStep && <div><b>下次接續</b><p>{record.nextStep}</p></div>}
+                          {!record.reflection && !record.weakness && !record.nextStep && <p className="record-empty-detail">這筆紀錄目前只有學習項目與時間。</p>}
+                        </div>
                       )}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="hub-empty">
