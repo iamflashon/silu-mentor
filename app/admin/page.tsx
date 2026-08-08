@@ -8,7 +8,7 @@ import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, ty
 import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
-type MemberRow = { id: number; email: string; displayName: string; role: "admin" | "teacher" | "student"; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
+type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
 
 type Uploaded = {
   id: number;
@@ -455,6 +455,7 @@ export default function AdminPage() {
     status?: string;
     message?: string;
     incompleteCount?: number;
+    sourceFailures?: Array<{ segmentId: number; title: string; error: string }>;
   } | null>(null);
   const [chapterViewerLoading, setChapterViewerLoading] = useState<number | null>(null);
   const [chapterSourceRunning, setChapterSourceRunning] = useState<number | null>(null);
@@ -1960,6 +1961,7 @@ export default function AdminPage() {
         status?: string;
         message?: string;
         incompleteCount?: number;
+        sourceFailures?: Array<{ segmentId: number; title: string; error: string }>;
         error?: string;
       };
       if (!response.ok) throw new Error(result.error ?? "章節內容讀取失敗");
@@ -1970,6 +1972,7 @@ export default function AdminPage() {
         status: result.status,
         message: result.message,
         incompleteCount: result.incompleteCount,
+        sourceFailures: result.sourceFailures,
       });
       setSelectedChapterId(rows[0]?.id ?? null);
     } catch (error) {
@@ -2800,7 +2803,7 @@ export default function AdminPage() {
       .finally(() => setMembersLoading(false));
   }, [activeTab]);
 
-  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "status" | "className">>) {
+  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">>) {
     setMemberNotice("儲存中…");
     const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     const data = await response.json();
@@ -2920,7 +2923,8 @@ export default function AdminPage() {
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
                 <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small></div></div>
-                <label><span>身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option><option value="admin">管理員</option></select></label>
+                <label><span>學習身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
+                <label><span>管理權限</span><select value={member.canAdmin ? "enabled" : "disabled"} onChange={(event) => void updateMember(member.id, { canAdmin: event.target.value === "enabled" })}><option value="disabled">無</option><option value="enabled">管理員</option></select></label>
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
                 <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
                 <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未記錄"}</strong></div>
@@ -5255,6 +5259,16 @@ export default function AdminPage() {
               <button type="button" aria-label="關閉章節內容" onClick={() => setChapterViewer(null)}>×</button>
             </header>
             {chapterViewer.message && <div className="chapter-viewer-message">{chapterViewer.message}</div>}
+            {chapterViewer.sourceFailures?.length ? (
+              <details className="chapter-viewer-failures">
+                <summary>{chapterViewer.sourceFailures.length} 章尚未定位原文（查看原因）</summary>
+                <ul>
+                  {chapterViewer.sourceFailures.map((failure) => (
+                    <li key={failure.segmentId}><strong>{failure.title}</strong><span>{failure.error}</span></li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
             {chapterViewer.rows.length ? (
               <div className="chapter-viewer-layout">
                 <aside className="chapter-viewer-index" aria-label="章節目錄">

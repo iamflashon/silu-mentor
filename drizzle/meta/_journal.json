@@ -253,6 +253,13 @@
       "when": 1786200071208,
       "tag": "0035_burly_mesmero",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1786201250280,
+      "tag": "0036_shiny_silk_fever",
+      "breakpoints": true
     }
   ]
 }

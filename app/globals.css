@@ -2842,6 +2842,19 @@ a {
   font-size: 12px;
   line-height: 1.6;
 }
+.chapter-viewer-failures {
+  margin: 10px 22px 0;
+  padding: 10px 12px;
+  border: 1px solid #efd8d3;
+  border-radius: 9px;
+  background: #fff8f6;
+  color: #8a4f43;
+  font-size: 12px;
+}
+.chapter-viewer-failures summary { cursor: pointer; font-weight: 700; }
+.chapter-viewer-failures ul { margin: 10px 0 0; padding-left: 18px; }
+.chapter-viewer-failures li { margin: 6px 0; }
+.chapter-viewer-failures li span { display: block; margin-top: 2px; color: #805f58; }
 .chapter-viewer-layout {
   display: grid;
   grid-template-columns: minmax(270px, 34%) minmax(0, 1fr);

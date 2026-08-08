@@ -5,6 +5,7 @@ export const members = sqliteTable("members", {
   email: text("email").notNull().unique(),
   displayName: text("display_name").notNull().default(""),
   role: text("role").notNull().default("student"),
+  canAdmin: integer("can_admin", { mode: "boolean" }).notNull().default(false),
   status: text("status").notNull().default("active"),
   className: text("class_name").notNull().default("未分班"),
   lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),

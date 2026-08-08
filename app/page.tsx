@@ -52,7 +52,7 @@ type DictionaryResult = { term: string; content: string; sourceUrl: string; sour
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
 type PracticeRecommendation = { type: string; title: string; location: string; url: string; startSeconds: number | null };
 type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
-type CurrentMember = { displayName: string; email: string; role: "admin" | "teacher" | "student"; status: string };
+type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string };
 
 const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 const trustPrincipleStudentTest = "我理解信賴原則是，駕駛人可以相信行人會遵守交通規則。可是如果行人只是站在路邊等紅綠燈，駕駛人應該可以信賴他不會突然衝出來；但如果行人已經有明顯要違規的樣子，例如一直往車道靠近，駕駛人就不能再主張信賴原則。那本題中，要怎麼判斷這個行人的動作已經達到「顯然即將違規」的程度？如果我主張駕駛人仍可相信行人不會衝出來，這樣的論證有機會成立嗎？";
@@ -721,7 +721,7 @@ export default function Home() {
           <a href="/model-lab" className="admin-link">模型盲測</a>
           <a href="/review" className="admin-link review-entry-link">司律評</a>
           <a href="/plan" className="admin-link">學習專區</a>
-          {currentMember?.role === "admin" && <a href="/admin" className="admin-link">管理後台</a>}
+          {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
           {currentMember ? <a href="/signout-with-chatgpt?return_to=/" className="member-chip" title={currentMember.email}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>登出</small></a> : <a href="/signin-with-chatgpt?return_to=/" className="member-signin">登入我的學習平台</a>}
         </div>
       </header>

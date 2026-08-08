@@ -347,8 +347,23 @@ function normalizedHeading(value: string) {
   return value
     .normalize("NFKC")
     .toLocaleLowerCase("zh-Hant")
+    // Some law-book PDFs expose list glyphs as private-use characters. They
+    // are layout artefacts, not part of the heading, and otherwise prevent a
+    // real chapter title from matching its extracted page text.
+    .replace(/[\uE000-\uF8FF]/g, "")
     .replace(/[\s\p{P}\p{S}]+/gu, "")
     .trim();
+}
+
+function headingNeedles(value: string) {
+  const normalized = normalizedHeading(value);
+  const withoutListPrefix = normalized
+    .replace(/^(?:[一二三四五六七八九十百]+|\d+)(?:、|．|\.)?/, "")
+    .replace(/^[①②③④⑤⑥⑦⑧⑨⑩]+/, "");
+  const withoutArticleRange = withoutListPrefix.replace(/（?第?\d+(?:之\d+)?(?:至|到|－|-)第?\d+(?:之\d+)?條）?$/u, "");
+  return [normalized, withoutListPrefix, withoutArticleRange]
+    .map((item) => item.trim())
+    .filter((item, index, all) => item.length >= 2 && all.indexOf(item) === index);
 }
 
 function pageTextFromItems(items: unknown[]) {
@@ -444,22 +459,26 @@ function locateChapterPage(
   preferredPage: number | null,
   minimumPage: number,
 ) {
-  const needle = normalizedHeading(title);
-  if (needle.length < 2) return preferredPage && preferredPage >= minimumPage ? preferredPage : null;
+  const needles = headingNeedles(title);
+  if (!needles.length) return preferredPage && preferredPage >= minimumPage ? preferredPage : null;
   const matches = pages
     .filter((page) => Number(page.pageStart) >= minimumPage)
     .map((page) => {
-      const lines = page.text.split(/\r?\n/).slice(0, 24).map(normalizedHeading);
+      const lines = page.text.split(/\r?\n/).map(normalizedHeading).filter(Boolean);
+      const pageText = normalizedHeading(page.text);
+      let score = 0;
+      for (const needle of needles) {
+        if (lines.some((line) => line === needle)) score = Math.max(score, 100);
+        if (needle.length >= 4 && lines.some((line) => line.startsWith(needle) || needle.startsWith(line))) score = Math.max(score, 80);
+        if (needle.length >= 5 && pageText.includes(needle)) score = Math.max(score, 55);
+      }
       return {
         page: Number(page.pageStart),
-        exact: lines.some((line) => line === needle),
-        prefix: needle.length >= 5 && lines.some((line) => line.startsWith(needle)),
+        score,
       };
     });
-  const exactCandidates = matches.filter((match) => match.exact).map((match) => match.page);
-  const candidates = exactCandidates.length
-    ? exactCandidates
-    : matches.filter((match) => match.prefix).map((match) => match.page);
+  const bestScore = Math.max(0, ...matches.map((match) => match.score));
+  const candidates = matches.filter((match) => match.score === bestScore && match.score >= 55).map((match) => match.page);
   if (!candidates.length) return preferredPage && preferredPage >= minimumPage ? preferredPage : null;
   if (preferredPage && preferredPage >= minimumPage) {
     return candidates.reduce((best, page) => Math.abs(page - preferredPage) < Math.abs(best - preferredPage) ? page : best);
@@ -484,27 +503,41 @@ async function fillChaptersFromExtractedPages(resourceId: number) {
   }
 
   let updated = 0;
+  const locatedIds = new Set<number>();
   for (let index = 0; index < chapters.length; index += 1) {
     const chapter = chapters[index];
-    if (chapter.text.trim().length >= SOURCE_TEXT_MIN_LENGTH) continue;
     const start = starts[index];
     if (!start) continue;
     const nextStart = starts.slice(index + 1).find((value): value is number => Boolean(value && value > start));
     const storedEnd = chapter.pageEnd && chapter.pageEnd >= start ? chapter.pageEnd : null;
-    const end = Math.min(totalPages, nextStart ? nextStart - 1 : storedEnd ?? totalPages);
+    // Never let an unresolved next heading make one high-level "篇" consume
+    // the rest of a several-hundred-page book. A stored end is accepted only
+    // when it is a reasonably sized chapter; otherwise this row remains
+    // unresolved and can be retried through the book-scoped index.
+    const safeStoredEnd = storedEnd && storedEnd - start <= 80 ? storedEnd : null;
+    const isLastChapter = index === chapters.length - 1;
+    if (!nextStart && !safeStoredEnd && !isLastChapter) continue;
+    const end = Math.min(totalPages, nextStart ? nextStart - 1 : safeStoredEnd ?? totalPages);
     const text = cleanSourceText(
       Array.from({ length: Math.max(0, end - start + 1) }, (_, offset) => pageByNumber.get(start + offset)?.text ?? "")
         .filter(Boolean)
         .join("\n\n"),
     ).slice(0, SOURCE_TEXT_MAX_LENGTH);
     if (text.length < SOURCE_TEXT_MIN_LENGTH) continue;
+    const existingSpan = chapter.pageStart && chapter.pageEnd ? chapter.pageEnd - chapter.pageStart : 0;
+    const existingLooksWrong = chapter.text.length >= SOURCE_TEXT_MAX_LENGTH - 100 || existingSpan > 80;
+    if (chapter.text.trim().length >= SOURCE_TEXT_MIN_LENGTH && !existingLooksWrong) {
+      locatedIds.add(chapter.id);
+      continue;
+    }
     await db
       .update(resourceSegments)
       .set({ text, pageStart: start, pageEnd: end, reviewStatus: "source" })
       .where(eq(resourceSegments.id, chapter.id));
+    locatedIds.add(chapter.id);
     updated += 1;
   }
-  return { updated, total: chapters.length };
+  return { updated, total: chapters.length, locatedIds: [...locatedIds] };
 }
 
 function exactSearchText(payload: Record<string, unknown>, fileId: string) {
@@ -772,12 +805,14 @@ export async function GET(request: Request) {
     // catalogue here hid freshly saved source text behind negative-id rows.
     if (!problemBook && chapters.length) {
       const incompleteCount = chapters.filter((chapter) => chapter.text.trim().length < SOURCE_TEXT_MIN_LENGTH).length;
+      const sourceProgress = await readChapterSourceProgress(resourceId);
       return Response.json({
         chapters,
         generated: false,
         ready: true,
         status: incompleteCount ? "partial" : "completed",
         incompleteCount,
+        sourceFailures: sourceProgress.failures ?? [],
         progress,
         message: incompleteCount
           ? `已載入 ${chapters.length} 章；其中 ${incompleteCount} 章仍待補齊原文。`
@@ -1022,6 +1057,18 @@ export async function POST(request: Request) {
       if (pageBatch) await fillChaptersFromExtractedPages(resourceId);
       chapters = await readChapters(resourceId);
       let ready = chapters.filter((chapter) => chapter.text.trim().length >= SOURCE_TEXT_MIN_LENGTH).length;
+      const readyIds = new Set(
+        chapters
+          .filter((chapter) => chapter.text.trim().length >= SOURCE_TEXT_MIN_LENGTH)
+          .map((chapter) => chapter.id),
+      );
+      if ((sourceProgress.failedSegmentIds ?? []).some((id) => readyIds.has(id))) {
+        sourceProgress = {
+          failedSegmentIds: (sourceProgress.failedSegmentIds ?? []).filter((id) => !readyIds.has(id)),
+          failures: (sourceProgress.failures ?? []).filter((item) => !readyIds.has(item.segmentId)),
+        };
+        await writeChapterSourceProgress(resourceId, sourceProgress);
+      }
       if (ready === chapters.length) {
         await writeChapterSourceProgress(resourceId, {});
         return Response.json({
