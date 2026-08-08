@@ -348,8 +348,8 @@ export function PracticeLab({ initialType }: Props) {
       if (!saved) return;
       const parsed = JSON.parse(saved) as { pinned?: boolean; level?: CoachTeachingLevel; teachingLevel?: CoachTeachingLevel; modelMode?: CoachModelMode };
       const level = parsed.teachingLevel ?? parsed.level;
-      if (parsed.pinned !== false && level && parsed.modelMode) {
-        setCoachSettingsPinned(true);
+      if (level && parsed.modelMode) {
+        setCoachSettingsPinned(parsed.pinned !== false);
         setCoachTeachingLevel(level);
         setCoachModelMode(parsed.modelMode);
       }
@@ -359,14 +359,12 @@ export function PracticeLab({ initialType }: Props) {
   function toggleCoachSettingsPinned(checked: boolean) {
     setCoachSettingsPinned(checked);
     try {
-      if (!checked) window.localStorage.removeItem("silu-ai-settings-pinned");
-      else window.localStorage.setItem("silu-ai-settings-pinned", JSON.stringify({ teachingLevel: coachTeachingLevel, modelMode: coachModelMode }));
+      window.localStorage.setItem("silu-ai-settings-pinned", JSON.stringify({ pinned: checked, teachingLevel: coachTeachingLevel, modelMode: coachModelMode }));
     } catch { /* ignore */ }
   }
 
   function persistCoachSetting(level: CoachTeachingLevel, modelMode: CoachModelMode) {
-    if (!coachSettingsPinned) return;
-    try { window.localStorage.setItem("silu-ai-settings-pinned", JSON.stringify({ teachingLevel: level, modelMode })); } catch { /* ignore */ }
+    try { window.localStorage.setItem("silu-ai-settings-pinned", JSON.stringify({ pinned: coachSettingsPinned, teachingLevel: level, modelMode })); } catch { /* ignore */ }
   }
 
   useEffect(() => {

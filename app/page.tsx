@@ -301,9 +301,9 @@ export default function Home() {
     const pinned = window.localStorage.getItem(aiSettingsStorageKey);
     if (pinned) {
       try {
-        const parsed = JSON.parse(pinned) as { teachingLevel?: unknown; modelMode?: unknown };
+        const parsed = JSON.parse(pinned) as { pinned?: unknown; teachingLevel?: unknown; modelMode?: unknown };
         if (isTeachingLevel(parsed.teachingLevel) && isChatModelMode(parsed.modelMode)) {
-          setSettingsPinned(true);
+          setSettingsPinned(parsed.pinned !== false);
           setPendingTeachingLevel(parsed.teachingLevel === "general" ? null : parsed.teachingLevel);
           setModelMode(parsed.modelMode);
         } else {
@@ -317,13 +317,18 @@ export default function Home() {
 
   function toggleSettingsPinned(next: boolean) {
     setSettingsPinned(next);
-    if (!next) {
-      window.localStorage.removeItem(aiSettingsStorageKey);
-      return;
-    }
     window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({
+      pinned: next,
       teachingLevel: pendingTeachingLevel ?? "general",
       modelMode,
+    }));
+  }
+
+  function persistAiSettings(level: TeachingLevel, nextModelMode: ChatModelMode = modelMode) {
+    window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({
+      pinned: settingsPinned,
+      teachingLevel: level,
+      modelMode: nextModelMode,
     }));
   }
 
@@ -508,7 +513,6 @@ export default function Home() {
     if (!sentTeachingLevel) setTeachingRounds([]);
     if (!sentTeachingLevel) setTeachingUsage([]);
     setSelectedFollowUps([]);
-    if (!settingsPinned) setPendingTeachingLevel(null);
     setInput("");
     setDailyChoiceVisible(false);
     setImageDraft(null);
@@ -596,7 +600,6 @@ export default function Home() {
       setTeachingRounds([]);
       setTeachingUsage([]);
       setSelectedFollowUps([]);
-      if (!settingsPinned) setPendingTeachingLevel(null);
       setImageDraft(null);
       setEditingImage(false);
       window.setTimeout(() => composerInputRef.current?.focus(), 0);
@@ -679,9 +682,11 @@ export default function Home() {
     const level = value as TeachingLevel;
     if (level === "general") {
       setPendingTeachingLevel(null);
+      persistAiSettings("general");
       return;
     }
     setPendingTeachingLevel(level);
+    persistAiSettings(level);
   }
 
   useEffect(() => {
@@ -855,10 +860,10 @@ export default function Home() {
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
             </select></label>
-            <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => setModelMode(event.target.value as ChatModelMode)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
+            <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => { const next = event.target.value as ChatModelMode; setModelMode(next); persistAiSettings(pendingTeachingLevel ?? "general", next); }} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="luna">Luna</option><option value="glm">GLM-4.7-Flash｜免費測試</option><option value="glm52">GLM-5.2｜付費測試（上限 US$2）</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
             </select></label>
-            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else { setModelMode(`compare-${value}` as ChatModelMode); } }} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
+            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; const next = value === "none" ? (modelMode.startsWith("compare-") ? modelMode.split("-")[1] as ChatModelMode : modelMode) : `compare-${value}` as ChatModelMode; setModelMode(next); persistAiSettings(pendingTeachingLevel ?? "general", next); }} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="none">不比較</option><option value="luna-glm52">Luna＋GLM-5.2</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
             </select></label>
           </div>
