@@ -20,8 +20,9 @@ export async function POST() {
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: "請只用繁體中文回答：司律備考 GLM 連線測試成功。" }],
+        thinking: { type: "disabled" },
         temperature: 0,
-        max_tokens: 80,
+        max_tokens: 256,
       }),
     });
     const payload = await response.json().catch(() => ({})) as ZaiPayload;
