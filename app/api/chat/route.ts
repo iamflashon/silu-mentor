@@ -67,6 +67,22 @@ function evidenceTerms(value: string) {
     const term = normalized.slice(index, index + 2);
     if (!evidenceStopTerms.has(term)) terms.add(term);
   }
+  for (const term of legalExampleTerms(value)) terms.add(term);
+  return terms;
+}
+
+function legalExampleTerms(value: string) {
+  const terms = new Set<string>();
+  // 中文沒有空白分詞；先以標點與常見並列詞拆開，避免
+  // 「公然侮辱罪與殺人罪」被視為一個長字串而漏掉兩個罪名。
+  const pieces = value.split(/[\s，。；：、！？（）()［］\[\]「」『』]|(?:以及|以及其|與|和|及)/u);
+  for (const piece of pieces) {
+    for (const match of piece.matchAll(/([\p{Script=Han}]{2,8}(?:罪|犯))/gu)) {
+      let term = match[1];
+      term = term.replace(/^(例如|其中|哪些屬於|屬於|本類型|第一節)/u, "");
+      if (term.length >= 3) terms.add(term.toLowerCase());
+    }
+  }
   return terms;
 }
 
@@ -95,6 +111,13 @@ function evidenceSupportKind(excerpt: string, query: string, reply: string): "di
   const meaningfulHits = [...claimTerms].filter((term) => term.length >= 3 && excerptTerms.has(term));
   const longHits = meaningfulHits.filter((term) => term.length >= 4);
   const queryHits = [...queryTerms].filter((term) => term.length >= 3 && excerptTerms.has(term));
+  const requestedExamples = legalExampleTerms(`${query} ${reply}`);
+  const directlyNamedExamples = [...requestedExamples].filter((term) => excerptTerms.has(term));
+  const containsClassification = /行為犯|舉動犯|結果犯|危險犯|狀態犯|身分犯|加重結果犯/.test(excerpt);
+
+  // 教材同時逐名列出題目中的具體罪名與其分類時，答案已由原文直接記載；
+  // 不應因 AI 以提問方式帶學習，或中文分詞漏字，而降級成「支持不足」。
+  if (containsClassification && directlyNamedExamples.length >= 2) return "direct";
   if (longHits.length < 2 && meaningfulHits.length < 4) return "insufficient";
 
   const replyConcepts = [...claimTerms].filter((term) => term.length >= 3);
