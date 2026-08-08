@@ -591,6 +591,7 @@ export default function StudyPlanPage() {
   const [bookChatLoading, setBookChatLoading] = useState(false);
   const [bookLoadingRole, setBookLoadingRole] = useState<"mentor" | "scholar" | null>(null);
   const [bookSelectedMessageIndex, setBookSelectedMessageIndex] = useState<number | null>(null);
+  const [bookQuestionOpen, setBookQuestionOpen] = useState(true);
   const [bookSettingsOpen, setBookSettingsOpen] = useState(true);
   const [bookSettingsPinned, setBookSettingsPinned] = useState(false);
   const [bookModelMode, setBookModelMode] = useState<BookModelMode>("luna");
@@ -1765,6 +1766,7 @@ export default function StudyPlanPage() {
     setBookSessionId(null);
     setBookInput("");
     setBookSelectedMessageIndex(null);
+    setBookQuestionOpen(true);
     setBookTeachingLevel(null);
     setBookTestNotice("");
     if (selectedBookIsProblemSolving && !forceRestart) {
@@ -3521,40 +3523,52 @@ export default function StudyPlanPage() {
                             {selectedBookIsProblemSolving && (
                               <div className="problem-question-panel">
                                 <div className="problem-question-meta">
-                                  <span>
-                                    {selectedChapter.lessonLabel.replace(
-                                      "｜",
-                                      " · ",
+                                  <div>
+                                    <span>
+                                      {selectedChapter.lessonLabel.replace(
+                                        "｜",
+                                        " · ",
+                                      )}
+                                    </span>
+                                    {selectedChapter.pageStart && (
+                                      <em>
+                                        第 {selectedChapter.pageStart}
+                                        {selectedChapter.pageEnd &&
+                                        selectedChapter.pageEnd !==
+                                          selectedChapter.pageStart
+                                          ? `–${selectedChapter.pageEnd}`
+                                          : ""} 頁
+                                      </em>
                                     )}
-                                  </span>
-                                  {selectedChapter.pageStart && (
-                                    <em>
-                                      第 {selectedChapter.pageStart}
-                                      {selectedChapter.pageEnd &&
-                                      selectedChapter.pageEnd !==
-                                        selectedChapter.pageStart
-                                        ? `–${selectedChapter.pageEnd}`
-                                        : ""} 頁
-                                    </em>
-                                  )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="problem-question-toggle"
+                                    aria-expanded={bookQuestionOpen}
+                                    onClick={() => setBookQuestionOpen((open) => !open)}
+                                  >
+                                    {bookQuestionOpen ? "收起題目" : "展開題目"}
+                                  </button>
                                 </div>
-                                <h4>{selectedChapter.title}</h4>
-                                <div className="problem-question-stem">
-                                  {selectedChapter.text ||
-                                    "完整題目尚未從原書索引擷取完成；核對前不由 AI 補造內容。"}
-                                </div>
-                                <button
-                                  type="button"
-                                  className="problem-start-button"
-                                  disabled={!selectedChapter.text.trim()}
-                                  onClick={() =>
-                                    setBookInput(
-                                      "請帶我審這一題：先辨認題型與關鍵事實，再逐步問我可能的爭點；先不要公布完整擬答。",
-                                    )
-                                  }
-                                >
-                                  開始審題
-                                </button>
+                                {bookQuestionOpen && <>
+                                  <h4>{selectedChapter.title}</h4>
+                                  <div className="problem-question-stem">
+                                    {selectedChapter.text ||
+                                      "完整題目尚未從原書索引擷取完成；核對前不由 AI 補造內容。"}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="problem-start-button"
+                                    disabled={!selectedChapter.text.trim()}
+                                    onClick={() =>
+                                      setBookInput(
+                                        "請帶我審這一題：先辨認題型與關鍵事實，再逐步問我可能的爭點；先不要公布完整擬答。",
+                                      )
+                                    }
+                                  >
+                                    開始審題
+                                  </button>
+                                </>}
                               </div>
                             )}
                             <div ref={bookDialogueMessagesRef} className="book-dialogue-messages">

@@ -3904,8 +3904,11 @@ a {
 }
 .problem-solving-room .book-dialogue-messages:empty { display: none; }
 .problem-question-panel { margin: 14px 0 18px; padding: 20px; border: 1px solid #d5e5eb; border-radius: 12px; background: #fff; }
-.problem-question-meta { display: flex; justify-content: space-between; gap: 12px; color: #648396; font-size: 11px; }
+.problem-question-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; color: #648396; font-size: 11px; }
+.problem-question-meta > div { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .problem-question-meta em { font-style: normal; white-space: nowrap; }
+.problem-question-toggle { flex: 0 0 auto; padding: 4px 9px; border: 1px solid #c4dbe2; border-radius: 7px; background: #f8fcfd; color: #39758f; font: inherit; font-size: 10px; font-weight: 800; cursor: pointer; }
+.problem-question-toggle:hover { border-color: #76a6b9; background: #eef8fa; }
 .problem-question-panel h4 { margin: 13px 0 10px; color: #173e57; font-size: 17px; line-height: 1.55; }
 .problem-question-stem { color: #273e4b; font-size: 15px; line-height: 1.9; white-space: pre-wrap; }
 .problem-start-button { margin-top: 18px; padding: 10px 18px; border: 0; border-radius: 9px; background: #397c98; color: #fff; font-weight: 750; cursor: pointer; }
