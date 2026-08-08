@@ -12,6 +12,7 @@ import {
 } from "../../../../lib/document-analysis";
 import { documentExtension, resolveDocumentPayload } from "../../../../lib/document-processing";
 import { openAIJson } from "../../../../lib/openai";
+import { sortByBookOrder } from "../../../../lib/book-order";
 
 // Only published rows belong to the canonical chapter catalogue. Staging rows
 // are read explicitly through `readPendingChapters`; mixing them here made the
@@ -244,7 +245,7 @@ function storedCatalogueRows(
   const sourceRows = mode === "chapters"
     ? (Array.isArray(analysis?.chapters) ? analysis.chapters : [])
     : (Array.isArray(analysis?.questions) ? analysis.questions : []);
-  return sourceRows
+  return sortByBookOrder(sourceRows
     .map((item, index) => {
       // Older document runs saved chapter candidates as plain strings, while
       // newer runs use heading/title/path objects. Accept both shapes so an
@@ -301,7 +302,7 @@ function storedCatalogueRows(
         updatedAt: new Date(),
       };
     })
-    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    .filter((row): row is NonNullable<typeof row> => Boolean(row)));
 }
 
 function storedRowsForResource(
@@ -790,7 +791,7 @@ function progressForResponse(progress: ChapterProgress, updatedAt: Date | null) 
 
 async function readChapters(resourceId: number) {
   const db = await getDb();
-  return db
+  const rows = await db
     .select()
     .from(resourceSegments)
     .where(
@@ -800,11 +801,12 @@ async function readChapters(resourceId: number) {
       ),
     )
     .orderBy(asc(resourceSegments.sequence));
+  return sortByBookOrder(rows);
 }
 
 async function readPendingChapters(resourceId: number) {
   const db = await getDb();
-  return db
+  const rows = await db
     .select()
     .from(resourceSegments)
     .where(
@@ -814,6 +816,7 @@ async function readPendingChapters(resourceId: number) {
       ),
     )
     .orderBy(asc(resourceSegments.sequence));
+  return sortByBookOrder(rows);
 }
 
 async function materializeStoredChapters(
@@ -1710,8 +1713,7 @@ export async function POST(request: Request) {
         for (const chapter of pendingChapters) {
           byKey.set(`${chapter.lessonLabel.trim()}|${chapter.title.trim()}`, chapter);
         }
-        const mergedRows = [...byKey.values()]
-          .sort((left, right) => (left.pageStart ?? Number.MAX_SAFE_INTEGER) - (right.pageStart ?? Number.MAX_SAFE_INTEGER) || left.sequence - right.sequence)
+        const mergedRows = sortByBookOrder([...byKey.values()])
           .map((chapter, index) => ({
             resourceId,
             segmentType: "book_chapter",
