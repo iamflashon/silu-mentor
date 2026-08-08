@@ -32,9 +32,9 @@ type Message = { role: "mentor" | "student"; text: string; sources?: string[]; c
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
-type ChatModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+type ChatModelMode = "luna" | "sonnet" | "deepseek" | "glm" | "glm52" | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 const aiSettingsStorageKey = "silu-ai-settings-pinned";
-const chatModelModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+const chatModelModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
 function isTeachingLevel(value: unknown): value is TeachingLevel { return value === "general" || value === "beginner" || value === "intermediate" || value === "advanced" || value === "super"; }
 function isChatModelMode(value: unknown): value is ChatModelMode { return typeof value === "string" && chatModelModes.includes(value as ChatModelMode); }
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
@@ -79,7 +79,7 @@ function answerParagraphs(text: string) {
   return clean.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
 }
 function modelLabel(model: string) {
-  return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : "Luna";
+  return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : /glm-5\.2/i.test(model) ? "GLM-5.2（付費測試）" : /glm/i.test(model) ? "GLM-4.7-Flash（免費測試）" : "Luna";
 }
 function MentorAnswerText({ text, label, model, prompt, onAnswerAction, disabled, showLearningActions = true }: { text: string; label: string; model: string; prompt: string; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean; showLearningActions?: boolean }) {
   const paragraphs = answerParagraphs(text);
@@ -190,7 +190,7 @@ export default function Home() {
   const latestTeacherPrompt = latestTeacherIndex >= 0 ? pairedStudentPrompt(messages, latestTeacherIndex) : "";
   const actualLatestComparison = latestTeacherTurn?.comparison ?? null;
   const latestTeacherModel = latestTeacherMessage?.model ?? lastUsage?.model ?? "gpt-5.6-luna";
-  const latestTeacherLabel = /claude/i.test(latestTeacherModel) ? "Claude Sonnet" : /deepseek/i.test(latestTeacherModel) ? "DeepSeek V4-Pro" : "Luna";
+  const latestTeacherLabel = modelLabel(latestTeacherModel);
   const latestComparison = actualLatestComparison ?? (latestTeacherMessage ? { id: -1, sourceStatus: "unavailable", responses: [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] } satisfies ModelComparison : null);
   const latestTeacherResponses: ComparisonResponse[] = latestComparison?.responses.filter((response) => !response.error && response.text.trim())
     ?? (latestTeacherMessage ? [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI 補充" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] : []);
@@ -519,7 +519,7 @@ export default function Home() {
       if (sentTeachingLevel) {
         const lunaResponse = result.comparison?.responses.find((item) => item.label === "Luna") ?? null;
         const claudeResponse = result.comparison?.responses.find((item) => item.label === "Claude Sonnet") ?? null;
-        const primaryLabel = /claude/i.test(result.usage?.model ?? "") ? "Claude Sonnet" : "Luna";
+        const primaryLabel = modelLabel(result.usage?.model ?? "");
         const teacherA = {
           label: primaryLabel,
           model: lunaResponse?.model ?? result.usage?.model ?? "gpt-5.6-luna",
@@ -836,17 +836,17 @@ export default function Home() {
           <b>學習工具</b>
         </button>
         <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
-          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "luna" ? "Luna" : modelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}{settingsPinned ? " · 已固定" : ""}</span><button type="button" className="follow-up-compact-button" onClick={() => pendingTeachingLevel && void runTeachingLevel(pendingTeachingLevel)} disabled={!pendingTeachingLevel || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode === "compare-luna-glm52" ? "Luna＋GLM-5.2" : modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "luna" ? "Luna" : modelMode === "sonnet" ? "Claude Sonnet" : modelMode === "glm" ? "GLM-4.7-Flash（免費測試）" : modelMode === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro"}{settingsPinned ? " · 已固定" : ""}</span><button type="button" className="follow-up-compact-button" onClick={() => pendingTeachingLevel && void runTeachingLevel(pendingTeachingLevel)} disabled={!pendingTeachingLevel || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
             </select></label>
             <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => setModelMode(event.target.value as ChatModelMode)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
-              <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
+              <option value="luna">Luna</option><option value="glm">GLM-4.7-Flash｜免費測試</option><option value="glm52">GLM-5.2｜付費測試（上限 US$2）</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
             </select></label>
             <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as ChatModelMode : current); } else { setModelMode(`compare-${value}` as ChatModelMode); } }} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
-              <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
+              <option value="none">不比較</option><option value="luna-glm52">Luna＋GLM-5.2</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
             </select></label>
           </div>
           <div className={`model-settings-pin-row ${settingsPinned ? "is-pinned" : ""}`}>

@@ -5,16 +5,16 @@ type ChatContext =
   | { type: "magazine"; resourceId: number; resourceTitle: string }
   | { type: "my-course" | "public-course"; resourceId: number; episodeId: number; resourceTitle: string; episodeTitle: string };
 type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: string; replaceOnlySubject: boolean; days: number; dailyMinutes: number };
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { storedDocumentAnalysis } from "../../../lib/document-analysis";
 import { syncBookLearningRecord } from "../../../lib/book-learning-record";
-import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getZaiKey, getZaiModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
-type ChatProvider = "luna" | "sonnet" | "deepseek";
-type ChatModelMode = ChatProvider | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+type ChatProvider = "luna" | "sonnet" | "deepseek" | "glm" | "glm52";
+type ChatModelMode = ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 function activeProviders(mode: ChatModelMode): ChatProvider[] {
@@ -23,7 +23,7 @@ function activeProviders(mode: ChatModelMode): ChatProvider[] {
 }
 
 function providerLabel(provider: ChatProvider) {
-  return provider === "luna" ? "Luna" : provider === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro";
+  return provider === "luna" ? "Luna" : provider === "sonnet" ? "Claude Sonnet" : provider === "glm" ? "GLM-4.7-Flash（免費測試）" : provider === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro";
 }
 
 type TeachingEvidence = {
@@ -594,13 +594,14 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean };
     const requestedMode = String(body.modelMode ?? "luna");
-    const allowedModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+    const allowedModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     const modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "luna";
     const providers = activeProviders(modelMode);
     const isComparison = providers.length > 1;
     const needsOpenAi = providers.includes("luna");
     const needsAnthropic = providers.includes("sonnet");
     const needsDeepSeek = providers.includes("deepseek");
+    const needsZai = providers.includes("glm") || providers.includes("glm52");
     const apiKey = needsOpenAi ? await getOpenAIKey() : "";
     if (needsOpenAi && !apiKey) {
       return Response.json({ error: "OPENAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
@@ -609,6 +610,10 @@ export async function POST(request: Request) {
     if (needsDeepSeek && !deepSeekKey) {
       return Response.json({ error: "DEEPSEEK_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
+    const zaiKey = needsZai ? await getZaiKey() : "";
+    if (needsZai && !zaiKey) {
+      return Response.json({ error: "ZAI_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
+    }
     const anthropicKey = needsAnthropic ? await getAnthropicKey() : "";
     if (needsAnthropic && !anthropicKey) {
       return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
@@ -616,6 +621,16 @@ export async function POST(request: Request) {
     const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
     const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
+    if (needsZai && imageDataUrl) {
+      return Response.json({ error: "GLM 目前只測試文字對話；圖片題目請改選 Luna 或 Claude Sonnet。" }, { status: 400 });
+    }
+    if (providers.includes("glm52")) {
+      const db = await getDb();
+      const [spent] = await db.select({ micros: sql<number>`coalesce(sum(${usageLogs.estimatedCostUsdMicros}), 0)` }).from(usageLogs).where(eq(usageLogs.model, "glm-5.2"));
+      if (Number(spent?.micros ?? 0) >= 2_000_000) {
+        return Response.json({ error: "GLM-5.2 測試預算已達 US$2，系統已停止付費呼叫；可改選免費 GLM-4.7-Flash 或 Luna。" }, { status: 402 });
+      }
+    }
     const allowedPlanningSubjects = new Set(["刑法", "刑事訴訟法", "民法", "民事訴訟法", "憲法", "行政法", "商事法"]);
     const planningConstraint = body.planningConstraint?.mode === "single" && allowedPlanningSubjects.has(body.planningConstraint.subject)
       ? body.planningConstraint
@@ -723,6 +738,7 @@ export async function POST(request: Request) {
     // 成 Terra／Sol；只有使用者選擇雙模型比較時，才另外呼叫 Claude。
     const selectedModel = await getOpenAIModel("gpt-5.6-luna");
     const deepSeekModel = await getDeepSeekModel("deepseek-v4-pro");
+    const zaiModel = providers.includes("glm52") ? "glm-5.2" : await getZaiModel("glm-4.7-flash");
     const tools: Array<Record<string, unknown>> = [{
       type: "function",
       name: "save_study_plan",
@@ -784,6 +800,39 @@ export async function POST(request: Request) {
     let openAiError = "";
     let deepSeekRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number } | null = null;
     let deepSeekError = "";
+    let zaiRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number } | null = null;
+    let zaiError = "";
+    if (needsZai) {
+      const startedAt = Date.now();
+      const response = await fetch("https://api.z.ai/api/paas/v4/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${zaiKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          model: zaiModel,
+          messages: [{ role: "system", content: instructions }, ...modelMessages.map((message) => ({ role: message.role === "mentor" ? "assistant" : "user", content: message.text }))],
+          thinking: { type: providers.includes("glm52") ? "enabled" : "disabled" },
+          max_tokens: 4096,
+          temperature: 0.7,
+        }),
+      });
+      const raw = await response.text();
+      let zaiPayload: { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: { message?: string } } = {};
+      try { zaiPayload = JSON.parse(raw) as typeof zaiPayload; } catch { /* handled as a service error */ }
+      if (!response.ok) {
+        const zaiLabel = providers.includes("glm52") ? "GLM-5.2" : "GLM-4.7-Flash 免費模型";
+        zaiError = response.status === 429 || response.status >= 500
+          ? `${zaiLabel}目前繁忙，請稍後再試；本次沒有改用其他模型。`
+          : `${zaiLabel}無法回應${zaiPayload.error?.message ? `：${zaiPayload.error.message.slice(0, 220)}` : ""}`;
+      } else {
+        zaiRun = {
+          model: zaiPayload.model || zaiModel,
+          reply: zaiPayload.choices?.[0]?.message?.content?.trim() || "",
+          inputTokens: Number(zaiPayload.usage?.prompt_tokens ?? 0),
+          outputTokens: Number(zaiPayload.usage?.completion_tokens ?? 0),
+          durationMs: Math.max(0, Date.now() - startedAt),
+        };
+      }
+    }
     if (needsDeepSeek) {
       const startedAt = Date.now();
       const response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -838,7 +887,7 @@ export async function POST(request: Request) {
       openAiDurationMs = Math.max(0, Date.now() - openAiStartedAt);
     }
     const openAiReply = extractText(payload);
-    let reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : "").find(Boolean) ?? "";
+    let reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : provider === "glm" ? zaiRun?.reply ?? "" : "").find(Boolean) ?? "";
     const planCall = readPlanCall(payload);
     const deleteCall = readDeleteCall(payload);
     let planSaved = false;
@@ -887,8 +936,8 @@ export async function POST(request: Request) {
       }
     }
     if (providers[0] === "sonnet") reply = claudeRun?.reply ?? "";
-    if (!reply) reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : claudeRun?.reply ?? "").find(Boolean) ?? "";
-    if (!reply) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
+    if (!reply) reply = providers.map((provider) => provider === "luna" ? openAiReply : provider === "deepseek" ? deepSeekRun?.reply ?? "" : provider === "glm" ? zaiRun?.reply ?? "" : claudeRun?.reply ?? "").find(Boolean) ?? "";
+    if (!reply) return Response.json({ error: zaiError || openAiError || deepSeekError || claudeError || "AI 未產生可顯示內容" }, { status: 502 });
 
     const fileSearchConfirmedForBook = Boolean(
       context.type === "book" &&
@@ -950,6 +999,9 @@ export async function POST(request: Request) {
     const claudeCostUsd = claudeRun
       ? (claudeRun.inputTokens * claudePricing.input + claudeRun.outputTokens * claudePricing.output) / 1_000_000
       : 0;
+    const zaiCostUsd = zaiRun && providers.includes("glm52")
+      ? (zaiRun.inputTokens * 1.4 + zaiRun.outputTokens * 4.4) / 1_000_000
+      : 0;
     const modelResults = providers.map((provider) => {
       if (provider === "luna") return {
         provider,
@@ -977,6 +1029,20 @@ export async function POST(request: Request) {
         estimatedCostUsd: deepSeekCostUsd,
         durationMs: deepSeekRun?.durationMs ?? 0,
         error: deepSeekError || (!deepSeekRun?.reply ? "DeepSeek V4-Pro 未產生可顯示內容" : ""),
+        stopReason: null as string | null,
+      };
+      if (provider === "glm" || provider === "glm52") return {
+        provider,
+        providerName: "zai",
+        model: zaiRun?.model || zaiModel,
+        label: providerLabel(provider),
+        text: zaiRun?.reply || "",
+        inputTokens: zaiRun?.inputTokens ?? 0,
+        cachedTokens: 0,
+        outputTokens: zaiRun?.outputTokens ?? 0,
+        estimatedCostUsd: zaiCostUsd,
+        durationMs: zaiRun?.durationMs ?? 0,
+        error: zaiError || (!zaiRun?.reply ? `${provider === "glm52" ? "GLM-5.2" : "GLM-4.7-Flash"} 未產生可顯示內容` : ""),
         stopReason: null as string | null,
       };
       return {
