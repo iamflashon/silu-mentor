@@ -705,17 +705,34 @@ export default function StudyPlanPage() {
     setActiveTab(requestedPlanTab());
   }, []);
   useEffect(() => {
+    let localPreference: { pinned?: boolean; modelMode?: string; teachingLevel?: string | null } | null = null;
     try {
       const stored = window.localStorage.getItem("silu-book-ai-settings-pinned");
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as { pinned?: boolean; modelMode?: string; teachingLevel?: string | null };
-      const allowedModes: BookModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
-      if (parsed.pinned) setBookSettingsPinned(true);
-      if (allowedModes.includes(parsed.modelMode as BookModelMode)) setBookModelMode(parsed.modelMode as BookModelMode);
-      if (["beginner", "intermediate", "advanced", "super"].includes(String(parsed.teachingLevel))) setBookTeachingLevel(parsed.teachingLevel as "beginner" | "intermediate" | "advanced" | "super");
+      if (stored) {
+        const parsed = JSON.parse(stored) as { pinned?: boolean; modelMode?: string; teachingLevel?: string | null };
+        localPreference = parsed;
+        const allowedModes: BookModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+        if (parsed.pinned) setBookSettingsPinned(true);
+        if (allowedModes.includes(parsed.modelMode as BookModelMode)) setBookModelMode(parsed.modelMode as BookModelMode);
+        if (["beginner", "intermediate", "advanced", "super"].includes(String(parsed.teachingLevel))) setBookTeachingLevel(parsed.teachingLevel as "beginner" | "intermediate" | "advanced" | "super");
+      }
     } catch {
       window.localStorage.removeItem("silu-book-ai-settings-pinned");
     }
+    fetch("/api/book-learning/preferences", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const { preference, stored } = await response.json() as { stored?: boolean; preference?: { bookTeachingLevel?: string | null; bookModelMode?: string; bookSettingsPinned?: boolean; lastBookResourceId?: number | null; lastBookSegmentId?: number | null } };
+      if (!preference) return;
+      if (!stored && localPreference) {
+        void fetch("/api/book-learning/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ bookTeachingLevel: localPreference.teachingLevel ?? null, bookModelMode: localPreference.modelMode ?? "luna", bookSettingsPinned: Boolean(localPreference.pinned), lastBookResourceId: preference.lastBookResourceId ?? null, lastBookSegmentId: preference.lastBookSegmentId ?? null }) });
+        return;
+      }
+      const allowedModes: BookModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+      setBookSettingsPinned(Boolean(preference.bookSettingsPinned));
+      if (allowedModes.includes(preference.bookModelMode as BookModelMode)) setBookModelMode(preference.bookModelMode as BookModelMode);
+      setBookTeachingLevel(["beginner", "intermediate", "advanced", "super"].includes(String(preference.bookTeachingLevel)) ? preference.bookTeachingLevel as "beginner" | "intermediate" | "advanced" | "super" : null);
+      if (preference.lastBookResourceId && preference.lastBookSegmentId) setLastBookProgress({ resourceId: preference.lastBookResourceId, segmentId: preference.lastBookSegmentId });
+    }).catch(() => undefined);
   }, []);
   const [resourceMessage, setResourceMessage] = useState("");
   const [coursePlayerError, setCoursePlayerError] = useState("");
@@ -1861,7 +1878,6 @@ export default function StudyPlanPage() {
     setBookInput("");
     setBookSelectedMessageIndex(null);
     setBookQuestionOpen(true);
-    setBookTeachingLevel(null);
     setBookTestNotice("");
     setBookChatLoading(true);
     setBookLoadingRole(selectedBookIsProblemSolving ? null : "mentor");
@@ -1883,6 +1899,7 @@ export default function StudyPlanPage() {
             resourceId: selectedResource.id,
             segmentId: chapter.id,
           });
+          void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: chapter.id, lastBookSessionId: history.sessionId ?? null });
           setBookChatLoading(false);
           setBookLoadingRole(null);
           return;
@@ -1898,6 +1915,7 @@ export default function StudyPlanPage() {
         resourceId: selectedResource.id,
         segmentId: chapter.id,
       });
+      void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: chapter.id, lastBookSessionId: null });
       updateResourceProgress(selectedResource.id, {
         segmentId: chapter.id,
         page: chapter.pageStart ?? 1,
@@ -1940,6 +1958,7 @@ export default function StudyPlanPage() {
         resourceId: selectedResource.id,
         segmentId: chapter.id,
       });
+      void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: chapter.id, lastBookSessionId: result.sessionId ?? null });
       setBookMessages([
         {
           role: "student",
@@ -2131,13 +2150,25 @@ export default function StudyPlanPage() {
     return () => window.clearTimeout(timer);
   }, [bookChapters, lastBookProgress, selectedChapterId, selectedResourceId]);
 
+  function persistBookPreferences(patch: Record<string, unknown>) {
+    return fetch("/api/book-learning/preferences", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).catch(() => undefined);
+  }
+
+  function saveBookAiSettings(next: { pinned?: boolean; modelMode?: BookModelMode; teachingLevel?: "beginner" | "intermediate" | "advanced" | "super" | null }) {
+    const pinned = next.pinned ?? bookSettingsPinned;
+    const modelMode = next.modelMode ?? bookModelMode;
+    const teachingLevel = next.teachingLevel === undefined ? bookTeachingLevel : next.teachingLevel;
+    window.localStorage.setItem("silu-book-ai-settings-pinned", JSON.stringify({ pinned, modelMode, teachingLevel }));
+    void persistBookPreferences({ bookSettingsPinned: pinned, bookModelMode: modelMode, bookTeachingLevel: teachingLevel });
+  }
+
   function toggleBookSettingsPinned(checked: boolean) {
     setBookSettingsPinned(checked);
-    window.localStorage.setItem("silu-book-ai-settings-pinned", JSON.stringify({
-      pinned: checked,
-      modelMode: bookModelMode,
-      teachingLevel: bookTeachingLevel,
-    }));
+    saveBookAiSettings({ pinned: checked });
   }
 
   async function answerBookTeacherMessage() {
@@ -2330,6 +2361,7 @@ export default function StudyPlanPage() {
 
   function prepareBookLevelQuestion(level: "beginner" | "intermediate" | "advanced" | "super") {
     setBookTeachingLevel(level);
+    saveBookAiSettings({ teachingLevel: level });
     setBookInput("");
     setBookTestNotice(`已設定為${bookTeachingLevelLabels[level]}；按「送出訊息」後，AI 學霸會直接回答老師的問題。`);
   }
@@ -4158,13 +4190,13 @@ export default function StudyPlanPage() {
                                 </div>
                                 {bookSettingsOpen && <>
                                   <div className="book-ai-fields">
-                                    <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); setBookTestNotice(`已切換為${bookTeachingLevelLabels.general}`); } else if (selectedChapter) { prepareBookLevelQuestion(value); } }} disabled={bookSettingsPinned || bookChatLoading}>
+                                    <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); saveBookAiSettings({ teachingLevel: null }); setBookTestNotice(`已切換為${bookTeachingLevelLabels.general}`); } else { prepareBookLevelQuestion(value); } }} disabled={bookSettingsPinned || bookChatLoading}>
                                       <option value="general">{bookTeachingLevelLabels.general}</option><option value="beginner">{bookTeachingLevelLabels.beginner}</option><option value="intermediate">{bookTeachingLevelLabels.intermediate}</option><option value="advanced">{bookTeachingLevelLabels.advanced}</option><option value="super">{bookTeachingLevelLabels.super}</option>
                                     </select></label>
-                                    <label><span>回答</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] : bookModelMode} onChange={(event) => setBookModelMode(event.target.value as BookModelMode)} disabled={bookSettingsPinned || bookChatLoading}>
+                                    <label><span>回答</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] : bookModelMode} onChange={(event) => { const mode = event.target.value as BookModelMode; setBookModelMode(mode); saveBookAiSettings({ modelMode: mode }); }} disabled={bookSettingsPinned || bookChatLoading}>
                                       <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
                                     </select></label>
-                                    <label><span>比較</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; if (value === "none") { setBookModelMode((current) => current.startsWith("compare-") ? current.split("-")[1] as BookModelMode : current); } else setBookModelMode(value as BookModelMode); }} disabled={bookSettingsPinned || bookChatLoading}>
+                                    <label><span>比較</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; const mode = value === "none" ? (bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] as BookModelMode : bookModelMode) : value as BookModelMode; setBookModelMode(mode); saveBookAiSettings({ modelMode: mode }); }} disabled={bookSettingsPinned || bookChatLoading}>
                                       <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
                                     </select></label>
                                   </div>

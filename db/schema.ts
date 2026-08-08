@@ -117,6 +117,23 @@ export const chatMessages = sqliteTable("chat_messages", {
     .$defaultFn(() => new Date()),
 });
 
+export const learningPreferences = sqliteTable("learning_preferences", {
+  userKey: text("user_key").primaryKey(),
+  bookTeachingLevel: text("book_teaching_level"),
+  bookModelMode: text("book_model_mode").notNull().default("luna"),
+  bookSettingsPinned: integer("book_settings_pinned", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  lastBookResourceId: integer("last_book_resource_id"),
+  lastBookSegmentId: integer("last_book_segment_id"),
+  lastBookSessionId: integer("last_book_session_id").references(() => chatSessions.id, {
+    onDelete: "set null",
+  }),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const studentMemos = sqliteTable("student_memos", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull().unique(),
