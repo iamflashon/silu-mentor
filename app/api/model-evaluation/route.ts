@@ -26,12 +26,13 @@ export async function POST(request:Request){
   try{
     const body=await request.json()as{action?:string;runId?:string;questionId?:number;provider?:Provider},db=await getDb();
     if(body.action==="create-run"){const runId=`run-${Date.now()}`,now=new Date(),label=`${now.toLocaleDateString("zh-TW",{timeZone:"Asia/Taipei"})} ${now.toLocaleTimeString("zh-TW",{timeZone:"Asia/Taipei",hour:"2-digit",minute:"2-digit"})}`;await db.insert(chatComparisons).values({userKey:"benchmark",contextType,promptText:"50題法律模型自動評測",sourceStatus:"run_meta",sourceJson:JSON.stringify({runId,benchmarkId:0,label})});return Response.json({ok:true,runId})}
-    const q=benchmarkCases.find(x=>x.id===Number(body.questionId)),provider=body.provider,runId=String(body.runId||"");
+    const q=benchmarkCases.find(x=>x.id===Number(body.questionId)),provider=body.provider,runId=String(body.runId||""),legacy=runId==="legacy-v2",activeContext=legacy?"model-benchmark-v2":contextType;
     if(!q||!provider||!labels[provider]||!runId)return Response.json({error:"測試參數不完整",stage,retryable:false},{status:400});
-    const existing=await db.select().from(chatComparisons).where(eq(chatComparisons.contextType,contextType));
-    if(!existing.some(x=>source(x).runId===runId&&source(x).benchmarkId===0))return Response.json({error:"找不到這一輪測試紀錄，請重新開始",stage,retryable:false},{status:404});
-    let comparison=existing.find(x=>source(x).runId===runId&&source(x).benchmarkId===q.id);
-    if(!comparison){[comparison]=await db.insert(chatComparisons).values({userKey:"benchmark",contextType,promptText:q.prompt,sourceStatus:"benchmark_card",sourceJson:JSON.stringify({runId,benchmarkId:q.id,rule:q.rule,expected:q.expected,forbidden:q.forbidden,fatal:q.fatal})}).returning()}
+    const existing=await db.select().from(chatComparisons).where(eq(chatComparisons.contextType,activeContext));
+    const belongsToRun=(x:typeof existing[number])=>legacy?x.contextType==="model-benchmark-v2":source(x).runId===runId;
+    if(legacy?!existing.length:!existing.some(x=>belongsToRun(x)&&source(x).benchmarkId===0))return Response.json({error:"找不到這一輪測試紀錄，請重新開始",stage,retryable:false},{status:404});
+    let comparison=existing.find(x=>belongsToRun(x)&&source(x).benchmarkId===q.id);
+    if(!comparison){[comparison]=await db.insert(chatComparisons).values({userKey:"benchmark",contextType:activeContext,promptText:q.prompt,sourceStatus:"benchmark_card",sourceJson:JSON.stringify({runId,benchmarkId:q.id,rule:q.rule,expected:q.expected,forbidden:q.forbidden,fatal:q.fatal})}).returning()}
     const prior=await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId,comparison.id),eq(chatComparisonResponses.label,labels[provider]))).limit(1);
     let row=prior[0];
     if(row){
@@ -40,7 +41,7 @@ export async function POST(request:Request){
       assertCandidateAnswer(row.text);
     }else{
       let benchmarkPrompt=q.prompt;
-      if(q.group==="連續追問"&&q.round>1){const previousCases=benchmarkCases.filter(x=>x.group==="連續追問"&&x.title===q.title&&x.round<q.round),transcript:string[]=[];for(const pc of previousCases){const c=existing.find(x=>source(x).runId===runId&&source(x).benchmarkId===pc.id);if(!c)continue;const[a]=await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId,c.id),eq(chatComparisonResponses.label,labels[provider]))).limit(1);if(a)transcript.push(`學生：${pc.prompt}\n助教：${a.text}`)}benchmarkPrompt=`以下是同一段對話的既有內容，必須承接且不得遺忘：\n${transcript.join("\n\n")}\n\n學生現在追問：${q.prompt}`}
+      if(q.group==="連續追問"&&q.round>1){const previousCases=benchmarkCases.filter(x=>x.group==="連續追問"&&x.title===q.title&&x.round<q.round),transcript:string[]=[];for(const pc of previousCases){const c=existing.find(x=>belongsToRun(x)&&source(x).benchmarkId===pc.id);if(!c)continue;const[a]=await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId,c.id),eq(chatComparisonResponses.label,labels[provider]))).limit(1);if(a)transcript.push(`學生：${pc.prompt}\n助教：${a.text}`)}benchmarkPrompt=`以下是同一段對話的既有內容，必須承接且不得遺忘：\n${transcript.join("\n\n")}\n\n學生現在追問：${q.prompt}`}
       stage=`${labels[provider]} 作答`;
       const run=await runCandidate(provider,benchmarkPrompt);assertCandidateAnswer(run.text);
       const cost=estimateCostUsd(run.model,{inputTokens:run.input,cachedTokens:0,outputTokens:run.output});
