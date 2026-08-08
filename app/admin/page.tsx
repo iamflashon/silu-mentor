@@ -3485,7 +3485,7 @@ export default function AdminPage() {
                             disabled={!resource.documentId}
                             onClick={() => void (isProblemSolvingResource(resource)
                               ? buildBookChapters(resource)
-                              : resource.hasStoredChapterCatalogue
+                              : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
                                 ? enrichBookText(resource)
                                 : buildBookChapters(resource))}
                           >
@@ -3495,11 +3495,9 @@ export default function AdminPage() {
                                 : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
                                   ? "接續整理題型"
                                   : "開始整理題型與完整題目"
-                              : resource.hasStoredChapterCatalogue
+                              : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
                                 ? "補齊章節原文"
-                                : Number(resource.chapterCount ?? 0) > 0
-                                  ? "重新整理章節索引"
-                                  : "建立章節索引（一次）"}
+                                : "建立章節索引（一次）"}
                           </button>
                           {isProblemSolvingResource(resource) && (() => {
                             const progress = chapterProgress[resource.id];
