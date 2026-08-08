@@ -27,6 +27,7 @@ function mapHistorySession(
     title: session.title,
     summary: session.summary || last?.text?.replace(/\s+/g, " ").slice(0, 180) || "",
     updatedAt: session.updatedAt,
+    progressStatus: session.progressStatus,
     messageCount: messages.length,
     lastRole: last?.role ?? null,
     lastText: last?.text ?? "",

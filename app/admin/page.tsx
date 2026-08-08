@@ -1967,6 +1967,43 @@ export default function AdminPage() {
     }
   }
 
+  async function enrichBookText(resource: LearningResource) {
+    if (!resource.documentId) {
+      setNotice("請先替這本書綁定已完成索引的教材文件。");
+      return;
+    }
+    if (chapterBuildRunningRef.current.has(resource.id)) return;
+    chapterBuildRunningRef.current.add(resource.id);
+    try {
+      const response = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
+      const result = (await readJson(response)) as { chapters?: ChapterSegment[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "章節資料讀取失敗");
+      const missing = (result.chapters ?? []).filter((chapter) => !String(chapter.text ?? "").trim());
+      if (!missing.length) {
+        setNotice(`「${resource.title}」的章節原文已經補齊，不需要重複處理。`);
+        await openChapterViewer(resource);
+        return;
+      }
+      for (let index = 0; index < missing.length; index += 1) {
+        const chapter = missing[index];
+        setNotice(`正在補齊「${resource.title}」章節原文：${index + 1}／${missing.length}｜${chapter.title}`);
+        const enrichResponse = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ resourceId: resource.id, enrich: true, segmentId: chapter.id }),
+        });
+        const enrichResult = (await readJson(enrichResponse)) as { error?: string; textLength?: number };
+        if (!enrichResponse.ok) throw new Error(enrichResult.error ?? `「${chapter.title}」原文補齊失敗`);
+      }
+      setNotice(`「${resource.title}」已補齊 ${missing.length} 章可核對原文。`);
+      await openChapterViewer(resource);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "章節原文補齊失敗");
+    } finally {
+      chapterBuildRunningRef.current.delete(resource.id);
+    }
+  }
+
   async function startAutomaticChapterIndex(resource: LearningResource) {
     if (
       !resource.documentId ||
@@ -3442,12 +3479,14 @@ export default function AdminPage() {
                               ✓ 已沿用教材分析保存的真實內容（{resource.storedChapterCatalogueCount ?? resource.documentChapterCount ?? 0} 筆）
                             </span>
                           )}
-                          {(!resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (
+                          {(!resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0 || !isProblemSolvingResource(resource)) && (
                             <button
                               type="button"
                               className="subtitle-open"
                               disabled={!resource.documentId}
-                              onClick={() => void buildBookChapters(resource)}
+                              onClick={() => void (isProblemSolvingResource(resource)
+                                ? buildBookChapters(resource)
+                                : enrichBookText(resource))}
                             >
                               {isProblemSolvingResource(resource)
                                 ? chapterProgress[resource.id]?.state === "completed"
@@ -3455,9 +3494,11 @@ export default function AdminPage() {
                                   : chapterProgress[resource.id]?.state === "building" || chapterProgress[resource.id]?.state === "paused"
                                     ? "接續整理題型"
                                     : "開始整理題型與完整題目"
-                                : Number(resource.chapterCount ?? 0) > 0
-                                  ? "重新整理章節索引"
-                                  : "建立章節索引（一次）"}
+                                : resource.hasStoredChapterCatalogue
+                                  ? "補齊章節原文"
+                                  : Number(resource.chapterCount ?? 0) > 0
+                                    ? "重新整理章節索引"
+                                    : "建立章節索引（一次）"}
                             </button>
                           )}
                           {isProblemSolvingResource(resource) && (() => {

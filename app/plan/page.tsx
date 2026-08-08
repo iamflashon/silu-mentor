@@ -202,6 +202,7 @@ type BookHistoryEntry = {
   title: string;
   summary: string;
   updatedAt: string | Date;
+  progressStatus?: string;
   messageCount: number;
   lastRole: string | null;
   lastText: string;
@@ -1852,7 +1853,7 @@ export default function StudyPlanPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: [{ role: "student", text: prompt }],
-          visibleStudentText: "",
+          visibleStudentText: selectedBookIsProblemSolving ? "開始學習題目" : "開始學習本章",
           modelMode: bookModelMode,
           context: {
             type: "book",
@@ -1877,6 +1878,10 @@ export default function StudyPlanPage() {
         segmentId: chapter.id,
       });
       setBookMessages([
+        {
+          role: "student",
+          text: selectedBookIsProblemSolving ? "開始學習題目" : "開始學習本章",
+        },
         {
           role: "mentor",
           text: response.ok
@@ -1942,7 +1947,7 @@ export default function StudyPlanPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: [{ role: "student", text: prompt }],
-          visibleStudentText: "",
+          visibleStudentText: "開始審題",
           modelMode: bookModelMode,
           context: {
             type: "book",
@@ -1963,6 +1968,9 @@ export default function StudyPlanPage() {
       };
       setBookSessionId(result.sessionId ?? null);
       setBookMessages([{
+        role: "student",
+        text: "開始審題",
+      }, {
         role: "mentor",
         text: response.ok ? (result.reply ?? "我們先從審題開始。") : (result.error ?? "AI 審題暫時無法開始"),
         model: result.usage?.model,
@@ -3632,18 +3640,18 @@ export default function StudyPlanPage() {
                                 : "從左側書本下方展開章節，AI 會直接開始教你"}
                           </small>
                         </div>
-                        {bookHistory.length > 0 && (
+                        {(
                           <section className={`book-history-panel ${bookHistoryOpen ? "is-open" : ""}`} aria-label="智能書學習紀錄">
                             <div className="book-history-heading">
                               <div>
-                                <strong>之前的對話學習紀錄</strong>
-                                <span>{bookHistoryLoading ? "正在讀取…" : `已保存 ${bookHistory.length} 次學習`}</span>
+                                <strong>智能書學習紀錄</strong>
+                                <span>{bookHistoryLoading ? "正在讀取…" : bookHistory.length ? `已保存 ${bookHistory.length} 次學習` : bookSessionId ? "本次學習已保存" : "開始後會自動保存"}</span>
                               </div>
-                              <button type="button" onClick={() => setBookHistoryOpen((open) => !open)} aria-expanded={bookHistoryOpen}>
+                              {bookHistory.length > 0 && <button type="button" onClick={() => setBookHistoryOpen((open) => !open)} aria-expanded={bookHistoryOpen}>
                                 {bookHistoryOpen ? "收起紀錄" : "查看紀錄"}
-                              </button>
+                              </button>}
                             </div>
-                            {bookHistoryOpen && (
+                            {bookHistoryOpen && bookHistory.length > 0 && (
                               <div className="book-history-list">
                                 {bookHistory.map((entry) => {
                                   const historyChapter = bookChapters.find((item) => item.id === entry.segmentId);
@@ -3747,11 +3755,13 @@ export default function StudyPlanPage() {
                                         </strong>
                                         <span>
                                           {message.teachingEvidence.status === "verified"
-                                            ? `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
+                                            ? selectedBookIsProblemSolving
+                                              ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}`
+                                              : `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
                                             : message.teachingEvidence.message}
                                         </span>
-                                        {message.teachingEvidence.excerpt && (
-                                          <small>引用片段：{message.teachingEvidence.excerpt}</small>
+                                        {message.teachingEvidence.excerpt && !selectedBookIsProblemSolving && (
+                                          <small>引用片段：{message.teachingEvidence.excerpt.slice(0, 72)}{message.teachingEvidence.excerpt.length > 72 ? "……" : ""}</small>
                                         )}
                                       </div>
                                     )}

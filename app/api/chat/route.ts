@@ -8,6 +8,7 @@ type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: stri
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { storedDocumentAnalysis } from "../../../lib/document-analysis";
+import { syncBookLearningRecord } from "../../../lib/book-learning-record";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
@@ -630,6 +631,7 @@ export async function POST(request: Request) {
       : { type: "home" };
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context) : null;
     const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話", context);
+    let bookLearningRecord: { id: number; actualMinutes: number; messageCount: number } | null = null;
     let persistedCourseMessages: ClientMessage[] = [];
     if (context.type === "my-course" || context.type === "public-course") {
       const db = await getDb();
@@ -1072,6 +1074,15 @@ export async function POST(request: Request) {
         estimatedCostUsdMicros: Math.round(primaryEstimatedCostUsd * 1_000_000),
       });
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply.replace(/\s+/g, " ").slice(0, 500), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      if (context.type === "book") {
+        bookLearningRecord = await syncBookLearningRecord({
+          db,
+          session,
+          userKey: request.headers.get("oai-authenticated-user-email") ?? "default-owner",
+          resourceTitle: context.resourceTitle,
+          segmentTitle: context.segmentTitle,
+        });
+      }
       if (context.type === "home" && latestStudent && latestStudent.text.trim().length >= 6) {
         const learningMinutes = Math.min(30, Math.max(5, Math.ceil(latestStudent.text.trim().length / 80) * 5));
         await db.insert(studyRecords).values({
@@ -1099,6 +1110,7 @@ export async function POST(request: Request) {
       teachingEvidence: effectiveTeachingEvidence,
       comparison,
       sessionId: session.id,
+      bookLearningRecord,
     });
   } catch {
     return Response.json({ error: "對話處理失敗" }, { status: 500 });

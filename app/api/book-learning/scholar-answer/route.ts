@@ -3,6 +3,7 @@ import { getDb } from "../../../../db";
 import { chatMessages, chatSessions, usageLogs } from "../../../../db/schema";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
+import { syncBookLearningRecord } from "../../../../lib/book-learning-record";
 
 type Provider = "luna" | "sonnet" | "deepseek";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
@@ -33,6 +34,17 @@ function readDeepSeekText(payload: unknown) {
   return (payload as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]?.message?.content?.trim() ?? "";
 }
 
+function anthropicFailure(status: number, payload: unknown, model: string) {
+  const error = payload && typeof payload === "object" ? (payload as { error?: unknown }).error : null;
+  const message = error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string"
+    ? String((error as { message: string }).message).slice(0, 240)
+    : "";
+  if (status === 401 || status === 403) return "Claude Sonnet 無法回答：Anthropic API 金鑰無效、已失效，或目前帳號沒有使用權限。";
+  if (status === 404) return "Claude Sonnet 無法回答：目前設定的模型「" + model + "」不存在，或目前帳號沒有開通。";
+  if (status === 429) return "Claude Sonnet 暫時無法回答：API 額度或請求頻率已達限制，請稍後再試。";
+  if (status >= 500) return "Claude Sonnet 服務暫時異常，請稍後再試。";
+  return "Claude Sonnet 無法回答" + (message ? "：" + message : "（HTTP " + status + "）");
+}
 function usageFrom(payload: unknown) {
   const usage = payload && typeof payload === "object" ? (payload as { usage?: Record<string, unknown> }).usage : undefined;
   const details = usage?.input_tokens_details && typeof usage.input_tokens_details === "object" ? usage.input_tokens_details as Record<string, unknown> : undefined;
@@ -75,14 +87,26 @@ async function runScholar(provider: Provider, instructions: string, input: strin
   if (provider === "sonnet") {
     const key = await getAnthropicKey();
     if (!key) throw new Error("Claude Sonnet API 尚未設定");
-    const model = await getAnthropicChatModel("claude-sonnet-5");
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    let model = await getAnthropicChatModel("claude-sonnet-5");
+    const requestAnthropic = (requestedModel: string) => fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, system: instructions, messages: [{ role: "user", content: input }], max_tokens: 2200 }),
+      body: JSON.stringify({ model: requestedModel, system: instructions, messages: [{ role: "user", content: input }], max_tokens: 2200 }),
     });
-    const payload = await response.json() as unknown;
-    if (!response.ok) throw new Error("Claude Sonnet 暫時無法回答老師的問題");
+    let response = await requestAnthropic(model);
+    let raw = await response.text();
+    let payload: unknown = {};
+    try { payload = JSON.parse(raw); } catch { /* handled by the status message */ }
+    // Some accounts expose Sonnet 4.6 before Sonnet 5. Retry only when the
+    // selected model is rejected as unavailable.
+    if (!response.ok && (response.status === 400 || response.status === 404) && model !== "claude-sonnet-4-6") {
+      model = "claude-sonnet-4-6";
+      response = await requestAnthropic(model);
+      raw = await response.text();
+      payload = {};
+      try { payload = JSON.parse(raw); } catch { /* handled by the status message */ }
+    }
+    if (!response.ok) throw new Error(anthropicFailure(response.status, payload, model));
     const text = readAnthropicText(payload);
     if (!text) throw new Error("Claude Sonnet 沒有產生可顯示的學霸回答");
     return { model, text, durationMs: Date.now() - startedAt, ...usageFrom(payload) };
@@ -146,6 +170,13 @@ ${chapterText ? `章節核對內容：\n${chapterText}` : "章節原文尚未完
       if (session) {
         await db.insert(chatMessages).values({ sessionId: session.id, role: "scholar", text: result.text, model: result.model, estimatedCostUsdMicros });
         await db.update(chatSessions).set({ updatedAt: new Date(), summary: result.text.replace(/\s+/g, " ").slice(0, 500), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+        await syncBookLearningRecord({
+          db,
+          session,
+          userKey,
+          resourceTitle,
+          segmentTitle,
+        });
       }
     }
     await db.insert(usageLogs).values({ model: result.model, source: `智能書｜AI 學霸回答老師問題｜${resourceTitle}`, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros });

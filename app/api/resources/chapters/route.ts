@@ -35,6 +35,9 @@ type ChapterPayload = {
     topic?: string;
     stem?: string;
     summary?: string;
+    content?: string;
+    text?: string;
+    original_text?: string;
     page_start?: number | null;
     page_end?: number | null;
   }>;
@@ -148,6 +151,23 @@ function parseChapterPayload(payload: Record<string, unknown>) {
       .slice(0, 80);
   } catch {
     return [] as ChapterPayload["chapters"];
+  }
+}
+
+function parseChapterContent(payload: Record<string, unknown>) {
+  const raw = outputText(payload)
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(raw) as {
+      content?: string;
+      text?: string;
+      original_text?: string;
+    };
+    return String(parsed.content ?? parsed.text ?? parsed.original_text ?? "").trim();
+  } catch {
+    return raw;
   }
 }
 
@@ -580,6 +600,8 @@ export async function POST(request: Request) {
       resourceId?: number;
       rebuild?: boolean;
       restart?: boolean;
+      enrich?: boolean;
+      segmentId?: number;
     };
     resourceId = Number(body.resourceId);
     if (!Number.isInteger(resourceId) || resourceId < 1)
@@ -607,6 +629,91 @@ export async function POST(request: Request) {
     // resume; only the explicit, currently-unused `restart` flag may reset a
     // queue.
     const explicitRestart = body.restart === true;
+    if (body.enrich === true) {
+      if (problemBook)
+        return Response.json({ error: "解題書請使用「整理題型與完整題目」，不使用章節原文補齊流程。" }, { status: 400 });
+      const segmentId = Number(body.segmentId);
+      if (!Number.isInteger(segmentId) || segmentId === 0)
+        return Response.json({ error: "缺少要補齊的章節編號" }, { status: 400 });
+      if (!resource.documentId)
+        return Response.json({ error: "這本書尚未綁定後台教材。" }, { status: 400 });
+      const [document] = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.id, resource.documentId))
+        .limit(1);
+      if (!document?.openaiFileId || document.status !== "completed")
+        return Response.json({ error: "PDF 尚未完成教材索引，完成後才能補齊章節原文。" }, { status: 409 });
+      const [setting] = await db
+        .select()
+        .from(appSettings)
+        .where(eq(appSettings.key, "openai_vector_store_id"))
+        .limit(1);
+      if (!setting?.value)
+        return Response.json({ error: "教材向量索引尚未就緒。" }, { status: 409 });
+
+      const storedRows = storedRowsForResource(resourceId, document, false);
+      const target = segmentId > 0
+        ? existing.find((row) => row.id === segmentId) ?? null
+        : storedRows.find((row) => row.id === segmentId) ?? null;
+      if (!target)
+        return Response.json({ error: "找不到要補齊的章節；請先建立章節索引。" }, { status: 404 });
+      if (target.text && target.text.trim().length >= 40) {
+        return Response.json({ status: "completed", segmentId, textLength: target.text.trim().length, reused: true });
+      }
+
+      const extractionModel =
+        process.env.OPENAI_EXTRACTION_MODEL ||
+        process.env.OPENAI_MODEL ||
+        "gpt-5.6-luna";
+      const pageHint = target.pageStart || target.pageEnd
+        ? `頁碼範圍：${target.pageStart ?? "?"}–${target.pageEnd ?? "?"}`
+        : "頁碼未知，請以章名與內容位置核對";
+      const payload = await openAIJson("/responses", {
+        method: "POST",
+        body: JSON.stringify({
+          model: extractionModel,
+          instructions: "你是教材原文校對員。必須使用 file_search，只能抄錄指定章節在原書中明確出現的連續原文片段；不得摘要、解釋、改寫、補寫或使用一般知識。若搜尋結果不足以確認原文，content 回傳空字串。保留原書標題、條文、例題與段落文字，排除頁眉、頁腳與頁碼。",
+          input: `教材：《${resource.title}》（原始檔名：${document.fileName}）\n指定章節：${target.title}\n章節路徑：${target.lessonLabel}\n${pageHint}\n請只回傳這一章可核對的原文內容。`,
+          tools: [{ type: "file_search", vector_store_ids: [setting.value], max_num_results: 16 }],
+          text: {
+            format: {
+              type: "json_schema",
+              name: "book_chapter_source",
+              strict: true,
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: { content: { type: "string" } },
+                required: ["content"],
+              },
+            },
+          },
+        }),
+      });
+      const content = parseChapterContent(payload).slice(0, 12000);
+      if (content.length < 40)
+        return Response.json({ error: `「${target.title}」目前仍找不到足夠可核對的原文；請確認檔案已完成全文索引。` }, { status: 422 });
+
+      if (segmentId > 0) {
+        await db.update(resourceSegments)
+          .set({ text: content, reviewStatus: "source", updatedAt: new Date() })
+          .where(eq(resourceSegments.id, segmentId));
+      } else {
+        const parsedDocument = JSON.parse(document.processingResultJson || "{}") as Record<string, unknown>;
+        const chapters = Array.isArray(parsedDocument.chapters)
+          ? [...parsedDocument.chapters] as Array<Record<string, unknown>>
+          : [];
+        const chapterIndex = Math.abs(segmentId) - 1;
+        if (chapterIndex < 0 || chapterIndex >= chapters.length)
+          return Response.json({ error: "找不到教材分析中的對應章節。" }, { status: 404 });
+        chapters[chapterIndex] = { ...chapters[chapterIndex], content };
+        await db.update(documents)
+          .set({ processingResultJson: JSON.stringify({ ...parsedDocument, chapters }) })
+          .where(eq(documents.id, document.id));
+      }
+      return Response.json({ status: "completed", segmentId, textLength: content.length, reused: false });
+    }
     if (
       validExisting.length &&
       !pendingExisting.length &&
@@ -691,6 +798,7 @@ export async function POST(request: Request) {
               topic: { type: "string" },
               stem: { type: "string" },
               summary: { type: "string" },
+              content: { type: "string" },
               page_start: { type: ["integer", "null"] },
               page_end: { type: ["integer", "null"] },
             },
@@ -782,8 +890,8 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify({
         model: extractionModel,
-        instructions: "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
-        input: `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節。`,
+        instructions: "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。content 只能抄錄搜尋結果中能確認的章節原文片段；若沒有足夠原文就填空字串，不得用摘要或一般法律知識代替。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
+        input: `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節，並在 content 填入可核對的原文片段。`,
         tools: [
           {
             type: "file_search",
@@ -837,7 +945,7 @@ export async function POST(request: Request) {
         chapter.page_end == null
           ? null
           : Math.max(1, Number(chapter.page_end) || 1),
-      text: String(chapter.stem ?? "")
+      text: String(chapter.content ?? chapter.text ?? chapter.original_text ?? chapter.stem ?? "")
         .trim()
         .slice(0, 12000),
       sequence: index + 1,
