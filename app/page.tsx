@@ -697,6 +697,7 @@ export default function Home() {
       <header className="topbar">
         <div className="brand-zone"><a href="/" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
+          <a href="/model-lab" className="admin-link">模型盲測</a>
           <a href="/review" className="admin-link review-entry-link">司律評</a>
           <a href="/plan" className="admin-link">學習專區</a>
           <a href="/admin" className="admin-link">管理後台</a>

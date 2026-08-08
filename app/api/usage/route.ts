@@ -23,7 +23,8 @@ export async function GET() {
     const comparisonRatings = comparisonResponseIds.length
       ? await db.select().from(chatComparisonRatings).where(inArray(chatComparisonRatings.responseId, comparisonResponseIds)).orderBy(desc(chatComparisonRatings.createdAt))
       : [];
-    const preferredRatings = comparisonRatings.filter((item) => item.feedbackType === "preferred");
+    const simpleRatings = comparisonRatings.filter((item) => item.feedbackType === "preferred" || item.feedbackType === "rated");
+    const preferredRatings = simpleRatings.filter((item) => item.feedbackType === "preferred");
     const settings = await db.select().from(appSettings);
     const showCosts = settings.find((item) => item.key === "show_frontend_costs")?.value === "true";
     return Response.json({
@@ -32,12 +33,12 @@ export async function GET() {
       showCosts,
       comparisonStats: {
         comparisons: comparisons.length,
-        ratedResponses: comparisonRatings.length,
+        ratedResponses: simpleRatings.length,
         lunaPreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "openai").length,
         claudePreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "anthropic").length,
         deepseekPreferred: preferredRatings.filter((rating) => comparisonResponses.find((response) => response.id === rating.responseId)?.provider === "deepseek").length,
-        averageScore: comparisonRatings.length
-          ? comparisonRatings.reduce((sum, rating) => sum + Number(rating.score || 0), 0) / comparisonRatings.length
+        averageScore: simpleRatings.length
+          ? simpleRatings.reduce((sum, rating) => sum + Number(rating.score || 0), 0) / simpleRatings.length
           : 0,
       },
       recentComparisons: comparisons.map((comparison) => ({
