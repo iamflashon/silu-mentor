@@ -568,7 +568,7 @@ async function retrieveIndexedChapterSource(
     method: "POST",
     body: JSON.stringify({
       ...base,
-      attribute_filter: { type: "eq", key: "source_file", value: document.fileName },
+      filters: { type: "eq", key: "source_file", value: document.fileName },
     }),
   });
   const filteredText = exactSearchText(filtered, document.openaiFileId ?? "");
@@ -600,7 +600,7 @@ async function retrieveIndexedProblemSource(
     method: "POST",
     body: JSON.stringify({
       ...base,
-      attribute_filter: { type: "eq", key: "source_file", value: document.fileName },
+      filters: { type: "eq", key: "source_file", value: document.fileName },
     }),
   });
   const filteredText = exactSearchText(filtered, document.openaiFileId ?? "");
