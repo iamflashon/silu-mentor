@@ -4107,9 +4107,11 @@ export default function StudyPlanPage() {
                                       <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
                                         <strong>
                                           {message.teachingEvidence.status === "verified"
-                                            ? "✓ 已核對章節原文"
+                                            ? "✓ 原文直接支持本次回答"
                                             : message.teachingEvidence.status === "full_text_search"
-                                              ? "△ 命中全文索引，章節待核對"
+                                              ? message.teachingEvidence.retrieval === "full_text_search"
+                                                ? "△ 命中全文索引，章節待核對"
+                                                : "△ 已找到相關原文，直接支持不足"
                                               : "! 尚未取得本章原文"}
                                         </strong>
                                         <span>

@@ -66,20 +66,20 @@ function youtubeWatchUrl(value: string) { const id = youtubeId(value); return /^
 function requestYoutubePlay(root: Element | null) { const iframe = root?.querySelector<HTMLIFrameElement>("iframe"); iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), "https://www.youtube.com"); }
 function dateLabel(value: string) { return value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1年$2月$3日") : "今天"; }
 function comparisonSourceLabel(status: string) {
-  if (status === "verified") return "教材章節已核對";
-  if (status === "full_text_search") return "命中教材全文；章節／頁碼待核對";
+  if (status === "verified") return "教材原文已直接支持";
+  if (status === "full_text_search") return "找到相關教材，但直接支持不足";
   return "本次未取得可核對教材引用";
 }
 function citationStatusLabel(status?: string) {
-  if (status === "verified") return "引用狀態：章節原文已核對";
-  if (status === "full_text_search") return "引用狀態：全文命中，章節／頁碼待核對";
+  if (status === "verified") return "引用狀態：原文直接支持";
+  if (status === "full_text_search") return "引用狀態：相關原文，直接支持不足";
   return "引用狀態：未取得可核對教材";
 }
 function TeachingEvidenceDetails({ evidence }: { evidence?: TeachingEvidence | null }) {
   if (!evidence) return null;
   const pages = evidence.pageStart ? `第 ${evidence.pageStart}${evidence.pageEnd && evidence.pageEnd !== evidence.pageStart ? `–${evidence.pageEnd}` : ""} 頁` : "頁碼尚未核對";
-  const label = evidence.status === "verified" ? "🟢 已找到章節原文" : evidence.status === "full_text_search" ? "🟡 僅命中全文索引" : "⚪ 未取得教材原文";
-  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>展開驗證證據</span></summary><div><dl><div><dt>書籍／檔案</dt><dd>{evidence.resourceTitle || evidence.fileName || "未提供"}</dd></div><div><dt>實際位置</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("｜")}</dd></div><div><dt>檢索方式</dt><dd>{evidence.retrieval === "chapter_segment" ? "已儲存章節原文" : evidence.retrieval === "stored_analysis" ? "教材解析結果" : evidence.retrieval === "full_text_search" ? "全文索引搜尋" : "未使用教材"}</dd></div></dl>{evidence.excerpt ? <blockquote>{evidence.excerpt}</blockquote> : <p>{evidence.message}</p>}<small>此處顯示的是實際送入教學流程的教材證據；是否直接支持 AI 的每一句判斷，仍需依原文逐項核對。</small></div></details>;
+  const label = evidence.status === "verified" ? "🟢 原文直接支持本次回答" : evidence.status === "full_text_search" ? (evidence.retrieval === "full_text_search" ? "🟡 僅命中全文索引" : "🟡 已找到相關原文，直接支持不足") : "⚪ 未取得教材原文";
+  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>展開驗證證據</span></summary><div><dl><div><dt>書籍／檔案</dt><dd>{evidence.resourceTitle || evidence.fileName || "未提供"}</dd></div><div><dt>實際位置</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("｜")}</dd></div><div><dt>檢索方式</dt><dd>{evidence.retrieval === "chapter_segment" ? "章節內文比對" : evidence.retrieval === "stored_analysis" ? "教材解析結果比對" : evidence.retrieval === "full_text_search" ? "全文索引搜尋" : "未使用教材"}</dd></div><div><dt>支持度判定</dt><dd>{evidence.message}</dd></div></dl>{evidence.excerpt ? <blockquote>{evidence.excerpt}</blockquote> : null}<small>綠色只代表這段原文直接包含本次回答使用的主要概念或判準；僅同章、同詞或目錄命中不會通過。</small></div></details>;
 }
 function answerParagraphs(text: string) {
   const clean = cleanMessageText(text).trim();

@@ -51,6 +51,50 @@ type TeachingEvidence = {
   message: string;
 };
 
+const evidenceStopTerms = new Set([
+  "刑法", "法律", "犯罪", "行為", "結果", "問題", "判斷", "檢驗", "學生", "教材", "本章", "可以", "是否", "如何", "以及", "如果", "因為", "所以", "仍然", "需要", "就是", "這是", "具有", "成立", "不同", "原則", "規定",
+]);
+
+function evidenceTerms(value: string) {
+  const normalized = value.replace(/[\s\p{P}\p{S}]+/gu, "");
+  const terms = new Set<string>();
+  for (const match of value.matchAll(/[\p{Script=Han}]{2,10}|[A-Za-z][A-Za-z0-9.-]{2,}/gu)) {
+    const term = match[0].toLowerCase();
+    if (!evidenceStopTerms.has(term) && term.length >= 2) terms.add(term);
+  }
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    const term = normalized.slice(index, index + 2);
+    if (!evidenceStopTerms.has(term)) terms.add(term);
+  }
+  return terms;
+}
+
+function relevantExcerpt(text: string, query: string) {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length <= 520) return compact;
+  const queryTerms = evidenceTerms(query);
+  const candidates: string[] = [];
+  for (let start = 0; start < compact.length; start += 240) {
+    candidates.push(compact.slice(Math.max(0, start - 80), Math.min(compact.length, start + 520)));
+  }
+  const score = (candidate: string) => {
+    const candidateTerms = evidenceTerms(candidate);
+    let hits = 0;
+    for (const term of queryTerms) if (candidateTerms.has(term)) hits += term.length >= 4 ? 3 : 1;
+    return hits;
+  };
+  return candidates.sort((a, b) => score(b) - score(a))[0]?.slice(0, 520) || compact.slice(0, 520);
+}
+
+function evidenceDirectlySupports(excerpt: string, query: string, reply: string) {
+  if (excerpt.length < 80 || /目錄|章節目次|世界上有男人、女人|本章將介紹/.test(excerpt.slice(0, 180))) return false;
+  const excerptTerms = evidenceTerms(excerpt);
+  const claimTerms = evidenceTerms(`${query} ${reply}`);
+  const meaningfulHits = [...claimTerms].filter((term) => term.length >= 3 && excerptTerms.has(term));
+  const longHits = meaningfulHits.filter((term) => term.length >= 4);
+  return longHits.length >= 2 || meaningfulHits.length >= 4;
+}
+
 function analysisRows(document: typeof documents.$inferSelect, mode: "chapters" | "questions") {
   const analysis = storedDocumentAnalysis(document.processingResultJson || "{}");
   const rows = mode === "chapters" ? analysis.chapters : analysis.questions;
@@ -75,7 +119,7 @@ function numberField(row: unknown, keys: string[]) {
   return null;
 }
 
-async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "book" }>): Promise<TeachingEvidence> {
+async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "book" }>, query: string): Promise<TeachingEvidence> {
   const unavailable = (fileName = "") : TeachingEvidence => ({
     status: "unavailable",
     retrieval: "none",
@@ -154,6 +198,7 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
   const pages = row.pageStart
     ? `第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁`
     : "頁碼待核對";
+  const excerpt = relevantExcerpt(text, query);
   return {
     status: "verified",
     retrieval: row.retrieval,
@@ -165,8 +210,8 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
     pageStart: row.pageStart,
     pageEnd: row.pageEnd,
     fileName: document.fileName,
-    excerpt: text.replace(/\s+/g, " ").slice(0, 360),
-    message: `已鎖定本書本章原文（${pages}）。`,
+    excerpt,
+    message: `已從本章原文選出與本次問題最接近的片段（${pages}）；回答完成後仍會檢查支持度。`,
   };
 }
 
@@ -660,7 +705,7 @@ export async function POST(request: Request) {
       : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
         ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
       : { type: "home" };
-    const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context) : null;
+    const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
     const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話", context);
     let bookLearningRecord: { id: number; actualMinutes: number; messageCount: number } | null = null;
     let persistedCourseMessages: ClientMessage[] = [];
@@ -972,7 +1017,16 @@ export async function POST(request: Request) {
     );
     const effectiveTeachingEvidence: TeachingEvidence | null = context.type === "book"
       ? bookEvidence?.status === "verified"
-        ? bookEvidence
+        ? evidenceDirectlySupports(bookEvidence.excerpt, latestStudent?.text ?? "", reply)
+          ? {
+              ...bookEvidence,
+              message: "原文片段直接包含本次回答所使用的主要概念或判準。",
+            }
+          : {
+              ...bookEvidence,
+              status: "full_text_search",
+              message: "已找到相關章節原文，但目前片段不足以直接支持本次回答；不得視為已核對。",
+            }
         : fileSearchConfirmedForBook
           ? {
               ...(bookEvidence ?? {
