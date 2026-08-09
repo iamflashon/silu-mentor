@@ -7932,6 +7932,9 @@ a {
 .scholar-follow-up-button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid #74aeb0; border-radius: 8px; background: #f4fbfb; color: #337c7c; font-size: 11px; font-weight: 850; cursor: pointer; }
 .scholar-follow-up-button:hover:not(:disabled) { border-color: #3e8079; background: #e6f5f3; }
 .scholar-follow-up-button:disabled { opacity: .45; cursor: wait; }
+.book-direct-solution-button { flex: 0 0 auto; padding: 8px 12px; border: 1px solid #9aa9bc; border-radius: 8px; background: #fff; color: #46566b; font-size: 11px; font-weight: 850; cursor: pointer; }
+.book-direct-solution-button:hover:not(:disabled) { border-color: #63758d; background: #f4f7fa; }
+.book-direct-solution-button:disabled { opacity: .45; cursor: wait; }
 .essay-chat-message.scholar .essay-chat-bubble { border-color: #ded4b7; background: #fffaf0; color: #665b3f; }
 .essay-chat-message.scholar .essay-chat-bubble b { color: #967433; }
 .scholar-avatar { background: #a27d32 !important; }

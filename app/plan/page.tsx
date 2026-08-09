@@ -2340,8 +2340,8 @@ export default function StudyPlanPage() {
     }
   }
 
-  async function submitBookMessage() {
-    const text = bookInput.trim();
+  async function submitBookMessage(directedText?: string) {
+    const text = (directedText ?? bookInput).trim();
     if (!selectedChapter || !selectedResource || bookChatLoading) return;
     // 留白送出時，直接複用「老師問題 → 學霸回答」流程；只有學生自行輸入文字時，才走一般教材對話。
     if (!text) {
@@ -4303,6 +4303,16 @@ export default function StudyPlanPage() {
                               </section>
                               <div className="book-dialogue-composer-actions">
                                 <span>{bookSelectedMessageIndex === null ? "留白送出：回答 AI 導師最新問題" : "已指定一則 AI 導師訊息；留白送出即可回答"}</span>
+                                {selectedBookIsProblemSolving && bookMessages.some((message) => message.role === "mentor") && (
+                                  <button
+                                    type="button"
+                                    className="book-direct-solution-button"
+                                    onClick={() => void submitBookMessage("跳過理解追問，請直接依老師解析進入完整解題架構；完成爭點、判準、各說、評析、涵攝及每位行為人的明確罪責結論後，再引導我進入考場擬答。不要再提出新的反事實問題。")}
+                                    disabled={bookChatLoading}
+                                  >
+                                    跳過追問，進入完整解題
+                                  </button>
+                                )}
                                 <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || (!bookInput.trim() && !bookMessages.some((message) => message.role === "mentor"))}>送出訊息</button>
                               </div>
                               <form className="book-dialogue-form" onSubmit={sendBookMessage}>
