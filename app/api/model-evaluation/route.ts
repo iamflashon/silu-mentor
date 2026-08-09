@@ -30,7 +30,8 @@ const teamoPrices: Partial<Record<Provider, { input: number; output: number }>> 
   deepseekfree: { input: 0, output: 0 }, glm: { input: 1.37, output: 4.31 }, gemini: { input: .32, output: 1.6 }, kimi: { input: 1.5, output: 7.5 },
 };
 
-type Source = { runId?: string; benchmarkId?: number; label?: string; provider?: Provider; gateway?: Gateway; bank?: Bank; status?: "active" | "ended" };
+type ExternalReview = { source: string; score: number; fatalCount: number; summary: string; rawText: string; reviewedAt: string };
+type Source = { runId?: string; benchmarkId?: number; label?: string; provider?: Provider; gateway?: Gateway; bank?: Bank; status?: "active" | "ended"; thinkingLevel?: "medium"; externalReview?: ExternalReview };
 function source(row: { sourceJson: string }): Source { try { return JSON.parse(row.sourceJson) as Source; } catch { return {}; } }
 function questions(bank: Bank) { return bank === "comprehensive" ? comprehensiveBenchmarkCases : benchmarkCases; }
 function outputText(payload: Record<string, unknown>) {
@@ -70,7 +71,7 @@ async function runTeamoRouter(provider: Provider, prompt: string, system: string
   const key = await getTeamoRouterKey(); const model = teamoRouterModels[provider];
   if (!key) throw new Error("TeamoRouter API Key 尚未設定或未啟用");
   if (!model) throw new Error(`TeamoRouter 目前未設定 ${labels[provider]} 的模型 ID`);
-  const response = await fetch(`${await getTeamoRouterBaseUrl()}/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .2, max_tokens: 1800 }) });
+  const response = await fetch(`${await getTeamoRouterBaseUrl()}/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .2, max_tokens: 1800, ...(provider === "gemini" ? { reasoning_effort: "medium" } : {}) }) });
   const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
   if (!response.ok) throw new Error(`TeamoRouter ${labels[provider]} 呼叫失敗：${payload.error?.message || `HTTP ${response.status}`}`);
   const text = payload.choices?.[0]?.message?.content?.trim() || ""; const input = Number(payload.usage?.prompt_tokens ?? 0); const output = Number(payload.usage?.completion_tokens ?? 0); const price = teamoPrices[provider];
@@ -139,24 +140,31 @@ export async function GET(request: Request) {
     const requested = new URL(request.url).searchParams.get("runId"); const runId = requested && runIds.includes(requested) ? requested : activeRunIds.at(-1) || null;
     const meta = metas.find((x) => source(x).runId === runId); const settings = source(meta ?? { sourceJson: "{}" }); const bank: Bank = settings.bank ?? "criminal"; const provider: Provider = settings.provider ?? "deepseek"; const gateway: Gateway = settings.gateway ?? "direct";
     const runRows = runId ? all.filter((x) => source(x).runId === runId && source(x).benchmarkId !== 0) : [];
-    const runs = runIds.map((id) => { const m = metas.find((x) => source(x).runId === id); const s = source(m ?? { sourceJson: "{}" }); const cards = all.filter((x) => source(x).runId === id && source(x).benchmarkId !== 0); const answerCount = responses.filter((r) => cards.some((c) => c.id === r.comparisonId)).length; return { id, label: s.label || "舊測試紀錄", startedAt: m?.createdAt, answered: answerCount, completed: answerCount, total: 50, provider: s.provider ?? "deepseek", gateway: s.gateway ?? "direct", bank: s.bank ?? "criminal" }; });
-    return Response.json({ target: 50, runId, provider, gateway, bank, runs, questions: questions(bank).map((q) => { const card = runRows.find((x) => source(x).benchmarkId === q.id); return { ...q, responses: card ? responses.filter((r) => r.comparisonId === card.id).map((r) => ({ ...r, verdict: null })) : [] }; }) });
+    const runs = runIds.map((id) => { const m = metas.find((x) => source(x).runId === id); const s = source(m ?? { sourceJson: "{}" }); const cards = all.filter((x) => source(x).runId === id && source(x).benchmarkId !== 0); const answerCount = responses.filter((r) => cards.some((c) => c.id === r.comparisonId)).length; return { id, label: s.label || "舊測試紀錄", startedAt: m?.createdAt, answered: answerCount, completed: answerCount, total: 50, provider: s.provider ?? "deepseek", gateway: s.gateway ?? "direct", bank: s.bank ?? "criminal", thinkingLevel: s.thinkingLevel, externalReview: s.externalReview }; });
+    return Response.json({ target: 50, runId, provider, gateway, bank, thinkingLevel: settings.thinkingLevel, externalReview: settings.externalReview, runs, questions: questions(bank).map((q) => { const card = runRows.find((x) => source(x).benchmarkId === q.id); return { ...q, responses: card ? responses.filter((r) => r.comparisonId === card.id).map((r) => ({ ...r, verdict: null })) : [] }; }) });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "測試資料讀取失敗" }, { status: 500 }); }
 }
 
 export async function POST(request: Request) {
   let stage = "準備測試";
   try {
-    const body = await request.json() as { action?: string; runId?: string; questionId?: number; provider?: Provider; gateway?: Gateway; bank?: Bank }; const db = await getDb();
+    const body = await request.json() as { action?: string; runId?: string; questionId?: number; provider?: Provider; gateway?: Gateway; bank?: Bank; review?: Partial<ExternalReview> }; const db = await getDb();
     if (body.action === "create-run") {
       if (!validProvider(body.provider) || !validGateway(body.gateway) || !validBank(body.bank)) return Response.json({ error: "請先選擇供應商、模型與題庫" }, { status: 400 });
       const runId = `run-${Date.now()}`; const now = new Date(); const label = `${now.toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })} ${now.toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit" })}`;
-      await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: `${gatewayLabels[body.gateway]}｜${labels[body.provider]}｜${body.bank === "comprehensive" ? "綜合法科" : "刑法"}50題`, sourceStatus: "run_meta", sourceJson: JSON.stringify({ runId, benchmarkId: 0, label, gateway: body.gateway, provider: body.provider, bank: body.bank }) });
+      await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: `${gatewayLabels[body.gateway]}｜${labels[body.provider]}｜${body.bank === "comprehensive" ? "綜合法科" : "刑法"}50題`, sourceStatus: "run_meta", sourceJson: JSON.stringify({ runId, benchmarkId: 0, label, gateway: body.gateway, provider: body.provider, bank: body.bank, ...(body.provider === "gemini" ? { thinkingLevel: "medium" } : {}) }) });
       return Response.json({ ok: true, runId });
     }
     const runId = String(body.runId || ""); if (!runId) return Response.json({ error: "測試參數不完整" }, { status: 400 });
     const rows = await db.select().from(chatComparisons).where(eq(chatComparisons.contextType, contextType)); const meta = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === 0); if (!meta) return Response.json({ error: "找不到這一輪測試紀錄" }, { status: 404 });
     if (body.action === "end-run") { await db.update(chatComparisons).set({ sourceStatus: "run_ended", sourceJson: JSON.stringify({ ...source(meta), status: "ended" }) }).where(eq(chatComparisons.id, meta.id)); return Response.json({ ok: true }); }
+    if (body.action === "save-review") {
+      const review = body.review; const score = Number(review?.score); const fatalCount = Number(review?.fatalCount);
+      if (!review || !Number.isFinite(score) || score < 0 || score > 100 || !Number.isInteger(fatalCount) || fatalCount < 0 || fatalCount > 50) return Response.json({ error: "請確認總分為 0～100、致命錯誤為 0～50" }, { status: 400 });
+      const externalReview: ExternalReview = { source: String(review.source || "ChatGPT 外部評測").slice(0, 80), score, fatalCount, summary: String(review.summary || "").slice(0, 2000), rawText: String(review.rawText || "").slice(0, 30000), reviewedAt: new Date().toISOString() };
+      await db.update(chatComparisons).set({ sourceJson: JSON.stringify({ ...source(meta), externalReview }) }).where(eq(chatComparisons.id, meta.id));
+      return Response.json({ ok: true, externalReview });
+    }
     const settings = source(meta); const provider = settings.provider; const gateway = settings.gateway ?? "direct"; const bank = settings.bank ?? "criminal"; if (!provider) return Response.json({ error: "舊批次沒有指定單模型，請建立新一輪" }, { status: 400 });
     const q = questions(bank).find((x) => x.id === Number(body.questionId)); if (!q) return Response.json({ error: "找不到題目" }, { status: 404 });
     let card = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === q.id); if (!card) [card] = await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: q.prompt, sourceStatus: "benchmark_card", sourceJson: JSON.stringify({ runId, benchmarkId: q.id, gateway, provider, bank, rule: q.rule, expected: q.expected }) }).returning();
