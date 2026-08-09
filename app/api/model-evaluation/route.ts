@@ -30,7 +30,7 @@ const teamoPrices: Partial<Record<Provider, { input: number; output: number }>> 
   deepseekfree: { input: 0, output: 0 }, glm: { input: 1.37, output: 4.31 }, gemini: { input: .32, output: 1.6 }, kimi: { input: 1.5, output: 7.5 },
 };
 
-type Source = { runId?: string; benchmarkId?: number; label?: string; provider?: Provider; gateway?: Gateway; bank?: Bank };
+type Source = { runId?: string; benchmarkId?: number; label?: string; provider?: Provider; gateway?: Gateway; bank?: Bank; status?: "active" | "ended" };
 function source(row: { sourceJson: string }): Source { try { return JSON.parse(row.sourceJson) as Source; } catch { return {}; } }
 function questions(bank: Bank) { return bank === "comprehensive" ? comprehensiveBenchmarkCases : benchmarkCases; }
 function outputText(payload: Record<string, unknown>) {
@@ -135,8 +135,8 @@ export async function GET(request: Request) {
     const db = await getDb(); const all = await db.select().from(chatComparisons).where(inArray(chatComparisons.contextType, [contextType, "model-benchmark-v3", "model-benchmark-v2"])).orderBy(asc(chatComparisons.id));
     const ids = all.map((x) => x.id);
     const responses = await selectInBatches(ids, (batch) => db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, batch)));
-    const metas = all.filter((x) => source(x).benchmarkId === 0); const runIds = [...new Set(all.map((x) => source(x).runId).filter(Boolean) as string[])];
-    const requested = new URL(request.url).searchParams.get("runId"); const runId = requested && runIds.includes(requested) ? requested : runIds.at(-1) || null;
+    const metas = all.filter((x) => source(x).benchmarkId === 0); const runIds = [...new Set(all.map((x) => source(x).runId).filter(Boolean) as string[])]; const activeRunIds = runIds.filter((id) => source(metas.find((x) => source(x).runId === id) ?? { sourceJson: "{}" }).status !== "ended");
+    const requested = new URL(request.url).searchParams.get("runId"); const runId = requested && runIds.includes(requested) ? requested : activeRunIds.at(-1) || null;
     const meta = metas.find((x) => source(x).runId === runId); const settings = source(meta ?? { sourceJson: "{}" }); const bank: Bank = settings.bank ?? "criminal"; const provider: Provider = settings.provider ?? "deepseek"; const gateway: Gateway = settings.gateway ?? "direct";
     const runRows = runId ? all.filter((x) => source(x).runId === runId && source(x).benchmarkId !== 0) : [];
     const runs = runIds.map((id) => { const m = metas.find((x) => source(x).runId === id); const s = source(m ?? { sourceJson: "{}" }); const cards = all.filter((x) => source(x).runId === id && source(x).benchmarkId !== 0); const answerCount = responses.filter((r) => cards.some((c) => c.id === r.comparisonId)).length; return { id, label: s.label || "舊測試紀錄", startedAt: m?.createdAt, answered: answerCount, completed: answerCount, total: 50, provider: s.provider ?? "deepseek", gateway: s.gateway ?? "direct", bank: s.bank ?? "criminal" }; });
@@ -156,6 +156,7 @@ export async function POST(request: Request) {
     }
     const runId = String(body.runId || ""); if (!runId) return Response.json({ error: "測試參數不完整" }, { status: 400 });
     const rows = await db.select().from(chatComparisons).where(eq(chatComparisons.contextType, contextType)); const meta = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === 0); if (!meta) return Response.json({ error: "找不到這一輪測試紀錄" }, { status: 404 });
+    if (body.action === "end-run") { await db.update(chatComparisons).set({ sourceStatus: "run_ended", sourceJson: JSON.stringify({ ...source(meta), status: "ended" }) }).where(eq(chatComparisons.id, meta.id)); return Response.json({ ok: true }); }
     const settings = source(meta); const provider = settings.provider; const gateway = settings.gateway ?? "direct"; const bank = settings.bank ?? "criminal"; if (!provider) return Response.json({ error: "舊批次沒有指定單模型，請建立新一輪" }, { status: 400 });
     const q = questions(bank).find((x) => x.id === Number(body.questionId)); if (!q) return Response.json({ error: "找不到題目" }, { status: 404 });
     let card = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === q.id); if (!card) [card] = await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: q.prompt, sourceStatus: "benchmark_card", sourceJson: JSON.stringify({ runId, benchmarkId: q.id, gateway, provider, bank, rule: q.rule, expected: q.expected }) }).returning();
