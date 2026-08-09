@@ -197,6 +197,13 @@ function isProblemSolvingResource(resource: LearningResource) {
   );
 }
 
+function problemContentSections(text: string) {
+  const value = text.trim();
+  const match = value.match(/^【完整題目】\s*([\s\S]*?)\s*\n\s*【(爭點解析|擬答)】\s*([\s\S]+)$/u);
+  if (!match) return null;
+  return { question: match[1].trim(), label: match[2], analysis: match[3].trim() };
+}
+
 function chapterProgressPercent(progress?: ChapterProgress) {
   if (!progress) return 0;
   if (progress.state === "completed") return 100;
@@ -5464,9 +5471,17 @@ export default function AdminPage() {
                       <h3>{activeChapter.title || "未命名章節"}</h3>
                       <small className="chapter-viewer-pages">原教材頁碼：{activeChapter.pageStart ? `${activeChapter.pageStart}${activeChapter.pageEnd && activeChapter.pageEnd !== activeChapter.pageStart ? `–${activeChapter.pageEnd}` : ""}` : "待核對"}</small>
                       {activeChapter.summary && <div className="chapter-viewer-summary"><strong>拆解摘要</strong><p>{activeChapter.summary}</p></div>}
-                      {activeChapter.text ? (
-                        <div className="chapter-viewer-text"><strong>完整內容／題目原文</strong><p>{activeChapter.text}</p></div>
-                      ) : (
+                      {activeChapter.text ? (() => {
+                        const sections = problemContentSections(activeChapter.text);
+                        return sections ? (
+                          <div className="chapter-viewer-problem-sections">
+                            <section className="chapter-viewer-text question"><strong>完整題目</strong><p>{sections.question}</p></section>
+                            <section className="chapter-viewer-text analysis"><strong>{sections.label}</strong><p>{sections.analysis}</p></section>
+                          </div>
+                        ) : (
+                          <div className="chapter-viewer-text"><strong>完整內容／題目原文</strong><p>{activeChapter.text}</p></div>
+                        );
+                      })() : (
                         <div className="chapter-viewer-empty">目前已確認這個真實目錄項目，但完整內容仍在後台分批整理；系統不會用假資料補上。</div>
                       )}
                     </>

@@ -99,6 +99,12 @@ type SequentialProblemQuestion = {
   complete: boolean;
 };
 
+type ProblemContentParts = {
+  question: string;
+  analysis: string;
+  marker: "爭點解析" | "擬答" | "";
+};
+
 type ProblemCatalogueClass = { section: string; topic: string; title: string };
 
 type ChapterSourceProgress = {
@@ -222,7 +228,7 @@ function isCompleteProblemQuestion(chapter: {
   stem?: string | null;
 }) {
   const title = String(chapter.title ?? "").trim();
-  const stem = String(chapter.text ?? chapter.stem ?? "").trim();
+  const stem = normalizeProblemMarkers(String(chapter.text ?? chapter.stem ?? "").trim());
   // A table-of-contents entry can easily exceed 30 characters, especially
   // when it contains an exam name and a printed page reference.  It is still
   // not a usable question.  Published problem-book rows must contain a real
@@ -240,12 +246,12 @@ function isCompleteProblemQuestion(chapter: {
   const normalizedTitle = normalizedHeading(title);
   if (normalizedTitle.length >= 8 && normalizedHeading(stem).split(normalizedTitle).length - 1 > 1) return false;
   const hasStemEvidence = /甲|乙|丙|丁|某|請問|試問|何者|如何|是否|案情|事實|行為|主張|法院|當事人/u.test(stem);
-  const hasSolutionEvidence = /解析|解題|擬答|爭點|答題|規範|涵攝|結論|評析|說明|本文見解|實務見解/u.test(stem);
-  const solutionMarker = stem.search(/爭點解析|解題解析|【?擬答】?|答題架構|試題評析/u);
+  const parts = splitProblemContent(stem, title);
+  const hasSolutionEvidence = parts.analysis.length >= 60;
   // A complete student-facing row must have a distinguishable question area
   // followed by an analysis/answer area.  Mere keyword co-occurrence is not
   // enough, because it allowed unrelated page fragments to be published.
-  return body.length >= 160 && hasStemEvidence && hasSolutionEvidence && solutionMarker >= 80;
+  return body.length >= 160 && parts.question.length >= 80 && hasStemEvidence && hasSolutionEvidence;
 }
 
 function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
@@ -407,6 +413,54 @@ function cleanSourceText(value: string) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function normalizeProblemMarkers(value: string) {
+  return cleanSourceText(value)
+    .replace(/[\uE000-\uF8FF□■▪▫◆◇●○★☆]+\s*(爭\s*點\s*解\s*析)\s*[\uE000-\uF8FF□■▪▫◆◇●○★☆]*/gu, "$1")
+    .replace(/爭\s*點\s*解\s*析/gu, "爭點解析")
+    .replace(/【\s*擬\s*答\s*】\s*[:：]?/gu, "擬答：")
+    .replace(/擬\s*答\s*[:：]/gu, "擬答：");
+}
+
+function stripPrintedProblemHeading(value: string, title: string) {
+  let body = normalizeProblemMarkers(value).replace(
+    /^(?:【\s*)?(?:題型|案例|例題|實例題|練習題)\s*[一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*(?:\s*】)?\s*/u,
+    "",
+  );
+  const titleKey = normalizedHeading(title.replace(/^(?:題型|案例|例題|實例題|練習題)\s*[\d一二三四五六七八九十百.．、-]+/u, ""));
+  if (!titleKey) return body;
+  for (let end = 1; end <= Math.min(body.length, 180); end += 1) {
+    if (normalizedHeading(body.slice(0, end)) === titleKey) {
+      body = body.slice(end).replace(/^[\s:：｜|]+/u, "");
+      break;
+    }
+  }
+  return body;
+}
+
+function splitProblemContent(value: string, title = ""): ProblemContentParts {
+  const body = stripPrintedProblemHeading(value, title);
+  // Some PDFs flatten a whole page into one line. These are explicit printed
+  // section labels, so they remain valid boundaries even without a newline.
+  const issueMarker = /(?:【\s*)?爭點解析(?:\s*】)?\s*[:：]?/u.exec(body);
+  const answerMarker = /擬答：/u.exec(body);
+  const chosen = issueMarker ?? answerMarker;
+  if (!chosen || chosen.index < 80) return { question: body, analysis: "", marker: "" };
+  const question = cleanSourceText(body.slice(0, chosen.index));
+  const analysisBody = cleanSourceText(body.slice(chosen.index + chosen[0].length));
+  const marker = issueMarker ? "爭點解析" : "擬答";
+  const analysis = marker === "爭點解析"
+    ? analysisBody.replace(/^擬答：\s*/u, "擬答：\n")
+    : analysisBody;
+  return { question, analysis, marker };
+}
+
+function structuredProblemText(value: string, title: string) {
+  const parts = splitProblemContent(value, title);
+  if (!parts.analysis) return parts.question;
+  const analysisLabel = parts.marker === "擬答" ? "擬答" : "爭點解析";
+  return `【完整題目】\n${parts.question}\n\n【${analysisLabel}】\n${parts.analysis}`;
 }
 
 function normalizedHeading(value: string) {
@@ -579,7 +633,8 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
         current.lastPage = pageNumber;
       }
       if (current) {
-        const text = cleanSourceText(current.parts.join("\n\n"));
+        const rawText = cleanSourceText(current.parts.join("\n\n"));
+        const text = structuredProblemText(rawText, current.title);
         questions.push({
           title: current.title,
           section: current.section,
@@ -615,7 +670,8 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
   }
 
   if (current) {
-    const text = cleanSourceText(current.parts.join("\n\n"));
+    const rawText = cleanSourceText(current.parts.join("\n\n"));
+    const text = structuredProblemText(rawText, current.title);
     questions.push({
       title: current.title,
       section: current.section,
