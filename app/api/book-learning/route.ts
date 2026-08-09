@@ -36,9 +36,16 @@ function mapHistorySession(
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const resourceId = Number(url.searchParams.get("resourceId"));
-  const segmentId = Number(url.searchParams.get("segmentId"));
-  const requestedSessionId = Number(url.searchParams.get("sessionId"));
+  // Number(null) is 0. Treating an omitted query parameter as session 0 made
+  // the no-argument "resume my latest book" request return 404 instead of the
+  // latest persisted session.
+  const optionalNumber = (name: string) => {
+    const value = url.searchParams.get(name);
+    return value === null || value.trim() === "" ? Number.NaN : Number(value);
+  };
+  const resourceId = optionalNumber("resourceId");
+  const segmentId = optionalNumber("segmentId");
+  const requestedSessionId = optionalNumber("sessionId");
   const db = await getDb();
 
   if (Number.isInteger(requestedSessionId)) {
@@ -92,5 +99,5 @@ export async function GET(request: Request) {
     eq(chatSessions.userKey, userKey(request)),
     eq(chatSessions.contextType, "book"),
   )).orderBy(desc(chatSessions.updatedAt)).limit(1);
-  return Response.json({ resourceId: last?.resourceId ?? null, segmentId: last?.segmentId ?? null, updatedAt: last?.updatedAt ?? null });
+  return Response.json({ sessionId: last?.id ?? null, resourceId: last?.resourceId ?? null, segmentId: last?.segmentId ?? null, updatedAt: last?.updatedAt ?? null });
 }

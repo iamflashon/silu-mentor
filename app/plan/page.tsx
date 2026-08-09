@@ -719,6 +719,7 @@ export default function StudyPlanPage() {
   );
   const [bookMessages, setBookMessages] = useState<TutorMessage[]>([]);
   const [bookSessionId, setBookSessionId] = useState<number | null>(null);
+  const [lastBookSessionId, setLastBookSessionId] = useState<number | null>(null);
   const [bookHistory, setBookHistory] = useState<BookHistoryEntry[]>([]);
   const [bookHistoryOpen, setBookHistoryOpen] = useState(false);
   const [bookHistoryLoading, setBookHistoryLoading] = useState(false);
@@ -789,7 +790,7 @@ export default function StudyPlanPage() {
     }
     fetch("/api/book-learning/preferences", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return;
-      const { preference, stored } = await response.json() as { stored?: boolean; preference?: { bookTeachingLevel?: string | null; bookModelMode?: string; bookSettingsPinned?: boolean; lastBookResourceId?: number | null; lastBookSegmentId?: number | null } };
+      const { preference, stored } = await response.json() as { stored?: boolean; preference?: { bookTeachingLevel?: string | null; bookModelMode?: string; bookSettingsPinned?: boolean; lastBookResourceId?: number | null; lastBookSegmentId?: number | null; lastBookSessionId?: number | null } };
       if (!preference) return;
       if (!stored && localPreference) {
         void fetch("/api/book-learning/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ bookTeachingLevel: localPreference.teachingLevel ?? null, bookModelMode: localPreference.modelMode ?? "luna", bookSettingsPinned: Boolean(localPreference.pinned), lastBookResourceId: preference.lastBookResourceId ?? null, lastBookSegmentId: preference.lastBookSegmentId ?? null }) });
@@ -800,6 +801,7 @@ export default function StudyPlanPage() {
       if (allowedModes.includes(preference.bookModelMode as BookModelMode)) setBookModelMode(preference.bookModelMode as BookModelMode);
       setBookTeachingLevel(["beginner", "intermediate", "advanced", "super"].includes(String(preference.bookTeachingLevel)) ? preference.bookTeachingLevel as "beginner" | "intermediate" | "advanced" | "super" : null);
       if (preference.lastBookResourceId && preference.lastBookSegmentId) setLastBookProgress({ resourceId: preference.lastBookResourceId, segmentId: preference.lastBookSegmentId });
+      if (preference.lastBookSessionId) setLastBookSessionId(preference.lastBookSessionId);
     }).catch(() => undefined);
   }, []);
   const [resourceMessage, setResourceMessage] = useState("");
@@ -930,12 +932,14 @@ export default function StudyPlanPage() {
         const result = (await response.json()) as {
           resourceId?: number | null;
           segmentId?: number | null;
+          sessionId?: number | null;
         };
         if (result.resourceId && result.segmentId)
           setLastBookProgress({
             resourceId: result.resourceId,
             segmentId: result.segmentId,
           });
+        if (result.sessionId) setLastBookSessionId(result.sessionId);
       }
     });
   }, []);
@@ -1952,9 +1956,13 @@ export default function StudyPlanPage() {
     setBookLoadingRole(selectedBookIsProblemSolving ? null : "mentor");
     if (!forceRestart) {
       try {
-        const historyResponse = await fetch(
-          `/api/book-learning?resourceId=${selectedResource.id}&segmentId=${chapter.id}`,
-        );
+        const resumeExactSession =
+          lastBookSessionId &&
+          lastBookProgress?.resourceId === selectedResource.id &&
+          lastBookProgress.segmentId === chapter.id;
+        const historyResponse = await fetch(resumeExactSession
+          ? `/api/book-learning?sessionId=${lastBookSessionId}`
+          : `/api/book-learning?resourceId=${selectedResource.id}&segmentId=${chapter.id}`);
         const history = (await historyResponse.json()) as {
           sessionId?: number | null;
           messages?: TutorMessage[];
@@ -1963,6 +1971,7 @@ export default function StudyPlanPage() {
         if (history.history) setBookHistory(history.history);
         if (historyResponse.ok && history.messages?.length) {
           setBookSessionId(history.sessionId ?? null);
+          setLastBookSessionId(history.sessionId ?? null);
           setBookMessages(history.messages);
           setLastBookProgress({
             resourceId: selectedResource.id,
@@ -2023,6 +2032,7 @@ export default function StudyPlanPage() {
         teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? null);
+      setLastBookSessionId(result.sessionId ?? null);
       setLastBookProgress({
         resourceId: selectedResource.id,
         segmentId: chapter.id,
@@ -2073,6 +2083,7 @@ export default function StudyPlanPage() {
       const result = await response.json() as { sessionId?: number; messages?: TutorMessage[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "這段學習紀錄暫時無法讀取");
       setBookSessionId(result.sessionId ?? entry.id);
+      setLastBookSessionId(result.sessionId ?? entry.id);
       setBookMessages(result.messages ?? []);
       setBookHistoryOpen(false);
       setBookTestNotice("");
@@ -2119,6 +2130,8 @@ export default function StudyPlanPage() {
         teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? null);
+      setLastBookSessionId(result.sessionId ?? null);
+      void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: selectedChapter.id, lastBookSessionId: result.sessionId ?? null });
       setBookMessages([{
         role: "student",
         text: "開始審題",
