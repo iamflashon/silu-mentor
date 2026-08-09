@@ -890,11 +890,19 @@ export async function POST(request: Request) {
           : body.teachingLevel === "super"
             ? `\n\n【本輪學生身分：頂尖學霸】要求處理體系一致性、隱藏前提、反例、學說邊界與考場策略；發現概念偷換時直接精準指出。完整罪責結論後只用一個改變關鍵事實的高難度追問測試論證；學生回答後不得繼續連問，必須回到完整解題架構，接著進入考場擬答。`
             : "";
+    const bookFlowGuardInstruction = context.type === "book" && bookEvidence?.basis === "teacher_solution"
+      ? `\n\n【解題書互動與擬答最終檢核】
+1. 學生按「開始審題」時，第一則回覆不得直接公布全部題型或核心爭點；先從題示事實引導學生辨認行為人關係或第一個決定性問題，學生回答後才逐步揭示法律名稱。
+2. 學生採有學理依據但與老師不同的答案時，依序標示「你的答案在何種學說下可成立」「老師採說」「考場建議」，不得只用鼓勵語模糊正誤。
+3. 生成考場擬答前，先在內部逐項列出老師原文的第一層標題、行為人順序、罪名順序與最終結論；輸出必須完全照此順序，不得自行重排，內部核對過程不顯示給學生。
+4. 若老師認定不知情工具人欠缺過失，須直接寫欠缺預見可能性或注意義務違反，再補充結果未發生且過失未遂不罰；不得加入「縱認已製造不容許風險」等造成前後矛盾的句子。
+5. 若本輪是 Sol 覆核，應逐項標示「保留」「修正」「補充」，並以老師原文為主要校準依據；不同見解只能標示為補充爭議，不得冒充老師採說。最後提供依老師順序整理的修正版。`
+      : "";
     const teacherFeedbackInstruction = body.teacherFeedback && context.type === "book"
       ? "\n\n【追問後回饋並完成解題】AI 學霸剛剛已回答你上一個理解追問。先用一至三句指出已掌握之處與一個需要修正或補強之處；接著不要再提新問題，直接依老師原文整理完整解題架構，固定使用「爭點→判準→各說→評析→涵攝→明確結論」。結論必須寫出每位行為人的法條、罪名及未遂／間接正犯等犯罪型態。最後只銜接一句「接下來可進入考場擬答」，不得再出反事實題。"
       : "";
     const instructions = (context.type === "book"
-      ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。${bookEvidenceInstruction}${teacherFeedbackInstruction}`
+      ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。${bookEvidenceInstruction}${bookFlowGuardInstruction}${teacherFeedbackInstruction}`
       : context.type === "magazine"
         ? `${baseInstructions}\n\n這是獨立的法學教室試讀文章問答，不是首頁每日導師對話。只根據目前期數、文章標題、摘要、核心爭點與學生框選的文字回答。若試讀內容不足以確認全文脈絡，必須明確標示限制，不得補造作者主張、判決內容或文章結論；不得建立、修改或刪除行事曆。`
         : context.type === "my-course" || context.type === "public-course"

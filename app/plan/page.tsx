@@ -12,6 +12,7 @@ import {
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import CourseVideoPlayer, { formatMediaTime, PlaybackRateSelect } from "../course-video-player";
 import { PracticeLab } from "./practice-lab";
+import { IssuePractice } from "./issue-practice";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
 import { formatTwd } from "../../lib/currency";
@@ -3193,7 +3194,7 @@ export default function StudyPlanPage() {
             className={activeTab === "hotspots" ? "active" : ""}
             onClick={() => setActiveTab("hotspots")}
           >
-            熱考點
+            練爭點
           </button>
           <button
             className={activeTab === "summaries" ? "active" : ""}
@@ -3371,7 +3372,9 @@ export default function StudyPlanPage() {
           </section>
         )}
         {activeTab === "hotspots" && (
-          <section className="hot-points-hub" aria-label="司律熱考點">
+          <>
+          <IssuePractice />
+          {false && (<section className="hot-points-hub" aria-label="司律熱考點">
             <header className="hot-points-head">
               <div>
                 <p>CORE EXAM POINTS</p>
@@ -3474,7 +3477,8 @@ export default function StudyPlanPage() {
               目前 88 筆是核心考點整理，不代表已有 88
               組真題。須核對歷屆題的年度、題號與實際爭點後，才會逐筆開放練習。
             </p>
-          </section>
+          </section>)}
+          </>
         )}
         {activeTab === "listening" && (
           <section className="learning-single-column" aria-label="聽解題專區">
