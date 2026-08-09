@@ -130,6 +130,8 @@ type StudentSummary = {
 };
 type SummaryFolder = { subject: string; name: string };
 type SummarySection = "exam" | "key-points" | "issues" | "mistakes" | "sources" | "flashcards";
+type SummaryModel = "luna" | "terra" | "sol" | "claude" | "opus" | "deepseek" | "glm" | "glm52";
+const summaryFieldOptions = [["summary", "核心摘要"], ["examFocus", "考試整理"], ["keyPoints", "重點"], ["issueOutline", "重要爭點"], ["commonMistakes", "常見錯誤"], ["sourceNotes", "來源位置"], ["flashcards", "複習卡"]] as const;
 type LearningResource = {
   id: number;
   resourceType: "book" | "course" | "trial" | "magazine";
@@ -546,7 +548,11 @@ export default function StudyPlanPage() {
   const [studentSummaries, setStudentSummaries] = useState<StudentSummary[]>([]);
   const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<number>>(new Set());
-  const [summaryModel, setSummaryModel] = useState<"luna" | "sol" | "claude">("luna");
+  const [summaryModel, setSummaryModel] = useState<SummaryModel>("luna");
+  const [summaryFields, setSummaryFields] = useState<string[]>(summaryFieldOptions.map(([key]) => key));
+  const [summaryCustomFields, setSummaryCustomFields] = useState<string[]>([]);
+  const [summaryCustomDraft, setSummaryCustomDraft] = useState("");
+  const [summaryPreferencesSaving, setSummaryPreferencesSaving] = useState(false);
   const [summarySubject, setSummarySubject] = useState("刑法");
   const [summaryTopic, setSummaryTopic] = useState("");
   const [summaryUploadLoading, setSummaryUploadLoading] = useState(false);
@@ -831,6 +837,7 @@ export default function StudyPlanPage() {
     fetch("/api/summaries/folders").then(async (response) => {
       if (response.ok) setSummaryFolders(((await response.json()) as { folders?: SummaryFolder[] }).folders ?? []);
     }).catch(() => undefined);
+    fetch("/api/summaries/preferences").then(async (response) => { if (!response.ok) return; const result = await response.json() as { preferences?: { defaultModel?: SummaryModel; fields?: string[]; customFields?: string[] } }; if (result.preferences?.defaultModel) setSummaryModel(result.preferences.defaultModel); if (result.preferences?.fields) setSummaryFields(result.preferences.fields); if (result.preferences?.customFields) setSummaryCustomFields(result.preferences.customFields); }).catch(() => undefined);
     fetch("/api/home-feed").then(async (response) => {
       if (response.ok) setHomeFeed((await response.json()) as HomeFeed);
     });
@@ -2569,8 +2576,8 @@ export default function StudyPlanPage() {
       if (!upload.ok || !uploaded.summary) throw new Error(uploaded.error ?? "上傳失敗");
       setStudentSummaries((current) => [uploaded.summary!, ...current]);
       setSelectedSummaryId(uploaded.summary.id);
-      setSummaryNotice(`已上傳，正在用 ${summaryModel === "sol" ? "Sol" : summaryModel === "claude" ? "Claude Sonnet 5" : "Luna"} 整理…`);
-      const process = await fetch("/api/summaries/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: uploaded.summary.id, model: summaryModel }) });
+      setSummaryNotice("已上傳，正在依選取模型與摘要欄位整理…");
+      const process = await fetch("/api/summaries/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: uploaded.summary.id, model: summaryModel, fields: summaryFields, customFields: summaryCustomFields }) });
       const processed = await process.json() as { error?: string };
       if (!process.ok) throw new Error(processed.error ?? "AI 整理失敗，原始檔案已保留");
       const refreshed = await fetch("/api/summaries");
@@ -2583,6 +2590,17 @@ export default function StudyPlanPage() {
     } finally {
       setSummaryUploadLoading(false);
     }
+  }
+
+  async function saveSummaryPreferences() {
+    setSummaryPreferencesSaving(true);
+    try { const response = await fetch("/api/summaries/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ defaultModel: summaryModel, fields: summaryFields, customFields: summaryCustomFields }) }); if (!response.ok) throw new Error("偏好保存失敗"); setSummaryNotice("已保存摘要欄位與預設模型，下次會自動套用。"); }
+    catch (error) { setSummaryNotice(error instanceof Error ? error.message : "偏好保存失敗"); } finally { setSummaryPreferencesSaving(false); }
+  }
+
+  async function copySummaryReviewPack(item: StudentSummary) {
+    const pack = `【司律備考｜整摘要模型評測】\n檔案：${item.name}\n科目：${item.subject}\n模型：${item.model}\n摘要欄位：${summaryFields.join("、")}\n自訂欄位：${summaryCustomFields.join("、") || "無"}\nToken：${(item.usage?.inputTokens ?? 0) + (item.usage?.outputTokens ?? 0)}\n成本：US$ ${(item.usage?.estimatedCostUsd ?? 0).toFixed(5)}\n\n【模型產出】\n${item.editedSummary || item.summary}\n\n考試整理：${item.examFocus}\n重點：${item.keyPoints.join("；")}\n重要爭點：${item.issueOutline.join("；")}\n常見錯誤：${item.commonMistakes.join("；")}\n來源位置：${item.sourceNotes.join("；")}\n\n請評測內容忠實度、重點完整度、法律考試實用性、結構與可讀性，並指出遺漏、錯誤及是否適合設為預設模型。`;
+    await navigator.clipboard.writeText(pack); setSummaryNotice("已複製評測包；直接貼到這個 ChatGPT 對話，我會替你評測，不會產生網站內的評審模型成本。");
   }
 
   function handleSummaryPaste(event: ClipboardEvent<HTMLFormElement>) {
@@ -3185,9 +3203,10 @@ export default function StudyPlanPage() {
               <div className="student-summary-controls">
                 <label>科目<select value={summarySubject} onChange={(event) => setSummarySubject(event.target.value)}>{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label>
                 <label>分類主題<input value={summaryTopic} maxLength={120} onChange={(event) => setSummaryTopic(event.target.value)} placeholder="例如：不作為犯／遺產稅" /></label>
-                <label>整理模型<select value={summaryModel} onChange={(event) => setSummaryModel(event.target.value as "luna" | "sol" | "claude")}><option value="luna">Luna｜一般整理</option><option value="sol">Sol｜深度考試整理</option><option value="claude">Claude Sonnet 5｜完整整理</option></select></label>
+                <label>整理模型<select value={summaryModel} onChange={(event) => setSummaryModel(event.target.value as SummaryModel)}><optgroup label="OpenAI"><option value="luna">Luna｜快速一般整理</option><option value="terra">Terra｜平衡整理</option><option value="sol">Sol｜深度考試整理</option></optgroup><optgroup label="Anthropic"><option value="claude">Claude Sonnet 5｜完整整理</option><option value="opus">Claude Opus 5｜深度整理</option></optgroup><optgroup label="DeepSeek"><option value="deepseek">DeepSeek V4-Pro</option></optgroup><optgroup label="智譜 Z.AI"><option value="glm">GLM-4.7-Flash｜免費測試</option><option value="glm52">GLM-5.2｜付費測試</option></optgroup></select></label>
               </div>
             </header>
+            <section className="summary-preference-panel"><div><strong>這次要整理哪些重點？</strong><span>基本欄位由平台提供，同學可自由勾選。</span></div><div className="summary-field-checks">{summaryFieldOptions.map(([key, label]) => <label key={key}><input type="checkbox" checked={summaryFields.includes(key)} onChange={() => setSummaryFields((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}</div><div className="summary-custom-fields"><label><span>自訂欄位（最多 3 個，可重複使用）</span><div><input value={summaryCustomDraft} maxLength={40} placeholder="例如：學說比較／申論答題句" onChange={(event) => setSummaryCustomDraft(event.target.value)} /><button type="button" disabled={!summaryCustomDraft.trim() || summaryCustomFields.length >= 3} onClick={() => { const name = summaryCustomDraft.trim(); if (name && !summaryCustomFields.includes(name)) setSummaryCustomFields((items) => [...items, name].slice(0, 3)); setSummaryCustomDraft(""); }}>加入</button></div></label><div>{summaryCustomFields.map((field) => <button type="button" key={field} onClick={() => setSummaryCustomFields((items) => items.filter((item) => item !== field))}>{field} ×</button>)}</div></div><button type="button" className="summary-save-default" onClick={() => void saveSummaryPreferences()} disabled={summaryPreferencesSaving}>{summaryPreferencesSaving ? "保存中…" : "儲存欄位並設為預設模型"}</button></section>
             <form className="student-summary-upload" onSubmit={uploadStudentSummary} onPaste={handleSummaryPaste}>
               <label className="student-summary-dropzone" tabIndex={0}>
                 <strong>拍照／選擇檔案／貼上截圖</strong>
@@ -3267,7 +3286,7 @@ export default function StudyPlanPage() {
                         {summarySection === "sources" && <div className="student-summary-block student-summary-block-active"><b>來源位置</b>{item.sourceNotes.length ? <ul>{item.sourceNotes.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供來源位置。</p>}</div>}
                         {summarySection === "flashcards" && <div className="student-summary-block student-summary-block-active"><b>複習卡</b>{item.flashcards.length > 0 ? <div className="student-summary-flashcards">{item.flashcards.slice(0, 6).map((card) => <details key={card.question}><summary>{card.question}</summary><p>{card.answer}</p></details>)}</div> : <p>目前沒有可用的複習卡。</p>}</div>}
                       </div>
-                      <footer className="student-summary-meta"><span>{item.model || "尚未使用模型"} · {(item.usage?.inputTokens ?? 0) + (item.usage?.outputTokens ?? 0)} tokens · 約 US$ {(item.usage?.estimatedCostUsd ?? 0).toFixed(4)} · 約 NT$ {formatTwd(item.usage?.estimatedCostUsd ?? 0)}</span><button type="button" onClick={() => void saveStudentSummary()} disabled={summarySaving}>{summarySaving ? "保存中…" : "保存標題、收藏主題與摘要"}</button></footer>
+                      <footer className="student-summary-meta"><span>{item.model || "尚未使用模型"} · {(item.usage?.inputTokens ?? 0) + (item.usage?.outputTokens ?? 0)} tokens · 約 US$ {(item.usage?.estimatedCostUsd ?? 0).toFixed(4)} · 約 NT$ {formatTwd(item.usage?.estimatedCostUsd ?? 0)}</span><div><button type="button" className="summary-review-copy" onClick={() => void copySummaryReviewPack(item)}>複製到 ChatGPT 請你評測</button><button type="button" onClick={() => void saveStudentSummary()} disabled={summarySaving}>{summarySaving ? "保存中…" : "保存標題、收藏主題與摘要"}</button></div></footer>
                     </> : <div className="student-summary-empty large">{item.error || item.processingMessage || "正在處理…"}</div>}
                   </>;
                 })()}

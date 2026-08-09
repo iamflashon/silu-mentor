@@ -91,11 +91,15 @@ type ChapterProgress = {
 
 type SequentialProblemQuestion = {
   title: string;
+  section: string;
+  topic: string;
   pageStart: number;
   pageEnd: number;
   text: string;
   complete: boolean;
 };
+
+type ProblemCatalogueClass = { section: string; topic: string };
 
 type ChapterSourceProgress = {
   failedSegmentIds?: number[];
@@ -219,14 +223,16 @@ function isCompleteProblemQuestion(chapter: {
 }) {
   const title = String(chapter.title ?? "").trim();
   const stem = String(chapter.text ?? chapter.stem ?? "").trim();
-  // A question extracted from a real problem-book catalogue does not always
-  // use the literal labels「題型 1.1」or「第 1 題」. Some publishers use an
-  // exam name, a case title, or a bare running number instead. Requiring one
-  // specific heading style caused all 60 saved questions in a valid book to
-  // be discarded. At this stage the row already comes from the document's
-  // `questions` collection, so a real title plus a substantive saved stem is
-  // the safer completeness test.
-  return title.length > 0 && stem.length >= 30;
+  // A table-of-contents entry can easily exceed 30 characters, especially
+  // when it contains an exam name and a printed page reference.  It is still
+  // not a usable question.  Published problem-book rows must contain a real
+  // stem *and* solution/analysis material; catalogue entries remain staging
+  // metadata and are never shown to students as questions.
+  if (!title || isLikelyProblemCatalogueText(stem)) return false;
+  const body = normalizedHeading(stem).replace(normalizedHeading(title), "");
+  const hasStemEvidence = /甲|乙|丙|丁|某|請問|試問|何者|如何|是否|案情|事實|行為|主張|法院|當事人/u.test(stem);
+  const hasSolutionEvidence = /解析|解題|擬答|爭點|答題|規範|涵攝|結論|評析|說明|本文見解|實務見解/u.test(stem);
+  return body.length >= 160 && hasStemEvidence && hasSolutionEvidence;
 }
 
 function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
@@ -442,6 +448,22 @@ function problemHeadings(line: string) {
   });
 }
 
+function isLikelyProblemCatalogueText(value: string) {
+  const text = cleanSourceText(value);
+  if (!text) return false;
+  const headings = problemHeadings(text);
+  const dottedPageReferences = text.match(/[.．·…]{3,}\s*\d+(?:\s*[-–－]\s*\d+)?/gu)?.length ?? 0;
+  const compactPrintedPages = text.match(/(?:^|\s)\d{1,3}\s*[-–－]\s*\d{1,3}(?=\s|$)/gu)?.length ?? 0;
+  const tocLabel = /目\s*錄|contents?/iu.test(text.slice(0, 500));
+  // Several problem headings or dotted page references on one extracted page
+  // are strong TOC signals.  A genuine question may mention another problem
+  // once, so require a cluster rather than rejecting a single reference.
+  return tocLabel
+    || dottedPageReferences >= 2
+    || compactPrintedPages >= 4
+    || (headings.length >= 3 && text.length / headings.length < 420);
+}
+
 function problemNumberKey(title: string) {
   const value = cleanSourceText(title).normalize("NFKC");
   const match = value.match(/(?:題型|案例|例題|實例題|練習題)\s*([一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*)/u)
@@ -449,15 +471,46 @@ function problemNumberKey(title: string) {
   return match ? match[1].replaceAll("．", ".").replaceAll("、", ".").replaceAll("-", ".") : "";
 }
 
+function problemCatalogueClasses(pages: Array<typeof resourceSegments.$inferSelect>) {
+  const classes = new Map<string, ProblemCatalogueClass[]>();
+  let section = "未分類部分";
+  let topic = "未分類主題";
+  for (const page of [...pages].sort((a, b) => Number(a.pageStart) - Number(b.pageStart))) {
+    if (!isLikelyProblemCatalogueText(page.text)) continue;
+    for (const rawLine of page.text.split(/\r?\n/)) {
+      const line = cleanSourceText(rawLine).replace(/\s+/g, " ");
+      const sectionMatch = line.match(/第\s*[一二三四五六七八九十百\d]+\s*部分\s*[^主題題型案例例題]*/u);
+      if (sectionMatch) section = sectionMatch[0].trim();
+      const topicMatch = line.match(/主題\s*[一二三四五六七八九十百\d]+\s*[^題型案例例題]*/u);
+      if (topicMatch) topic = topicMatch[0].replace(/[.．·…]{3,}.*$/u, "").trim();
+      for (const heading of problemHeadings(line)) {
+        const key = problemNumberKey(heading);
+        if (!key) continue;
+        const value = { section, topic };
+        const existing = classes.get(key) ?? [];
+        if (!existing.some((item) => item.section === value.section && item.topic === value.topic)) {
+          classes.set(key, [...existing, value]);
+        }
+      }
+    }
+  }
+  return classes;
+}
+
 function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$inferSelect>) {
   const ordered = [...pages]
     .filter((page) => Number(page.pageStart) > 0)
     .sort((left, right) => Number(left.pageStart) - Number(right.pageStart));
   const questions: SequentialProblemQuestion[] = [];
-  let current: { title: string; pageStart: number; parts: string[] } | null = null;
+  const catalogueClasses = problemCatalogueClasses(ordered);
+  let current: { title: string; section: string; topic: string; pageStart: number; lastPage: number; parts: string[] } | null = null;
 
   for (const page of ordered) {
     const pageNumber = Number(page.pageStart);
+    // The contents pages are useful for navigation, but they must never open
+    // or close a question.  In particular, many headings on PDF page 1 used
+    // to become hundreds of fake one-line questions all labelled p.1.
+    if (isLikelyProblemCatalogueText(page.text)) continue;
     const lines = page.text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     let cursor = 0;
     for (let index = 0; index < lines.length; index += 1) {
@@ -470,19 +523,33 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
           const text = cleanSourceText(current.parts.join("\n\n"));
           questions.push({
             title: current.title,
+            section: current.section,
+            topic: current.topic,
             pageStart: current.pageStart,
-            pageEnd: pageNumber,
+            pageEnd: current.lastPage,
             text,
-            complete: text.length >= 30,
+            complete: isCompleteProblemQuestion({ title: current.title, text }),
           });
         }
-        current = { title: heading, pageStart: pageNumber, parts: [heading] };
+        const candidates = catalogueClasses.get(problemNumberKey(heading)) ?? [];
+        const classification = candidates.length === 1
+          ? candidates[0]
+          : { section: "未分類部分", topic: "待核對主題" };
+        current = {
+          title: heading,
+          section: classification.section,
+          topic: classification.topic,
+          pageStart: pageNumber,
+          lastPage: pageNumber,
+          parts: [heading],
+        };
       }
       cursor = index + 1;
     }
     if (current) {
       const remainder = lines.slice(cursor).join("\n");
       if (remainder) current.parts.push(remainder);
+      current.lastPage = pageNumber;
     }
   }
 
@@ -490,8 +557,10 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
     const text = cleanSourceText(current.parts.join("\n\n"));
     questions.push({
       title: current.title,
+      section: current.section,
+      topic: current.topic,
       pageStart: current.pageStart,
-      pageEnd: ordered.at(-1)?.pageEnd ?? current.pageStart,
+      pageEnd: current.lastPage,
       text,
       complete: false,
     });
@@ -593,10 +662,14 @@ async function saveSequentialProblemQuestions(resourceId: number, totalPages: nu
         .where(eq(resourceSegments.id, row.id));
       continue;
     }
-    if (row.pageStart === source.pageStart && row.pageEnd === source.pageEnd) continue;
     await db.update(resourceSegments).set({
       pageStart: source.pageStart,
       pageEnd: source.pageEnd,
+      lessonLabel: `${source.section}｜${source.topic}`.slice(0, 160),
+      text: source.text.slice(0, SOURCE_TEXT_MAX_LENGTH),
+      segmentType: source.complete ? "book_chapter" : PENDING_CHAPTER_TYPE,
+      summary: source.complete ? "由原始 PDF 依題號邊界完整擷取" : "已找到題目起點；等待題幹與解析補齊",
+      reviewStatus: source.complete ? "source" : "pending_continuation",
     }).where(eq(resourceSegments.id, row.id));
   }
   const pendingByKey = new Map(
@@ -622,7 +695,7 @@ async function saveSequentialProblemQuestions(resourceId: number, totalPages: nu
     .map((question, index) => ({
       resourceId,
       segmentType: question.complete ? "book_chapter" : PENDING_CHAPTER_TYPE,
-      lessonLabel: "逐頁掃描｜解題書",
+      lessonLabel: `${question.section}｜${question.topic}`.slice(0, 160),
       title: question.title.slice(0, 160),
       pageStart: question.pageStart,
       pageEnd: question.pageEnd,
@@ -1080,19 +1153,22 @@ export async function GET(request: Request) {
         : chapters;
       const canonicalUsableChapters = canonicalChapters.filter(isCompleteProblemQuestion);
       return Response.json({
-        chapters: canonicalChapters.map((chapter) => ({
+        // A problem-book viewer is a question viewer, not a table-of-contents
+        // viewer.  Never mix catalogue-only rows into the numbered list.
+        chapters: canonicalUsableChapters.map((chapter) => ({
           ...chapter,
-          completeQuestion: isCompleteProblemQuestion(chapter),
+          completeQuestion: true,
         })),
         generated: false,
         ready: canonicalUsableChapters.length > 0,
         status: canonicalUsableChapters.length === canonicalChapters.length ? "completed" : "partial",
         catalogueCount: canonicalChapters.length,
         completeQuestionCount: canonicalUsableChapters.length,
+        incompleteCount: canonicalChapters.length - canonicalUsableChapters.length,
         progress,
         message: canonicalUsableChapters.length === canonicalChapters.length
           ? undefined
-          : `已先顯示 ${canonicalChapters.length} 筆真實目錄；其中 ${canonicalUsableChapters.length} 題已具備完整題文，剩餘部分會由後台接續整理。`,
+          : `僅顯示 ${canonicalUsableChapters.length} 題具備完整題幹與解析的正式題目；另有 ${canonicalChapters.length - canonicalUsableChapters.length} 筆目錄或未完整內容未列入題目。`,
       });
     }
 
@@ -1134,15 +1210,22 @@ export async function GET(request: Request) {
     if (document) {
       const storedCatalogue = storedRowsForResource(resourceId, document, problemBook);
       if (storedCatalogue.length) {
+        const completeStoredQuestions = problemBook
+          ? storedCatalogue.filter(isCompleteProblemQuestion)
+          : storedCatalogue;
         return Response.json({
-          chapters: storedCatalogue,
+          chapters: completeStoredQuestions,
           generated: false,
           ready: true,
           status: "catalogue",
-          incompleteCount: storedCatalogue.filter((item) => !item.text).length,
+          incompleteCount: problemBook
+            ? storedCatalogue.length - completeStoredQuestions.length
+            : storedCatalogue.filter((item) => !item.text).length,
           progress,
           message: problemBook
-            ? "已顯示教材處理時保存的真實題型目錄；完整題文整理完成後會自動替換。"
+            ? completeStoredQuestions.length
+              ? `僅顯示 ${completeStoredQuestions.length} 題具備完整題幹與解析的正式題目；目錄資料不列入題目。`
+              : "目前只有目錄資料，尚未找到具備完整題幹與解析的正式題目；請接續逐頁掃描正文。"
             : "已直接讀取教材分析時保存的真實章節；可先檢視內容與頁碼，不需重新上傳或重新拆解。",
         });
       }

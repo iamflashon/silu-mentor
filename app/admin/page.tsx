@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
@@ -5429,21 +5429,29 @@ export default function AdminPage() {
             ) : null}
             {chapterViewer.rows.length ? (
               <div className="chapter-viewer-layout">
-                <aside className="chapter-viewer-index" aria-label="章節目錄">
-                  <div className="chapter-viewer-index-heading"><strong>章節目錄</strong><span>{chapterViewer.rows.length} 筆</span></div>
+                <aside className="chapter-viewer-index" aria-label="部、主題與完整題型">
+                  <div className="chapter-viewer-index-heading"><strong>部・主題・題型</strong><span>{chapterViewer.rows.length} 題</span></div>
                   <div className="chapter-viewer-index-list">
-                    {chapterViewer.rows.map((chapter, index) => (
-                      <button
-                        type="button"
-                        key={`${chapter.id}-${chapter.sequence}`}
-                        className={activeChapter?.id === chapter.id ? "active" : ""}
-                        onClick={() => setSelectedChapterId(chapter.id)}
-                      >
-                        <span>{String(index + 1).padStart(2, "0")}</span>
-                        <strong>{chapter.title || "未命名章節"}</strong>
-                        <small>{chapter.lessonLabel || "教材章節"}{chapter.pageStart ? ` · p.${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}` : " · 頁碼待核對"}</small>
-                      </button>
-                    ))}
+                    {chapterViewer.rows.map((chapter, index) => {
+                      const [section = "未分類部分", topic = "未分類主題"] = (chapter.lessonLabel || "").split("｜");
+                      const previous = chapterViewer.rows[index - 1];
+                      const [previousSection = "", previousTopic = ""] = (previous?.lessonLabel || "").split("｜");
+                      return (
+                        <Fragment key={`${chapter.id}-${chapter.sequence}`}>
+                          {section !== previousSection && <div className="chapter-viewer-part">{section}</div>}
+                          {(section !== previousSection || topic !== previousTopic) && <div className="chapter-viewer-topic">{topic}</div>}
+                          <button
+                            type="button"
+                            className={activeChapter?.id === chapter.id ? "active" : ""}
+                            onClick={() => setSelectedChapterId(chapter.id)}
+                          >
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                            <strong>{chapter.title || "未命名題型"}</strong>
+                            <small>題型{chapter.pageStart ? ` · PDF p.${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}` : " · 頁碼待核對"}</small>
+                          </button>
+                        </Fragment>
+                      );
+                    })}
                   </div>
                 </aside>
                 <article className="chapter-viewer-content">
