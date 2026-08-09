@@ -4225,6 +4225,11 @@ export default function StudyPlanPage() {
                                         ))}
                                       </div>
                                     ) : <p>{message.text}</p>}
+                                    {message.role === "mentor" && message.text.includes("完整解題架構已完成") && (
+                                      <button type="button" className="book-direct-solution-button" onClick={() => void submitBookMessage("開始考場擬答。請立即依本題老師解析，按照老師原本的行為人與罪名順序，直接生成可在考場落筆的完整申論答案；必須包含標題、法條、要件或學說、具體事實涵攝及每位行為人的完整罪責結論。不要再提問，不要只提供寫作提示、架構或順序說明。") } disabled={bookChatLoading}>
+                                        開始考場擬答
+                                      </button>
+                                    )}
                                     {message.usage && !message.comparison && <small className="book-ai-usage">{message.usage.model} · {message.usage.inputTokens + message.usage.outputTokens} tokens · {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)}</small>}
                                     {message.role === "mentor" && message.teachingEvidence && (
                                       <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
@@ -4307,7 +4312,7 @@ export default function StudyPlanPage() {
                                   <button
                                     type="button"
                                     className="book-direct-solution-button"
-                                    onClick={() => void submitBookMessage("跳過理解追問，請直接依老師解析進入完整解題架構；完成爭點、判準、各說、評析、涵攝及每位行為人的明確罪責結論後，再引導我進入考場擬答。不要再提出新的反事實問題。")}
+                                    onClick={() => void submitBookMessage("跳過理解追問，請直接依老師解析進入完整解題架構。依老師原本的行為人與罪名順序，完成爭點、判準、老師實際處理的各說、評析、正確事實涵攝及每位行為人的明確罪責結論；不得補造行為主體或題目事實。若老師認定不知情工具人無過失，須明寫欠缺注意義務違反，再檢查結果是否發生與過失未遂不罰。完成後顯示可操作的『開始考場擬答』入口，不要再提出新的反事實問題，也不要只提供擬答寫作提示。")}
                                     disabled={bookChatLoading}
                                   >
                                     跳過追問，進入完整解題
