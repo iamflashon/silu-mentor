@@ -448,6 +448,41 @@ function problemHeadings(line: string) {
   });
 }
 
+function problemHeadingMatches(value: string) {
+  const text = cleanSourceText(value);
+  const marker = /(?:【\s*)?(?:題型|案例|例題|實例題|練習題)\s*[一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*(?:\s*】)?/gu;
+  const matches = [...text.matchAll(marker)];
+  return matches.map((match, index) => {
+    const start = match.index ?? 0;
+    const nextMarker = matches[index + 1]?.index ?? text.length;
+    const lineEnd = text.indexOf("\n", start);
+    const titleEnd = Math.min(
+      nextMarker,
+      lineEnd >= 0 ? lineEnd : start + 180,
+      start + 180,
+    );
+    return {
+      start,
+      title: text.slice(start, Math.max(titleEnd, match.index! + match[0].length)).trim(),
+    };
+  });
+}
+
+function cleanProblemPageText(value: string) {
+  const lines = cleanSourceText(value).split(/\r?\n/);
+  return cleanSourceText(lines
+    .filter((line) => {
+      const compact = line.replace(/\s+/g, " ").trim();
+      if (!compact) return false;
+      // Running headers/footers often sit between the two halves of one
+      // sentence. They describe the book position, not a new content boundary.
+      if (/^\d{1,3}\s*[-–－]\s*\d{1,3}\s+.{0,30}主題\s*[一二三四五六七八九十百\d]+/u.test(compact)) return false;
+      if (/^(?:第\s*)?\d{1,4}\s*(?:頁)?$/u.test(compact)) return false;
+      return true;
+    })
+    .join("\n"));
+}
+
 function isLikelyProblemCatalogueText(value: string) {
   const text = cleanSourceText(value);
   if (!text) return false;
@@ -511,43 +546,44 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
     // or close a question.  In particular, many headings on PDF page 1 used
     // to become hundreds of fake one-line questions all labelled p.1.
     if (isLikelyProblemCatalogueText(page.text)) continue;
-    const lines = page.text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const pageText = cleanProblemPageText(page.text);
+    const headings = problemHeadingMatches(pageText);
     let cursor = 0;
-    for (let index = 0; index < lines.length; index += 1) {
-      const headings = problemHeadings(lines[index]);
-      if (!headings.length) continue;
-      for (const heading of headings) {
-        if (current) {
-          const before = lines.slice(cursor, index).join("\n");
-          if (before) current.parts.push(before);
-          const text = cleanSourceText(current.parts.join("\n\n"));
-          questions.push({
-            title: current.title,
-            section: current.section,
-            topic: current.topic,
-            pageStart: current.pageStart,
-            pageEnd: current.lastPage,
-            text,
-            complete: isCompleteProblemQuestion({ title: current.title, text }),
-          });
-        }
-        const candidates = catalogueClasses.get(problemNumberKey(heading)) ?? [];
-        const classification = candidates.length === 1
-          ? candidates[0]
-          : { section: "未分類部分", topic: "待核對主題" };
-        current = {
-          title: heading,
-          section: classification.section,
-          topic: classification.topic,
-          pageStart: pageNumber,
-          lastPage: pageNumber,
-          parts: [heading],
-        };
+    for (const heading of headings) {
+      // Text before the next printed heading always belongs to the currently
+      // open question, even across a page break or a large visual blank area.
+      if (current && heading.start > cursor) {
+        current.parts.push(pageText.slice(cursor, heading.start));
+        current.lastPage = pageNumber;
       }
-      cursor = index + 1;
+      if (current) {
+        const text = cleanSourceText(current.parts.join("\n\n"));
+        questions.push({
+          title: current.title,
+          section: current.section,
+          topic: current.topic,
+          pageStart: current.pageStart,
+          pageEnd: current.lastPage,
+          text,
+          complete: isCompleteProblemQuestion({ title: current.title, text }),
+        });
+      }
+      const candidates = catalogueClasses.get(problemNumberKey(heading.title)) ?? [];
+      const classification = candidates.length === 1
+        ? candidates[0]
+        : { section: "未分類部分", topic: "待核對主題" };
+      current = {
+        title: heading.title,
+        section: classification.section,
+        topic: classification.topic,
+        pageStart: pageNumber,
+        lastPage: pageNumber,
+        parts: [],
+      };
+      cursor = heading.start;
     }
     if (current) {
-      const remainder = lines.slice(cursor).join("\n");
+      const remainder = pageText.slice(cursor);
       if (remainder) current.parts.push(remainder);
       current.lastPage = pageNumber;
     }
@@ -562,7 +598,7 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
       pageStart: current.pageStart,
       pageEnd: current.lastPage,
       text,
-      complete: false,
+      complete: isCompleteProblemQuestion({ title: current.title, text }),
     });
   }
   return questions;
