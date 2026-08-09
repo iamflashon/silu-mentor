@@ -75,7 +75,7 @@ export async function getKimiBaseUrl() {
     : "https://api.moonshot.ai/v1";
 }
 
-export async function getKimiModel(fallback = "kimi-k2.5") {
+export async function getKimiModel(fallback = "kimi-k3") {
   const configured = process.env.KIMI_MODEL || process.env.MOONSHOT_MODEL;
   if (configured?.trim()) return configured.trim();
   const env = await runtimeEnv();

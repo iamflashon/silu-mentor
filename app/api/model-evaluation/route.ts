@@ -86,7 +86,7 @@ async function runKimiOfficial(prompt: string, system: string, started: number):
   const response = await fetch(`${await getKimiBaseUrl()}/chat/completions`, {
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .2, max_tokens: 1800 }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: 1, max_tokens: 1800 }),
   });
   const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
   if (!response.ok) throw new Error(`Kimi 官方 API 呼叫失敗：${payload.error?.message || `HTTP ${response.status}`}`);
