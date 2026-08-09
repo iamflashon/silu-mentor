@@ -86,11 +86,19 @@ async function runKimiOfficial(prompt: string, system: string, started: number):
   const response = await fetch(`${await getKimiBaseUrl()}/chat/completions`, {
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: 1, max_tokens: 1800 }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: 1, max_tokens: 6000 }),
   });
-  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ finish_reason?: string; message?: { content?: string | Array<{ type?: string; text?: string }> } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
   if (!response.ok) throw new Error(`Kimi 官方 API 呼叫失敗：${payload.error?.message || `HTTP ${response.status}`}`);
-  return { model: payload.model || model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started, actualCostUsd: Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : undefined };
+  const choice = payload.choices?.[0];
+  const content = choice?.message?.content;
+  const text = typeof content === "string"
+    ? content.trim()
+    : Array.isArray(content) ? content.map((item) => item.text || "").join("\n").trim() : "";
+  const input = Number(payload.usage?.prompt_tokens ?? 0);
+  const output = Number(payload.usage?.completion_tokens ?? 0);
+  if (text.length < 24) throw new Error(`Kimi K3 未產生完整答案（finish_reason：${choice?.finish_reason || "未提供"}；輸出 Token：${output}）。請直接重試本題，已完成紀錄不受影響`);
+  return { model: payload.model || model, text, input, output, duration: Date.now() - started, actualCostUsd: Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : undefined };
 }
 
 async function runCandidate(gateway: Gateway, provider: Provider, prompt: string): Promise<CandidateRun> {
