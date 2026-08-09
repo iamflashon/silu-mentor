@@ -35,7 +35,7 @@ function automaticRoute(query: string, context: ChatContext, hasVerifiedAnswer: 
     return { provider: "sol" as const, reason: formal ? "本次要求正式批改、完整申論或標準解析，需由 Sol 進行高精度法律判斷。" : "本題未命中已審核標準答案，且涉及多重高風險法律爭點，因此升級 Sol。" };
   }
   if (compact.length >= 500 || /請整理以下長文|逐一整理所有行為人|跨章節統整/.test(compact)) {
-    return { provider: "deepseek" as const, reason: "本次內容較長，需統整多段事實或多位行為人，因此選用 DeepSeek V4-Pro。" };
+    return { provider: "sol" as const, reason: "本次內容較長，需統整多段事實或多位行為人，因此升級由 Sol 進行法律分析。" };
   }
   if (context.type === "book" && hasVerifiedAnswer) return { provider: "luna" as const, reason: "已精準命中本題老師解析或指定教材章節，模型只需依既有資料引導學習，因此選用 Luna。" };
   return { provider: "luna" as const, reason: "本次屬一般教學、簡短問答或學習規劃，Luna 已足以完成並可控制成本。" };
