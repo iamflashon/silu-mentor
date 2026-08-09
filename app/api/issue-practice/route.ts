@@ -1,6 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { examQuestions, studyRecords, usageLogs } from "../../../db/schema";
+import { examQuestions, issuePracticeRecords, studyRecords, usageLogs } from "../../../db/schema";
 import { getOpenAIKey, openAIJson } from "../../../lib/openai";
 import { taipeiDate } from "../../../lib/taipei-time";
 
@@ -21,23 +21,39 @@ function outputText(payload: Record<string, unknown>) {
   return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []).map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim();
 }
 
-export async function GET() {
+function parseResult(value: string | null) {
+  if (!value) return null;
+  try { return JSON.parse(value) as unknown; } catch { return null; }
+}
+
+export async function GET(request: Request) {
   try {
     const db = await getDb();
+    const requestedQuestionId = Number(new URL(request.url).searchParams.get("questionId") || 0);
+    if (Number.isInteger(requestedQuestionId) && requestedQuestionId > 0) {
+      const [record] = await db.select().from(issuePracticeRecords).where(and(eq(issuePracticeRecords.userKey, userKey(request)), eq(issuePracticeRecords.questionId, requestedQuestionId))).limit(1);
+      return Response.json({ record: record ? { ...record, lunaResult: parseResult(record.lunaResultJson), solResult: parseResult(record.solResultJson), lunaResultJson: undefined, solResultJson: undefined } : null });
+    }
     const rows = await db.select({ id: examQuestions.id, year: examQuestions.year, examName: examQuestions.examName, subject: examQuestions.subject, questionNumber: examQuestions.questionNumber, stem: examQuestions.stem, answerSource: examQuestions.answerSource }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, "essay"), sql`length(trim(${examQuestions.teacherAnswer})) > 0`)).orderBy(sql`${examQuestions.year} desc`, examQuestions.subject, examQuestions.questionNumber).limit(500);
-    return Response.json({ questions: rows });
+    const history = await db.select({ questionId: issuePracticeRecords.questionId, updatedAt: issuePracticeRecords.updatedAt }).from(issuePracticeRecords).where(eq(issuePracticeRecords.userKey, userKey(request))).orderBy(desc(issuePracticeRecords.updatedAt)).limit(500);
+    return Response.json({ questions: rows, history });
   } catch { return Response.json({ error: "練爭點題庫暫時無法讀取" }, { status: 503 }); }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: "sample"; questionId?: number; studentIssues?: string; model?: "luna" | "sol"; sampleLevel?: SampleLevel };
+    const body = await request.json() as { action?: "sample" | "save-supplement"; questionId?: number; studentIssues?: string; studentSupplement?: string; model?: "luna" | "sol"; sampleLevel?: SampleLevel };
     const questionId = Number(body.questionId); const studentIssues = String(body.studentIssues ?? "").trim(); const requestedModel = body.model === "sol" ? "sol" : "luna";
     if (!Number.isInteger(questionId)) return Response.json({ error: "請先選擇題目" }, { status: 400 });
     const db = await getDb();
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"), eq(examQuestions.examType, "essay"))).limit(1);
     if (!question) return Response.json({ error: "找不到這一題" }, { status: 404 });
     if (!question.teacherAnswer.trim()) return Response.json({ error: "本題尚未完成老師擬答核對，暫不開放 AI 比對" }, { status: 409 });
+    if (body.action === "save-supplement") {
+      const supplement = String(body.studentSupplement ?? "").trim().slice(0, 12000);
+      await db.insert(issuePracticeRecords).values({ userKey: userKey(request), questionId, studentIssues: studentIssues.slice(0, 12000), studentSupplement: supplement, sampleLevel: body.sampleLevel ?? null, updatedAt: new Date() }).onConflictDoUpdate({ target: [issuePracticeRecords.userKey, issuePracticeRecords.questionId], set: { studentIssues: studentIssues.slice(0, 12000), studentSupplement: supplement, sampleLevel: body.sampleLevel ?? null, updatedAt: new Date() } });
+      return Response.json({ ok: true, savedAt: new Date().toISOString() });
+    }
     if (body.action === "sample") {
       if (request.headers.get("oai-authenticated-user-email") !== OWNER_EMAIL) return Response.json({ error: "三種擬答是管理者測試工具" }, { status: 403 });
       const level: SampleLevel = body.sampleLevel === "advanced" ? "advanced" : body.sampleLevel === "intermediate" ? "intermediate" : "basic";
@@ -59,6 +75,9 @@ export async function POST(request: Request) {
     const sampleSuffix = body.sampleLevel ? `／${sampleLabels[body.sampleLevel]}` : "";
     await db.insert(usageLogs).values({ source: `${requestedModel === "sol" ? "練爭點／Sol學霸覆核" : "練爭點／Luna助教比對"}${sampleSuffix}`, model: String(payload.model || model), inputTokens, outputTokens, cachedTokens, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1e6) });
     await db.insert(studyRecords).values({ userKey: userKey(request), questionId, recordDate: taipeiDate(), subject: question.subject, title: `${question.year} ${question.examName || "司律二試"}第 ${question.questionNumber} 題｜練爭點`, activityType: "練爭點", reflection: studentIssues.slice(0, 3000), weakness: "依 AI 比對結果回補遺漏爭點", nextStep: "依建議架構重寫一次爭點清單" });
-    return Response.json({ analysis: text, model: requestedModel === "sol" ? "Sol 學霸" : "Luna 助教", modelId: String(payload.model || model), reason: requestedModel === "sol" ? "學生主動要求強模型覆核 Luna 的判斷" : "本題已精準命中老師擬答，使用低成本模型進行受資料約束的比對", sampleLevel: body.sampleLevel ?? null, sampleLabel: body.sampleLevel ? sampleLabels[body.sampleLevel] : null, usage: { inputTokens, outputTokens, cachedTokens, estimatedCostUsd, durationMs: Date.now() - started }, answerSource: question.answerSource || "老師參考擬答" });
+    const savedResult = { analysis: text, model: requestedModel === "sol" ? "Sol 學霸" : "Luna 助教", modelId: String(payload.model || model), reason: requestedModel === "sol" ? "學生主動要求強模型覆核 Luna 的判斷" : "本題已精準命中老師擬答，使用低成本模型進行受資料約束的比對", sampleLevel: body.sampleLevel ?? null, sampleLabel: body.sampleLevel ? sampleLabels[body.sampleLevel] : null, usage: { inputTokens, outputTokens, cachedTokens, estimatedCostUsd, durationMs: Date.now() - started }, answerSource: question.answerSource || "老師參考擬答" };
+    const resultField = requestedModel === "sol" ? { solResultJson: JSON.stringify(savedResult) } : { lunaResultJson: JSON.stringify(savedResult) };
+    await db.insert(issuePracticeRecords).values({ userKey: userKey(request), questionId, studentIssues: studentIssues.slice(0, 12000), sampleLevel: body.sampleLevel ?? null, ...resultField, updatedAt: new Date() }).onConflictDoUpdate({ target: [issuePracticeRecords.userKey, issuePracticeRecords.questionId], set: { studentIssues: studentIssues.slice(0, 12000), sampleLevel: body.sampleLevel ?? null, ...resultField, updatedAt: new Date() } });
+    return Response.json(savedResult);
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "AI 比對暫時無法完成" }, { status: 500 }); }
 }

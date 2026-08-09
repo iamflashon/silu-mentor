@@ -182,6 +182,27 @@ export const studyRecords = sqliteTable("study_records", {
     .$defaultFn(() => new Date()),
 });
 
+export const issuePracticeRecords = sqliteTable("issue_practice_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  questionId: integer("question_id")
+    .notNull()
+    .references(() => examQuestions.id, { onDelete: "cascade" }),
+  studentIssues: text("student_issues").notNull().default(""),
+  studentSupplement: text("student_supplement").notNull().default(""),
+  sampleLevel: text("sample_level"),
+  lunaResultJson: text("luna_result_json"),
+  solResultJson: text("sol_result_json"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("issue_practice_records_user_question_unique").on(table.userKey, table.questionId),
+]);
+
 export const learningAnalyses = sqliteTable("learning_analyses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull(),
