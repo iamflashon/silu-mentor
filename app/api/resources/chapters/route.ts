@@ -502,24 +502,32 @@ function canonicalizeProblemQuestionPages<T extends typeof resourceSegments.$inf
   pages: Array<typeof resourceSegments.$inferSelect>,
 ) {
   const scanned = scanSequentialProblemQuestions(pages);
-  const sourceByNumber = new Map(
-    scanned
-      .map((question) => [problemNumberKey(question.title), question] as const)
-      .filter(([key]) => Boolean(key)),
+  const sourceTitleGroups = new Map<string, SequentialProblemQuestion[]>();
+  for (const question of scanned) {
+    const key = normalizedHeading(question.title);
+    if (!key) continue;
+    sourceTitleGroups.set(key, [...(sourceTitleGroups.get(key) ?? []), question]);
+  }
+  const sourceByTitle = new Map(
+    [...sourceTitleGroups.entries()]
+      .filter(([, matches]) => matches.length === 1)
+      .map(([key, matches]) => [key, matches[0]] as const),
   );
   const byQuestion = new Map<string, T>();
-  const withoutNumber: T[] = [];
 
   for (const chapter of chapters) {
-    const key = problemNumberKey(chapter.title);
-    const source = key ? sourceByNumber.get(key) : undefined;
+    // Printed problem numbers are not unique across parts/chapters. Matching
+    // only `4.2`, for example, can attach a later question to an early PDF
+    // range. A whole-book page is authoritative only after its complete
+    // printed heading matches a heading found by the sequential PDF scan.
+    const titleKey = normalizedHeading(chapter.title);
+    const source = titleKey ? sourceByTitle.get(titleKey) : undefined;
     const canonical = source
       ? { ...chapter, pageStart: source.pageStart, pageEnd: source.pageEnd }
-      : chapter;
-    if (!key) {
-      withoutNumber.push(canonical as T);
-      continue;
-    }
+      : { ...chapter, pageStart: null, pageEnd: null };
+    const key = source
+      ? `${source.pageStart}|${titleKey}`
+      : `unverified|${titleKey}|${chapter.id}`;
     const previous = byQuestion.get(key);
     // Old semantic-search rows and sequential-scan rows may describe the same
     // question. Keep one visible row, preferring the richer verified text.
@@ -527,7 +535,13 @@ function canonicalizeProblemQuestionPages<T extends typeof resourceSegments.$inf
       byQuestion.set(key, canonical as T);
     }
   }
-  return sortByBookOrder([...byQuestion.values(), ...withoutNumber]);
+  return [...byQuestion.values()].sort((left, right) => {
+    const leftPage = left.pageStart ?? Number.MAX_SAFE_INTEGER;
+    const rightPage = right.pageStart ?? Number.MAX_SAFE_INTEGER;
+    return leftPage - rightPage
+      || (left.pageEnd ?? Number.MAX_SAFE_INTEGER) - (right.pageEnd ?? Number.MAX_SAFE_INTEGER)
+      || left.title.localeCompare(right.title, "zh-Hant", { numeric: true });
+  });
 }
 
 async function saveSequentialProblemQuestions(resourceId: number, totalPages: number) {
@@ -536,17 +550,29 @@ async function saveSequentialProblemQuestions(resourceId: number, totalPages: nu
   const scanned = scanSequentialProblemQuestions(pages);
   const published = await readChapters(resourceId);
   const pending = await readPendingChapters(resourceId);
-  const scannedByNumber = new Map(
-    scanned
-      .map((question) => [problemNumberKey(question.title), question] as const)
-      .filter(([key]) => Boolean(key)),
+  const scannedTitleGroups = new Map<string, SequentialProblemQuestion[]>();
+  for (const question of scanned) {
+    const key = normalizedHeading(question.title);
+    if (!key) continue;
+    scannedTitleGroups.set(key, [...(scannedTitleGroups.get(key) ?? []), question]);
+  }
+  const scannedByTitle = new Map(
+    [...scannedTitleGroups.entries()]
+      .filter(([, matches]) => matches.length === 1)
+      .map(([key, matches]) => [key, matches[0]] as const),
   );
   // Repair previously published AI rows in place. Their page values may be
-  // local to a chapter; matching the printed problem number gives them the
-  // absolute PDF page range recovered by the sequential scan.
+  // local to a chapter. Only an unambiguous full-heading match may replace it
+  // with an absolute PDF page range; printed problem numbers repeat.
   for (const row of [...published, ...pending]) {
-    const source = scannedByNumber.get(problemNumberKey(row.title));
-    if (!source || (row.pageStart === source.pageStart && row.pageEnd === source.pageEnd)) continue;
+    const source = scannedByTitle.get(normalizedHeading(row.title));
+    if (!source) {
+      if (row.pageStart == null && row.pageEnd == null) continue;
+      await db.update(resourceSegments).set({ pageStart: null, pageEnd: null })
+        .where(eq(resourceSegments.id, row.id));
+      continue;
+    }
+    if (row.pageStart === source.pageStart && row.pageEnd === source.pageEnd) continue;
     await db.update(resourceSegments).set({
       pageStart: source.pageStart,
       pageEnd: source.pageEnd,

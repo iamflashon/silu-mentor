@@ -5441,7 +5441,7 @@ export default function AdminPage() {
                       >
                         <span>{String(index + 1).padStart(2, "0")}</span>
                         <strong>{chapter.title || "未命名章節"}</strong>
-                        <small>{chapter.lessonLabel || "教材章節"}{chapter.pageStart ? ` · p.${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}` : ""}</small>
+                        <small>{chapter.lessonLabel || "教材章節"}{chapter.pageStart ? ` · p.${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}` : " · 頁碼待核對"}</small>
                       </button>
                     ))}
                   </div>
@@ -5454,7 +5454,7 @@ export default function AdminPage() {
                         <em>{activeChapter.reviewStatus === "ai_reviewed" ? "AI 已整理" : activeChapter.reviewStatus === "catalogue_only" ? "目錄已保存" : activeChapter.reviewStatus}</em>
                       </div>
                       <h3>{activeChapter.title || "未命名章節"}</h3>
-                      {(activeChapter.pageStart || activeChapter.pageEnd) && <small className="chapter-viewer-pages">原教材頁碼：{activeChapter.pageStart ?? "?"}{activeChapter.pageEnd && activeChapter.pageEnd !== activeChapter.pageStart ? `–${activeChapter.pageEnd}` : ""}</small>}
+                      <small className="chapter-viewer-pages">原教材頁碼：{activeChapter.pageStart ? `${activeChapter.pageStart}${activeChapter.pageEnd && activeChapter.pageEnd !== activeChapter.pageStart ? `–${activeChapter.pageEnd}` : ""}` : "待核對"}</small>
                       {activeChapter.summary && <div className="chapter-viewer-summary"><strong>拆解摘要</strong><p>{activeChapter.summary}</p></div>}
                       {activeChapter.text ? (
                         <div className="chapter-viewer-text"><strong>完整內容／題目原文</strong><p>{activeChapter.text}</p></div>
