@@ -129,6 +129,7 @@ export async function PATCH(request: Request) {
     status?: string;
     publishAllDrafts?: boolean;
     year?: string;
+    examName?: string;
     subject?: string;
     questionNumber?: string;
     stem?: string;
@@ -145,6 +146,7 @@ export async function PATCH(request: Request) {
     const teacherAnswer = typeof body.teacherAnswer === "string" ? body.teacherAnswer.trim() : current.teacherAnswer;
     const update = {
       year: typeof body.year === "string" && body.year.trim() ? body.year.trim() : current.year,
+      examName: typeof body.examName === "string" && body.examName.trim() ? body.examName.trim() : current.examName,
       subject: typeof body.subject === "string" && body.subject.trim() ? body.subject.trim() : current.subject,
       questionNumber: typeof body.questionNumber === "string" && body.questionNumber.trim() ? body.questionNumber.trim() : current.questionNumber,
       stem: typeof body.stem === "string" && body.stem.trim() ? body.stem.trim() : current.stem,

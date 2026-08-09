@@ -285,6 +285,7 @@ type ExamQuestion = {
   id: number;
   examType: string;
   year: string;
+  examName: string;
   subject: string;
   questionNumber: string;
   stem: string;
@@ -300,6 +301,7 @@ type QuestionEditorDraft = {
   id: number;
   examType: string;
   year: string;
+  examName: string;
   subject: string;
   questionNumber: string;
   stem: string;
@@ -1617,6 +1619,7 @@ export default function AdminPage() {
       id: question.id,
       examType: question.examType,
       year: question.year,
+      examName: question.examName || "類科待辨識",
       subject: question.subject,
       questionNumber: question.questionNumber,
       stem: question.stem,
@@ -4560,7 +4563,7 @@ export default function AdminPage() {
                         : "二試申論題"}
                     </span>
                     <b>
-                      {question.year} · {question.subject} · 第{" "}
+                      {question.year}年｜{question.examName || "類科待辨識"}｜{question.subject}｜第{" "}
                       {question.questionNumber} 題
                     </b>
                   </header>
@@ -4611,11 +4614,12 @@ export default function AdminPage() {
         <div className="question-editor-backdrop" role="presentation" onClick={() => setEditingQuestion(null)}>
           <section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title" onClick={(event) => event.stopPropagation()}>
             <header>
-              <div><span>{editingQuestion.examType === "essay" ? "二試申論題編輯" : "一試選擇題編輯"}</span><h2 id="question-editor-title">{editingQuestion.year} · {editingQuestion.subject} · 第 {editingQuestion.questionNumber} 題</h2></div>
+              <div><span>{editingQuestion.examType === "essay" ? "二試申論題編輯" : "一試選擇題編輯"}</span><h2 id="question-editor-title">{editingQuestion.year}年｜{editingQuestion.examName}｜{editingQuestion.subject}｜第 {editingQuestion.questionNumber} 題</h2></div>
               <button type="button" onClick={() => setEditingQuestion(null)} aria-label="關閉編輯">×</button>
             </header>
             <div className="question-editor-grid">
               <label>年度<input value={editingQuestion.year} onChange={(event) => setEditingQuestion({ ...editingQuestion, year: event.target.value })} /></label>
+              <label>考試名稱／類科<input value={editingQuestion.examName} onChange={(event) => setEditingQuestion({ ...editingQuestion, examName: event.target.value })} placeholder="例如：律師、司法官第二試" /></label>
               <label>考科<input value={editingQuestion.subject} onChange={(event) => setEditingQuestion({ ...editingQuestion, subject: event.target.value })} /></label>
               <label>題號<input value={editingQuestion.questionNumber} onChange={(event) => setEditingQuestion({ ...editingQuestion, questionNumber: event.target.value })} /></label>
             </div>
