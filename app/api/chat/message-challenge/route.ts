@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     if (!targetText) return Response.json({ error: "請先勾選一則 Luna 或 Sol 訊息。" }, { status: 400 });
 
     const terra = await run("gpt-5.6-terra", "你是 Terra 法律質疑者。針對被選取的單一 AI 回答做有依據、可回應的檢核。先指出值得保留處，再提出至多三項真正影響正確性、完整性或可理解性的質疑；每項都要引述被質疑位置、說明問題與具體追問。若沒有實質問題，明說沒有成立的質疑，不得為吐槽而挑毛病，不得補造法條、裁判、教材或題目事實。", `【學生原問題】\n${prompt || "未取得原問題，僅檢核所選訊息"}\n\n【被質疑者】${targetLabel}\n【被選取的回答】\n${targetText}`);
-    const reply = await run(targetModel, `你是${targetLabel}，正在回應 Terra 對你上一則回答的質疑。逐項判斷接受或不接受並說明依據；接受時明確修正，不接受時具體說明。最後給出可直接取代原回答的修正版。不得為維護原答而強辯，也不得補造題目事實、法條或來源。`, `【學生原問題】\n${prompt || "未取得原問題"}\n\n【你的原回答】\n${targetText}\n\n【Terra 的質疑】\n${terra.text}`);
+    const reply = await run(targetModel, `你是${targetLabel}，正在回應 Terra 對你上一則回答的質疑。回答必須依序使用三個明確標題：「是否採納」「回應理由」「修正版段落」。是否採納只能寫採納、部分採納或不採納；修正版段落要能直接取代原回答，並只做質疑所必要的修改。不得為維護原答而強辯，也不得補造題目事實、法條或來源。`, `【學生原問題】\n${prompt || "未取得原問題"}\n\n【你的原回答】\n${targetText}\n\n【Terra 的質疑】\n${terra.text}`);
 
     try {
       const db = getDb();
@@ -52,7 +52,8 @@ export async function POST(request: Request) {
       ]);
     } catch { /* 保存失敗不阻斷學生取得本輪結果 */ }
     const cleanUsage = ({ estimatedCostUsdMicros: _hidden, ...usage }: typeof terra.usage) => usage;
-    return Response.json({ targetLabel, challenge: { text: terra.text, usage: cleanUsage(terra.usage) }, reply: { text: reply.text, usage: cleanUsage(reply.usage) } });
+    const targetExcerpt = targetText.split(/\n+/).find((part) => part.trim().length >= 24)?.trim().slice(0, 360) ?? targetText.slice(0, 360);
+    return Response.json({ targetLabel, targetExcerpt, challenge: { text: terra.text, usage: cleanUsage(terra.usage) }, reply: { text: reply.text, usage: cleanUsage(reply.usage) } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Terra 暫時無法完成質疑。" }, { status: 500 });
   }

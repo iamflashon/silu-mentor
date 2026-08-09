@@ -16244,6 +16244,13 @@ a {
 }
 .terra-challenge-button:hover:not(:disabled) { border-color: #9f5c5c; background: #ffe5e1; color: #743434; }
 .terra-challenge-button:disabled { opacity: .42; cursor: not-allowed; }
+.message-challenge-thread{margin:13px 0 2px 43px;overflow:hidden;border:1px solid #e2b9b5;border-radius:12px;background:#fffafa;box-shadow:0 7px 20px rgba(112,55,50,.07)}
+.message-challenge-thread>header{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid #efd5d2;background:#fff0ee;color:#793f3d}
+.message-challenge-thread>header span{padding:4px 7px;border-radius:999px;background:#943f3f;color:#fff;font-size:9px;font-weight:900}.message-challenge-thread>header b{font-size:12px}.message-challenge-thread>header small{margin-left:auto;color:#9b6c68}
+.message-challenge-thread blockquote{margin:13px;padding:11px 13px;border:1px solid #edc6c2;border-left:4px solid #bd615b;border-radius:8px;background:#fff5f3;color:#603f3c}.message-challenge-thread blockquote b{color:#993f3a;font-size:11px}.message-challenge-thread blockquote p{margin:6px 0 0;line-height:1.65}
+.message-challenge-thread article{margin:0 13px 11px;padding:12px 13px;border-radius:9px}.message-challenge-thread article>p{margin:7px 0;white-space:pre-wrap;line-height:1.72}.message-challenge-thread article>small{color:#819096}.message-challenge-thread article.terra{border:1px solid #efd4d0;background:#fff}.message-challenge-thread article.terra>b{color:#9a4742}.message-challenge-thread article.model-reply{border:1px solid #bcdccd;background:#f7fcf9}.message-challenge-thread article.model-reply>b{color:#286c58}
+.message-challenge-thread>footer{display:flex;align-items:center;gap:10px;padding:11px 13px;border-top:1px solid #eadedb;background:#fff}.message-challenge-thread>footer button{border:0;border-radius:8px;background:#2f7464;color:#fff;padding:8px 11px;font-weight:850;cursor:pointer}.message-challenge-thread>footer button:disabled{background:#8ca9a1;cursor:default}.message-challenge-thread>footer span{color:#7d8c91;font-size:10px}
+@media(max-width:760px){.message-challenge-thread{margin-left:0}.message-challenge-thread>header,.message-challenge-thread>footer{align-items:flex-start;flex-direction:column}.message-challenge-thread>header small{margin-left:0}}
 .model-mode-switch.is-collapsed { padding-bottom: 8px; }
 .model-mode-heading .new-topic-button {
   margin-left: 0;

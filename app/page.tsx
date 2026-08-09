@@ -29,7 +29,8 @@ const teachingLevelLabels: Record<TeachingLevel, string> = {
 };
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
 type TeachingEvidence = { status: "verified" | "applied_inference" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string; matchedTerms?: string[]; basis?: "teacher_solution" | "chapter" };
-type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison };
+type ChallengeThread = { targetLabel: string; targetExcerpt: string; challengeText: string; challengeUsage: ReplyUsage; replyText: string; replyUsage: ReplyUsage; version: number; applied: boolean };
+type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread };
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
@@ -759,12 +760,19 @@ export default function Home() {
     setTerraChallenging(true);
     try {
       const response = await fetch("/api/chat/message-challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, prompt: target.prompt, targetText: target.text, targetModel: target.model }) });
-      const result = await response.json() as { challenge?: { text: string; usage: ReplyUsage }; reply?: { text: string; usage: ReplyUsage }; error?: string };
+      const result = await response.json() as { targetLabel?: string; targetExcerpt?: string; challenge?: { text: string; usage: ReplyUsage }; reply?: { text: string; usage: ReplyUsage }; error?: string };
       if (!response.ok || !result.challenge || !result.reply) throw new Error(result.error ?? "Terra 暫時無法完成質疑。");
-      setMessages((current) => [...current,
-        { role: "mentor", text: result.challenge!.text, model: result.challenge!.usage.model, usage: result.challenge!.usage },
-        { role: "mentor", text: result.reply!.text, model: result.reply!.usage.model, usage: result.reply!.usage },
-      ]);
+      const targetIndex = Number(target.key.match(/^teacher:(\d+)$/)?.[1] ?? -1);
+      setMessages((current) => current.map((message, index) => index === targetIndex ? { ...message, challengeThread: {
+        targetLabel: result.targetLabel ?? target.label,
+        targetExcerpt: result.targetExcerpt ?? cleanMessageText(target.text).slice(0, 260),
+        challengeText: result.challenge!.text,
+        challengeUsage: result.challenge!.usage,
+        replyText: result.reply!.text,
+        replyUsage: result.reply!.usage,
+        version: (message.challengeThread?.version ?? 1) + 1,
+        applied: false,
+      } } : message));
       setSelectedFollowUps([]);
       setSource("AI 補充");
       setLastUsage(result.reply.usage);
@@ -773,6 +781,15 @@ export default function Home() {
     } finally {
       setTerraChallenging(false);
     }
+  }
+
+  function applyChallengeRevision(index: number) {
+    setMessages((current) => current.map((message, messageIndex) => messageIndex === index && message.challengeThread ? {
+      ...message,
+      text: message.challengeThread.replyText,
+      usage: message.challengeThread.replyUsage,
+      challengeThread: { ...message.challengeThread, applied: true },
+    } : message));
   }
 
   return (
@@ -838,6 +855,13 @@ export default function Home() {
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
               <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} onAnswerAction={runAnswerAction} disabled={thinking} showLearningActions={false} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)}</span></small> : null}{message.role === "mentor" && message.sources?.length ? <small className="message-sources">教材來源：{message.sources.join("、")} · {citationStatusLabel(message.citationStatus)}</small> : message.role === "mentor" && message.citationStatus ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{!message.comparison && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}`, label: modelLabel(message.model ?? "gpt-5.6-luna"), model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>回覆此訊息</span></label>}{isLearningNote(message.text) && <button type="button" className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}{/luna/i.test(message.model ?? "luna") && <button type="button" className="ask-sol-button" disabled={thinking || solReviewingIndex !== null || solReviewedIndexes.includes(index)} onClick={() => void requestSolReview(message, index)}>{solReviewingIndex === index ? "Sol 覆核中…" : solReviewedIndexes.includes(index) ? "Sol 已覆核 ✓" : "✦ 請 Sol 學霸覆核"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已送老師 ✓" : /sol/i.test(message.model ?? "") ? "回饋並請老師確認" : "回饋"}</summary><div><button type="button" onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button type="button" onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button type="button" onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button type="button" onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              {message.role === "mentor" && message.challengeThread && <section className="message-challenge-thread" aria-label={`Terra 對 ${message.challengeThread.targetLabel} 的局部質疑`}>
+                <header><span>局部質疑串</span><b>質疑對象：{message.challengeThread.targetLabel} 原評論</b><small>第 {message.challengeThread.version - 1} 版 → 第 {message.challengeThread.version} 版</small></header>
+                <blockquote><b>被質疑段落</b><p>{message.challengeThread.targetExcerpt}</p></blockquote>
+                <article className="terra"><b>Terra 質疑／吐槽</b><p>{message.challengeThread.challengeText}</p><small>{message.challengeThread.challengeUsage.inputTokens + message.challengeThread.challengeUsage.outputTokens} tokens · 約 NT$ {formatTwd(message.challengeThread.challengeUsage.estimatedCostUsd)}</small></article>
+                <article className="model-reply"><b>{message.challengeThread.targetLabel} 回應並修正</b><p>{message.challengeThread.replyText}</p><small>{message.challengeThread.replyUsage.inputTokens + message.challengeThread.replyUsage.outputTokens} tokens · 約 NT$ {formatTwd(message.challengeThread.replyUsage.estimatedCostUsd)}</small></article>
+                <footer><button type="button" disabled={message.challengeThread.applied} onClick={() => applyChallengeRevision(index)}>{message.challengeThread.applied ? "已套用至原評論 ✓" : `套用至 ${message.challengeThread.targetLabel} 原評論`}</button><span>未按套用前，原評論不會被改動。</span></footer>
+              </section>}
               {message.role === "mentor" && showEvidence && <TeachingEvidenceDetails evidence={message.teachingEvidence} />}
             </div>
           ))}
