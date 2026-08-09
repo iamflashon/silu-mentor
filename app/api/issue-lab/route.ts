@@ -19,6 +19,24 @@ const models: Record<ModelKey, { label: string; vendor: string; id: string; inpu
 function validModel(value: unknown): value is ModelKey { return typeof value === "string" && value in models; }
 function meta(value: string) { try { return JSON.parse(value) as Record<string, unknown>; } catch { return {}; } }
 
+type CompatibleContentPart = { type?: string; text?: string; content?: string };
+type CompatibleMessage = {
+  content?: string | CompatibleContentPart[] | null;
+  reasoning_content?: string | null;
+};
+
+function extractDisplayText(message?: CompatibleMessage) {
+  if (!message) return "";
+  if (typeof message.content === "string") return message.content.trim();
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map((part) => typeof part?.text === "string" ? part.text : typeof part?.content === "string" ? part.content : "")
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
 async function runModel(key: ModelKey, prompt: string, subject: string) {
   const apiKey = await getTeamoRouterKey();
   if (!apiKey) throw new Error("TeamoRouter API Key 尚未設定或未啟用");
@@ -28,15 +46,29 @@ async function runModel(key: ModelKey, prompt: string, subject: string) {
   const response = await fetch(`${await getTeamoRouterBaseUrl()}/chat/completions`, {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: config.id, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .1, max_tokens: 2200, ...(key === "gemini" ? { reasoning_effort: "medium" } : {}) }),
+    body: JSON.stringify({
+      model: config.id,
+      messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+      temperature: .1,
+      max_tokens: 3200,
+      ...(key === "gemini" ? { reasoning_effort: "medium" } : {}),
+      ...(["glm", "kimi"].includes(key) ? { thinking: { type: "disabled" } } : {}),
+    }),
   });
-  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: CompatibleMessage; finish_reason?: string | null }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
   if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
   const input = Number(payload.usage?.prompt_tokens || 0); const output = Number(payload.usage?.completion_tokens || 0);
   const estimated = Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : input / 1e6 * config.input + output / 1e6 * config.output;
-  const choice = payload.choices?.[0]; const text = choice?.message?.content?.trim() || ""; const finishReason = String(choice?.finish_reason || "unknown");
+  const choice = payload.choices?.[0]; const text = extractDisplayText(choice?.message); const finishReason = String(choice?.finish_reason || "unknown");
+  const reasoningTokensWithoutAnswer = !text && output > 0 && Boolean(choice?.message?.reasoning_content?.trim());
   const sections = ["一、", "二、", "三、", "四、", "五、"];
-  const contentError = !text ? "空白回覆：模型沒有產生可顯示內容" : (["length", "max_tokens"].includes(finishReason) || sections.some((heading) => !text.includes(heading))) ? `內容截斷：回覆未完成五個指定段落（停止原因：${finishReason}）` : "";
+  const contentError = !text
+    ? reasoningTokensWithoutAnswer || output > 0
+      ? `無正文：已產生 ${output.toLocaleString()} 個計費輸出 tokens，但輸出額度用於內部推理，未形成可顯示的最終回答（停止原因：${finishReason}）`
+      : "空白回覆：供應商未回傳可顯示內容，也未記錄輸出 tokens"
+    : (["length", "max_tokens"].includes(finishReason) || sections.some((heading) => !text.includes(heading)))
+      ? `內容截斷：回覆未完成五個指定段落（停止原因：${finishReason}）`
+      : "";
   return { key, config, model: payload.model || config.id, text, error: contentError, input, output, duration: Date.now() - started, cost: estimated };
 }
 
