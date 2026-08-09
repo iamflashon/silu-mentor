@@ -1,73 +1,114 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { chatComparisonRatings, chatComparisonResponses, chatComparisons, usageLogs } from "../../../db/schema";
+import { chatComparisonResponses, chatComparisons, usageLogs } from "../../../db/schema";
 import { benchmarkCases } from "../../../lib/model-benchmark";
+import { comprehensiveBenchmarkCases } from "../../../lib/comprehensive-benchmark";
 import { estimateCostUsd } from "../../../lib/usage";
-import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenRouterKey, getTeachingJudgeOpenAIModel, getZaiKey, openAIJson } from "../../../lib/openai";
-type Provider="luna"|"sonnet"|"deepseek"|"glm52"; const labels:Record<Provider,string>={luna:"Luna",sonnet:"Claude Sonnet 5",deepseek:"DeepSeek V4-Pro",glm52:"GLM-5.2"}; const providerOrder:Provider[]=["luna","sonnet","deepseek","glm52"]; const contextType="model-benchmark-v3";
-function outputText(p:Record<string,unknown>){const d=typeof p.output_text==="string"?p.output_text:"";if(d)return d.trim();const o=Array.isArray(p.output)?p.output:[];return o.flatMap(i=>typeof i==="object"&&i&&Array.isArray((i as {content?:unknown[]}).content)?(i as {content:unknown[]}).content:[]).map(i=>typeof i==="object"&&i&&typeof(i as {text?:unknown}).text==="string"?(i as {text:string}).text:"").join("\n").trim()}
-function parseJson(t:string){const m=t.match(/\{[\s\S]*\}/);if(!m)throw new Error("Sol 未回傳可解析評分");return JSON.parse(m[0]) as Record<string,unknown>}
-function assertCandidateAnswer(text:string){
-  if(!text.trim()) throw new Error("候選模型回傳空白內容");
-  if(text.trim().length<24) throw new Error("候選模型回答過短，無法進行法律評測");
+import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenRouterKey, getZaiKey, openAIJson } from "../../../lib/openai";
+
+type Provider = "luna" | "qwen" | "terra" | "glm" | "sonnet" | "sol" | "opus" | "deepseek";
+type Bank = "criminal" | "comprehensive";
+const contextType = "model-benchmark-v4";
+const labels: Record<Provider, string> = {
+  luna: "Luna", qwen: "千問", terra: "Terra", glm: "GLM", sonnet: "Claude Sonnet 5",
+  sol: "Sol", opus: "Claude Opus 5", deepseek: "DeepSeek V4-Pro",
+};
+const openRouterModels: Partial<Record<Provider, string>> = {
+  qwen: "qwen/qwen3-max", glm: "z-ai/glm-5.2", sonnet: "anthropic/claude-sonnet-5",
+  opus: "anthropic/claude-opus-5", deepseek: "deepseek/deepseek-v4-pro",
+};
+
+type Source = { runId?: string; benchmarkId?: number; label?: string; provider?: Provider; bank?: Bank };
+function source(row: { sourceJson: string }): Source { try { return JSON.parse(row.sourceJson) as Source; } catch { return {}; } }
+function questions(bank: Bank) { return bank === "comprehensive" ? comprehensiveBenchmarkCases : benchmarkCases; }
+function outputText(payload: Record<string, unknown>) {
+  if (typeof payload.output_text === "string") return payload.output_text.trim();
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : [])
+    .map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim();
 }
-function assertJudgePayload(x:Record<string,unknown>){
-  const keys=["rule","application","premise","facts","sources","continuity","teaching"];
-  if(!keys.every(k=>Number.isFinite(Number(x[k])))) throw new Error("Sol 評分欄位不完整");
-  if(x.verdict!=="pass"&&x.verdict!=="fail") throw new Error("Sol 判決格式不完整");
-  if(typeof x.summary!=="string"||typeof x.correction!=="string") throw new Error("Sol 評語格式不完整");
+type CandidateRun = { model: string; text: string; input: number; output: number; duration: number; actualCostUsd?: number };
+function validProvider(value: unknown): value is Provider { return typeof value === "string" && value in labels; }
+function validBank(value: unknown): value is Bank { return value === "criminal" || value === "comprehensive"; }
+
+async function runOpenAI(provider: "luna" | "terra" | "sol", prompt: string, system: string, started: number): Promise<CandidateRun> {
+  if (!await getOpenAIKey()) throw new Error("OpenAI 金鑰尚未設定");
+  const model = provider === "luna" ? "gpt-5.6-luna" : provider === "terra" ? "gpt-5.6-terra" : "gpt-5.6-sol";
+  const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: system, input: prompt, max_output_tokens: 1800 }) });
+  const usage = (payload.usage ?? {}) as { input_tokens?: number; output_tokens?: number };
+  return { model, text: outputText(payload), input: Number(usage.input_tokens ?? 0), output: Number(usage.output_tokens ?? 0), duration: Date.now() - started };
 }
-function source(r:{sourceJson:string}){try{return JSON.parse(r.sourceJson) as {runId?:string;benchmarkId?:number;label?:string;mode?:string}}catch{return {}}}
-type CandidateRun={model:string;text:string;input:number;output:number;duration:number;actualCostUsd?:number};
-async function selectInBatches<T>(values:number[],load:(batch:number[])=>Promise<T[]>){const rows:T[]=[];for(let i=0;i<values.length;i+=40)rows.push(...await load(values.slice(i,i+40)));return rows}
-async function runOpenRouterCandidate(provider:Exclude<Provider,"luna">,prompt:string,system:string,started:number):Promise<CandidateRun|null>{
-  const key=await getOpenRouterKey();if(!key)return null;
-  const model=provider==="sonnet"?"anthropic/claude-sonnet-5":provider==="deepseek"?"deepseek/deepseek-v4-pro":"z-ai/glm-5.2";
-  const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json","HTTP-Referer":"https://silu-mentor.iamflashon.chatgpt.site","X-Title":"司律備考模型盲測"},body:JSON.stringify({model,messages:[{role:"system",content:system},{role:"user",content:prompt}],temperature:0.2,max_tokens:provider==="glm52"?2400:1800,reasoning:{effort:"low",exclude:true}})});
-  const p=await r.json()as{choices?:Array<{finish_reason?:string;message?:{content?:string}}> ;usage?:{prompt_tokens?:number;completion_tokens?:number;cost?:number};error?:{message?:string}};
-  if(!r.ok)throw new Error(`OpenRouter ${labels[provider]} 呼叫失敗：${p.error?.message||r.status}`);
-  const text=p.choices?.[0]?.message?.content?.trim()||"";if(!text)throw new Error(`${labels[provider]} 未產生最終回答${p.choices?.[0]?.finish_reason?`（終止原因：${p.choices[0].finish_reason}）`:""}`);
-  return{model,text,input:Number(p.usage?.prompt_tokens??0),output:Number(p.usage?.completion_tokens??0),duration:Date.now()-started,actualCostUsd:Number.isFinite(Number(p.usage?.cost))?Number(p.usage?.cost):undefined};
+
+async function runOpenRouter(provider: Provider, prompt: string, system: string, started: number): Promise<CandidateRun | null> {
+  const key = await getOpenRouterKey(); const model = openRouterModels[provider];
+  if (!key || !model) return null;
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "HTTP-Referer": "https://silu-mentor.iamflashon.chatgpt.site", "X-Title": "司律備考單模型測試" }, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .2, max_tokens: 1800, reasoning: { effort: "low", exclude: true } }) });
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  if (!response.ok) throw new Error(`${labels[provider]} 呼叫失敗：${payload.error?.message || response.status}`);
+  return { model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started, actualCostUsd: Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : undefined };
 }
-async function runCandidate(provider:Provider,prompt:string):Promise<CandidateRun>{const system="你是臺灣司律考試法律助教。只依題目明示事實分析；先檢查提問是否藏有錯誤法律前提，不可迎合，不得虛構法條、判決或教材。請直接回答並說明法律判準與涵攝，控制在700字內。";const started=Date.now();if(provider==="luna"){if(!await getOpenAIKey())throw new Error("OpenAI 金鑰未設定");const model="gpt-5.6-luna",p=await openAIJson("/responses",{method:"POST",body:JSON.stringify({model,instructions:system,input:prompt,max_output_tokens:1800})}),u=(p.usage??{})as{input_tokens?:number;output_tokens?:number};return{model,text:outputText(p),input:Number(u.input_tokens??0),output:Number(u.output_tokens??0),duration:Date.now()-started}}const routed=await runOpenRouterCandidate(provider,prompt,system,started);if(routed)return routed;if(provider==="sonnet"){const key=await getAnthropicKey();if(!key)throw new Error("OpenRouter 與 Anthropic 金鑰皆未設定");const model=await getAnthropicChatModel("claude-sonnet-5"),r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"x-api-key":key,"anthropic-version":"2023-06-01","content-type":"application/json"},body:JSON.stringify({model,system,messages:[{role:"user",content:prompt}],max_tokens:1800})}),p=await r.json()as{content?:Array<{text?:string}>;usage?:{input_tokens?:number;output_tokens?:number};error?:{message?:string}};if(!r.ok)throw new Error(p.error?.message||"Claude 呼叫失敗");return{model,text:p.content?.map(x=>x.text||"").join("\n").trim()||"",input:Number(p.usage?.input_tokens??0),output:Number(p.usage?.output_tokens??0),duration:Date.now()-started}}if(provider==="deepseek"){const key=await getDeepSeekKey();if(!key)throw new Error("OpenRouter 與 DeepSeek 金鑰皆未設定");const model=await getDeepSeekModel("deepseek-v4-pro"),r=await fetch("https://api.deepseek.com/chat/completions",{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify({model,messages:[{role:"system",content:system},{role:"user",content:prompt}],max_tokens:1800})}),p=await r.json()as{choices?:Array<{finish_reason?:string;message?:{content?:string}}> ;usage?:{prompt_tokens?:number;completion_tokens?:number};error?:{message?:string}};if(!r.ok)throw new Error(p.error?.message||"DeepSeek 呼叫失敗");const text=p.choices?.[0]?.message?.content?.trim()||"";if(!text)throw new Error(`DeepSeek 未產生最終回答${p.choices?.[0]?.finish_reason?`（終止原因：${p.choices[0].finish_reason}）`:""}`);return{model,text,input:Number(p.usage?.prompt_tokens??0),output:Number(p.usage?.completion_tokens??0),duration:Date.now()-started}}const key=await getZaiKey();if(!key)throw new Error("OpenRouter 與 Z.AI 金鑰皆未設定");const model="glm-5.2",r=await fetch("https://api.z.ai/api/paas/v4/chat/completions",{method:"POST",headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify({model,messages:[{role:"system",content:system},{role:"user",content:prompt}],thinking:{type:"disabled"},temperature:0.2,max_tokens:2400})}),p=await r.json()as{choices?:Array<{finish_reason?:string;message?:{content?:string}}> ;usage?:{prompt_tokens?:number;completion_tokens?:number};error?:{message?:string}};if(!r.ok)throw new Error(p.error?.message||"GLM 呼叫失敗");const text=p.choices?.[0]?.message?.content?.trim()||"";if(!text)throw new Error(`GLM 未產生最終回答${p.choices?.[0]?.finish_reason?`（終止原因：${p.choices[0].finish_reason}）`:""}`);return{model,text,input:Number(p.usage?.prompt_tokens??0),output:Number(p.usage?.completion_tokens??0),duration:Date.now()-started}}
-async function judge(q:typeof benchmarkCases[number],answer:string){const model=await getTeachingJudgeOpenAIModel("gpt-5.6-sol"),prompt=`你是本測試唯一裁判 Sol。請依標準卡評估候選模型回答，不得因文筆漂亮加分。\n【題目】${q.prompt}\n【正確判準】${q.rule}\n【預期方向】${q.expected}\n【不得補充】${q.forbidden.join("、")||"無"}\n【致命錯誤】${q.fatal.join("、")||"依一般規則"}\n【候選回答】${answer}\n只回傳JSON：{"rule":0到25,"application":0到20,"premise":0到15,"facts":0到15,"sources":0到10,"continuity":0到10,"teaching":0到5,"fatal":[],"verdict":"pass或fail","summary":"150字內評語","correction":"更正後核心答案"}。若有核心判準錯誤、虛構來源、偷加關鍵事實或迎合錯誤前提，verdict必須為fail且總分為0。`,started=Date.now(),p=await openAIJson("/responses",{method:"POST",body:JSON.stringify({model,input:prompt,max_output_tokens:1600})}),x=parseJson(outputText(p));assertJudgePayload(x);const u=(p.usage??{})as{input_tokens?:number;output_tokens?:number},weighted=["rule","application","premise","facts","sources","continuity","teaching"].reduce((s,k)=>s+Number(x[k]),0),fatal=Array.isArray(x.fatal)?x.fatal.map(String):[],failed=x.verdict==="fail"||fatal.length>0;return{model,score:failed?0:Math.max(0,Math.min(100,weighted)),weighted,breakdown:{rule:Number(x.rule),application:Number(x.application),premise:Number(x.premise),facts:Number(x.facts),sources:Number(x.sources),continuity:Number(x.continuity),teaching:Number(x.teaching)},fatal,summary:String(x.summary),correction:String(x.correction),input:Number(u.input_tokens??0),output:Number(u.output_tokens??0),duration:Date.now()-started}}
-export async function GET(request:Request){try{const db=await getDb(),all=await db.select().from(chatComparisons).where(inArray(chatComparisons.contextType,[contextType,"model-benchmark-v2"])).orderBy(asc(chatComparisons.id)),ids=all.map(x=>x.id),responses=await selectInBatches(ids,batch=>db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId,batch))),responseIds=responses.map(x=>x.id),ratings=await selectInBatches(responseIds,batch=>db.select().from(chatComparisonRatings).where(inArray(chatComparisonRatings.responseId,batch))),meta=all.filter(x=>source(x).benchmarkId===0),legacy=all.some(x=>x.contextType==="model-benchmark-v2"),persistedRunIds=all.filter(x=>x.contextType===contextType).map(x=>source(x).runId).filter(Boolean)as string[],runIds=[...new Set([...persistedRunIds,...(legacy?["legacy-v2"]:[])])],requested=new URL(request.url).searchParams.get("runId"),runId=requested&&runIds.includes(requested)?requested:runIds.at(-1)||null,runRows=runId?all.filter(x=>runId==="legacy-v2"?x.contextType==="model-benchmark-v2":source(x).runId===runId&&source(x).benchmarkId!==0):[],hasRating=(responseId:number)=>ratings.some(v=>v.responseId===responseId&&(v.feedbackType==="manual_chatgpt"||v.feedbackType==="sol_benchmark")),runs=runIds.map(id=>{const m=meta.find(x=>source(x).runId===id),rs=all.filter(x=>id==="legacy-v2"?x.contextType==="model-benchmark-v2":source(x).runId===id&&source(x).benchmarkId!==0),rr=responses.filter(r=>rs.some(c=>c.id===r.comparisonId)),fallback=rs[0],deepseekOnly=source(m??fallback).mode==="deepseek-only";return{id,label:id==="legacy-v2"?"初次測試（舊版）":source(m??fallback).label||"已救回的測試批次",startedAt:id==="legacy-v2"?fallback?.createdAt:m?.createdAt??fallback?.createdAt,completed:rr.filter(r=>hasRating(r.id)).length,answered:rr.length,total:deepseekOnly?50:200,recovered:!m&&id!=="legacy-v2"}});return Response.json({target:50,judge:"ChatGPT 對話人工評測",runId,runs,questions:benchmarkCases.map(q=>{const c=runRows.find(x=>source(x).benchmarkId===q.id);return{...q,responses:c?responses.filter(r=>r.comparisonId===c.id).map(r=>{const e=ratings.filter(x=>x.responseId===r.id&&(x.feedbackType==="manual_chatgpt"||x.feedbackType==="sol_benchmark")).at(-1);let verdict=null;try{verdict=e?JSON.parse(e.note):null}catch{}return{...r,verdict}}):[]}})})}catch(error){console.error("model-evaluation GET failed",error);return Response.json({error:error instanceof Error?error.message:"測試資料讀取失敗",retryable:true},{status:500})}}
-export async function POST(request:Request){
-  let stage="準備測試";
-  try{
-    const body=await request.json()as{action?:string;runId?:string;questionId?:number;provider?:Provider;scoreCode?:string;mode?:string},db=await getDb();
-    if(body.action==="create-run"){const runId=`run-${Date.now()}`,now=new Date(),label=`${now.toLocaleDateString("zh-TW",{timeZone:"Asia/Taipei"})} ${now.toLocaleTimeString("zh-TW",{timeZone:"Asia/Taipei",hour:"2-digit",minute:"2-digit"})}`;await db.insert(chatComparisons).values({userKey:"benchmark",contextType,promptText:"DeepSeek 50題法律模型連續評測",sourceStatus:"run_meta",sourceJson:JSON.stringify({runId,benchmarkId:0,label,mode:body.mode==="deepseek-only"?"deepseek-only":undefined})});return Response.json({ok:true,runId})}
-    const q=benchmarkCases.find(x=>x.id===Number(body.questionId)),provider=body.provider,runId=String(body.runId||""),legacy=runId==="legacy-v2",activeContext=legacy?"model-benchmark-v2":contextType;
-    if(body.action==="manual-score"){
-      if(!q||!runId)return Response.json({error:"評分參數不完整",stage,retryable:false},{status:400});
-      const cards=await db.select().from(chatComparisons).where(eq(chatComparisons.contextType,activeContext)),card=cards.find(x=>(legacy||source(x).runId===runId)&&source(x).benchmarkId===q.id);
-      if(!card)return Response.json({error:"找不到本題作答",stage,retryable:false},{status:404});
-      const answers=await db.select().from(chatComparisonResponses).where(eq(chatComparisonResponses.comparisonId,card.id));
-      const matches=[...String(body.scoreCode||"").toUpperCase().matchAll(/\b([ABCD])\s*(\d{1,3}|-)(!)?/g)];
-      if(matches.length!==4)return Response.json({error:"請貼上完整評分碼，例如：A88 B81 C54! D-",stage,retryable:false},{status:400});
-      for(const m of matches){const index="ABCD".indexOf(m[1]),answer=answers.find(x=>x.label===labels[providerOrder[index]]);if(!answer)continue;const score=m[2]==="-"?null:Math.max(0,Math.min(100,Number(m[2]))),fatal=Boolean(m[3]);if(score===null)continue;const old=await db.select().from(chatComparisonRatings).where(and(eq(chatComparisonRatings.responseId,answer.id),eq(chatComparisonRatings.feedbackType,"manual_chatgpt"))).limit(1);if(old.length)continue;await db.insert(chatComparisonRatings).values({comparisonId:card.id,responseId:answer.id,userKey:"chatgpt-manual",score:fatal?0:score,feedbackType:"manual_chatgpt",note:JSON.stringify({score:fatal?0:score,weighted:score,fatal:fatal?["人工評測標記致命錯誤"]:[],summary:"由 ChatGPT 對話人工評測回填",correction:"詳見評測對話",model:"ChatGPT 對話人工評測",judgeCostUsd:0})})}
-      return Response.json({ok:true,stage:"評分已保存"});
+
+async function runCandidate(provider: Provider, prompt: string): Promise<CandidateRun> {
+  const system = "你是臺灣司律考試法律助教。只依題目事實分析，不得虛構法條、裁判或教材。請辨識爭點、說明法律判準並具體涵攝，控制在700字內。";
+  const started = Date.now();
+  if (provider === "luna" || provider === "terra" || provider === "sol") return runOpenAI(provider, prompt, system, started);
+  const routed = await runOpenRouter(provider, prompt, system, started); if (routed) return routed;
+  if (provider === "sonnet" || provider === "opus") {
+    const key = await getAnthropicKey(); if (!key) throw new Error("OpenRouter 與 Anthropic 金鑰皆未設定");
+    const model = provider === "opus" ? "claude-opus-5" : await getAnthropicChatModel("claude-sonnet-5");
+    const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model, system, messages: [{ role: "user", content: prompt }], max_tokens: 1800 }) });
+    const payload = await response.json() as { content?: Array<{ text?: string }>; usage?: { input_tokens?: number; output_tokens?: number }; error?: { message?: string } };
+    if (!response.ok) throw new Error(payload.error?.message || `${labels[provider]} 呼叫失敗`);
+    return { model, text: payload.content?.map((x) => x.text || "").join("\n").trim() || "", input: Number(payload.usage?.input_tokens ?? 0), output: Number(payload.usage?.output_tokens ?? 0), duration: Date.now() - started };
+  }
+  if (provider === "deepseek") {
+    const key = await getDeepSeekKey(); if (!key) throw new Error("OpenRouter 與 DeepSeek 金鑰皆未設定"); const model = await getDeepSeekModel("deepseek-v4-pro");
+    const response = await fetch("https://api.deepseek.com/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], max_tokens: 1800 }) });
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: { message?: string } }; if (!response.ok) throw new Error(payload.error?.message || "DeepSeek 呼叫失敗");
+    return { model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started };
+  }
+  if (provider === "glm") {
+    const key = await getZaiKey(); if (!key) throw new Error("OpenRouter 與 Z.AI 金鑰皆未設定"); const model = "glm-5.2";
+    const response = await fetch("https://api.z.ai/api/paas/v4/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], thinking: { type: "disabled" }, temperature: .2, max_tokens: 1800 }) });
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: { message?: string } }; if (!response.ok) throw new Error(payload.error?.message || "GLM 呼叫失敗");
+    return { model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started };
+  }
+  throw new Error(`${labels[provider]} 目前缺少可用的模型連線設定`);
+}
+
+export async function GET(request: Request) {
+  try {
+    const db = await getDb(); const all = await db.select().from(chatComparisons).where(inArray(chatComparisons.contextType, [contextType, "model-benchmark-v3", "model-benchmark-v2"])).orderBy(asc(chatComparisons.id));
+    const ids = all.map((x) => x.id); const responses = ids.length ? await db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, ids)) : [];
+    const metas = all.filter((x) => source(x).benchmarkId === 0); const runIds = [...new Set(all.map((x) => source(x).runId).filter(Boolean) as string[])];
+    const requested = new URL(request.url).searchParams.get("runId"); const runId = requested && runIds.includes(requested) ? requested : runIds.at(-1) || null;
+    const meta = metas.find((x) => source(x).runId === runId); const settings = source(meta ?? { sourceJson: "{}" }); const bank: Bank = settings.bank ?? "criminal"; const provider: Provider = settings.provider ?? "deepseek";
+    const runRows = runId ? all.filter((x) => source(x).runId === runId && source(x).benchmarkId !== 0) : [];
+    const runs = runIds.map((id) => { const m = metas.find((x) => source(x).runId === id); const s = source(m ?? { sourceJson: "{}" }); const cards = all.filter((x) => source(x).runId === id && source(x).benchmarkId !== 0); const answerCount = responses.filter((r) => cards.some((c) => c.id === r.comparisonId)).length; return { id, label: s.label || "舊測試紀錄", startedAt: m?.createdAt, answered: answerCount, completed: answerCount, total: 50, provider: s.provider ?? "deepseek", bank: s.bank ?? "criminal" }; });
+    return Response.json({ target: 50, runId, provider, bank, runs, questions: questions(bank).map((q) => { const card = runRows.find((x) => source(x).benchmarkId === q.id); return { ...q, responses: card ? responses.filter((r) => r.comparisonId === card.id).map((r) => ({ ...r, verdict: null })) : [] }; }) });
+  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "測試資料讀取失敗" }, { status: 500 }); }
+}
+
+export async function POST(request: Request) {
+  let stage = "準備測試";
+  try {
+    const body = await request.json() as { action?: string; runId?: string; questionId?: number; provider?: Provider; bank?: Bank }; const db = await getDb();
+    if (body.action === "create-run") {
+      if (!validProvider(body.provider) || !validBank(body.bank)) return Response.json({ error: "請先選擇模型與題庫" }, { status: 400 });
+      const runId = `run-${Date.now()}`; const now = new Date(); const label = `${now.toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })} ${now.toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit" })}`;
+      await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: `${labels[body.provider]}｜${body.bank === "comprehensive" ? "綜合法科" : "刑法"}50題`, sourceStatus: "run_meta", sourceJson: JSON.stringify({ runId, benchmarkId: 0, label, provider: body.provider, bank: body.bank }) });
+      return Response.json({ ok: true, runId });
     }
-    if(!q||!provider||!labels[provider]||!runId)return Response.json({error:"測試參數不完整",stage,retryable:false},{status:400});
-    const existing=await db.select().from(chatComparisons).where(eq(chatComparisons.contextType,activeContext));
-    const belongsToRun=(x:typeof existing[number])=>legacy?x.contextType==="model-benchmark-v2":source(x).runId===runId;
-    // A partially saved run can lose its meta row while its question cards and
-    // answers remain durable.  Treat any row carrying the same runId as proof
-    // that the run exists, so reload/recovery never forces paid work to restart.
-    if(legacy?!existing.length:!existing.some(belongsToRun))return Response.json({error:"找不到這一輪測試紀錄，請重新開始",stage,retryable:false},{status:404});
-    let comparison=existing.find(x=>belongsToRun(x)&&source(x).benchmarkId===q.id);
-    if(!comparison){[comparison]=await db.insert(chatComparisons).values({userKey:"benchmark",contextType:activeContext,promptText:q.prompt,sourceStatus:"benchmark_card",sourceJson:JSON.stringify({runId,benchmarkId:q.id,rule:q.rule,expected:q.expected,forbidden:q.forbidden,fatal:q.fatal})}).returning()}
-    const prior=await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId,comparison.id),eq(chatComparisonResponses.label,labels[provider]))).limit(1);
-    let row=prior[0];
-    if(row){assertCandidateAnswer(row.text);return Response.json({ok:true,skipped:true,stage:"作答已存在"})}else{
-      let benchmarkPrompt=q.prompt;
-      if(q.group==="連續追問"&&q.round>1){const previousCases=benchmarkCases.filter(x=>x.group==="連續追問"&&x.title===q.title&&x.round<q.round),transcript:string[]=[];for(const pc of previousCases){const c=existing.find(x=>belongsToRun(x)&&source(x).benchmarkId===pc.id);if(!c)continue;const[a]=await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId,c.id),eq(chatComparisonResponses.label,labels[provider]))).limit(1);if(a)transcript.push(`學生：${pc.prompt}\n助教：${a.text}`)}benchmarkPrompt=`以下是同一段對話的既有內容，必須承接且不得遺忘：\n${transcript.join("\n\n")}\n\n學生現在追問：${q.prompt}`}
-      stage=`${labels[provider]} 作答`;
-      const run=await runCandidate(provider,benchmarkPrompt);assertCandidateAnswer(run.text);
-      const cost=run.actualCostUsd??estimateCostUsd(run.model,{inputTokens:run.input,cachedTokens:0,outputTokens:run.output});
-      [row]=await db.insert(chatComparisonResponses).values({comparisonId:comparison.id,provider,model:run.model,label:labels[provider],text:run.text,inputTokens:run.input,outputTokens:run.output,durationMs:run.duration,estimatedCostUsdMicros:Math.round(cost*1e6)}).returning();
-      await db.insert(usageLogs).values({model:run.model,source:`50題法律模型測試 ${runId}`,inputTokens:run.input,outputTokens:run.output,estimatedCostUsdMicros:Math.round(cost*1e6)});
-    }
-    return Response.json({ok:true,stage:"候選模型作答已保存"});
-  }catch(error){return Response.json({error:error instanceof Error?error.message:"測試失敗",stage,retryable:true,errorKind:"system"},{status:500})}
+    const runId = String(body.runId || ""); if (!runId) return Response.json({ error: "測試參數不完整" }, { status: 400 });
+    const rows = await db.select().from(chatComparisons).where(eq(chatComparisons.contextType, contextType)); const meta = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === 0); if (!meta) return Response.json({ error: "找不到這一輪測試紀錄" }, { status: 404 });
+    const settings = source(meta); const provider = settings.provider; const bank = settings.bank ?? "criminal"; if (!provider) return Response.json({ error: "舊批次沒有指定單模型，請建立新一輪" }, { status: 400 });
+    const q = questions(bank).find((x) => x.id === Number(body.questionId)); if (!q) return Response.json({ error: "找不到題目" }, { status: 404 });
+    let card = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === q.id); if (!card) [card] = await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: q.prompt, sourceStatus: "benchmark_card", sourceJson: JSON.stringify({ runId, benchmarkId: q.id, provider, bank, rule: q.rule, expected: q.expected }) }).returning();
+    const prior = await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId, card.id), eq(chatComparisonResponses.label, labels[provider]))).limit(1); if (prior.length) return Response.json({ ok: true, skipped: true });
+    stage = `${labels[provider]} 作答`; const run = await runCandidate(provider, q.prompt); if (run.text.trim().length < 24) throw new Error(`${labels[provider]} 回答過短或空白`);
+    const cost = run.actualCostUsd ?? estimateCostUsd(run.model, { inputTokens: run.input, cachedTokens: 0, outputTokens: run.output });
+    await db.insert(chatComparisonResponses).values({ comparisonId: card.id, provider, model: run.model, label: labels[provider], text: run.text, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(cost * 1e6) });
+    await db.insert(usageLogs).values({ model: run.model, source: `50題法律模型測試 ${runId}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(cost * 1e6) });
+    return Response.json({ ok: true });
+  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "測試失敗", stage }, { status: 500 }); }
 }
