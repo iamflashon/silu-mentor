@@ -2524,7 +2524,7 @@ export default function AdminPage() {
     );
   }
 
-  async function runExamSourceStep(sourceId: number) {
+  async function runExamSourceStep(sourceId: number, rescan = false) {
     setExamSources((current) =>
       current.map((source) =>
         source.id === sourceId
@@ -2535,7 +2535,7 @@ export default function AdminPage() {
     const response = await fetch("/api/exam-sources/process", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceId }),
+      body: JSON.stringify({ sourceId, rescan }),
     });
     const result = (await readJson(response)) as ExamProcessResult;
     if (!response.ok) throw new Error(result.error ?? "真題處理失敗");
@@ -2574,6 +2574,19 @@ export default function AdminPage() {
         ),
       );
       setNotice(message);
+    } finally {
+      setProcessingSourceId(null);
+    }
+  }
+
+  async function rescanExamSource(sourceId: number) {
+    setProcessingSourceId(sourceId);
+    setNotice("正在重新掃描高點完整題庫，並補入尚未發現的司律二試 PDF…");
+    try {
+      const result = await runExamSourceStep(sourceId, true);
+      setNotice(`${result.message ?? "重新掃描完成"}；已更新來源總數，可繼續批次處理。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "重新掃描失敗");
     } finally {
       setProcessingSourceId(null);
     }
@@ -4431,6 +4444,14 @@ export default function AdminPage() {
                             </button>
                           ) : (
                             <>
+                              {source.examType === "essay" ? <button
+                                className="source-process"
+                                type="button"
+                                disabled={processingSourceId !== null}
+                                onClick={() => rescanExamSource(source.id)}
+                              >
+                                {processingSourceId === source.id ? "掃描中…" : "重新掃描補齊"}
+                              </button> : null}
                               <button
                                 className="source-process"
                                 type="button"

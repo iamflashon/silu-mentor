@@ -15,12 +15,15 @@ function textOnly(html: string) {
   return html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/\s+/g, " ").trim();
 }
 
-function discoverRows(html: string, pageUrl: URL) {
+function discoverRows(html: string, pageUrl: URL, examType: string) {
   const found: Array<{ fileUrl: string; title: string; year: string; subject: string }> = [];
   for (const row of html.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []) {
     const link = row.match(/href=["']([^"']*Download\.ashx[^"']*)["']/i);
     if (!link) continue;
     const cells = [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => textOnly(match[1]));
+    const examGroup = cells[1] ?? "";
+    if (examType === "essay" && !/律師、司法官第二試/.test(examGroup)) continue;
+    if (examType === "mcq" && /律師、司法官第二試/.test(examGroup)) continue;
     const fileUrl = new URL(link[1].replace(/&amp;/g, "&"), pageUrl).toString();
     const year = cells.find((cell) => /^\d{3}$/.test(cell)) ?? "";
     const subject = cells.find((cell) => /法|倫理|英文/.test(cell) && !/律師|司法官/.test(cell)) ?? "綜合法學";
@@ -29,16 +32,21 @@ function discoverRows(html: string, pageUrl: URL) {
   return found;
 }
 
-async function discover(sourceUrl: string) {
+async function discover(sourceUrl: string, examType: string) {
   const base = assertAllowed(sourceUrl);
+  if (examType === "essay" && base.pathname.toLowerCase().endsWith("/exam/list.aspx")) {
+    base.searchParams.set("sFilterType", "D");
+    base.searchParams.set("sFilter", "律師、司法官第二試");
+    base.searchParams.delete("iPageNo");
+  }
   const pages: URL[] = [base];
   const first = await fetch(base, { headers: { "user-agent": "iBrain-SiluMentor/1.0" } });
   if (!first.ok) throw new Error(`來源頁讀取失敗（HTTP ${first.status}）`);
   const firstHtml = await first.text();
-  const totalPages = Math.min(10, Math.max(1, Number(firstHtml.match(/共\s*(\d+)\s*頁/)?.[1] ?? 1)));
+  const totalPages = Math.min(250, Math.max(1, Number(firstHtml.match(/共\s*(\d+)\s*頁/)?.[1] ?? 1)));
   for (let page = 2; page <= totalPages; page += 1) { const url = new URL(base); url.searchParams.set("iPageNo", String(page)); pages.push(url); }
-  const rows = discoverRows(firstHtml, base);
-  for (const page of pages.slice(1)) { const response = await fetch(page, { headers: { "user-agent": "iBrain-SiluMentor/1.0" } }); if (response.ok) rows.push(...discoverRows(await response.text(), page)); }
+  const rows = discoverRows(firstHtml, base, examType);
+  for (const page of pages.slice(1)) { const response = await fetch(page, { headers: { "user-agent": "iBrain-SiluMentor/1.0" } }); if (response.ok) rows.push(...discoverRows(await response.text(), page, examType)); }
   return [...new Map(rows.map((row) => [row.fileUrl, row])).values()];
 }
 
@@ -84,14 +92,14 @@ async function extractPdf(item: typeof examSourceItems.$inferSelect, examType: s
 export async function POST(request: Request) {
   const db = await getDb(); let sourceId = 0; let itemId = 0;
   try {
-    const body = await request.json() as { sourceId?: number }; sourceId = Number(body.sourceId);
+    const body = await request.json() as { sourceId?: number; rescan?: boolean }; sourceId = Number(body.sourceId);
     if (!Number.isInteger(sourceId) || sourceId < 1) return Response.json({ error: "來源編號不正確" }, { status: 400 });
     const [source] = await db.select().from(examSources).where(eq(examSources.id, sourceId)).limit(1);
     if (!source || source.sourceKind !== "exam") return Response.json({ error: "找不到可處理的真題來源" }, { status: 404 });
     await db.update(examSources).set({ status: "discovering", lastError: null, updatedAt: new Date() }).where(eq(examSources.id, sourceId));
     const existing = await db.select().from(examSourceItems).where(eq(examSourceItems.sourceId, sourceId)).limit(1);
-    if (!existing.length) {
-      const rows = await discover(source.url);
+    if (!existing.length || body.rescan) {
+      const rows = await discover(source.url, source.examType);
       if (!rows.length) throw new Error("來源頁沒有找到可下載的 PDF");
       for (const row of rows) await db.insert(examSourceItems).values({ sourceId, ...row }).onConflictDoNothing();
     }
