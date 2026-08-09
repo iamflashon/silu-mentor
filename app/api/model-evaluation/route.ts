@@ -30,6 +30,11 @@ function outputText(payload: Record<string, unknown>) {
 type CandidateRun = { model: string; text: string; input: number; output: number; duration: number; actualCostUsd?: number };
 function validProvider(value: unknown): value is Provider { return typeof value === "string" && value in labels; }
 function validBank(value: unknown): value is Bank { return value === "criminal" || value === "comprehensive"; }
+async function selectInBatches<T>(values: number[], load: (batch: number[]) => Promise<T[]>) {
+  const rows: T[] = [];
+  for (let index = 0; index < values.length; index += 40) rows.push(...await load(values.slice(index, index + 40)));
+  return rows;
+}
 
 async function runOpenAI(provider: "luna" | "terra" | "sol", prompt: string, system: string, started: number): Promise<CandidateRun> {
   if (!await getOpenAIKey()) throw new Error("OpenAI 金鑰尚未設定");
@@ -79,7 +84,8 @@ async function runCandidate(provider: Provider, prompt: string): Promise<Candida
 export async function GET(request: Request) {
   try {
     const db = await getDb(); const all = await db.select().from(chatComparisons).where(inArray(chatComparisons.contextType, [contextType, "model-benchmark-v3", "model-benchmark-v2"])).orderBy(asc(chatComparisons.id));
-    const ids = all.map((x) => x.id); const responses = ids.length ? await db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, ids)) : [];
+    const ids = all.map((x) => x.id);
+    const responses = await selectInBatches(ids, (batch) => db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, batch)));
     const metas = all.filter((x) => source(x).benchmarkId === 0); const runIds = [...new Set(all.map((x) => source(x).runId).filter(Boolean) as string[])];
     const requested = new URL(request.url).searchParams.get("runId"); const runId = requested && runIds.includes(requested) ? requested : runIds.at(-1) || null;
     const meta = metas.find((x) => source(x).runId === runId); const settings = source(meta ?? { sourceJson: "{}" }); const bank: Bank = settings.bank ?? "criminal"; const provider: Provider = settings.provider ?? "deepseek";
