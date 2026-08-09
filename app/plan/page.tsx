@@ -211,6 +211,27 @@ function studentProblemQuestion(value: string, title = "") {
   if (escapedTitle) text = text.replace(new RegExp(`^(?:題型\\s*[\\d.．、-]+\\s*)?${escapedTitle}\\s*`, "u"), "").trim();
   return text;
 }
+
+function studentProblemParagraphs(value: string, title = "") {
+  const question = studentProblemQuestion(value, title)
+    .replace(/\r\n?/g, "\n")
+    .trim();
+
+  if (!question) return [];
+
+  return question
+    .split(/\n\s*\n+/u)
+    .map((block) =>
+      block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join("")
+        .replace(/[ \t\u3000]+/gu, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+}
 type BookFullTextHit = {
   section: string;
   excerpt: string;
@@ -4153,8 +4174,11 @@ export default function StudyPlanPage() {
                                 {bookQuestionOpen && <>
                                   <h4>{selectedChapter.title}</h4>
                                   <div className="problem-question-stem">
-                                    {studentProblemQuestion(selectedChapter.text, selectedChapter.title) ||
-                                      "完整題目尚未從原書索引擷取完成；核對前不由 AI 補造內容。"}
+                                    {studentProblemParagraphs(selectedChapter.text, selectedChapter.title).length
+                                      ? studentProblemParagraphs(selectedChapter.text, selectedChapter.title).map((paragraph, index) => (
+                                          <p key={`${selectedChapter.id}-question-${index}`}>{paragraph}</p>
+                                        ))
+                                      : <p>完整題目尚未從原書索引擷取完成；核對前不由 AI 補造內容。</p>}
                                   </div>
                                   <button
                                     type="button"

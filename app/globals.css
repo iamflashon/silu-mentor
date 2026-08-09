@@ -4085,8 +4085,10 @@ a {
 .problem-question-meta em { font-style: normal; white-space: nowrap; }
 .problem-question-toggle { flex: 0 0 auto; padding: 4px 9px; border: 1px solid #c4dbe2; border-radius: 7px; background: #f8fcfd; color: #39758f; font: inherit; font-size: 10px; font-weight: 800; cursor: pointer; }
 .problem-question-toggle:hover { border-color: #76a6b9; background: #eef8fa; }
-.problem-question-panel h4 { margin: 13px 0 10px; color: #173e57; font-size: 17px; line-height: 1.55; }
-.problem-question-stem { color: #273e4b; font-size: 15px; line-height: 1.9; white-space: pre-wrap; }
+.problem-question-panel h4 { max-width: 56rem; margin: 16px 0 14px; color: #173e57; font-size: 18px; line-height: 1.55; }
+.problem-question-stem { max-width: 56rem; color: #273e4b; font-size: 15px; line-height: 2; white-space: normal; overflow-wrap: break-word; }
+.problem-question-stem p { margin: 0 0 12px; }
+.problem-question-stem p:last-child { margin-bottom: 0; }
 .problem-start-button { margin-top: 18px; padding: 10px 18px; border: 0; border-radius: 9px; background: #397c98; color: #fff; font-weight: 750; cursor: pointer; }
 .problem-start-button:disabled { background: #a9bac2; cursor: not-allowed; }
 .resource-study-panel {
