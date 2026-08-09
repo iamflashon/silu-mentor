@@ -1,0 +1,8 @@
+.student-issue-result > .law-selection-bar { display: none; }
+.smart-selection-bar { position: sticky; top: 8px; z-index: 9; display: flex; align-items: center; gap: 9px; width: max-content; max-width: calc(100% - 28px); margin: 12px 14px; padding: 8px 10px; border: 1px solid #9fc9c5; border-radius: 10px; background: #153f4d; color: #fff; box-shadow: 0 8px 22px rgba(18,55,68,.18); }
+.smart-selection-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smart-selection-bar button { border: 0; border-radius: 7px; background: #2f837b; color: #fff; padding: 7px 11px; font-weight: 900; cursor: pointer; }
+.smart-selection-bar button:nth-of-type(2) { background: #496d86; }
+.smart-selection-bar button:last-child { background: transparent; padding: 3px 7px; font-size: 19px; }
+.smart-selection-bar button:disabled { opacity: .42; cursor: not-allowed; }
+@media (max-width: 760px) { .smart-selection-bar { position: relative; top: auto; width: auto; flex-wrap: wrap; } .smart-selection-bar span { width: 100%; } }

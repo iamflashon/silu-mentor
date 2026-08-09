@@ -13,12 +13,12 @@ export async function POST(request: Request) {
     const articleNo = String(body.article?.articleNo ?? "").slice(0, 80);
     const content = String(body.article?.content ?? "").slice(0, 6000);
     const selectedText = String(body.selectedText ?? "").slice(0, 120);
-    if (!title || !articleNo || !content) return Response.json({ error: "缺少可供解釋的完整法條。" }, { status: 400 });
+    if (!content && selectedText.length < 2) return Response.json({ error: "請先框選要解釋的文字。" }, { status: 400 });
     if (!await getOpenAIKey()) return Response.json({ error: "白話解釋模型尚未設定。" }, { status: 503 });
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model: "gpt-5.6-luna",
-      instructions: "你是臺灣法律學習助教。只能依使用者提供的現行法條原文，以繁體中文做白話解釋。先用一句話說規範什麼，再逐項說明構成要素；若使用者框選到特定項，優先解釋該項。不得補造條文、判決或題目事實，不得把白話解釋說成老師擬答。控制在350字內，純文字輸出。",
-      input: `【框選文字】\n${selectedText}\n\n【已下載法規資料庫原文】\n${title} ${articleNo}\n${content}`,
+      instructions: content ? "你是臺灣法律學習助教。只能依使用者提供的現行法條原文，以繁體中文做白話解釋。先用一句話說規範什麼，再逐項說明構成要素；若使用者框選到特定項，優先解釋該項。不得補造條文、判決或題目事實，不得把白話解釋說成老師擬答。控制在350字內，純文字輸出。" : "你是臺灣法律學習助教。只針對使用者框選的文字做繁體中文白話解釋，說清楚這段話在法律學習上的意思；資訊不足時要明說，不得自行補造法條、判決或題目事實。控制在300字內，純文字輸出。",
+      input: content ? `【框選文字】\n${selectedText}\n\n【已下載法規資料庫原文】\n${title} ${articleNo}\n${content}` : `【框選文字】\n${selectedText}`,
       max_output_tokens: 700,
     }) }) as Record<string, unknown>;
     const explanation = outputText(payload);
