@@ -555,6 +555,37 @@ a {
   gap: 6px;
   margin: 10px 0 -5px;
 }
+.message-actions .ask-sol-button {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid #b08b32;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #fffaf0, #f7ebc9);
+  color: #745719;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 2px 7px rgba(116, 87, 25, .12);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease, background .16s ease;
+}
+.message-actions .ask-sol-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #876716;
+  background: linear-gradient(180deg, #fff5d9, #efd88f);
+  box-shadow: 0 7px 16px rgba(116, 87, 25, .22);
+}
+.message-actions .ask-sol-button:focus-visible {
+  outline: 3px solid rgba(176, 139, 50, .28);
+  outline-offset: 2px;
+}
+.message-actions .ask-sol-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 5px rgba(116, 87, 25, .16);
+}
+.message-actions .ask-sol-button:disabled {
+  cursor: wait;
+  opacity: .72;
+}
 .message-follow-up-button {
   padding: 5px 8px;
   border: 1px solid #bdd6dc;

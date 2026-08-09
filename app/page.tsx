@@ -514,30 +514,33 @@ export default function Home() {
     return rotated.toDataURL("image/jpeg", .78);
   }
 
-  async function send(text: string, overrideMode?: ChatModelMode) {
+  async function send(text: string, overrideMode?: ChatModelMode, options?: { hideStudentMessage?: boolean }) {
     composerInputRef.current?.blur();
     const value = text.trim();
     if ((!value && !imageDraft) || thinking) return;
     const sentTeachingLevel = pendingTeachingLevel;
     const question = value || "請先辨識這張圖片中的題目，帶我一步一步審題。";
     const attachedImage = imageDraft ? await prepareQuestionImage(imageDraft) : undefined;
-    const nextMessages: Message[] = [...messages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
+    const requestMessages: Message[] = [...messages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
+    const nextMessages = options?.hideStudentMessage ? messages : requestMessages;
     setMessages(nextMessages);
     if (!sentTeachingLevel) setTeachingRounds([]);
     if (!sentTeachingLevel) setTeachingUsage([]);
     setSelectedFollowUps([]);
-    setInput("");
-    setDailyChoiceVisible(false);
-    setImageDraft(null);
-    setEditingImage(false);
-    setSettingsCollapsed(true);
-    window.localStorage.setItem("silu-ai-settings-collapsed", "true");
+    if (!options?.hideStudentMessage) {
+      setInput("");
+      setDailyChoiceVisible(false);
+      setImageDraft(null);
+      setEditingImage(false);
+      setSettingsCollapsed(true);
+      window.localStorage.setItem("silu-ai-settings-collapsed", "true");
+    }
     setThinking(true);
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel }),
+        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage }),
       });
       const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
@@ -729,7 +732,7 @@ export default function Home() {
     if (!response.ok) return;
     setFeedbackMessage(index); setFeedbackTarget(null); setFeedbackRating(0); setFeedbackTypes([]); setFeedbackNote("");
     window.setTimeout(() => setFeedbackMessage(null), 1600);
-    if (askSol) void send(`你是 Sol 學霸，請獨立覆核 Luna 助教的回答。以原始題目為最高依據，逐項指出應保留、修正、刪除及補充之處；若題示事實不足，採條件式結論，不得自行補充事實。\n\n【學生原問題】\n${originalPrompt}\n\n【Luna 助教回答】\n${cleanMessageText(message.text)}\n\n【學生指出的問題】\n${feedbackNote || "請全面檢查"}\n\n最後請直接給出修正後版本。`, "sol");
+    if (askSol) void send(`你是 Sol 學霸，請獨立覆核 Luna 助教的回答。以原始題目為最高依據，逐項指出應保留、修正、刪除及補充之處；若題示事實不足，採條件式結論，不得自行補充事實。\n\n【學生原問題】\n${originalPrompt}\n\n【Luna 助教回答】\n${cleanMessageText(message.text)}\n\n【學生指出的問題】\n${feedbackNote || "請全面檢查"}\n\n最後請直接給出修正後版本。`, "sol", { hideStudentMessage: true });
   }
 
   async function requestSolReview(message: Message, index: number) {
@@ -737,7 +740,7 @@ export default function Home() {
     const originalPrompt = pairedStudentPrompt(messages, index);
     setSolReviewingIndex(index);
     try {
-      await send(`你是 Sol 學霸，請獨立覆核 Luna 助教的回答。若本題有老師解析／擬答，必須以老師原文校準第一層標題、行為人順序、罪名順序與結論。逐項標示應保留、修正及補充之處；不同學說只能列為補充爭議，不得悄悄取代老師採說，也不得補造題目事實。\n\n【學生原問題】\n${originalPrompt || "請依目前對話中的原始題目覆核"}\n\n【Luna 助教回答】\n${cleanMessageText(message.text)}\n\n最後請依老師原本順序直接給出修正版。`, "sol");
+      await send(`你是 Sol 學霸，請獨立覆核 Luna 助教的回答。若本題有老師解析／擬答，必須以老師原文校準第一層標題、行為人順序、罪名順序與結論。逐項標示應保留、修正及補充之處；不同學說只能列為補充爭議，不得悄悄取代老師採說，也不得補造題目事實。\n\n【學生原問題】\n${originalPrompt || "請依目前對話中的原始題目覆核"}\n\n【Luna 助教回答】\n${cleanMessageText(message.text)}\n\n最後請依老師原本順序直接給出修正版。`, "sol", { hideStudentMessage: true });
       setSolReviewedIndexes((current) => current.includes(index) ? current : [...current, index]);
     } finally {
       setSolReviewingIndex(null);
