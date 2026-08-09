@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { chatComparisonRatings, chatComparisonResponses, chatComparisons, examQuestions, usageLogs } from "../../../db/schema";
-import { getAnthropicKey, getOpenAIKey, getTeamoRouterBaseUrl, getTeamoRouterKey, openAIJson } from "../../../lib/openai";
+import { getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getTeamoRouterBaseUrl, getTeamoRouterKey, openAIJson } from "../../../lib/openai";
 
 type ModelKey = "luna" | "sol" | "terra" | "sonnet" | "opus" | "gemini" | "deepseek" | "glm" | "kimi";
 type Gateway = "direct" | "teamorouter";
@@ -91,6 +91,44 @@ async function runModel(key: ModelKey, prompt: string, subject: string, gateway:
       if (!response.ok) throw new ModelCallError(payload.error?.message || `Anthropic 官方 API 呼叫失敗（HTTP ${response.status}）`, Date.now() - started, response.status);
       const input = Number(payload.usage?.input_tokens ?? 0); const output = Number(payload.usage?.output_tokens ?? 0); const text = payload.content?.map((item) => item.text || "").join("\n").trim() || "";
       return { key, config, model: payload.model || config.id, text, error: text ? "" : "空白回覆：官方 API 未回傳可顯示內容", input, output, duration: Date.now() - started, cost: input / 1e6 * config.input + output / 1e6 * config.output };
+    }
+    if (key === "deepseek") {
+      const apiKey = await getDeepSeekKey();
+      if (!apiKey) throw new ModelCallError("DeepSeek 官方 API Key 尚未設定或未啟用。", Date.now() - started);
+      const model = await getDeepSeekModel(config.id);
+      const response = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+          max_tokens: 2600,
+          ...providerOptions(key),
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: CompatibleMessage; finish_reason?: string | null }>; usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: { message?: string } };
+      if (!response.ok) {
+        const detail = payload.error?.message?.trim();
+        const message = response.status === 401 || response.status === 403
+          ? "DeepSeek 官方 API Key 無效、未啟用或沒有此模型權限。"
+          : response.status === 402
+            ? "DeepSeek 官方帳戶餘額不足。"
+            : response.status === 429
+              ? "DeepSeek 官方 API 請求過多或額度已達上限，請稍後重試。"
+              : detail || `DeepSeek 官方 API 呼叫失敗（HTTP ${response.status}）`;
+        throw new ModelCallError(message, Date.now() - started, response.status);
+      }
+      const input = Number(payload.usage?.prompt_tokens || 0); const output = Number(payload.usage?.completion_tokens || 0);
+      const choice = payload.choices?.[0]; const text = extractDisplayText(choice?.message); const finishReason = String(choice?.finish_reason || "unknown");
+      const sections = ["一、", "二、", "三、", "四、", "五、"];
+      const contentError = !text
+        ? output > 0
+          ? `無正文：DeepSeek 已產生 ${output.toLocaleString()} 個輸出 tokens，但未形成可顯示的最終回答（停止原因：${finishReason}）`
+          : "空白回覆：DeepSeek 官方 API 未回傳可顯示內容"
+        : (["length", "max_tokens"].includes(finishReason) || sections.some((heading) => !text.includes(heading)))
+          ? `內容截斷：回覆未完成五個指定段落（停止原因：${finishReason}）`
+          : "";
+      return { key, config, model: payload.model || model, text, error: contentError, input, output, duration: Date.now() - started, cost: input / 1e6 * config.input + output / 1e6 * config.output };
     }
     throw new ModelCallError(`${config.label} 尚未建立原廠直連；請改用 TeamoRouter，或先在模型設定補上官方 API。`, Date.now() - started);
   }
