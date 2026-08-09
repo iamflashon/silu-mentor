@@ -194,6 +194,23 @@ type ResourceSegment = {
   sequence: number;
   completeQuestion?: boolean;
 };
+
+function studentProblemQuestion(value: string, title = "") {
+  let text = value
+    .replace(/\u0000/g, "")
+    .replace(/[\uE000-\uF8FF□■▪▫◆◇●○★☆▸◂▶◀]+\s*(爭\s*點\s*解\s*析)\s*[\uE000-\uF8FF□■▪▫◆◇●○★☆▸◂▶◀]*/gu, "$1")
+    .replace(/爭\s*點\s*解\s*析/gu, "爭點解析")
+    .trim();
+  const structured = text.match(/^【完整題目】\s*([\s\S]*?)(?:\s*\n\s*【(?:爭點解析|擬答)】|$)/u);
+  if (structured) text = structured[1].trim();
+  else {
+    const boundary = /(?:【\s*)?爭點解析(?:\s*】)?\s*[:：]?|(?:【\s*)?擬\s*答(?:\s*】)?\s*[:：]/u.exec(text);
+    if (boundary) text = text.slice(0, boundary.index).trim();
+  }
+  const escapedTitle = title.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (escapedTitle) text = text.replace(new RegExp(`^(?:題型\\s*[\\d.．、-]+\\s*)?${escapedTitle}\\s*`, "u"), "").trim();
+  return text;
+}
 type BookFullTextHit = {
   section: string;
   excerpt: string;
@@ -4114,13 +4131,13 @@ export default function StudyPlanPage() {
                                 {bookQuestionOpen && <>
                                   <h4>{selectedChapter.title}</h4>
                                   <div className="problem-question-stem">
-                                    {selectedChapter.text ||
+                                    {studentProblemQuestion(selectedChapter.text, selectedChapter.title) ||
                                       "完整題目尚未從原書索引擷取完成；核對前不由 AI 補造內容。"}
                                   </div>
                                   <button
                                     type="button"
                                     className="problem-start-button"
-                                    disabled={!selectedChapter.text.trim()}
+                                    disabled={!studentProblemQuestion(selectedChapter.text, selectedChapter.title)}
                                     onClick={() =>
                                       void startBookReview()
                                     }

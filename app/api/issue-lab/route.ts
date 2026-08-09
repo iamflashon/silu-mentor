@@ -1,11 +1,12 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { chatComparisonRatings, chatComparisonResponses, chatComparisons, usageLogs } from "../../../db/schema";
 import { getTeamoRouterBaseUrl, getTeamoRouterKey } from "../../../lib/openai";
 
-type ModelKey = "sol" | "terra" | "sonnet" | "opus" | "gemini" | "deepseek" | "glm" | "kimi";
+type ModelKey = "luna" | "sol" | "terra" | "sonnet" | "opus" | "gemini" | "deepseek" | "glm" | "kimi";
 const contextType = "issue-spotting-arena-v1";
 const models: Record<ModelKey, { label: string; vendor: string; id: string; input: number; output: number }> = {
+  luna: { label: "Luna", vendor: "OpenAI", id: "gpt-5.6-luna", input: .105, output: .63 },
   sol: { label: "Sol", vendor: "OpenAI", id: "gpt-5.6-sol", input: .525, output: 3.15 },
   terra: { label: "Terra", vendor: "OpenAI", id: "gpt-5.6-terra", input: .206, output: 1.24 },
   sonnet: { label: "Claude Sonnet 5", vendor: "Anthropic", id: "claude-sonnet-5", input: .356, output: 1.78 },
@@ -29,11 +30,14 @@ async function runModel(key: ModelKey, prompt: string, subject: string) {
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({ model: config.id, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .1, max_tokens: 2200, ...(key === "gemini" ? { reasoning_effort: "medium" } : {}) }),
   });
-  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
   if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
   const input = Number(payload.usage?.prompt_tokens || 0); const output = Number(payload.usage?.completion_tokens || 0);
   const estimated = Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : input / 1e6 * config.input + output / 1e6 * config.output;
-  return { key, config, model: payload.model || config.id, text: payload.choices?.[0]?.message?.content?.trim() || "", input, output, duration: Date.now() - started, cost: estimated };
+  const choice = payload.choices?.[0]; const text = choice?.message?.content?.trim() || ""; const finishReason = String(choice?.finish_reason || "unknown");
+  const sections = ["一、", "二、", "三、", "四、", "五、"];
+  const contentError = !text ? "空白回覆：模型沒有產生可顯示內容" : (["length", "max_tokens"].includes(finishReason) || sections.some((heading) => !text.includes(heading))) ? `內容截斷：回覆未完成五個指定段落（停止原因：${finishReason}）` : "";
+  return { key, config, model: payload.model || config.id, text, error: contentError, input, output, duration: Date.now() - started, cost: estimated };
 }
 
 export async function GET() {
@@ -49,14 +53,26 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: string; prompt?: string; subject?: string; models?: unknown[]; comparisonId?: number; responseId?: number; scores?: Record<string, number>; note?: string };
+    const body = await request.json() as { action?: string; prompt?: string; subject?: string; models?: unknown[]; comparisonId?: number; responseId?: number; review?: string };
     const db = await getDb();
-    if (body.action === "rate") {
-      const scores = body.scores || {}; const values = ["coverage", "accuracy", "facts", "priority"].map((key) => Number(scores[key]));
-      if (!body.comparisonId || !body.responseId || values.some((value) => !Number.isFinite(value) || value < 1 || value > 5)) return Response.json({ error: "請完成四項 1～5 分評分" }, { status: 400 });
-      const score = Math.round(values.reduce((sum, value) => sum + value, 0) / 20 * 100);
-      await db.insert(chatComparisonRatings).values({ comparisonId: body.comparisonId, responseId: body.responseId, userKey: "issue-lab", score, feedbackType: "issue-rubric", note: JSON.stringify({ scores, note: String(body.note || "").slice(0, 1000) }) });
-      return Response.json({ ok: true, score });
+    if (body.action === "save-review") {
+      const review = String(body.review || "").trim();
+      if (!body.comparisonId || !review) return Response.json({ error: "請貼上或輸入統一評測內容" }, { status: 400 });
+      const [anchor] = await db.select().from(chatComparisonResponses).where(eq(chatComparisonResponses.comparisonId, body.comparisonId)).limit(1);
+      if (!anchor) return Response.json({ error: "這輪測試沒有可連結的模型結果" }, { status: 404 });
+      await db.insert(chatComparisonRatings).values({ comparisonId: body.comparisonId, responseId: anchor.id, userKey: "issue-lab", score: 0, feedbackType: "issue-unified-review", note: review.slice(0, 30000) });
+      return Response.json({ ok: true });
+    }
+    if (body.action === "retry") {
+      if (!body.comparisonId || !body.responseId) return Response.json({ error: "缺少重試資料" }, { status: 400 });
+      const [comparison] = await db.select().from(chatComparisons).where(and(eq(chatComparisons.id, body.comparisonId), eq(chatComparisons.contextType, contextType))).limit(1);
+      const [prior] = await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.id, body.responseId), eq(chatComparisonResponses.comparisonId, body.comparisonId))).limit(1);
+      const key = prior?.source as ModelKey;
+      if (!comparison || !prior || !validModel(key)) return Response.json({ error: "找不到可重試的模型結果" }, { status: 404 });
+      const run = await runModel(key, comparison.promptText, String(meta(comparison.sourceJson).subject || "綜合"));
+      await db.update(chatComparisonResponses).set({ model: run.model, text: run.text, error: run.error || null, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(run.cost * 1e6) }).where(eq(chatComparisonResponses.id, prior.id));
+      await db.insert(usageLogs).values({ model: run.model, source: `TeamoRouter 爭點辨識擂台重試 #${comparison.id}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
+      return Response.json({ ok: true });
     }
     const prompt = String(body.prompt || "").trim(); const subject = String(body.subject || "綜合").slice(0, 30);
     const selected = [...new Set((body.models || []).filter(validModel))];
@@ -68,10 +84,10 @@ export async function POST(request: Request) {
       const result = settled[index]; const key = selected[index]; const config = models[key];
       if (result.status === "fulfilled") {
         const run = result.value;
-        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: run.model, label: `${config.vendor}｜${config.label}`, text: run.text, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
+        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: run.model, label: `${config.vendor}｜${config.label}`, source: key, text: run.text, error: run.error || null, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
         await db.insert(usageLogs).values({ model: run.model, source: `TeamoRouter 爭點辨識擂台 #${comparison.id}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
       } else {
-        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: config.id, label: `${config.vendor}｜${config.label}`, text: "", error: result.reason instanceof Error ? result.reason.message : "模型呼叫失敗" });
+        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: config.id, label: `${config.vendor}｜${config.label}`, source: key, text: "", error: result.reason instanceof Error ? result.reason.message : "模型呼叫失敗" });
       }
     }
     return Response.json({ ok: true, comparisonId: comparison.id });

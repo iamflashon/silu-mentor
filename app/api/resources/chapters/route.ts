@@ -417,7 +417,7 @@ function cleanSourceText(value: string) {
 
 function normalizeProblemMarkers(value: string) {
   return cleanSourceText(value)
-    .replace(/[\uE000-\uF8FF□■▪▫◆◇●○★☆]+\s*(爭\s*點\s*解\s*析)\s*[\uE000-\uF8FF□■▪▫◆◇●○★☆]*/gu, "$1")
+    .replace(/[\uE000-\uF8FF□■▪▫◆◇●○★☆▸◂▶◀]+\s*(爭\s*點\s*解\s*析)\s*[\uE000-\uF8FF□■▪▫◆◇●○★☆▸◂▶◀]*/gu, "$1")
     .replace(/爭\s*點\s*解\s*析/gu, "爭點解析")
     .replace(/【\s*擬\s*答\s*】\s*[:：]?/gu, "擬答：")
     .replace(/擬\s*答\s*[:：]/gu, "擬答：");
@@ -1992,9 +1992,14 @@ export async function POST(request: Request) {
         chapter.page_end == null
           ? null
           : Math.max(1, Number(chapter.page_end) || 1),
-      text: String(chapter.content ?? chapter.text ?? chapter.original_text ?? chapter.stem ?? "")
-        .trim()
-        .slice(0, 12000),
+      text: problemBook
+        ? structuredProblemText(
+            String(chapter.content ?? chapter.text ?? chapter.original_text ?? chapter.stem ?? ""),
+            String(chapter.title ?? ""),
+          ).slice(0, 12000)
+        : String(chapter.content ?? chapter.text ?? chapter.original_text ?? chapter.stem ?? "")
+            .trim()
+            .slice(0, 12000),
       sequence: index + 1,
       summary: String(chapter.summary ?? "")
         .trim()
@@ -2034,7 +2039,10 @@ export async function POST(request: Request) {
             title: chapter.title,
             pageStart: chapter.pageStart,
             pageEnd: chapter.pageEnd,
-            text: chapter.text,
+            // Re-normalize existing rows too. This repairs older extractions
+            // where the printed issue-analysis glyphs were stored inline and
+            // the student question therefore leaked into the commentary.
+            text: structuredProblemText(chapter.text, chapter.title).slice(0, 12000),
             sequence: index + 1,
             summary: chapter.summary,
             reviewStatus: chapter.reviewStatus,
