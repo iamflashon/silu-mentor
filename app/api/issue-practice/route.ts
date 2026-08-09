@@ -47,9 +47,10 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "AI 模型尚未設定" }, { status: 503 });
     const model = requestedModel === "sol" ? "gpt-5.6-sol" : "gpt-5.6-luna";
     const instructions = `你是臺灣司法官、律師二試的爭點學習助教。比較學生寫的爭點與同一題老師擬答。原始題目是最高依據，老師擬答是主要校準資料，但不得稱為官方唯一答案。不得自行補充題目沒有的事實，不得因用語不同就判定學生錯誤。任務不是寫完整申論，而是診斷爭點辨識。\n固定依下列標題輸出：\n一、整體表現（2至3句，給爭點辨識完成度0至100分，並明示「程度判定：基礎／中等／高分」三者之一）\n二、已命中的爭點（指出對應題示事實）\n三、遺漏的爭點（依配分重要性排序；沒有則明示）\n四、錯抓或過度延伸（說明欠缺的題示基礎；沒有則明示）\n五、表達可再精準之處（只修正名稱、法條定位或問句）\n六、建議的最終爭點架構（依行為人與行為順序列精簡清單）\n程度判定標準：基礎＝僅抓到少數核心爭點或有重大遺漏；中等＝主要爭點大致命中但仍有重要缺漏；高分＝重要爭點完整、層次與用語精準。必須區分「未寫到」與「寫錯」，並容許合理不同見解。控制在1400字內。`;
+    const safeInstructions = `${instructions}\n再次確認：只可輸出純文字與自然換行，不得輸出 Markdown 星號、井號、底線、反引號、表格或程式碼區塊。`;
     const input = `【題目】\n${question.stem}\n\n【學生寫下的爭點】\n${studentIssues}\n\n【同題老師擬答／解析】\n${question.teacherAnswer.slice(0, 15000)}`;
     const started = Date.now();
-    const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions, input, max_output_tokens: requestedModel === "sol" ? 2400 : 2000 }) }) as Record<string, unknown>;
+    const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: safeInstructions, input, max_output_tokens: requestedModel === "sol" ? 2400 : 2000 }) }) as Record<string, unknown>;
     const text = outputText(payload); if (!text) return Response.json({ error: "AI 沒有產生可顯示的分析，請稍後再試" }, { status: 502 });
     const usage = (payload.usage ?? {}) as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
     const inputTokens = Number(usage.input_tokens ?? 0); const outputTokens = Number(usage.output_tokens ?? 0); const cachedTokens = Number(usage.input_tokens_details?.cached_tokens ?? 0);
