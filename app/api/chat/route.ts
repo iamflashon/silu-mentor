@@ -50,7 +50,24 @@ type TeachingEvidence = {
   excerpt: string;
   message: string;
   matchedTerms?: string[];
+  basis?: "teacher_solution" | "chapter";
 };
+
+function problemSolutionParts(value: string) {
+  const normalized = value
+    .replace(/[□◆◇■●▶▷◀◁]+/gu, " ")
+    .replace(/爭\s*點\s*解\s*析/gu, "爭點解析")
+    .replace(/擬\s*答\s*[:：]/gu, "擬答：");
+  const structured = normalized.match(/^【完整題目】\s*([\s\S]*?)\s*\n\s*【(爭點解析|擬答)】\s*([\s\S]+)$/u);
+  if (structured) return { question: structured[1].trim(), analysis: structured[3].trim(), marker: structured[2] };
+  const boundary = /(?:【\s*)?爭點解析(?:\s*】)?\s*[:：]?|(?:【\s*)?擬答(?:\s*】)?\s*[:：]/u.exec(normalized);
+  if (!boundary || boundary.index === undefined) return { question: normalized.trim(), analysis: "", marker: "" };
+  return {
+    question: normalized.slice(0, boundary.index).trim(),
+    analysis: normalized.slice(boundary.index + boundary[0].length).trim(),
+    marker: boundary[0].includes("擬答") ? "擬答" : "爭點解析",
+  };
+}
 
 const evidenceStopTerms = new Set([
   "刑法", "法律", "犯罪", "行為", "結果", "問題", "判斷", "檢驗", "學生", "教材", "本章", "可以", "是否", "如何", "以及", "如果", "因為", "所以", "仍然", "需要", "就是", "這是", "具有", "成立", "不同", "原則", "規定",
@@ -253,10 +270,18 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
 
   const text = row?.text.trim() ?? "";
   if (!row || text.length < 40) return unavailable(document.fileName);
+  const isProblemSolving = /解題|題庫|題型|案例演習|申論/.test(`${resource.title} ${resource.description ?? ""}`);
+  const solution = isProblemSolving ? problemSolutionParts(text) : null;
+  if (isProblemSolving && (!solution?.question || solution.analysis.length < 40)) {
+    return {
+      ...unavailable(document.fileName),
+      message: "本題尚未成功綁定可核對的老師爭點解析／擬答，已停止依教材作答並保留待核對。",
+    };
+  }
   const pages = row.pageStart
     ? `第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁`
     : "頁碼待核對";
-  const excerpt = relevantExcerpt(text, query);
+  const excerpt = solution ? solution.analysis.slice(0, 12000) : relevantExcerpt(text, query);
   return {
     status: "verified",
     retrieval: row.retrieval,
@@ -269,7 +294,10 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
     pageEnd: row.pageEnd,
     fileName: document.fileName,
     excerpt,
-    message: `已從本章原文選出與本次問題最接近的片段（${pages}）；回答完成後仍會檢查支持度。`,
+    message: solution
+      ? `已鎖定同一題的老師${solution.marker || "爭點解析／擬答"}（${pages}），作為本次解題教學的主要依據。`
+      : `已從本章原文選出與本次問題最接近的片段（${pages}）；回答完成後仍會檢查支持度。`,
+    basis: solution ? "teacher_solution" : "chapter",
   };
 }
 
@@ -831,7 +859,9 @@ export async function POST(request: Request) {
     const plannerRule = planningConstraint ? `\n這次要規劃 ${planningConstraint.days} 天，每天「所有任務合計」不得超過 ${planningConstraint.dailyMinutes} 分鐘；每一天安排 1 至 3 項，每項通常 20 至 90 分鐘，不得把每日總時間重複填在每一項任務。${planningConstraint.mode === "single" ? `唯一允許的科目是「${planningConstraint.subject}」，範圍是「${planningConstraint.scope}」。每一筆 task.subject 必須完全等於「${planningConstraint.subject}」，標題與內容不得出現其他法科或法學緒論。` : "請依弱點與考試重要性分配各科。"}` : "";
     const bookEvidenceInstruction = context.type === "book"
       ? bookEvidence?.status === "verified"
-        ? `\n\n【本次已核對教材內容】\n書名：${bookEvidence.resourceTitle}\n章節：${bookEvidence.segmentTitle}\n分類：${bookEvidence.lessonLabel || "未標示"}\n頁碼：${bookEvidence.pageStart ? `第 ${bookEvidence.pageStart}${bookEvidence.pageEnd && bookEvidence.pageEnd !== bookEvidence.pageStart ? `–${bookEvidence.pageEnd}` : ""} 頁` : "待核對"}\n原文摘錄：${bookEvidence.excerpt}\n以上是本次唯一可直接作為教材依據的章節內容。回答時優先依此內容；若學生問到摘錄以外的細節，必須說明需要再查核，不得把一般知識冒充本章原文。`
+        ? bookEvidence.basis === "teacher_solution"
+          ? `\n\n【本題老師解析／擬答（主要教學依據）】\n書名：${bookEvidence.resourceTitle}\n題型：${bookEvidence.segmentTitle}\n位置：${bookEvidence.pageStart ? `第 ${bookEvidence.pageStart}${bookEvidence.pageEnd && bookEvidence.pageEnd !== bookEvidence.pageStart ? `–${bookEvidence.pageEnd}` : ""} 頁` : "待核對"}\n老師解析／擬答：${bookEvidence.excerpt}\n這是解題書教學，不是一般知識問答。必須先依老師解析辨識爭點、規範、涵攝、結論與得分重點，再用白話引導學生理解。不得先自行另作答案再以關鍵字檢查老師解析。老師未處理的延伸內容，必須另以「AI 延伸說明」標示，不能冒充老師見解。`
+          : `\n\n【本次已核對教材內容】\n書名：${bookEvidence.resourceTitle}\n章節：${bookEvidence.segmentTitle}\n分類：${bookEvidence.lessonLabel || "未標示"}\n頁碼：${bookEvidence.pageStart ? `第 ${bookEvidence.pageStart}${bookEvidence.pageEnd && bookEvidence.pageEnd !== bookEvidence.pageStart ? `–${bookEvidence.pageEnd}` : ""} 頁` : "待核對"}\n原文摘錄：${bookEvidence.excerpt}\n以上是本次唯一可直接作為教材依據的章節內容。回答時優先依此內容；若學生問到摘錄以外的細節，必須說明需要再查核，不得把一般知識冒充本章原文。`
         : `\n\n【教材核對狀態】\n目前只知道學生選了「${context.resourceTitle}／${context.segmentTitle}」，但系統尚未取得這一章足夠的原文。不得說「教材提到」「本章指出」或虛構頁碼；若要回答，只能明確標示為一般法律補充，並先告知教材原文尚未核對。`
       : "";
     const teachingLevelInstruction = body.teachingLevel === "beginner"
@@ -1075,7 +1105,13 @@ export async function POST(request: Request) {
     );
     const effectiveTeachingEvidence: TeachingEvidence | null = context.type === "book"
       ? bookEvidence?.status === "verified"
-        ? evidenceSupportKind(bookEvidence.excerpt, latestStudent?.text ?? "", reply) === "direct"
+        ? bookEvidence.basis === "teacher_solution"
+          ? {
+              ...bookEvidence,
+              message: "本次解題已鎖定同一題老師爭點解析／擬答，並以其作為主要教學依據。",
+              matchedTerms: matchedEvidenceTerms(bookEvidence.excerpt, latestStudent?.text ?? "", reply),
+            }
+        : evidenceSupportKind(bookEvidence.excerpt, latestStudent?.text ?? "", reply) === "direct"
           ? {
               ...bookEvidence,
               message: "原文片段直接包含本次回答所使用的主要概念或判準。",

@@ -253,6 +253,7 @@ type TeachingEvidence = {
   excerpt: string;
   message: string;
   matchedTerms?: string[];
+  basis?: "teacher_solution" | "chapter";
 };
 type BookUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
 type BookModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -4222,7 +4223,9 @@ export default function StudyPlanPage() {
                                       <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
                                         <strong>
                                           {message.teachingEvidence.status === "verified"
-                                            ? "✓ 教材原文直接支持本次教學內容"
+                                            ? message.teachingEvidence.basis === "teacher_solution"
+                                              ? "✓ 依本題老師解析／擬答教學"
+                                              : "✓ 教材原文直接支持本次教學內容"
                                             : message.teachingEvidence.status === "applied_inference"
                                               ? "◆ 教材提供判準，AI 依原文涵攝"
                                             : message.teachingEvidence.status === "full_text_search"
@@ -4234,7 +4237,9 @@ export default function StudyPlanPage() {
                                         <span>
                                           {message.teachingEvidence.status === "verified" || message.teachingEvidence.status === "applied_inference"
                                             ? selectedBookIsProblemSolving
-                                              ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}`
+                                              ? message.teachingEvidence.basis === "teacher_solution"
+                                                ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜老師答案為主要依據`
+                                                : `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}`
                                               : `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
                                             : message.teachingEvidence.message}
                                         </span>
