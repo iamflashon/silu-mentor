@@ -193,6 +193,7 @@ export const issuePracticeRecords = sqliteTable("issue_practice_records", {
   sampleLevel: text("sample_level"),
   lunaResultJson: text("luna_result_json"),
   solResultJson: text("sol_result_json"),
+  challengeWorkflowJson: text("challenge_workflow_json"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

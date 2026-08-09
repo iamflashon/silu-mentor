@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examQuestions, issuePracticeRecords, studyRecords, usageLogs } from "../../../db/schema";
-import { getOpenAIKey, openAIJson } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, openAIJson } from "../../../lib/openai";
 import { taipeiDate } from "../../../lib/taipei-time";
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
@@ -26,13 +26,17 @@ function parseResult(value: string | null) {
   try { return JSON.parse(value) as unknown; } catch { return null; }
 }
 
+type Workflow = { solReview?: unknown; challenger?: "terra" | "sonnet"; challenge?: unknown; lunaReply?: unknown; solReply?: unknown };
+function workflow(value: string | null): Workflow { const parsed = parseResult(value); return parsed && typeof parsed === "object" ? parsed as Workflow : {}; }
+function anthropicText(payload: unknown) { const content = payload && typeof payload === "object" ? (payload as { content?: unknown[] }).content : []; return Array.isArray(content) ? content.map((part) => part && typeof part === "object" ? String((part as { text?: unknown }).text ?? "") : "").join("").trim() : ""; }
+
 export async function GET(request: Request) {
   try {
     const db = await getDb();
     const requestedQuestionId = Number(new URL(request.url).searchParams.get("questionId") || 0);
     if (Number.isInteger(requestedQuestionId) && requestedQuestionId > 0) {
       const [record] = await db.select().from(issuePracticeRecords).where(and(eq(issuePracticeRecords.userKey, userKey(request)), eq(issuePracticeRecords.questionId, requestedQuestionId))).limit(1);
-      return Response.json({ record: record ? { ...record, lunaResult: parseResult(record.lunaResultJson), solResult: parseResult(record.solResultJson), lunaResultJson: undefined, solResultJson: undefined } : null });
+      return Response.json({ record: record ? { ...record, lunaResult: parseResult(record.lunaResultJson), solResult: parseResult(record.solResultJson), challengeWorkflow: workflow(record.challengeWorkflowJson), lunaResultJson: undefined, solResultJson: undefined, challengeWorkflowJson: undefined } : null });
     }
     const rows = await db.select({ id: examQuestions.id, year: examQuestions.year, examName: examQuestions.examName, subject: examQuestions.subject, questionNumber: examQuestions.questionNumber, stem: examQuestions.stem, answerSource: examQuestions.answerSource }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, "essay"), sql`length(trim(${examQuestions.teacherAnswer})) > 0`)).orderBy(sql`${examQuestions.year} desc`, examQuestions.subject, examQuestions.questionNumber).limit(500);
     const history = await db.select({ questionId: issuePracticeRecords.questionId, updatedAt: issuePracticeRecords.updatedAt }).from(issuePracticeRecords).where(eq(issuePracticeRecords.userKey, userKey(request))).orderBy(desc(issuePracticeRecords.updatedAt)).limit(500);
@@ -42,13 +46,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: "sample" | "save-supplement"; questionId?: number; studentIssues?: string; studentSupplement?: string; model?: "luna" | "sol"; sampleLevel?: SampleLevel };
+    const body = await request.json() as { action?: "sample" | "save-supplement" | "sol-review-luna" | "challenge" | "reply"; questionId?: number; studentIssues?: string; studentSupplement?: string; model?: "luna" | "sol"; challenger?: "terra" | "sonnet"; challengeText?: string; sampleLevel?: SampleLevel };
     const questionId = Number(body.questionId); const studentIssues = String(body.studentIssues ?? "").trim(); const requestedModel = body.model === "sol" ? "sol" : "luna";
     if (!Number.isInteger(questionId)) return Response.json({ error: "請先選擇題目" }, { status: 400 });
     const db = await getDb();
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"), eq(examQuestions.examType, "essay"))).limit(1);
     if (!question) return Response.json({ error: "找不到這一題" }, { status: 404 });
     if (!question.teacherAnswer.trim()) return Response.json({ error: "本題尚未完成老師擬答核對，暫不開放 AI 比對" }, { status: 409 });
+    const [existing] = await db.select().from(issuePracticeRecords).where(and(eq(issuePracticeRecords.userKey, userKey(request)), eq(issuePracticeRecords.questionId, questionId))).limit(1);
+    const currentWorkflow = workflow(existing?.challengeWorkflowJson ?? null);
     if (body.action === "save-supplement") {
       const supplement = String(body.studentSupplement ?? "").trim().slice(0, 12000);
       await db.insert(issuePracticeRecords).values({ userKey: userKey(request), questionId, studentIssues: studentIssues.slice(0, 12000), studentSupplement: supplement, sampleLevel: body.sampleLevel ?? null, updatedAt: new Date() }).onConflictDoUpdate({ target: [issuePracticeRecords.userKey, issuePracticeRecords.questionId], set: { studentIssues: studentIssues.slice(0, 12000), studentSupplement: supplement, sampleLevel: body.sampleLevel ?? null, updatedAt: new Date() } });
@@ -58,6 +64,31 @@ export async function POST(request: Request) {
       if (request.headers.get("oai-authenticated-user-email") !== OWNER_EMAIL) return Response.json({ error: "三種擬答是管理者測試工具" }, { status: 403 });
       const level: SampleLevel = body.sampleLevel === "advanced" ? "advanced" : body.sampleLevel === "intermediate" ? "intermediate" : "basic";
       return Response.json({ text: sampleAnswer(question.teacherAnswer, level), level, label: sampleLabels[level] });
+    }
+    if (["sol-review-luna", "challenge", "reply"].includes(body.action ?? "")) {
+      const luna = parseResult(existing?.lunaResultJson ?? null) as ResultShape | null;
+      const sol = parseResult(existing?.solResultJson ?? null) as ResultShape | null;
+      if (!luna?.analysis || !sol?.analysis) return Response.json({ error: "請先完成 Luna 與 Sol 對同學答案的兩份評論。" }, { status: 400 });
+      const base = `你處理的是臺灣司律考試題。必須先完整閱讀老師解析／擬答，並以其作為本次主要校準依據。不得補造事實；老師未採學說只能列為補充，不得用來改判老師結論。只輸出繁體中文純文字。\n\n【題目】\n${question.stem}\n\n【老師解析／擬答】\n${question.teacherAnswer.slice(0, 16000)}\n\n【學生答案】\n${studentIssues}`;
+      const started = Date.now(); let model = "gpt-5.6-sol"; let text = ""; let inputTokens = 0; let outputTokens = 0; let cachedTokens = 0; let source = "";
+      if (body.action === "sol-review-luna") {
+        const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: "你是 Sol 學霸。你的任務不是再次評論學生，而是獨立覆核 Luna 的評論。依序輸出：一、Luna 應保留；二、Luna 應修正；三、Luna 應補充；四、依老師順序給 Luna 的修正版。每點都要對應老師解析。", input: `${base}\n\n【Luna 對學生的評論】\n${luna.analysis}`, max_output_tokens: 2400 }) }) as Record<string, unknown>;
+        text = outputText(payload); ({ inputTokens, outputTokens, cachedTokens } = tokenUsage(payload)); source = "練爭點／Sol覆核Luna";
+      } else if (body.action === "challenge") {
+        const challenger = body.challenger === "sonnet" ? "sonnet" : "terra"; const prompt = `${base}\n\n【Luna 回答】\n${luna.analysis}\n\n【Sol 回答】\n${sol.analysis}`;
+        const instruction = `你是${challenger === "terra" ? "Terra 擬答守門員" : "Sonnet 教學式質疑者"}。只檢查 Luna 與 Sol 相對老師擬答的實質偏差。每項成立質疑須列：被質疑模型、問題位置、老師擬答依據、具體差異、學生可採用的追問句。若都符合，明示「目前沒有成立的質疑」，不得硬挑毛病。`;
+        if (challenger === "sonnet") { const key = await getAnthropicKey(); if (!key) return Response.json({ error: "Claude Sonnet API 尚未設定" }, { status: 503 }); model = await getAnthropicChatModel("claude-sonnet-5"); const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify({ model, system: instruction, messages: [{ role: "user", content: prompt }], max_tokens: 2400 }) }); const payload = await response.json() as Record<string, unknown>; if (!response.ok) throw new Error("Claude Sonnet 暫時無法完成質疑"); text = anthropicText(payload); const u = payload.usage as Record<string, unknown> | undefined; inputTokens = Number(u?.input_tokens ?? 0); outputTokens = Number(u?.output_tokens ?? 0); }
+        else { model = "gpt-5.6-terra"; const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: instruction, input: prompt, max_output_tokens: 2400 }) }) as Record<string, unknown>; text = outputText(payload); ({ inputTokens, outputTokens, cachedTokens } = tokenUsage(payload)); }
+        source = `練爭點／${challenger === "sonnet" ? "Sonnet" : "Terra"}質疑者`; currentWorkflow.challenger = challenger;
+      } else {
+        const provider = body.model === "sol" ? "sol" : "luna"; const challengeText = String(body.challengeText ?? "").trim(); if (challengeText.length < 10) return Response.json({ error: "請先保留或修改一段具體質疑。" }, { status: 400 }); model = provider === "sol" ? "gpt-5.6-sol" : "gpt-5.6-luna"; const original = provider === "sol" ? sol.analysis : luna.analysis; const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: `你是${provider === "sol" ? "Sol 學霸" : "Luna 助教"}。重新讀取老師擬答後回應質疑：先說接受與否及理由，再列原回答應保留、修正、補充之處，最後提出完整修正版。不得為維護原答而強辯。`, input: `${base}\n\n【原回答】\n${original}\n\n【學生採用或修改後的質疑】\n${challengeText}`, max_output_tokens: 2400 }) }) as Record<string, unknown>; text = outputText(payload); ({ inputTokens, outputTokens, cachedTokens } = tokenUsage(payload)); source = `練爭點／${provider === "sol" ? "Sol" : "Luna"}回應質疑`;
+      }
+      if (!text) return Response.json({ error: "模型沒有產生可顯示的內容" }, { status: 502 });
+      const estimatedCostUsd = estimateSimple(model, inputTokens, outputTokens, cachedTokens); const saved = { analysis: text, model, usage: { inputTokens, outputTokens, cachedTokens, estimatedCostUsd, durationMs: Date.now() - started } };
+      if (body.action === "sol-review-luna") currentWorkflow.solReview = saved; else if (body.action === "challenge") currentWorkflow.challenge = saved; else if (body.model === "sol") currentWorkflow.solReply = saved; else currentWorkflow.lunaReply = saved;
+      await db.insert(usageLogs).values({ source, model, inputTokens, outputTokens, cachedTokens, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1e6) });
+      await db.insert(issuePracticeRecords).values({ userKey: userKey(request), questionId, studentIssues: studentIssues.slice(0, 12000), challengeWorkflowJson: JSON.stringify(currentWorkflow), updatedAt: new Date() }).onConflictDoUpdate({ target: [issuePracticeRecords.userKey, issuePracticeRecords.questionId], set: { studentIssues: studentIssues.slice(0, 12000), challengeWorkflowJson: JSON.stringify(currentWorkflow), updatedAt: new Date() } });
+      return Response.json({ result: saved, workflow: currentWorkflow });
     }
     if (studentIssues.length < 10) return Response.json({ error: "請先寫下你辨識的爭點再送出" }, { status: 400 });
     if (!await getOpenAIKey()) return Response.json({ error: "AI 模型尚未設定" }, { status: 503 });
@@ -81,3 +112,7 @@ export async function POST(request: Request) {
     return Response.json(savedResult);
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "AI 比對暫時無法完成" }, { status: 500 }); }
 }
+
+type ResultShape = { analysis?: string };
+function tokenUsage(payload: Record<string, unknown>) { const usage = (payload.usage ?? {}) as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }; return { inputTokens: Number(usage.input_tokens ?? 0), outputTokens: Number(usage.output_tokens ?? 0), cachedTokens: Number(usage.input_tokens_details?.cached_tokens ?? 0) }; }
+function estimateSimple(model: string, input: number, output: number, cached: number) { const rates = /sol/i.test(model) ? [.525, 3.15] : /terra/i.test(model) ? [.206, 1.24] : /sonnet|claude/i.test(model) ? [.356, 1.78] : [.105, .63]; return Math.max(0, input - cached) / 1e6 * rates[0] + cached / 1e6 * rates[0] * .1 + output / 1e6 * rates[1]; }
