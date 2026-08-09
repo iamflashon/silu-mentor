@@ -126,6 +126,16 @@ async function runScholar(provider: Provider, instructions: string, input: strin
   return { model, text, durationMs: Date.now() - startedAt, ...usageFrom(payload) };
 }
 
+const unrelatedAdultPattern = /(?:av\s*無碼|av\s*无码|成人(?:影片|視頻)|色情(?:影片|視頻)|無碼(?:影片|視頻)|无码(?:影片|视频)|porn|xxx)/iu;
+const commonSimplifiedPattern = /[这为与会发后里进个们问应让从对学书国还将种时说过开关实师题]/g;
+
+function scholarOutputProblem(text: string) {
+  if (unrelatedAdultPattern.test(text)) return "出現與法律問題無關的成人內容字串";
+  const simplifiedHits = text.match(commonSimplifiedPattern)?.length ?? 0;
+  if (simplifiedHits >= 2) return "未遵守繁體中文輸出要求";
+  return "";
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as {
@@ -161,7 +171,25 @@ export async function POST(request: Request) {
 科目：${subject}
 ${chapterText ? `章節核對內容：\n${chapterText}` : "章節原文尚未完整核對；不得虛構教材內容。"}`;
     const input = `【老師的問題】\n${teacherText.slice(0, 8000)}`;
-    const result = await runScholar(provider, instructions, input);
+    let result = await runScholar(provider, instructions, input);
+    const firstProblem = scholarOutputProblem(result.text);
+    if (firstProblem) {
+      const retry = await runScholar(
+        provider,
+        `${instructions}\n\n上一版回答因「${firstProblem}」未通過輸出品質檢查。請重新完整作答，不得沿用或提及上一版的異常字串；只輸出法律分析，並再次確認全文均為繁體中文。`,
+        input,
+      );
+      result = {
+        ...retry,
+        durationMs: result.durationMs + retry.durationMs,
+        inputTokens: result.inputTokens + retry.inputTokens,
+        cachedTokens: result.cachedTokens + retry.cachedTokens,
+        outputTokens: result.outputTokens + retry.outputTokens,
+      };
+      if (scholarOutputProblem(result.text)) {
+        throw new Error("AI 學霸回答未通過內容品質檢查，系統已阻止顯示，請再試一次。");
+      }
+    }
     const estimatedCostUsdMicros = estimateCostUsdMicros(result.model, result);
     const userKey = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
     const db = await getDb();

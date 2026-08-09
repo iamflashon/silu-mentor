@@ -4971,6 +4971,56 @@ a {
   line-height: 1.5;
   text-align: right;
 }
+.book-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+.book-focus-toggle {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid #8fb6c2;
+  border-radius: 8px;
+  background: #fff;
+  color: #326b7c;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.book-focus-toggle:hover { background: #eaf5f7; border-color: #5f98a8; }
+.resource-study-panel.book-focus-mode {
+  position: fixed;
+  inset: 10px;
+  z-index: 1000;
+  width: auto !important;
+  max-width: none !important;
+  height: calc(100dvh - 20px);
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid #cbdde3;
+  border-radius: 16px;
+  background: #f5f9fa;
+  box-shadow: 0 18px 60px rgba(21, 59, 75, .24);
+  overflow: hidden;
+}
+.resource-study-panel.book-focus-mode > header,
+.resource-study-panel.book-focus-mode > .resource-message { display: none; }
+.resource-study-panel.book-focus-mode .book-learning-room { height: 100%; min-height: 0; }
+.resource-study-panel.book-focus-mode .book-ai-dialogue { height: 100%; min-height: 0; border: 0; border-radius: 15px; }
+.resource-study-panel.book-focus-mode .book-history-panel { display: none; }
+.resource-study-panel.book-focus-mode .book-ai-heading { padding: 10px 16px; }
+.resource-study-panel.book-focus-mode .book-ai-heading small { display: none; }
+.resource-study-panel.book-focus-mode .book-dialogue-messages { padding: 24px clamp(18px, 5vw, 80px); }
+.resource-study-panel.book-focus-mode .book-dialogue-composer-wrap { width: min(980px, calc(100% - 28px)); margin: 8px auto 12px; }
+@media (max-width: 720px) {
+  .resource-study-panel.book-focus-mode { inset: 0; height: 100dvh; border: 0; border-radius: 0; }
+  .resource-study-panel.book-focus-mode .book-ai-dialogue { border-radius: 0; }
+  .book-heading-actions small { display: none; }
+  .book-focus-toggle { padding: 6px 8px; }
+}
 .book-ai-controls {
   display: grid;
   gap: 7px;

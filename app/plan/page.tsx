@@ -732,6 +732,7 @@ export default function StudyPlanPage() {
   const [bookSelectedMessageIndex, setBookSelectedMessageIndex] = useState<number | null>(null);
   const [bookQuestionOpen, setBookQuestionOpen] = useState(true);
   const [bookSettingsOpen, setBookSettingsOpen] = useState(false);
+  const [bookFocusMode, setBookFocusMode] = useState(false);
   const [bookSettingsPinned, setBookSettingsPinned] = useState(false);
   const [bookModelMode, setBookModelMode] = useState<BookModelMode>("luna");
   const [bookTeachingLevel, setBookTeachingLevel] = useState<"beginner" | "intermediate" | "advanced" | "super" | null>(null);
@@ -2086,6 +2087,7 @@ export default function StudyPlanPage() {
   async function startBookReview() {
     if (!selectedChapter || !selectedResource || selectedResource.resourceType !== "book" || bookChatLoading) return;
     const prompt = `${bookContext(selectedChapter)}\n這是解題書中的題目或題組。請現在直接開始審題：先帶我辨認題型與關鍵事實，再逐步問我可能的爭點；先不要公布完整擬答。`;
+    setBookQuestionOpen(false);
     setBookInput("");
     setBookSelectedMessageIndex(null);
     setBookChatLoading(true);
@@ -4034,7 +4036,7 @@ export default function StudyPlanPage() {
               </aside>
               {selectedResource ? (
                 <article
-                  className={`resource-study-panel ${selectedResource.resourceType === "book" ? "book-study-panel" : ""}`}
+                  className={`resource-study-panel ${selectedResource.resourceType === "book" ? "book-study-panel" : ""} ${bookFocusMode ? "book-focus-mode" : ""}`}
                 >
                   <header>
                     <div>
@@ -4102,15 +4104,20 @@ export default function StudyPlanPage() {
                                   : "先選一個章節"}
                             </strong>
                           </div>
-                          <small>
-                            {selectedBookIsProblemSolving
-                              ? selectedChapter
-                                ? "先看完整題目，再開始審題"
-                                : "依原書的部分、主題與題型選題"
-                              : selectedChapter
-                                ? "依本章內容開始對話"
-                                : "從左側書本下方展開章節，AI 會直接開始教你"}
-                          </small>
+                          <div className="book-heading-actions">
+                            {!bookFocusMode && <small>
+                              {selectedBookIsProblemSolving
+                                ? selectedChapter
+                                  ? "先看完整題目，再開始審題"
+                                  : "依原書的部分、主題與題型選題"
+                                : selectedChapter
+                                  ? "依本章內容開始對話"
+                                  : "從左側書本下方展開章節，AI 會直接開始教你"}
+                            </small>}
+                            <button type="button" className="book-focus-toggle" onClick={() => { setBookFocusMode((active) => !active); setBookSettingsOpen(false); }} aria-pressed={bookFocusMode}>
+                              {bookFocusMode ? "退出專注模式" : "放大對話"}
+                            </button>
+                          </div>
                         </div>
                         {(
                           <section className={`book-history-panel ${bookHistoryOpen ? "is-open" : ""}`} aria-label="智能書學習紀錄">
