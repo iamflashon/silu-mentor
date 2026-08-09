@@ -99,7 +99,7 @@ type SequentialProblemQuestion = {
   complete: boolean;
 };
 
-type ProblemCatalogueClass = { section: string; topic: string };
+type ProblemCatalogueClass = { section: string; topic: string; title: string };
 
 type ChapterSourceProgress = {
   failedSegmentIds?: number[];
@@ -229,10 +229,23 @@ function isCompleteProblemQuestion(chapter: {
   // stem *and* solution/analysis material; catalogue entries remain staging
   // metadata and are never shown to students as questions.
   if (!title || isLikelyProblemCatalogueText(stem)) return false;
+  // Flattened PDF text can make the first part of the factual scenario look
+  // like the printed heading.  A heading containing parties, a question, or a
+  // long sentence is not safe to expose as a real problem title.
+  const titleWithoutMarker = title.replace(/^(?:【\s*)?(?:題型|案例|例題|實例題|練習題)\s*[一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*(?:\s*】)?/u, "").trim();
+  if (titleWithoutMarker.length > 48 || /[；。！？?]|(?:^|\s)[甲乙丙丁戊己庚辛壬癸](?:\s|在|向|與|為|因|將|持|欲|係|於)|請問|試問/u.test(titleWithoutMarker)) return false;
   const body = normalizedHeading(stem).replace(normalizedHeading(title), "");
+  // Repeated headings are a reliable symptom of an old row that joined a
+  // generated title, the printed heading, and a later question into one blob.
+  const normalizedTitle = normalizedHeading(title);
+  if (normalizedTitle.length >= 8 && normalizedHeading(stem).split(normalizedTitle).length - 1 > 1) return false;
   const hasStemEvidence = /甲|乙|丙|丁|某|請問|試問|何者|如何|是否|案情|事實|行為|主張|法院|當事人/u.test(stem);
   const hasSolutionEvidence = /解析|解題|擬答|爭點|答題|規範|涵攝|結論|評析|說明|本文見解|實務見解/u.test(stem);
-  return body.length >= 160 && hasStemEvidence && hasSolutionEvidence;
+  const solutionMarker = stem.search(/爭點解析|解題解析|【?擬答】?|答題架構|試題評析/u);
+  // A complete student-facing row must have a distinguishable question area
+  // followed by an analysis/answer area.  Mere keyword co-occurrence is not
+  // enough, because it allowed unrelated page fragments to be published.
+  return body.length >= 160 && hasStemEvidence && hasSolutionEvidence && solutionMarker >= 80;
 }
 
 function readStoredDocumentAnalysis(document: typeof documents.$inferSelect) {
@@ -506,6 +519,15 @@ function problemNumberKey(title: string) {
   return match ? match[1].replaceAll("．", ".").replaceAll("、", ".").replaceAll("-", ".") : "";
 }
 
+function catalogueProblemTitle(value: string) {
+  return cleanSourceText(value)
+    .replace(/[.．·…]{3,}\s*\d+(?:\s*[-–－]\s*\d+)?\s*$/u, "")
+    .replace(/\s+\d{1,3}\s*[-–－]\s*\d{1,3}\s*$/u, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
 function problemCatalogueClasses(pages: Array<typeof resourceSegments.$inferSelect>) {
   const classes = new Map<string, ProblemCatalogueClass[]>();
   let section = "未分類部分";
@@ -521,9 +543,9 @@ function problemCatalogueClasses(pages: Array<typeof resourceSegments.$inferSele
       for (const heading of problemHeadings(line)) {
         const key = problemNumberKey(heading);
         if (!key) continue;
-        const value = { section, topic };
+        const value = { section, topic, title: catalogueProblemTitle(heading) };
         const existing = classes.get(key) ?? [];
-        if (!existing.some((item) => item.section === value.section && item.topic === value.topic)) {
+        if (!existing.some((item) => item.section === value.section && item.topic === value.topic && normalizedHeading(item.title) === normalizedHeading(value.title))) {
           classes.set(key, [...existing, value]);
         }
       }
@@ -571,9 +593,12 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
       const candidates = catalogueClasses.get(problemNumberKey(heading.title)) ?? [];
       const classification = candidates.length === 1
         ? candidates[0]
-        : { section: "未分類部分", topic: "待核對主題" };
+        : { section: "未分類部分", topic: "待核對主題", title: "" };
       current = {
-        title: heading.title,
+        // The TOC supplies the short printed title; the正文 supplies content.
+        // Never use an arbitrary 180-character slice of a flattened page as a
+        // title, because that can swallow the first factual scenario.
+        title: classification.title || heading.title,
         section: classification.section,
         topic: classification.topic,
         pageStart: pageNumber,
