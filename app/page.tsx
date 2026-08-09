@@ -752,9 +752,6 @@ export default function Home() {
       <header className="topbar">
         <div className="brand-zone"><a href="/" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
-          <a href="/model-lab" className="admin-link">50題模型測試</a>
-          <a href="/issue-lab" className="admin-link">爭點模型擂台</a>
-          <a href="/review" className="admin-link review-entry-link">司律評</a>
           <a href="/plan" className="admin-link">學習專區</a>
           {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
           {currentMember ? <a href="/signout-with-chatgpt?return_to=/" className="member-chip" title={currentMember.email}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>登出</small></a> : <a href="/signin-with-chatgpt?return_to=/" className="member-signin">登入我的學習平台</a>}
