@@ -79,7 +79,7 @@ async function runTeamoRouter(provider: Provider, prompt: string, system: string
 }
 
 async function runCandidate(gateway: Gateway, provider: Provider, prompt: string): Promise<CandidateRun> {
-  const system = "你是臺灣司律考試法律助教。只依題目事實分析，不得虛構法條、裁判或教材。請辨識爭點、說明法律判準並具體涵攝，控制在700字內。";
+  const system = "你是臺灣司律考試法律助教。只依題目與提供的同組對話紀錄分析，不得替換人物、案件或自行補充事實，不得虛構法條、裁判或教材。若資料不足，必須明示限制並作條件式分析。請辨識爭點、說明法律判準並具體涵攝，控制在700字內。";
   const started = Date.now();
   if (gateway === "teamorouter") return runTeamoRouter(provider, prompt, system, started);
   if (gateway === "openrouter") { const routed = await runOpenRouter(provider, prompt, system, started); if (routed) return routed; throw new Error(`OpenRouter 尚未設定 ${labels[provider]} 或缺少 API Key`); }
@@ -105,6 +105,29 @@ async function runCandidate(gateway: Gateway, provider: Provider, prompt: string
     return { model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started };
   }
   throw new Error(`${gatewayLabels[gateway]}目前缺少 ${labels[provider]} 的模型連線設定`);
+}
+
+async function promptWithChainContext(
+  db: Awaited<ReturnType<typeof getDb>>,
+  runId: string,
+  bank: Bank,
+  question: ReturnType<typeof questions>[number],
+  rows: Array<{ id: number; sourceJson: string }>,
+) {
+  if (question.group !== "連續追問" || question.round <= 1) return question.prompt;
+  const earlier = questions(bank)
+    .filter((item) => item.group === question.group && item.title === question.title && item.round < question.round)
+    .sort((a, b) => a.round - b.round);
+  const cards = earlier.map((item) => ({ item, card: rows.find((row) => source(row).runId === runId && source(row).benchmarkId === item.id) }));
+  if (cards.some(({ card }) => !card)) throw new Error(`第 ${question.id} 題需要先完成同組前一輪，已停止以避免脈絡缺失`);
+  const cardIds = cards.map(({ card }) => card!.id);
+  const earlierResponses = await selectInBatches(cardIds, (batch) => db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, batch)));
+  const history = cards.map(({ item, card }) => {
+    const answer = earlierResponses.find((response) => response.comparisonId === card!.id)?.text?.trim();
+    if (!answer) throw new Error(`第 ${question.id} 題缺少第 ${item.round} 輪回答，已停止以避免模型自行補故事`);
+    return `【第 ${item.round} 輪】\n學生：${item.prompt}\n模型：${answer}`;
+  }).join("\n\n");
+  return `以下是同一案件、同一組連續追問的完整既有紀錄。人物與事實均須保持一致；若本輪沒有新增事實，不得自行添加。\n\n${history}\n\n【本輪第 ${question.round} 輪】\n學生：${question.prompt}\n\n請承接以上紀錄回答本輪問題，不要重新虛構另一個案件。`;
 }
 
 export async function GET(request: Request) {
@@ -137,7 +160,8 @@ export async function POST(request: Request) {
     const q = questions(bank).find((x) => x.id === Number(body.questionId)); if (!q) return Response.json({ error: "找不到題目" }, { status: 404 });
     let card = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === q.id); if (!card) [card] = await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: q.prompt, sourceStatus: "benchmark_card", sourceJson: JSON.stringify({ runId, benchmarkId: q.id, gateway, provider, bank, rule: q.rule, expected: q.expected }) }).returning();
     const prior = await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId, card.id), eq(chatComparisonResponses.provider, gateway))).limit(1); if (prior.length) return Response.json({ ok: true, skipped: true });
-    stage = `${gatewayLabels[gateway]} ${labels[provider]} 作答`; const run = await runCandidate(gateway, provider, q.prompt); if (run.text.trim().length < 24) throw new Error(`${labels[provider]} 回答過短或空白`);
+    stage = `${gatewayLabels[gateway]} ${labels[provider]} 整理連續脈絡`; const candidatePrompt = await promptWithChainContext(db, runId, bank, q, rows);
+    stage = `${gatewayLabels[gateway]} ${labels[provider]} 作答`; const run = await runCandidate(gateway, provider, candidatePrompt); if (run.text.trim().length < 24) throw new Error(`${labels[provider]} 回答過短或空白`);
     const cost = run.actualCostUsd ?? estimateCostUsd(run.model, { inputTokens: run.input, cachedTokens: 0, outputTokens: run.output });
     await db.insert(chatComparisonResponses).values({ comparisonId: card.id, provider: gateway, model: run.model, label: `${labels[provider]}｜${gatewayLabels[gateway]}`, text: run.text, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(cost * 1e6) });
     await db.insert(usageLogs).values({ model: run.model, source: `${gatewayLabels[gateway]} 50題法律模型測試 ${runId}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(cost * 1e6) });
