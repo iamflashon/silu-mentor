@@ -623,6 +623,8 @@ a {
 .follow-up-check.follow-up-selected { border-color: #78afb0; background: #eaf7f4; color: #286d70; font-weight: 800; }
 .message-follow-up-check { margin-left: 1px; }
 .follow-up-selection-summary { flex-basis: 100%; color: #2b7375; font-size: 11px; line-height: 1.5; }
+
+.global-selection-bar { position: fixed; }
 .save-note-button {
   display: block;
   margin: 0;

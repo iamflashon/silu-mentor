@@ -134,15 +134,8 @@ export function IssuePractice() {
   }
 
   function captureLawSelection() {
-    const selection = window.getSelection();
-    const text = selection?.toString().replace(/\s+/g, " ").trim().slice(0, 500) ?? "";
-    if (text.length < 2) return;
-    const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
-    if (!range) return;
-    const compact = text.replace(/\s+/g, "");
-    const match = compact.match(/(?:中華民國)?(?:憲法|民法|刑法|行政程序法|行政訴訟法|民事訴訟法|刑事訴訟法|公司法|證券交易法|保險法|票據法)第\d+(?:條之\d+|之\d+條|條)(?:第\d+項)?/u);
-    selectedRangeRef.current = range;
-    setSelectedLawText(text); setDetectedLawQuery(match?.[0] ?? ""); positionSelectionTool(range);
+    // 已由 RootLayout 的全站智能框選工具統一處理，避免同頁出現兩套工具列。
+    return;
   }
 
   async function lookupSelectedLaw() {
