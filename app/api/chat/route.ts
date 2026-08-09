@@ -9,28 +9,43 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { storedDocumentAnalysis } from "../../../lib/document-analysis";
 import { syncBookLearningRecord } from "../../../lib/book-learning-record";
-import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getZaiKey, getZaiModel } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel, getZaiKey, getZaiModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
-type ChatProvider = "luna" | "sonnet" | "deepseek" | "glm" | "glm52";
-type ChatModelMode = ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
+type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 function activeProviders(mode: ChatModelMode): ChatProvider[] {
+  if (mode === "auto") return ["luna"];
   if (mode.startsWith("compare-")) return mode.slice("compare-".length).split("-") as ChatProvider[];
   return [mode];
 }
 
 function providerLabel(provider: ChatProvider) {
-  return provider === "luna" ? "Luna" : provider === "sonnet" ? "Claude Sonnet" : provider === "glm" ? "GLM-4.7-Flash（免費測試）" : provider === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro";
+  return provider === "luna" ? "Luna" : provider === "sol" ? "Sol" : provider === "sonnet" ? "Claude Sonnet" : provider === "glm" ? "GLM-4.7-Flash（免費測試）" : provider === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro";
+}
+
+function automaticRoute(query: string, context: ChatContext, hasVerifiedAnswer: boolean) {
+  const compact = query.replace(/\s+/g, "");
+  const formal = /正式批改|批改申論|完整申論|考場擬答|建立標準解析|最終法律檢核|自訂新題/.test(compact);
+  const highRisk = /多人|多行為|競合|不能未遂|不作為|身分犯|因果歷程|學說評析|爭點完整|罪責/.test(compact);
+  if (formal || (!hasVerifiedAnswer && highRisk && compact.length >= 180)) {
+    return { provider: "sol" as const, reason: formal ? "本次要求正式批改、完整申論或標準解析，需由 Sol 進行高精度法律判斷。" : "本題未命中已審核標準答案，且涉及多重高風險法律爭點，因此升級 Sol。" };
+  }
+  if (compact.length >= 500 || /請整理以下長文|逐一整理所有行為人|跨章節統整/.test(compact)) {
+    return { provider: "deepseek" as const, reason: "本次內容較長，需統整多段事實或多位行為人，因此選用 DeepSeek V4-Pro。" };
+  }
+  if (context.type === "book" && hasVerifiedAnswer) return { provider: "luna" as const, reason: "已精準命中本題老師解析或指定教材章節，模型只需依既有資料引導學習，因此選用 Luna。" };
+  return { provider: "luna" as const, reason: "本次屬一般教學、簡短問答或學習規劃，Luna 已足以完成並可控制成本。" };
 }
 
 function providerReply(
   provider: ChatProvider,
   replies: { luna: string; deepseek: string; zai: string; sonnet?: string },
 ) {
-  if (provider === "luna") return replies.luna;
+  if (provider === "luna" || provider === "sol") return replies.luna;
   if (provider === "deepseek") return replies.deepseek;
   if (provider === "glm" || provider === "glm52") return replies.zai;
   return replies.sonnet ?? "";
@@ -740,12 +755,26 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean };
-    const requestedMode = String(body.modelMode ?? "luna");
-    const allowedModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
-    const modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "luna";
+    const requestedMode = String(body.modelMode ?? "auto");
+    const allowedModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+    let modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "auto";
+    const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
+    if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
+    const latestStudent = [...messages].reverse().find((message) => message.role === "student" || message.role === "scholar");
+    const rawContext = body.context;
+    const context: ChatContext = rawContext?.type === "book" && Number.isInteger(rawContext.resourceId) && Number.isInteger(rawContext.segmentId)
+      ? { type: "book", resourceId: rawContext.resourceId, segmentId: rawContext.segmentId, resourceTitle: String(rawContext.resourceTitle || "教材"), segmentTitle: String(rawContext.segmentTitle || "目前章節") }
+      : rawContext?.type === "magazine" && Number.isInteger(rawContext.resourceId)
+        ? { type: "magazine", resourceId: rawContext.resourceId, resourceTitle: String(rawContext.resourceTitle || "法學教室") }
+        : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
+          ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
+          : { type: "home" };
+    const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
+    const route = modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
+    if (route) modelMode = route.provider;
     const providers = activeProviders(modelMode);
     const isComparison = providers.length > 1;
-    const needsOpenAi = providers.includes("luna");
+    const needsOpenAi = providers.includes("luna") || providers.includes("sol");
     const needsAnthropic = providers.includes("sonnet");
     const needsDeepSeek = providers.includes("deepseek");
     const needsZai = providers.includes("glm") || providers.includes("glm52");
@@ -765,8 +794,6 @@ export async function POST(request: Request) {
     if (needsAnthropic && !anthropicKey) {
       return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
-    const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
-    if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
     const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
     if (needsZai && imageDataUrl) {
       return Response.json({ error: "GLM 目前只測試文字對話；圖片題目請改選 Luna 或 Claude Sonnet。" }, { status: 400 });
@@ -782,16 +809,6 @@ export async function POST(request: Request) {
     const planningConstraint = body.planningConstraint?.mode === "single" && allowedPlanningSubjects.has(body.planningConstraint.subject)
       ? body.planningConstraint
       : body.planningConstraint?.mode === "all" ? body.planningConstraint : null;
-    const latestStudent = [...messages].reverse().find((message) => message.role === "student" || message.role === "scholar");
-    const rawContext = body.context;
-    const context: ChatContext = rawContext?.type === "book" && Number.isInteger(rawContext.resourceId) && Number.isInteger(rawContext.segmentId)
-      ? { type: "book", resourceId: rawContext.resourceId, segmentId: rawContext.segmentId, resourceTitle: String(rawContext.resourceTitle || "教材"), segmentTitle: String(rawContext.segmentTitle || "目前章節") }
-      : rawContext?.type === "magazine" && Number.isInteger(rawContext.resourceId)
-        ? { type: "magazine", resourceId: rawContext.resourceId, resourceTitle: String(rawContext.resourceTitle || "法學教室") }
-      : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
-        ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
-      : { type: "home" };
-    const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
     const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "司律備考對話", context);
     let bookLearningRecord: { id: number; actualMinutes: number; messageCount: number } | null = null;
     let persistedCourseMessages: ClientMessage[] = [];
@@ -885,7 +902,7 @@ export async function POST(request: Request) {
       : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`) + teachingLevelInstruction;
     // 「Luna」是明確的單模型選擇，不得被環境變數或問題長度偷偷切換
     // 成 Terra／Sol；只有使用者選擇雙模型比較時，才另外呼叫 Claude。
-    const selectedModel = await getOpenAIModel("gpt-5.6-luna");
+    const selectedModel = providers.includes("sol") ? await getTeachingJudgeOpenAIModel("gpt-5.6-sol") : await getOpenAIModel("gpt-5.6-luna");
     const deepSeekModel = await getDeepSeekModel("deepseek-v4-pro");
     const zaiModel = providers.includes("glm52") ? "glm-5.2" : await getZaiModel("glm-4.7-flash");
     const tools: Array<Record<string, unknown>> = [{
@@ -1185,7 +1202,7 @@ export async function POST(request: Request) {
       ? (zaiRun.inputTokens * 1.4 + zaiRun.outputTokens * 4.4) / 1_000_000
       : 0;
     const modelResults = providers.map((provider) => {
-      if (provider === "luna") return {
+      if (provider === "luna" || provider === "sol") return {
         provider,
         providerName: "openai",
         model: selectedModel,
@@ -1196,7 +1213,7 @@ export async function POST(request: Request) {
         outputTokens: openAiUsage.outputTokens,
         estimatedCostUsd: openAiCostUsd,
         durationMs: openAiDurationMs,
-        error: openAiError || (!openAiReply ? "Luna 未產生可顯示內容" : ""),
+        error: openAiError || (!openAiReply ? `${providerLabel(provider)} 未產生可顯示內容` : ""),
         stopReason: null as string | null,
       };
       if (provider === "deepseek") return {
@@ -1349,7 +1366,7 @@ export async function POST(request: Request) {
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
-      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: primaryResult.provider === "luna" && searchedFiles ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd },
+      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
       planSaved,
       replacedTasks,
       tasksDeleted,

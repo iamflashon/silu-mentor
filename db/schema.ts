@@ -468,6 +468,18 @@ export const messageFeedback = sqliteTable("message_feedback", {
   messageIndex: integer("message_index").notNull().default(0),
   feedbackType: text("feedback_type").notNull(),
   messageText: text("message_text").notNull().default(""),
+  rating: integer("rating").notNull().default(0),
+  errorTypesJson: text("error_types_json").notNull().default("[]"),
+  studentNote: text("student_note").notNull().default(""),
+  model: text("model").notNull().default(""),
+  originalPrompt: text("original_prompt").notNull().default(""),
+  reviewStatus: text("review_status").notNull().default("pending"),
+  solRequested: integer("sol_requested", { mode: "boolean" }).notNull().default(false),
+  solReview: text("sol_review").notNull().default(""),
+  teacherDecision: text("teacher_decision").notNull().default(""),
+  teacherNote: text("teacher_note").notNull().default(""),
+  correctedContent: text("corrected_content").notNull().default(""),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

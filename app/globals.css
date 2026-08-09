@@ -643,6 +643,35 @@ a {
 .feedback-menu button:hover {
   background: #edf4f8;
 }
+.feedback-dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(18, 39, 55, .48); }
+.feedback-dialog { position: relative; width: min(580px, 100%); max-height: 88vh; overflow: auto; padding: 25px; border-radius: 18px; background: #fff; box-shadow: 0 24px 80px rgba(16, 40, 58, .25); color: #35566a; }
+.feedback-dialog > span { color: #69909d; font-size: 12px; font-weight: 800; }
+.feedback-dialog h2 { margin: 5px 36px 18px 0; color: #1d4861; font-size: 21px; }
+.feedback-dialog-close { position: absolute; top: 14px; right: 14px; border: 0; background: transparent; color: #78909d; font-size: 25px; cursor: pointer; }
+.feedback-stars { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; font-size: 13px; font-weight: 800; }
+.feedback-stars button { border: 0; background: transparent; color: #cbd4d7; font-size: 24px; cursor: pointer; }
+.feedback-stars button.selected { color: #e0ad3d; }
+.feedback-dialog fieldset { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 0 0 15px; padding: 14px; border: 1px solid #dbe7eb; border-radius: 12px; }
+.feedback-dialog legend { padding: 0 6px; font-size: 12px; font-weight: 800; }
+.feedback-dialog fieldset label { font-size: 12px; }
+.feedback-note { display: grid; gap: 6px; font-size: 12px; font-weight: 800; }
+.feedback-note textarea, .ai-feedback-admin textarea, .ai-feedback-admin select { width: 100%; box-sizing: border-box; border: 1px solid #d5e2e8; border-radius: 9px; padding: 10px; background: #fff; color: #35566a; }
+.feedback-dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.feedback-dialog-actions button { padding: 10px 13px; border: 1px solid #9dbbc5; border-radius: 9px; background: #fff; color: #356678; font-weight: 800; cursor: pointer; }
+.feedback-dialog-actions .ask-sol-button { border-color: #b89b57; background: #fff8e8; color: #7c6025; }
+.feedback-dialog > small { display: block; margin-top: 11px; color: #84969f; }
+.ai-feedback-list { display: grid; gap: 14px; }
+.ai-feedback-list article { display: grid; gap: 10px; padding: 17px; border: 1px solid #dce7eb; border-radius: 13px; background: #fff; }
+.ai-feedback-list article header { display: flex; justify-content: space-between; gap: 12px; }
+.ai-feedback-list article header div { display: grid; gap: 3px; }
+.ai-feedback-list article header span, .ai-feedback-list article small { color: #7b909b; font-size: 11px; }
+.ai-feedback-list article header em { height: fit-content; padding: 5px 8px; border-radius: 999px; background: #edf5f2; color: #3f7862; font-size: 11px; font-style: normal; }
+.ai-feedback-list details p { white-space: pre-wrap; max-height: 240px; overflow: auto; color: #526d7b; line-height: 1.7; }
+.ai-feedback-list label { display: grid; gap: 5px; color: #526d7b; font-size: 12px; font-weight: 800; }
+.student-feedback-note { margin: 0; padding: 10px; border-radius: 8px; background: #fff8e8; color: #6d5a33; }
+.ai-feedback-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ai-feedback-actions button { padding: 8px 11px; border: 0; border-radius: 8px; background: #315f75; color: #fff; cursor: pointer; }
+@media (max-width: 620px) { .feedback-dialog fieldset { grid-template-columns: 1fr; } .feedback-dialog-actions button { width: 100%; } }
 .message-text {
   white-space: pre-wrap;
 }

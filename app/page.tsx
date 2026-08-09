@@ -33,9 +33,9 @@ type Message = { role: "mentor" | "student"; text: string; sources?: string[]; c
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
-type ChatModelMode = "luna" | "sonnet" | "deepseek" | "glm" | "glm52" | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+type ChatModelMode = "auto" | "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52" | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 const aiSettingsStorageKey = "silu-ai-settings-pinned";
-const chatModelModes: ChatModelMode[] = ["luna", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+const chatModelModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
 function isTeachingLevel(value: unknown): value is TeachingLevel { return value === "general" || value === "beginner" || value === "intermediate" || value === "advanced" || value === "super"; }
 function isChatModelMode(value: unknown): value is ChatModelMode { return typeof value === "string" && chatModelModes.includes(value as ChatModelMode); }
 type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
@@ -145,7 +145,7 @@ export default function Home() {
   const [showCosts, setShowCosts] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
-  const [modelMode, setModelMode] = useState<ChatModelMode>("luna");
+  const [modelMode, setModelMode] = useState<ChatModelMode>("auto");
   const [settingsPinned, setSettingsPinned] = useState(false);
   const [settingsCollapsed, setSettingsCollapsed] = useState(false);
   const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
@@ -184,6 +184,11 @@ export default function Home() {
   const [musicPlaying, setMusicPlaying] = useState(false);
   const [selectedMagazineArticleId, setSelectedMagazineArticleId] = useState<number | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
+  const [feedbackTarget, setFeedbackTarget] = useState<{ message: Message; index: number } | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackTypes, setFeedbackTypes] = useState<string[]>([]);
+  const [feedbackNote, setFeedbackNote] = useState("");
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const handoffHandled = useRef(false);
   useEffect(() => {
@@ -507,7 +512,7 @@ export default function Home() {
     return rotated.toDataURL("image/jpeg", .78);
   }
 
-  async function send(text: string) {
+  async function send(text: string, overrideMode?: ChatModelMode) {
     composerInputRef.current?.blur();
     const value = text.trim();
     if ((!value && !imageDraft) || thinking) return;
@@ -530,7 +535,7 @@ export default function Home() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage, modelMode, teachingLevel: sentTeachingLevel }),
+        body: JSON.stringify({ messages: nextMessages.slice(-12), sessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel }),
       });
       const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
@@ -709,9 +714,20 @@ export default function Home() {
     if (response.ok) { setSavedMessage(index); window.setTimeout(() => setSavedMessage(null), 1600); }
   }
 
-  async function sendFeedback(message: Message, index: number, feedbackType: "helpful" | "incorrect" | "not_learning" | "unclear") {
-    const response = await fetch("/api/chat/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messageIndex: index, feedbackType, messageText: cleanMessageText(message.text) }) });
-    if (response.ok) { setFeedbackMessage(index); window.setTimeout(() => setFeedbackMessage(null), 1600); }
+  async function sendFeedback(message: Message, index: number, feedbackType: "helpful" | "incorrect" | "not_learning" | "unclear", askSol = false) {
+    if (!askSol && !feedbackTarget && (feedbackType === "incorrect" || feedbackType === "unclear")) {
+      setFeedbackTarget({ message, index });
+      setFeedbackTypes(feedbackType === "unclear" ? ["hard_to_understand"] : []);
+      return;
+    }
+    setFeedbackSaving(true);
+    const originalPrompt = pairedStudentPrompt(messages, index);
+    const response = await fetch("/api/chat/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messageIndex: index, feedbackType, messageText: cleanMessageText(message.text), rating: feedbackRating, errorTypes: feedbackTypes, studentNote: feedbackNote, model: message.model ?? "gpt-5.6-luna", originalPrompt, solRequested: askSol }) });
+    setFeedbackSaving(false);
+    if (!response.ok) return;
+    setFeedbackMessage(index); setFeedbackTarget(null); setFeedbackRating(0); setFeedbackTypes([]); setFeedbackNote("");
+    window.setTimeout(() => setFeedbackMessage(null), 1600);
+    if (askSol) void send(`你是 Sol 學霸，請獨立覆核 Luna 助教的回答。以原始題目為最高依據，逐項指出應保留、修正、刪除及補充之處；若題示事實不足，採條件式結論，不得自行補充事實。\n\n【學生原問題】\n${originalPrompt}\n\n【Luna 助教回答】\n${cleanMessageText(message.text)}\n\n【學生指出的問題】\n${feedbackNote || "請全面檢查"}\n\n最後請直接給出修正後版本。`, "sol");
   }
 
   return (
@@ -799,6 +815,8 @@ export default function Home() {
           )}
           <div ref={endRef} />
         </div>}
+
+        {feedbackTarget && <div className="feedback-dialog-backdrop" onMouseDown={() => !feedbackSaving && setFeedbackTarget(null)}><section className="feedback-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="feedback-dialog-close" onClick={() => setFeedbackTarget(null)} aria-label="關閉">×</button><span>協助老師一起把答案修得更好</span><h2>這則 AI 助教回答錯在哪裡？</h2><label className="feedback-stars">評分<div>{[1,2,3,4,5].map((score) => <button type="button" className={score <= feedbackRating ? "selected" : ""} onClick={() => setFeedbackRating(score)} key={score}>★</button>)}</div></label><fieldset><legend>可複選錯誤類型</legend>{[["missing_issue","漏掉重要爭點"],["wrong_law","法條或罪名錯誤"],["wrong_application","涵攝不符合題目事實"],["unclear_conclusion","結論不明確"],["conflicts_source","與教材／老師擬答不一致"],["hard_to_understand","說明太難或不夠清楚"],["other","其他錯誤"]].map(([value,label]) => <label key={value}><input type="checkbox" checked={feedbackTypes.includes(value)} onChange={() => setFeedbackTypes((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])} />{label}</label>)}</fieldset><label className="feedback-note">補充說明<textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} rows={4} placeholder="請告訴我們 AI 助教錯在哪裡，或貼上你認為正確的理由。" /></label><div className="feedback-dialog-actions"><button disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, feedbackTypes.includes("hard_to_understand") && feedbackTypes.length === 1 ? "unclear" : "incorrect")}>只送給老師確認</button>{/luna/i.test(feedbackTarget.message.model ?? "luna") && <button className="ask-sol-button" disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, "incorrect", true)}>✦ 請 Sol 學霸立即評斷</button>}</div><small>送出後進入待檢查；Sol 覆核不能取代老師的最終確認。</small></section></div>}
 
         {!practiceQuestion && source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(lastUsage.estimatedCostUsd)}</span> : null}</div>}
 

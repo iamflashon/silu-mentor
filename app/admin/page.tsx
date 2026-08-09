@@ -416,12 +416,26 @@ export default function AdminPage() {
     | "costs"
     | "members"
     | "homepage"
+    | "ai-feedback"
   >("documents");
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [aiFeedback, setAiFeedback] = useState<Array<{ id: number; userKey: string; feedbackType: string; messageText: string; rating: number; errorTypes: string[]; studentNote: string; model: string; originalPrompt: string; reviewStatus: string; solRequested: boolean; teacherDecision: string; teacherNote: string; correctedContent: string; createdAt: string }>>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberNotice, setMemberNotice] = useState("");
   const [memberCreating, setMemberCreating] = useState(false);
   const [newMember, setNewMember] = useState({ displayName: "", email: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
+
+  useEffect(() => {
+    if (activeTab !== "ai-feedback") return;
+    setFeedbackLoading(true);
+    fetch("/api/chat/feedback").then((response) => response.json()).then((data) => setAiFeedback(data.feedback ?? [])).finally(() => setFeedbackLoading(false));
+  }, [activeTab]);
+
+  async function updateAiFeedback(id: number, values: { reviewStatus: string; teacherDecision?: string; teacherNote?: string; correctedContent?: string }) {
+    const response = await fetch("/api/chat/feedback", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...values }) });
+    if (response.ok) setAiFeedback((current) => current.map((item) => item.id === id ? { ...item, ...values } : item));
+  }
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [subject, setSubject] = useState("刑法");
@@ -3061,6 +3075,7 @@ export default function AdminPage() {
           >
             學員管理
           </button>
+          <button className={activeTab === "ai-feedback" ? "active" : ""} onClick={() => setActiveTab("ai-feedback")}>AI 回答覆核</button>
           <button
             className={activeTab === "homepage" ? "active" : ""}
             onClick={() => setActiveTab("homepage")}
@@ -3068,6 +3083,7 @@ export default function AdminPage() {
             首頁與播放
           </button>
         </nav>
+        {activeTab === "ai-feedback" && <section className="panel ai-feedback-admin"><div className="cost-heading"><div><h2>AI 回答覆核</h2><p className="panel-sub">學生回報先由 Sol 協助檢查，最後仍由老師確認是否有誤及是否寫回標準解析。</p></div><span className="source-count configured">{aiFeedback.length} 筆</span></div>{feedbackLoading ? <p>讀取回饋中…</p> : <div className="ai-feedback-list">{aiFeedback.map((item) => <article key={item.id}><header><div><b>{item.model || "AI 助教"}</b><span>{item.userKey} · {item.rating ? `${item.rating} 分` : "未評分"}</span></div><em>{item.reviewStatus === "pending" ? "待檢查" : item.reviewStatus === "ai_review_requested" ? "等待 Sol 覆核" : item.reviewStatus === "ai_reviewed" ? "AI 已覆核" : item.reviewStatus === "teacher_confirmed" ? "老師已確認" : item.reviewStatus === "corrected" ? "已修正" : "無需修正"}</em></header>{item.originalPrompt && <details><summary>學生原問題</summary><p>{item.originalPrompt}</p></details>}<details><summary>被回報的回答</summary><p>{item.messageText}</p></details><p className="student-feedback-note"><b>學生回饋：</b>{item.studentNote || "未補充說明"}</p><small>{item.errorTypes.join("、") || "未選錯誤類型"}</small><label>老師判斷<select value={item.teacherDecision} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherDecision: event.target.value } : row))}><option value="">待確認</option><option value="confirmed_error">確認有誤</option><option value="no_error">確認無誤</option><option value="partly_correct">部分需修正</option></select></label><label>老師說明<textarea rows={3} value={item.teacherNote} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherNote: event.target.value } : row))} /></label><label>修正後內容<textarea rows={5} value={item.correctedContent} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, correctedContent: event.target.value } : row))} /></label><div className="ai-feedback-actions"><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "teacher_confirmed", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>老師確認</button><button disabled={!item.correctedContent.trim()} onClick={() => void updateAiFeedback(item.id, { reviewStatus: "corrected", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>標記已修正</button><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "dismissed", teacherDecision: "no_error", teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>確認無誤</button></div></article>)}</div>}</section>}
         {activeTab === "members" && (
           <section className="panel member-admin-panel">
             <div className="cost-heading"><div><h2>學員與權限管理</h2><p className="panel-sub">每位登入者都有獨立的對話、角色、智能書進度、練題與批改紀錄。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
