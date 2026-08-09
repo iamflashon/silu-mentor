@@ -49,6 +49,24 @@ export async function getOpenRouterKey() {
   return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
 }
 
+export async function getTeamoRouterKey() {
+  const configured = process.env.TEAMOROUTER_API_KEY || process.env.TEAMOROUTER_KEY || process.env["TeamoRouter API Key"];
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeKey = env.TEAMOROUTER_API_KEY || env.TEAMOROUTER_KEY || env["TeamoRouter API Key"];
+  return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
+}
+
+export async function getTeamoRouterBaseUrl() {
+  const configured = process.env.TEAMOROUTER_BASE_URL;
+  if (configured?.trim()) return configured.trim().replace(/\/$/, "");
+  const env = await runtimeEnv();
+  const runtimeUrl = env.TEAMOROUTER_BASE_URL;
+  return typeof runtimeUrl === "string" && runtimeUrl.trim()
+    ? runtimeUrl.trim().replace(/\/$/, "")
+    : "https://api.teamorouter.com/v1";
+}
+
 export async function getZaiModel(fallback = "glm-4.7-flash") {
   const configured = process.env.ZAI_MODEL;
   if (configured?.trim()) return configured.trim();

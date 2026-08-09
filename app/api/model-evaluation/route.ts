@@ -4,21 +4,33 @@ import { chatComparisonResponses, chatComparisons, usageLogs } from "../../../db
 import { benchmarkCases } from "../../../lib/model-benchmark";
 import { comprehensiveBenchmarkCases } from "../../../lib/comprehensive-benchmark";
 import { estimateCostUsd } from "../../../lib/usage";
-import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenRouterKey, getZaiKey, openAIJson } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenRouterKey, getTeamoRouterBaseUrl, getTeamoRouterKey, getZaiKey, openAIJson } from "../../../lib/openai";
 
-type Provider = "luna" | "qwen" | "terra" | "glm" | "sonnet" | "sol" | "opus" | "deepseek";
+type Provider = "luna" | "qwen" | "terra" | "glm" | "sonnet" | "sol" | "opus" | "deepseek" | "deepseekfree" | "gemini" | "kimi";
+type Gateway = "direct" | "openrouter" | "teamorouter";
 type Bank = "criminal" | "comprehensive";
 const contextType = "model-benchmark-v4";
 const labels: Record<Provider, string> = {
   luna: "Luna", qwen: "千問", terra: "Terra", glm: "GLM", sonnet: "Claude Sonnet 5",
-  sol: "Sol", opus: "Claude Opus 5", deepseek: "DeepSeek V4-Pro",
+  sol: "Sol", opus: "Claude Opus 5", deepseek: "DeepSeek V4-Pro", deepseekfree: "DeepSeek V4 Flash 免費版", gemini: "Gemini 3.6 Flash", kimi: "Kimi K3",
 };
 const openRouterModels: Partial<Record<Provider, string>> = {
   qwen: "qwen/qwen3-max", glm: "z-ai/glm-5.2", sonnet: "anthropic/claude-sonnet-5",
   opus: "anthropic/claude-opus-5", deepseek: "deepseek/deepseek-v4-pro",
 };
+const teamoRouterModels: Partial<Record<Provider, string>> = {
+  luna: "gpt-5.6-luna", terra: "gpt-5.6-terra", sol: "gpt-5.6-sol",
+  sonnet: "claude-sonnet-5", opus: "claude-opus-5", deepseek: "deepseek-v4-pro",
+  deepseekfree: "deepseek-v4-flash-free", glm: "glm-5.2", gemini: "gemini-3.6-flash", kimi: "kimi-k3",
+};
+const gatewayLabels: Record<Gateway, string> = { direct: "原廠 API", openrouter: "OpenRouter", teamorouter: "TeamoRouter" };
+const teamoPrices: Partial<Record<Provider, { input: number; output: number }>> = {
+  luna: { input: .022, output: .132 }, terra: { input: .206, output: 1.24 }, sol: { input: .525, output: 3.15 },
+  sonnet: { input: .356, output: 1.78 }, opus: { input: .815, output: 4.08 }, deepseek: { input: .882, output: 1.76 },
+  deepseekfree: { input: 0, output: 0 }, glm: { input: 1.37, output: 4.31 }, gemini: { input: .32, output: 1.6 }, kimi: { input: 1.5, output: 7.5 },
+};
 
-type Source = { runId?: string; benchmarkId?: number; label?: string; provider?: Provider; bank?: Bank };
+type Source = { runId?: string; benchmarkId?: number; label?: string; provider?: Provider; gateway?: Gateway; bank?: Bank };
 function source(row: { sourceJson: string }): Source { try { return JSON.parse(row.sourceJson) as Source; } catch { return {}; } }
 function questions(bank: Bank) { return bank === "comprehensive" ? comprehensiveBenchmarkCases : benchmarkCases; }
 function outputText(payload: Record<string, unknown>) {
@@ -30,6 +42,7 @@ function outputText(payload: Record<string, unknown>) {
 type CandidateRun = { model: string; text: string; input: number; output: number; duration: number; actualCostUsd?: number };
 function validProvider(value: unknown): value is Provider { return typeof value === "string" && value in labels; }
 function validBank(value: unknown): value is Bank { return value === "criminal" || value === "comprehensive"; }
+function validGateway(value: unknown): value is Gateway { return value === "direct" || value === "openrouter" || value === "teamorouter"; }
 async function selectInBatches<T>(values: number[], load: (batch: number[]) => Promise<T[]>) {
   const rows: T[] = [];
   for (let index = 0; index < values.length; index += 40) rows.push(...await load(values.slice(index, index + 40)));
@@ -53,11 +66,24 @@ async function runOpenRouter(provider: Provider, prompt: string, system: string,
   return { model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started, actualCostUsd: Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : undefined };
 }
 
-async function runCandidate(provider: Provider, prompt: string): Promise<CandidateRun> {
+async function runTeamoRouter(provider: Provider, prompt: string, system: string, started: number): Promise<CandidateRun> {
+  const key = await getTeamoRouterKey(); const model = teamoRouterModels[provider];
+  if (!key) throw new Error("TeamoRouter API Key 尚未設定或未啟用");
+  if (!model) throw new Error(`TeamoRouter 目前未設定 ${labels[provider]} 的模型 ID`);
+  const response = await fetch(`${await getTeamoRouterBaseUrl()}/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .2, max_tokens: 1800 }) });
+  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  if (!response.ok) throw new Error(`TeamoRouter ${labels[provider]} 呼叫失敗：${payload.error?.message || `HTTP ${response.status}`}`);
+  const text = payload.choices?.[0]?.message?.content?.trim() || ""; const input = Number(payload.usage?.prompt_tokens ?? 0); const output = Number(payload.usage?.completion_tokens ?? 0); const price = teamoPrices[provider];
+  const listedCost = price ? input / 1_000_000 * price.input + output / 1_000_000 * price.output : undefined;
+  return { model: payload.model || model, text, input, output, duration: Date.now() - started, actualCostUsd: Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : listedCost };
+}
+
+async function runCandidate(gateway: Gateway, provider: Provider, prompt: string): Promise<CandidateRun> {
   const system = "你是臺灣司律考試法律助教。只依題目事實分析，不得虛構法條、裁判或教材。請辨識爭點、說明法律判準並具體涵攝，控制在700字內。";
   const started = Date.now();
+  if (gateway === "teamorouter") return runTeamoRouter(provider, prompt, system, started);
+  if (gateway === "openrouter") { const routed = await runOpenRouter(provider, prompt, system, started); if (routed) return routed; throw new Error(`OpenRouter 尚未設定 ${labels[provider]} 或缺少 API Key`); }
   if (provider === "luna" || provider === "terra" || provider === "sol") return runOpenAI(provider, prompt, system, started);
-  const routed = await runOpenRouter(provider, prompt, system, started); if (routed) return routed;
   if (provider === "sonnet" || provider === "opus") {
     const key = await getAnthropicKey(); if (!key) throw new Error("OpenRouter 與 Anthropic 金鑰皆未設定");
     const model = provider === "opus" ? "claude-opus-5" : await getAnthropicChatModel("claude-sonnet-5");
@@ -78,7 +104,7 @@ async function runCandidate(provider: Provider, prompt: string): Promise<Candida
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number }; error?: { message?: string } }; if (!response.ok) throw new Error(payload.error?.message || "GLM 呼叫失敗");
     return { model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started };
   }
-  throw new Error(`${labels[provider]} 目前缺少可用的模型連線設定`);
+  throw new Error(`${gatewayLabels[gateway]}目前缺少 ${labels[provider]} 的模型連線設定`);
 }
 
 export async function GET(request: Request) {
@@ -88,33 +114,33 @@ export async function GET(request: Request) {
     const responses = await selectInBatches(ids, (batch) => db.select().from(chatComparisonResponses).where(inArray(chatComparisonResponses.comparisonId, batch)));
     const metas = all.filter((x) => source(x).benchmarkId === 0); const runIds = [...new Set(all.map((x) => source(x).runId).filter(Boolean) as string[])];
     const requested = new URL(request.url).searchParams.get("runId"); const runId = requested && runIds.includes(requested) ? requested : runIds.at(-1) || null;
-    const meta = metas.find((x) => source(x).runId === runId); const settings = source(meta ?? { sourceJson: "{}" }); const bank: Bank = settings.bank ?? "criminal"; const provider: Provider = settings.provider ?? "deepseek";
+    const meta = metas.find((x) => source(x).runId === runId); const settings = source(meta ?? { sourceJson: "{}" }); const bank: Bank = settings.bank ?? "criminal"; const provider: Provider = settings.provider ?? "deepseek"; const gateway: Gateway = settings.gateway ?? "direct";
     const runRows = runId ? all.filter((x) => source(x).runId === runId && source(x).benchmarkId !== 0) : [];
-    const runs = runIds.map((id) => { const m = metas.find((x) => source(x).runId === id); const s = source(m ?? { sourceJson: "{}" }); const cards = all.filter((x) => source(x).runId === id && source(x).benchmarkId !== 0); const answerCount = responses.filter((r) => cards.some((c) => c.id === r.comparisonId)).length; return { id, label: s.label || "舊測試紀錄", startedAt: m?.createdAt, answered: answerCount, completed: answerCount, total: 50, provider: s.provider ?? "deepseek", bank: s.bank ?? "criminal" }; });
-    return Response.json({ target: 50, runId, provider, bank, runs, questions: questions(bank).map((q) => { const card = runRows.find((x) => source(x).benchmarkId === q.id); return { ...q, responses: card ? responses.filter((r) => r.comparisonId === card.id).map((r) => ({ ...r, verdict: null })) : [] }; }) });
+    const runs = runIds.map((id) => { const m = metas.find((x) => source(x).runId === id); const s = source(m ?? { sourceJson: "{}" }); const cards = all.filter((x) => source(x).runId === id && source(x).benchmarkId !== 0); const answerCount = responses.filter((r) => cards.some((c) => c.id === r.comparisonId)).length; return { id, label: s.label || "舊測試紀錄", startedAt: m?.createdAt, answered: answerCount, completed: answerCount, total: 50, provider: s.provider ?? "deepseek", gateway: s.gateway ?? "direct", bank: s.bank ?? "criminal" }; });
+    return Response.json({ target: 50, runId, provider, gateway, bank, runs, questions: questions(bank).map((q) => { const card = runRows.find((x) => source(x).benchmarkId === q.id); return { ...q, responses: card ? responses.filter((r) => r.comparisonId === card.id).map((r) => ({ ...r, verdict: null })) : [] }; }) });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "測試資料讀取失敗" }, { status: 500 }); }
 }
 
 export async function POST(request: Request) {
   let stage = "準備測試";
   try {
-    const body = await request.json() as { action?: string; runId?: string; questionId?: number; provider?: Provider; bank?: Bank }; const db = await getDb();
+    const body = await request.json() as { action?: string; runId?: string; questionId?: number; provider?: Provider; gateway?: Gateway; bank?: Bank }; const db = await getDb();
     if (body.action === "create-run") {
-      if (!validProvider(body.provider) || !validBank(body.bank)) return Response.json({ error: "請先選擇模型與題庫" }, { status: 400 });
+      if (!validProvider(body.provider) || !validGateway(body.gateway) || !validBank(body.bank)) return Response.json({ error: "請先選擇供應商、模型與題庫" }, { status: 400 });
       const runId = `run-${Date.now()}`; const now = new Date(); const label = `${now.toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei" })} ${now.toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit" })}`;
-      await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: `${labels[body.provider]}｜${body.bank === "comprehensive" ? "綜合法科" : "刑法"}50題`, sourceStatus: "run_meta", sourceJson: JSON.stringify({ runId, benchmarkId: 0, label, provider: body.provider, bank: body.bank }) });
+      await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: `${gatewayLabels[body.gateway]}｜${labels[body.provider]}｜${body.bank === "comprehensive" ? "綜合法科" : "刑法"}50題`, sourceStatus: "run_meta", sourceJson: JSON.stringify({ runId, benchmarkId: 0, label, gateway: body.gateway, provider: body.provider, bank: body.bank }) });
       return Response.json({ ok: true, runId });
     }
     const runId = String(body.runId || ""); if (!runId) return Response.json({ error: "測試參數不完整" }, { status: 400 });
     const rows = await db.select().from(chatComparisons).where(eq(chatComparisons.contextType, contextType)); const meta = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === 0); if (!meta) return Response.json({ error: "找不到這一輪測試紀錄" }, { status: 404 });
-    const settings = source(meta); const provider = settings.provider; const bank = settings.bank ?? "criminal"; if (!provider) return Response.json({ error: "舊批次沒有指定單模型，請建立新一輪" }, { status: 400 });
+    const settings = source(meta); const provider = settings.provider; const gateway = settings.gateway ?? "direct"; const bank = settings.bank ?? "criminal"; if (!provider) return Response.json({ error: "舊批次沒有指定單模型，請建立新一輪" }, { status: 400 });
     const q = questions(bank).find((x) => x.id === Number(body.questionId)); if (!q) return Response.json({ error: "找不到題目" }, { status: 404 });
-    let card = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === q.id); if (!card) [card] = await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: q.prompt, sourceStatus: "benchmark_card", sourceJson: JSON.stringify({ runId, benchmarkId: q.id, provider, bank, rule: q.rule, expected: q.expected }) }).returning();
-    const prior = await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId, card.id), eq(chatComparisonResponses.label, labels[provider]))).limit(1); if (prior.length) return Response.json({ ok: true, skipped: true });
-    stage = `${labels[provider]} 作答`; const run = await runCandidate(provider, q.prompt); if (run.text.trim().length < 24) throw new Error(`${labels[provider]} 回答過短或空白`);
+    let card = rows.find((x) => source(x).runId === runId && source(x).benchmarkId === q.id); if (!card) [card] = await db.insert(chatComparisons).values({ userKey: "benchmark", contextType, promptText: q.prompt, sourceStatus: "benchmark_card", sourceJson: JSON.stringify({ runId, benchmarkId: q.id, gateway, provider, bank, rule: q.rule, expected: q.expected }) }).returning();
+    const prior = await db.select().from(chatComparisonResponses).where(and(eq(chatComparisonResponses.comparisonId, card.id), eq(chatComparisonResponses.provider, gateway))).limit(1); if (prior.length) return Response.json({ ok: true, skipped: true });
+    stage = `${gatewayLabels[gateway]} ${labels[provider]} 作答`; const run = await runCandidate(gateway, provider, q.prompt); if (run.text.trim().length < 24) throw new Error(`${labels[provider]} 回答過短或空白`);
     const cost = run.actualCostUsd ?? estimateCostUsd(run.model, { inputTokens: run.input, cachedTokens: 0, outputTokens: run.output });
-    await db.insert(chatComparisonResponses).values({ comparisonId: card.id, provider, model: run.model, label: labels[provider], text: run.text, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(cost * 1e6) });
-    await db.insert(usageLogs).values({ model: run.model, source: `50題法律模型測試 ${runId}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(cost * 1e6) });
+    await db.insert(chatComparisonResponses).values({ comparisonId: card.id, provider: gateway, model: run.model, label: `${labels[provider]}｜${gatewayLabels[gateway]}`, text: run.text, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(cost * 1e6) });
+    await db.insert(usageLogs).values({ model: run.model, source: `${gatewayLabels[gateway]} 50題法律模型測試 ${runId}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(cost * 1e6) });
     return Response.json({ ok: true });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "測試失敗", stage }, { status: 500 }); }
 }
