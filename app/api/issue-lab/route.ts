@@ -48,7 +48,7 @@ async function runModel(key: ModelKey, prompt: string, subject: string) {
   const apiKey = await getTeamoRouterKey();
   if (!apiKey) throw new Error("TeamoRouter API Key 尚未設定或未啟用");
   const config = models[key];
-  const system = `你是臺灣司法官、律師考試的爭點辨識專家。科目是${subject}。任務只有精準抓出題目中必須處理的法律爭點，不要寫完整擬答，不要自行補事實，不要虛構法條、判決或教材。請固定用以下格式：\n一、核心爭點（依得分重要性排序）\n二、每一爭點的觸發事實\n三、容易漏掉的隱藏爭點\n四、不是本題爭點／應排除的干擾\n五、需要題目補充的關鍵事實。\n每個爭點須具體命名並說明為何被題示事實觸發，控制在 900 字內。`;
+  const system = `你是臺灣司法官、律師考試的爭點辨識專家。科目是${subject}。任務只有精準抓出題目中必須處理的法律爭點，不要寫完整擬答，不要自行補事實，不要虛構法條、判決或教材。先依題目中的每一位行為人逐人完成罪名與總則爭點掃描，不得因爭點次要、結論不成立或需要簡短排除而省略；掃描完成後再依重要性整理。請固定用以下格式：\n一、核心配分爭點（依得分重要性排序）\n二、次要但應檢討的爭點\n三、應簡短排除的不成立罪名與理由\n四、每一爭點的觸發事實\n五、真正需要題目補充的關鍵事實（如無，明確寫無）。\n每個爭點須具體命名、盡可能標示法條並說明被哪項題示事實觸發；不得把題目已明示的事實列為待補。控制在 1200 字內。`;
   const started = Date.now();
   const response = await fetch(`${await getTeamoRouterBaseUrl()}/chat/completions`, {
     method: "POST",
@@ -90,7 +90,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: string; prompt?: string; subject?: string; models?: unknown[]; comparisonId?: number; responseId?: number; review?: string };
+    const body = await request.json() as { action?: string; prompt?: string; subject?: string; models?: unknown[]; repetitions?: number; comparisonId?: number; responseId?: number; review?: string };
     const db = await getDb();
     if (body.action === "save-review") {
       const review = String(body.review || "").trim();
@@ -114,17 +114,19 @@ export async function POST(request: Request) {
     const prompt = String(body.prompt || "").trim(); const subject = String(body.subject || "綜合").slice(0, 30);
     const selected = [...new Set((body.models || []).filter(validModel))];
     if (prompt.length < 30) return Response.json({ error: "請貼上完整題目事實（至少 30 字）" }, { status: 400 });
-    if (selected.length < 2) return Response.json({ error: "請至少選擇 2 個模型比較" }, { status: 400 });
-    const [comparison] = await db.insert(chatComparisons).values({ userKey: "issue-lab", contextType, promptText: prompt, sourceStatus: "issue_arena", sourceJson: JSON.stringify({ subject, selected, gateway: "teamorouter" }) }).returning();
-    const settled = await Promise.allSettled(selected.map((key) => runModel(key, prompt, subject)));
+    if (selected.length < 1) return Response.json({ error: "請至少選擇 1 個模型" }, { status: 400 });
+    const repetitions = selected.length === 1 && [1, 3, 5].includes(Number(body.repetitions)) ? Number(body.repetitions) : 1;
+    const runKeys = selected.length === 1 ? Array.from({ length: repetitions }, () => selected[0]) : selected;
+    const [comparison] = await db.insert(chatComparisons).values({ userKey: "issue-lab", contextType, promptText: prompt, sourceStatus: "issue_arena", sourceJson: JSON.stringify({ subject, selected, repetitions, gateway: "teamorouter" }) }).returning();
+    const settled = await Promise.allSettled(runKeys.map((key) => runModel(key, prompt, subject)));
     for (let index = 0; index < settled.length; index += 1) {
-      const result = settled[index]; const key = selected[index]; const config = models[key];
+      const result = settled[index]; const key = runKeys[index]; const config = models[key]; const attemptSuffix = repetitions > 1 ? `｜第 ${index + 1} 次` : "";
       if (result.status === "fulfilled") {
         const run = result.value;
-        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: run.model, label: `${config.vendor}｜${config.label}`, source: key, text: run.text, error: run.error || null, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
+        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: run.model, label: `${config.vendor}｜${config.label}${attemptSuffix}`, source: key, text: run.text, error: run.error || null, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
         await db.insert(usageLogs).values({ model: run.model, source: `TeamoRouter 爭點辨識擂台 #${comparison.id}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
       } else {
-        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: config.id, label: `${config.vendor}｜${config.label}`, source: key, text: "", error: result.reason instanceof Error ? result.reason.message : "模型呼叫失敗" });
+        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: config.id, label: `${config.vendor}｜${config.label}${attemptSuffix}`, source: key, text: "", error: result.reason instanceof Error ? result.reason.message : "模型呼叫失敗" });
       }
     }
     return Response.json({ ok: true, comparisonId: comparison.id });

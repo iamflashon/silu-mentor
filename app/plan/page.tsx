@@ -510,6 +510,19 @@ const bookTeachingLevelLabels: Record<"general" | "beginner" | "intermediate" | 
 };
 
 function problemBookOutline(chapters: ResourceSegment[]) {
+  const outlineOrder = (label: string, kind: "section" | "topic") => {
+    const normalized = label.trim();
+    if (/未分類|待核對|其他/.test(normalized)) return Number.MAX_SAFE_INTEGER;
+    const pattern = kind === "section"
+      ? /(?:第\s*)?(\d+)\s*(?:部|部分)/
+      : /主題\s*(\d+)/;
+    const matched = normalized.match(pattern);
+    return matched ? Number(matched[1]) : Number.MAX_SAFE_INTEGER - 1;
+  };
+  const compareOutlineLabels = (kind: "section" | "topic") =>
+    ([left]: [string, unknown], [right]: [string, unknown]) =>
+      outlineOrder(left, kind) - outlineOrder(right, kind)
+      || left.localeCompare(right, "zh-Hant", { numeric: true });
   const sections = new Map<string, Map<string, ResourceSegment[]>>();
   for (const chapter of chapters) {
     const [rawSection, rawTopic] = chapter.lessonLabel.split("｜");
@@ -522,9 +535,18 @@ function problemBookOutline(chapters: ResourceSegment[]) {
     const topics = sections.get(section)!;
     topics.set(topic, [...(topics.get(topic) ?? []), chapter]);
   }
-  return [...sections].map(([section, topics]) => ({
+  return [...sections]
+    .sort(compareOutlineLabels("section"))
+    .map(([section, topics]) => ({
     section,
-    topics: [...topics].map(([topic, questions]) => ({ topic, questions })),
+    topics: [...topics]
+      .sort(compareOutlineLabels("topic"))
+      .map(([topic, questions]) => ({
+        topic,
+        questions: [...questions].sort(
+          (left, right) => left.sequence - right.sequence || left.id - right.id,
+        ),
+      })),
   }));
 }
 
@@ -687,7 +709,7 @@ export default function StudyPlanPage() {
   const [bookLoadingRole, setBookLoadingRole] = useState<"mentor" | "scholar" | null>(null);
   const [bookSelectedMessageIndex, setBookSelectedMessageIndex] = useState<number | null>(null);
   const [bookQuestionOpen, setBookQuestionOpen] = useState(true);
-  const [bookSettingsOpen, setBookSettingsOpen] = useState(true);
+  const [bookSettingsOpen, setBookSettingsOpen] = useState(false);
   const [bookSettingsPinned, setBookSettingsPinned] = useState(false);
   const [bookModelMode, setBookModelMode] = useState<BookModelMode>("luna");
   const [bookTeachingLevel, setBookTeachingLevel] = useState<"beginner" | "intermediate" | "advanced" | "super" | null>(null);
