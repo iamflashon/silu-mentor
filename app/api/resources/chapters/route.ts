@@ -425,16 +425,21 @@ function pageTextFromItems(items: unknown[]) {
   return cleanSourceText(output);
 }
 
-function problemHeading(line: string) {
+function problemHeadings(line: string) {
   const value = cleanSourceText(line).replace(/\s+/g, " ").trim();
-  if (!value || value.length > 120) return null;
-  const patterns = [
-    /^(?:題型|案例|例題|實例題|練習題)\s*[一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*/u,
-    /^第\s*[一二三四五六七八九十百\d]+\s*題/u,
-    /^【\s*(?:題型|案例|例題|實例題|練習題)[^】]{0,80}】/u,
-    /^(?:\d{2,3}\s*年|民國\s*\d{2,3}\s*年).{0,70}(?:司法官|律師|司律|高考|特考|考試).{0,20}(?:第\s*)?[一二三四五六七八九十百\d]+\s*題/u,
-  ];
-  return patterns.some((pattern) => pattern.test(value)) ? value : null;
+  if (!value) return [];
+  // PDF text extraction frequently joins the running header, section label and
+  // printed problem heading into one long line. Requiring the heading at ^ made
+  // every real question in some books invisible to the sequential page scan.
+  const marker = /(?:【\s*)?(?:題型|案例|例題|實例題|練習題)\s*[一二三四五六七八九十百\d]+(?:[.．、-][一二三四五六七八九十百\d]+)*(?:\s*】)?/gu;
+  const matches = [...value.matchAll(marker)];
+  return matches.map((match, index) => {
+    const start = match.index ?? 0;
+    const next = matches[index + 1]?.index ?? value.length;
+    // Preserve enough of the printed title for an unambiguous match, without
+    // swallowing an entire stem when a PDF page was flattened into one line.
+    return value.slice(start, Math.min(next, start + 180)).trim();
+  });
 }
 
 function problemNumberKey(title: string) {
@@ -456,21 +461,23 @@ function scanSequentialProblemQuestions(pages: Array<typeof resourceSegments.$in
     const lines = page.text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     let cursor = 0;
     for (let index = 0; index < lines.length; index += 1) {
-      const heading = problemHeading(lines[index]);
-      if (!heading) continue;
-      if (current) {
-        const before = lines.slice(cursor, index).join("\n");
-        if (before) current.parts.push(before);
-        const text = cleanSourceText(current.parts.join("\n\n"));
-        questions.push({
-          title: current.title,
-          pageStart: current.pageStart,
-          pageEnd: pageNumber,
-          text,
-          complete: text.length >= 30,
-        });
+      const headings = problemHeadings(lines[index]);
+      if (!headings.length) continue;
+      for (const heading of headings) {
+        if (current) {
+          const before = lines.slice(cursor, index).join("\n");
+          if (before) current.parts.push(before);
+          const text = cleanSourceText(current.parts.join("\n\n"));
+          questions.push({
+            title: current.title,
+            pageStart: current.pageStart,
+            pageEnd: pageNumber,
+            text,
+            complete: text.length >= 30,
+          });
+        }
+        current = { title: heading, pageStart: pageNumber, parts: [heading] };
       }
-      current = { title: heading, pageStart: pageNumber, parts: [heading] };
       cursor = index + 1;
     }
     if (current) {
@@ -513,6 +520,20 @@ function canonicalizeProblemQuestionPages<T extends typeof resourceSegments.$inf
       .filter(([, matches]) => matches.length === 1)
       .map(([key, matches]) => [key, matches[0]] as const),
   );
+  const uniqueSources = [...sourceByTitle.values()];
+  const locateSource = (title: string) => {
+    const key = normalizedHeading(title);
+    const exact = sourceByTitle.get(key);
+    if (exact) return exact;
+    // A flattened PDF line can make the scanned title longer than the saved AI
+    // title. Permit containment only when it identifies one source heading.
+    const contained = uniqueSources.filter((source) => {
+      const sourceKey = normalizedHeading(source.title);
+      return key.length >= 12 && sourceKey.length >= 12
+        && (sourceKey.includes(key) || key.includes(sourceKey));
+    });
+    return contained.length === 1 ? contained[0] : undefined;
+  };
   const byQuestion = new Map<string, T>();
 
   for (const chapter of chapters) {
@@ -521,7 +542,7 @@ function canonicalizeProblemQuestionPages<T extends typeof resourceSegments.$inf
     // range. A whole-book page is authoritative only after its complete
     // printed heading matches a heading found by the sequential PDF scan.
     const titleKey = normalizedHeading(chapter.title);
-    const source = titleKey ? sourceByTitle.get(titleKey) : undefined;
+    const source = titleKey ? locateSource(chapter.title) : undefined;
     const canonical = source
       ? { ...chapter, pageStart: source.pageStart, pageEnd: source.pageEnd }
       : { ...chapter, pageStart: null, pageEnd: null };

@@ -56,16 +56,12 @@ function orderKey(row: BookOrderRow) {
   };
 }
 
-/** Sort by the printed hierarchy, never by extraction or insertion time. */
+/** Sort verified rows by absolute PDF position. Printed topic numbers repeat. */
 export function sortByBookOrder<T extends BookOrderRow>(rows: T[]) {
   return [...rows].sort((left, right) => {
     const a = orderKey(left);
     const b = orderKey(right);
-    return a.part - b.part
-      || a.chapter - b.chapter
-      || compareNumberPath(a.topic, b.topic)
-      || compareNumberPath(a.question, b.question)
-      || a.pageStart - b.pageStart
+    return a.pageStart - b.pageStart
       || a.pageEnd - b.pageEnd
       || a.sequence - b.sequence
       || a.title.localeCompare(b.title, "zh-Hant", { numeric: true });
