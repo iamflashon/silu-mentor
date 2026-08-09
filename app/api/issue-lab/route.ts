@@ -37,6 +37,13 @@ function extractDisplayText(message?: CompatibleMessage) {
   return "";
 }
 
+function providerOptions(key: ModelKey) {
+  if (key === "deepseek") return { temperature: 0.6 };
+  if (key === "glm" || key === "kimi") return { thinking: { type: "disabled" } };
+  if (key === "gemini") return { temperature: 0.1, reasoning_effort: "medium" };
+  return { temperature: 0.1 };
+}
+
 async function runModel(key: ModelKey, prompt: string, subject: string) {
   const apiKey = await getTeamoRouterKey();
   if (!apiKey) throw new Error("TeamoRouter API Key 尚未設定或未啟用");
@@ -49,10 +56,8 @@ async function runModel(key: ModelKey, prompt: string, subject: string) {
     body: JSON.stringify({
       model: config.id,
       messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
-      temperature: .1,
       max_tokens: 3200,
-      ...(key === "gemini" ? { reasoning_effort: "medium" } : {}),
-      ...(["glm", "kimi"].includes(key) ? { thinking: { type: "disabled" } } : {}),
+      ...providerOptions(key),
     }),
   });
   const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: CompatibleMessage; finish_reason?: string | null }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
