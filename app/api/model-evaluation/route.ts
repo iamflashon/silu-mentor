@@ -4,10 +4,10 @@ import { chatComparisonResponses, chatComparisons, usageLogs } from "../../../db
 import { benchmarkCases } from "../../../lib/model-benchmark";
 import { comprehensiveBenchmarkCases } from "../../../lib/comprehensive-benchmark";
 import { estimateCostUsd } from "../../../lib/usage";
-import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenRouterKey, getTeamoRouterBaseUrl, getTeamoRouterKey, getZaiKey, openAIJson } from "../../../lib/openai";
+import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getKimiBaseUrl, getKimiKey, getKimiModel, getOpenAIKey, getOpenRouterKey, getTeamoRouterBaseUrl, getTeamoRouterKey, getZaiKey, openAIJson } from "../../../lib/openai";
 
 type Provider = "luna" | "qwen" | "terra" | "glm" | "sonnet" | "sol" | "opus" | "deepseek" | "deepseekfree" | "gemini" | "kimi";
-type Gateway = "direct" | "openrouter" | "teamorouter";
+type Gateway = "direct" | "openrouter" | "teamorouter" | "kimi";
 type Bank = "criminal" | "comprehensive";
 const contextType = "model-benchmark-v4";
 const labels: Record<Provider, string> = {
@@ -23,7 +23,7 @@ const teamoRouterModels: Partial<Record<Provider, string>> = {
   sonnet: "claude-sonnet-5", opus: "claude-opus-5", deepseek: "deepseek-v4-pro",
   deepseekfree: "deepseek-v4-flash-free", glm: "glm-5.2", gemini: "gemini-3.6-flash", kimi: "kimi-k3",
 };
-const gatewayLabels: Record<Gateway, string> = { direct: "原廠 API", openrouter: "OpenRouter", teamorouter: "TeamoRouter" };
+const gatewayLabels: Record<Gateway, string> = { direct: "原廠 API", openrouter: "OpenRouter", teamorouter: "TeamoRouter", kimi: "Kimi 官方 API" };
 const teamoPrices: Partial<Record<Provider, { input: number; output: number }>> = {
   luna: { input: .022, output: .132 }, terra: { input: .206, output: 1.24 }, sol: { input: .525, output: 3.15 },
   sonnet: { input: .356, output: 1.78 }, opus: { input: .815, output: 4.08 }, deepseek: { input: .882, output: 1.76 },
@@ -43,7 +43,7 @@ function outputText(payload: Record<string, unknown>) {
 type CandidateRun = { model: string; text: string; input: number; output: number; duration: number; actualCostUsd?: number };
 function validProvider(value: unknown): value is Provider { return typeof value === "string" && value in labels; }
 function validBank(value: unknown): value is Bank { return value === "criminal" || value === "comprehensive"; }
-function validGateway(value: unknown): value is Gateway { return value === "direct" || value === "openrouter" || value === "teamorouter"; }
+function validGateway(value: unknown): value is Gateway { return value === "direct" || value === "openrouter" || value === "teamorouter" || value === "kimi"; }
 async function selectInBatches<T>(values: number[], load: (batch: number[]) => Promise<T[]>) {
   const rows: T[] = [];
   for (let index = 0; index < values.length; index += 40) rows.push(...await load(values.slice(index, index + 40)));
@@ -79,9 +79,27 @@ async function runTeamoRouter(provider: Provider, prompt: string, system: string
   return { model: payload.model || model, text, input, output, duration: Date.now() - started, actualCostUsd: Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : listedCost };
 }
 
+async function runKimiOfficial(prompt: string, system: string, started: number): Promise<CandidateRun> {
+  const key = await getKimiKey();
+  if (!key) throw new Error("Kimi 官方 API Key 尚未設定或未啟用");
+  const model = await getKimiModel();
+  const response = await fetch(`${await getKimiBaseUrl()}/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }], temperature: .2, max_tokens: 1800 }),
+  });
+  const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
+  if (!response.ok) throw new Error(`Kimi 官方 API 呼叫失敗：${payload.error?.message || `HTTP ${response.status}`}`);
+  return { model: payload.model || model, text: payload.choices?.[0]?.message?.content?.trim() || "", input: Number(payload.usage?.prompt_tokens ?? 0), output: Number(payload.usage?.completion_tokens ?? 0), duration: Date.now() - started, actualCostUsd: Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : undefined };
+}
+
 async function runCandidate(gateway: Gateway, provider: Provider, prompt: string): Promise<CandidateRun> {
   const system = "你是臺灣司律考試法律助教。只依題目與提供的同組對話紀錄分析，不得替換人物、案件或自行補充事實，不得虛構法條、裁判或教材。若資料不足，必須明示限制並作條件式分析。請辨識爭點、說明法律判準並具體涵攝，控制在700字內。";
   const started = Date.now();
+  if (gateway === "kimi") {
+    if (provider !== "kimi") throw new Error("Kimi 官方 API 目前僅提供 Kimi 官方模型測試");
+    return runKimiOfficial(prompt, system, started);
+  }
   if (gateway === "teamorouter") return runTeamoRouter(provider, prompt, system, started);
   if (gateway === "openrouter") { const routed = await runOpenRouter(provider, prompt, system, started); if (routed) return routed; throw new Error(`OpenRouter 尚未設定 ${labels[provider]} 或缺少 API Key`); }
   if (provider === "luna" || provider === "terra" || provider === "sol") return runOpenAI(provider, prompt, system, started);

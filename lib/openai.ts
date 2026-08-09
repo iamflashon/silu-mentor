@@ -57,6 +57,32 @@ export async function getTeamoRouterKey() {
   return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
 }
 
+export async function getKimiKey() {
+  const configured = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY || process.env["Kimi 官方 API"];
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeKey = env.KIMI_API_KEY || env.MOONSHOT_API_KEY || env["Kimi 官方 API"];
+  return typeof runtimeKey === "string" ? runtimeKey.trim() : "";
+}
+
+export async function getKimiBaseUrl() {
+  const configured = process.env.KIMI_BASE_URL || process.env.MOONSHOT_BASE_URL;
+  if (configured?.trim()) return configured.trim().replace(/\/$/, "");
+  const env = await runtimeEnv();
+  const runtimeUrl = env.KIMI_BASE_URL || env.MOONSHOT_BASE_URL;
+  return typeof runtimeUrl === "string" && runtimeUrl.trim()
+    ? runtimeUrl.trim().replace(/\/$/, "")
+    : "https://api.moonshot.ai/v1";
+}
+
+export async function getKimiModel(fallback = "kimi-k2.5") {
+  const configured = process.env.KIMI_MODEL || process.env.MOONSHOT_MODEL;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeModel = env.KIMI_MODEL || env.MOONSHOT_MODEL;
+  return typeof runtimeModel === "string" && runtimeModel.trim() ? runtimeModel.trim() : fallback;
+}
+
 export async function getTeamoRouterBaseUrl() {
   const configured = process.env.TEAMOROUTER_BASE_URL;
   if (configured?.trim()) return configured.trim().replace(/\/$/, "");
