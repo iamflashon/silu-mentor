@@ -44,6 +44,20 @@ function providerOptions(key: ModelKey) {
   return { temperature: 0.1 };
 }
 
+class ModelCallError extends Error {
+  constructor(message: string, public duration: number, public status?: number) {
+    super(message);
+    this.name = "ModelCallError";
+  }
+}
+
+function providerErrorMessage(status: number, detail?: string) {
+  if (status === 524) return "TeamoRouter 上游模型等待逾時（HTTP 524）。本次未收到 token 用量，平台未記錄費用；是否產生供應商端費用仍以 TeamoRouter 帳單為準。請稍後手動重試。";
+  if (status === 429) return "TeamoRouter 目前請求過多（HTTP 429），請稍後手動重試。";
+  if (status >= 500) return `TeamoRouter 上游服務暫時異常（HTTP ${status}），請稍後手動重試。`;
+  return detail || `TeamoRouter 呼叫失敗（HTTP ${status}）`;
+}
+
 async function runModel(key: ModelKey, prompt: string, subject: string) {
   const apiKey = await getTeamoRouterKey();
   if (!apiKey) throw new Error("TeamoRouter API Key 尚未設定或未啟用");
@@ -56,12 +70,15 @@ async function runModel(key: ModelKey, prompt: string, subject: string) {
     body: JSON.stringify({
       model: config.id,
       messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
-      max_tokens: 3200,
+      // The requested answer is capped at 1,200 Chinese characters. Keeping the
+      // completion budget bounded reduces long-running gateway requests while
+      // still leaving room for all five required sections.
+      max_tokens: key === "sol" ? 2200 : 2600,
       ...providerOptions(key),
     }),
   });
   const payload = await response.json().catch(() => ({})) as { model?: string; choices?: Array<{ message?: CompatibleMessage; finish_reason?: string | null }>; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }; error?: { message?: string } };
-  if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
+  if (!response.ok) throw new ModelCallError(providerErrorMessage(response.status, payload.error?.message), Date.now() - started, response.status);
   const input = Number(payload.usage?.prompt_tokens || 0); const output = Number(payload.usage?.completion_tokens || 0);
   const estimated = Number.isFinite(Number(payload.usage?.cost)) ? Number(payload.usage?.cost) : input / 1e6 * config.input + output / 1e6 * config.output;
   const choice = payload.choices?.[0]; const text = extractDisplayText(choice?.message); const finishReason = String(choice?.finish_reason || "unknown");
@@ -126,7 +143,8 @@ export async function POST(request: Request) {
         await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: run.model, label: `${config.vendor}｜${config.label}${attemptSuffix}`, source: key, text: run.text, error: run.error || null, inputTokens: run.input, outputTokens: run.output, durationMs: run.duration, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
         await db.insert(usageLogs).values({ model: run.model, source: `TeamoRouter 爭點辨識擂台 #${comparison.id}`, inputTokens: run.input, outputTokens: run.output, estimatedCostUsdMicros: Math.round(run.cost * 1e6) });
       } else {
-        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: config.id, label: `${config.vendor}｜${config.label}${attemptSuffix}`, source: key, text: "", error: result.reason instanceof Error ? result.reason.message : "模型呼叫失敗" });
+        const failure = result.reason;
+        await db.insert(chatComparisonResponses).values({ comparisonId: comparison.id, provider: "teamorouter", model: config.id, label: `${config.vendor}｜${config.label}${attemptSuffix}`, source: key, text: "", error: failure instanceof Error ? failure.message : "模型呼叫失敗", durationMs: failure instanceof ModelCallError ? failure.duration : 0 });
       }
     }
     return Response.json({ ok: true, comparisonId: comparison.id });
