@@ -42,7 +42,6 @@ export default function GlobalSelectionTools() {
 
   useEffect(() => {
     const capture = () => {
-      if (lookup) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || !selection.rangeCount || isEditable(selection.anchorNode) || isEditable(selection.focusNode)) return;
       const text = selection.toString().replace(/\s+/g, " ").trim().slice(0, 1200);
@@ -58,7 +57,7 @@ export default function GlobalSelectionTools() {
     document.addEventListener("mouseup", capture);
     document.addEventListener("touchend", capture);
     return () => { document.removeEventListener("mouseup", capture); document.removeEventListener("touchend", capture); };
-  }, [lookup]);
+  }, []);
 
   useEffect(() => {
     if (!position) return;
@@ -104,7 +103,7 @@ export default function GlobalSelectionTools() {
 
   const close = () => { setLookup(null); setSelectedText(""); setLawQuery(""); setJudicialQuery(null); };
   return <>
-    {!lookup && selectedText && position && <div className={`smart-selection-bar global-selection-bar ${position.placement}`} style={{ left: position.left, top: position.top }}><span>已框選：{selectedText}</span>{judicialQuery ? <button type="button" onClick={() => void searchJudicial()}>裁判搜尋</button> : <button type="button" onClick={() => void searchLaw()} disabled={!lawQuery} title={lawQuery ? `搜尋 ${lawQuery}` : "框選內容未辨識出法規名稱與條號"}>法條搜尋</button>}<button type="button" onClick={() => void explain()}>白話解釋</button><button type="button" aria-label="關閉框選工具" onClick={() => dismiss(true)}>×</button></div>}
+    {selectedText && position && <div className={`smart-selection-bar global-selection-bar ${position.placement}`} style={{ left: position.left, top: position.top }}><span>已框選：{selectedText}</span>{judicialQuery ? <button type="button" onClick={() => void searchJudicial()}>裁判搜尋</button> : <button type="button" onClick={() => void searchLaw()} disabled={!lawQuery} title={lawQuery ? `搜尋 ${lawQuery}` : "框選內容未辨識出法規名稱與條號"}>法條搜尋</button>}<button type="button" onClick={() => void explain()}>白話解釋</button><button type="button" aria-label="關閉框選工具" onClick={() => dismiss(true)}>×</button></div>}
     {lookup && <div className="law-lookup-backdrop" role="presentation" onMouseDown={close}>
       <aside className="law-lookup-panel" role="dialog" aria-modal="true" aria-label="智能框選結果" onMouseDown={(event) => event.stopPropagation()}>
         <header><div><span>{lookup.mode === "explain" ? "AI 法律助教｜辨識與拆解" : lookup.decision ? "司法院裁判資料庫｜已下載資料" : "全國法規資料庫｜已下載資料"}</span><h3>{selectedText || "框選內容"}</h3></div><button type="button" onClick={close} aria-label="關閉">×</button></header>

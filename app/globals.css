@@ -16229,6 +16229,21 @@ a {
 }
 .follow-up-compact-button:hover:not(:disabled) { border-color: #4d969d; background: #e3f3f1; color: #245d6a; }
 .follow-up-compact-button:disabled { opacity: .48; cursor: not-allowed; }
+.terra-challenge-button {
+  flex: 0 0 auto;
+  border: 1px solid #c08a8a;
+  border-radius: 7px;
+  background: #fff2f0;
+  color: #8a4141;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.terra-challenge-button:hover:not(:disabled) { border-color: #9f5c5c; background: #ffe5e1; color: #743434; }
+.terra-challenge-button:disabled { opacity: .42; cursor: not-allowed; }
 .model-mode-switch.is-collapsed { padding-bottom: 8px; }
 .model-mode-heading .new-topic-button {
   margin-left: 0;

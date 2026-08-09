@@ -90,7 +90,7 @@ function answerParagraphs(text: string) {
   return clean.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
 }
 function modelLabel(model: string) {
-  return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : /glm-5\.2/i.test(model) ? "GLM-5.2（付費測試）" : /glm/i.test(model) ? "GLM-4.7-Flash（免費測試）" : /sol/i.test(model) ? "Sol 學霸" : "Luna 助教";
+  return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : /glm-5\.2/i.test(model) ? "GLM-5.2（付費測試）" : /glm/i.test(model) ? "GLM-4.7-Flash（免費測試）" : /terra/i.test(model) ? "Terra 質疑者" : /sol/i.test(model) ? "Sol 學霸" : "Luna 助教";
 }
 function MentorAnswerText({ text, label, model, prompt, onAnswerAction, disabled, showLearningActions = false }: { text: string; label: string; model: string; prompt: string; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean; showLearningActions?: boolean }) {
   const paragraphs = answerParagraphs(text);
@@ -191,6 +191,7 @@ export default function Home() {
   const [feedbackTypes, setFeedbackTypes] = useState<string[]>([]);
   const [feedbackNote, setFeedbackNote] = useState("");
   const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [terraChallenging, setTerraChallenging] = useState(false);
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const handoffHandled = useRef(false);
   useEffect(() => {
@@ -747,6 +748,29 @@ export default function Home() {
     }
   }
 
+  async function challengeSelectedMessageWithTerra() {
+    if (thinking || terraChallenging || selectedFollowUps.length !== 1) return;
+    const target = selectedFollowUps[0];
+    if (!/(?:luna|sol)/i.test(target.model)) return;
+    setTerraChallenging(true);
+    try {
+      const response = await fetch("/api/chat/message-challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, prompt: target.prompt, targetText: target.text, targetModel: target.model }) });
+      const result = await response.json() as { challenge?: { text: string; usage: ReplyUsage }; reply?: { text: string; usage: ReplyUsage }; error?: string };
+      if (!response.ok || !result.challenge || !result.reply) throw new Error(result.error ?? "Terra 暫時無法完成質疑。");
+      setMessages((current) => [...current,
+        { role: "mentor", text: result.challenge!.text, model: result.challenge!.usage.model, usage: result.challenge!.usage },
+        { role: "mentor", text: result.reply!.text, model: result.reply!.usage.model, usage: result.reply!.usage },
+      ]);
+      setSelectedFollowUps([]);
+      setSource("AI 補充");
+      setLastUsage(result.reply.usage);
+    } catch (error) {
+      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "Terra 暫時無法完成質疑。" }]);
+    } finally {
+      setTerraChallenging(false);
+    }
+  }
+
   return (
     <main className="coach-shell">
       <header className="topbar">
@@ -894,7 +918,7 @@ export default function Home() {
           <b>學習工具</b>
         </button>
         <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
-          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode === "compare-luna-glm52" ? "Luna＋GLM-5.2" : modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "luna" ? "Luna" : modelMode === "sonnet" ? "Claude Sonnet" : modelMode === "glm" ? "GLM-4.7-Flash（免費測試）" : modelMode === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro"}{settingsPinned ? " · 已固定" : ""}</span><button type="button" className="follow-up-compact-button" onClick={() => pendingTeachingLevel && void runTeachingLevel(pendingTeachingLevel)} disabled={!pendingTeachingLevel || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode === "compare-luna-glm52" ? "Luna＋GLM-5.2" : modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "luna" ? "Luna" : modelMode === "sonnet" ? "Claude Sonnet" : modelMode === "glm" ? "GLM-4.7-Flash（免費測試）" : modelMode === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro"}{settingsPinned ? " · 已固定" : ""}</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="terra-challenge-button" onClick={() => void challengeSelectedMessageWithTerra()} disabled={terraChallenging || thinking || selectedFollowUps.length !== 1 || !/(?:luna|sol)/i.test(selectedFollowUps[0]?.model ?? "")} title="先在 Luna 或 Sol 訊息下方勾選「回覆此訊息」">{terraChallenging ? "Terra 質疑中…" : "Terra 質疑／吐槽"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
