@@ -6686,10 +6686,8 @@ a {
   }
 }
 .issue-sample-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
+  display: grid;
+  gap: 11px;
   padding: 14px 19px;
   border-bottom: 1px solid #e4ebed;
   background: #f4f8f8;
@@ -6706,13 +6704,15 @@ a {
   font-size: 11px;
 }
 .issue-sample-tools > div:last-child {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 520px;
 }
 .student-issue-answer .issue-sample-tools button {
   display: grid;
   gap: 2px;
-  min-width: 108px;
+  min-width: 0;
   padding: 9px 12px;
   border: 1px solid #c8dadd;
   background: #fff;
@@ -6755,8 +6755,7 @@ a {
 }
 @media (max-width: 760px) {
   .issue-sample-tools {
-    align-items: stretch;
-    flex-direction: column;
+    padding: 12px 14px;
   }
   .issue-sample-tools > div:last-child {
     display: grid;
