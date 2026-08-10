@@ -1323,13 +1323,34 @@ a {
 .study-group-heading aside b {
   font-size: 15px;
 }
-.study-group-heading aside button {
+.study-group-heading aside .study-group-topic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
+.study-group-heading aside .study-group-topic-actions button {
   justify-self: start;
   border: 0;
   background: transparent;
   color: #d8e9e6;
   text-decoration: underline;
   cursor: pointer;
+}
+.study-group-heading aside .study-group-topic-actions button.confirm {
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 9px;
+  background: #fff;
+  color: #245d66;
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 4px 12px rgba(10, 46, 55, 0.18);
+}
+.study-group-heading aside .study-group-topic-actions button.confirm:hover {
+  background: #edf8f6;
 }
 .study-group-intro {
   width: min(1220px, calc(100% - 40px));

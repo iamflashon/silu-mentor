@@ -524,9 +524,16 @@ export default function StudyGroup() {
         <aside>
           <small>本次主題</small>
           <b>{topic}</b>
-          <button type="button" onClick={() => setIntroOpen(true)}>
-            更換主題
-          </button>
+          <div className="study-group-topic-actions">
+            {messages.length === 0 && (
+              <button className="confirm" type="button" onClick={begin}>
+                確認並開始討論
+              </button>
+            )}
+            <button type="button" onClick={() => setIntroOpen(true)}>
+              更換主題
+            </button>
+          </div>
         </aside>
       </section>
 
