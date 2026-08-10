@@ -153,7 +153,7 @@ function GradingView({ grading, title }: { grading: EssayGrading; title?: string
   );
 }
 
-export function EssayHistory() {
+export function EssayHistory({ onBack }: { onBack: () => void }) {
   const [attempts, setAttempts] = useState<EssayAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -219,6 +219,7 @@ export function EssayHistory() {
     <section className="essay-history-hub" aria-label="我的申論批改紀錄">
       <header className="essay-history-head">
         <div>
+          <button type="button" className="essay-history-back" onClick={onBack}>← 返回寫申論</button>
           <p>ESSAY GRADING HISTORY</p>
           <h2>我的申論批改</h2>
           <span>每次送出後會自動保存；你可以回看原答案、解題步驟、分項評分與下一步。</span>

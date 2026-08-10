@@ -336,7 +336,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
   const [guidedResumeSessions, setGuidedResumeSessions] = useState<GuidedResumeSession[]>([]);
   const [guidedStateReady, setGuidedStateReady] = useState(false);
   const [guidedSaveStatus, setGuidedSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [essaySubPage, setEssaySubPage] = useState<"question" | "batch" | "history">("question");
+  const [essaySubPage, setEssaySubPage] = useState<"question" | "history">("question");
   const essayRef = useRef<HTMLTextAreaElement | null>(null);
   const clockText = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const essayPages = Math.max(1, Math.ceil(essay.length / 650));
@@ -1242,25 +1242,15 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
           {examType === "essay" && (
             <button
               type="button"
-              className={essaySubPage === "batch" ? "active" : ""}
-              onClick={() => setEssaySubPage("batch")}
-            >
-              批次批改
-            </button>
-          )}
-          {examType === "essay" && (
-            <button
-              type="button"
               className={essaySubPage === "history" ? "active" : ""}
-              onClick={() => setEssaySubPage("history")}
+              onClick={() => setEssaySubPage(essaySubPage === "history" ? "question" : "history")}
             >
-              我的歷次批改
+              {essaySubPage === "history" ? "← 返回寫申論" : "我的歷次批改"}
             </button>
           )}
         </div>
       </div>
-      {examType === "essay" && essaySubPage === "history" && <EssayHistory />}
-      {examType === "essay" && essaySubPage === "batch" && <EssayBatchGrading />}
+      {examType === "essay" && essaySubPage === "history" && <EssayHistory onBack={() => setEssaySubPage("question")} />}
       {examType === "mcq" ? (
         <section className="practice-feature-guide" aria-label="一試功能解說">
           <header>

@@ -21129,6 +21129,24 @@ a {
   font-size: 11px;
   letter-spacing: 0.12em;
 }
+.essay-history-back {
+  margin: 0 0 12px;
+  padding: 8px 13px;
+  border: 1px solid #b8d1da;
+  border-radius: 999px;
+  background: #fff;
+  color: #245c78;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.essay-history-back:hover,
+.essay-history-back:focus-visible {
+  border-color: #2e7897;
+  background: #edf7f8;
+  outline: none;
+}
 .essay-history-head h2 {
   margin: 0;
   color: #245c78;
