@@ -9,11 +9,40 @@ const OWNER_EMAIL = "iamflashon@gmail.com";
 type SampleLevel = "basic" | "intermediate" | "advanced";
 const sampleLabels: Record<SampleLevel, string> = { basic: "基礎擬答", intermediate: "中等擬答", advanced: "高分擬答" };
 function sampleAnswer(answer: string, level: SampleLevel) {
-  const lines = answer.replace(/\*\*/g, "").replace(/\r/g, "\n").split(/\n+|(?<=[。；])\s*/u).map((line) => line.replace(/^[-•\s]+/, "").trim()).filter((line) => line.length >= 10 && line.length <= 220);
-  const likely = lines.filter((line) => /(?:是否|成立|爭點|罪|責任|競合|正犯|共犯|未遂|既遂|故意|過失|因果|歸責)/u.test(line));
-  const issues = [...new Set((likely.length >= 4 ? likely : lines).map((line) => line.replace(/^([一二三四五六七八九十]+)[、.．]\s*/u, "")))].slice(0, 14);
-  const count = level === "basic" ? Math.max(1, Math.ceil(issues.length * .25)) : level === "intermediate" ? Math.max(2, Math.ceil(issues.length * .6)) : issues.length;
-  return issues.slice(0, count).map((line, index) => `${index + 1}. ${line}`).join("\n");
+  const source = answer.replace(/\*\*/g, "").replace(/\r/g, "\n");
+  const chunks = source
+    .split(/\n+|(?<=[。；])\s*/u)
+    .map((line) => line.replace(/^\s*(?:[-•]|\d+[.、．]|[一二三四五六七八九十]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])\s*/u, "").trim())
+    .filter((line) => line.length >= 8);
+  const likely = chunks.filter((line) => /(?:是否|成立|爭點|罪|刑責|責任|競合|正犯|共犯|未遂|既遂|故意|過失|因果|歸責|中止|不能未遂)/u.test(line));
+  const sourceIssues = likely.length >= 3 ? likely : chunks;
+  const seen = new Set<string>();
+  const issues = sourceIssues.flatMap((line) => {
+    const actor = line.match(/^(?:就|關於)?([甲乙丙丁戊己庚辛壬癸])(?:之|的|就|對|將|於|因|以|、|，|\s)/u)?.[1] ?? "本題";
+    const concise = line
+      .replace(/^(?:就|關於)?[甲乙丙丁戊己庚辛壬癸](?:之|的)?(?:刑責|部分)?[：:，、\s]*/u, "")
+      .replace(/^(?:爭點|問題)[：:，、\s]*/u, "")
+      .split(/[。；]/u)[0]
+      .replace(/，(?:惟|然|而|故|又|且|依|蓋).+$/u, "")
+      .trim();
+    if (concise.length < 6) return [];
+    const text = concise.length > 74 ? `${concise.slice(0, 72).replace(/[，、：:]$/u, "")}…` : concise;
+    const key = `${actor}:${text.replace(/[，。？?\s]/gu, "")}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ actor, text: /[？?]$/u.test(text) ? text : `${text}？` }];
+  }).slice(0, 14);
+  const ratio = level === "basic" ? .28 : level === "intermediate" ? .62 : 1;
+  const count = Math.min(issues.length, level === "basic" ? Math.max(2, Math.ceil(issues.length * ratio)) : level === "intermediate" ? Math.max(4, Math.ceil(issues.length * ratio)) : issues.length);
+  const selected = issues.slice(0, count);
+  const groups = new Map<string, string[]>();
+  for (const issue of selected) groups.set(issue.actor, [...(groups.get(issue.actor) ?? []), issue.text]);
+  const numerals = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+  const subNumerals = ["（一）", "（二）", "（三）", "（四）", "（五）", "（六）", "（七）", "（八）"];
+  return [...groups.entries()].map(([actor, rows], groupIndex) => {
+    const heading = actor === "本題" ? `${numerals[groupIndex]}、本題主要爭點` : `${numerals[groupIndex]}、${actor}之刑責`;
+    return `${heading}\n${rows.map((text, index) => `${subNumerals[index] ?? `${index + 1}.`} ${text}`).join("\n")}`;
+  }).join("\n\n");
 }
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();

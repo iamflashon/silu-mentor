@@ -139,7 +139,7 @@ export default function Home() {
   const [greeting, setGreeting] = useState(() => taipeiGreeting());
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(true);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
   const [input, setInput] = useState("");
@@ -311,7 +311,8 @@ export default function Home() {
   useEffect(() => {
     const saved = window.localStorage.getItem("silu-command-rail-side");
     if (saved === "left" || saved === "right") setRailSide(saved);
-    setRailCollapsed(window.localStorage.getItem("silu-command-rail-collapsed") === "true");
+    setRailCollapsed(true);
+    setMobileRailOpen(false);
     setSettingsCollapsed(window.localStorage.getItem("silu-ai-settings-collapsed") === "true");
     const pinned = window.localStorage.getItem(aiSettingsStorageKey);
     if (pinned) {

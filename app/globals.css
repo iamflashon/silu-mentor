@@ -32,6 +32,15 @@ a {
   text-decoration: none;
 }
 
+/* 暫時收斂前台流程：功能與既有資料保留，只隱藏入口及進階區塊。 */
+.issue-challenge-flow,
+.practice-inline-launch,
+.desktop-rail-toggle,
+.mobile-rail-toggle,
+.mobile-rail-backdrop {
+  display: none !important;
+}
+
 .standalone-learning-page .plan-main {
   width: min(1480px, calc(100% - 40px));
   margin: 0 auto;

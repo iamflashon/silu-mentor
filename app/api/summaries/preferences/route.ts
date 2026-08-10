@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { appSettings } from "../../../../db/schema";
 
-const allowedModels = new Set(["luna", "terra", "sol", "claude", "opus", "deepseek", "glm", "glm52"]);
+const allowedModels = new Set(["luna", "sol"]);
 const basicFields = new Set(["summary", "examFocus", "keyPoints", "issueOutline", "commonMistakes", "sourceNotes", "flashcards"]);
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 function settingKey(request: Request) { return `student-summary-preferences:${userKey(request).toLowerCase()}`; }
