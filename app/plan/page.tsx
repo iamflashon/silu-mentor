@@ -792,8 +792,10 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   });
 
   useEffect(() => {
-    setActiveTab(requestedPlanTab());
-  }, []);
+    // Standalone learning routes provide their own tab explicitly. Only the
+    // full learning-center page should restore a tab from the query string.
+    if (!standalone) setActiveTab(requestedPlanTab());
+  }, [standalone]);
   useEffect(() => {
     let localPreference: { pinned?: boolean; modelMode?: string; teachingLevel?: string | null } | null = null;
     try {
