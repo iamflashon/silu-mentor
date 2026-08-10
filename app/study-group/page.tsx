@@ -247,9 +247,15 @@ export default function StudyGroup() {
   }
 
   function fillSimulation(level: StudentLevel) {
-    const lastMessage = [...messages]
+    // Prefer the latest actual member statement. Host flow notices are useful
+    // context for the model, but they are not what a simulated student should
+    // answer in the visible chat.
+    const lastMemberMessage = [...messages]
       .reverse()
-      .find((message) => message.speaker !== "host" || message.text.length > 20);
+      .find((message) => ["luna", "deepseek", "terra", "sol"].includes(message.speaker));
+    const lastMessage =
+      lastMemberMessage ||
+      [...messages].reverse().find((message) => message.speaker !== "host");
     const isAskedToAnswer = Boolean(
       lastMessage &&
         (/@同學/.test(lastMessage.text) ||
@@ -257,37 +263,26 @@ export default function StudyGroup() {
             cleanMarkdown(lastMessage.text),
           )),
     );
-    const lastContext = lastMessage
-      ? `${labels[lastMessage.speaker]}剛才說：「${cleanMarkdown(lastMessage.text).slice(-180)}」`
-      : `目前主題是「${topic}」`;
     const prompts: Record<StudentLevel, string> = isAskedToAnswer
       ? {
-          beginner: `${lastContext}。我的回答是：我會先依你剛才提示的順序，把題目事實分成「做了什麼、是否有正當理由、能否歸責」三步判斷；我目前的結論是，不能只看到結果就直接定罪，還要逐步確認要件。`,
-          intermediate: `${lastContext}。我的判斷是：先確認客觀構成要件與因果歸責，再檢查違法性，最後處理故意、過失及責任；涵攝時必須逐一指出題目中的觸發事實，不能只列法條。這是我對你問題的直接回答，請指出哪一步需要修正。`,
-          advanced: `${lastContext}。我的回答是：這段分析應先固定爭點與判準，再分別檢驗支持與反對結論的事實，最後說明採說理由；若事實不足，應作條件式結論，而不能把爭議轉交給別人。請直接檢核我的答案是否漏掉要件或反對見解。`,
+          beginner: `我的回答是：我會先依你剛才提示的順序，把題目事實分成「做了什麼、是否有正當理由、能否歸責」三步判斷；我目前的結論是，不能只看到結果就直接定罪，還要逐步確認要件。`,
+          intermediate: `我的判斷是：先確認客觀構成要件與因果歸責，再檢查違法性，最後處理故意、過失及責任；涵攝時必須逐一指出題目中的觸發事實，不能只列法條。請指出我的哪一步需要修正。`,
+          advanced: `我的回答是：這段分析應先固定爭點與判準，再分別檢驗支持與反對結論的事實，最後說明採說理由；若事實不足，應作條件式結論，而不能把爭議轉交給別人。請直接檢核我的答案是否漏掉要件或反對見解。`,
         }
       : {
-          beginner: `${lastContext}。我還不太懂這句話真正要判斷什麼，可以針對這一點換成更白話的說法，再舉一個生活例子嗎？`,
-          intermediate: `${lastContext}。如果承接這個結論，構成要件與涵攝時最容易漏掉哪一步？可以給我一個邊界案例，讓我先判斷嗎？`,
-          advanced: `${lastContext}。我想直接檢驗這段論證：它是否忽略相反學說、實務例外或事實不足？請 Terra 先提出最強質疑，再由原發言者回應，最後才請 Sol 校準。`,
+          beginner: `我還不太懂剛才這句話真正要判斷什麼，可以針對這一點換成更白話的說法，再舉一個生活例子嗎？`,
+          intermediate: `如果承接剛才的結論，構成要件與涵攝時最容易漏掉哪一步？可以給我一個邊界案例，讓我先判斷嗎？`,
+          advanced: `我的質疑是：這段論證雖然修正了「結果未發生」的狹隘說法，但目前沒有交代相反學說、實務可能採取的例外，也沒有說明本題事實是否足以支持該結論。因此我認為現在只能作條件式判斷，不能直接當成唯一答案。請你先回應我這個質疑。`,
         };
-    if (isAskedToAnswer) {
-      setTarget(
-        lastMessage && ["luna", "deepseek", "terra", "sol"].includes(lastMessage.speaker)
-          ? (lastMessage.speaker as Member)
-          : "host",
-      );
-      setMood("quiet");
-    } else {
-      setTarget(
-        level === "beginner"
-          ? "luna"
-          : level === "intermediate"
-            ? "host"
-            : "free",
-      );
-      setMood(level === "advanced" ? "lively" : "natural");
-    }
+    // A simulated student must answer or question the latest speaker in their
+    // own voice. It must not silently start a multi-agent relay merely because
+    // the student level is advanced.
+    setTarget(
+      lastMessage && ["luna", "deepseek", "terra", "sol"].includes(lastMessage.speaker)
+        ? (lastMessage.speaker as Member)
+        : "host",
+    );
+    setMood("quiet");
     setInput(prompts[level]);
     setQuote(null);
   }
