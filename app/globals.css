@@ -24561,7 +24561,38 @@ a {
 }
 @media (max-width: 620px) {
   .model-mode-switch {
-    padding-inline: 9px;
+    gap: 5px;
+    padding: 6px 8px;
+    border-radius: 11px;
+  }
+  .model-mode-switch.is-collapsed {
+    padding-bottom: 6px;
+  }
+  .model-mode-heading {
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .model-mode-heading::-webkit-scrollbar {
+    display: none;
+  }
+  .model-mode-heading strong {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .model-mode-heading .model-mode-summary {
+    display: none;
+  }
+  .model-mode-heading button,
+  .model-mode-heading .new-topic-button {
+    flex: 0 0 auto;
+    margin-left: 0;
+    padding: 4px 7px;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
   }
   .model-mode-fields,
   .book-ai-fields {
