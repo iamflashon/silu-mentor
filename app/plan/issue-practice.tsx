@@ -80,11 +80,17 @@ export function IssuePractice() {
   async function submit(model: "luna" | "sol") {
     if (!selected || studentIssues.trim().length < 10 || loading) return;
     setLoading(model); setError("");
-    const response = await fetch("/api/issue-practice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: selected.id, studentIssues, model, sampleLevel }) });
-    const data = await response.json(); setLoading(null);
-    if (!response.ok) return setError(data.error || "AI 比對失敗");
-    setResults((current) => ({ ...current, [model]: data as Result })); setActiveResult(model);
-    setHistoryIds((current) => new Set(current).add(selected.id)); setSavedNotice("本題練習與回答已保存");
+    try {
+      const response = await fetch("/api/issue-practice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: selected.id, studentIssues, model, sampleLevel }) });
+      const data = await response.json();
+      if (!response.ok) return setError(data.error || "AI 比對失敗");
+      setResults((current) => ({ ...current, [model]: data as Result })); setActiveResult(model);
+      setHistoryIds((current) => new Set(current).add(selected.id)); setSavedNotice("本題練習與回答已保存");
+    } catch {
+      setError("連線中斷，答案仍保留在文字框內，請重新送出比對");
+    } finally {
+      setLoading(null);
+    }
   }
 
   async function loadSample(level: SampleLevel) {

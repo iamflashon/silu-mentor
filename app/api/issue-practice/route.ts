@@ -233,8 +233,21 @@ export async function POST(request: Request) {
     const safeInstructions = `${instructions}\n再次確認：只可輸出純文字與自然換行，不得輸出 Markdown 星號、井號、底線、反引號、表格或程式碼區塊。`;
     const input = `【題目｜第一階段必須先獨立解題】\n${question.stem}\n\n【學生寫下的爭點｜完成獨立解題後才可比對】\n${studentIssues}\n\n【同題老師擬答／解析｜用於校準，不是爭點上限】\n${question.teacherAnswer.slice(0, 15000)}`;
     const started = Date.now();
-    const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: safeInstructions, input, max_output_tokens: requestedModel === "sol" ? 2400 : 2000 }) }) as Record<string, unknown>;
-    const rawText = outputText(payload); if (!rawText) return Response.json({ error: "AI 沒有產生可顯示的分析，請稍後再試" }, { status: 502 });
+    let payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: safeInstructions, input, max_output_tokens: requestedModel === "sol" ? 6000 : 5000 }) }) as Record<string, unknown>;
+    let rawText = outputText(payload);
+    // Long 100-point questions can exhaust the model's reasoning allowance
+    // before it emits a final answer. Retry once with an explicitly concise
+    // final-output instruction instead of returning an opaque 502 to the user.
+    if (!rawText) {
+      payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model,
+        instructions: `${safeInstructions}\n這是精簡重試：立即輸出最終評語，不得停留在內部分析；每個固定標題保留必要結論即可，全文不得超過1200字。`,
+        input,
+        max_output_tokens: requestedModel === "sol" ? 7000 : 6000,
+      }) }) as Record<string, unknown>;
+      rawText = outputText(payload);
+    }
+    if (!rawText) return Response.json({ error: "這題內容較長，Luna 本次未完成最終評語；請按一次重新比對" }, { status: 502 });
     const text = requestedModel === "sol" ? rawText : applyFixedIssueScore(rawText);
     const usage = (payload.usage ?? {}) as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
     const inputTokens = Number(usage.input_tokens ?? 0); const outputTokens = Number(usage.output_tokens ?? 0); const cachedTokens = Number(usage.input_tokens_details?.cached_tokens ?? 0);
