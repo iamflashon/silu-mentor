@@ -178,6 +178,26 @@ export async function POST(request: Request) {
     if (body.action === "sample") {
       if (request.headers.get("oai-authenticated-user-email") !== OWNER_EMAIL) return Response.json({ error: "三種擬答是管理者測試工具" }, { status: 403 });
       const level: SampleLevel = body.sampleLevel === "advanced" ? "advanced" : body.sampleLevel === "intermediate" ? "intermediate" : "basic";
+      if (level === "advanced" && await getOpenAIKey()) {
+        const model = "gpt-5.6-sol";
+        const started = Date.now();
+        const payload = await openAIJson("/responses", {
+          method: "POST",
+          body: JSON.stringify({
+            model,
+            instructions: `你是臺灣司法官、律師二試的高分考生。請產生一份「爭點清單」，用來測試另一個模型能否正確判級。必須先只依原始題目獨立完整解題，再用老師擬答校準採說；老師擬答不是爭點上限。依每位行為人分組，逐項使用「具體行為＋罪名／法律問題＋必要判斷方向」表達。必須涵蓋題示事實直接觸發的獨立罪名、加重事由、未遂／既遂、正犯／共犯、主觀故意範圍、違法性、責任及罪數競合。老師未寫但原題明確觸發的必要爭點仍須列入；邊緣爭議或事實不足者只能以條件式簡短列示。不得補造事實，不得寫成完整擬答，不得加入自我評語。只輸出可直接貼入文字框的繁體中文爭點清單，第一層固定依「一、甲之刑責」「二、乙之刑責」排列。`,
+            input: `【原始題目】\n${question.stem}\n\n【老師解析／擬答】\n${question.teacherAnswer.slice(0, 16000)}`,
+            max_output_tokens: 1800,
+          }),
+        }) as Record<string, unknown>;
+        const text = outputText(payload);
+        if (text) {
+          const { inputTokens, outputTokens, cachedTokens } = tokenUsage(payload);
+          const estimatedCostUsd = estimateSimple(model, inputTokens, outputTokens, cachedTokens);
+          await db.insert(usageLogs).values({ source: "練爭點／高分測試樣本", model, inputTokens, outputTokens, cachedTokens, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1e6) });
+          return Response.json({ text, level, label: sampleLabels[level], generator: { model, inputTokens, outputTokens, cachedTokens, estimatedCostUsd, durationMs: Date.now() - started } });
+        }
+      }
       return Response.json({ text: sampleAnswer(question.teacherAnswer, level), level, label: sampleLabels[level] });
     }
     if (["sol-review-luna", "challenge", "reply"].includes(body.action ?? "")) {

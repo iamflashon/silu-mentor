@@ -93,7 +93,8 @@ export function IssuePractice() {
     const response = await fetch("/api/issue-practice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sample", questionId: selected.id, sampleLevel: level }) });
     const data = await response.json(); setSampleLoading(null);
     if (!response.ok) return setError(data.error || "測試擬答讀取失敗");
-    setStudentIssues(String(data.text || "")); setSampleLevel(level); setStudentSupplement(""); setSavedNotice("");
+    setStudentIssues(String(data.text || "")); setSampleLevel(level); setStudentSupplement("");
+    setSavedNotice(data.generator ? `高分樣本已由 ${data.generator.model} 獨立解題產生，成本與用量已記錄` : "");
     requestAnimationFrame(() => {
       if (!issuesTextareaRef.current) return;
       issuesTextareaRef.current.scrollTop = 0;
