@@ -98,7 +98,10 @@ export default function GlobalSelectionTools() {
     setLookup({ ...current, mode: "explain", loading: !lookup, explaining: true, error: "" });
     const reference = current.article ?? (current.decision ? { title: current.decision.court, articleNo: `${current.decision.year}年度${current.decision.caseType}字第${current.decision.caseNo}號`, content: current.decision.fullText || current.decision.excerpt } : null);
     const response = await fetch("/api/legal-explain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ selectedText, article: reference }) }); const data = await response.json();
-    setLookup((latest) => latest ? { ...latest, mode: "explain", loading: false, explaining: false, explanation: response.ok ? String(data.explanation || "") : "", analysis: response.ok ? data.analysis ?? null : null, usage: response.ok ? data.usage ?? null : null, error: response.ok ? "" : data.error || "白話解釋暫時無法完成。" } : latest);
+    const explanation = typeof data.explanation === "string" ? data.explanation.trim() : "";
+    const looksLikeRawJson = explanation.startsWith("{") || explanation.includes('"analysis"') || explanation.includes('"explanation"');
+    const valid = response.ok && explanation.length > 0 && !looksLikeRawJson;
+    setLookup((latest) => latest ? { ...latest, mode: "explain", loading: false, explaining: false, explanation: valid ? explanation : "", analysis: valid && data.analysis && typeof data.analysis === "object" ? data.analysis : null, usage: valid ? data.usage ?? null : null, error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。" } : latest);
   }
 
   const close = () => { setLookup(null); setSelectedText(""); setLawQuery(""); setJudicialQuery(null); };

@@ -9,13 +9,42 @@ function outputText(payload: Record<string, unknown>) {
   return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []).map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim();
 }
 
-function parseStructured(text: string) {
+type LegalAnalysis = { kind: string; officialName: string; legalField: string; nature: string; reference: string; points: string[]; verification: string; caveat: string };
+type StructuredExplanation = { explanation: string; analysis: LegalAnalysis };
+
+const responseFormat = {
+  type: "json_schema",
+  name: "legal_explanation",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      analysis: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string" }, officialName: { type: "string" }, legalField: { type: "string" }, nature: { type: "string" },
+          reference: { type: "string" }, points: { type: "array", items: { type: "string" } }, verification: { type: "string" }, caveat: { type: "string" },
+        },
+        required: ["kind", "officialName", "legalField", "nature", "reference", "points", "verification", "caveat"],
+      },
+      explanation: { type: "string" },
+    },
+    required: ["analysis", "explanation"],
+  },
+};
+
+function parseStructured(text: string): StructuredExplanation | null {
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   try {
-    const value = JSON.parse(cleaned) as { explanation?: unknown; analysis?: unknown };
-    return { explanation: String(value.explanation ?? "").trim(), analysis: value.analysis && typeof value.analysis === "object" ? value.analysis : null };
+    const value = JSON.parse(cleaned) as { explanation?: unknown; analysis?: Partial<LegalAnalysis> };
+    const explanation = typeof value.explanation === "string" ? value.explanation.trim() : "";
+    if (!explanation || !value.analysis || typeof value.analysis !== "object" || Array.isArray(value.analysis)) return null;
+    const points = Array.isArray(value.analysis.points) ? value.analysis.points.filter((item): item is string => typeof item === "string") : [];
+    return { explanation, analysis: { kind: String(value.analysis.kind ?? ""), officialName: String(value.analysis.officialName ?? ""), legalField: String(value.analysis.legalField ?? ""), nature: String(value.analysis.nature ?? ""), reference: String(value.analysis.reference ?? ""), points, verification: String(value.analysis.verification ?? ""), caveat: String(value.analysis.caveat ?? "") } };
   } catch {
-    return { explanation: text, analysis: null };
+    return null;
   }
 }
 
@@ -30,13 +59,20 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "白話解釋模型尚未設定。" }, { status: 503 });
     const model = "gpt-5.6-luna";
     const startedAt = Date.now();
-    const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+    const requestBody = {
       model,
-      instructions: `你是臺灣法律學習助教。辨識框選內容屬於法條、裁判字號、法律概念、學說或一般法律文字，並做考試導向的白話拆解。法規簡稱必須正規化，例如「憲訴法」是「憲法訴訟法」、「民訴法」是「民事訴訟法」、「刑訴法」是「刑事訴訟法」。若能辨識條、項、款，逐層拆開。只有提供資料庫原文時，才可說已核對原文；否則應註明仍須查證，不得補造條文、裁判或題目事實。輸出必須是單一 JSON 物件，不要 markdown：{"analysis":{"kind":"類型","officialName":"正式名稱或空字串","legalField":"法領域","nature":"法律性質","reference":"法規／條／項／款的完整拆解或空字串","points":["重點1","重點2"],"verification":"建議查證來源","caveat":"必要提醒"},"explanation":"150至300字白話解釋"}`,
+      instructions: "你是臺灣法律學習助教。辨識框選內容屬於法條、裁判字號、法律概念、學說或一般法律文字，並做考試導向的白話拆解。法規簡稱必須正規化。若能辨識條、項、款，逐層拆開。只有提供資料庫原文時，才可說已核對原文；否則應註明仍須查證，不得補造條文、裁判或題目事實。白話解釋限150至300字。",
       input: content ? `【框選文字】\n${selectedText}\n\n【已下載法規資料庫原文】\n${title} ${articleNo}\n${content}` : `【框選文字】\n${selectedText}`,
-      max_output_tokens: 700,
-    }) }) as Record<string, unknown>;
-    const parsed = parseStructured(outputText(payload));
+      text: { format: responseFormat },
+      max_output_tokens: 1000,
+    };
+    let payload: Record<string, unknown> = {};
+    let parsed: StructuredExplanation | null = null;
+    for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+      payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify(requestBody) }) as Record<string, unknown>;
+      parsed = parseStructured(outputText(payload));
+    }
+    if (!parsed) return Response.json({ error: "AI 回傳格式不完整，請再試一次。" }, { status: 502 });
     const explanation = parsed.explanation;
     if (!explanation) return Response.json({ error: "未產生可顯示的白話解釋。" }, { status: 502 });
     const usage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
