@@ -2769,10 +2769,8 @@ a {
   gap: 9px;
   width: min(100%, 960px);
 }
-@media (min-width: 768px) {
-  .option-grid.short-options {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.option-grid.single-column-options {
+  grid-template-columns: minmax(0, 1fr) !important;
 }
 .option-grid button {
   display: flex;
