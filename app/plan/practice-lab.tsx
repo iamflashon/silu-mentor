@@ -560,6 +560,8 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
       questionId?: number;
     },
   ) {
+    // 指定題目時先清除舊題，避免選題預覽已更新、下方仍暫留上一題。
+    if (filters?.questionId) setQuestion(null);
     setGuidedStateReady(false);
     setGuidedSaveStatus("idle");
     setLoading(true);
@@ -725,11 +727,12 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
     setFeedback("");
   }
 
-  function chooseEssayQuestion(questionId: number) {
+  async function chooseEssayQuestion(questionId: number) {
     setSelectedCoachMessageIndex(null);
     setEssayPickerId(String(questionId));
     setEssayPickerOpen(false);
-    void loadQuestion("essay", { questionId });
+    await loadQuestion("essay", { questionId });
+    if (essayMode === "exam") beginMockExam();
   }
 
   function reopenEssayPicker() {
@@ -1422,7 +1425,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
               {!essayPickerOpen && question && <button type="button" onClick={reopenEssayPicker}>重新挑題</button>}
             </header>
             {(essayPickerOpen || !question) && <>
-              {guidedResumeSessions.length > 0 && (
+              {essayMode === "guided" && guidedResumeSessions.length > 0 && (
                 <div className="guided-resume-panel" aria-label="繼續上次的引導學習">
                   <div>
                     <strong>繼續上次的引導</strong>
@@ -1445,7 +1448,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
               </div>
               {essayPickerLoading && <p className="essay-question-picker-status">正在讀取已發布的二試題目…</p>}
               {!essayPickerLoading && essayPickerYear && essayPickerSubject && !essayPickerQuestions.length && <p className="essay-question-picker-status">這個年度與類科目前沒有可選題目。</p>}
-              {selectedEssayOption && String(selectedEssayOption.id) === essayPickerId && <div className="essay-question-picker-preview"><div><b>{selectedEssayOption.year} 年｜{selectedEssayOption.subject}｜第 {selectedEssayOption.questionNumber} 題</b><p>{selectedEssayOption.stem.slice(0, 180)}{selectedEssayOption.stem.length > 180 ? "…" : ""}</p></div><button type="button" className="essay-question-picker-confirm" onClick={() => chooseEssayQuestion(selectedEssayOption.id)}>{essayMode === "exam" ? "使用這一題，進入擬真考試" : "使用這一題，開始引導"}</button></div>}
+              {selectedEssayOption && String(selectedEssayOption.id) === essayPickerId && <div className="essay-question-picker-preview"><div><b>{selectedEssayOption.year} 年｜{selectedEssayOption.subject}｜第 {selectedEssayOption.questionNumber} 題</b><p>{selectedEssayOption.stem.slice(0, 180)}{selectedEssayOption.stem.length > 180 ? "…" : ""}</p></div><button type="button" className="essay-question-picker-confirm" disabled={loading} onClick={() => void chooseEssayQuestion(selectedEssayOption.id)}>{loading ? "正在載入這一題…" : essayMode === "exam" ? "使用這一題，進入擬真考試" : "使用這一題，開始引導"}</button></div>}
             </>}
           </section>
           {essayMode === "exam" && !examStarted && (
@@ -1464,39 +1467,14 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                   <option value={120}>120 分鐘</option>
                 </select>
               </label>
-              <label>
-                年度
-                <select
-                  value={filterYear}
-                  onChange={(event) => setFilterYear(event.target.value)}
-                >
-                  <option value="">全部年度</option>
-                  {facets.years.map((year) => (
-                    <option key={year}>{year}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                科目
-                <select
-                  value={filterSubject}
-                  onChange={(event) => setFilterSubject(event.target.value)}
-                >
-                  <option value="">全部科目</option>
-                  {facets.subjects.map((subject) => (
-                    <option key={subject}>{subject}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="mock-exam-selected-question">
+                <span>本次考題</span>
+                <b>{question ? `${question.year} 年｜${question.subject}｜第 ${question.questionNumber} 題` : "請先在上方選定題目"}</b>
+              </div>
               <button
                 type="button"
-                onClick={() => {
-                  void loadQuestion("essay", {
-                    year: filterYear,
-                    subject: filterSubject,
-                  });
-                  beginMockExam();
-                }}
+                disabled={!question || loading || (essayPickerId && String(question.id) !== essayPickerId)}
+                onClick={beginMockExam}
               >
                 開始考試
               </button>
