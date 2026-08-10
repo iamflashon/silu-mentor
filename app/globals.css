@@ -2367,6 +2367,9 @@ a {
   border-left: 0;
   padding-left: 0;
 }
+.mobile-primary-tabs {
+  display: none;
+}
 .study-ticker {
   position: sticky;
   top: 72px;
@@ -19532,11 +19535,8 @@ a {
     gap: 9px;
     font-size: 10px;
   }
-  .top-actions .admin-link {
-    padding-left: 9px;
-  }
-  .top-actions .admin-link:last-child {
-    display: inline-flex;
+  .top-actions > .admin-link {
+    display: none;
   }
   .study-ticker {
     top: 52px;
@@ -19544,6 +19544,42 @@ a {
     padding: 0 14px;
     gap: 8px;
     font-size: 9px;
+  }
+  .mobile-primary-tabs {
+    position: sticky;
+    top: 81px;
+    z-index: 8;
+    display: flex;
+    width: 100%;
+    min-height: 48px;
+    overflow-x: auto;
+    border-bottom: 1px solid #d5e2ea;
+    background: rgba(250, 252, 253, 0.97);
+    box-shadow: 0 4px 14px rgba(38, 75, 99, 0.06);
+    scrollbar-width: none;
+  }
+  .mobile-primary-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile-primary-tabs a {
+    flex: 1 0 25%;
+    min-width: 82px;
+    min-height: 48px;
+    display: grid;
+    place-items: center;
+    padding: 0 12px;
+    border-right: 1px solid #e0e9ef;
+    color: #214b68;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .mobile-primary-tabs a:last-child {
+    border-right: 0;
+  }
+  .mobile-primary-tabs a:active {
+    background: #eaf3f8;
   }
   .home-learning-shortcuts {
     min-height: 46px;
