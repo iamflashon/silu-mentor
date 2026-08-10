@@ -127,6 +127,7 @@ function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedK
   </section>;
 }
 export default function Home() {
+  const [mobileAnswerLayout, setMobileAnswerLayout] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [solReviewingIndex, setSolReviewingIndex] = useState<number | null>(null);
   const [solReviewedIndexes, setSolReviewedIndexes] = useState<number[]>([]);
@@ -197,6 +198,19 @@ export default function Home() {
   const handoffHandled = useRef(false);
   useEffect(() => {
     fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
+  }, []);
+  useEffect(() => {
+    const syncAnswerLayout = () => {
+      const mobileUserAgent = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      setMobileAnswerLayout(window.matchMedia("(max-width: 767px)").matches || (navigator.maxTouchPoints > 0 && mobileUserAgent));
+    };
+    syncAnswerLayout();
+    window.addEventListener("resize", syncAnswerLayout);
+    window.visualViewport?.addEventListener("resize", syncAnswerLayout);
+    return () => {
+      window.removeEventListener("resize", syncAnswerLayout);
+      window.visualViewport?.removeEventListener("resize", syncAnswerLayout);
+    };
   }, []);
   const nextExam = useMemo(() => {
     const todayValue = Date.parse(`${today}T00:00:00Z`);
@@ -869,7 +883,7 @@ export default function Home() {
         {practiceQuestion && <section className="practice-card" aria-label="對話中的真題教練">
           <div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year}年｜{practiceQuestion.examName || "類科待辨識"}｜{practiceQuestion.subject}｜第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div>
           <p className="practice-stem">{practiceQuestion.stem}</p>
-          {practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className={`option-grid ${Object.values(practiceQuestion.options).every((option) => option.length <= 40) ? "short-options" : "long-options"}`}>{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={beginEssayCoach}>開始學審題</button>}
+          {practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className={`option-grid ${mobileAnswerLayout ? "mobile-options" : ""} ${Object.values(practiceQuestion.options).every((option) => option.length <= 40) ? "short-options" : "long-options"}`}>{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={beginEssayCoach}>開始學審題</button>}
           {practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。請在下方直接回答教練。</span></div>}
           {practiceCoachMessages.length > 0 && <section className="practice-coach home-practice-coach">
             <header><div><span>真題教練</span><h3>直接在這道題裡回答</h3></div></header>
