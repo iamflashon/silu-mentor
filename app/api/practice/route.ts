@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     }
     let options: Record<string, string> | null = null;
     try { options = question.optionsJson ? JSON.parse(question.optionsJson) as Record<string, string> : null; } catch { options = null; }
-    return Response.json({ question: { id: question.id, examType: question.examType, year: question.year, examName: question.examName, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), answerSource: question.answerSource, answerStatus: question.answerStatus } });
+    return Response.json({ question: { id: question.id, examType: question.examType, year: question.year, examName: question.examName, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), teacherAnswer: question.examType === "essay" ? question.teacherAnswer : undefined, answerSource: question.answerSource, answerStatus: question.answerStatus } });
   } catch { return Response.json({ error: "真題庫暫時無法讀取" }, { status: 503 }); }
 }
 

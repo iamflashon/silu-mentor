@@ -67,6 +67,8 @@ class EssayModelError extends Error {
 
 const gradingInstructions = `你是台灣司律二試申論閱卷教練。必須以「高點名師參考擬答」及其明確評分重點作為主要核對依據，但不能用文字相似度代替法律評價。請檢查學生是否審對題目、列出關鍵爭點、使用正確規範、完成事實涵攝、提出結論，並檢查架構與表達。老師擬答是參考解答，不是唯一文字答案；學生採不同但有法律理由的見解時，應標示為可接受或需補強，不要直接判錯。只根據題目、老師擬答與提供的評分點，不能補造未提供的老師見解。回覆繁體中文，分項指出學生原文證據、漏寫點與下一個修正動作。
 
+評分必須使用題目提供的 original_max_score，不得自行改成百分制。dimensions 各項 max_score 合計必須等於 original_max_score，score 必須等於 dimensions 各項 score 合計。若老師未提供細項配分，才可在 original_max_score 內合理分配，但不得改變總滿分。不得另寫一份 AI 建議擬答；任務只有依老師擬答分析學生的答對、漏寫、寫錯與修正方向。
+
 批改結果必須包含 solution_steps，固定依序提供 5 個解題過程步驟：1 審題與定位問題、2 爭點拆解、3 規範與要件、4 事實涵攝、5 結論與作答整理。每一步都要說明本步在處理什麼、學生目前做到什麼、依題目與參考擬答應如何推理，以及下一個可立即修正的動作；不能只列標題或重複總評。`;
 
 const gradingSchema = {
@@ -241,23 +243,46 @@ function parseModelGrading(modelLabel: string, raw: string) {
   }
 }
 
+function originalMaxScore(question: { stem: string; rubricJson: string }) {
+  const rubric = parseRubric(question.rubricJson);
+  const rubricTotal = rubric.reduce((sum, item) => {
+    if (!item || typeof item !== "object") return sum;
+    const raw = item as Record<string, unknown>;
+    const value = Number(raw.max_score ?? raw.maxScore ?? raw.score ?? raw.points ?? 0);
+    return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+  }, 0);
+  if (rubricTotal > 0) return rubricTotal;
+  const matches = [...question.stem.matchAll(/[（(]\s*(\d{1,3})\s*分\s*[）)]/g)];
+  const stated = Number(matches.at(-1)?.[1] ?? 0);
+  return stated > 0 ? stated : 100;
+}
+
 function gradingInput(question: {
   stem: string;
   teacherAnswer: string;
   teacherNotes: string;
   rubricJson: string;
 }, answer: string) {
+  const rubric = parseRubric(question.rubricJson);
+  const maxScore = originalMaxScore(question);
   return JSON.stringify(
     {
       question: question.stem,
       teacher_answer: question.teacherAnswer,
       teacher_notes: question.teacherNotes,
-      rubric: parseRubric(question.rubricJson),
+      rubric,
+      original_max_score: maxScore,
       student_answer: answer,
     },
     null,
     2,
   );
+}
+
+function normalizeGradingScale(grading: EssayGrading, question: { stem: string; rubricJson: string }) {
+  const maxScore = originalMaxScore(question);
+  const dimensionScore = grading.dimensions.reduce((sum, item) => sum + Math.max(0, Math.min(Number(item.score) || 0, Number(item.max_score) || 0)), 0);
+  return { ...grading, score: Math.min(maxScore, dimensionScore), max_score: maxScore } as EssayGrading & { max_score: number };
 }
 
 async function runSol(
@@ -284,11 +309,11 @@ async function runSol(
   };
   if (!response.ok) {
     const detail = modelErrorMessage(payload, "申論批改失敗");
-    throw new EssayModelError(`GPT-5.6 Sol：${detail}`, response.status, "sol", isRetryableModelFailure(response.status, detail));
+    throw new EssayModelError(`GPT-5.6 Luna：${detail}`, response.status, "sol", isRetryableModelFailure(response.status, detail));
   }
   return {
     model,
-    grading: parseModelGrading("GPT-5.6 Sol", responseText(payload)),
+    grading: parseModelGrading("GPT-5.6 Luna", responseText(payload)),
     inputTokens: Number(payload.usage?.input_tokens ?? 0),
     outputTokens: Number(payload.usage?.output_tokens ?? 0),
     cachedTokens: Number(payload.usage?.input_tokens_details?.cached_tokens ?? 0),
@@ -493,7 +518,7 @@ export async function POST(request: Request) {
     if (!question) return Response.json({ error: "找不到已發布的二試申論題" }, { status: 404 });
     if (!question.teacherAnswer.trim()) return Response.json({ error: "這題尚未完成老師擬答核對，暫不能進行依擬答批改。" }, { status: 409 });
 
-    const solModel = await getEssayOpenAIModel("gpt-5.6-sol");
+    const solModel = await getEssayOpenAIModel("gpt-5.6-luna");
     const claudeModel = await getAnthropicModel("claude-opus-5");
     const runs: ModelRun[] = [];
     const failures: ModelFailure[] = [];
@@ -519,6 +544,7 @@ export async function POST(request: Request) {
       if (failure) throw new EssayModelError(failure.message, failure.retryable ? 503 : 502, failure.model, failure.retryable);
       throw new Error("沒有取得申論批改結果");
     }
+    for (const run of runs) run.grading = normalizeGradingScale(run.grading, question);
     const comparison = mode === "dual" && solRun && claudeRun ? compareGradings(solRun.grading, claudeRun.grading) : null;
     const usage = runs.map((run) => ({
       model: run.model,
@@ -537,7 +563,7 @@ export async function POST(request: Request) {
     for (const run of runs) {
       await db.insert(usageLogs).values({
         model: run.model,
-        source: mode === "dual" ? `二試申論批改（${run.model === solModel ? "Sol" : "Claude"}）` : "二試申論批改",
+        source: mode === "dual" ? `二試申論批改（${run.model === solModel ? "Luna" : "Claude"}）` : "二試申論批改（Luna 測試）",
         inputTokens: run.inputTokens,
         cachedTokens: run.cachedTokens,
         outputTokens: run.outputTokens,

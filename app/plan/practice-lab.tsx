@@ -12,6 +12,7 @@ type PracticeQuestion = {
   stem: string;
   options: Record<string, string> | null;
   hasTeacherAnswer?: boolean;
+  teacherAnswer?: string;
   answerSource?: string;
   answerStatus?: string;
 };
@@ -20,6 +21,7 @@ type EssayQuestionOption = Pick<PracticeQuestion, "id" | "year" | "subject" | "q
 
 type EssayGrading = {
   score: number;
+  max_score?: number;
   overall: string;
   solution_steps?: Array<{
     step: number;
@@ -286,6 +288,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
     useState<EssayModelMode>("sol");
   const [submitting, setSubmitting] = useState(false);
   const [gradingAnimationStep, setGradingAnimationStep] = useState(0);
+  const [teacherAnswerOpen, setTeacherAnswerOpen] = useState(false);
   const [coachInput, setCoachInput] = useState("");
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
   const [coachGap, setCoachGap] = useState("");
@@ -917,10 +920,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
 
   async function submitEssay() {
     if (!question || !essay.trim() || submitting) return;
-    if (!essayModelMode) {
-      setEssayFeedback("請先選擇申論批改模型，再開始批改。");
-      return;
-    }
+    const selectedMode: EssayModelMode = "sol";
     setSubmitting(true);
     setEssayFeedback("");
     try {
@@ -930,7 +930,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
         body: JSON.stringify({
           questionId: question.id,
           answer: essay,
-          mode: essayModelMode,
+          mode: selectedMode,
         }),
       });
       const result = (await response.json()) as {
@@ -947,7 +947,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
         error?: string;
       };
       if (response.ok && result.grading) {
-        const resultMode = result.mode ?? essayModelMode;
+        const resultMode = result.mode ?? selectedMode;
         setEssayResultMode(resultMode);
         setEssayGrading(result.grading);
         setEssayUsage(result.usage ?? []);
@@ -965,12 +965,12 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
             ? (resultMode === "dual" ? "Sol 批改已完成並保存；" : "批改尚未完成；") + failures.map((item) => item.message).join("；") + " 你的答案已保留，可重新選擇模型批改。"
             : resultMode === "dual"
               ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
-              : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
+              : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
         );
       } else {
         setEssayModelFailures(result.failedModel ? [{
           model: result.failedModel,
-          label: result.failedModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+          label: result.failedModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
           message: result.error ?? "申論批改暫時無法使用",
           retryable: result.retryable ?? false,
         }] : []);
@@ -1002,11 +1002,11 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
         )}
         <div className="essay-score">
           <b>{grading.score}</b>
-          <span>/ 100</span>
+          <span>/ {grading.max_score ?? (grading.dimensions.reduce((sum, item) => sum + item.max_score, 0) || 100)}</span>
         </div>
         {essayUsage.length > 0 && (
           <div className="essay-usage-meta" aria-label="本次申論批改用量">
-            {essayUsage.map((item) => <span key={`${item.model}-${item.estimatedCostUsdMicros}`}><b>{item.model.includes("opus") ? "Claude Opus 5" : "GPT-5.6 Sol"}</b> · 輸入 {item.inputTokens.toLocaleString()} · 輸出 {item.outputTokens.toLocaleString()} · 合計 {(item.inputTokens + item.outputTokens).toLocaleString()} tokens · US$ {(item.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</span>)}
+            {essayUsage.map((item) => <span key={`${item.model}-${item.estimatedCostUsdMicros}`}><b>{item.model.includes("opus") ? "Claude Opus 5" : item.model.includes("luna") ? "GPT-5.6 Luna" : "GPT-5.6 Sol"}</b> · 輸入 {item.inputTokens.toLocaleString()} · 輸出 {item.outputTokens.toLocaleString()} · 合計 {(item.inputTokens + item.outputTokens).toLocaleString()} tokens · US$ {(item.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</span>)}
           </div>
         )}
         <p>{grading.overall}</p>
@@ -1088,7 +1088,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
     if (!essayReviews || essayResultMode !== "dual") {
       return renderEssayGrading(
         essayGrading,
-        essayResultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+        essayResultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
       );
     }
     return (

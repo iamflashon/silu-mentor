@@ -13,6 +13,7 @@ type SolutionStep = {
 
 type EssayGrading = {
   score: number;
+  max_score?: number;
   overall: string;
   solution_steps?: SolutionStep[];
   dimensions: Array<{
@@ -93,6 +94,7 @@ function normalizeGrading(value: unknown): EssayGrading | null {
     : [];
   return {
     score: asNumber(source.score),
+    max_score: asNumber(source.max_score) || undefined,
     overall: asText(source.overall, "這筆批改已有保存，但部分批改欄位是早期格式。"),
     solution_steps: solutionSteps,
     dimensions,
@@ -103,8 +105,8 @@ function normalizeGrading(value: unknown): EssayGrading | null {
   };
 }
 
-function modeLabel(mode: EssayAttempt["mode"]) {
-  return mode === "dual" ? "Sol＋Claude 雙模型覆核" : mode === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol";
+function modeLabel(mode: EssayAttempt["mode"], model?: string) {
+  return mode === "dual" ? "Sol＋Claude 雙模型覆核" : mode === "claude" ? "Claude Opus 5" : model?.includes("luna") ? "GPT-5.6 Luna" : "GPT-5.6 Sol";
 }
 
 function dateLabel(value: string) {
@@ -117,7 +119,7 @@ function GradingView({ grading, title }: { grading: EssayGrading; title?: string
   return (
     <div className="essay-history-grading">
       {title && <h4>{title}</h4>}
-      <div className="essay-history-score"><b>{grading.score}</b><span>/ 100</span></div>
+      <div className="essay-history-score"><b>{grading.score}</b><span>/ {grading.max_score ?? (grading.dimensions.reduce((sum, item) => sum + item.max_score, 0) || 100)}</span></div>
       <p className="essay-history-overall">{grading.overall}</p>
       {grading.solution_steps?.length ? (
         <section className="essay-solution-steps" aria-label="解題過程步驟">
@@ -243,7 +245,7 @@ export function EssayHistory() {
             return (
               <details className="essay-history-card" key={attempt.id}>
                 <summary>
-                  <span className="essay-history-summary-main"><input type="checkbox" checked={selectedIds.has(attempt.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelected(attempt.id)} aria-label={`選取 ${attempt.year} ${attempt.subject} 第 ${attempt.questionNumber} 題`} /><span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>{dateLabel(attempt.savedAt)} · {modeLabel(attempt.mode)} · {attempt.usage?.length ? `${attempt.usage.reduce((sum, item) => sum + item.inputTokens + item.outputTokens, 0).toLocaleString()} tokens · US$ ${(attempt.usage.reduce((sum, item) => sum + item.estimatedCostUsdMicros, 0) / 1_000_000).toFixed(5)}` : "成本資料待重新批改"} · 已自動保存</small></span></span>
+                  <span className="essay-history-summary-main"><input type="checkbox" checked={selectedIds.has(attempt.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelected(attempt.id)} aria-label={`選取 ${attempt.year} ${attempt.subject} 第 ${attempt.questionNumber} 題`} /><span><b>{attempt.year}｜{attempt.subject}｜第 {attempt.questionNumber} 題</b><small>{dateLabel(attempt.savedAt)} · {modeLabel(attempt.mode, attempt.model ?? attempt.usage?.[0]?.model)} · {attempt.usage?.length ? `${attempt.usage.reduce((sum, item) => sum + item.inputTokens + item.outputTokens, 0).toLocaleString()} tokens · US$ ${(attempt.usage.reduce((sum, item) => sum + item.estimatedCostUsdMicros, 0) / 1_000_000).toFixed(5)}` : "成本資料待重新批改"} · 已自動保存</small></span></span>
                   <strong>{primary ? `${primary.score} 分` : "查看結果"}</strong>
                 </summary>
                 <div className="essay-history-body">
@@ -255,7 +257,7 @@ export function EssayHistory() {
                       <div className="essay-history-dual-grid"><GradingView grading={solGrading} title="GPT-5.6 Sol" /><GradingView grading={claudeGrading} title="Claude Opus 5" /></div>
                       {attempt.comparison && <div className="essay-history-comparison"><b>覆核摘要</b>{attempt.comparison.agreements.length > 0 && <p>配分一致：{attempt.comparison.agreements.join("、")}</p>}{attempt.comparison.differences.length > 0 && <p>配分差異：{attempt.comparison.differences.map((item) => `${item.criterion}（Sol ${item.sol}／Claude ${item.claude}）`).join("、")}</p>}</div>}
                     </section>
-                  ) : primary ? <GradingView grading={primary} title={attempt.mode === "dual" ? "可用的模型批改結果" : modeLabel(attempt.mode)} /> : (
+                  ) : primary ? <GradingView grading={primary} title={attempt.mode === "dual" ? "可用的模型批改結果" : modeLabel(attempt.mode, attempt.model ?? attempt.usage?.[0]?.model)} /> : (
                     <div className="essay-history-empty is-error">這筆紀錄只有作答內容，批改欄位格式較舊；請回到練真題重新批改。</div>
                   )}
                 </div>
