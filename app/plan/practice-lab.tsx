@@ -1234,7 +1234,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
         <div>
           <p>{initialType === "essay" ? "ESSAY PRACTICE" : "ACTIVE PRACTICE"}</p>
           <h2>{initialType === "essay" ? "寫申論" : "練真題"}</h2>
-          <span>{initialType === "essay" ? "先學會拆題與涵攝，再由你決定何時進入考場擬答。" : "練真題只保留一試選擇題；完成後會留下作答與弱點紀錄。"}</span>
+          <span>{initialType === "essay" ? "先學會拆題與涵攝，再由你決定何時開始模考擬答。" : "練真題只保留一試選擇題；完成後會留下作答與弱點紀錄。"}</span>
         </div>
         <div className="practice-switch">
           {!standalone && <button
@@ -1811,7 +1811,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                         </>}
                       </div>
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>先用一句話整理「法律判準＋關鍵事實＋結論」</span><button type="button" className="essay-summary-button" onClick={() => void askCoach("subquestion_summary")} disabled={coaching || !coachInput.trim()}>小題總結</button><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button></>}
+                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>先用一句話整理「法律判準＋關鍵事實＋結論」</span><button type="button" className="essay-summary-button" onClick={() => void askCoach("subquestion_summary")} disabled={coaching || !coachInput.trim()}>單題總結</button><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button></>}
                       </div>
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
                     </div>
@@ -1821,11 +1821,11 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
               </section>
               {coachProgress.readyForEssay && !essayUnlocked && <section className="guided-answer-choice" aria-label="理解驗收完成">
                 <header><span>理解驗收完成</span><strong>下一步由你決定，不會自動跳入擬答</strong></header>
-                <p>你已完成事實辨識、爭點、判準、涵攝、結論與微型變化題。可以再練、先整理，或自行進入考場擬答。</p>
+                <p>你已完成事實辨識、爭點、判準、涵攝、結論與微型變化題。可以再練、先整理，或自行開始模考擬答。</p>
                 <div>
                   <button type="button" onClick={() => void askCoach("coach", { role: "student", text: "我想再練一輪，請針對我最薄弱的地方再出一個短問題。" })} disabled={coaching}>再練一輪</button>
                   <button type="button" onClick={() => void askCoach("coach", { role: "student", text: "請只整理目前已完成的解題架構，不要進入完整擬答；整理後再問我是否要作答。" })} disabled={coaching}>整理解題架構</button>
-                  <button type="button" className="primary" onClick={() => setEssayUnlocked(true)}>進入考場擬答</button>
+                  <button type="button" className="primary" onClick={() => setEssayUnlocked(true)}>模考擬答</button>
                 </div>
               </section>}
               {essayUnlocked ? <section

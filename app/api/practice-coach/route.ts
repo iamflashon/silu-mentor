@@ -181,7 +181,7 @@ export async function POST(request: Request) {
     const responseRule = action === "subquestion_summary"
       ? "回覆限 80 至 160 字。通過時只依序輸出四行：【小題批改：通過】、【答對重點】一項、【一項修正】最多一項、【合格小結】一句。未通過時只輸出：【小題批改：待補充】、【已掌握】一項、【請補上】一項，最後問一個短問題。不得貼出名師擬答，不得逐點羅列學生所有答對內容，不得重複總評。"
       : "一般回覆限 45 至 110 字，只做一句具體回饋，再問一個短問題。不要寫成表格、講義或完整擬答。";
-    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n${responseRule}你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。學生答對時仍要追問一次判斷關鍵；答錯時只給分級提示並留在目前階段，不得直接公布完整答案。進入「微型變化題驗收」時改變一個關鍵事實，確認學生能否自行運用判準。驗收完成後只能提示「再練一輪、整理解題架構、進入考場擬答」三種選擇，不得自行產生擬答。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
+    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n${responseRule}你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。學生答對時仍要追問一次判斷關鍵；答錯時只給分級提示並留在目前階段，不得直接公布完整答案。進入「微型變化題驗收」時改變一個關鍵事實，確認學生能否自行運用判準。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
     const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
     const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
       try { return await runProvider(provider, instructions, input); }
