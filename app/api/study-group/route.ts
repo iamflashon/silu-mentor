@@ -3,6 +3,7 @@ import {
   getDeepSeekModel,
   getOpenAIKey,
 } from "../../../lib/openai";
+import { estimateCostUsd } from "../../../lib/usage";
 
 type Member = "luna" | "deepseek" | "terra" | "sol";
 type Mood = "quiet" | "natural" | "lively";
@@ -96,12 +97,15 @@ async function ask(
     };
     if (!response.ok)
       throw new Error(payload.error?.message || "DeepSeek 暫時無法回應");
+    const inputTokens = payload.usage?.prompt_tokens || 0;
+    const outputTokens = payload.usage?.completion_tokens || 0;
     return {
       speaker: member,
       text: payload.choices?.[0]?.message?.content?.trim() || "",
       model,
-      inputTokens: payload.usage?.prompt_tokens || 0,
-      outputTokens: payload.usage?.completion_tokens || 0,
+      inputTokens,
+      outputTokens,
+      estimatedCostUsd: estimateCostUsd(model, { inputTokens, outputTokens }),
       durationMs: Date.now() - started,
     };
   }
@@ -141,12 +145,15 @@ async function ask(
   };
   if (!response.ok)
     throw new Error(payload.error?.message || `${member} 暫時無法回應`);
+  const inputTokens = payload.usage?.input_tokens || 0;
+  const outputTokens = payload.usage?.output_tokens || 0;
   return {
     speaker: member,
     text: extractOpenAIText(payload),
     model,
-    inputTokens: payload.usage?.input_tokens || 0,
-    outputTokens: payload.usage?.output_tokens || 0,
+    inputTokens,
+    outputTokens,
+    estimatedCostUsd: estimateCostUsd(model, { inputTokens, outputTokens }),
     durationMs: Date.now() - started,
   };
 }

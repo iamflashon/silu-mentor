@@ -1607,6 +1607,28 @@ a {
   color: #91a0a5;
   font-size: 9px;
 }
+.study-group-message header .study-group-message-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  line-height: 1.35;
+}
+.study-group-message-usage span + span {
+  padding-left: 8px;
+  border-left: 1px solid #cbd9dc;
+}
+@media (max-width: 720px) {
+  .study-group-message header .study-group-message-usage {
+    display: grid;
+    width: 100%;
+    gap: 2px;
+  }
+  .study-group-message-usage span + span {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
 .study-group-message p {
   margin: 7px 0;
   white-space: pre-wrap;

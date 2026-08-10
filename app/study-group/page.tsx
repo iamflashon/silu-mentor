@@ -22,6 +22,7 @@ type Message = {
   model?: string;
   inputTokens?: number;
   outputTokens?: number;
+  estimatedCostUsd?: number;
   durationMs?: number;
   quote?: string;
   challengedSpeaker?: Member;
@@ -101,6 +102,25 @@ function challengedMember(message: Message): Member | null {
   if (message.challengedSpeaker) return message.challengedSpeaker;
   const named = message.text.match(/(?:質疑|懷疑|挑戰)\s*(Luna|DeepSeek|Sol)/i)?.[1];
   return named ? (named.toLowerCase() as Member) : null;
+}
+
+function estimatedMessageCost(message: Message) {
+  if (typeof message.estimatedCostUsd === "number") return message.estimatedCostUsd;
+  const model = (message.model || "").toLowerCase();
+  const input = Math.max(0, message.inputTokens || 0);
+  const output = Math.max(0, message.outputTokens || 0);
+  const rates = model.includes("deepseek")
+    ? { input: 0.435, output: 0.87 }
+    : model.includes("terra")
+      ? { input: 1, output: 6 }
+      : model.includes("sol")
+        ? { input: 2.5, output: 15 }
+        : { input: 0.1, output: 0.6 };
+  return (input * rates.input + output * rates.output) / 1_000_000;
+}
+
+function formatUsd(value: number) {
+  return value < 0.00001 ? value.toFixed(7) : value.toFixed(5);
 }
 
 export default function StudyGroup() {
@@ -433,6 +453,7 @@ export default function StudyGroup() {
           model: string;
           inputTokens: number;
           outputTokens: number;
+          estimatedCostUsd: number;
           durationMs: number;
         }>;
         error?: string;
@@ -499,6 +520,7 @@ export default function StudyGroup() {
           model: string;
           inputTokens: number;
           outputTokens: number;
+          estimatedCostUsd: number;
           durationMs: number;
         }>;
         error?: string;
@@ -526,9 +548,9 @@ export default function StudyGroup() {
     }
   }
 
-  async function askMemberToContinue(chosen: Exclude<Target, "free">) {
+  async function askMemberToContinue(chosen: Exclude<Target, "free">, sourceMessage?: Message) {
     if (busy) return;
-    const latest = [...messages]
+    const latest = sourceMessage || [...messages]
       .reverse()
       .find((message) => message.speaker !== "host");
     if (!latest) {
@@ -549,7 +571,7 @@ export default function StudyGroup() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          question: `${instructions[chosen]}\n上一句由 ${labels[latest.speaker]} 發言，請只針對該句接續。`,
+          question: `${instructions[chosen]}\n要接續的發言由 ${labels[latest.speaker]} 提出：${latest.text}\n請只針對這段接續，不要改答其他訊息。`,
           target: chosen,
           mood: "quiet",
           topic,
@@ -557,7 +579,7 @@ export default function StudyGroup() {
         }),
       });
       const result = (await response.json()) as {
-        replies?: Array<{ speaker: Member; text: string; model: string; inputTokens: number; outputTokens: number; durationMs: number }>;
+        replies?: Array<{ speaker: Member; text: string; model: string; inputTokens: number; outputTokens: number; estimatedCostUsd: number; durationMs: number }>;
         error?: string;
       };
       if (!response.ok) throw new Error(result.error || "成員暫時無法接話");
@@ -752,11 +774,10 @@ export default function StudyGroup() {
                   <header>
                     <b>{labels[message.speaker]}</b>
                     {message.model && (
-                      <small>
-                        {message.model} ·{" "}
-                        {(message.inputTokens || 0) +
-                          (message.outputTokens || 0)}{" "}
-                        tokens · {(message.durationMs || 0).toLocaleString()} ms
+                      <small className="study-group-message-usage">
+                        <span>{message.model}</span>
+                        <span>輸入 {(message.inputTokens || 0).toLocaleString()} · 輸出 {(message.outputTokens || 0).toLocaleString()} · 合計 {((message.inputTokens || 0) + (message.outputTokens || 0)).toLocaleString()} tokens</span>
+                        <span>估算 US$ {formatUsd(estimatedMessageCost(message))} · 約 NT$ {(estimatedMessageCost(message) * 32.5).toFixed(4)} · {(message.durationMs || 0).toLocaleString()} ms</span>
                       </small>
                     )}
                   </header>
@@ -774,6 +795,15 @@ export default function StudyGroup() {
                         <button type="button" onClick={() => setQuote(message)}>
                           引用回覆
                         </button>
+                        {message.speaker !== "luna" && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void askMemberToContinue("luna", message)}
+                          >
+                            請 Luna 白話
+                          </button>
+                        )}
                         {message.speaker !== "terra" && (
                           <button
                             type="button"
