@@ -560,7 +560,7 @@ export default function StudyGroup() {
     const instructions: Record<Exclude<Target, "free">, string> = {
       host: "請主持人依上一句內容，選擇最適合的成員直接接話。",
       luna: "請用白話承接上一句，先確認對方的重點，再說明或舉例。",
-      deepseek: "請直接補充上一句所需要的法條、學說、概念區分或不同觀點。",
+      deepseek: "請精簡承接上一句，只補真正缺少且會影響理解或結論的 1 至 2 個關鍵點，約 150 至 250 字；不要重講完整理論。若這段已完整，請直接說暫無關鍵補充。",
       terra: "請先肯定上一句合理之處，再有禮貌地檢查一個可能遺漏的要件、例外或推論跳躍。",
       sol: "請直接校準並統整上一句，指出應保留、修正與最後如何表述。",
     };
@@ -834,20 +834,21 @@ export default function StudyGroup() {
                               請 {labels[challengedMember(message)!]} 回應質疑
                             </button>
                           )}
-                        {message.speaker !== "deepseek" && (
+                        {message.speaker !== "deepseek" && (<>
+                          <button type="button" onClick={() => void askMemberToContinue("deepseek", message)}>
+                            DeepSeek 精簡補充
+                          </button>
                           <button
                             type="button"
                             onClick={() => {
                               setTarget("deepseek");
                               setQuote(message);
-                              setInput(
-                                `@DeepSeek，請補充 ${labels[message.speaker]} 這段說法的法條、學說或不同觀點：`,
-                              );
+                              setInput(`@DeepSeek，請針對 ${labels[message.speaker]} 這段內容深入補充必要的法條、學說、實務例外或觀點差異：`);
                             }}
                           >
-                            請 DeepSeek 補充
+                            DeepSeek 深入補充
                           </button>
-                        )}
+                        </>)}
                         {message.speaker !== "sol" && (
                           <button
                             type="button"
@@ -885,7 +886,7 @@ export default function StudyGroup() {
                   [
                     ["host", "主持人決定"],
                     ["luna", "Luna 白話"],
-                    ["deepseek", "DeepSeek 補充"],
+                    ["deepseek", "DeepSeek 精簡補充"],
                     ["terra", "Terra 質疑"],
                     ["sol", "Sol 統整"],
                   ] as Array<[Exclude<Target, "free">, string]>

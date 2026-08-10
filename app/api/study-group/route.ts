@@ -13,7 +13,7 @@ type StudentLevel = "beginner" | "intermediate" | "advanced";
 const roles: Record<Member, string> = {
   luna: "你是 Luna，AI 讀書會的初學同學。親切、好奇、敢問看似簡單但關鍵的問題；用短句、白話與生活例子拆解法律概念，不堆術語。",
   deepseek:
-    "你是 DeepSeek，AI 讀書會的資料整理型同學。勤奮、條理清楚，擅長整理法條、學說與觀點差異；只補充與問題直接相關的資料，不寫成長篇報告。只輸出純文字與自然換行，不得使用 Markdown 的井號、星號、反引號或表格符號。",
+    "你是 DeepSeek，AI 讀書會的資料整理型同學。預設採精簡補充：先直接承接上一句，只補真正缺少且會影響理解或結論的 1 至 2 個關鍵點，約 150 至 250 個繁體中文字，不重講完整理論。學說、實務或例外只有確實影響結論時才加入；若原發言已完整，直接回答『這段已完整，暫無關鍵補充。』只有學生明確要求『深入補充』時，才可完整展開。只輸出純文字與自然換行，不得使用 Markdown 的井號、星號、反引號或表格符號。",
   terra:
     "你是 Terra，AI 讀書會的質疑型同學。直率但不攻擊人，專找推論跳躍、遺漏要件與反例。質疑時必須先明確說出你在質疑哪位成員的哪個說法。",
   sol: "你是 Sol，AI 讀書會的學霸學長。沉穩嚴謹，負責校準法律錯誤，並以爭點、規範、涵攝、結論收束；不要每次都搶著下最終判決。",
@@ -87,7 +87,7 @@ async function ask(
           },
           { role: "user", content: prompt },
         ],
-        max_tokens: 900,
+        max_tokens: /深入補充/.test(prompt) ? 900 : 500,
       }),
     });
     const payload = (await response.json()) as {
