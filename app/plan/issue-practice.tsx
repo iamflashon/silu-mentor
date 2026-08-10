@@ -22,13 +22,14 @@ function questionSummary(stem: string, maxLength = 34) {
 }
 
 function parseIssueAnalysis(analysis: string) {
-  const scoreMatch = analysis.match(/(?:爭點辨識)?完成度\s*[：:]\s*(\d{1,3})\s*分/u);
+  const scoreMatch = analysis.match(/(?:爭點辨識)?完成度\s*(?:[：:]|約為?|達)?\s*(\d{1,3})\s*分/u);
   const levelMatch = analysis.match(/程度判定\s*[：:]\s*(基礎|中等|高分)/u);
-  const summaryPattern = /[；;，,。\s]*(?:爭點辨識)?完成度\s*[：:]\s*\d{1,3}\s*分\s*[；;，,。\s]*程度判定\s*[：:]\s*(?:基礎|中等|高分)[。\s]*/gu;
+  const scorePattern = /[；;，,。\s]*(?:爭點辨識)?完成度\s*(?:[：:]|約為?|達)?\s*\d{1,3}\s*分[；;，,。\s]*/gu;
+  const levelPattern = /[；;，,。\s]*程度判定\s*[：:]\s*(?:基礎|中等|高分)[；;，,。\s]*/gu;
   return {
     score: scoreMatch?.[1] ?? null,
     level: levelMatch?.[1] ?? null,
-    lines: analysis.replace(summaryPattern, "").split("\n"),
+    lines: analysis.replace(scorePattern, "").replace(levelPattern, "").split("\n"),
   };
 }
 

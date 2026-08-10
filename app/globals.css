@@ -6635,23 +6635,35 @@ a {
 
 .issue-analysis-summary {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 28px;
+  justify-content: center;
+  gap: 12px;
   margin: 24px 22px 8px;
   padding: 18px 20px;
   border: 1px solid #d9e5e3;
   border-radius: 12px;
   background: #f7fbfa;
   color: #163f4d;
-  font-size: clamp(19px, 2vw, 24px);
+  font-size: 17px;
   font-weight: 800;
   line-height: 1.45;
 }
 
+.issue-analysis-summary > span:first-child {
+  width: 100%;
+  padding: 2px 0 14px;
+  border-bottom: 1px solid #ead7d7;
+  color: transparent;
+  font-size: 0;
+  text-align: center;
+}
+
 .issue-analysis-summary strong {
   color: #d32f2f;
-  font-size: 1.18em;
+  font-size: clamp(44px, 6vw, 62px);
+  font-weight: 900;
+  line-height: 1;
 }
 
 .issue-analysis-summary b {
@@ -6669,8 +6681,8 @@ a {
   .issue-analysis-summary {
     margin: 18px 14px 4px;
     padding: 14px 16px;
-    gap: 6px 18px;
-    font-size: 18px;
+    gap: 10px;
+    font-size: 16px;
   }
 }
 .student-issue-analysis p {
