@@ -24,6 +24,14 @@ type Message = {
   durationMs?: number;
   quote?: string;
   challengedSpeaker?: Member;
+  imageUrl?: string;
+};
+type StudyGroupSession = {
+  id: number;
+  topic: string;
+  mood: Mood;
+  updatedAt: string;
+  messages: Message[];
 };
 
 const memberInfo: Array<{
@@ -104,7 +112,13 @@ export default function StudyGroup() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [history, setHistory] = useState<StudyGroupSession[]>([]);
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [imageDraft, setImageDraft] = useState<{ url: string; dataUrl: string; name: string } | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const sessionIdRef = useRef<number | null>(null);
+  const historyLoadedRef = useRef(false);
 
   const todayGoal = useMemo(
     () => tasks.find((task) => task.status !== "completed"),
@@ -144,6 +158,24 @@ export default function StudyGroup() {
       } catch {
         /* ignore */
       }
+    fetch("/api/study-group/history")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const sessions = (data?.sessions || []) as StudyGroupSession[];
+        setHistory(sessions);
+        if (sessions[0]) {
+          sessionIdRef.current = sessions[0].id;
+          setSessionId(sessions[0].id);
+          setMessages(sessions[0].messages || []);
+          setCustomTopic(sessions[0].topic || "");
+          setMood(sessions[0].mood || "natural");
+          setIntroOpen(false);
+        }
+        historyLoadedRef.current = true;
+      })
+      .catch(() => {
+        historyLoadedRef.current = true;
+      });
   }, []);
   useEffect(() => {
     window.localStorage.setItem(
@@ -151,6 +183,50 @@ export default function StudyGroup() {
       JSON.stringify({ messages, topic: customTopic, mood }),
     );
   }, [messages, customTopic, mood]);
+  useEffect(() => {
+    if (!historyLoadedRef.current || messages.length === 0) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/study-group/history", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sessionIdRef.current,
+            topic,
+            mood,
+            messages,
+          }),
+        });
+        const result = (await response.json()) as { sessionId?: number };
+        if (!response.ok || !result.sessionId) return;
+        sessionIdRef.current = result.sessionId;
+        setSessionId(result.sessionId);
+        setHistory((current) => {
+          const saved: StudyGroupSession = {
+            id: result.sessionId!,
+            topic,
+            mood,
+            updatedAt: new Date().toISOString(),
+            messages,
+          };
+          return [saved, ...current.filter((item) => item.id !== result.sessionId)].slice(0, 80);
+        });
+      } catch {
+        /* local copy remains available */
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [messages, mood, topic]);
+
+  function openSession(session: StudyGroupSession) {
+    sessionIdRef.current = session.id;
+    setSessionId(session.id);
+    setMessages(session.messages || []);
+    setCustomTopic(session.topic);
+    setMood(session.mood || "natural");
+    setQuote(null);
+    setIntroOpen(false);
+  }
 
   function begin() {
     setIntroOpen(false);
@@ -232,10 +308,27 @@ export default function StudyGroup() {
     }
   }
 
+  async function chooseImage(file?: File | null) {
+    if (!file || !/^image\/(?:jpeg|png|webp)$/.test(file.type) || file.size > 4 * 1024 * 1024) return;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const form = new FormData();
+    form.set("file", file);
+    const response = await fetch("/api/study-group/image", { method: "POST", body: form });
+    const result = (await response.json()) as { url?: string; error?: string };
+    if (!response.ok || !result.url) return;
+    setImageDraft({ url: result.url, dataUrl, name: file.name || "貼上的截圖" });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!input.trim() || busy) return;
-    const text = input.trim();
+    if ((!input.trim() && !imageDraft) || busy) return;
+    const text = input.trim() || "請閱讀這張圖片，指出與本次主題相關的重點。";
+    const sendingImage = imageDraft;
     const student: Message = {
       id: Date.now(),
       speaker: "student",
@@ -243,10 +336,12 @@ export default function StudyGroup() {
       quote: quote
         ? `${labels[quote.speaker]}：${quote.text.slice(0, 90)}`
         : undefined,
+      imageUrl: sendingImage?.url,
     };
     const next = [...messages, student];
     setMessages(next);
     setInput("");
+    setImageDraft(null);
     setQuote(null);
     setBusy(true);
     const direct = text.match(/@(Luna|DeepSeek|Terra|Sol)/i)?.[1];
@@ -270,6 +365,7 @@ export default function StudyGroup() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           question: quote ? `針對「${quote.text}」：${text}` : text,
+          imageDataUrl: sendingImage?.dataUrl,
           target: chosen,
           mood,
           topic,
@@ -312,6 +408,66 @@ export default function StudyGroup() {
           id: Date.now() + 4,
           speaker: "host",
           text: error instanceof Error ? error.message : "讀書會暫時無法回應。",
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startFreeDiscussion() {
+    if (busy) return;
+    setTarget("free");
+    const hostMessage: Message = {
+      id: Date.now(),
+      speaker: "host",
+      text: "現在開放自由討論。請承接剛才的內容主動補充、質疑或點名下一位成員。",
+    };
+    const next = [...messages, hostMessage];
+    setMessages(next);
+    setBusy(true);
+    try {
+      const response = await fetch("/api/study-group", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          question: "請承接目前最後一則討論，自然地繼續對話；不要重複已經說過的內容。",
+          target: "free",
+          mood,
+          topic,
+          messages: next.map((item) => ({
+            speaker: labels[item.speaker],
+            text: item.text,
+          })),
+        }),
+      });
+      const result = (await response.json()) as {
+        replies?: Array<{
+          speaker: Member;
+          text: string;
+          model: string;
+          inputTokens: number;
+          outputTokens: number;
+          durationMs: number;
+        }>;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error || "自由討論暫時無法開始");
+      setMessages((current) => [
+        ...current,
+        ...(result.replies || []).map((item, index) => ({
+          id: Date.now() + index + 1,
+          ...item,
+          text: cleanMarkdown(item.text),
+        })),
+      ]);
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: Date.now() + 9,
+          speaker: "host",
+          text: error instanceof Error ? error.message : "自由討論暫時無法開始。",
         },
       ]);
     } finally {
@@ -418,10 +574,13 @@ export default function StudyGroup() {
               <button
                 type="button"
                 className={target === id ? "active" : ""}
-                onClick={() => setTarget(id)}
+                onClick={() =>
+                  id === "free" ? void startFreeDiscussion() : setTarget(id)
+                }
+                disabled={id === "free" && busy}
                 key={id}
               >
-                {label}
+                {id === "free" && busy ? "討論中…" : label}
               </button>
             ))}
           </section>
@@ -479,10 +638,28 @@ export default function StudyGroup() {
             </button>
             <small>只會帶入發言，確認後再送出</small>
           </section>
+          {history.length > 0 && (
+            <section className="study-group-history">
+              <span>歷次讀書會</span>
+              {history.slice(0, 6).map((session) => (
+                <button
+                  type="button"
+                  className={sessionId === session.id ? "active" : ""}
+                  onClick={() => openSession(session)}
+                  key={session.id}
+                >
+                  <b>{session.topic}</b>
+                  <small>{session.messages.length} 則發言</small>
+                </button>
+              ))}
+            </section>
+          )}
           <button
             className="study-group-new"
             type="button"
             onClick={() => {
+              sessionIdRef.current = null;
+              setSessionId(null);
               setMessages([]);
               setCustomTopic("");
               setIntroOpen(true);
@@ -525,6 +702,7 @@ export default function StudyGroup() {
                     )}
                   </header>
                   {message.quote && <blockquote>{message.quote}</blockquote>}
+                    {message.imageUrl && <img className="study-group-message-image" src={message.imageUrl} alt="讀書會上傳圖片" />}
                     <p>{cleanMarkdown(message.text)}</p>
                   {message.speaker !== "student" &&
                     message.speaker !== "host" && (
@@ -605,6 +783,7 @@ export default function StudyGroup() {
             )}
           </div>
           <form onSubmit={submit}>
+            <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { void chooseImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
             {quote && (
               <div className="study-group-quote">
                 <span>
@@ -633,11 +812,26 @@ export default function StudyGroup() {
                 ))}
               </div>
             )}
+            {imageDraft && (
+              <div className="study-group-image-draft">
+                <img src={imageDraft.url} alt="待送出的圖片" />
+                <span>{imageDraft.name}</span>
+                <button type="button" onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button>
+              </div>
+            )}
+            <button className="study-group-attach" type="button" onClick={() => imageInputRef.current?.click()} aria-label="上傳圖片">＋圖片</button>
             <textarea
               ref={composerRef}
               value={input}
               onChange={(event) => { setInput(event.target.value); updateMention(event.target.value, event.target.selectionStart); }}
               onKeyDown={handleComposerKeyDown}
+              onPaste={(event) => {
+                const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile();
+                if (image) {
+                  event.preventDefault();
+                  void chooseImage(new File([image], `貼上的截圖-${Date.now()}.png`, { type: image.type }));
+                }
+              }}
               onClick={(event) => updateMention(event.currentTarget.value, event.currentTarget.selectionStart)}
               placeholder="直接發言，或輸入 @ 點名角色…"
               rows={3}
@@ -659,7 +853,7 @@ export default function StudyGroup() {
                     ? "自然模式"
                     : "熱烈模式"}
               </span>
-              <button disabled={busy || !input.trim()}>
+              <button disabled={busy || (!input.trim() && !imageDraft)}>
                 {busy ? "討論中…" : "送出發言"}
               </button>
             </div>

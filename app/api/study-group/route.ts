@@ -25,6 +25,18 @@ function chooseSpeaker(question: string): Member {
   return "luna";
 }
 
+function chooseFreeSpeaker(messages: ChatMessage[]): Member {
+  const last = [...messages]
+    .reverse()
+    .find((message) => /^(Luna|DeepSeek|Terra|Sol)$/i.test(message.speaker))
+    ?.speaker.toLowerCase() as Member | undefined;
+  if (last === "luna") return "deepseek";
+  if (last === "deepseek") return "terra";
+  if (last === "terra") return "luna";
+  if (last === "sol") return "terra";
+  return "luna";
+}
+
 function extractOpenAIText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string")
     return payload.output_text.trim();
@@ -48,7 +60,7 @@ function extractOpenAIText(payload: Record<string, unknown>) {
     .trim();
 }
 
-async function ask(member: Member, prompt: string) {
+async function ask(member: Member, prompt: string, imageDataUrl?: string) {
   const started = Date.now();
   if (member === "deepseek") {
     const key = await getDeepSeekKey();
@@ -63,7 +75,10 @@ async function ask(member: Member, prompt: string) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: roles.deepseek },
+          {
+            role: "system",
+            content: `${roles.deepseek}\n你可以在確實需要另一位成員接話時，於發言最後點名 @Luna、@Terra 或 @Sol；若要把問題交回真人學生，請在最後寫 @同學。一次最多點名一位，不要為了熱鬧而點名。`,
+          },
           { role: "user", content: prompt },
         ],
         max_tokens: 900,
@@ -101,8 +116,16 @@ async function ask(member: Member, prompt: string) {
     },
     body: JSON.stringify({
       model,
-        instructions: `${roles[member]}\n你是讀書會成員，不是主持人。每次發言控制在 220 字內。不得假裝查過未提供的教材或判決。只輸出純文字與自然換行，不得使用 Markdown 的井號、星號、反引號或表格符號。`,
-      input: prompt,
+        instructions: `${roles[member]}\n你是讀書會成員，不是主持人。每次發言控制在 220 字內。不得假裝查過未提供的教材或判決。你可以在確實需要另一位成員接話時，於發言最後點名 @Luna、@DeepSeek、@Terra 或 @Sol；若要把問題交回真人學生，請在最後寫 @同學。一次最多點名一位，不要為了熱鬧而點名。只輸出純文字與自然換行，不得使用 Markdown 的井號、星號、反引號或表格符號。`,
+      input: imageDataUrl
+        ? [{
+            role: "user",
+            content: [
+              { type: "input_image", image_url: imageDataUrl, detail: "high" },
+              { type: "input_text", text: prompt },
+            ],
+          }]
+        : prompt,
     }),
   });
   const payload = (await response.json()) as Record<string, unknown> & {
@@ -129,6 +152,7 @@ export async function POST(request: Request) {
       mood?: Mood;
       topic?: string;
       messages?: ChatMessage[];
+      imageDataUrl?: string;
     };
     const question = body.question?.trim() || "";
     if (!question)
@@ -144,30 +168,55 @@ export async function POST(request: Request) {
       named ||
       (body.target && !["host", "free"].includes(body.target)
         ? (body.target as Member)
-        : chooseSpeaker(question));
+        : body.target === "free"
+          ? chooseFreeSpeaker(body.messages || [])
+          : chooseSpeaker(question));
     const prompt = `本次主題：${body.topic || "依學生今日學習目標討論"}\n先前對話：\n${history || "尚未發言"}\n\n學生現在說：${question}\n請直接接續聊天室對話，不要自稱 AI。`;
-    const replies = [await ask(first, prompt)];
-    if (body.mood !== "quiet" && body.target !== first) {
-      const second: Member | null =
-        body.mood === "lively"
-          ? first === "terra"
-            ? "sol"
-            : "terra"
-          : /錯|但是|不同意|漏洞|為什麼/.test(replies[0].text)
-            ? "terra"
-            : null;
-      if (second && second !== first) {
-        const reason =
-          second === "terra"
-            ? `請針對 ${first} 剛才的發言提出一個有學習價值的質疑；先引用被質疑的短句。`
-            : `請校準 ${first} 與 Terra 的討論，指出應保留與修正之處。`;
-        replies.push(
-          await ask(
-            second,
-            `${prompt}\n\n${first} 剛才說：${replies[0].text}\n${reason}`,
-          ),
-        );
+    let firstPrompt = prompt;
+    if (body.imageDataUrl && first === "deepseek") {
+      const visual = await ask(
+        "luna",
+        "請只描述圖片中可辨識的事實、文字與法律問題，不要先下結論。",
+        body.imageDataUrl,
+      );
+      firstPrompt += `\n\nLuna 先替你辨識圖片如下：${visual.text}`;
+    }
+    const replies = [await ask(first, firstPrompt, first === "deepseek" ? undefined : body.imageDataUrl)];
+    const spoken = new Set<Member>([first]);
+    const maxReplies = body.mood === "quiet" ? 1 : body.mood === "lively" ? 3 : 2;
+    while (replies.length < maxReplies) {
+      const last = replies[replies.length - 1];
+      if (/@同學/.test(last.text)) break;
+      const tagged = last.text
+        .match(/@(Luna|DeepSeek|Terra|Sol)/i)?.[1]
+        ?.toLowerCase() as Member | undefined;
+      let next: Member | null = tagged && !spoken.has(tagged) ? tagged : null;
+      if (!next && replies.length === 1) {
+        if (body.target === "free" || body.mood === "lively") {
+          next =
+            first === "luna"
+              ? "deepseek"
+              : first === "deepseek"
+                ? "terra"
+                : first === "terra"
+                  ? "luna"
+                  : "terra";
+        } else if (/錯|但是|不同意|漏洞|遺漏|不確定|另一種/.test(last.text)) {
+          next = first === "terra" ? "luna" : "terra";
+        }
       }
+      if (!next && body.mood === "lively" && !spoken.has("sol")) next = "sol";
+      if (!next || spoken.has(next)) break;
+      const reason = tagged
+        ? `${last.speaker} 剛才在發言中直接點名你，請自然回應他的問題或邀請。`
+        : next === "terra"
+          ? `你主動發現前一則推論有值得檢查之處。請只提出一個具學習價值的質疑，並說明你在回應誰。`
+          : next === "sol"
+            ? "討論已進入第二輪，請簡短校準並收束，不要重複前文。"
+            : "你認為自己能補上前一則尚未說清楚的重點，請自然接話，不要重複。";
+      const recent = replies.map((reply) => `${reply.speaker}：${reply.text}`).join("\n");
+      replies.push(await ask(next, `${prompt}\n\n本輪最新對話：\n${recent}\n${reason}`));
+      spoken.add(next);
     }
     return Response.json({ assigned: first, replies });
   } catch (error) {
