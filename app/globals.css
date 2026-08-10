@@ -7630,6 +7630,28 @@ a {
 .problem-question-stem p:last-child {
   margin-bottom: 0;
 }
+.book-guided-learning-intro {
+  margin: 0 0 20px;
+  padding: 18px 20px;
+  border: 1px solid #cfe0e7;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #f8fcfd, #f2f8fa);
+  color: #294654;
+}
+.book-guided-learning-intro strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #183f57;
+  font-size: 16px;
+}
+.book-guided-learning-intro p {
+  margin: 0 0 7px;
+  line-height: 1.75;
+}
+.book-guided-learning-intro small {
+  color: #64808e;
+  line-height: 1.6;
+}
 .model-challenge-lab {
   margin: 0 0 20px;
   padding: 20px;

@@ -2115,20 +2115,20 @@ export default function StudyPlanPage() {
 
   async function startBookReview() {
     if (!selectedChapter || !selectedResource || selectedResource.resourceType !== "book" || bookChatLoading) return;
-    const prompt = `${bookContext(selectedChapter)}\n這是解題書中的題目或題組。請現在直接開始審題：先帶我辨認題型與關鍵事實，再逐步問我可能的爭點；先不要公布完整擬答。`;
+    const prompt = `${bookContext(selectedChapter)}\n這是解題書中的題目或題組。請依老師解析開始一對一引導教學，不要要求學生先交完整答案。第一輪只做兩件事：先用一句話說明本題要學會什麼，再指出一個具體行為或關鍵事實，提出一個學生可以直接回答的短問題。學生回答後，再依序引導辨認行為人、爭點、判準、學說、涵攝與結論；每輪先消化學生上一句回答，給具體回饋後只問一個問題。先不要公布完整擬答；完成理解後再整理完整解題架構。`;
     setBookQuestionOpen(false);
     setBookInput("");
     setBookSelectedMessageIndex(null);
     setBookChatLoading(true);
     setBookLoadingRole("mentor");
-    setBookTestNotice("AI 導師正在開始審題…");
+    setBookTestNotice("AI 導師正在準備引導教學…");
     try {
       const response = await fetchBookConversation("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: [{ role: "student", text: prompt }],
-          visibleStudentText: "開始審題",
+          visibleStudentText: "開始引導教學",
           modelMode: bookModelMode,
           context: {
             type: "book",
@@ -2152,10 +2152,10 @@ export default function StudyPlanPage() {
       void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: selectedChapter.id, lastBookSessionId: result.sessionId ?? null });
       setBookMessages([{
         role: "student",
-        text: "開始審題",
+        text: "開始引導教學",
       }, {
         role: "mentor",
-        text: response.ok ? (result.reply ?? "我們先從審題開始。") : (result.error ?? "AI 審題暫時無法開始"),
+        text: response.ok ? (result.reply ?? "我們先從題目的關鍵行為開始。") : (result.error ?? "AI 引導教學暫時無法開始"),
         model: result.usage?.model,
         usage: result.usage,
         comparison: result.comparison ?? undefined,
@@ -4282,33 +4282,16 @@ export default function StudyPlanPage() {
                                       void startBookReview()
                                     }
                                   >
-                                    開始審題
+                                    開始引導教學
                                   </button>
                                 </>}
                               </div>
                             )}
-                            {selectedBookIsProblemSolving && (
-                              <section className="model-challenge-lab" aria-label="Luna 與 Sol 正確性挑戰">
-                                <header>
-                                  <div><span>測試功能</span><strong>Luna × Sol 擬答擂台</strong></div>
-                                  <small>{teacherProblemAnswer(selectedChapter.text) ? "本題已連結老師解析；所有分析與質疑都以老師原文校準。" : "本題尚無完整老師解析，暫不開放正確性評選。"}</small>
-                                </header>
-                                <label className="challenge-student-answer"><span>先寫下你的爭點答案</span><textarea value={challengeStudentAnswer} onChange={(event) => setChallengeStudentAnswer(event.target.value)} rows={4} placeholder="列出你認為的核心爭點、判準與結論，再分別請 Luna、Sol 分析。" disabled={Boolean(challengeLoading) || !teacherProblemAnswer(selectedChapter.text)} /></label>
-                                <div className="challenge-run-buttons">
-                                  <button type="button" onClick={() => void runModelChallenge("answer", "luna")} disabled={Boolean(challengeLoading) || challengeStudentAnswer.trim().length < 10 || !teacherProblemAnswer(selectedChapter.text)}>{challengeLoading === "luna" ? "Luna 分析中…" : challengeAnswers.luna ? "重新請 Luna 助教分析" : "請 Luna 助教分析"}</button>
-                                  <button type="button" onClick={() => void runModelChallenge("answer", "sol")} disabled={Boolean(challengeLoading) || challengeStudentAnswer.trim().length < 10 || !teacherProblemAnswer(selectedChapter.text)}>{challengeLoading === "sol" ? "Sol 分析中…" : challengeAnswers.sol ? "重新請 Sol 學霸分析" : "請 Sol 學霸分析"}</button>
-                                </div>
-                                {(challengeAnswers.luna || challengeAnswers.sol) && <div className="challenge-answer-grid">
-                                  {(["luna", "sol"] as const).map((provider) => <article key={provider} className={challengeAnswers[provider] ? "ready" : "pending"}><header><strong>{provider === "luna" ? "Luna 助教" : "Sol 學霸"}</strong><small>{challengeAnswers[provider]?.model ?? "尚未作答"}</small></header>{challengeAnswers[provider] ? <><p>{challengeAnswers[provider]!.reply}</p><footer>{challengeAnswers[provider]!.usage.inputTokens + challengeAnswers[provider]!.usage.outputTokens} tokens · {(challengeAnswers[provider]!.usage.durationMs / 1000).toFixed(1)} 秒 · NT$ {(challengeAnswers[provider]!.usage.estimatedCostUsd * 32.5).toFixed(2)}</footer></> : <p>請按上方按鈕取得這份回答。</p>}</article>)}
-                                </div>}
-                                {challengeAnswers.luna && challengeAnswers.sol && <div className="challenge-verdict">
-                                  <strong>哪一份比較正確？</strong>
-                                  <div>{([['luna','Luna 較正確'],['sol','Sol 較正確'],['both','兩者都正確'],['neither','兩者都不正確']] as const).map(([value, label]) => <label key={value} className={challengeVote === value ? "selected" : ""}><input type="radio" name="challenge-vote" value={value} checked={challengeVote === value} onChange={() => setChallengeVote(value)} />{label}</label>)}</div>
-                                  <label><span>{challengeVote === "neither" ? "請說明錯誤理由或寫下你認為的正確答案（必填）" : "你也可以補充評選理由"}</span><textarea rows={4} value={challengeReason} onChange={(event) => setChallengeReason(event.target.value)} placeholder="例如：漏掉老師擬答的哪個爭點、錯用哪個判準，或你的正確答案。" /></label>
-                                  <div className="challenge-coach-row"><label><span>請誰協助形成有依據的質疑？</span><select value={challengeCoach} onChange={(event) => setChallengeCoach(event.target.value as "terra" | "sonnet")}><option value="terra">Terra 質疑者｜理性檢核</option><option value="sonnet">Sonnet 質疑者｜教學式追問</option></select></label><button type="button" onClick={() => void runModelChallenge("challenge")} disabled={Boolean(challengeLoading) || (challengeVote === "neither" && challengeReason.trim().length < 10)}>{challengeLoading === "coach" ? "正在核對老師擬答…" : `請 ${challengeCoach === "terra" ? "Terra" : "Sonnet"} 生成質疑`}</button></div>
-                                </div>}
-                                {challengeCoachRun && <article className="challenge-coach-result"><header><strong>{challengeCoach === "terra" ? "Terra 質疑者" : "Sonnet 質疑者"}</strong><small>已核對老師擬答 · NT$ {(challengeCoachRun.usage.estimatedCostUsd * 32.5).toFixed(2)}</small></header><p>{challengeCoachRun.reply}</p><div><button type="button" onClick={() => void runModelChallenge("reply", "luna")} disabled={Boolean(challengeLoading)}>請 Luna 回應這項質疑</button><button type="button" onClick={() => void runModelChallenge("reply", "sol")} disabled={Boolean(challengeLoading)}>請 Sol 回應這項質疑</button></div></article>}
-                                {challengeReply && <article className="challenge-reply-result"><header><strong>指定模型答辯與修正</strong><small>{challengeReply.model} · NT$ {(challengeReply.usage.estimatedCostUsd * 32.5).toFixed(2)}</small></header><p>{challengeReply.reply}</p></article>}
+                            {selectedBookIsProblemSolving && bookMessages.length === 0 && (
+                              <section className="book-guided-learning-intro" aria-label="AI 引導教學說明">
+                                <strong>AI 會依老師解析逐步帶你解題</strong>
+                                <p>先辨認行為人與關鍵事實，再引導你找出爭點、判準與涵攝；每一步都會回應你的想法，最後整理成完整解題架構。</p>
+                                <small>不必先寫完整答案。想深入比較學說或覆核結論時，再請 Sol 補充。</small>
                               </section>
                             )}
                             <div ref={bookDialogueMessagesRef} className="book-dialogue-messages">
