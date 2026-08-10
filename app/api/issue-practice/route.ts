@@ -79,9 +79,12 @@ function outputText(payload: Record<string, unknown>) {
 
 const deductionRanges = {
   "核心完全遺漏": [8, 12],
+  "必要獨立爭點遺漏": [8, 12],
   "結論有寫正文未論證": [3, 5],
   "關鍵事實未涵攝": [5, 10],
   "備位論證遺漏": [4, 8],
+  "罪數競合遺漏": [3, 5],
+  "責任例外規定遺漏": [3, 5],
   "行為人筆誤": [1, 2],
   "法條罪名不精確": [1, 2],
   "老師未處理補充爭議": [0, 0],
@@ -90,7 +93,7 @@ const deductionRanges = {
 function applyFixedIssueScore(raw: string) {
   let deductions = 0;
   const seen = new Set<string>();
-  const tagPattern = /【扣分:(核心完全遺漏|結論有寫正文未論證|關鍵事實未涵攝|備位論證遺漏|行為人筆誤|法條罪名不精確|老師未處理補充爭議):(\d{1,2})】/gu;
+  const tagPattern = /【扣分:(核心完全遺漏|必要獨立爭點遺漏|結論有寫正文未論證|關鍵事實未涵攝|備位論證遺漏|罪數競合遺漏|責任例外規定遺漏|行為人筆誤|法條罪名不精確|老師未處理補充爭議):(\d{1,2})】/gu;
   for (const match of raw.matchAll(tagPattern)) {
     const key = `${match.index}:${match[1]}`;
     if (seen.has(key)) continue;
@@ -139,7 +142,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { action?: "sample" | "save-supplement" | "sol-review-luna" | "challenge" | "reply"; questionId?: number; studentIssues?: string; studentSupplement?: string; model?: "luna" | "sol"; challenger?: "terra" | "sonnet"; challengeText?: string; sampleLevel?: SampleLevel };
-    const questionId = Number(body.questionId); const studentIssues = String(body.studentIssues ?? "").trim(); const requestedModel = body.model === "sol" ? "sol" : "luna";
+    const questionId = Number(body.questionId); const studentIssues = String(body.studentIssues ?? "").trim(); const requestedModel = "luna" as const;
     if (!Number.isInteger(questionId)) return Response.json({ error: "請先選擇題目" }, { status: 400 });
     const db = await getDb();
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"), eq(examQuestions.examType, "essay"))).limit(1);
@@ -187,9 +190,9 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "AI 模型尚未設定" }, { status: 503 });
     const model = requestedModel === "sol" ? "gpt-5.6-sol" : "gpt-5.6-luna";
     const lunaPrior = requestedModel === "sol" ? parseResult(existing?.lunaResultJson ?? null) as ResultShape | null : null;
-    const instructions = `你是臺灣司法官、律師二試的爭點診斷員。比較學生爭點與同一題老師擬答。原始題目最高，老師擬答是主要校準資料。不得補造事實，不得因用語不同判錯。你的工作只有分類命中、遺漏與錯誤，不得自行給總分。\n\n評分前必須先在內部建立逐項清單：1.題目刻意交代的每個人物、行為、時間、先後順序、知悉時點、程序階段、例外事實；2.各事實對應的法律規範與法律效果；3.老師擬答的主要論證及備位論證；4.題目每一個問句所需的明確結論。再逐項比對學生答案，不得只比對罪名或最終結論。像「才發現」「事後知悉」「於某程序階段始知」等文字，若會觸發例外規範，必須獨立檢查。\n\n每個實際扣分項目，必須在該項說明句末加一個機器標籤，且只能使用：\n【扣分:核心完全遺漏:8至12間整數】\n【扣分:結論有寫正文未論證:3至5間整數】\n【扣分:關鍵事實未涵攝:5至10間整數】\n【扣分:備位論證遺漏:4至8間整數】\n【扣分:行為人筆誤:1至2間整數】\n【扣分:法條罪名不精確:1至2間整數】\n老師擬答未處理的補充爭議只能列為補充，標記【扣分:老師未處理補充爭議:0】，不得藉此加分或扣分。不得創造其他扣分類型。相同缺失若同時符合兩類，只使用最能描述實質問題的一類，不得重複扣分。\n\n只有在以下條件全部成立時，文末才可輸出【滿分檢核:通過】：題目每個有法律意義的關鍵事實均已涵攝；全部問句均有明確結論；老師擬答的主要與備位論證均已處理；無法律錯誤、主體錯置或重要遺漏；表達已達可直接交卷程度。任一條件未達即輸出【滿分檢核:未通過】。\n\n固定標題：一、整體表現；二、已命中的爭點；三、遺漏的爭點；四、錯抓或過度延伸；五、表達可再精準之處；六、建議的最終爭點架構。必須區分完全漏寫、僅欠論證、關鍵事實未涵攝、備位論證遺漏與單純筆誤。控制在1400字內。${requestedModel === "sol" ? "你是 Sol 覆核員，不得另做一套自由評分；只可覆核 Luna 的項目分類，保留正確分類並具體修正錯分類。" : "你是 Luna，負責先辨識並分類各項命中、遺漏與錯誤。"}`;
+    const instructions = `你是臺灣司法官、律師二試的爭點診斷員。原始題目是最高依據；老師擬答用來校準採說、標準順序與預期結論，但不是爭點上限。不得補造事實，不得因用語不同判錯。你的工作只有分類命中、遺漏與錯誤，不得自行給總分。\n\n評分必須依序完成四階段：\n第一，獨立完整解題。暫時不看學生答案與老師擬答，只依原始題目建立人物、行為、時間、順序、知悉時點、程序階段、結果、因果流程及例外事實清單；逐一檢查構成要件、未遂／既遂、違法性、責任、其他獨立罪名及罪數競合。行駛中交通工具的駕駛遭攻擊，必須檢查公共危險罪；飲酒或精神狀態，必須完整檢查責任能力及自行招致規定；已有實害結果，必須檢查結果犯及其與主要罪名的競合。\n第二，老師校準。對照老師擬答，保留老師採說、順序與標準結論，並辨識老師未列但第一階段已發現的項目。\n第三，必要性判斷。只有題示事實直接觸發、屬完整回答題問不可缺少，且能以現行法具體論證者，才列為必要獨立爭點。僅屬不同學說、邊緣延伸、事實不足或老師未採的補充爭議，不得扣分。老師沒寫到不等於當然不得扣分，但不得憑想像擴張罪名。\n第四，學生比對。逐項檢查學生是否處理事實、規範、主要／備位論證、各問結論、實害結果及罪數競合，不得只比對罪名或最終結論。\n\n每個實際扣分項目，必須在該項說明句末加一個機器標籤，且只能使用：\n【扣分:核心完全遺漏:8至12間整數】\n【扣分:必要獨立爭點遺漏:8至12間整數】\n【扣分:結論有寫正文未論證:3至5間整數】\n【扣分:關鍵事實未涵攝:5至10間整數】\n【扣分:備位論證遺漏:4至8間整數】\n【扣分:罪數競合遺漏:3至5間整數】\n【扣分:責任例外規定遺漏:3至5間整數】\n【扣分:行為人筆誤:1至2間整數】\n【扣分:法條罪名不精確:1至2間整數】\n單純補充爭議標記【扣分:老師未處理補充爭議:0】，不得加分或扣分。不得創造其他扣分類型；相同缺失只用最能描述實質問題的一類，不得重複扣分。\n\n只有以下條件全部成立，文末才可輸出【滿分檢核:通過】：獨立完整解題與老師擬答已交叉檢查；每個有法律意義的關鍵事實均已涵攝；必要獨立罪名、責任例外及罪數競合均已處理；全部問句均有明確結論；老師擬答的主要與備位論證均已處理；無法律錯誤、主體錯置或重要遺漏；表達已達可直接交卷程度。任一條件未達即輸出【滿分檢核:未通過】。\n\n固定標題：一、整體表現；二、已命中的爭點；三、遺漏的爭點；四、錯抓或過度延伸；五、表達可再精準之處；六、建議的最終爭點架構。控制在1400字內。你是 Luna，負責辨識並分類各項命中、遺漏與錯誤。`;
     const safeInstructions = `${instructions}\n再次確認：只可輸出純文字與自然換行，不得輸出 Markdown 星號、井號、底線、反引號、表格或程式碼區塊。`;
-    const input = `【題目】\n${question.stem}\n\n【學生寫下的爭點】\n${studentIssues}\n\n【同題老師擬答／解析】\n${question.teacherAnswer.slice(0, 15000)}${lunaPrior?.analysis ? `\n\n【Luna 已完成的分類，供 Sol 覆核】\n${lunaPrior.analysis}` : ""}`;
+    const input = `【題目｜第一階段必須先獨立解題】\n${question.stem}\n\n【學生寫下的爭點｜完成獨立解題後才可比對】\n${studentIssues}\n\n【同題老師擬答／解析｜用於校準，不是爭點上限】\n${question.teacherAnswer.slice(0, 15000)}`;
     const started = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: safeInstructions, input, max_output_tokens: requestedModel === "sol" ? 2400 : 2000 }) }) as Record<string, unknown>;
     const rawText = outputText(payload); if (!rawText) return Response.json({ error: "AI 沒有產生可顯示的分析，請稍後再試" }, { status: 502 });

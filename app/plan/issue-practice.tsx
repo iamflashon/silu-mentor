@@ -112,7 +112,8 @@ export function IssuePractice() {
       const record = data.record as SavedRecord | null;
       if (record) {
         setStudentIssues(record.studentIssues || ""); setStudentSupplement(record.studentSupplement || ""); setSampleLevel(record.sampleLevel ?? null);
-        setResults({ ...(record.lunaResult ? { luna: record.lunaResult } : {}), ...(record.solResult ? { sol: record.solResult } : {}) });
+        // Sol 已退出前台評分流程；舊紀錄保留於資料庫，但不再載入或觸發。
+        setResults({ ...(record.lunaResult ? { luna: record.lunaResult } : {}) });
         setWorkflow(record.challengeWorkflow || {}); setChallengeText(record.challengeWorkflow?.challenge?.analysis || "");
         setActiveResult("luna"); setSavedNotice("已載入上次練習紀錄");
       }
