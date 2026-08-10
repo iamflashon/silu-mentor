@@ -101,6 +101,17 @@ type PracticeFacets = {
 };
 type EssayMode = "guided" | "exam";
 
+function essayQuestionSummary(stem: string, maxLength = 34) {
+  const normalized = stem
+    .replace(/\s+/g, " ")
+    .replace(/^[【\[（(]?第?[一二三四五六七八九十\d]+[題、.．：:]?[】\]）)]?\s*/u, "")
+    .trim();
+  if (!normalized) return "題目摘要尚未建立";
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength).trim()}…`
+    : normalized;
+}
+
 type EssayBatchAttempt = {
   id: number;
   questionId: number;
@@ -1444,7 +1455,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
               <div className="essay-question-picker-fields">
                 <label><span>年度</span><select value={essayPickerYear} onChange={(event) => { setEssayPickerYear(event.target.value); setEssayPickerSubject(""); setEssayPickerId(""); }} disabled={essayPickerLoading}><option value="">選擇年度</option>{essayPickerYears.map((year) => <option key={year} value={year}>{year} 年</option>)}</select></label>
                 <label><span>類科</span><select value={essayPickerSubject} onChange={(event) => { setEssayPickerSubject(event.target.value); setEssayPickerId(""); }} disabled={!essayPickerYear || essayPickerLoading}><option value="">選擇類科</option>{essayPickerSubjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
-                <label><span>題目</span><select value={essayPickerId} onChange={(event) => setEssayPickerId(event.target.value)} disabled={!essayPickerSubject || essayPickerLoading}><option value="">選擇題目</option>{essayPickerQuestions.map((item) => <option key={item.id} value={item.id}>第 {item.questionNumber} 題</option>)}</select></label>
+                <label><span>題目</span><select value={essayPickerId} onChange={(event) => setEssayPickerId(event.target.value)} disabled={!essayPickerSubject || essayPickerLoading}><option value="">選擇題目</option>{essayPickerQuestions.map((item) => <option key={item.id} value={item.id}>第 {item.questionNumber} 題｜{essayQuestionSummary(item.stem)}</option>)}</select></label>
               </div>
               {essayPickerLoading && <p className="essay-question-picker-status">正在讀取已發布的二試題目…</p>}
               {!essayPickerLoading && essayPickerYear && essayPickerSubject && !essayPickerQuestions.length && <p className="essay-question-picker-status">這個年度與類科目前沒有可選題目。</p>}
