@@ -33,15 +33,27 @@ function sampleAnswer(answer: string, level: SampleLevel) {
       .trim();
     return /^(?:(?:高點)?名師)?(?:參考)?擬答$|^(?:老師|名師)?(?:參考)?(?:解析|解答)$|^(?:試題評析|考點命中|答題說明|資料來源|來源)$/u.test(normalized);
   };
-  const chunks = source
-    .split(/\n+|(?<=[。；])\s*/u)
-    .map(cleanSourceLine)
-    .filter((line) => line.length >= 8 && !isSourceHeading(line));
-  const likely = chunks.filter((line) => /(?:是否|成立|爭點|罪|刑責|責任|競合|正犯|共犯|未遂|既遂|故意|過失|因果|歸責|中止|不能未遂)/u.test(line));
+  const rawLines = source.split(/\n+/u).map((line) => line.trim()).filter(Boolean);
+  const actorHeading = /^(?:[一二三四五六七八九十百]+[、.．]\s*)?([甲乙丙丁戊己庚辛壬癸])(?:之|的)?刑責/u;
+  let currentActor = "本題";
+  const chunks: Array<{ actor: string; line: string }> = [];
+  for (const rawLine of rawLines) {
+    const headingMatch = cleanSourceLine(rawLine).match(actorHeading);
+    if (headingMatch) {
+      currentActor = headingMatch[1];
+      continue;
+    }
+    for (const sentence of rawLine.split(/(?<=[。；])\s*/u)) {
+      const line = cleanSourceLine(sentence);
+      if (line.length >= 8 && !isSourceHeading(line)) chunks.push({ actor: currentActor, line });
+    }
+  }
+  const likely = chunks.filter(({ line }) => /(?:是否|成立|爭點|罪|刑責|責任|競合|正犯|共犯|未遂|既遂|故意|過失|因果|歸責|中止|不能未遂)/u.test(line));
   const sourceIssues = likely.length >= 3 ? likely : chunks;
   const seen = new Set<string>();
-  const issues = sourceIssues.flatMap((line) => {
-    const actor = line.match(/^(?:就|關於)?([甲乙丙丁戊己庚辛壬癸])(?:之|的|就|對|將|於|因|以|、|，|\s)/u)?.[1] ?? "本題";
+  const issues = sourceIssues.flatMap(({ actor: sectionActor, line }) => {
+    const explicitActor = line.match(/^(?:就|關於)?([甲乙丙丁戊己庚辛壬癸])(?:之|的|就|對|將|於|因|以|、|，|\s)/u)?.[1];
+    const actor = explicitActor ?? sectionActor;
     const concise = line
       .replace(/^(?:就|關於)?[甲乙丙丁戊己庚辛壬癸](?:之|的)?(?:刑責|部分)?[：:，、\s]*/u, "")
       .replace(/^(?:爭點|問題)[：:，、\s]*/u, "")
@@ -58,9 +70,16 @@ function sampleAnswer(answer: string, level: SampleLevel) {
     if (seen.has(key)) return [];
     seen.add(key);
     return [{ actor, text: `${text}？` }];
-  }).slice(0, 14);
+  });
   const ratio = level === "basic" ? .28 : level === "intermediate" ? .62 : 1;
-  const count = Math.min(issues.length, level === "basic" ? Math.max(2, Math.ceil(issues.length * ratio)) : level === "intermediate" ? Math.max(4, Math.ceil(issues.length * ratio)) : issues.length);
+  // The advanced sample is a completeness test. Never silently cut it at an
+  // arbitrary number of rows; otherwise Luna is being tested against a sample
+  // that is labelled high-scoring while omitting the teacher answer's tail.
+  const count = level === "basic"
+    ? Math.min(issues.length, Math.max(2, Math.ceil(issues.length * ratio)))
+    : level === "intermediate"
+      ? Math.min(issues.length, Math.max(4, Math.ceil(issues.length * ratio)))
+      : issues.length;
   const selected = issues.slice(0, count);
   const groups = new Map<string, string[]>();
   for (const issue of selected) groups.set(issue.actor, [...(groups.get(issue.actor) ?? []), issue.text]);
