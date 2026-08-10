@@ -6654,16 +6654,27 @@ a {
   width: 100%;
   padding: 2px 0 14px;
   border-bottom: 1px solid #ead7d7;
-  color: transparent;
-  font-size: 0;
+  color: #163f4d;
+  font-size: 16px;
   text-align: center;
 }
 
 .issue-analysis-summary strong {
+  display: block;
+  margin-top: 8px;
   color: #d32f2f;
   font-size: clamp(44px, 6vw, 62px);
   font-weight: 900;
   line-height: 1;
+}
+
+.issue-analysis-summary > span:first-child::after {
+  content: "此為爭點辨識練習的完成度指標，並非正式考試分數";
+  display: block;
+  margin-top: 9px;
+  color: #647a80;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .issue-analysis-summary b {
