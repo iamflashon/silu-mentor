@@ -23,6 +23,7 @@ type Message = {
   outputTokens?: number;
   durationMs?: number;
   quote?: string;
+  challengedSpeaker?: Member;
 };
 
 const memberInfo: Array<{
@@ -81,6 +82,12 @@ function cleanMarkdown(text: string) {
     .replace(/^\s*[-*+]\s+/gm, "• ")
     .replace(/\*+/g, "")
     .trim();
+}
+
+function challengedMember(message: Message): Member | null {
+  if (message.challengedSpeaker) return message.challengedSpeaker;
+  const named = message.text.match(/(?:質疑|懷疑|挑戰)\s*(Luna|DeepSeek|Sol)/i)?.[1];
+  return named ? (named.toLowerCase() as Member) : null;
 }
 
 export default function StudyGroup() {
@@ -290,6 +297,12 @@ export default function StudyGroup() {
           id: Date.now() + index + 2,
           ...item,
           text: cleanMarkdown(item.text),
+          challengedSpeaker:
+            item.speaker === "terra" &&
+            quote &&
+            ["luna", "deepseek", "sol"].includes(quote.speaker)
+              ? (quote.speaker as Member)
+              : undefined,
         })),
       ]);
     } catch (error) {
@@ -519,18 +532,50 @@ export default function StudyGroup() {
                         <button type="button" onClick={() => setQuote(message)}>
                           引用回覆
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTarget("terra");
-                            setQuote(message);
-                            setInput(
-                              `@Terra，請質疑 ${labels[message.speaker]} 這段說法：`,
-                            );
-                          }}
-                        >
-                          請 Terra 質疑
-                        </button>
+                        {message.speaker !== "terra" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTarget("terra");
+                              setQuote(message);
+                              setInput(
+                                `@Terra，請質疑 ${labels[message.speaker]} 這段說法：`,
+                              );
+                            }}
+                          >
+                            請 Terra 質疑
+                          </button>
+                        )}
+                        {message.speaker === "terra" &&
+                          challengedMember(message) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const respondent = challengedMember(message)!;
+                                setTarget(respondent);
+                                setQuote(message);
+                                setInput(
+                                  `@${labels[respondent]}，請直接回應 Terra 對你的質疑，說明應保留或修正之處：`,
+                                );
+                              }}
+                            >
+                              請 {labels[challengedMember(message)!]} 回應質疑
+                            </button>
+                          )}
+                        {message.speaker !== "deepseek" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTarget("deepseek");
+                              setQuote(message);
+                              setInput(
+                                `@DeepSeek，請補充 ${labels[message.speaker]} 這段說法的法條、學說或不同觀點：`,
+                              );
+                            }}
+                          >
+                            請 DeepSeek 補充
+                          </button>
+                        )}
                         {message.speaker !== "sol" && (
                           <button
                             type="button"
