@@ -10,13 +10,21 @@ type SampleLevel = "basic" | "intermediate" | "advanced";
 const sampleLabels: Record<SampleLevel, string> = { basic: "基礎擬答", intermediate: "中等擬答", advanced: "高分擬答" };
 function sampleAnswer(answer: string, level: SampleLevel) {
   const source = answer.normalize("NFKC").replace(/\*\*/g, "").replace(/\r/g, "\n");
-  const cleanSourceLine = (value: string) => value
-    // OCR often prefixes a line with `o3`, `O4` or a bare page/line number.
-    .replace(/^\s*(?:[oO]\s*)?\d{1,3}(?=[\p{Script=Han}A-Za-z《「『【（(])/u, "")
-    .replace(/^\s*(?:[-•]|[oO0○]?\d+[.、．]|[一二三四五六七八九十]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])\s*/u, "")
-    .replace(/[？?]+\s*[？?]+/gu, "？")
-    .replace(/\s+/gu, " ")
-    .trim();
+  const cleanSourceLine = (value: string) => {
+    let cleaned = value.trim();
+    // A source line can contain stacked prefixes, for example `（九）o3本文`.
+    // Remove one prefix at a time until the real sentence begins.
+    const prefix = /^(?:[-•]\s*|[oO]\s*\d{1,3}(?=[\p{Script=Han}A-Za-z《「『【（(])\s*|[oO0○]?\d+[.、．]\s*|[一二三四五六七八九十]+[、.．]\s*|[（(][一二三四五六七八九十\d]+[）)]\s*)/u;
+    for (let index = 0; index < 6; index += 1) {
+      const next = cleaned.replace(prefix, "").trimStart();
+      if (next === cleaned) break;
+      cleaned = next;
+    }
+    return cleaned
+      .replace(/[？?]+\s*[？?]+/gu, "？")
+      .replace(/\s+/gu, " ")
+      .trim();
+  };
   const isSourceHeading = (line: string) => {
     const normalized = line
       .replace(/^[【\[（(]\s*|\s*[】\]）)]$/gu, "")
