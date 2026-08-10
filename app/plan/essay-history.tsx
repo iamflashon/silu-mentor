@@ -131,22 +131,6 @@ function GradingView({ grading, title }: { grading: EssayGrading; title?: string
           </article>
         ))}
       </div>
-      {grading.solution_steps?.length ? (
-        <section className="essay-solution-steps" aria-label="推論鏈檢查">
-          <header><strong>推論鏈檢查</strong><span>找出審題到結論之間的跳躍位置</span></header>
-          <ol>
-            {grading.solution_steps.map((step, index) => (
-              <li key={`${step.step}-${step.title}-${index}`}>
-                <div className="essay-solution-step-head"><b>{step.step || index + 1}</b><strong>{step.title}</strong></div>
-                <p><em>本步處理</em>{step.focus}</p>
-                <p><em>老師基準</em>{step.analysis}</p>
-                <p><em>你的表現</em>{step.student_performance}</p>
-                <p><em>下一動作</em>{step.next_action}</p>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
       {grading.priority_fixes.length > 0 && <div className="essay-history-fixes"><strong>優先修正</strong><ul>{grading.priority_fixes.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></div>}
       <div className="essay-history-next"><strong>下一步</strong><p>{grading.next_step}</p></div>
     </div>

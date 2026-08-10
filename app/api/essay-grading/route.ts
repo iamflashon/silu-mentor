@@ -69,9 +69,9 @@ const gradingInstructions = `你是台灣司律二試申論診斷教練。你的
 
 評分必須使用題目提供的 original_max_score，不得自行改成百分制。dimensions 各項 max_score 合計必須等於 original_max_score，score 必須等於 dimensions 各項 score 合計。若老師未提供細項配分，才可在 original_max_score 內合理分配，但不得改變總滿分。不得另寫一份 AI 建議擬答；任務只有依老師擬答分析學生的答對、漏寫、寫錯與修正方向。
 
-dimensions 必須固定依序輸出且只能輸出以下六項：1 標題、2 結論、3 爭點完整度、4 論證順序、5 規範與涵攝、6 文字得分效果。每項 result 必須先明確判定「已做到」「部分做到」「寫錯」或「遺漏」；evidence 必須引用或準確摘述學生原文，沒有對應內容就寫「學生原文未見」；missing 說明與老師基準的差距及如何補強，但不得代寫整段答案。特別檢查：標題是否直接呈現法律問題及結論、是否先處理核心爭點、結論是否明確且前後一致、是否只有背誦學說而缺乏具體事實涵攝、推論是否跳躍、同一法律爭點改變問法後是否仍有正確辨識。
+dimensions 必須固定依序輸出且只能輸出以下六項：1 標題、2 結論、3 爭點完整度、4 論證順序、5 規範與涵攝、6 文字得分效果。每項 result 只寫「已做到」「部分做到」「寫錯」或「遺漏」；evidence 以一至二句引用或準確摘述學生原文，沒有對應內容就寫「學生原文未見」；missing 以一至二句說明與老師基準的差距及最直接的補強方式，不得代寫整段答案。特別檢查：標題是否直接呈現法律問題及結論、是否先處理核心爭點、結論是否明確且前後一致、是否只有背誦學說而缺乏具體事實涵攝、推論是否跳躍、同一法律爭點改變問法後是否仍有正確辨識。
 
-solution_steps 固定依序提供 5 個「推論鏈檢查」：1 審題與定位問題、2 爭點拆解、3 規範與要件、4 事實涵攝、5 結論與作答整理。每一步只診斷學生原答案的推論是否完整，說明本步處理內容、依老師基準應有的推理、學生目前表現及下一個可立即修正的動作；不得重寫完整擬答。overall、priority_fixes 與 next_step 也只能提供診斷與修正順序，不得生成完整答案。`;
+若學生的核心罪名、法條、行為人定位或罪數處理大幅偏離老師擬答，爭點完整度與規範涵攝不得因文字很多或曾提及相近概念而給過半分；只有具體且正確連結到老師得分點的內容才能計分。但學生提出有法律理由的不同見解時，不得僅因與老師採說不同就判零分，應說明依本題老師基準會如何影響得分。overall 第一段必須以「以下評價僅依本題老師擬答，不代表否定其他法規適用可能性。」開頭，之後最多再寫兩句總評。priority_fixes 最多三項，每項只寫一個最高優先錯誤；next_step 只寫一句可立即執行的練習。strengths 最多兩項。solution_steps 一律回傳空陣列，不再產出推論鏈檢查，避免與六項診斷重複。整份批改以約 1200 至 1800 個輸出 tokens 為目標，只提供診斷與修正順序，不得生成完整答案。`;
 
 const gradingSchema = {
   type: "object",
@@ -81,7 +81,8 @@ const gradingSchema = {
     overall: { type: "string" },
     solution_steps: {
       type: "array",
-      description: "依序輸出 5 個解題過程步驟；伺服器端會驗證至少 2 步、最多 5 步。",
+      description: "固定回傳空陣列；本版不再產出與六項診斷重複的推論鏈。",
+      maxItems: 0,
       items: {
         type: "object",
         additionalProperties: false,
@@ -177,8 +178,8 @@ function parseEssayGrading(raw: string) {
   ) {
     throw new Error("AI 回傳的申論批改格式不完整");
   }
-  if (value.solution_steps.length < 2 || value.solution_steps.length > 5) {
-    throw new Error("AI 回傳的解題步驟數量不完整（應為 2 至 5 步）");
+  if (value.solution_steps.length !== 0) {
+    throw new Error("AI 回傳了本版已取消的重複推論鏈");
   }
   for (const [index, step] of value.solution_steps.entries()) {
     if (
@@ -301,7 +302,7 @@ async function runSol(
       instructions: gradingInstructions,
       input: [{ role: "user", content: [{ type: "input_text", text: gradingInput(question, answer) }] }],
       text: { format: { type: "json_schema", name: "essay_grading", strict: true, schema: gradingSchema } },
-      max_output_tokens: 12000,
+      max_output_tokens: 2600,
     }),
   });
   const payload = await readModelPayload(response) as {
@@ -342,7 +343,7 @@ async function runClaude(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 12000,
+      max_tokens: 2600,
       system: `${gradingInstructions}\n\n只輸出合法 JSON，不要輸出 Markdown、說明文字或 JSON 以外的內容。JSON 欄位必須完全使用 score、overall、solution_steps、dimensions、strengths、priority_fixes、next_step、source_used。`,
       messages: [{ role: "user", content: gradingInput(question, answer) }],
       output_config: { format: { type: "json_schema", schema: gradingSchema } },
