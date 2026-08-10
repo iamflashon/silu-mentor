@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 type Member = "luna" | "deepseek" | "terra" | "sol";
 type Target = Member | "host" | "free";
 type Mood = "quiet" | "natural" | "lively";
+type StudentLevel = "beginner" | "intermediate" | "advanced";
 type Message = { id: number; speaker: "student" | "host" | Member; text: string; model?: string; inputTokens?: number; outputTokens?: number; durationMs?: number; quote?: string };
 
 const memberInfo: Array<{ id: Member; name: string; mark: string; title: string; detail: string }> = [
@@ -46,6 +47,18 @@ export default function StudyGroup() {
     setMessages([{ id: Date.now(), speaker: "host", text: `今天就從「${topic}」開始。先不用急著找標準答案：你目前怎麼理解？哪一點最不確定？` }]);
   }
 
+  function fillSimulation(level: StudentLevel) {
+    const prompts: Record<StudentLevel, string> = {
+      beginner: `我對「${topic}」還沒有概念。可以先不要用太多法律術語，用一個生活例子告訴我它在判斷什麼嗎？`,
+      intermediate: `我理解「${topic}」的基本概念，但還不確定構成要件與適用界線。可以給我一個容易判錯的案例，讓我先試著判斷嗎？`,
+      advanced: `針對「${topic}」，我想檢驗實務與學說可能分歧的判準。請先提出一個有灰色地帶的案例，再質疑我的論證，最後才由 Sol 校準成二試答題架構。`,
+    };
+    setTarget(level === "beginner" ? "luna" : level === "intermediate" ? "host" : "free");
+    setMood(level === "advanced" ? "lively" : "natural");
+    setInput(prompts[level]);
+    setQuote(null);
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!input.trim() || busy) return;
@@ -72,7 +85,7 @@ export default function StudyGroup() {
 
     {introOpen && <section className="study-group-intro" aria-label="讀書會成員與主題設定"><header><div><span>進場前先認識今天的同學</span><h2>四位成員，各有不同程度與任務</h2></div><button type="button" onClick={() => setIntroOpen(false)}>收合</button></header><div className="study-group-members">{memberInfo.map((member) => <article className={member.id} key={member.id}><i>{member.mark}</i><div><b>{member.name}</b><span>{member.title}</span><p>{member.detail}</p></div></article>)}</div><div className="study-group-topic"><div><small>不知道主題也沒關係</small><b>{todayGoal ? `已讀取今日尚未完成目標：${todayGoal.subject}｜${todayGoal.title}` : "今天沒有可用任務，先提供每日推薦主題"}</b></div><label>自訂主題<input value={customTopic} onChange={(event) => setCustomTopic(event.target.value)} placeholder="例如：不作為犯的保證人地位" /></label><button type="button" onClick={begin}>進入讀書會</button></div><p className="study-group-disclaimer">四位成員都是 AI 角色，可能犯錯；重要法律結論仍應回到法條、實務與指定教材核對。</p></section>}
 
-    <div className="study-group-layout"><aside className="study-group-controls"><section><span>想問誰？</span>{([['host','主持人決定'],['luna','Luna 白話'],['deepseek','DeepSeek 補充'],['terra','Terra 質疑'],['sol','Sol 統整'],['free','自由討論']] as Array<[Target,string]>).map(([id,label]) => <button type="button" className={target === id ? "active" : ""} onClick={() => setTarget(id)} key={id}>{label}</button>)}</section><section><span>討論氣氛</span>{([['quiet','安靜'],['natural','自然'],['lively','熱烈']] as Array<[Mood,string]>).map(([id,label]) => <button type="button" className={mood === id ? "active" : ""} onClick={() => setMood(id)} key={id}>{label}</button>)}<small>{mood === "quiet" ? "只有被指定者回答" : mood === "natural" ? "必要時一位成員補充" : "允許質疑與二輪回應"}</small></section><button className="study-group-new" type="button" onClick={() => { setMessages([]); setCustomTopic(""); setIntroOpen(true); }}>＋ 另開讀書會</button></aside>
+    <div className="study-group-layout"><aside className="study-group-controls"><section><span>想問誰？</span>{([['host','主持人決定'],['luna','Luna 白話'],['deepseek','DeepSeek 補充'],['terra','Terra 質疑'],['sol','Sol 統整'],['free','自由討論']] as Array<[Target,string]>).map(([id,label]) => <button type="button" className={target === id ? "active" : ""} onClick={() => setTarget(id)} key={id}>{label}</button>)}</section><section><span>討論氣氛</span>{([['quiet','安靜'],['natural','自然'],['lively','熱烈']] as Array<[Mood,string]>).map(([id,label]) => <button type="button" className={mood === id ? "active" : ""} onClick={() => setMood(id)} key={id}>{label}</button>)}<small>{mood === "quiet" ? "只有被指定者回答" : mood === "natural" ? "必要時一位成員補充" : "允許質疑與二輪回應"}</small></section><section className="study-group-simulations"><span>模擬學生發言</span><button type="button" className="beginner" onClick={() => fillSimulation("beginner")}><b>初學小白</b><small>先聽白話與例子</small></button><button type="button" className="intermediate" onClick={() => fillSimulation("intermediate")}><b>中階考生</b><small>練要件與判斷界線</small></button><button type="button" className="advanced" onClick={() => fillSimulation("advanced")}><b>高階學霸</b><small>進入爭議與攻防</small></button><small>只會帶入發言，確認後再送出</small></section><button className="study-group-new" type="button" onClick={() => { setMessages([]); setCustomTopic(""); setIntroOpen(true); }}>＋ 另開讀書會</button></aside>
       <section className="study-group-chat"><div className="study-group-messages">{messages.length === 0 && <div className="study-group-empty"><b>主持人還在等你入席</b><span>確認主題後進入，或直接在下方開始發言。</span></div>}{messages.map((message) => <article className={`study-group-message ${message.speaker}`} key={message.id}><div className="study-group-avatar">{message.speaker === "student" ? "我" : message.speaker === "host" ? "持" : memberInfo.find((item) => item.id === message.speaker)?.mark}</div><div><header><b>{labels[message.speaker]}</b>{message.model && <small>{message.model} · {(message.inputTokens || 0) + (message.outputTokens || 0)} tokens · {(message.durationMs || 0).toLocaleString()} ms</small>}</header>{message.quote && <blockquote>{message.quote}</blockquote>}<p>{message.text}</p>{message.speaker !== "student" && message.speaker !== "host" && <footer><button type="button" onClick={() => setQuote(message)}>引用回覆</button><button type="button" onClick={() => { setTarget("terra"); setQuote(message); setInput(`@Terra，請質疑 ${labels[message.speaker]} 這段說法：`); }}>請 Terra 質疑</button>{message.speaker !== "sol" && <button type="button" onClick={() => { setTarget("sol"); setQuote(message); setInput("@Sol，請幫我校準並統整："); }}>請 Sol 統整</button>}</footer>}</div></article>)}{busy && <article className="study-group-message host"><div className="study-group-avatar">持</div><div><p className="study-group-typing">成員正在整理想法<span>•••</span></p></div></article>}</div><form onSubmit={submit}>{quote && <div className="study-group-quote"><span>正在回覆 {labels[quote.speaker]}：{quote.text.slice(0, 72)}</span><button type="button" onClick={() => setQuote(null)}>×</button></div>}<textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="直接發言，或輸入 @Luna、@DeepSeek、@Terra、@Sol 點名…" rows={3} /><div><span>目前：{target === "host" ? "主持人派話" : target === "free" ? "自由討論" : `指定 ${labels[target]}`} · {mood === "quiet" ? "安靜模式" : mood === "natural" ? "自然模式" : "熱烈模式"}</span><button disabled={busy || !input.trim()}>{busy ? "討論中…" : "送出發言"}</button></div></form></section>
     </div>
   </main>;

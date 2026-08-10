@@ -16635,5 +16635,15 @@ a {
 /* Smart selection usage and official fallback */
 .law-usage-meta{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:15px;padding-top:11px;border-top:1px dashed #c9d9da;color:#698087;font-size:11px;line-height:1.55}.law-usage-meta b{color:#315f68}.law-usage-meta span{white-space:nowrap}.judicial-fallback-link{display:block;width:max-content;margin:16px auto 0;padding:10px 14px;border-radius:9px;background:#2b7771;color:#fff;font-weight:800;text-decoration:none}
 .official-search-fallback{display:grid;gap:7px;margin:18px auto 0;padding:15px;border:1px solid #cbdedf;border-radius:12px;background:#f5fafa;color:#48666f;text-align:left}.official-search-fallback>b{color:#285f68}.official-search-fallback>span{font-size:12px}.official-search-fallback>div{display:flex;flex-wrap:wrap;gap:8px;margin-top:5px}.official-search-fallback button{border:0;border-radius:8px;background:#2b7771;color:#fff;padding:9px 12px;font-weight:800;cursor:pointer}
+/* AI study group: student-level simulation controls */
+.study-group-controls .study-group-simulations{grid-template-columns:1fr}
+.study-group-controls .study-group-simulations>button{display:grid;grid-template-columns:1fr;gap:2px;padding:10px 11px;text-align:left;border-left-width:3px;background:#fbfcfc;transition:transform .16s ease,background .16s ease}
+.study-group-controls .study-group-simulations>button b{font-size:10px}
+.study-group-controls .study-group-simulations>button small{font-size:9px;font-weight:500}
+.study-group-controls .study-group-simulations>button.beginner{border-left-color:#65a5a0}
+.study-group-controls .study-group-simulations>button.intermediate{border-left-color:#557c96}
+.study-group-controls .study-group-simulations>button.advanced{border-left-color:#a37342}
+.study-group-controls .study-group-simulations>button:hover{transform:translateX(2px);border-color:#8fb4b2;background:#eef6f5}
+
 /* Intelligent legal selection analysis */
 .legal-analysis-card{display:grid;gap:18px}.legal-analysis-card>h4{margin-top:0}.legal-analysis-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.legal-analysis-grid>div{display:grid;gap:5px;padding:12px 14px;border:1px solid #d6e5e4;border-radius:10px;background:#f7fbfa}.legal-analysis-grid span{color:#6c8389;font-size:11px;font-weight:800}.legal-analysis-grid b{color:#245d63;line-height:1.55}.legal-analysis-points{padding:14px 16px;border-left:4px solid #3a8980;background:#f2f8f6}.legal-analysis-points>b{color:#256c65}.legal-analysis-points ul{margin:9px 0 0;padding-left:20px;color:#334d55;line-height:1.8}.legal-analysis-card>.law-plain-explanation{padding:16px;border-radius:10px}.legal-analysis-card>.law-usage-meta{margin-top:0}@media(max-width:620px){.legal-analysis-grid{grid-template-columns:1fr}}
