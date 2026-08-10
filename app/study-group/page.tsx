@@ -619,34 +619,6 @@ export default function StudyGroup() {
                   : "允許質疑與二輪回應"}
             </small>
           </section>
-          <section className="study-group-simulations">
-            <span>模擬學生發言</span>
-            <button
-              type="button"
-              className="beginner"
-              onClick={() => fillSimulation("beginner")}
-            >
-              <b>初學小白</b>
-              <small>先聽白話與例子</small>
-            </button>
-            <button
-              type="button"
-              className="intermediate"
-              onClick={() => fillSimulation("intermediate")}
-            >
-              <b>中階考生</b>
-              <small>練要件與判斷界線</small>
-            </button>
-            <button
-              type="button"
-              className="advanced"
-              onClick={() => fillSimulation("advanced")}
-            >
-              <b>高階學霸</b>
-              <small>進入爭議與攻防</small>
-            </button>
-            <small>只會帶入發言，確認後再送出</small>
-          </section>
           {history.length > 0 && (
             <section className="study-group-history">
               <span>歷次讀書會</span>
@@ -876,7 +848,7 @@ export default function StudyGroup() {
               aria-autocomplete="list"
               aria-expanded={mentionQuery !== null && mentionMembers.length > 0}
             />
-            <div>
+            <div className="study-group-composer-footer">
               <span>
                 目前：
                 {target === "host"
@@ -891,6 +863,12 @@ export default function StudyGroup() {
                     ? "自然模式"
                     : "熱烈模式"}
               </span>
+              <div className="study-group-simulation-shortcuts" aria-label="模擬學生發言">
+                <small>模擬同學</small>
+                <button type="button" className="beginner" onClick={() => fillSimulation("beginner")}>初學小白</button>
+                <button type="button" className="intermediate" onClick={() => fillSimulation("intermediate")}>中階考生</button>
+                <button type="button" className="advanced" onClick={() => fillSimulation("advanced")}>高階學霸</button>
+              </div>
               <button disabled={busy || (!input.trim() && !attachmentDraft)}>
                 {busy ? "討論中…" : "送出發言"}
               </button>

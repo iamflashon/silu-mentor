@@ -26506,42 +26506,50 @@ a {
   font-weight: 800;
   cursor: pointer;
 }
-/* AI study group: student-level simulation controls */
-.study-group-controls .study-group-simulations {
-  grid-template-columns: 1fr;
+/* AI study group: student-level simulation shortcuts beside send */
+.study-group-chat form > .study-group-composer-footer {
+  gap: 10px;
 }
-.study-group-controls .study-group-simulations > button {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 2px;
-  padding: 10px 11px;
-  text-align: left;
-  border-left-width: 3px;
-  background: #fbfcfc;
-  transition:
-    transform 0.16s ease,
-    background 0.16s ease;
+.study-group-simulation-shortcuts {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
-.study-group-controls .study-group-simulations > button b {
+.study-group-simulation-shortcuts > small {
+  margin-right: 2px;
+  color: #657d85;
   font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
 }
-.study-group-controls .study-group-simulations > button small {
-  font-size: 9px;
-  font-weight: 500;
+.study-group-chat form .study-group-simulation-shortcuts > button {
+  width: auto;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #c7d8da;
+  border-radius: 8px;
+  background: #fff;
+  color: #365c65;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
 }
-.study-group-controls .study-group-simulations > button.beginner {
-  border-left-color: #65a5a0;
-}
-.study-group-controls .study-group-simulations > button.intermediate {
-  border-left-color: #557c96;
-}
-.study-group-controls .study-group-simulations > button.advanced {
-  border-left-color: #a37342;
-}
-.study-group-controls .study-group-simulations > button:hover {
-  transform: translateX(2px);
-  border-color: #8fb4b2;
+.study-group-chat form .study-group-simulation-shortcuts > button.beginner { border-bottom: 3px solid #65a5a0; }
+.study-group-chat form .study-group-simulation-shortcuts > button.intermediate { border-bottom: 3px solid #557c96; }
+.study-group-chat form .study-group-simulation-shortcuts > button.advanced { border-bottom: 3px solid #a37342; }
+.study-group-chat form .study-group-simulation-shortcuts > button:hover {
+  border-color: #78a7a5;
   background: #eef6f5;
+}
+@media (max-width: 860px) {
+  .study-group-chat form > .study-group-composer-footer { flex-wrap: wrap; }
+  .study-group-composer-footer > span { width: 100%; }
+  .study-group-simulation-shortcuts { margin-left: 0; flex: 1; flex-wrap: wrap; }
+}
+@media (max-width: 520px) {
+  .study-group-simulation-shortcuts > small { width: 100%; }
+  .study-group-chat form .study-group-simulation-shortcuts > button { flex: 1; padding: 0 6px; }
 }
 
 /* Intelligent legal selection analysis */
