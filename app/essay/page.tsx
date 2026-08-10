@@ -9,9 +9,7 @@ export default function EssayPage() {
       <header className="essay-standalone-header">
         <Link href="/" className="brand"><span>司</span><b>司律備考</b></Link>
         <nav aria-label="申論頁導覽">
-          <Link href="/">首頁</Link>
-          <Link href="/plan">學習專區</Link>
-          <Link href="/review">司律評</Link>
+          <a href="/" aria-label="回到司律備考首頁">← 回首頁</a>
         </nav>
       </header>
       <PracticeLab initialType="essay" standalone />
