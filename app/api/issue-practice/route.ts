@@ -9,7 +9,14 @@ const OWNER_EMAIL = "iamflashon@gmail.com";
 type SampleLevel = "basic" | "intermediate" | "advanced";
 const sampleLabels: Record<SampleLevel, string> = { basic: "基礎擬答", intermediate: "中等擬答", advanced: "高分擬答" };
 function sampleAnswer(answer: string, level: SampleLevel) {
-  const source = answer.replace(/\*\*/g, "").replace(/\r/g, "\n");
+  const source = answer.normalize("NFKC").replace(/\*\*/g, "").replace(/\r/g, "\n");
+  const cleanSourceLine = (value: string) => value
+    // OCR often prefixes a line with `o3`, `O4` or a bare page/line number.
+    .replace(/^\s*(?:[oO]\s*)?\d{1,3}(?=[\p{Script=Han}A-Za-z《「『【（(])/u, "")
+    .replace(/^\s*(?:[-•]|[oO0○]?\d+[.、．]|[一二三四五六七八九十]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])\s*/u, "")
+    .replace(/[？?]+\s*[？?]+/gu, "？")
+    .replace(/\s+/gu, " ")
+    .trim();
   const isSourceHeading = (line: string) => {
     const normalized = line
       .replace(/^[【\[（(]\s*|\s*[】\]）)]$/gu, "")
@@ -19,9 +26,7 @@ function sampleAnswer(answer: string, level: SampleLevel) {
   };
   const chunks = source
     .split(/\n+|(?<=[。；])\s*/u)
-    .map((line) => line
-      .replace(/^\s*(?:[-•]|[oO０○]?\d+[.、．]|[一二三四五六七八九十]+[、.．]|[（(][一二三四五六七八九十\d]+[）)])\s*/u, "")
-      .trim())
+    .map(cleanSourceLine)
     .filter((line) => line.length >= 8 && !isSourceHeading(line));
   const likely = chunks.filter((line) => /(?:是否|成立|爭點|罪|刑責|責任|競合|正犯|共犯|未遂|既遂|故意|過失|因果|歸責|中止|不能未遂)/u.test(line));
   const sourceIssues = likely.length >= 3 ? likely : chunks;
@@ -33,13 +38,17 @@ function sampleAnswer(answer: string, level: SampleLevel) {
       .replace(/^(?:爭點|問題)[：:，、\s]*/u, "")
       .split(/[。；]/u)[0]
       .replace(/，(?:惟|然|而|故|又|且|依|蓋).+$/u, "")
+      .replace(/[？?。．、：:；;…\s]+$/gu, "")
       .trim();
     if (concise.length < 6) return [];
-    const text = concise.length > 74 ? `${concise.slice(0, 72).replace(/[，、：:]$/u, "")}…` : concise;
+    // A cut-off proposition is not a usable issue. Keep the complete first
+    // proposition and let the textarea wrap it naturally instead of adding an
+    // ellipsis and pretending it is a question.
+    const text = concise;
     const key = `${actor}:${text.replace(/[，。？?\s]/gu, "")}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    return [{ actor, text: /[？?]$/u.test(text) ? text : `${text}？` }];
+    return [{ actor, text: `${text}？` }];
   }).slice(0, 14);
   const ratio = level === "basic" ? .28 : level === "intermediate" ? .62 : 1;
   const count = Math.min(issues.length, level === "basic" ? Math.max(2, Math.ceil(issues.length * ratio)) : level === "intermediate" ? Math.max(4, Math.ceil(issues.length * ratio)) : issues.length);
