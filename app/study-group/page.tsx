@@ -112,6 +112,7 @@ export default function StudyGroup() {
   const [mood, setMood] = useState<Mood>("natural");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [simulationBusy, setSimulationBusy] = useState<StudentLevel | null>(null);
   const [quote, setQuote] = useState<Message | null>(null);
   const [introOpen, setIntroOpen] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -246,7 +247,7 @@ export default function StudyGroup() {
     ]);
   }
 
-  function fillSimulation(level: StudentLevel) {
+  async function fillSimulation(level: StudentLevel) {
     // Prefer the latest actual member statement. Host flow notices are useful
     // context for the model, but they are not what a simulated student should
     // answer in the visible chat.
@@ -256,24 +257,6 @@ export default function StudyGroup() {
     const lastMessage =
       lastMemberMessage ||
       [...messages].reverse().find((message) => message.speaker !== "host");
-    const isAskedToAnswer = Boolean(
-      lastMessage &&
-        (/@同學/.test(lastMessage.text) ||
-          /(?:請你|你覺得|你認為|你會怎麼|試著|能不能).*(?:回答|判斷|說明|整理|看看)|[？?]\s*$/.test(
-            cleanMarkdown(lastMessage.text),
-          )),
-    );
-    const prompts: Record<StudentLevel, string> = isAskedToAnswer
-      ? {
-          beginner: `我的回答是：我會先依你剛才提示的順序，把題目事實分成「做了什麼、是否有正當理由、能否歸責」三步判斷；我目前的結論是，不能只看到結果就直接定罪，還要逐步確認要件。`,
-          intermediate: `我的判斷是：先確認客觀構成要件與因果歸責，再檢查違法性，最後處理故意、過失及責任；涵攝時必須逐一指出題目中的觸發事實，不能只列法條。請指出我的哪一步需要修正。`,
-          advanced: `我的回答是：這段分析應先固定爭點與判準，再分別檢驗支持與反對結論的事實，最後說明採說理由；若事實不足，應作條件式結論，而不能把爭議轉交給別人。請直接檢核我的答案是否漏掉要件或反對見解。`,
-        }
-      : {
-          beginner: `我還不太懂剛才這句話真正要判斷什麼，可以針對這一點換成更白話的說法，再舉一個生活例子嗎？`,
-          intermediate: `如果承接剛才的結論，構成要件與涵攝時最容易漏掉哪一步？可以給我一個邊界案例，讓我先判斷嗎？`,
-          advanced: `我的質疑是：這段論證雖然修正了「結果未發生」的狹隘說法，但目前沒有交代相反學說、實務可能採取的例外，也沒有說明本題事實是否足以支持該結論。因此我認為現在只能作條件式判斷，不能直接當成唯一答案。請你先回應我這個質疑。`,
-        };
     // A simulated student must answer or question the latest speaker in their
     // own voice. It must not silently start a multi-agent relay merely because
     // the student level is advanced.
@@ -283,8 +266,32 @@ export default function StudyGroup() {
         : "host",
     );
     setMood("quiet");
-    setInput(prompts[level]);
     setQuote(null);
+    if (!lastMessage) {
+      setInput("目前還沒有成員發言，請先開始討論。");
+      return;
+    }
+    setSimulationBusy(level);
+    setInput("");
+    try {
+      const response = await fetch("/api/study-group", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "simulate-student",
+          studentLevel: level,
+          topic,
+          messages: messages.map((item) => ({ speaker: labels[item.speaker], text: item.text })),
+        }),
+      });
+      const result = (await response.json()) as { suggestion?: string; error?: string };
+      if (!response.ok || !result.suggestion) throw new Error(result.error || "暫時無法模擬發言");
+      setInput(cleanMarkdown(result.suggestion));
+    } catch (error) {
+      setInput(error instanceof Error ? error.message : "暫時無法模擬發言，請再試一次。");
+    } finally {
+      setSimulationBusy(null);
+    }
   }
 
   const mentionMembers = memberInfo.filter(
@@ -514,6 +521,60 @@ export default function StudyGroup() {
           text: error instanceof Error ? error.message : "自由討論暫時無法開始。",
         },
       ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function askMemberToContinue(chosen: Exclude<Target, "free">) {
+    if (busy) return;
+    const latest = [...messages]
+      .reverse()
+      .find((message) => message.speaker !== "host");
+    if (!latest) {
+      setInput("目前還沒有可承接的發言，請先開始討論。");
+      return;
+    }
+    const instructions: Record<Exclude<Target, "free">, string> = {
+      host: "請主持人依上一句內容，選擇最適合的成員直接接話。",
+      luna: "請用白話承接上一句，先確認對方的重點，再說明或舉例。",
+      deepseek: "請直接補充上一句所需要的法條、學說、概念區分或不同觀點。",
+      terra: "請先肯定上一句合理之處，再有禮貌地檢查一個可能遺漏的要件、例外或推論跳躍。",
+      sol: "請直接校準並統整上一句，指出應保留、修正與最後如何表述。",
+    };
+    setTarget(chosen);
+    setBusy(true);
+    try {
+      const response = await fetch("/api/study-group", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          question: `${instructions[chosen]}\n上一句由 ${labels[latest.speaker]} 發言，請只針對該句接續。`,
+          target: chosen,
+          mood: "quiet",
+          topic,
+          messages: messages.map((item) => ({ speaker: labels[item.speaker], text: item.text })),
+        }),
+      });
+      const result = (await response.json()) as {
+        replies?: Array<{ speaker: Member; text: string; model: string; inputTokens: number; outputTokens: number; durationMs: number }>;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error || "成員暫時無法接話");
+      setMessages((current) => [
+        ...current,
+        ...(result.replies || []).map((item, index) => ({
+          id: Date.now() + index,
+          ...item,
+          text: cleanMarkdown(item.text),
+        })),
+      ]);
+    } catch (error) {
+      setMessages((current) => [...current, {
+        id: Date.now(),
+        speaker: "host",
+        text: error instanceof Error ? error.message : "成員暫時無法接話。",
+      }]);
     } finally {
       setBusy(false);
     }
@@ -788,7 +849,7 @@ export default function StudyGroup() {
           <form onSubmit={submit}>
             <input ref={attachmentInputRef} type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" hidden onChange={(event) => { void chooseAttachment(event.target.files?.[0]); event.currentTarget.value = ""; }} />
             <div className="study-group-target-picker">
-              <div><b>想問誰？</b><small>選擇下一則回答者，再輸入問題</small></div>
+              <div><b>請誰接話？</b><small>點選後，立即針對上一句回應</small></div>
               <div>
                 {(
                   [
@@ -799,7 +860,7 @@ export default function StudyGroup() {
                     ["sol", "Sol 統整"],
                   ] as Array<[Exclude<Target, "free">, string]>
                 ).map(([id, label]) => (
-                  <button type="button" className={target === id ? "active" : ""} onClick={() => { setTarget(id); composerRef.current?.focus(); }} key={id}>{label}</button>
+                  <button type="button" className={target === id ? "active" : ""} disabled={busy} onClick={() => void askMemberToContinue(id)} key={id}>{label}</button>
                 ))}
                 <button type="button" className="free" onClick={() => void startFreeDiscussion()} disabled={busy}>{busy && target === "free" ? "討論中…" : "▶ 直接自由討論"}</button>
               </div>
@@ -882,9 +943,9 @@ export default function StudyGroup() {
               </span>
               <div className="study-group-simulation-shortcuts" aria-label="模擬學生發言">
                 <small>模擬同學</small>
-                <button type="button" className="beginner" onClick={() => fillSimulation("beginner")}>初學小白</button>
-                <button type="button" className="intermediate" onClick={() => fillSimulation("intermediate")}>中階考生</button>
-                <button type="button" className="advanced" onClick={() => fillSimulation("advanced")}>高階學霸</button>
+                <button type="button" className="beginner" disabled={Boolean(simulationBusy)} onClick={() => fillSimulation("beginner")}>{simulationBusy === "beginner" ? "理解中…" : "初學理解"}</button>
+                <button type="button" className="intermediate" disabled={Boolean(simulationBusy)} onClick={() => fillSimulation("intermediate")}>{simulationBusy === "intermediate" ? "整理中…" : "中階推論"}</button>
+                <button type="button" className="advanced" disabled={Boolean(simulationBusy)} onClick={() => fillSimulation("advanced")}>{simulationBusy === "advanced" ? "延伸中…" : "高階延伸"}</button>
               </div>
               <button disabled={busy || (!input.trim() && !attachmentDraft)}>
                 {busy ? "討論中…" : "送出發言"}

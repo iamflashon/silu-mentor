@@ -7,6 +7,7 @@ import {
 type Member = "luna" | "deepseek" | "terra" | "sol";
 type Mood = "quiet" | "natural" | "lively";
 type ChatMessage = { speaker: string; text: string };
+type StudentLevel = "beginner" | "intermediate" | "advanced";
 
 const roles: Record<Member, string> = {
   luna: "你是 Luna，AI 讀書會的初學同學。親切、好奇、敢問看似簡單但關鍵的問題；用短句、白話與生活例子拆解法律概念，不堆術語。",
@@ -163,7 +164,31 @@ export async function POST(request: Request) {
       attachmentName?: string;
       attachmentType?: "image" | "pdf";
       attachmentTask?: "issues" | "summary" | "discuss";
+      action?: "reply" | "simulate-student";
+      studentLevel?: StudentLevel;
     };
+    if (body.action === "simulate-student") {
+      const latest = [...(body.messages || [])]
+        .reverse()
+        .find((item) => /^(Luna|DeepSeek|Terra|Sol)$/i.test(item.speaker));
+      if (!latest?.text?.trim()) {
+        return Response.json({ error: "目前還沒有可承接的成員發言" }, { status: 400 });
+      }
+      const level = body.studentLevel || "beginner";
+      const levelInstruction: Record<StudentLevel, string> = {
+        beginner:
+          "你是剛入門但有認真聽的學生。先用自己的白話說出你從上一位成員聽懂的一個具體重點，再指出一個具體卡住之處或用簡單例子確認。不得只說『我不懂』，不得使用任何題目都能套用的萬用問句。",
+        intermediate:
+          "你是已有基礎的考生。先用自己的話整理上一位成員的論證順序或判斷步驟，再針對其中一個具體要件、涵攝連結或邊界情形提出追問。必須提到上一則發言中的實質法律概念。",
+        advanced:
+          "你是成熟且有禮貌的高階考生。先準確確認你理解到的命題，再以『如果遇到……，這個判準是否仍成立』或『是否還要區分……』的方式延伸適用邊界。不得使用質疑、漏洞、過窄、論證不足、請回應我的質疑等審問語氣，也不要點名其他 AI。",
+      };
+      const suggestion = await ask(
+        "luna",
+        `請代擬真人學生在讀書會中的下一句話。\n學生程度要求：${levelInstruction[level]}\n\n上一位發言者：${latest.speaker}\n上一則發言：${latest.text}\n\n只輸出學生真正會說的一段話，45 至 110 字；不複製整段原文，不加角色標籤，不命令其他成員接力。`,
+      );
+      return Response.json({ suggestion: suggestion.text });
+    }
     const question = body.question?.trim() || "";
     if (!question)
       return Response.json({ error: "請先輸入想討論的內容" }, { status: 400 });
