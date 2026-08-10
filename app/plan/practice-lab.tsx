@@ -616,6 +616,10 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
         setGuidedStateReady(false);
         setFeedback(result.message ?? "題庫尚未準備完成");
       } else if (type === "essay") {
+        // The essay grader currently has one fixed model and no visible picker.
+        // Re-establish that mode after loading a new question so the submit
+        // button never depends on stale picker state.
+        setEssayModelMode("sol");
         await restoreGuidedSession(result.question.id);
       } else {
         setGuidedStateReady(false);
@@ -1578,7 +1582,6 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                   disabled={
                     !essay.trim() ||
                     submitting ||
-                    !essayModelMode ||
                     !question.hasTeacherAnswer
                   }
                   onClick={submitMockExam}
@@ -1814,7 +1817,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
               {essayModelPicker()}
               <button
                 className="essay-submit-wide"
-                disabled={!coachProgress.readyForEssay || !essay.trim() || submitting || !essayModelMode || !question.hasTeacherAnswer}
+                disabled={!coachProgress.readyForEssay || !essay.trim() || submitting || !question.hasTeacherAnswer}
                 onClick={() => void submitEssay()}
               >
                 {submitting ? "批改中…" : "送出批改"}
