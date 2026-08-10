@@ -1570,7 +1570,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                   }
                   onClick={submitMockExam}
                 >
-                  {submitting ? "批改中…" : "送出批改"}
+                  {submitting ? "批改中…" : essayGrading ? "重新批改" : "送出批改"}
                 </button>
               </footer>
             </section>
@@ -1804,7 +1804,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                 disabled={!coachProgress.readyForEssay || !essay.trim() || submitting || !question.hasTeacherAnswer}
                 onClick={() => void submitEssay()}
               >
-                {submitting ? "批改中…" : "送出批改"}
+                {submitting ? "批改中…" : essayGrading ? "重新批改" : "送出批改"}
               </button>
               {renderGradingAnimation()}
               {essayFeedback && (
