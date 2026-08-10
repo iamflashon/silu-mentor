@@ -75,6 +75,10 @@ export async function POST(request: Request) {
         outputTokens?: number;
         durationMs?: number;
         imageUrl?: string;
+        attachmentUrl?: string;
+        attachmentName?: string;
+        attachmentType?: string;
+        attachmentTask?: string;
       }>;
     };
     let sessionId = Number(body.sessionId || 0);
@@ -119,6 +123,10 @@ export async function POST(request: Request) {
             outputTokens: message.outputTokens,
             durationMs: message.durationMs,
             imageUrl: message.imageUrl,
+            attachmentUrl: message.attachmentUrl,
+            attachmentName: message.attachmentName,
+            attachmentType: message.attachmentType,
+            attachmentTask: message.attachmentTask,
           }),
         })),
       );

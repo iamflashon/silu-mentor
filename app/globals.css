@@ -1622,6 +1622,49 @@ a {
   border-top: 1px solid #e1e8ea;
   background: #f7f9fa;
 }
+.study-group-target-picker {
+  margin-bottom: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d4e1e3;
+  border-radius: 12px;
+  background: #f7faf9;
+}
+.study-group-target-picker > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #294e58;
+}
+.study-group-target-picker > div:first-child small { color: #789097; font-size: 11px; }
+.study-group-target-picker > div:last-child { display: flex; flex-wrap: wrap; gap: 6px; }
+.study-group-chat form .study-group-target-picker button {
+  width: auto;
+  padding: 7px 10px;
+  border: 1px solid #c9dadd;
+  border-radius: 8px;
+  background: #fff;
+  color: #48666e;
+  font-size: 12px;
+  font-weight: 750;
+}
+.study-group-chat form .study-group-target-picker button.active {
+  border-color: #2d7778;
+  background: #e4f2f1;
+  color: #185c5e;
+  box-shadow: inset 0 0 0 1px #2d7778;
+}
+.study-group-chat form .study-group-target-picker button.free {
+  margin-left: auto;
+  border-color: #a8c6c8;
+  background: #edf6f5;
+  color: #245f62;
+}
+@media (max-width: 620px) {
+  .study-group-target-picker > div:first-child { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .study-group-chat form .study-group-target-picker button.free { margin-left: 0; }
+}
 .study-group-chat form > .study-group-mention-menu {
   position: absolute;
   left: 14px;
@@ -1687,6 +1730,33 @@ a {
   object-fit: contain;
   background: #fff;
 }
+.study-group-message-file {
+  margin: 10px 0;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 430px;
+  border: 1px solid #d7c9bc;
+  border-radius: 10px;
+  background: #fffaf5;
+  color: #334f58;
+  text-decoration: none;
+}
+.study-group-message-file > i,
+.study-group-image-draft.pdf > i {
+  padding: 8px 7px;
+  border-radius: 7px;
+  background: #a85648;
+  color: #fff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+.study-group-message-file span,
+.study-group-image-draft span { display: grid; gap: 2px; }
+.study-group-message-file small,
+.study-group-image-draft small { color: #70838a; font-size: 11px; }
 .study-group-chat form > .study-group-image-draft {
   margin: 0 0 8px;
   padding: 8px;
@@ -1705,6 +1775,27 @@ a {
   object-fit: cover;
 }
 .study-group-image-draft span { flex: 1; color: #345661; font-size: 12px; }
+.study-group-attachment-task {
+  margin: 0 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.study-group-chat form > .study-group-attachment-task > button {
+  width: auto;
+  padding: 7px 12px;
+  border: 1px solid #c9dadd;
+  border-radius: 999px;
+  background: #fff;
+  color: #45636b;
+  font-size: 12px;
+  font-weight: 800;
+}
+.study-group-chat form > .study-group-attachment-task > button.active {
+  border-color: #2d7778;
+  background: #e4f2f1;
+  color: #1f6062;
+}
 .study-group-chat form > .study-group-image-draft > button {
   width: 30px;
   height: 30px;

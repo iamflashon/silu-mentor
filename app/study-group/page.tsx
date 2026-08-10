@@ -14,6 +14,7 @@ type Member = "luna" | "deepseek" | "terra" | "sol";
 type Target = Member | "host" | "free";
 type Mood = "quiet" | "natural" | "lively";
 type StudentLevel = "beginner" | "intermediate" | "advanced";
+type AttachmentTask = "issues" | "summary" | "discuss";
 type Message = {
   id: number;
   speaker: "student" | "host" | Member;
@@ -25,6 +26,10 @@ type Message = {
   quote?: string;
   challengedSpeaker?: Member;
   imageUrl?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  attachmentType?: "image" | "pdf";
+  attachmentTask?: AttachmentTask;
 };
 type StudyGroupSession = {
   id: number;
@@ -114,9 +119,10 @@ export default function StudyGroup() {
   const [mentionIndex, setMentionIndex] = useState(0);
   const [history, setHistory] = useState<StudyGroupSession[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
-  const [imageDraft, setImageDraft] = useState<{ url: string; dataUrl: string; name: string } | null>(null);
+  const [attachmentDraft, setAttachmentDraft] = useState<{ url: string; dataUrl: string; name: string; type: "image" | "pdf" } | null>(null);
+  const [attachmentTask, setAttachmentTask] = useState<AttachmentTask>("issues");
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<number | null>(null);
   const historyLoadedRef = useRef(false);
 
@@ -241,10 +247,16 @@ export default function StudyGroup() {
   }
 
   function fillSimulation(level: StudentLevel) {
+    const lastMessage = [...messages]
+      .reverse()
+      .find((message) => message.speaker !== "host" || message.text.length > 20);
+    const lastContext = lastMessage
+      ? `${labels[lastMessage.speaker]}剛才說：「${cleanMarkdown(lastMessage.text).slice(-180)}」`
+      : `目前主題是「${topic}」`;
     const prompts: Record<StudentLevel, string> = {
-      beginner: `我對「${topic}」還沒有概念。可以先不要用太多法律術語，用一個生活例子告訴我它在判斷什麼嗎？`,
-      intermediate: `我理解「${topic}」的基本概念，但還不確定構成要件與適用界線。可以給我一個容易判錯的案例，讓我先試著判斷嗎？`,
-      advanced: `針對「${topic}」，我想檢驗實務與學說可能分歧的判準。請先提出一個有灰色地帶的案例，再質疑我的論證，最後才由 Sol 校準成二試答題架構。`,
+      beginner: `${lastContext}。我還不太懂這句話真正要判斷什麼，可以針對這一點換成更白話的說法，再舉一個生活例子嗎？`,
+      intermediate: `${lastContext}。如果承接這個結論，構成要件與涵攝時最容易漏掉哪一步？可以給我一個邊界案例，讓我先判斷嗎？`,
+      advanced: `${lastContext}。我想直接檢驗這段論證：它是否忽略相反學說、實務例外或事實不足？請 Terra 先提出最強質疑，再由原發言者回應，最後才請 Sol 校準。`,
     };
     setTarget(
       level === "beginner"
@@ -308,8 +320,11 @@ export default function StudyGroup() {
     }
   }
 
-  async function chooseImage(file?: File | null) {
-    if (!file || !/^image\/(?:jpeg|png|webp)$/.test(file.type) || file.size > 4 * 1024 * 1024) return;
+  async function chooseAttachment(file?: File | null) {
+    const isImage = !!file && /^image\/(?:jpeg|png|webp)$/.test(file.type);
+    const isPdf = file?.type === "application/pdf";
+    if (!file || (!isImage && !isPdf)) return;
+    if ((isImage && file.size > 4 * 1024 * 1024) || (isPdf && file.size > 12 * 1024 * 1024)) return;
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
@@ -321,14 +336,19 @@ export default function StudyGroup() {
     const response = await fetch("/api/study-group/image", { method: "POST", body: form });
     const result = (await response.json()) as { url?: string; error?: string };
     if (!response.ok || !result.url) return;
-    setImageDraft({ url: result.url, dataUrl, name: file.name || "貼上的截圖" });
+    setAttachmentDraft({ url: result.url, dataUrl, name: file.name || "貼上的截圖", type: isPdf ? "pdf" : "image" });
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if ((!input.trim() && !imageDraft) || busy) return;
-    const text = input.trim() || "請閱讀這張圖片，指出與本次主題相關的重點。";
-    const sendingImage = imageDraft;
+    if ((!input.trim() && !attachmentDraft) || busy) return;
+    const taskPrompt: Record<AttachmentTask, string> = {
+      issues: "請閱讀附件，辨識值得討論的法律爭點，並指出各爭點所在頁面或可辨識位置。",
+      summary: "請摘要附件內容，保留重要人物、事實、法律依據與結論，並標示頁面依據。",
+      discuss: "請依附件與我的補充問題展開討論；先確認附件內容，再引導我判斷，不要直接跳到結論。",
+    };
+    const text = input.trim() || (attachmentDraft ? taskPrompt[attachmentTask] : "請開始討論。");
+    const sendingAttachment = attachmentDraft;
     const student: Message = {
       id: Date.now(),
       speaker: "student",
@@ -336,12 +356,16 @@ export default function StudyGroup() {
       quote: quote
         ? `${labels[quote.speaker]}：${quote.text.slice(0, 90)}`
         : undefined,
-      imageUrl: sendingImage?.url,
+      imageUrl: sendingAttachment?.type === "image" ? sendingAttachment.url : undefined,
+      attachmentUrl: sendingAttachment?.url,
+      attachmentName: sendingAttachment?.name,
+      attachmentType: sendingAttachment?.type,
+      attachmentTask: sendingAttachment ? attachmentTask : undefined,
     };
     const next = [...messages, student];
     setMessages(next);
     setInput("");
-    setImageDraft(null);
+    setAttachmentDraft(null);
     setQuote(null);
     setBusy(true);
     const direct = text.match(/@(Luna|DeepSeek|Terra|Sol)/i)?.[1];
@@ -365,7 +389,10 @@ export default function StudyGroup() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           question: quote ? `針對「${quote.text}」：${text}` : text,
-          imageDataUrl: sendingImage?.dataUrl,
+          attachmentDataUrl: sendingAttachment?.dataUrl,
+          attachmentName: sendingAttachment?.name,
+          attachmentType: sendingAttachment?.type,
+          attachmentTask: sendingAttachment ? attachmentTask : undefined,
           target: chosen,
           mood,
           topic,
@@ -560,31 +587,6 @@ export default function StudyGroup() {
       <div className="study-group-layout">
         <aside className="study-group-controls">
           <section>
-            <span>想問誰？</span>
-            {(
-              [
-                ["host", "主持人決定"],
-                ["luna", "Luna 白話"],
-                ["deepseek", "DeepSeek 補充"],
-                ["terra", "Terra 質疑"],
-                ["sol", "Sol 統整"],
-                ["free", "自由討論"],
-              ] as Array<[Target, string]>
-            ).map(([id, label]) => (
-              <button
-                type="button"
-                className={target === id ? "active" : ""}
-                onClick={() =>
-                  id === "free" ? void startFreeDiscussion() : setTarget(id)
-                }
-                disabled={id === "free" && busy}
-                key={id}
-              >
-                {id === "free" && busy ? "討論中…" : label}
-              </button>
-            ))}
-          </section>
-          <section>
             <span>討論氣氛</span>
             {(
               [
@@ -702,7 +704,12 @@ export default function StudyGroup() {
                     )}
                   </header>
                   {message.quote && <blockquote>{message.quote}</blockquote>}
-                    {message.imageUrl && <img className="study-group-message-image" src={message.imageUrl} alt="讀書會上傳圖片" />}
+                    {message.attachmentType === "pdf" && message.attachmentUrl && (
+                      <a className="study-group-message-file" href={message.attachmentUrl} target="_blank" rel="noreferrer">
+                        <i>PDF</i><span><b>{message.attachmentName || "讀書會附件.pdf"}</b><small>{message.attachmentTask === "summary" ? "摘要內容" : message.attachmentTask === "discuss" ? "指定內容討論" : "討論法律爭點"}</small></span>
+                      </a>
+                    )}
+                    {(message.imageUrl || (message.attachmentType === "image" && message.attachmentUrl)) && <img className="study-group-message-image" src={message.imageUrl || message.attachmentUrl} alt="讀書會上傳圖片" />}
                     <p>{cleanMarkdown(message.text)}</p>
                   {message.speaker !== "student" &&
                     message.speaker !== "host" && (
@@ -783,7 +790,24 @@ export default function StudyGroup() {
             )}
           </div>
           <form onSubmit={submit}>
-            <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { void chooseImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+            <input ref={attachmentInputRef} type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" hidden onChange={(event) => { void chooseAttachment(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+            <div className="study-group-target-picker">
+              <div><b>想問誰？</b><small>選擇下一則回答者，再輸入問題</small></div>
+              <div>
+                {(
+                  [
+                    ["host", "主持人決定"],
+                    ["luna", "Luna 白話"],
+                    ["deepseek", "DeepSeek 補充"],
+                    ["terra", "Terra 質疑"],
+                    ["sol", "Sol 統整"],
+                  ] as Array<[Exclude<Target, "free">, string]>
+                ).map(([id, label]) => (
+                  <button type="button" className={target === id ? "active" : ""} onClick={() => { setTarget(id); composerRef.current?.focus(); }} key={id}>{label}</button>
+                ))}
+                <button type="button" className="free" onClick={() => void startFreeDiscussion()} disabled={busy}>{busy && target === "free" ? "討論中…" : "▶ 直接自由討論"}</button>
+              </div>
+            </div>
             {quote && (
               <div className="study-group-quote">
                 <span>
@@ -812,14 +836,21 @@ export default function StudyGroup() {
                 ))}
               </div>
             )}
-            {imageDraft && (
-              <div className="study-group-image-draft">
-                <img src={imageDraft.url} alt="待送出的圖片" />
-                <span>{imageDraft.name}</span>
-                <button type="button" onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button>
+            {attachmentDraft && (
+              <div className={`study-group-image-draft ${attachmentDraft.type === "pdf" ? "pdf" : ""}`}>
+                {attachmentDraft.type === "image" ? <img src={attachmentDraft.url} alt="待送出的圖片" /> : <i>PDF</i>}
+                <span><b>{attachmentDraft.name}</b><small>{attachmentDraft.type === "pdf" ? "PDF 上限 12MB" : "圖片／截圖上限 4MB"}</small></span>
+                <button type="button" onClick={() => setAttachmentDraft(null)} aria-label="移除附件">×</button>
               </div>
             )}
-            <button className="study-group-attach" type="button" onClick={() => imageInputRef.current?.click()} aria-label="上傳圖片">＋圖片</button>
+            {attachmentDraft && (
+              <div className="study-group-attachment-task" aria-label="選擇附件討論方式">
+                <button type="button" className={attachmentTask === "issues" ? "active" : ""} onClick={() => setAttachmentTask("issues")}>找爭點</button>
+                <button type="button" className={attachmentTask === "summary" ? "active" : ""} onClick={() => setAttachmentTask("summary")}>摘要內容</button>
+                <button type="button" className={attachmentTask === "discuss" ? "active" : ""} onClick={() => setAttachmentTask("discuss")}>指定內容討論</button>
+              </div>
+            )}
+            <button className="study-group-attach" type="button" onClick={() => attachmentInputRef.current?.click()} aria-label="上傳圖片、截圖或 PDF">＋ 圖片／PDF</button>
             <textarea
               ref={composerRef}
               value={input}
@@ -829,11 +860,11 @@ export default function StudyGroup() {
                 const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile();
                 if (image) {
                   event.preventDefault();
-                  void chooseImage(new File([image], `貼上的截圖-${Date.now()}.png`, { type: image.type }));
+                  void chooseAttachment(new File([image], `貼上的截圖-${Date.now()}.png`, { type: image.type }));
                 }
               }}
               onClick={(event) => updateMention(event.currentTarget.value, event.currentTarget.selectionStart)}
-              placeholder="直接發言，或輸入 @ 點名角色…"
+              placeholder="輸入 @ 點名角色；可貼上截圖，或上傳圖片／PDF…"
               rows={3}
               aria-autocomplete="list"
               aria-expanded={mentionQuery !== null && mentionMembers.length > 0}
@@ -853,7 +884,7 @@ export default function StudyGroup() {
                     ? "自然模式"
                     : "熱烈模式"}
               </span>
-              <button disabled={busy || (!input.trim() && !imageDraft)}>
+              <button disabled={busy || (!input.trim() && !attachmentDraft)}>
                 {busy ? "討論中…" : "送出發言"}
               </button>
             </div>

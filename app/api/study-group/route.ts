@@ -60,7 +60,11 @@ function extractOpenAIText(payload: Record<string, unknown>) {
     .trim();
 }
 
-async function ask(member: Member, prompt: string, imageDataUrl?: string) {
+async function ask(
+  member: Member,
+  prompt: string,
+  attachment?: { dataUrl: string; name: string; type: "image" | "pdf" },
+) {
   const started = Date.now();
   if (member === "deepseek") {
     const key = await getDeepSeekKey();
@@ -117,11 +121,13 @@ async function ask(member: Member, prompt: string, imageDataUrl?: string) {
     body: JSON.stringify({
       model,
         instructions: `${roles[member]}\n你是讀書會成員，不是主持人。每次發言控制在 220 字內。不得假裝查過未提供的教材或判決。你可以在確實需要另一位成員接話時，於發言最後點名 @Luna、@DeepSeek、@Terra 或 @Sol；若要把問題交回真人學生，請在最後寫 @同學。一次最多點名一位，不要為了熱鬧而點名。只輸出純文字與自然換行，不得使用 Markdown 的井號、星號、反引號或表格符號。`,
-      input: imageDataUrl
+      input: attachment
         ? [{
             role: "user",
             content: [
-              { type: "input_image", image_url: imageDataUrl, detail: "high" },
+              ...(attachment.type === "pdf"
+                ? [{ type: "input_file", filename: attachment.name || "讀書會附件.pdf", file_data: attachment.dataUrl }]
+                : [{ type: "input_image", image_url: attachment.dataUrl, detail: "high" }]),
               { type: "input_text", text: prompt },
             ],
           }]
@@ -153,10 +159,28 @@ export async function POST(request: Request) {
       topic?: string;
       messages?: ChatMessage[];
       imageDataUrl?: string;
+      attachmentDataUrl?: string;
+      attachmentName?: string;
+      attachmentType?: "image" | "pdf";
+      attachmentTask?: "issues" | "summary" | "discuss";
     };
     const question = body.question?.trim() || "";
     if (!question)
       return Response.json({ error: "請先輸入想討論的內容" }, { status: 400 });
+    const attachment = body.attachmentDataUrl
+      ? {
+          dataUrl: body.attachmentDataUrl,
+          name: body.attachmentName || (body.attachmentType === "pdf" ? "讀書會附件.pdf" : "讀書會圖片"),
+          type: (body.attachmentType || "image") as "image" | "pdf",
+        }
+      : body.imageDataUrl
+        ? { dataUrl: body.imageDataUrl, name: "讀書會圖片", type: "image" as const }
+        : undefined;
+    const attachmentInstruction = attachment?.type === "pdf"
+      ? `\n附件任務：${body.attachmentTask === "summary" ? "摘要整份 PDF，保留重要事實、法律依據與結論" : body.attachmentTask === "discuss" ? "依學生指定的問題討論 PDF 內容，先釐清再引導判斷" : "辨識 PDF 中值得討論的法律爭點、判準與可能分歧"}。引用附件內容時請標示可確認的 PDF 頁碼；若是掃描頁或頁碼無法確認，必須明說，不得猜測。`
+      : attachment
+        ? "\n請先忠實辨識圖片或截圖中的內容，再回答；看不清楚的文字必須明說。"
+        : "";
     const history = (body.messages || [])
       .slice(-10)
       .map((item) => `${item.speaker}：${item.text}`)
@@ -171,17 +195,19 @@ export async function POST(request: Request) {
         : body.target === "free"
           ? chooseFreeSpeaker(body.messages || [])
           : chooseSpeaker(question));
-    const prompt = `本次主題：${body.topic || "依學生今日學習目標討論"}\n先前對話：\n${history || "尚未發言"}\n\n學生現在說：${question}\n請直接接續聊天室對話，不要自稱 AI。`;
+    const prompt = `本次主題：${body.topic || "依學生今日學習目標討論"}\n先前對話：\n${history || "尚未發言"}\n\n學生現在說：${question}${attachmentInstruction}\n請直接接續聊天室對話，不要自稱 AI。`;
     let firstPrompt = prompt;
-    if (body.imageDataUrl && first === "deepseek") {
+    if (attachment && first === "deepseek") {
       const visual = await ask(
         "luna",
-        "請只描述圖片中可辨識的事實、文字與法律問題，不要先下結論。",
-        body.imageDataUrl,
+        attachment.type === "pdf"
+          ? "請先讀取這份 PDF，依頁碼整理與學生問題直接相關的內容、事實與法律問題，供另一位讀書會成員接續；無法辨識處要明說。"
+          : "請只描述圖片中可辨識的事實、文字與法律問題，不要先下結論。",
+        attachment,
       );
-      firstPrompt += `\n\nLuna 先替你辨識圖片如下：${visual.text}`;
+      firstPrompt += `\n\nLuna 先替你讀取附件如下：${visual.text}`;
     }
-    const replies = [await ask(first, firstPrompt, first === "deepseek" ? undefined : body.imageDataUrl)];
+    const replies = [await ask(first, firstPrompt, first === "deepseek" ? undefined : attachment)];
     const spoken = new Set<Member>([first]);
     const maxReplies = body.mood === "quiet" ? 1 : body.mood === "lively" ? 3 : 2;
     while (replies.length < maxReplies) {
