@@ -2769,11 +2769,16 @@ a {
   gap: 9px;
   width: min(100%, 960px);
 }
+@media (min-width: 768px) {
+  .option-grid.short-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .option-grid button {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  min-height: 82px;
+  min-height: 58px;
   padding: 10px;
   text-align: left;
   border: 1px solid #dce6ec;
@@ -2795,6 +2800,21 @@ a {
 .option-grid span {
   font-size: 12px;
   line-height: 1.55;
+}
+@media (max-width: 767px) {
+  .option-grid,
+  .option-grid.short-options,
+  .option-grid.long-options {
+    grid-template-columns: 1fr;
+  }
+  .option-grid button {
+    min-height: 0;
+    padding: 11px 12px;
+  }
+  .option-grid span {
+    font-size: 13px;
+    line-height: 1.65;
+  }
 }
 .option-grid button.selected {
   border-color: #6a94ae;

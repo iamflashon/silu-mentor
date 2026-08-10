@@ -36,6 +36,7 @@ type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
 type ChatModelMode = "auto" | "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52" | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 const aiSettingsStorageKey = "silu-ai-settings-pinned";
+const conversationContinuationThreshold = 40;
 const chatModelModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
 function isTeachingLevel(value: unknown): value is TeachingLevel { return value === "general" || value === "beginner" || value === "intermediate" || value === "advanced" || value === "super"; }
 function isChatModelMode(value: unknown): value is ChatModelMode { return typeof value === "string" && chatModelModes.includes(value as ChatModelMode); }
@@ -527,7 +528,28 @@ export default function Home() {
     const sentTeachingLevel = pendingTeachingLevel;
     const question = value || "請先辨識這張圖片中的題目，帶我一步一步審題。";
     const attachedImage = imageDraft ? await prepareQuestionImage(imageDraft) : undefined;
-    const requestMessages: Message[] = [...messages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
+    let activeSessionId = sessionId;
+    let activeMessages = messages;
+    if (!options?.hideStudentMessage && sessionId && messages.length >= conversationContinuationThreshold) {
+      try {
+        const continuationResponse = await fetch("/api/chat/new-session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sessionId, continueConversation: true }),
+        });
+        const continuation = await continuationResponse.json() as { sessionId?: number; greeting?: string; carryoverSummary?: string; error?: string };
+        if (!continuationResponse.ok || !continuation.sessionId) throw new Error(continuation.error ?? "目前無法建立對話續篇");
+        activeSessionId = continuation.sessionId;
+        const continuationMessage: Message = { role: "mentor", text: continuation.greeting ?? "已保存原對話，從這裡繼續。" };
+        activeMessages = [continuationMessage];
+        setSessionId(continuation.sessionId);
+        setMessages(activeMessages);
+      } catch (error) {
+        setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "目前無法建立對話續篇，原紀錄仍然保留。" }]);
+        return;
+      }
+    }
+    const requestMessages: Message[] = [...activeMessages, { role: "student", text: imageDraft ? `📷 ${question}` : question }];
     const nextMessages = options?.hideStudentMessage ? messages : requestMessages;
     setMessages(nextMessages);
     if (!sentTeachingLevel) setTeachingRounds([]);
@@ -546,7 +568,7 @@ export default function Home() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage }),
+        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage }),
       });
       const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
@@ -847,7 +869,7 @@ export default function Home() {
         {practiceQuestion && <section className="practice-card" aria-label="對話中的真題教練">
           <div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year}年｜{practiceQuestion.examName || "類科待辨識"}｜{practiceQuestion.subject}｜第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div>
           <p className="practice-stem">{practiceQuestion.stem}</p>
-          {practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid">{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={beginEssayCoach}>開始學審題</button>}
+          {practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className={`option-grid ${Object.values(practiceQuestion.options).every((option) => option.length <= 40) ? "short-options" : "long-options"}`}>{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={beginEssayCoach}>開始學審題</button>}
           {practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。請在下方直接回答教練。</span></div>}
           {practiceCoachMessages.length > 0 && <section className="practice-coach home-practice-coach">
             <header><div><span>真題教練</span><h3>直接在這道題裡回答</h3></div></header>
