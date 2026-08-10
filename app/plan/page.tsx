@@ -3269,6 +3269,7 @@ export default function StudyPlanPage() {
           >
             整摘要 <span>{studentSummaries.length}</span>
           </button>
+          <a href="/study-group" className="plan-tab-link">AI 讀書會</a>
           <button
             className={activeTab === "books" ? "active" : ""}
             onClick={() => setActiveTab("books")}

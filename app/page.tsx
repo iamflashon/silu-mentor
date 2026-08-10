@@ -47,7 +47,7 @@ type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; examName?: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
 type MagazineArticle = { id: number; title: string; summary: string; issue: string; sourceUrl: string; reviewStatus: string; sequence: number };
-type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: Array<{ id: string; text: string; url: string; enabled: boolean }>; examCountdowns: Array<{ id: string; label: string; date: string; enabled: boolean }> };
+type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: Array<{ id: string; text: string; url: string; enabled: boolean }>; examCountdowns: Array<{ id: string; label: string; date: string; enabled: boolean }>; learningCenterEnabled?: boolean };
 type LegalLesson = { documentId: number; title: string; articleNo: string; hierarchy: string; content: string };
 type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string; sourceType?: "judicial" | "legispedia"; sourceNote?: string };
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
@@ -797,13 +797,17 @@ export default function Home() {
       <header className="topbar">
         <div className="brand-zone"><a href="/" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
-          <a href="/study-group" className="admin-link">AI 讀書會</a>
           <a href="/essay" className="admin-link">寫申論</a>
-          <a href="/plan" className="admin-link">學習專區</a>
+          {homeFeed?.learningCenterEnabled !== false && <a href="/plan" className="admin-link">學習專區</a>}
           {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
           {currentMember ? <a href="/signout-with-chatgpt?return_to=/" className="member-chip" title={currentMember.email}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>登出</small></a> : <a href="/signin-with-chatgpt?return_to=/" className="member-signin">登入我的學習平台</a>}
         </div>
       </header>
+      <nav className="home-learning-shortcuts" aria-label="主要學習功能">
+        <a href="/plan?tab=practice">練真題</a>
+        <a href="/plan?tab=hotspots">練爭點</a>
+        <a href="/plan?tab=summaries">整摘要</a>
+      </nav>
       <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "今日任務完成後，記得留下學習接續點", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>◆</b> : null}</span>)}</span></div></div>
 
       <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button></div></section></div>

@@ -594,6 +594,8 @@ export default function AdminPage() {
   const [savingFocusMusic, setSavingFocusMusic] = useState(false);
   const [examCountdowns, setExamCountdowns] = useState<ExamCountdown[]>([]);
   const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
+  const [learningCenterEnabled, setLearningCenterEnabled] = useState(true);
+  const [savingLearningCenter, setSavingLearningCenter] = useState(false);
   const [savingHomepage, setSavingHomepage] = useState(false);
   const chapterBuildRunningRef = useRef<Set<number>>(new Set());
 
@@ -750,11 +752,12 @@ export default function AdminPage() {
     fetch("/api/site-settings")
       .then(async (response) => {
         if (!response.ok) return;
-        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[] };
+        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean };
         setFocusMusicUrl(result.focusMusicUrl ?? "");
         setFocusMusicDraft(result.focusMusicUrl ?? "");
         setExamCountdowns(result.examCountdowns ?? []);
         setBattleAlerts(result.battleAlerts ?? []);
+        setLearningCenterEnabled(result.learningCenterEnabled !== false);
       })
       .catch(() => undefined);
   }, []);
@@ -903,6 +906,18 @@ export default function AdminPage() {
     if (response.ok) { setExamCountdowns(result.examCountdowns ?? []); setBattleAlerts(result.battleAlerts ?? []); setNotice("考試倒數與作戰快訊已更新到前台。"); }
     else setNotice(result.error ?? "首頁訊息設定失敗");
     setSavingHomepage(false);
+  }
+
+  async function toggleLearningCenter() {
+    const next = !learningCenterEnabled;
+    setSavingLearningCenter(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ learningCenterEnabled: next }) });
+    const result = (await readJson(response)) as { learningCenterEnabled?: boolean; error?: string };
+    if (response.ok) {
+      setLearningCenterEnabled(result.learningCenterEnabled !== false);
+      setNotice(next ? "學習專區入口已重新開放。" : "學習專區入口已暫時隱藏；既有學習資料仍保留。");
+    } else setNotice(result.error ?? "學習專區開關更新失敗");
+    setSavingLearningCenter(false);
   }
 
   useEffect(() => {
@@ -3113,6 +3128,9 @@ export default function AdminPage() {
         )}
         {activeTab === "homepage" && (
           <section className="panel site-settings-panel">
+            <div className="setting-block">
+              <div className="setting-block-head"><div><h3>學習專區入口</h3><p>可先隱藏首頁的「學習專區」按鈕；再次開啟時，會員原有進度與紀錄仍會保留。</p></div><label className="cost-toggle"><input type="checkbox" checked={learningCenterEnabled} disabled={savingLearningCenter} onChange={() => void toggleLearningCenter()} /><span>{savingLearningCenter ? "更新中…" : learningCenterEnabled ? "目前開放" : "目前關閉"}</span></label></div>
+            </div>
             <div className="cost-heading">
               <div>
                 <h2>首頁與播放設定</h2>

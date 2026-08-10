@@ -35,11 +35,12 @@ export async function GET() {
     focusMusicUrl: values.focus_music_url ?? "",
     examCountdowns: parseJsonSetting<ExamCountdown[]>(values.exam_countdowns, []),
     battleAlerts: parseJsonSetting<BattleAlert[]>(values.battle_alerts, []),
+    learningCenterEnabled: values.learning_center_enabled !== "false",
   });
 }
 
 export async function PATCH(request: Request) {
-  const body = await request.json() as { focusMusicUrl?: unknown; examCountdowns?: unknown; battleAlerts?: unknown };
+  const body = await request.json() as { focusMusicUrl?: unknown; examCountdowns?: unknown; battleAlerts?: unknown; learningCenterEnabled?: unknown };
   const response: Record<string, unknown> = {};
   if (Object.prototype.hasOwnProperty.call(body, "focusMusicUrl")) {
     const value = typeof body.focusMusicUrl === "string" ? body.focusMusicUrl.trim() : "";
@@ -65,6 +66,11 @@ export async function PATCH(request: Request) {
     if (alerts.some((item) => !validWebUrl(item.url))) return Response.json({ error: "快訊連結必須是有效的 http 或 https 網址" }, { status: 400 });
     await saveSetting("battle_alerts", JSON.stringify(alerts));
     response.battleAlerts = alerts;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "learningCenterEnabled")) {
+    const enabled = body.learningCenterEnabled !== false;
+    await saveSetting("learning_center_enabled", String(enabled));
+    response.learningCenterEnabled = enabled;
   }
   return Response.json(response);
 }

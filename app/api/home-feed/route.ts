@@ -34,7 +34,7 @@ export async function GET() {
     return { ...magazine, isDraft: false, articles };
   }))).sort((a, b) => magazineSortValue(b) - magazineSortValue(a) || b.id - a.id);
   const recommended = await db.select({ id: resourceSegments.id, resourceId: resourceSegments.resourceId, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds, importance: resourceSegments.importance }).from(resourceSegments).where(eq(resourceSegments.recommended, true)).orderBy(desc(resourceSegments.importance)).limit(5);
-  const settings = await db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings).where(inArray(appSettings.key, ["focus_music_url", "exam_countdowns", "battle_alerts"]));
+  const settings = await db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings).where(inArray(appSettings.key, ["focus_music_url", "exam_countdowns", "battle_alerts", "learning_center_enabled"]));
   const settingValues = Object.fromEntries(settings.map((item) => [item.key, item.value]));
   const parseSetting = <T,>(key: string, fallback: T): T => { try { return settingValues[key] ? JSON.parse(settingValues[key]) as T : fallback; } catch { return fallback; } };
   return Response.json({
@@ -48,5 +48,6 @@ export async function GET() {
     recommended,
     ticker: parseSetting<Array<{ id: string; text: string; url: string; enabled: boolean }>>("battle_alerts", []).filter((item) => item.enabled),
     examCountdowns: parseSetting<Array<{ id: string; label: string; date: string; enabled: boolean }>>("exam_countdowns", []).filter((item) => item.enabled),
+    learningCenterEnabled: settingValues.learning_center_enabled !== "false",
   });
 }

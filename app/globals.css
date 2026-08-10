@@ -2067,6 +2067,32 @@ a {
   font-size: 13px;
   color: var(--muted);
 }
+
+.home-learning-shortcuts {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-height: 54px;
+  border-bottom: 1px solid #d5e0e8;
+  background: #f5f9fc;
+}
+
+.home-learning-shortcuts a {
+  min-width: 112px;
+  padding: 17px 24px 15px;
+  border-bottom: 3px solid transparent;
+  color: #48657a;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.home-learning-shortcuts a:hover {
+  color: #173f63;
+  border-bottom-color: #7195ae;
+  background: #edf5fa;
+}
 .knowledge-state {
   display: flex;
   align-items: center;
@@ -6195,7 +6221,8 @@ a {
   );
   border-radius: 12px 12px 0 0;
 }
-.plan-tabs button {
+.plan-tabs button,
+.plan-tabs .plan-tab-link {
   position: relative;
   flex: 1 0 auto;
   min-width: 82px;
@@ -6218,7 +6245,14 @@ a {
     background 0.16s ease,
     border-color 0.16s ease;
 }
-.plan-tabs button:hover:not(.active) {
+
+.plan-tabs .plan-tab-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.plan-tabs button:hover:not(.active),
+.plan-tabs .plan-tab-link:hover {
   color: #315d78;
   background: rgba(255, 255, 255, 0.52);
 }
