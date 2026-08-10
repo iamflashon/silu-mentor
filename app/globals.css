@@ -19468,7 +19468,7 @@ a {
     padding-left: 9px;
   }
   .top-actions .admin-link:last-child {
-    display: none;
+    display: inline-flex;
   }
   .study-ticker {
     top: 52px;
@@ -19476,6 +19476,17 @@ a {
     padding: 0 14px;
     gap: 8px;
     font-size: 9px;
+  }
+  .home-learning-shortcuts {
+    min-height: 46px;
+    overflow-x: auto;
+    justify-content: stretch;
+  }
+  .home-learning-shortcuts a {
+    flex: 1 0 92px;
+    min-width: 92px;
+    padding: 13px 16px 11px;
+    font-size: 13px;
   }
   .study-ticker strong {
     font-size: 9px;
