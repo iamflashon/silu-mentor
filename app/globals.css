@@ -32,6 +32,12 @@ a {
   text-decoration: none;
 }
 
+.standalone-learning-page .plan-main {
+  width: min(1480px, calc(100% - 40px));
+  margin: 0 auto;
+  padding-top: 28px;
+}
+
 /* Model blind-test laboratory */
 .model-lab-shell {
   min-height: 100vh;

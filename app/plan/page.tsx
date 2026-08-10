@@ -580,7 +580,12 @@ function problemBookOutline(chapters: ResourceSegment[]) {
   }));
 }
 
-export default function StudyPlanPage() {
+type StudyPlanPageProps = {
+  initialTab?: PlanTab;
+  standalone?: boolean;
+};
+
+export default function StudyPlanPage({ initialTab = "calendar", standalone = false }: StudyPlanPageProps = {}) {
   const [month, setMonth] = useState(monthValue());
   const [plans, setPlans] = useState<Plan[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -613,7 +618,7 @@ export default function StudyPlanPage() {
     weakness: "",
     nextStep: "",
   });
-  const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
+  const [activeTab, setActiveTab] = useState<PlanTab>(initialTab);
   const [studentSummaries, setStudentSummaries] = useState<StudentSummary[]>([]);
   const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<number>>(new Set());
@@ -3207,23 +3212,16 @@ export default function StudyPlanPage() {
   }
 
   return (
-    <main className="plan-shell">
-      <header className="topbar">
+    <main className={standalone ? "essay-standalone-page standalone-learning-page" : "plan-shell"}>
+      <header className={standalone ? "essay-standalone-header" : "topbar"}>
         <a href="/" className="brand">
-          <span className="brand-mark">律</span>
-          <span>司律備考</span>
+          <span className={standalone ? "" : "brand-mark"}>{standalone ? "司" : "律"}</span>
+          {standalone ? <b>司律備考</b> : <span>司律備考</span>}
         </a>
-        <div className="top-actions">
-          <a href="/" className="back-link">
-            返回對話
-          </a>
-          <a href="/admin" className="admin-link">
-            管理後台
-          </a>
-        </div>
+        {standalone ? <nav aria-label="獨立學習頁導覽"><a href="/" aria-label="回到司律備考首頁">← 回首頁</a></nav> : <div className="top-actions"><a href="/" className="back-link">返回對話</a><a href="/admin" className="admin-link">管理後台</a></div>}
       </header>
       <div className="plan-main">
-        <div className="plan-header">
+        {!standalone && <div className="plan-header">
           <div>
             <p>MY LEARNING CENTER</p>
             <h1>學習專區</h1>
@@ -3243,8 +3241,8 @@ export default function StudyPlanPage() {
               </button>
             </div>
           )}
-        </div>
-        <nav className="plan-tabs">
+        </div>}
+        {!standalone && <nav className="plan-tabs">
           <button
             className={activeTab === "calendar" ? "active" : ""}
             onClick={() => setActiveTab("calendar")}
@@ -3261,7 +3259,7 @@ export default function StudyPlanPage() {
             className={activeTab === "hotspots" ? "active" : ""}
             onClick={() => setActiveTab("hotspots")}
           >
-            練爭點
+            找爭點
           </button>
           <button
             className={activeTab === "summaries" ? "active" : ""}
@@ -3336,7 +3334,7 @@ export default function StudyPlanPage() {
           >
             筆記收藏 <span>{notes.length}</span>
           </button>
-        </nav>
+        </nav>}
         {activeTab === "summaries" && (
           <section className="student-summary-hub" aria-label="整摘要">
             <header className="student-summary-head">
