@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTwd } from "../../lib/currency";
+import { supportsIssuePractice } from "../../lib/issue-practice-subjects";
 import "./selection-tools.css";
 
 type Question = { id: number; year: string; examName: string; subject: string; questionNumber: string; stem: string; answerSource: string };
@@ -64,7 +65,7 @@ export function IssuePractice() {
     void fetch("/api/issue-practice").then(async (response) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "讀取失敗");
-      setQuestions(data.questions || []);
+      setQuestions((data.questions || []).filter((item: Question) => supportsIssuePractice(item.subject)));
       setHistoryIds(new Set((data.history || []).map((item: { questionId: number }) => item.questionId)));
     }).catch((reason) => setError(reason instanceof Error ? reason.message : "題庫讀取失敗"));
   }, []);
@@ -113,7 +114,7 @@ export function IssuePractice() {
         setStudentIssues(record.studentIssues || ""); setStudentSupplement(record.studentSupplement || ""); setSampleLevel(record.sampleLevel ?? null);
         setResults({ ...(record.lunaResult ? { luna: record.lunaResult } : {}), ...(record.solResult ? { sol: record.solResult } : {}) });
         setWorkflow(record.challengeWorkflow || {}); setChallengeText(record.challengeWorkflow?.challenge?.analysis || "");
-        setActiveResult(record.solResult ? "sol" : "luna"); setSavedNotice("已載入上次練習紀錄");
+        setActiveResult("luna"); setSavedNotice("已載入上次練習紀錄");
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "紀錄讀取失敗"); }
     finally { setRecordLoading(false); }

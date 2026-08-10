@@ -27007,3 +27007,8 @@ a {
   }
 }
 .essay-standalone-page{min-height:100vh;background:#f4f6f8;padding-bottom:64px}.essay-standalone-page>.practice-lab{max-width:1380px;margin:28px auto;padding:0 28px}.essay-standalone-header{height:72px;padding:0 34px;background:#fff;border-bottom:1px solid #dfe4e8;display:flex;align-items:center;justify-content:space-between}.essay-standalone-header .brand{display:flex;align-items:center;gap:10px;color:#17202a;text-decoration:none}.essay-standalone-header .brand span{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#173b5e;color:#fff}.essay-standalone-header nav{display:flex;gap:22px}.essay-standalone-header nav a{color:#405466;text-decoration:none;font-weight:700}.guided-answer-choice{margin-top:22px;padding:24px;border:1px solid #b8cad9;border-radius:16px;background:#f7fbff}.guided-answer-choice header{display:flex;gap:12px;align-items:center}.guided-answer-choice header span{padding:5px 9px;border-radius:999px;background:#dcecf8;color:#17466d;font-size:12px;font-weight:800}.guided-answer-choice p{color:#526575}.guided-answer-choice>div{display:flex;gap:10px;flex-wrap:wrap}.guided-answer-choice button{border:1px solid #9fb5c6;border-radius:10px;background:#fff;padding:10px 14px;font-weight:700;color:#24465f}.guided-answer-choice button.primary{background:#173b5e;color:#fff;border-color:#173b5e}@media(max-width:720px){.essay-standalone-header{padding:0 16px}.essay-standalone-header nav{gap:10px;font-size:13px}.essay-standalone-page>.practice-lab{padding:0 12px;margin-top:16px}}
+.issue-result-tabs button:nth-child(2),
+.student-issue-result > footer button:first-of-type,
+.issue-challenge-flow {
+  display: none !important;
+}
