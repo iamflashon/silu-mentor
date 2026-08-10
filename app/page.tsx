@@ -55,7 +55,6 @@ type PracticeRecommendation = { type: string; title: string; location: string; u
 type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
 type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string };
 
-const quickStarts = ["帶我開始今天的刑法", "我想練一題司律真題", "幫我複習不作為犯"];
 const trustPrincipleStudentTest = "我理解信賴原則是，駕駛人可以相信行人會遵守交通規則。可是如果行人只是站在路邊等紅綠燈，駕駛人應該可以信賴他不會突然衝出來；但如果行人已經有明顯要違規的樣子，例如一直往車道靠近，駕駛人就不能再主張信賴原則。那本題中，要怎麼判斷這個行人的動作已經達到「顯然即將違規」的程度？如果我主張駕駛人仍可相信行人不會衝出來，這樣的論證有機會成立嗎？";
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
 function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/尚未匯入|尚未準備|暫時無法|沒有連上|API|錯誤|請稍後|管理者/.test(clean)) return false; return /法條|爭點|要件|涵攝|解題|判斷|原則|例外|學說|實務|教材|刑法|民法|訴訟法|憲法|行政法/.test(clean); }
@@ -896,13 +895,6 @@ export default function Home() {
 
         {!practiceQuestion && source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(lastUsage.estimatedCostUsd)}</span> : null}</div>}
 
-        {!practiceQuestion && historyLoaded && messages.length === 1 && (
-          <div className="quick-starts">
-            {quickStarts.map((item) => (
-              <button key={item} onClick={() => send(item)}>{item}</button>
-            ))}
-          </div>
-        )}
       </section>
 
       <aside className="command-rail" id="command-rail" aria-label="作戰資訊側欄">
