@@ -2816,6 +2816,23 @@ a {
     line-height: 1.65;
   }
 }
+/* Some iOS in-app browsers expose a desktop-like layout viewport. Keep
+   multiple-choice answers single-column on touch-first devices as well. */
+@media (hover: none) and (pointer: coarse) {
+  .option-grid,
+  .option-grid.short-options,
+  .option-grid.long-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .option-grid button {
+    min-height: 0;
+    padding: 11px 12px;
+  }
+  .option-grid span {
+    font-size: 13px;
+    line-height: 1.65;
+  }
+}
 .option-grid button.selected {
   border-color: #6a94ae;
 }
