@@ -4335,7 +4335,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                                             : message.teachingEvidence.status === "full_text_search"
                                               ? message.teachingEvidence.retrieval === "full_text_search"
                                                 ? "△ 命中全文索引，章節待核對"
-                                                : "△ 已找到相關原文，直接支持不足"
+                                                : "△ 找到相關教材，但不足以核對本次內容"
                                               : "! 尚未取得本章原文"}
                                         </strong>
                                         <span>

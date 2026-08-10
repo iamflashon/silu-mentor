@@ -2893,6 +2893,7 @@ a {
   margin: 10px 0 -5px;
 }
 .message-actions .ask-sol-button {
+  display: none;
   min-height: 34px;
   padding: 7px 12px;
   border: 1px solid #b08b32;
@@ -2981,6 +2982,9 @@ a {
 
 .global-selection-bar {
   position: fixed;
+}
+.ask-sol-button {
+  display: none !important;
 }
 .save-note-button {
   display: block;

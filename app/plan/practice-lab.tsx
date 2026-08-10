@@ -178,7 +178,7 @@ const gradingAnimationSteps = [
 function EssayBatchGrading() {
   const [attempts, setAttempts] = useState<EssayBatchAttempt[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [model, setModel] = useState<EssayModelMode>("sol");
+  const model: EssayModelMode = "sol";
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -246,8 +246,7 @@ function EssayBatchGrading() {
       </header>
       <div className="essay-batch-toolbar">
         <label className="essay-batch-select-all"><input type="checkbox" checked={allSelected} onChange={toggleAll} /> 全選</label>
-        <label>批改模型<select value={model} onChange={(event) => setModel(event.target.value as EssayModelMode)} disabled={running}><option value="sol">GPT-5.6 Sol</option><option value="claude">Claude Opus 5</option><option value="dual">Sol＋Claude 雙模型覆核</option></select></label>
-        <button type="button" className="primary-btn" disabled={!selectedIds.size || running} onClick={() => void startBatch()}>{running ? `批改中 ${progress}%` : "開始批次批改"}</button>
+        <button type="button" className="primary-btn" disabled={!selectedIds.size || running} onClick={() => void startBatch()}>{running ? `批改中 ${progress}%` : "送出批改"}</button>
       </div>
       {message && <p className="essay-batch-message">{message}</p>}
       {loading ? <div className="essay-batch-empty">正在讀取已保存的申論作答…</div> : attempts.length ? (
@@ -282,7 +281,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
     useState<EssayComparison | null>(null);
   const [essayModelFailures, setEssayModelFailures] = useState<EssayModelFailure[]>([]);
   const [essayModelMode, setEssayModelMode] =
-    useState<EssayModelMode | null>(null);
+    useState<EssayModelMode | null>("sol");
   const [essayResultMode, setEssayResultMode] =
     useState<EssayModelMode>("sol");
   const [submitting, setSubmitting] = useState(false);
@@ -452,9 +451,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
           if (typeof state.essayPickerSubject === "string") setEssayPickerSubject(state.essayPickerSubject);
           if (typeof state.essayPickerId === "string") setEssayPickerId(state.essayPickerId);
           if (typeof state.essayPickerOpen === "boolean") setEssayPickerOpen(state.essayPickerOpen);
-          if (state.essayModelMode === "sol" || state.essayModelMode === "claude" || state.essayModelMode === "dual") {
-            setEssayModelMode(state.essayModelMode);
-          }
+          setEssayModelMode("sol");
           setDraftSavedAt(
             session?.updatedAt
               ? new Date(session.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })
@@ -991,41 +988,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
   }
 
   function essayModelPicker() {
-    const options: Array<{ value: EssayModelMode; label: string; note: string }> = [
-      { value: "sol", label: "GPT-5.6 Sol", note: "預設批改" },
-      { value: "claude", label: "Claude Opus 5", note: "另一模型測試" },
-      { value: "dual", label: "Sol＋Claude 雙模型覆核", note: "兩份評分並列比較" },
-    ];
-    return (
-      <fieldset className="essay-model-picker" disabled={submitting}>
-        <legend>申論批改模型</legend>
-        <div>
-          {options.map((option) => (
-            <label
-              key={option.value}
-              className={essayModelMode === option.value ? "selected" : ""}
-              onClick={() => setEssayModelMode(option.value)}
-            >
-              <input
-                type="radio"
-                name="essay-grading-model"
-                value={option.value}
-                checked={essayModelMode === option.value}
-                onChange={() => setEssayModelMode(option.value)}
-              />
-              <span>
-                <strong>{option.label}</strong>
-                <small>{option.note}</small>
-              </span>
-            </label>
-          ))}
-        </div>
-        {essayModelMode === "dual" && (
-          <p>兩個模型會取得完全相同的題目、老師擬答與學生答案，完成後分開顯示分數與採分差異。</p>
-        )}
-        {!essayModelMode && <p>請先選擇一種批改方式；未選擇模型時不會送出批改。</p>}
-      </fieldset>
-    );
+    return null;
   }
 
   function renderEssayGrading(grading: EssayGrading, title?: string) {
@@ -1623,15 +1586,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                   }
                   onClick={submitMockExam}
                 >
-                  {submitting
-                    ? "正在批改…"
-                    : essayGrading
-                    ? "再次批改"
-                    : examSubmitted
-                      ? "已交卷（可重新批改）"
-                      : essayModelFailures.length > 0
-                        ? "重新嘗試批改"
-                      : "確認交卷"}
+                  {submitting ? "批改中…" : "送出批改"}
                 </button>
               </footer>
             </section>
@@ -1865,13 +1820,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                 disabled={!coachProgress.readyForEssay || !essay.trim() || submitting || !essayModelMode || !question.hasTeacherAnswer}
                 onClick={() => void submitEssay()}
               >
-                {submitting
-                  ? "AI 分項批改中…"
-                  : essayGrading
-                  ? "再次批改"
-                  : essayModelFailures.length > 0
-                    ? "重新嘗試批改"
-                    : "送出 AI 分項批改"}
+                {submitting ? "批改中…" : "送出批改"}
               </button>
               {renderGradingAnimation()}
               {essayFeedback && (

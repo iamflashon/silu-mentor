@@ -1,9 +1,9 @@
 .student-issue-result > .law-selection-bar { display: none; }
-.smart-selection-bar { position: fixed; z-index: 1300; display: flex; align-items: center; gap: 9px; width: max-content; max-width: calc(100vw - 24px); min-height: 42px; max-height: 64px; margin: 0; padding: 8px 10px; overflow: hidden; border: 1px solid #9fc9c5; border-radius: 10px; background: #153f4d; color: #fff; box-shadow: 0 8px 22px rgba(18,55,68,.24); transform: translateX(-50%); }
+.smart-selection-bar { position: fixed; z-index: 1300; display: flex; align-items: center; gap: 9px; width: min(720px, calc(100vw - 24px)); min-height: 42px; max-height: 64px; margin: 0; padding: 8px 10px; overflow: hidden; border: 1px solid #9fc9c5; border-radius: 10px; background: #153f4d; color: #fff; box-shadow: 0 8px 22px rgba(18,55,68,.24); transform: translateX(-50%); }
 .smart-selection-bar.above { transform: translate(-50%, -100%); }
 .smart-selection-bar.below::before { content: ""; position: absolute; left: 50%; top: -6px; width: 10px; height: 10px; border-left: 1px solid #9fc9c5; border-top: 1px solid #9fc9c5; background: #153f4d; transform: translateX(-50%) rotate(45deg); }
 .smart-selection-bar.above::after { content: ""; position: absolute; left: 50%; bottom: -6px; width: 10px; height: 10px; border-right: 1px solid #9fc9c5; border-bottom: 1px solid #9fc9c5; background: #153f4d; transform: translateX(-50%) rotate(45deg); }
-.smart-selection-bar span { min-width: 0; max-width: min(68vw, 980px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smart-selection-bar span { flex: 1 1 auto; min-width: 0; max-width: 430px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .smart-selection-bar button { border: 0; border-radius: 7px; background: #2f837b; color: #fff; padding: 7px 11px; font-weight: 900; cursor: pointer; }
 .smart-selection-bar button:nth-of-type(2) { background: #496d86; }
 .smart-selection-bar button:last-child { background: transparent; padding: 3px 7px; font-size: 19px; }
