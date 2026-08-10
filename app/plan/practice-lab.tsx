@@ -773,11 +773,11 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
   }
 
   async function askCoach(
-    action: "start" | "coach" | "variation_basic" | "variation_advanced" = "coach",
+    action: "start" | "coach" | "variation_basic" | "variation_advanced" | "subquestion_summary" = "coach",
     suppliedMessage?: CoachMessage,
     options?: { allowWhileCoaching?: boolean },
   ) {
-    if (!question || (coaching && !options?.allowWhileCoaching) || (action === "coach" && !coachInput.trim() && !suppliedMessage))
+    if (!question || (coaching && !options?.allowWhileCoaching) || ((action === "coach" || action === "subquestion_summary") && !coachInput.trim() && !suppliedMessage))
       return;
     const studentMessage =
       suppliedMessage ?? (action === "coach"
@@ -1779,6 +1779,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                           <div className="essay-chat-bubble">
                             <b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? `AI ${coachTeachingLevelLabels[coachTeachingLevel]}` : "我"}</b>
                             <p>{message.text}</p>
+                            {message.role === "mentor" && message.text.includes("【小題批改：通過】") && question?.teacherAnswer && <details className="essay-full-analysis"><summary>查看完整解析</summary><p>{question.teacherAnswer}</p></details>}
                             {message.role === "mentor" && <label className={`essay-message-reply ${selectedCoachMessageIndex === index ? "is-selected" : ""}`}>
                               <input
                                 type="checkbox"
@@ -1810,7 +1811,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                         </>}
                       </div>
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>{selectedCoachMessageIndex === null ? "可直接送出，不指定特定訊息" : "已指定一則 AI 導師訊息"}</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button></>}
+                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>先用一句話整理「法律判準＋關鍵事實＋結論」</span><button type="button" className="essay-summary-button" onClick={() => void askCoach("subquestion_summary")} disabled={coaching || !coachInput.trim()}>小題總結</button><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button></>}
                       </div>
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
                     </div>

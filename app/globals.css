@@ -14905,6 +14905,27 @@ a {
   font-size: 11px;
   line-height: 1.45;
 }
+
+.essay-summary-button {
+  border: 1px solid #9a7a3d;
+  background: #fffaf0;
+  color: #6e5121;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.essay-summary-button:disabled { opacity: .45; cursor: not-allowed; }
+
+.essay-full-analysis {
+  margin-top: 12px;
+  border-top: 1px solid #dbe3e8;
+  padding-top: 10px;
+}
+
+.essay-full-analysis summary { color: #526773; font-weight: 800; cursor: pointer; }
+.essay-full-analysis p { margin-top: 10px; white-space: pre-wrap; color: #43545d; }
 .scholar-follow-up-button {
   flex: 0 0 auto;
   padding: 8px 12px;
