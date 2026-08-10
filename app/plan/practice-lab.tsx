@@ -1010,15 +1010,35 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
           </div>
         )}
         <p>{grading.overall}</p>
+        <div className="essay-diagnostic-note">
+          <strong>本次只診斷你的原答案</strong>
+          <span>依老師資料檢查得分點與推論缺口，不另生成 AI 擬答。</span>
+        </div>
+        <div className="essay-dimensions">
+          <header className="essay-dimensions-heading">
+            <strong>六項答題診斷</strong>
+            <span>已做到／寫錯／遺漏／如何補強</span>
+          </header>
+          {grading.dimensions.map((item) => (
+            <article key={item.criterion}>
+              <strong>
+                {item.criterion}　{item.score}/{item.max_score}
+              </strong>
+              <p>{item.result}</p>
+              {item.evidence && <small><b>已做到／原文證據：</b>{item.evidence}</small>}
+              {item.missing && <small><b>寫錯、遺漏與補強：</b>{item.missing}</small>}
+            </article>
+          ))}
+        </div>
         {grading.solution_steps?.length ? (
-          <section className="essay-solution-steps" aria-label="解題過程步驟">
-            <header><strong>解題過程步驟</strong><span>從審題一路看到結論</span></header>
+          <section className="essay-solution-steps" aria-label="推論鏈檢查">
+            <header><strong>推論鏈檢查</strong><span>找出審題到結論之間的跳躍位置</span></header>
             <ol>
               {grading.solution_steps.map((step, index) => (
                 <li key={`${step.step}-${step.title}-${index}`}>
                   <div className="essay-solution-step-head"><b>{step.step || index + 1}</b><strong>{step.title}</strong></div>
                   <p><em>本步處理</em>{step.focus}</p>
-                  <p><em>解題分析</em>{step.analysis}</p>
+                  <p><em>老師基準</em>{step.analysis}</p>
                   <p><em>你的表現</em>{step.student_performance}</p>
                   <p><em>下一動作</em>{step.next_action}</p>
                 </li>
@@ -1026,18 +1046,6 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
             </ol>
           </section>
         ) : null}
-        <div className="essay-dimensions">
-          {grading.dimensions.map((item) => (
-            <article key={item.criterion}>
-              <strong>
-                {item.criterion}　{item.score}/{item.max_score}
-              </strong>
-              <p>{item.result}</p>
-              {item.evidence && <small>你的作答依據：{item.evidence}</small>}
-              {item.missing && <small>待補強：{item.missing}</small>}
-            </article>
-          ))}
-        </div>
         {grading.priority_fixes.length > 0 && (
           <div>
             <strong>優先修正</strong>
@@ -1052,6 +1060,16 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
           <strong>下一步</strong>
           <p>{grading.next_step}</p>
         </div>
+        {question?.teacherAnswer ? (
+          <details className="essay-teacher-answer" open={teacherAnswerOpen} onToggle={(event) => setTeacherAnswerOpen(event.currentTarget.open)}>
+            <summary>查看老師擬答</summary>
+            <div>
+              <strong>{question.answerSource || "老師參考擬答"}</strong>
+              <p>{question.teacherAnswer}</p>
+              <small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small>
+            </div>
+          </details>
+        ) : null}
       </div>
     );
   }

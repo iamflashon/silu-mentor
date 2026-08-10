@@ -3441,6 +3441,55 @@ a {
   color: #356b82;
   font-weight: 800;
 }
+.essay-diagnostic-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid #c5ddd8;
+  border-radius: 10px;
+  background: #f1f8f6;
+  color: #315f5a;
+}
+.essay-diagnostic-note span,
+.essay-dimensions-heading span {
+  font-size: 12px;
+  color: #668079;
+}
+.essay-dimensions-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.essay-dimensions article small b,
+.essay-history-dimensions article small b {
+  color: #3d6f68;
+}
+.essay-teacher-answer {
+  margin-top: 18px;
+  border: 1px solid #c8d8df;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.essay-teacher-answer summary {
+  padding: 12px 14px;
+  color: #315f70;
+  font-weight: 800;
+  cursor: pointer;
+}
+.essay-teacher-answer > div {
+  padding: 0 14px 14px;
+  border-top: 1px solid #e4ecef;
+}
+.essay-teacher-answer p {
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
 .student .message-bubble {
   color: white;
   background: #2b5d86;

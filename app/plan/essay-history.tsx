@@ -121,15 +121,25 @@ function GradingView({ grading, title }: { grading: EssayGrading; title?: string
       {title && <h4>{title}</h4>}
       <div className="essay-history-score"><b>{grading.score}</b><span>/ {grading.max_score ?? (grading.dimensions.reduce((sum, item) => sum + item.max_score, 0) || 100)}</span></div>
       <p className="essay-history-overall">{grading.overall}</p>
+      <div className="essay-history-dimensions">
+        {grading.dimensions.map((item) => (
+          <article key={`${item.criterion}-${item.score}-${item.max_score}`}>
+            <strong>{item.criterion}　{item.score}/{item.max_score}</strong>
+            <p>{item.result}</p>
+            {item.evidence && <small><b>已做到／原文證據：</b>{item.evidence}</small>}
+            {item.missing && <small><b>寫錯、遺漏與補強：</b>{item.missing}</small>}
+          </article>
+        ))}
+      </div>
       {grading.solution_steps?.length ? (
-        <section className="essay-solution-steps" aria-label="解題過程步驟">
-          <header><strong>解題過程步驟</strong><span>依序看審題、爭點、規範、涵攝與結論</span></header>
+        <section className="essay-solution-steps" aria-label="推論鏈檢查">
+          <header><strong>推論鏈檢查</strong><span>找出審題到結論之間的跳躍位置</span></header>
           <ol>
             {grading.solution_steps.map((step, index) => (
               <li key={`${step.step}-${step.title}-${index}`}>
                 <div className="essay-solution-step-head"><b>{step.step || index + 1}</b><strong>{step.title}</strong></div>
                 <p><em>本步處理</em>{step.focus}</p>
-                <p><em>解題分析</em>{step.analysis}</p>
+                <p><em>老師基準</em>{step.analysis}</p>
                 <p><em>你的表現</em>{step.student_performance}</p>
                 <p><em>下一動作</em>{step.next_action}</p>
               </li>
@@ -137,16 +147,6 @@ function GradingView({ grading, title }: { grading: EssayGrading; title?: string
           </ol>
         </section>
       ) : null}
-      <div className="essay-history-dimensions">
-        {grading.dimensions.map((item) => (
-          <article key={`${item.criterion}-${item.score}-${item.max_score}`}>
-            <strong>{item.criterion}　{item.score}/{item.max_score}</strong>
-            <p>{item.result}</p>
-            {item.evidence && <small>你的作答依據：{item.evidence}</small>}
-            {item.missing && <small>待補強：{item.missing}</small>}
-          </article>
-        ))}
-      </div>
       {grading.priority_fixes.length > 0 && <div className="essay-history-fixes"><strong>優先修正</strong><ul>{grading.priority_fixes.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></div>}
       <div className="essay-history-next"><strong>下一步</strong><p>{grading.next_step}</p></div>
     </div>
