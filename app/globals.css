@@ -14918,6 +14918,18 @@ a {
 
 .essay-summary-button:disabled { opacity: .45; cursor: not-allowed; }
 
+.essay-end-summary-button {
+  border: 1px solid #aab8c0;
+  background: #fff;
+  color: #526773;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.essay-end-summary-button:hover:not(:disabled) { border-color: #6f8996; background: #f4f7f8; }
+.essay-end-summary-button:disabled { opacity: .45; cursor: wait; }
+
 .essay-full-analysis {
   margin-top: 12px;
   border-top: 1px solid #dbe3e8;

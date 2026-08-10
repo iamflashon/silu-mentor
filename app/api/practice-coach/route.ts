@@ -4,7 +4,7 @@ import { examCoachMessages, examQuestions, learningResources, legalArticles, leg
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIModel, openAIJson } from "../../../lib/openai";
 
 type CoachMessage = { role: "mentor" | "student" | "scholar"; text: string };
-type CoachAction = "start" | "coach" | "variation_basic" | "variation_advanced" | "subquestion_summary";
+type CoachAction = "start" | "coach" | "variation_basic" | "variation_advanced" | "subquestion_summary" | "end_summary";
 type CoachProvider = "luna" | "sonnet" | "deepseek";
 type CoachProgress = {
   stage: number;
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[]; modelMode?: string; teachingLevel?: string };
     const questionId = Number(body.questionId);
-    const action: CoachAction = ["start", "variation_basic", "variation_advanced", "subquestion_summary"].includes(String(body.action)) ? body.action as CoachAction : "coach";
+    const action: CoachAction = ["start", "variation_basic", "variation_advanced", "subquestion_summary", "end_summary"].includes(String(body.action)) ? body.action as CoachAction : "coach";
     if (!Number.isInteger(questionId)) return Response.json({ error: "缺少真題資料" }, { status: 400 });
     const db = await getDb();
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"))).limit(1);
@@ -167,8 +167,10 @@ export async function POST(request: Request) {
         : action === "variation_advanced"
           ? "依原真題改變程序階段、當事人主張或關鍵要件，出一題進階模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
           : action === "subquestion_summary"
-            ? "學生主動要求完成本小題。請批改學生剛才親自整理的小結；不要重述整份老師擬答，也不要另寫長篇解析。若小結欠缺法律判準、關鍵事實或結論，只指出最重要的一項缺漏，並用一個短問題請學生補上；此時不得宣告通過。若三者齊備，依指定的精簡格式宣告本小題通過。"
-            : "根據學生剛才的回答診斷理解缺口。先肯定已掌握部分，再只問一個學生可直接回答的小問題；完整處理目前階段後，必須明確銜接下一階段，不能在一個爭點結束。";
+            ? "學生主動要求完成本單題。請批改學生剛才親自整理的小結；不要重述整份老師擬答，也不要另寫長篇解析。若小結欠缺法律判準、關鍵事實或結論，只指出最重要的一項缺漏，並用一個短問題請學生補上；此時不得宣告通過。若三者齊備，依指定的精簡格式宣告本單題通過。"
+            : action === "end_summary"
+              ? "學生要求停止回答並結束本段對話。請依目前完整對話直接收束，不得再提出問題。用精簡格式整理：本段結論、已掌握重點、仍須留意一項、下一個尚未處理的行為或爭點；若本題均已處理，明示本題引導結束。"
+              : "根據學生剛才的回答診斷理解缺口。若學生已答到核心、只是把同一結論換句話確認，或同一爭點已連續往返兩次，直接確認結論並標示『本段已完成』，不得再追問；接著用一句話轉入下一個尚未處理的行為或爭點。只有答案仍欠缺一個會改變結論的關鍵要件時，才補問一次短問題。";
     const studentCount = Array.isArray(body.messages) ? body.messages.filter((message) => message.role === "student" || message.role === "scholar").length : 0;
     const progress = coachProgress(studentCount, question.subject);
     const stage = progress.current;
@@ -179,9 +181,11 @@ export async function POST(request: Request) {
         ? "先整理當事人與公司法律關係，再逐一處理公司機關、權利義務、決議效力或其他題目爭點，完成微型變化題驗收後，只能讓學生選擇下一步。"
         : "先整理題目事實與法律關係，再逐一處理各爭點的規範、涵攝與結論；完成微型變化題驗收後，只能讓學生選擇下一步。";
     const responseRule = action === "subquestion_summary"
-      ? "回覆限 80 至 160 字。通過時只依序輸出四行：【小題批改：通過】、【答對重點】一項、【一項修正】最多一項、【合格小結】一句。未通過時只輸出：【小題批改：待補充】、【已掌握】一項、【請補上】一項，最後問一個短問題。不得貼出名師擬答，不得逐點羅列學生所有答對內容，不得重複總評。"
-      : "一般回覆限 45 至 110 字，只做一句具體回饋，再問一個短問題。不要寫成表格、講義或完整擬答。";
-    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n${responseRule}你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。學生答對時仍要追問一次判斷關鍵；答錯時只給分級提示並留在目前階段，不得直接公布完整答案。進入「微型變化題驗收」時改變一個關鍵事實，確認學生能否自行運用判準。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
+      ? "回覆限 80 至 160 字。通過時只依序輸出四行：【單題批改：通過】、【答對重點】一項、【一項修正】最多一項、【合格小結】一句。未通過時只輸出：【單題批改：待補充】、【已掌握】一項、【請補上】一項，最後問一個短問題。不得貼出名師擬答，不得逐點羅列學生所有答對內容，不得重複總評。"
+      : action === "end_summary"
+        ? "回覆限 100 至 180 字，直接總結並結束，不得使用問號、不得要求學生繼續回答，也不得出變化題。"
+        : "一般回覆限 45 至 110 字。需要追問時只做一句具體回饋，再問一個短問題；已達標或出現重複追問時，改為一句確認、一句本段結論與下一步，不得為維持對話而硬問。不要寫成表格、講義或完整擬答。";
+    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n${responseRule}你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。答錯時只給分級提示並留在目前階段，不得直接公布完整答案。你必須辨識三種收束訊號：學生已正確說出判準與結論、學生只是換句話重問已回答的疑問、學生表示想停止或要求總結。出現任一訊號時應主動收束，不能繼續用問題延長對話。每個決定性缺口最多補問一次；同一爭點不得連續出現兩次以上內容相同的追問。進入「微型變化題驗收」時只改變一個關鍵事實；學生已能運用判準即宣告驗收完成，不再追加第二題。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。不得使用 Markdown 星號、井號或反引號。`;
     const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
     const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
       try { return await runProvider(provider, instructions, input); }
