@@ -16,22 +16,23 @@ type CoachProgress = {
 function coachStageLabelsFor(subject: string) {
   const normalized = subject.toLowerCase();
   if (normalized.includes("刑法") && !normalized.includes("刑事訴訟")) {
-    return ["拆解甲的行為", "處理第一個行為", "處理第二個行為", "處理結果與因果關係", "三段論法練習", "正式作答"];
+    return ["辨識人物與行為", "形成爭點", "理解法律判準", "逐段涵攝", "確認結論與理由", "微型變化題驗收", "學生選擇下一步"];
   }
   if (normalized.includes("公司") || normalized.includes("商事")) {
-    return ["辨認法律關係與爭點", "確認公司機關與當事人地位", "找出規範並涵攝事實", "處理學說與實務分歧", "三段論法練習", "正式作答"];
+    return ["辨認當事人與法律關係", "形成爭點", "理解法律判準", "逐段涵攝", "確認結論與理由", "微型變化題驗收", "學生選擇下一步"];
   }
-  return ["整理題目事實與爭點", "確認法律關係與請求基礎", "找出規範並涵攝事實", "處理爭議與反面觀點", "三段論法練習", "正式作答"];
+  return ["整理題目事實與法律關係", "形成爭點", "理解法律判準", "逐段涵攝", "確認結論與理由", "微型變化題驗收", "學生選擇下一步"];
 }
 
 function coachProgress(studentCount: number, subject: string): CoachProgress {
   const coachStageLabels = coachStageLabelsFor(subject);
-  const stage = Math.min(Math.max(studentCount, 0), coachStageLabels.length - 1);
+  // 每一學習階段至少保留兩次學生實際回應，避免一、兩輪就跳進擬答。
+  const stage = Math.min(Math.floor(Math.max(studentCount, 0) / 2), coachStageLabels.length - 1);
   return {
     stage,
     current: coachStageLabels[stage],
     items: coachStageLabels.map((label, index) => ({ label, status: index < stage ? "done" : index === stage ? "current" : "pending" })),
-    readyForEssay: stage >= 5,
+    readyForEssay: stage >= coachStageLabels.length - 1,
   };
 }
 
@@ -171,11 +172,11 @@ export async function POST(request: Request) {
     const stage = progress.current;
     const teachingTone = body.teachingLevel === "beginner" ? "用法律小白聽得懂的語句，少用術語並逐步解釋。" : body.teachingLevel === "advanced" || body.teachingLevel === "super" ? "可追問學說、實務分歧與精準涵攝，但每次仍只問一個問題。" : "維持司律考生可理解的自然教練語氣。";
     const flow = criminalSubject
-      ? "先拆解題目中甲的行為，再逐一處理每個行為的爭點、規範、涵攝、結論，最後才進入正式作答。"
+      ? "先拆解題目中所有行為人的行為，再逐一處理每個行為的爭點、規範、涵攝與結論；完成微型變化題驗收後，只能讓學生選擇下一步，不得自動進入正式作答。"
       : companySubject
-        ? "先整理當事人與公司法律關係，再逐一處理公司機關、權利義務、決議效力或其他題目爭點，依規範、涵攝、結論逐段完成，最後才進入正式作答。"
-        : "先整理題目事實與法律關係，再逐一處理各爭點的規範、涵攝、結論，最後才進入正式作答。";
-    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n每次回覆 120 至 260 字，像首頁的自然對話一樣：先回應學生剛才說的內容，再提出一個學生可以直接回答的小問題。不要把回答寫成表格、講義或完整擬答。你必須${flow}學生答對目前階段後，必須在同一則回覆明確說明「這一段完成了」，並自然銜接下一段；不得在只列出一個爭點後結束。學生答錯時，指出錯誤方向並留在目前階段追問。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
+        ? "先整理當事人與公司法律關係，再逐一處理公司機關、權利義務、決議效力或其他題目爭點，完成微型變化題驗收後，只能讓學生選擇下一步。"
+        : "先整理題目事實與法律關係，再逐一處理各爭點的規範、涵攝與結論；完成微型變化題驗收後，只能讓學生選擇下一步。";
+    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${actionInstruction}\n每次回覆 120 至 260 字，先具體回應學生剛才的內容，再提出一個可以直接回答的小問題。不要寫成表格、講義或完整擬答。你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。學生答對時仍要追問一次判斷關鍵；答錯時只給分級提示並留在目前階段，不得直接公布完整答案。進入「微型變化題驗收」時改變一個關鍵事實，確認學生能否自行運用判準。驗收完成後只能提示「再練一輪、整理解題架構、進入考場擬答」三種選擇，不得自行產生擬答。每次只問一個主要問題。不得使用 Markdown 星號、井號或反引號。`;
     const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
     const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
       try { return await runProvider(provider, instructions, input); }

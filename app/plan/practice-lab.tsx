@@ -90,7 +90,7 @@ type CoachRecommendation = {
   startSeconds: number | null;
 };
 
-type Props = { initialType: "mcq" | "essay" };
+type Props = { initialType: "mcq" | "essay"; standalone?: boolean };
 type PracticeMode = "today" | "custom" | "laws";
 type PracticeFacets = {
   years: string[];
@@ -264,7 +264,7 @@ function EssayBatchGrading() {
   );
 }
 
-export function PracticeLab({ initialType }: Props) {
+export function PracticeLab({ initialType, standalone = false }: Props) {
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
   const [question, setQuestion] = useState<PracticeQuestion | null>(null);
   const [loading, setLoading] = useState(false);
@@ -305,6 +305,7 @@ export function PracticeLab({ initialType }: Props) {
   const [coachSettingsOpen, setCoachSettingsOpen] = useState(true);
   const [coachTypingRole, setCoachTypingRole] = useState<"mentor" | "scholar">("mentor");
   const [coachProgress, setCoachProgress] = useState<CoachProgress>(() => defaultCoachProgress(0));
+  const [essayUnlocked, setEssayUnlocked] = useState(false);
   const coachMessagesRef = useRef<HTMLDivElement | null>(null);
   const coachComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("today");
@@ -1228,15 +1229,15 @@ export function PracticeLab({ initialType }: Props) {
   }
 
   return (
-    <section className="practice-lab" aria-label="練真題區">
+    <section className="practice-lab" aria-label={initialType === "essay" ? "寫申論區" : "練真題區"}>
       <div className="practice-lab-head">
         <div>
-          <p>ACTIVE PRACTICE</p>
-          <h2>練真題</h2>
-          <span>這裡是自己開始練習的地方；完成後會留下作答與弱點紀錄。</span>
+          <p>{initialType === "essay" ? "ESSAY PRACTICE" : "ACTIVE PRACTICE"}</p>
+          <h2>{initialType === "essay" ? "寫申論" : "練真題"}</h2>
+          <span>{initialType === "essay" ? "先學會拆題與涵攝，再由你決定何時進入考場擬答。" : "練真題只保留一試選擇題；完成後會留下作答與弱點紀錄。"}</span>
         </div>
         <div className="practice-switch">
-          <button
+          {!standalone && <button
             className={examType === "mcq" ? "active" : ""}
             onClick={() => {
               setExamType("mcq");
@@ -1245,8 +1246,8 @@ export function PracticeLab({ initialType }: Props) {
             }}
           >
             一試選擇題
-          </button>
-          <button
+          </button>}
+          {!standalone && <button
             className={examType === "essay" ? "active" : ""}
             onClick={() => {
               setExamType("essay");
@@ -1256,7 +1257,7 @@ export function PracticeLab({ initialType }: Props) {
             }}
           >
             二試申論題
-          </button>
+          </button>}
           {examType === "essay" && (
             <button
               type="button"
@@ -1817,7 +1818,16 @@ export function PracticeLab({ initialType }: Props) {
                 {(coachIssue || coachGap) && <div className="practice-diagnosis essay-chat-diagnosis">{coachIssue && <p><b>目前爭點</b>{coachIssue}</p>}{coachGap && <p><b>需要加強</b>{coachGap}</p>}</div>}
                 {coachComparisons.length > 1 && <div className="essay-coach-comparisons"><b>AI 模型測試比較</b><div>{coachComparisons.map((item) => <article key={`${item.label}-${item.model}`}><strong>{item.label}</strong><small>{item.model}</small><p>{item.text}</p><em>{item.inputTokens + item.outputTokens} tokens · US$ {item.estimatedCostUsd.toFixed(5)}</em></article>)}</div></div>}
               </section>
-              {coachProgress.readyForEssay ? <section
+              {coachProgress.readyForEssay && !essayUnlocked && <section className="guided-answer-choice" aria-label="理解驗收完成">
+                <header><span>理解驗收完成</span><strong>下一步由你決定，不會自動跳入擬答</strong></header>
+                <p>你已完成事實辨識、爭點、判準、涵攝、結論與微型變化題。可以再練、先整理，或自行進入考場擬答。</p>
+                <div>
+                  <button type="button" onClick={() => void askCoach("coach", { role: "student", text: "我想再練一輪，請針對我最薄弱的地方再出一個短問題。" })} disabled={coaching}>再練一輪</button>
+                  <button type="button" onClick={() => void askCoach("coach", { role: "student", text: "請只整理目前已完成的解題架構，不要進入完整擬答；整理後再問我是否要作答。" })} disabled={coaching}>整理解題架構</button>
+                  <button type="button" className="primary" onClick={() => setEssayUnlocked(true)}>進入考場擬答</button>
+                </div>
+              </section>}
+              {essayUnlocked ? <section
                 className="guided-answer-sheet"
                 aria-label="申論正式作答區"
               >
@@ -1846,8 +1856,8 @@ export function PracticeLab({ initialType }: Props) {
                   <small>{draftSavedAt ? `${draftSavedAt} 已自動儲存` : "答案將自動儲存"}</small>
                   <b>字數 {essay.length}／5,200</b>
                 </footer>
-              </section> : <section className="guided-answer-locked" aria-label="正式作答尚未解鎖"><strong>完成前面的對話後，解鎖正式作答</strong><p>請先和 AI 逐步完成行為拆解、各段爭點與三段論法；完成後這裡會出現考場格式作答區。</p></section>}
-              {coachProgress.readyForEssay && <>
+              </section> : !coachProgress.readyForEssay ? <section className="guided-answer-locked" aria-label="正式作答尚未解鎖"><strong>先完成理解與微型變化題，再選擇是否進入擬答</strong><p>AI 會逐步帶你完成事實、爭點、判準、涵攝與結論；多位行為人及多個爭點都須逐項處理。</p></section> : null}
+              {essayUnlocked && <>
               {essayModelPicker()}
               <button
                 className="essay-submit-wide"
