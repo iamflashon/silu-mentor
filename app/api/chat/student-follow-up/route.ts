@@ -1,6 +1,7 @@
 import { getDb } from "../../../../db";
 import { usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, getOpenAIModel } from "../../../../lib/openai";
+import { requireAdmin } from "../../../../lib/member-auth";
 
 type TeacherResponse = { label?: string; model?: string; text?: string; error?: string | null };
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
@@ -38,6 +39,9 @@ function readUsage(payload: unknown) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAdmin(request);
+  if ("error" in auth) return auth.error;
+
   let body: { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel; subject?: string; question?: string };
   try {
     body = await request.json() as { prompt?: string; responses?: TeacherResponse[]; level?: TeachingLevel; subject?: string; question?: string };

@@ -115,6 +115,9 @@ function questionText(question: { stem: string; optionsJson: string | null }) {
 }
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
+function canUseSimulatedStudent(request: Request) {
+  return request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() === "iamflashon@gmail.com";
+}
 
 export async function POST(request: Request) {
   try {
@@ -154,7 +157,10 @@ export async function POST(request: Request) {
       return { id: article.id, title: doc.title, articleNo: article.articleNo, content: article.content, sourceUrl: doc.sourceUrl };
     });
 
-    const history = (Array.isArray(body.messages) ? body.messages : []).slice(-10).map((message) => `${message.role === "student" ? "學生" : message.role === "scholar" ? "AI學霸" : "AI導師"}：${String(message.text).slice(0, 800)}`).join("\n");
+    const simulationAllowed = canUseSimulatedStudent(request);
+    const acceptedMessages = (Array.isArray(body.messages) ? body.messages : [])
+      .filter((message) => message.role !== "scholar" || simulationAllowed);
+    const history = acceptedMessages.slice(-10).map((message) => `${message.role === "student" ? "學生" : message.role === "scholar" ? "AI模擬學生" : "AI導師"}：${String(message.text).slice(0, 800)}`).join("\n");
     const resourceContext = resources.map((item) => `ID ${item.segmentId}｜${item.resourceType}｜${item.resourceTitle}｜${item.lessonLabel} ${item.segmentTitle}｜${item.summary || item.text.slice(0, 220)}`).join("\n");
     const lawContext = laws.map((item) => `ID ${item.id}｜${item.title} ${item.articleNo}｜${item.content.slice(0, 360)}`).join("\n");
     const criminalSubject = question.subject.includes("刑法") && !question.subject.includes("刑事訴訟");
@@ -164,7 +170,7 @@ export async function POST(request: Request) {
       : companySubject
         ? "本題是公司法／商事法申論，不得把題目改寫成刑法案例，也不要使用犯罪行為、犯罪故意或因果關係作為預設框架；應聚焦公司機關、股東／董事身分、法律關係、權利義務、決議效力、規範與涵攝。"
         : `本題科目是${question.subject}，必須依該科目的法律關係與規範進行，不得套用刑法的犯罪行為框架。`;
-    const studentCount = Array.isArray(body.messages) ? body.messages.filter((message) => message.role === "student" || message.role === "scholar").length : 0;
+    const studentCount = acceptedMessages.filter((message) => message.role === "student" || (simulationAllowed && message.role === "scholar")).length;
     const roundLimit = Number(body.roundLimit) === 10 ? 10 : 8;
     const priorOffTopicCount = Math.min(2, Math.max(0, Number(body.offTopicCount ?? 0)));
     const roundReached = action !== "start" && studentCount >= roundLimit;
@@ -211,7 +217,9 @@ export async function POST(request: Request) {
     const primary = parsedRuns.find((run) => !run.error && run.text.trim()) ?? parsedRuns[0];
     if (!primary?.text?.trim()) return Response.json({ error: "AI 未產生可顯示內容" }, { status: 502 });
     const key = userKey(request);
-    const latestStudent = Array.isArray(body.messages) ? [...body.messages].reverse().find((message) => (message.role === "student" || message.role === "scholar") && message.text.trim()) : null;
+    // Only text actually entered by the learner is stored as a student answer.
+    // Administrator-generated simulation text must never be relabelled as the learner's own words.
+    const latestStudent = [...acceptedMessages].reverse().find((message) => message.role === "student" && message.text.trim()) ?? null;
     if (latestStudent) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "student", text: latestStudent.text.trim() });
     if (primary.text?.trim()) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "mentor", text: primary.text.trim() });
     for (const run of parsedRuns) await db.insert(usageLogs).values({ model: run.model, source: "真題教練", inputTokens: run.inputTokens, cachedTokens: 0, outputTokens: run.outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: 0 });

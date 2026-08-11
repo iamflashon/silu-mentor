@@ -975,7 +975,9 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   }
 
   async function generateScholarFollowUp() {
-    if (!question || coaching) return;
+    // This is an administrator-only model-evaluation helper. It must never
+    // impersonate a real student or enter generated text into student history.
+    if (!accountCanAdmin || !question || coaching) return;
     // 沒有指定訊息時，學霸接續最新一則導師訊息；
     // 指定訊息時，學霸只針對該則導師回覆自然回答並提出問題。
     const mentorIndexes = [...coachMessages].map((message, index) => message.role === "mentor" ? index : -1).filter((index) => index >= 0);
@@ -1821,7 +1823,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                 <header className="essay-chat-heading">
                   <div>
                     <span>AI 申論導師｜{coachProgress.current}</span>
-                    <h3>{coachStarted ? "AI 導師陪你把這題拆解出來" : accountCanAdmin ? "先選好 AI 角色，再開始這題的自然對話" : "開始這題的自然對話"}</h3>
+                    <h3>{coachStarted ? "AI 導師陪你把這題拆解出來" : accountCanAdmin ? "設定管理測試條件，再開始這題的自然對話" : "開始這題的自然對話"}</h3>
                     <p>你先回答，AI 再依你的程度追問、提示與修正；每完成一段會自動接續下一段，不會只停在列出爭點。</p>
                     <small className={`guided-save-status is-${guidedSaveStatus}`} aria-live="polite">
                       {guidedSaveStatus === "saving" ? "正在保存引導進度…" : guidedSaveStatus === "error" ? "進度保存連線中斷，稍後會再嘗試" : draftSavedAt ? `已保存｜${draftSavedAt}` : "引導進度會自動保存"}
@@ -1831,19 +1833,19 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
                 <div className="essay-chat-column">
                     {coachStarted && <div className="essay-chat-session-status" aria-live="polite">
-                      <span>本次練習 {Math.min(coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length, coachRoundLimit)}／{coachRoundLimit} 輪</span>
-                      <small>{coachOffTopicCount ? `離題 ${coachOffTopicCount}／3 次` : coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length === coachRoundLimit - 1 ? "剩最後 1 輪；完成後將整理成果並關閉對話" : `達到 ${coachRoundLimit} 輪後將整理成果並關閉對話`}</small>
+                      <span>本次練習 {Math.min(coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length, coachRoundLimit)}／{coachRoundLimit} 輪</span>
+                      <small>{coachOffTopicCount ? `離題 ${coachOffTopicCount}／3 次` : coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length === coachRoundLimit - 1 ? "剩最後 1 輪；完成後將整理成果並關閉對話" : `達到 ${coachRoundLimit} 輪後將整理成果並關閉對話`}</small>
                     </div>}
                     <div ref={coachMessagesRef} className="essay-chat-messages" aria-live="polite">
                       {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>{accountCanAdmin ? "請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。" : "按「開始對話」後，AI 導師會依這一題的科目自然追問，不會套用其他法科的流程。"}</p></div></div>}
-                      {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
+                      {coachMessages.map((message, index) => !accountCanAdmin && message.role === "scholar" ? null : <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
                         {message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span>}
                         <div className="essay-chat-message-content">
                           <div className="essay-chat-bubble">
                             <b>{message.role === "mentor" ? "AI 導師" : message.role === "scholar" ? `AI ${coachTeachingLevelLabels[coachTeachingLevel]}` : "我"}</b>
                             <p>{message.text}</p>
                             {message.role === "mentor" && message.text.includes("【單題批改：通過】") && question?.teacherAnswer && <details className="essay-full-analysis"><summary>查看完整解析</summary><p>{question.teacherAnswer}</p></details>}
-                            {message.role === "mentor" && <label className={`essay-message-reply ${selectedCoachMessageIndex === index ? "is-selected" : ""}`}>
+                            {accountCanAdmin && message.role === "mentor" && <label className={`essay-message-reply ${selectedCoachMessageIndex === index ? "is-selected" : ""}`}>
                               <input
                                 type="checkbox"
                                 checked={selectedCoachMessageIndex === index}
@@ -1858,25 +1860,25 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                       {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
                     </div>
                     <div className="essay-chat-composer-wrap">
-                      {accountCanAdmin && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
+                      {accountCanAdmin && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="管理測試設定">
                         <div className="model-mode-heading">
-                          <strong>AI 學習設定</strong>
+                          <strong>管理測試設定</strong>
                           <span className="model-mode-summary">{coachTeachingLevel === "general" ? "自由提問" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · {coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : coachModelMode === "luna" ? "Luna" : coachModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}{coachSettingsPinned ? " · 已固定" : ""}</span>
                           <button type="button" className="model-settings-toggle" aria-expanded={coachSettingsOpen} onClick={() => setCoachSettingsOpen((open) => !open)}>{coachSettingsOpen ? "收合設定" : "展開設定"}</button>
                         </div>
                         {coachSettingsOpen && <>
                         <div className="model-mode-fields">
-                          <label><span>學生</span><select value={coachTeachingLevel} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as CoachTeachingLevel; setCoachTeachingLevel(value); persistCoachSetting(value, coachModelMode); }}><option value="general">自由提問</option><option value="beginner">法律小白</option><option value="intermediate">基礎考生</option><option value="advanced">進階考生</option><option value="super">頂尖學霸</option></select></label>
+                          <label><span>模擬程度</span><select value={coachTeachingLevel} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as CoachTeachingLevel; setCoachTeachingLevel(value); persistCoachSetting(value, coachModelMode); }}><option value="general">自由提問</option><option value="beginner">法律小白</option><option value="intermediate">基礎考生</option><option value="advanced">進階考生</option><option value="super">頂尖學霸</option></select></label>
                           <label><span>回答</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] : coachModelMode} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as "luna" | "sonnet" | "deepseek"; setCoachModelMode(value); persistCoachSetting(coachTeachingLevel, value); }}><option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option></select></label>
                           <label><span>比較</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length) : "none"} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value; const next = value === "none" ? (coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] as CoachModelMode : coachModelMode) : `compare-${value}` as CoachModelMode; setCoachModelMode(next); persistCoachSetting(coachTeachingLevel, next); }}><option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option></select></label>
                         </div>
-                        <div className={`model-settings-pin-row ${coachSettingsPinned ? "is-pinned" : ""}`}><label className="model-settings-pin"><input type="checkbox" checked={coachSettingsPinned} onChange={(event) => toggleCoachSettingsPinned(event.target.checked)} disabled={coaching} /><span>固定此角色與模型</span></label><small>{coachSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "勾選後會記住目前學生角色、回答模型與比較方式。"}</small></div>
+                        <div className={`model-settings-pin-row ${coachSettingsPinned ? "is-pinned" : ""}`}><label className="model-settings-pin"><input type="checkbox" checked={coachSettingsPinned} onChange={(event) => toggleCoachSettingsPinned(event.target.checked)} disabled={coaching} /><span>固定此測試條件</span></label><small>{coachSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "僅供管理員測試模擬程度、回答模型與比較方式。"}</small></div>
                         </>}
                       </div>}
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>{accountCanAdmin ? "設定完成後，開始這一題的自然對話" : "準備好後，開始這一題的自然對話"}</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : coachEnded ? <><span className="essay-chat-ended-label">本次對話已結束，紀錄仍可閱讀</span></> : <><span>{coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length === coachRoundLimit - 1 ? "剩最後 1 輪" : "你可以繼續回答，也可以請導師總結本題"}</span>{coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length >= 7 && !coachExtended && <button type="button" className="essay-extend-button" onClick={extendCoachConversation} disabled={coaching}>延長 2 輪</button>}<button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button><button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>總結並結束</button></>}
+                        {!coachStarted ? <><span>{accountCanAdmin ? "設定完成後，開始這一題的自然對話" : "準備好後，開始這一題的自然對話"}</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : coachEnded ? <><span className="essay-chat-ended-label">本次對話已結束，紀錄仍可閱讀</span></> : <><span>{coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length === coachRoundLimit - 1 ? "剩最後 1 輪" : "請在下方輸入自己的回答；系統會忠實保留原文"}</span>{coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= 7 && !coachExtended && <button type="button" className="essay-extend-button" onClick={extendCoachConversation} disabled={coaching}>延長 2 輪</button>}{accountCanAdmin && <button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "AI 代答測試" : "AI 回覆指定訊息"}</button>}<button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>總結並結束</button></>}
                       </div>
-                      <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachEnded ? "本次對話已結束" : coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length >= coachRoundLimit} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length >= coachRoundLimit || !coachInput.trim()}>↑</button></form>
+                      <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachEnded ? "本次對話已結束" : coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit || !coachInput.trim()}>↑</button></form>
                     </div>
                 </div>
                 {(coachIssue || coachGap) && <div className="practice-diagnosis essay-chat-diagnosis">{coachIssue && <p><b>目前爭點</b>{coachIssue}</p>}{coachGap && <p><b>需要加強</b>{coachGap}</p>}</div>}
