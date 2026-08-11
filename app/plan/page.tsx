@@ -647,6 +647,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   const [summaryDraft, setSummaryDraft] = useState("");
   const [summaryFavorite, setSummaryFavorite] = useState(false);
   const [summarySelectedFile, setSummarySelectedFile] = useState<File | null>(null);
+  const [summaryPane, setSummaryPane] = useState<"summary" | "files">("summary");
   const [summaryDeleting, setSummaryDeleting] = useState(false);
   const [summaryTitleDraft, setSummaryTitleDraft] = useState("");
   const [summaryFontSize, setSummaryFontSize] = useState(20);
@@ -2738,6 +2739,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       if (!upload.ok || !uploaded.summary) throw new Error(uploaded.error ?? "上傳失敗");
       setStudentSummaries((current) => [uploaded.summary!, ...current]);
       setSelectedSummaryId(uploaded.summary.id);
+      setSummaryPane("summary");
       setSummaryDraft(uploaded.summary.editedSummary || uploaded.summary.summary);
       setSummaryFavorite(uploaded.summary.favorite);
       setSummaryTitleDraft(uploaded.summary.displayTitle || uploaded.summary.name);
@@ -2781,6 +2783,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
     setSummaryTopic(item.topic || "");
     setSummaryCollectionTitle(item.collectionTitle || item.topic || item.displayTitle || "");
     setSummaryFontSize([16, 18, 20, 22, 24].includes(item.fontSize ?? 20) ? item.fontSize ?? 20 : 20);
+    setSummaryPane("summary");
   }
 
   function toggleSummaryFieldGroup(fields: readonly string[]) {
@@ -3383,8 +3386,12 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
               <button type="submit" disabled={summaryUploadLoading}>{summaryUploadLoading ? "整理中…" : "上傳並整理"}</button>
             </form>
             {summaryNotice && <p className="student-summary-notice">{summaryNotice}</p>}
+            <nav className="student-summary-pane-tabs" role="tablist" aria-label="摘要與整理資料切換">
+              <button type="button" role="tab" aria-selected={summaryPane === "summary"} className={summaryPane === "summary" ? "active" : ""} onClick={() => setSummaryPane("summary")}>摘要</button>
+              <button type="button" role="tab" aria-selected={summaryPane === "files"} className={summaryPane === "files" ? "active" : ""} onClick={() => setSummaryPane("files")}>整理資料 <span>{studentSummaries.length}</span></button>
+            </nav>
             <div className="student-summary-layout">
-              <aside className="student-summary-list" aria-label="我的整理資料">
+              {summaryPane === "files" && <aside className="student-summary-list" role="tabpanel" aria-label="我的整理資料">
                 <div className="student-summary-list-head">
                   <div><strong>我的整理資料</strong><span>{studentSummaries.length} 份</span></div>
                   {studentSummaries.length > 0 && <label className="student-summary-select-all"><input type="checkbox" checked={studentSummaries.every((item) => selectedSummaryIds.has(item.id))} onChange={toggleAllSummaries} aria-label="全選摘要" />全選</label>}
@@ -3420,8 +3427,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                     })}
                   </details>
                 )) : <div className="student-summary-empty">尚未上傳資料。先上傳一份講義或照片，這裡會保存整理紀錄。</div>}
-              </aside>
-              <section className="student-summary-detail" aria-live="polite">
+              </aside>}
+              {summaryPane === "summary" && <section className="student-summary-detail" role="tabpanel" aria-live="polite">
                 {(() => {
                   const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
                   if (!item) return <div className="student-summary-empty large">請從左側點選一份整理資料，這裡才會顯示內容。</div>;
@@ -3435,7 +3442,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                     </> : <div className="student-summary-empty large">{item.error || item.processingMessage || "正在處理…"}</div>}
                   </>;
                 })()}
-              </section>
+              </section>}
             </div>
           </section>
         )}
