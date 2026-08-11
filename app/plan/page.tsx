@@ -3233,6 +3233,17 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
         {standalone ? <nav aria-label="獨立學習頁導覽"><a href="/" aria-label="回到司律備考首頁">← 回首頁</a></nav> : <div className="top-actions"><a href="/" className="back-link">返回對話</a><a href="/admin" className="admin-link">管理後台</a></div>}
       </header>
       <div className="plan-main">
+        {standalone && activeTab === "calendar" && <div className="standalone-calendar-heading">
+          <div>
+            <p>MY CALENDAR</p>
+            <h1>我的行事曆</h1>
+            <span>查看每天的讀書安排、完成進度與待辦任務。</span>
+          </div>
+          <div className="calendar-header-actions">
+            <button className="reset-plan-btn" onClick={openResetPlanner}>↻ AI 重新規劃</button>
+            <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>
+          </div>
+        </div>}
         {!standalone && <div className="plan-header">
           <div>
             <p>MY LEARNING CENTER</p>

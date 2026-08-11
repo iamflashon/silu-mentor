@@ -915,7 +915,10 @@ export default function Home() {
             <button type="button" className="home-exam-point-title" onClick={learnHomeExamPoint}><b>{homeExamPoint.subject}</b>{homeExamPoint.title}</button>
             <button type="button" className="home-exam-point-swap" onClick={swapHomeExamPoint}>換一個</button>
           </div>
-          <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
+          <div className="home-calendar-entry">
+            <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
+            <Link href="/calendar" aria-label="開啟我的行事曆">行事曆</Link>
+          </div>
           <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
             {railCollapsed ? "展開學習工具" : "收合側欄"}
           </button>

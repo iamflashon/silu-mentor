@@ -2757,10 +2757,63 @@ a {
   font-size: 9px;
   font-weight: 800;
 }
-.conversation-heading > span {
+.conversation-heading > span,
+.home-calendar-entry {
   margin-left: auto;
   font-size: 11px;
   color: var(--muted);
+}
+.home-calendar-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.home-calendar-entry span {
+  white-space: nowrap;
+}
+.home-calendar-entry a {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid #c9dce5;
+  border-radius: 999px;
+  color: #315f78;
+  background: #f8fcfd;
+  font-size: 10px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.home-calendar-entry a:hover {
+  border-color: #8fb7c8;
+  background: #eef7fa;
+}
+.standalone-calendar-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+.standalone-calendar-heading p,
+.standalone-calendar-heading h1,
+.standalone-calendar-heading span {
+  margin: 0;
+}
+.standalone-calendar-heading p {
+  color: #3b7893;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .12em;
+}
+.standalone-calendar-heading h1 {
+  margin-top: 4px;
+  color: #183149;
+  font-size: 28px;
+}
+.standalone-calendar-heading span {
+  display: block;
+  margin-top: 6px;
+  color: #718591;
+  font-size: 13px;
 }
 .practice-inline-launch {
   /* The date row is wider than the two-column layout by 46px on desktop.
@@ -16200,7 +16253,9 @@ a {
   color: #355f50;
 }
 .practice-coach-messages > div.student {
-  margin-left: 8%;
+  width: fit-content;
+  max-width: min(72%, 680px);
+  justify-self: end;
   background: #edf4f8;
   color: #365d74;
 }
@@ -20425,6 +20480,20 @@ a {
   .conversation-heading > span {
     display: none;
   }
+  .conversation-heading h1 {
+    order: 1;
+  }
+  .home-calendar-entry {
+    display: flex;
+    order: 2;
+    margin-left: auto;
+  }
+  .home-calendar-entry span {
+    display: none;
+  }
+  .home-exam-point {
+    order: 3;
+  }
   .conversation-heading {
     flex-wrap: wrap;
   }
@@ -20884,6 +20953,9 @@ a {
   .practice-coach > header > div:last-child {
     width: 100%;
     justify-content: flex-start;
+  }
+  .practice-coach-messages > div.student {
+    max-width: 88%;
   }
   .practice-coach form {
     grid-template-columns: 1fr;
