@@ -15134,6 +15134,33 @@ a {
 .essay-chat-composer-wrap {
   margin-top: 10px;
 }
+.essay-chat-session-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border: 1px solid #d4e3e5;
+  border-radius: 10px;
+  background: #f6faf9;
+  color: #58737d;
+  font-size: 12px;
+}
+.essay-chat-session-status span { color: #326d6b; font-weight: 850; }
+.essay-chat-session-status small { text-align: right; }
+.essay-chat-ended-label { color: #526b74; font-weight: 800; }
+.essay-extend-button {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid #b89a5f;
+  border-radius: 999px;
+  background: #fffaf0;
+  color: #725a2b;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
 .essay-chat-composer-actions {
   display: flex;
   align-items: center;
@@ -15366,12 +15393,15 @@ a {
   }
   .essay-chat-composer-actions .scholar-follow-up-button,
   .essay-chat-composer-actions .essay-end-summary-button,
+  .essay-chat-composer-actions .essay-extend-button,
   .essay-chat-composer-actions .essay-chat-start {
     min-height: 34px;
     padding: 6px 11px;
     font-size: 12px;
     line-height: 1.2;
   }
+  .essay-chat-session-status { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .essay-chat-session-status small { text-align: left; }
   .essay-chat-settings {
     margin-bottom: 7px;
   }

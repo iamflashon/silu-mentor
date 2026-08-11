@@ -136,6 +136,10 @@ type GuidedPracticeState = {
   coachModelMode?: CoachModelMode;
   coachSettingsOpen?: boolean;
   coachProgress?: CoachProgress;
+  coachRoundLimit?: number;
+  coachExtended?: boolean;
+  coachOffTopicCount?: number;
+  coachEnded?: boolean;
   essayPickerYear?: string;
   essayPickerSubject?: string;
   essayPickerId?: string;
@@ -330,6 +334,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const [coachSettingsOpen, setCoachSettingsOpen] = useState(true);
   const [coachTypingRole, setCoachTypingRole] = useState<"mentor" | "scholar">("mentor");
   const [coachProgress, setCoachProgress] = useState<CoachProgress>(() => defaultCoachProgress(0));
+  const [coachRoundLimit, setCoachRoundLimit] = useState(8);
+  const [coachExtended, setCoachExtended] = useState(false);
+  const [coachOffTopicCount, setCoachOffTopicCount] = useState(0);
+  const [coachEnded, setCoachEnded] = useState(false);
   const [essayUnlocked, setEssayUnlocked] = useState(false);
   const coachMessagesRef = useRef<HTMLDivElement | null>(null);
   const coachComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -473,6 +481,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
           if (state.coachModelMode) setCoachModelMode(state.coachModelMode);
           if (typeof state.coachSettingsOpen === "boolean") setCoachSettingsOpen(state.coachSettingsOpen);
           if (state.coachProgress) setCoachProgress(state.coachProgress);
+          setCoachRoundLimit(state.coachRoundLimit === 10 ? 10 : 8);
+          setCoachExtended(Boolean(state.coachExtended));
+          setCoachOffTopicCount(Math.min(3, Math.max(0, Number(state.coachOffTopicCount ?? 0))));
+          setCoachEnded(Boolean(state.coachEnded));
           if (typeof state.essayPickerYear === "string") setEssayPickerYear(state.essayPickerYear);
           if (typeof state.essayPickerSubject === "string") setEssayPickerSubject(state.essayPickerSubject);
           if (typeof state.essayPickerId === "string") setEssayPickerId(state.essayPickerId);
@@ -527,6 +539,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
             coachModelMode,
             coachSettingsOpen,
             coachProgress,
+            coachRoundLimit,
+            coachExtended,
+            coachOffTopicCount,
+            coachEnded,
             essayPickerYear,
             essayPickerSubject,
             essayPickerId,
@@ -566,6 +582,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     coachModelMode,
     coachSettingsOpen,
     coachProgress,
+    coachRoundLimit,
+    coachExtended,
+    coachOffTopicCount,
+    coachEnded,
     essayPickerYear,
     essayPickerSubject,
     essayPickerId,
@@ -610,6 +630,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setCoachSettingsOpen(true);
     setCoachTypingRole("mentor");
     setCoachProgress(defaultCoachProgress(0));
+    setCoachRoundLimit(8);
+    setCoachExtended(false);
+    setCoachOffTopicCount(0);
+    setCoachEnded(false);
     try {
       const params = new URLSearchParams({ type });
       if (filters?.year) params.set("year", filters.year);
@@ -807,7 +831,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     suppliedMessage?: CoachMessage,
     options?: { allowWhileCoaching?: boolean },
   ) {
-    if (!question || (coaching && !options?.allowWhileCoaching) || ((action === "coach" || action === "subquestion_summary") && !coachInput.trim() && !suppliedMessage))
+    if (!question || coachEnded || (coaching && !options?.allowWhileCoaching) || ((action === "coach" || action === "subquestion_summary") && !coachInput.trim() && !suppliedMessage))
       return;
     const studentMessage =
       suppliedMessage ?? (action === "coach"
@@ -839,6 +863,8 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
           messages,
           modelMode: coachModelMode,
           teachingLevel: coachTeachingLevel,
+          roundLimit: coachRoundLimit,
+          offTopicCount: coachOffTopicCount,
         }),
       });
       const result = (await response.json()) as {
@@ -848,6 +874,9 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         recommendations?: CoachRecommendation[];
         comparisons?: CoachComparison[];
         progress?: CoachProgress;
+        relevance?: "related" | "drift" | "off_topic";
+        offTopicCount?: number;
+        ended?: boolean;
         error?: string;
       };
       if (response.ok && result.reply) {
@@ -860,6 +889,8 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         setCoachRecommendations(result.recommendations ?? []);
         setCoachComparisons(result.comparisons ?? []);
         setCoachProgress(result.progress ?? defaultCoachProgress(messages.filter((message) => message.role === "student" || message.role === "scholar").length, question.subject));
+        setCoachOffTopicCount(result.offTopicCount ?? coachOffTopicCount);
+        if (result.ended || action === "end_summary") setCoachEnded(true);
         setCoachStarted(true);
         setCoachInput("");
         setCoachInputRole("student");
@@ -929,8 +960,18 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setCoachInput("");
     setCoachInputRole("student");
     setCoachStarted(true);
+    setCoachRoundLimit(8);
+    setCoachExtended(false);
+    setCoachOffTopicCount(0);
+    setCoachEnded(false);
     setCoachSettingsOpen(false);
     void askCoach("start");
+  }
+
+  function extendCoachConversation() {
+    if (coachExtended || coachEnded || coachRoundLimit >= 10) return;
+    setCoachRoundLimit(10);
+    setCoachExtended(true);
   }
 
   function recommendationUrl(item: CoachRecommendation) {
@@ -1722,6 +1763,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                 </header>
 
                 <div className="essay-chat-column">
+                    {coachStarted && <div className="essay-chat-session-status" aria-live="polite">
+                      <span>本次練習 {Math.min(coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length, coachRoundLimit)}／{coachRoundLimit} 輪</span>
+                      <small>{coachOffTopicCount ? `離題 ${coachOffTopicCount}／3 次` : coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length === coachRoundLimit - 1 ? "剩最後 1 輪；完成後將整理成果並關閉對話" : `達到 ${coachRoundLimit} 輪後將整理成果並關閉對話`}</small>
+                    </div>}
                     <div ref={coachMessagesRef} className="essay-chat-messages" aria-live="polite">
                       {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>{accountCanAdmin ? "請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。" : "按「開始對話」後，AI 導師會依這一題的科目自然追問，不會套用其他法科的流程。"}</p></div></div>}
                       {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
@@ -1762,9 +1807,9 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                         </>}
                       </div>}
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>{accountCanAdmin ? "設定完成後，開始這一題的自然對話" : "準備好後，開始這一題的自然對話"}</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>你可以繼續回答，也可以請導師總結本題</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button><button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>總結並結束</button></>}
+                        {!coachStarted ? <><span>{accountCanAdmin ? "設定完成後，開始這一題的自然對話" : "準備好後，開始這一題的自然對話"}</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : coachEnded ? <><span className="essay-chat-ended-label">本次對話已結束，紀錄仍可閱讀</span></> : <><span>{coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length === coachRoundLimit - 1 ? "剩最後 1 輪" : "你可以繼續回答，也可以請導師總結本題"}</span>{coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length >= 7 && !coachExtended && <button type="button" className="essay-extend-button" onClick={extendCoachConversation} disabled={coaching}>延長 2 輪</button>}<button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button><button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>總結並結束</button></>}
                       </div>
-                      <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
+                      <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachEnded ? "本次對話已結束" : coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length >= coachRoundLimit} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || message.role === "scholar").length >= coachRoundLimit || !coachInput.trim()}>↑</button></form>
                     </div>
                 </div>
                 {(coachIssue || coachGap) && <div className="practice-diagnosis essay-chat-diagnosis">{coachIssue && <p><b>目前爭點</b>{coachIssue}</p>}{coachGap && <p><b>需要加強</b>{coachGap}</p>}</div>}
