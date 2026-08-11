@@ -14081,6 +14081,20 @@ a {
   font-weight: 800;
   cursor: pointer;
 }
+
+.essay-question-picker > header > .essay-picker-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.essay-question-picker > header .danger-subtle {
+  color: #8b3f36;
+  border-color: #d8b7b1;
+  background: #fff8f6;
+}
 .essay-question-picker-fields {
   display: grid;
   gap: 10px;

@@ -143,3 +143,15 @@ export async function PUT(request: Request) {
     return Response.json({ error: "引導學習紀錄暫時無法保存" }, { status: 503 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const db = await getDb();
+    await db
+      .delete(guidedPracticeSessions)
+      .where(eq(guidedPracticeSessions.userKey, userKey(request)));
+    return Response.json({ cleared: true });
+  } catch {
+    return Response.json({ error: "引導學習紀錄暫時無法清空" }, { status: 503 });
+  }
+}

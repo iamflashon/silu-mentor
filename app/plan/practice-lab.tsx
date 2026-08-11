@@ -101,6 +101,44 @@ type PracticeFacets = {
 };
 type EssayMode = "guided" | "exam";
 
+const SECOND_STAGE_SUBJECT_ALIASES = [
+  "公法",
+  "憲法",
+  "行政法",
+  "民法",
+  "民事訴訟法",
+  "民訴",
+  "刑法",
+  "刑事訴訟法",
+  "刑訴",
+  "商法",
+  "商事法",
+  "公司法",
+  "保險法",
+  "證券交易法",
+];
+
+const HIDDEN_NON_SECOND_STAGE_SUBJECT_MARKERS = [
+  "概要",
+  "公務員法",
+  "行政學",
+  "國文",
+  "國際公法",
+  "海商法",
+  "海洋法",
+  "犯罪學",
+  "監獄學",
+  "強制執行法",
+  "立法程序",
+];
+
+function isPrimarySecondStageSubject(subject: string) {
+  const normalized = subject.replace(/[\s、，,／/與和及・·]/g, "");
+  if (!normalized) return false;
+  if (HIDDEN_NON_SECOND_STAGE_SUBJECT_MARKERS.some((marker) => normalized.includes(marker))) return false;
+  return SECOND_STAGE_SUBJECT_ALIASES.some((alias) => normalized.includes(alias));
+}
+
 function essayQuestionSummary(stem: string, maxLength = 34) {
   const normalized = stem
     .replace(/\s+/g, " ")
@@ -371,9 +409,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const essayRef = useRef<HTMLTextAreaElement | null>(null);
   const clockText = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const essayPages = Math.max(1, Math.ceil(essay.length / 650));
-  const essayPickerYears = [...new Set(essayQuestionCatalog.map((item) => item.year).filter(Boolean))];
-  const essayPickerSubjects = [...new Set(essayQuestionCatalog.filter((item) => !essayPickerYear || item.year === essayPickerYear).map((item) => item.subject).filter(Boolean))];
-  const essayPickerQuestions = essayQuestionCatalog.filter((item) => (!essayPickerYear || item.year === essayPickerYear) && (!essayPickerSubject || item.subject === essayPickerSubject));
+  const secondStageEssayCatalog = essayQuestionCatalog.filter((item) => isPrimarySecondStageSubject(item.subject));
+  const essayPickerYears = [...new Set(secondStageEssayCatalog.map((item) => item.year).filter(Boolean))];
+  const essayPickerSubjects = [...new Set(secondStageEssayCatalog.filter((item) => !essayPickerYear || item.year === essayPickerYear).map((item) => item.subject).filter(Boolean))];
+  const essayPickerQuestions = secondStageEssayCatalog.filter((item) => (!essayPickerYear || item.year === essayPickerYear) && (!essayPickerSubject || item.subject === essayPickerSubject));
   const selectedEssayOption = essayQuestionCatalog.find((item) => String(item.id) === essayPickerId) ?? null;
 
   useEffect(() => {
@@ -789,6 +828,31 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   function reopenEssayPicker() {
     setEssayPickerOpen(true);
     setExamStarted(false);
+  }
+
+  async function clearAllGuidedPractice() {
+    if (!window.confirm("確定要清空全部引導學習紀錄並重新開始嗎？此動作無法復原，但不會刪除模擬考試與其他學習紀錄。")) return;
+    setGuidedStateReady(false);
+    setGuidedSaveStatus("saving");
+    try {
+      const response = await fetch("/api/guided-practice", { method: "DELETE" });
+      if (!response.ok) throw new Error("clear failed");
+      clearEssayQuestion();
+      setCoachRoundLimit(8);
+      setCoachExtended(false);
+      setCoachOffTopicCount(0);
+      setCoachEnded(false);
+      setEssayPickerYear("");
+      setEssayPickerSubject("");
+      setEssayPickerId("");
+      setEssayPickerOpen(true);
+      setGuidedResumeSessions([]);
+      setDraftSavedAt("");
+      setGuidedSaveStatus("idle");
+    } catch {
+      setGuidedSaveStatus("error");
+      window.alert("引導學習紀錄暫時無法清空，請稍後再試。");
+    }
   }
 
   function startCustomPractice() {
@@ -1474,7 +1538,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                 <b>先挑一題，再開始練習</b>
                 <span>請依「年度 → 類科 → 題目」選擇，不會由系統自動出題。</span>
               </div>
-              {!essayPickerOpen && question && <button type="button" onClick={reopenEssayPicker}>重新挑題</button>}
+              <div className="essay-picker-header-actions">
+                {essayMode === "guided" && (question || guidedResumeSessions.length > 0) && <button type="button" className="danger-subtle" onClick={() => void clearAllGuidedPractice()}>清空全部重學</button>}
+                {!essayPickerOpen && question && <button type="button" onClick={reopenEssayPicker}>重新挑題</button>}
+              </div>
             </header>
             {(essayPickerOpen || !question) && <>
               {essayMode === "guided" && guidedResumeSessions.length > 0 && (
