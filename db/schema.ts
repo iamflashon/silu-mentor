@@ -69,6 +69,20 @@ export const usageLogs = sqliteTable("usage_logs", {
     .$defaultFn(() => new Date()),
 });
 
+export const legalExplanationCache = sqliteTable("legal_explanation_cache", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cacheKey: text("cache_key").notNull().unique(),
+  model: text("model").notNull(),
+  explanation: text("explanation").notNull(),
+  analysisJson: text("analysis_json").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const studyPlans = sqliteTable("study_plans", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   title: text("title").notNull(),

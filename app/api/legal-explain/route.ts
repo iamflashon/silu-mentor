@@ -1,7 +1,20 @@
 import { getOpenAIKey, openAIJson } from "../../../lib/openai";
 import { getDb } from "../../../db";
-import { usageLogs } from "../../../db/schema";
+import { legalExplanationCache, usageLogs } from "../../../db/schema";
 import { estimateCostUsdMicros } from "../../../lib/usage";
+import { eq } from "drizzle-orm";
+
+const EXPLANATION_PROMPT_VERSION = "legal-plain-v1";
+
+function normalizeCacheText(value: string) {
+  return value.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+async function sha256(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
@@ -50,14 +63,37 @@ function parseStructured(text: string): StructuredExplanation | null {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { selectedText?: string; article?: { title?: string; articleNo?: string; content?: string } };
+    const body = await request.json() as { selectedText?: string; teachingLevel?: string; article?: { title?: string; articleNo?: string; content?: string } };
     const title = String(body.article?.title ?? "").slice(0, 120);
     const articleNo = String(body.article?.articleNo ?? "").slice(0, 80);
     const content = String(body.article?.content ?? "").slice(0, 6000);
     const selectedText = String(body.selectedText ?? "").slice(0, 120);
     if (!content && selectedText.length < 2) return Response.json({ error: "請先框選要解釋的文字。" }, { status: 400 });
-    if (!await getOpenAIKey()) return Response.json({ error: "白話解釋模型尚未設定。" }, { status: 503 });
     const model = "gpt-5.6-luna";
+    const teachingLevel = normalizeCacheText(String(body.teachingLevel ?? "auto").slice(0, 40)) || "auto";
+    const cacheKey = await sha256(JSON.stringify({
+      version: EXPLANATION_PROMPT_VERSION,
+      model,
+      teachingLevel,
+      selectedText: normalizeCacheText(selectedText),
+      title: normalizeCacheText(title),
+      articleNo: normalizeCacheText(articleNo),
+      content: normalizeCacheText(content),
+    }));
+    try {
+      const db = await getDb();
+      const [cached] = await db.select().from(legalExplanationCache).where(eq(legalExplanationCache.cacheKey, cacheKey)).limit(1);
+      if (cached) {
+        await db.update(legalExplanationCache).set({ lastUsedAt: new Date() }).where(eq(legalExplanationCache.id, cached.id));
+        return Response.json({
+          explanation: cached.explanation,
+          analysis: JSON.parse(cached.analysisJson) as LegalAnalysis,
+          reused: true,
+          usage: { model: "沿用先前解釋", inputTokens: 0, cachedTokens: 0, outputTokens: 0, durationMs: 0, estimatedCostUsd: 0 },
+        });
+      }
+    } catch { /* 快取不可用時仍可由模型產生答案 */ }
+    if (!await getOpenAIKey()) return Response.json({ error: "白話解釋模型尚未設定。" }, { status: 503 });
     const startedAt = Date.now();
     const requestBody = {
       model,
@@ -82,10 +118,11 @@ export async function POST(request: Request) {
     const estimatedCostUsdMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
     const durationMs = Date.now() - startedAt;
     try {
-      const db = getDb();
+      const db = await getDb();
+      await db.insert(legalExplanationCache).values({ cacheKey, model, explanation, analysisJson: JSON.stringify(parsed.analysis) }).onConflictDoNothing();
       await db.insert(usageLogs).values({ model, source: "全站智能框選｜白話解釋", inputTokens, cachedTokens, outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros });
     } catch { /* 成本紀錄失敗不應中斷學生取得解釋 */ }
-    return Response.json({ explanation, analysis: parsed.analysis, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
+    return Response.json({ explanation, analysis: parsed.analysis, reused: false, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "白話解釋暫時無法完成。" }, { status: 500 });
   }
