@@ -47,6 +47,7 @@ type TodayRecord = { subject: string; title: string; activityType: string; actua
 type YesterdayContext = { date: string; sessionId: number | null; messageCount: number; lastStudent: string; lastMentor: string; completedTasks: number; totalTasks: number; incompleteTasks: Array<{ id: number; subject: string; title: string; durationMinutes: number; details: string }>; records: Array<{ subject: string; title: string; activityType: string; actualMinutes: number; correct: boolean | null; weakness: string; nextStep: string }> };
 type CropPoint = { x: number; y: number };
 type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
+type CropHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; examName?: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
 type MagazineArticle = { id: number; title: string; summary: string; issue: string; sourceUrl: string; reviewStatus: string; sequence: number };
 type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: Array<{ id: string; text: string; url: string; enabled: boolean }>; examCountdowns: Array<{ id: string; label: string; date: string; enabled: boolean }>; learningCenterEnabled?: boolean };
@@ -163,6 +164,7 @@ export default function Home() {
   const endRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+  const cropFrameDragRef = useRef<{ pointerId: number; startX: number; startY: number; points: CropPoint[] } | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
   const [editingImage, setEditingImage] = useState(false);
@@ -510,15 +512,39 @@ export default function Home() {
   function chooseQuestionImage(file: File | undefined) {
     if (!file || !file.type.startsWith("image/")) return;
     const reader = new FileReader();
-    reader.onload = () => { setImageDraft({ url: String(reader.result), name: file.name, rotation: 0, enhance: false, points: [{ x: 4, y: 4 }, { x: 50, y: 4 }, { x: 96, y: 4 }, { x: 96, y: 96 }, { x: 50, y: 96 }, { x: 4, y: 96 }] }); setEditingImage(true); };
+    reader.onload = () => { setImageDraft({ url: String(reader.result), name: file.name, rotation: 0, enhance: false, points: [{ x: 6, y: 6 }, { x: 94, y: 6 }, { x: 94, y: 94 }, { x: 6, y: 94 }] }); setEditingImage(true); };
     reader.readAsDataURL(file);
   }
 
-  function moveCropPoint(index: number, clientX: number, clientY: number) {
+  function cropBounds(points: CropPoint[]) {
+    return { left: Math.min(...points.map((point) => point.x)), right: Math.max(...points.map((point) => point.x)), top: Math.min(...points.map((point) => point.y)), bottom: Math.max(...points.map((point) => point.y)) };
+  }
+
+  function moveCropHandle(handle: CropHandle, clientX: number, clientY: number) {
     const rect = editorRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const point = { x: Math.max(0, Math.min(100, (clientX - rect.left) / rect.width * 100)), y: Math.max(0, Math.min(100, (clientY - rect.top) / rect.height * 100)) };
-    setImageDraft((current) => current ? { ...current, points: current.points.map((item, itemIndex) => itemIndex === index ? point : item) } : current);
+    const x = Math.max(0, Math.min(100, (clientX - rect.left) / rect.width * 100));
+    const y = Math.max(0, Math.min(100, (clientY - rect.top) / rect.height * 100));
+    setImageDraft((current) => {
+      if (!current) return current;
+      const bounds = cropBounds(current.points); const minimum = 8;
+      let { left, right, top, bottom } = bounds;
+      if (handle.includes("w")) left = Math.min(x, right - minimum);
+      if (handle.includes("e")) right = Math.max(x, left + minimum);
+      if (handle.includes("n")) top = Math.min(y, bottom - minimum);
+      if (handle.includes("s")) bottom = Math.max(y, top + minimum);
+      return { ...current, points: [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }] };
+    });
+  }
+
+  function moveCropFrame(clientX: number, clientY: number) {
+    const rect = editorRef.current?.getBoundingClientRect(); const drag = cropFrameDragRef.current;
+    if (!rect || !drag) return;
+    const dx = (clientX - drag.startX) / rect.width * 100; const dy = (clientY - drag.startY) / rect.height * 100;
+    const bounds = cropBounds(drag.points);
+    const safeDx = Math.max(-bounds.left, Math.min(100 - bounds.right, dx));
+    const safeDy = Math.max(-bounds.top, Math.min(100 - bounds.bottom, dy));
+    setImageDraft((current) => current ? { ...current, points: drag.points.map((point) => ({ x: point.x + safeDx, y: point.y + safeDy })) } : current);
   }
 
   async function prepareQuestionImage(draft: ImageDraft) {
@@ -1046,7 +1072,7 @@ export default function Home() {
         <p>教材優先檢索 · 找不到時由 AI 補充並清楚標示</p>
       </div>}
 
-      {imageDraft && editingImage && <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="編輯題目圖片"><section className="image-editor"><div className="image-editor-head"><div><strong>調整題目圖片</strong><span>拖曳六個控制點，保留要詢問的範圍</span></div><button onClick={() => setImageDraft(null)} aria-label="關閉">×</button></div><div className={`crop-stage ${imageDraft.enhance ? "enhanced" : ""}`} ref={editorRef}><img src={imageDraft.url} alt="圖片裁切預覽" style={{ transform: `rotate(${imageDraft.rotation}deg)` }} />{imageDraft.points.map((point, index) => <button key={index} className="crop-handle" style={{ left: `${point.x}%`, top: `${point.y}%` }} aria-label={`裁切控制點 ${index + 1}`} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropPoint(index, event.clientX, event.clientY); }} />)}</div><div className="image-tools"><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation - 90 } : current)}>↶ 左轉</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation + 90 } : current)}>↷ 右轉</button><button className={imageDraft.enhance ? "active" : ""} onClick={() => setImageDraft((current) => current ? { ...current, enhance: !current.enhance } : current)}>✦ 加強圖片</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: 0, enhance: false, points: [{ x: 4, y: 4 }, { x: 50, y: 4 }, { x: 96, y: 4 }, { x: 96, y: 96 }, { x: 50, y: 96 }, { x: 4, y: 96 }] } : current)}>重設</button></div><div className="image-editor-actions"><button className="secondary" onClick={() => setImageDraft(null)}>取消</button><button onClick={() => setEditingImage(false)}>使用這張圖片</button></div><p>送出時自動縮至最長邊 1600px，並壓縮為 JPEG。</p></section></div>}
+      {imageDraft && editingImage && <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="編輯題目圖片"><section className="image-editor"><div className="image-editor-head"><div><strong>調整題目圖片</strong><span>拖曳方框四角或四邊調整範圍；拖曳框內可整體移動</span></div><button onClick={() => setImageDraft(null)} aria-label="關閉">×</button></div><div className={`crop-stage ${imageDraft.enhance ? "enhanced" : ""}`} ref={editorRef}><img src={imageDraft.url} alt="圖片裁切預覽" style={{ transform: `rotate(${imageDraft.rotation}deg)` }} />{(() => { const bounds = cropBounds(imageDraft.points); const handles: Array<{ name: CropHandle; x: number; y: number }> = [{ name: "nw", x: bounds.left, y: bounds.top }, { name: "n", x: (bounds.left + bounds.right) / 2, y: bounds.top }, { name: "ne", x: bounds.right, y: bounds.top }, { name: "e", x: bounds.right, y: (bounds.top + bounds.bottom) / 2 }, { name: "se", x: bounds.right, y: bounds.bottom }, { name: "s", x: (bounds.left + bounds.right) / 2, y: bounds.bottom }, { name: "sw", x: bounds.left, y: bounds.bottom }, { name: "w", x: bounds.left, y: (bounds.top + bounds.bottom) / 2 }]; return <><div className="crop-frame" style={{ left: `${bounds.left}%`, top: `${bounds.top}%`, width: `${bounds.right - bounds.left}%`, height: `${bounds.bottom - bounds.top}%` }} onPointerDown={(event) => { cropFrameDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, points: imageDraft.points.map((point) => ({ ...point })) }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropFrame(event.clientX, event.clientY); }} onPointerUp={() => { cropFrameDragRef.current = null; }}><span>保留範圍</span></div>{handles.map((handle) => <button key={handle.name} className={`crop-handle crop-handle-${handle.name}`} style={{ left: `${handle.x}%`, top: `${handle.y}%` }} aria-label={`調整裁切框 ${handle.name}`} onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropHandle(handle.name, event.clientX, event.clientY); }} />)}</>; })()}</div><div className="image-tools"><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation - 90 } : current)}>↶ 左轉</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation + 90 } : current)}>↷ 右轉</button><button className={imageDraft.enhance ? "active" : ""} onClick={() => setImageDraft((current) => current ? { ...current, enhance: !current.enhance } : current)}>✦ 加強圖片</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: 0, enhance: false, points: [{ x: 6, y: 6 }, { x: 94, y: 6 }, { x: 94, y: 94 }, { x: 6, y: 94 }] } : current)}>重設</button></div><div className="image-editor-actions"><button className="secondary" onClick={() => setImageDraft(null)}>取消</button><button onClick={() => setEditingImage(false)}>使用這張圖片</button></div><p>線框內為實際保留範圍；送出時自動縮至最長邊 1600px，並壓縮為 JPEG。</p></section></div>}
     </main>
   );
 }
