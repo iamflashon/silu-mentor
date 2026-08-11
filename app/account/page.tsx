@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { headers } from "next/headers";
 import { requireMember } from "../../lib/member-auth";
 
@@ -12,12 +11,12 @@ export default async function AccountPage() {
   const auth = await requireMember(request);
 
   if ("error" in auth) {
-    return <main className="account-page"><header className="standalone-page-head"><Link href="/">← 回首頁</Link></header><section className="account-card account-login"><h1>我的會員帳號</h1><p>請先登入，才能查看自己的會員資料。</p><a href="/signin-with-chatgpt?return_to=/account">登入我的學習平台</a></section></main>;
+    return <main className="account-page"><header className="standalone-page-head"><a href="/" aria-label="回到司律備考首頁">← 回首頁</a></header><section className="account-card account-login"><h1>我的會員帳號</h1><p>請先登入，才能查看自己的會員資料。</p><a href="/signin-with-chatgpt?return_to=/account">登入我的學習平台</a></section></main>;
   }
 
   const { member } = auth;
   return <main className="account-page">
-    <header className="standalone-page-head"><Link href="/">← 回首頁</Link></header>
+    <header className="standalone-page-head"><a href="/" aria-label="回到司律備考首頁">← 回首頁</a></header>
     <section className="account-card">
       <div className="account-title"><span>{member.displayName.slice(0, 1)}</span><div><p>我的會員帳號</p><h1>{member.displayName}</h1><small>{member.email}</small></div></div>
       <div className="account-section"><h2>帳號資料</h2><dl className="account-details"><div><dt>登入帳號</dt><dd>{member.email}</dd></div><div><dt>學習身分</dt><dd>{roleLabel(member.role)}</dd></div><div><dt>班級</dt><dd>{member.className || "未分班"}</dd></div><div><dt>管理權限</dt><dd>{member.canAdmin ? "已啟用" : "一般會員"}</dd></div></dl></div>

@@ -2199,7 +2199,8 @@ a {
 .member-menu > .member-menu-signout { color: #9a4d4d; }
 .account-page { min-height: 100vh; padding: 0 20px 56px; background: #f3f7f8; }
 .standalone-page-head { display: flex; justify-content: flex-start; max-width: 780px; margin: 0 auto; padding: 22px 0; }
-.standalone-page-head a { color: #315f73; font-size: 13px; font-weight: 850; text-decoration: none; }
+.standalone-page-head a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; margin-left: -10px; border-radius: 10px; color: #315f73; font-size: 13px; font-weight: 850; text-decoration: none; touch-action: manipulation; }
+.standalone-page-head a:active { background: #e4eef0; }
 .account-card { max-width: 780px; margin: 0 auto; padding: 30px; border: 1px solid #d4e0e4; border-radius: 22px; background: #fff; box-shadow: 0 12px 36px rgba(38, 67, 78, .08); }
 .account-title { display: flex; align-items: center; gap: 16px; padding-bottom: 25px; border-bottom: 1px solid #e3ecef; }
 .account-title > span { display: grid; flex: 0 0 54px; height: 54px; place-items: center; border-radius: 50%; background: #315f73; color: #fff; font-size: 22px; font-weight: 900; }
