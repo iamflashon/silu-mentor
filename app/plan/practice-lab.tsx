@@ -1051,6 +1051,22 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     }
   }
 
+  function startVariation(action: "variation_basic" | "variation_advanced") {
+    // A variation is a fresh attempt. Keep the original selected answer only as
+    // request context, but remove its revealed answer and coaching analysis from
+    // the screen before the new question is generated.
+    setFeedback("");
+    setCoachMessages([]);
+    setCoachGap("");
+    setCoachIssue("");
+    setCoachRecommendations([]);
+    setCoachComparisons([]);
+    setCoachInput("");
+    setVariationQuestion(null);
+    setVariationAnswer(null);
+    void askCoach(action);
+  }
+
   async function generateScholarFollowUp() {
     // This is an administrator-only model-evaluation helper. It must never
     // impersonate a real student or enter generated text into student history.
@@ -1892,13 +1908,13 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                     <div>
                       <button
                         disabled={coaching}
-                        onClick={() => void askCoach("variation_basic")}
+                        onClick={() => startVariation("variation_basic")}
                       >
                         基礎變化題
                       </button>
                       <button
                         disabled={coaching}
-                        onClick={() => void askCoach("variation_advanced")}
+                        onClick={() => startVariation("variation_advanced")}
                       >
                         進階變化題
                       </button>
