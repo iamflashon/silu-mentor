@@ -100,6 +100,16 @@ type PracticeFacets = {
   frequentLaws: Array<{ title: string; count: number }>;
 };
 type EssayMode = "guided" | "exam";
+type PracticeRecord = {
+  id: number;
+  recordDate: string;
+  subject: string;
+  title: string;
+  activityType: string;
+  correct: boolean | null;
+  weakness: string;
+  nextStep: string;
+};
 
 const SECOND_STAGE_SUBJECT_ALIASES = [
   "公法",
@@ -406,6 +416,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const [guidedStateReady, setGuidedStateReady] = useState(false);
   const [guidedSaveStatus, setGuidedSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [essaySubPage, setEssaySubPage] = useState<"question" | "history">("question");
+  const [recordPanel, setRecordPanel] = useState<"records" | "weakness" | null>(null);
+  const [practiceRecords, setPracticeRecords] = useState<PracticeRecord[]>([]);
+  const [recordLoading, setRecordLoading] = useState(false);
+  const [recordError, setRecordError] = useState("");
   const essayRef = useRef<HTMLTextAreaElement | null>(null);
   const clockText = `${String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const essayPages = Math.max(1, Math.ceil(essay.length / 650));
@@ -414,6 +428,37 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const essayPickerSubjects = [...new Set(secondStageEssayCatalog.filter((item) => !essayPickerYear || item.year === essayPickerYear).map((item) => item.subject).filter(Boolean))];
   const essayPickerQuestions = secondStageEssayCatalog.filter((item) => (!essayPickerYear || item.year === essayPickerYear) && (!essayPickerSubject || item.subject === essayPickerSubject));
   const selectedEssayOption = essayQuestionCatalog.find((item) => String(item.id) === essayPickerId) ?? null;
+
+  async function openRecordPanel(panel: "records" | "weakness") {
+    setRecordPanel(panel);
+    setRecordLoading(true);
+    setRecordError("");
+    try {
+      const response = await fetch("/api/learning-records");
+      if (!response.ok) throw new Error("load failed");
+      const result = (await response.json()) as { records?: PracticeRecord[] };
+      setPracticeRecords((result.records ?? []).filter((record) => record.activityType === "一試練題"));
+    } catch {
+      setRecordError("作答紀錄暫時無法讀取，請稍後再試。");
+    } finally {
+      setRecordLoading(false);
+    }
+  }
+
+  const answeredPracticeRecords = practiceRecords.filter((record) => record.correct !== null);
+  const correctPracticeCount = answeredPracticeRecords.filter((record) => record.correct).length;
+  const practiceAccuracy = answeredPracticeRecords.length
+    ? Math.round((correctPracticeCount / answeredPracticeRecords.length) * 100)
+    : null;
+  const weaknessBySubject = [...answeredPracticeRecords.reduce((map, record) => {
+    const current = map.get(record.subject) ?? { total: 0, wrong: 0 };
+    current.total += 1;
+    if (!record.correct) current.wrong += 1;
+    map.set(record.subject, current);
+    return map;
+  }, new Map<string, { total: number; wrong: number }>()).entries()]
+    .map(([subject, values]) => ({ subject, ...values, wrongRate: Math.round((values.wrong / values.total) * 100) }))
+    .sort((a, b) => b.wrongRate - a.wrongRate || b.wrong - a.wrong);
 
   useEffect(() => {
     try {
@@ -1338,7 +1383,14 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
           <h2>{initialType === "essay" ? "寫申論" : "練真題"}</h2>
           <span>{initialType === "essay" ? "先學會拆題與涵攝，再由你決定何時開始模考擬答。" : "練真題只保留一試選擇題；完成後會留下作答與弱點紀錄。"}</span>
         </div>
-        <div className="practice-switch">
+        <div className="practice-head-actions">
+          {examType === "mcq" && (
+            <div className="practice-record-actions" aria-label="作答紀錄與弱點分析">
+              <button type="button" onClick={() => void openRecordPanel("records")}>作答紀錄</button>
+              <button type="button" onClick={() => void openRecordPanel("weakness")}>弱點分析</button>
+            </div>
+          )}
+          <div className="practice-switch">
           {!standalone && <button
             className={examType === "mcq" ? "active" : ""}
             onClick={() => {
@@ -1369,8 +1421,51 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
               {essaySubPage === "history" ? "← 返回寫申論" : "我的歷次批改"}
             </button>
           )}
+          </div>
         </div>
       </div>
+      {recordPanel && (
+        <div className="practice-record-overlay" role="dialog" aria-modal="true" aria-label={recordPanel === "records" ? "作答紀錄" : "弱點分析"} onMouseDown={(event) => { if (event.currentTarget === event.target) setRecordPanel(null); }}>
+          <section className="practice-record-panel">
+            <header>
+              <div>
+                <span>MY PRACTICE</span>
+                <h3>{recordPanel === "records" ? "作答紀錄" : "弱點分析"}</h3>
+              </div>
+              <button type="button" aria-label="關閉" onClick={() => setRecordPanel(null)}>×</button>
+            </header>
+            <nav>
+              <button type="button" className={recordPanel === "records" ? "active" : ""} onClick={() => setRecordPanel("records")}>作答紀錄</button>
+              <button type="button" className={recordPanel === "weakness" ? "active" : ""} onClick={() => setRecordPanel("weakness")}>弱點分析</button>
+            </nav>
+            {recordLoading ? <p className="practice-record-empty">正在整理你的作答資料…</p> : recordError ? <p className="practice-record-empty is-error">{recordError}</p> : recordPanel === "records" ? (
+              practiceRecords.length ? <div className="practice-record-list">
+                {practiceRecords.map((record) => <article key={record.id}>
+                  <span className={record.correct ? "is-correct" : "is-wrong"}>{record.correct ? "答對" : "答錯"}</span>
+                  <div><b>{record.title}</b><small>{record.recordDate} · {record.subject}</small>{record.nextStep && <p>{record.nextStep}</p>}</div>
+                </article>)}
+              </div> : <p className="practice-record-empty">還沒有一試作答紀錄。完成第一題後，系統會自動保存在這裡。</p>
+            ) : (
+              <div className="practice-weakness-view">
+                <div className="practice-weakness-summary">
+                  <article><strong>{answeredPracticeRecords.length}</strong><span>累積作答</span></article>
+                  <article><strong>{practiceAccuracy === null ? "—" : `${practiceAccuracy}%`}</strong><span>目前正確率</span></article>
+                  <article><strong>{answeredPracticeRecords.length - correctPracticeCount}</strong><span>需要回顧</span></article>
+                </div>
+                {weaknessBySubject.length ? <div className="practice-weakness-list">
+                  <header><b>各科錯題狀況</b><span>依錯題率排序</span></header>
+                  {weaknessBySubject.map((item) => <article key={item.subject}>
+                    <div><b>{item.subject}</b><span>{item.wrong}／{item.total} 題答錯</span></div>
+                    <div className="practice-weakness-track"><i style={{ width: `${item.wrongRate}%` }} /></div>
+                    <strong>{item.wrongRate}%</strong>
+                  </article>)}
+                  <p>優先重做錯題率較高的科目；每次作答後，分析會自動更新。</p>
+                </div> : <p className="practice-record-empty">作答樣本還不足。先完成幾題，系統才會開始辨認穩定弱點。</p>}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
       {examType === "essay" && essaySubPage === "history" && <EssayHistory onBack={() => setEssaySubPage("question")} />}
       {examType === "mcq" ? (
         <section className="practice-feature-guide" aria-label="一試功能解說">
