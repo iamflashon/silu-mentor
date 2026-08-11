@@ -45,7 +45,7 @@ export default function GlobalSelectionTools() {
     const rect = range.getBoundingClientRect();
     if (!rect.width && !rect.height) return;
     const compact = window.innerWidth < 760;
-    const halfWidth = compact ? Math.min(170, Math.max(120, window.innerWidth / 2 - 12)) : 205;
+    const halfWidth = compact ? Math.min(170, Math.max(120, window.innerWidth / 2 - 12)) : Math.min(300, window.innerWidth / 2 - 12);
     const left = Math.min(window.innerWidth - halfWidth, Math.max(halfWidth, rect.left + rect.width / 2));
     const above = rect.bottom + (compact ? 112 : 68) > window.innerHeight;
     setPosition({ left, top: above ? Math.max(8, rect.top - 10) : rect.bottom + 10, placement: above ? "above" : "below" });

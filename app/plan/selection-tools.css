@@ -10,6 +10,9 @@
 .smart-selection-bar button:nth-last-of-type(2) { background: #496d86; }
 .smart-selection-bar button:last-child { background: transparent; padding: 3px 7px; font-size: 19px; }
 .smart-selection-bar button:disabled { opacity: .42; cursor: not-allowed; }
+.global-selection-bar { width: max-content; max-width: min(600px, calc(100vw - 24px)); }
+.global-selection-bar span { flex: 0 1 200px; max-width: 200px; }
+.global-selection-bar.editing { width: min(600px, calc(100vw - 24px)); }
 @media (max-width: 760px) {
   .smart-selection-bar {
     width: min(360px, calc(100vw - 24px));
@@ -38,5 +41,19 @@
 
   .smart-selection-bar button:last-child {
     margin-left: auto;
+  }
+
+  .global-selection-bar {
+    width: max-content;
+    max-width: calc(100vw - 24px);
+  }
+
+  .global-selection-bar span {
+    flex: 1 0 100%;
+    max-width: min(320px, calc(100vw - 48px));
+  }
+
+  .global-selection-bar.editing {
+    width: min(360px, calc(100vw - 24px));
   }
 }
