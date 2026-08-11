@@ -15137,13 +15137,14 @@ a {
 .essay-chat-composer-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
   margin-bottom: 6px;
   color: #78939d;
   font-size: 11px;
   line-height: 1.45;
 }
+.essay-chat-composer-actions > span { margin-right: auto; }
 
 .essay-summary-button {
   border: 1px solid #9a7a3d;
@@ -15349,7 +15350,7 @@ a {
   }
   .essay-chat-composer-actions {
     align-items: center;
-    justify-content: flex-start;
+    justify-content: flex-end;
     flex-direction: row;
     flex-wrap: wrap;
     gap: 6px;
@@ -15357,6 +15358,7 @@ a {
   }
   .essay-chat-composer-actions > span {
     flex: 1 0 100%;
+    margin-right: 0;
     margin-bottom: 1px;
     white-space: nowrap;
     overflow: hidden;

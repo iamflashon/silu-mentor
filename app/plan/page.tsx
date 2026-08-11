@@ -585,9 +585,19 @@ type StudyPlanPageProps = {
   standalone?: boolean;
 };
 
+type CurrentMember = { canAdmin: boolean };
+
 export default function StudyPlanPage({ initialTab = "calendar", standalone = false }: StudyPlanPageProps = {}) {
+  const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const [month, setMonth] = useState(monthValue());
   const [plans, setPlans] = useState<Plan[]>([]);
+
+  useEffect(() => {
+    fetch("/api/account")
+      .then(async (response) => response.ok ? (await response.json()).member as CurrentMember : null)
+      .then(setCurrentMember)
+      .catch(() => setCurrentMember(null));
+  }, []);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [message, setMessage] = useState("");
@@ -4373,7 +4383,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                               )}
                             </div>
                             <div className="book-dialogue-composer-wrap">
-                              <section className={`book-ai-controls model-mode-switch ${bookSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
+                              {currentMember?.canAdmin && <section className={`book-ai-controls model-mode-switch ${bookSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
                                 <div className="model-mode-heading">
                                   <strong>AI 學習設定</strong>
                                   <span className="model-mode-summary">{bookTeachingLevelLabels[bookTeachingLevel ?? "general"]} · {bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : bookModelMode === "luna" ? "Luna" : bookModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}</span>
@@ -4397,7 +4407,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                                   </div>
                                   <small>{bookTestNotice || "下方留白按「送出訊息」，AI 學霸會直接回答 AI 導師的問題。"}</small>
                                 </>}
-                              </section>
+                              </section>}
                               <div className="book-dialogue-composer-actions">
                                 <span>{bookSelectedMessageIndex === null ? "留白送出：回答 AI 導師最新問題" : "已指定一則 AI 導師訊息；留白送出即可回答"}</span>
                                 {selectedBookIsProblemSolving && bookMessages.some((message) => message.role === "mentor") && (
@@ -5055,7 +5065,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
             </div>
           </>
         )}
-        {activeTab === "practice" && <PracticeLab initialType="mcq" standalone />}
+        {activeTab === "practice" && <PracticeLab initialType="mcq" standalone canAdmin={currentMember?.canAdmin === true} />}
         {activeTab === "laws" && <LegalResearchTabs />}
         {activeTab === "records" && (
           <section className="learning-hub tab-hub" id="records">

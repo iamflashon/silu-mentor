@@ -969,7 +969,7 @@ export default function Home() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-        <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
+        {currentMember?.canAdmin && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode === "compare-luna-glm52" ? "Luna＋GLM-5.2" : modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "auto" || modelMode === "luna" ? "Luna" : modelMode === "sol" ? "Sol" : modelMode === "sonnet" ? "Claude Sonnet" : modelMode === "glm" ? "GLM-4.7-Flash（免費測試）" : modelMode === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro"}{settingsPinned ? " · 已固定" : ""}</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="terra-challenge-button" onClick={() => void challengeSelectedMessageWithTerra()} disabled={terraChallenging || thinking || selectedFollowUps.length !== 1 || !/(?:luna|sol)/i.test(selectedFollowUps[0]?.model ?? "")} title="先在 Luna 或 Sol 訊息下方勾選「回覆此訊息」">{terraChallenging ? "Terra 質疑中…" : "Terra 質疑／吐槽"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
@@ -988,7 +988,7 @@ export default function Home() {
             <small>{settingsPinned ? "已固定；取消勾選後即可重新選擇。" : "勾選後會記住目前學生角色、回答模型與比較方式。"}</small>
           </div>
           </>}
-        </section>
+        </section>}
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />

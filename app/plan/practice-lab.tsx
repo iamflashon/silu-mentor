@@ -92,7 +92,7 @@ type CoachRecommendation = {
   startSeconds: number | null;
 };
 
-type Props = { initialType: "mcq" | "essay"; standalone?: boolean };
+type Props = { initialType: "mcq" | "essay"; standalone?: boolean; canAdmin?: boolean };
 type PracticeMode = "today" | "custom" | "laws";
 type PracticeFacets = {
   years: string[];
@@ -276,9 +276,21 @@ function EssayBatchGrading() {
   );
 }
 
-export function PracticeLab({ initialType, standalone = false }: Props) {
+export function PracticeLab({ initialType, standalone = false, canAdmin = false }: Props) {
+  const [accountCanAdmin, setAccountCanAdmin] = useState(canAdmin);
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
   const [question, setQuestion] = useState<PracticeQuestion | null>(null);
+
+  useEffect(() => {
+    if (canAdmin) {
+      setAccountCanAdmin(true);
+      return;
+    }
+    fetch("/api/account")
+      .then(async (response) => response.ok ? Boolean((await response.json()).member?.canAdmin) : false)
+      .then(setAccountCanAdmin)
+      .catch(() => setAccountCanAdmin(false));
+  }, [canAdmin]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -1701,7 +1713,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                 <header className="essay-chat-heading">
                   <div>
                     <span>AI 申論導師｜{coachProgress.current}</span>
-                    <h3>{coachStarted ? "AI 導師陪你把這題拆解出來" : "先選好 AI 角色，再開始這題的自然對話"}</h3>
+                    <h3>{coachStarted ? "AI 導師陪你把這題拆解出來" : accountCanAdmin ? "先選好 AI 角色，再開始這題的自然對話" : "開始這題的自然對話"}</h3>
                     <p>你先回答，AI 再依你的程度追問、提示與修正；每完成一段會自動接續下一段，不會只停在列出爭點。</p>
                     <small className={`guided-save-status is-${guidedSaveStatus}`} aria-live="polite">
                       {guidedSaveStatus === "saving" ? "正在保存引導進度…" : guidedSaveStatus === "error" ? "進度保存連線中斷，稍後會再嘗試" : draftSavedAt ? `已保存｜${draftSavedAt}` : "引導進度會自動保存"}
@@ -1711,7 +1723,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
 
                 <div className="essay-chat-column">
                     <div ref={coachMessagesRef} className="essay-chat-messages" aria-live="polite">
-                      {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。</p></div></div>}
+                      {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>{accountCanAdmin ? "請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。" : "按「開始對話」後，AI 導師會依這一題的科目自然追問，不會套用其他法科的流程。"}</p></div></div>}
                       {coachMessages.map((message, index) => <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
                         {message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span>}
                         <div className="essay-chat-message-content">
@@ -1734,7 +1746,7 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                       {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
                     </div>
                     <div className="essay-chat-composer-wrap">
-                      <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
+                      {accountCanAdmin && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
                         <div className="model-mode-heading">
                           <strong>AI 學習設定</strong>
                           <span className="model-mode-summary">{coachTeachingLevel === "general" ? "自由提問" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · {coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : coachModelMode === "luna" ? "Luna" : coachModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}{coachSettingsPinned ? " · 已固定" : ""}</span>
@@ -1748,9 +1760,9 @@ export function PracticeLab({ initialType, standalone = false }: Props) {
                         </div>
                         <div className={`model-settings-pin-row ${coachSettingsPinned ? "is-pinned" : ""}`}><label className="model-settings-pin"><input type="checkbox" checked={coachSettingsPinned} onChange={(event) => toggleCoachSettingsPinned(event.target.checked)} disabled={coaching} /><span>固定此角色與模型</span></label><small>{coachSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "勾選後會記住目前學生角色、回答模型與比較方式。"}</small></div>
                         </>}
-                      </div>
+                      </div>}
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>設定完成後，開始這一題的自然對話</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>你可以繼續回答，也可以請導師總結本題</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button><button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>總結並結束</button></>}
+                        {!coachStarted ? <><span>{accountCanAdmin ? "設定完成後，開始這一題的自然對話" : "準備好後，開始這一題的自然對話"}</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : <><span>你可以繼續回答，也可以請導師總結本題</span><button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "送出訊息" : "回覆此訊息"}</button><button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>總結並結束</button></>}
                       </div>
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || !coachInput.trim()}>↑</button></form>
                     </div>
