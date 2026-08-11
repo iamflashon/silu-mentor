@@ -20,6 +20,7 @@ function isEditable(node: Node | null) {
 
 export default function GlobalSelectionTools() {
   const [selectedText, setSelectedText] = useState("");
+  const [editingSelection, setEditingSelection] = useState(false);
   const [lawQuery, setLawQuery] = useState("");
   const [judicialQuery, setJudicialQuery] = useState<{ court: string; year: string; caseType: string; caseNo: string } | null>(null);
   const [position, setPosition] = useState<ToolPosition | null>(null);
@@ -27,6 +28,18 @@ export default function GlobalSelectionTools() {
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">("");
   const rangeRef = useRef<Range | null>(null);
+
+  function applySelectedText(value: string) {
+    const text = value.replace(/\s+/g, " ").trim().slice(0, 1200);
+    const compactText = text.replace(/\s+/g, "");
+    const match = compactText.match(LAW_REFERENCE);
+    const judicial = compactText.match(JUDICIAL_REFERENCE);
+    const rawLawQuery = match?.[0] ?? "";
+    const normalizedLawQuery = Object.entries(LAW_ALIASES).reduce((current, [alias, full]) => current.replace(alias, full), rawLawQuery);
+    setSelectedText(text);
+    setLawQuery(normalizedLawQuery);
+    setJudicialQuery(judicial?.groups ? { court: judicial.groups.court, year: judicial.groups.year, caseType: judicial.groups.caseType, caseNo: judicial.groups.caseNo } : null);
+  }
 
   function place(range: Range) {
     const rect = range.getBoundingClientRect();
@@ -39,7 +52,7 @@ export default function GlobalSelectionTools() {
   }
 
   function dismiss(clearText = false) {
-    setPosition(null); rangeRef.current = null; window.getSelection()?.removeAllRanges();
+    setPosition(null); setEditingSelection(false); rangeRef.current = null; window.getSelection()?.removeAllRanges();
     if (clearText) { setSelectedText(""); setLawQuery(""); }
   }
 
@@ -50,12 +63,7 @@ export default function GlobalSelectionTools() {
       const text = selection.toString().replace(/\s+/g, " ").trim().slice(0, 1200);
       if (text.length < 2) { setPosition(null); return; }
       const range = selection.getRangeAt(0).cloneRange();
-      const match = text.replace(/\s+/g, "").match(LAW_REFERENCE);
-      const judicial = text.replace(/\s+/g, "").match(JUDICIAL_REFERENCE);
-      const rawLawQuery = match?.[0] ?? "";
-      const normalizedLawQuery = Object.entries(LAW_ALIASES).reduce((value, [alias, full]) => value.replace(alias, full), rawLawQuery);
-      rangeRef.current = range; setSelectedText(text); setLawQuery(normalizedLawQuery);
-      setJudicialQuery(judicial?.groups ? { court: judicial.groups.court, year: judicial.groups.year, caseType: judicial.groups.caseType, caseNo: judicial.groups.caseNo } : null); place(range);
+      rangeRef.current = range; applySelectedText(text); setEditingSelection(false); place(range);
     };
     document.addEventListener("mouseup", capture);
     document.addEventListener("touchend", capture);
@@ -127,7 +135,12 @@ export default function GlobalSelectionTools() {
 
   const close = () => { setLookup(null); setSelectedText(""); setLawQuery(""); setJudicialQuery(null); };
   return <>
-    {selectedText && position && <div className={`smart-selection-bar global-selection-bar ${position.placement}`} style={{ left: position.left, top: position.top }}><span>已框選：{selectedText}</span>{judicialQuery ? <button type="button" onClick={() => void searchJudicial()}>裁判搜尋</button> : <button type="button" onClick={() => void searchLaw()} disabled={!lawQuery} title={lawQuery ? `搜尋 ${lawQuery}` : "框選內容未辨識出法規名稱與條號"}>法條搜尋</button>}<button type="button" onClick={() => void explain()}>白話解釋</button><button type="button" aria-label="關閉框選工具" onClick={() => dismiss(true)}>×</button></div>}
+    {selectedText && position && <div className={`smart-selection-bar global-selection-bar ${position.placement} ${editingSelection ? "editing" : ""}`} style={{ left: position.left, top: position.top }}>
+      {editingSelection ? <input autoFocus aria-label="編輯框選文字" value={selectedText} onChange={(event) => applySelectedText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setEditingSelection(false); if (event.key === "Escape") dismiss(true); }} /> : <span>已框選：{selectedText}</span>}
+      <button type="button" className="selection-edit-button" onClick={() => setEditingSelection((current) => !current)}>{editingSelection ? "完成" : "編輯"}</button>
+      {judicialQuery ? <button type="button" onClick={() => void searchJudicial()}>裁判搜尋</button> : <button type="button" onClick={() => void searchLaw()} disabled={!lawQuery} title={lawQuery ? `搜尋 ${lawQuery}` : "請先編輯為單一、完整的法規名稱與條號"}>法條搜尋</button>}
+      <button type="button" onClick={() => void explain()}>白話解釋</button><button type="button" aria-label="關閉框選工具" onClick={() => dismiss(true)}>×</button>
+    </div>}
     {lookup && <div className="law-lookup-backdrop" role="presentation" onMouseDown={close}>
       <aside className="law-lookup-panel" role="dialog" aria-modal="true" aria-label="智能框選結果" onMouseDown={(event) => event.stopPropagation()}>
         <header><div><span>{lookup.mode === "explain" ? "AI 法律助教｜辨識與拆解" : lookup.decision ? "司法院裁判資料庫｜已下載資料" : "全國法規資料庫｜已下載資料"}</span><h3>{selectedText || "框選內容"}</h3></div><button type="button" onClick={close} aria-label="關閉">×</button></header>
