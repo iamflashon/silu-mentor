@@ -11,6 +11,7 @@ import { storedDocumentAnalysis } from "../../../lib/document-analysis";
 import { syncBookLearningRecord } from "../../../lib/book-learning-record";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel, getZaiKey, getZaiModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
+import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
@@ -530,8 +531,10 @@ function inferSubject(text: string) {
 
 function requestedMcqSubject(text: string) {
   const compact = text.replace(/\s+/g, "");
-  if (!/(?:一試|選擇題|單選題|真題|考古題)/.test(compact)) return null;
-  if (!/(?:找|給|出|練|做|來|抽|隨機|題庫|有沒有|是否有)/.test(compact)) return null;
+  const asksForQuestion = /(?:一試|選擇題|單選題|真題|考古題|題庫)/.test(compact)
+    || /(?:考我|測我|出題|來一題|練一題|做一題)/.test(compact);
+  if (!asksForQuestion) return null;
+  if (!/(?:找|給|出|練|做|來|抽|考|測|隨機|題庫|有沒有|是否有|開始)/.test(compact)) return null;
   if (/刑事訴訟法|刑訴/.test(compact)) return "刑事訴訟法";
   if (/民事訴訟法|民訴/.test(compact)) return "民事訴訟法";
   if (/刑法/.test(compact)) return "刑法";
@@ -548,12 +551,13 @@ async function findPublishedMcq(subject: string) {
     const subjectNeedle = subject === "商事法" ? "商" : subject === "公法" ? "公法" : subject;
     filters.push(sql`${examQuestions.subject} like ${`%${subjectNeedle}%`}`);
   }
-  const [question] = await db.select().from(examQuestions).where(and(...filters)).orderBy(sql`random()`).limit(1);
-  if (!question) return null;
-  let options: Record<string, string> | null = null;
-  try { options = question.optionsJson ? JSON.parse(question.optionsJson) as Record<string, string> : null; } catch { options = null; }
-  if (!options || !Object.keys(options).some((key) => /^[ABCD]$/.test(key))) return null;
-  return { id: question.id, examType: "mcq" as const, year: question.year, examName: question.examName, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options };
+  const candidates = await db.select().from(examQuestions).where(and(...filters)).orderBy(sql`random()`).limit(80);
+  for (const question of candidates) {
+    const options = normalizeMcqOptions(question.optionsJson);
+    if (!options) continue;
+    return { id: question.id, examType: "mcq" as const, year: question.year, examName: question.examName, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options };
+  }
+  return null;
 }
 
 const modelRates: Record<string, { input: number; cached: number; output: number }> = {

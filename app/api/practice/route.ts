@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examAttempts, examQuestions, studyRecords } from "../../../db/schema";
 import { taipeiDate } from "../../../lib/taipei-time";
+import { normalizeMcqOptions } from "../../../lib/exam-options";
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
@@ -64,7 +65,10 @@ export async function GET(request: Request) {
       }).from(examQuestions).where(where).orderBy(sql`${examQuestions.year} desc`, examQuestions.subject, examQuestions.questionNumber).limit(500);
       return Response.json({ questions: rows.map((row) => ({ ...row, hasTeacherAnswer: Boolean(row.hasTeacherAnswer?.trim()) })) });
     }
-    const [question] = await db.select().from(examQuestions).where(where).orderBy(sql`random()`).limit(1);
+    const candidates = await db.select().from(examQuestions).where(where).orderBy(sql`random()`).limit(examType === "mcq" ? 80 : 1);
+    const question = examType === "mcq"
+      ? candidates.find((candidate) => Boolean(normalizeMcqOptions(candidate.optionsJson)))
+      : candidates[0];
     if (!question) {
       const [published] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(eq(examQuestions.examType, examType), eq(examQuestions.status, "published")));
       const [drafts] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(eq(examQuestions.examType, examType), eq(examQuestions.status, "draft")));
@@ -75,8 +79,7 @@ export async function GET(request: Request) {
         : (draftCount ? `後台已有 ${draftCount} 題二試申論草稿，但尚未發布到前台；請先完成老師擬答核對，再按「發布前台」。` : "二試申論真題庫尚未匯入可用題目");
       return Response.json({ question: null, publishedCount, draftCount, message });
     }
-    let options: Record<string, string> | null = null;
-    try { options = question.optionsJson ? JSON.parse(question.optionsJson) as Record<string, string> : null; } catch { options = null; }
+    const options = question.examType === "mcq" ? normalizeMcqOptions(question.optionsJson) : null;
     return Response.json({ question: { id: question.id, examType: question.examType, year: question.year, examName: question.examName, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options, hasTeacherAnswer: Boolean(question.teacherAnswer?.trim()), teacherAnswer: question.examType === "essay" ? question.teacherAnswer : undefined, answerSource: question.answerSource, answerStatus: question.answerStatus } });
   } catch { return Response.json({ error: "真題庫暫時無法讀取" }, { status: 503 }); }
 }
