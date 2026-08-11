@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import GlobalSelectionTools from "./global-selection-tools";
+import StudyBreakReminder from "./study-break-reminder";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,6 +43,7 @@ export default function RootLayout({
       >
         {children}
         <GlobalSelectionTools />
+        <StudyBreakReminder />
       </body>
     </html>
   );

@@ -1,4 +1,4 @@
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { examAttempts, examQuestions, studyRecords } from "../../../db/schema";
 import { taipeiDate } from "../../../lib/taipei-time";
@@ -14,12 +14,24 @@ export async function GET(request: Request) {
     const law = (url.searchParams.get("law") ?? "").trim();
     const questionId = Number(url.searchParams.get("questionId") ?? "");
     const excludeAnswered = url.searchParams.get("excludeAnswered") === "1";
+    const wrongOnly = url.searchParams.get("wrongOnly") === "1";
     const db = await getDb();
     const baseFilters = [eq(examQuestions.status, "published"), eq(examQuestions.examType, examType)];
     if (subject) baseFilters.push(eq(examQuestions.subject, subject));
     if (year) baseFilters.push(eq(examQuestions.year, year));
     if (law) baseFilters.push(sql`${examQuestions.stem} like ${`%${law}%`}`);
     if (Number.isInteger(questionId) && questionId > 0) baseFilters.push(eq(examQuestions.id, questionId));
+    if (wrongOnly) {
+      const attempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct })
+        .from(examAttempts)
+        .where(eq(examAttempts.userKey, userKey(request)))
+        .orderBy(desc(examAttempts.id));
+      const latest = new Map<number, boolean | null>();
+      for (const attempt of attempts) if (!latest.has(attempt.questionId)) latest.set(attempt.questionId, attempt.correct);
+      const unresolvedWrongIds = [...latest.entries()].filter(([, correct]) => correct === false).map(([id]) => id);
+      if (!unresolvedWrongIds.length) return Response.json({ question: null, message: "目前沒有待訂正錯題。之後答錯的題目會自動收進這裡。" });
+      baseFilters.push(inArray(examQuestions.id, unresolvedWrongIds));
+    }
     if (excludeAnswered) {
       const attempted = await db.selectDistinct({ questionId: examAttempts.questionId }).from(examAttempts).where(eq(examAttempts.userKey, userKey(request)));
       if (attempted.length) baseFilters.push(notInArray(examQuestions.id, attempted.map((row) => row.questionId)));

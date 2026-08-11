@@ -32,6 +32,18 @@ a {
   text-decoration: none;
 }
 
+.study-break-overlay { position: fixed; inset: 0; z-index: 14000; display: grid; place-items: center; padding: 20px; background: rgba(17, 39, 55, .48); backdrop-filter: blur(5px); }
+.study-break-card { width: min(460px, 100%); padding: 30px; border: 1px solid #d7e5eb; border-radius: 22px; background: #fff; box-shadow: 0 24px 70px rgba(21, 53, 72, .24); color: #294e65; text-align: center; }
+.study-break-card > span { color: #7091a3; font-size: 11px; font-weight: 850; letter-spacing: .13em; }
+.study-break-icon { margin: 14px auto 10px; font-size: 40px; }
+.study-break-card h2 { margin: 8px 0 10px; font-size: 24px; color: #214b63; }
+.study-break-card p { margin: 0 auto 22px; max-width: 370px; color: #637d8b; line-height: 1.75; }
+.study-break-actions { display: grid; gap: 9px; }
+.study-break-card button { min-height: 44px; border: 1px solid #aec6d2; border-radius: 11px; background: #fff; color: #2b607c; padding: 10px 16px; font-weight: 800; cursor: pointer; }
+.study-break-card button.primary { border-color: #2d6a87; background: #2d6a87; color: #fff; }
+.study-break-clock { display: block; margin: 10px 0 13px; color: #2d6a87; font-size: 42px; letter-spacing: .06em; }
+@media (max-width: 620px) { .study-break-card { padding: 25px 20px; } .study-break-card h2 { font-size: 21px; } }
+
 /* 暫時收斂前台流程：功能與既有資料保留，只隱藏入口及進階區塊。 */
 .issue-challenge-flow,
 .practice-inline-launch,
@@ -13945,6 +13957,8 @@ a {
 .practice-record-list b { display: block; color: #294f67; }
 .practice-record-list small { display: block; margin-top: 4px; color: #78909d; }
 .practice-record-list p { margin: 7px 0 0; color: #5f7481; font-size: 13px; }
+.practice-record-list .practice-retry-button { margin-left: auto; align-self: center; flex: 0 0 auto; border: 1px solid #aac5d4; border-radius: 9px; background: #fff; color: #285f7c; padding: 8px 11px; font-weight: 800; cursor: pointer; }
+.practice-record-list .practice-retry-button:hover { background: #eef7fa; }
 .practice-record-empty { padding: 36px 18px; border-radius: 12px; background: #f6fafb; color: #718895; text-align: center; }
 .practice-record-empty.is-error { color: #a94b3d; }
 .practice-weakness-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -14090,7 +14104,7 @@ a {
 }
 .practice-feature-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
   margin-top: 13px;
 }
@@ -27434,7 +27448,7 @@ a {
     grid-template-columns: 1fr;
   }
 }
-.essay-standalone-page{min-height:100vh;background:#f4f6f8;padding-bottom:64px}.essay-standalone-page>.practice-lab{max-width:1380px;margin:28px auto;padding:0 28px}.essay-standalone-header{height:72px;padding:0 34px;background:#fff;border-bottom:1px solid #dfe4e8;display:flex;align-items:center;justify-content:space-between}.essay-standalone-header .brand{display:flex;align-items:center;gap:10px;color:#17202a;text-decoration:none}.essay-standalone-header .brand span{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#173b5e;color:#fff}.essay-standalone-header nav{display:flex;gap:22px}.essay-standalone-header nav a{color:#405466;text-decoration:none;font-weight:700}.guided-answer-choice{margin-top:22px;padding:24px;border:1px solid #b8cad9;border-radius:16px;background:#f7fbff}.guided-answer-choice header{display:flex;gap:12px;align-items:center}.guided-answer-choice header span{padding:5px 9px;border-radius:999px;background:#dcecf8;color:#17466d;font-size:12px;font-weight:800}.guided-answer-choice p{color:#526575}.guided-answer-choice>div{display:flex;gap:10px;flex-wrap:wrap}.guided-answer-choice button{border:1px solid #9fb5c6;border-radius:10px;background:#fff;padding:10px 14px;font-weight:700;color:#24465f}.guided-answer-choice button.primary{background:#173b5e;color:#fff;border-color:#173b5e}@media(max-width:720px){.essay-standalone-header{padding:0 16px}.essay-standalone-header nav{gap:10px;font-size:13px}.essay-standalone-page>.practice-lab{padding:0 12px;margin-top:16px}}
+.essay-standalone-page{min-height:100vh;background:#f4f6f8;padding-bottom:64px}.essay-standalone-page>.practice-lab{max-width:1380px;margin:28px auto;padding:0 28px}.essay-standalone-header{height:72px;padding:0 max(16px,calc((100% - 1120px)/2));background:#fff;border-bottom:1px solid #dfe4e8;display:flex;align-items:center;justify-content:space-between}.essay-standalone-header .brand{display:flex;align-items:center;gap:10px;color:#17202a;text-decoration:none}.essay-standalone-header .brand span{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#173b5e;color:#fff}.essay-standalone-header nav{display:flex;gap:22px}.essay-standalone-header nav a{color:#405466;text-decoration:none;font-weight:700}.guided-answer-choice{margin-top:22px;padding:24px;border:1px solid #b8cad9;border-radius:16px;background:#f7fbff}.guided-answer-choice header{display:flex;gap:12px;align-items:center}.guided-answer-choice header span{padding:5px 9px;border-radius:999px;background:#dcecf8;color:#17466d;font-size:12px;font-weight:800}.guided-answer-choice p{color:#526575}.guided-answer-choice>div{display:flex;gap:10px;flex-wrap:wrap}.guided-answer-choice button{border:1px solid #9fb5c6;border-radius:10px;background:#fff;padding:10px 14px;font-weight:700;color:#24465f}.guided-answer-choice button.primary{background:#173b5e;color:#fff;border-color:#173b5e}@media(max-width:720px){.essay-standalone-header{padding:0 16px}.essay-standalone-header nav{gap:10px;font-size:13px}.essay-standalone-page>.practice-lab{padding:0 12px;margin-top:16px}.practice-record-list article{flex-wrap:wrap}.practice-record-list .practice-retry-button{margin-left:48px}}
 .issue-result-tabs button:nth-child(2),
 .student-issue-result > footer button:first-of-type,
 .issue-challenge-flow {

@@ -93,7 +93,7 @@ type CoachRecommendation = {
 };
 
 type Props = { initialType: "mcq" | "essay"; standalone?: boolean; canAdmin?: boolean };
-type PracticeMode = "today" | "custom" | "laws";
+type PracticeMode = "today" | "wrong" | "custom" | "laws";
 type PracticeFacets = {
   years: string[];
   subjects: string[];
@@ -102,6 +102,7 @@ type PracticeFacets = {
 type EssayMode = "guided" | "exam";
 type PracticeRecord = {
   id: number;
+  questionId: number | null;
   recordDate: string;
   subject: string;
   title: string;
@@ -684,6 +685,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
       subject?: string;
       law?: string;
       excludeAnswered?: boolean;
+      wrongOnly?: boolean;
       questionId?: number;
     },
   ) {
@@ -724,6 +726,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
       if (filters?.subject) params.set("subject", filters.subject);
       if (filters?.law) params.set("law", filters.law);
       if (filters?.excludeAnswered) params.set("excludeAnswered", "1");
+      if (filters?.wrongOnly) params.set("wrongOnly", "1");
       if (filters?.questionId) params.set("questionId", String(filters.questionId));
       const response = await fetch(`/api/practice?${params}`);
       const result = (await response.json()) as {
@@ -906,6 +909,18 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
       subject: filterSubject,
       excludeAnswered,
     });
+  }
+
+  function startWrongPractice() {
+    chooseMode("wrong");
+    void loadQuestion("mcq", { wrongOnly: true });
+  }
+
+  function retryWrongQuestion(questionId: number | null) {
+    if (!questionId) return;
+    setRecordPanel(null);
+    chooseMode("wrong");
+    void loadQuestion("mcq", { questionId });
   }
 
   function startLawPractice(law: string) {
@@ -1443,6 +1458,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                 {practiceRecords.map((record) => <article key={record.id}>
                   <span className={record.correct ? "is-correct" : "is-wrong"}>{record.correct ? "答對" : "答錯"}</span>
                   <div><b>{record.title}</b><small>{record.recordDate} · {record.subject}</small>{record.nextStep && <p>{record.nextStep}</p>}</div>
+                  {!record.correct && record.questionId && <button type="button" className="practice-retry-button" onClick={() => retryWrongQuestion(record.questionId)}>重做本題</button>}
                 </article>)}
               </div> : <p className="practice-record-empty">還沒有一試作答紀錄。完成第一題後，系統會自動保存在這裡。</p>
             ) : (
@@ -1492,10 +1508,20 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
             </button>
             <button
               type="button"
+              className={practiceMode === "wrong" ? "active" : ""}
+              onClick={startWrongPractice}
+            >
+              <span>02</span>
+              <strong>練錯題</strong>
+              <p>重做最近一次仍答錯的題目；答對後標記已訂正，歷史紀錄仍會保留。</p>
+              <em>開始訂正 →</em>
+            </button>
+            <button
+              type="button"
               className={practiceMode === "custom" ? "active" : ""}
               onClick={() => chooseMode("custom")}
             >
-              <span>02</span>
+              <span>03</span>
               <strong>自訂練習</strong>
               <p>依年份、科目與是否排除已作答題目建立練習。</p>
               <em>設定練習範圍 →</em>
@@ -1505,7 +1531,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
               className={practiceMode === "laws" ? "active" : ""}
               onClick={() => chooseMode("laws")}
             >
-              <span>03</span>
+              <span>04</span>
               <strong>高頻法條</strong>
               <p>依本站已發布真題計算法條出現次數，點法條即可練相關題目。</p>
               <em>查看高頻法條 →</em>
