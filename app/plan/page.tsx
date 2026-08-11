@@ -3387,8 +3387,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
             </form>
             {summaryNotice && <p className="student-summary-notice">{summaryNotice}</p>}
             <nav className="student-summary-pane-tabs" role="tablist" aria-label="摘要與整理資料切換">
-              <button type="button" role="tab" aria-selected={summaryPane === "summary"} className={summaryPane === "summary" ? "active" : ""} onClick={() => setSummaryPane("summary")}>摘要</button>
               <button type="button" role="tab" aria-selected={summaryPane === "files"} className={summaryPane === "files" ? "active" : ""} onClick={() => setSummaryPane("files")}>整理資料 <span>{studentSummaries.length}</span></button>
+              <button type="button" role="tab" aria-selected={summaryPane === "summary"} className={summaryPane === "summary" ? "active" : ""} onClick={() => setSummaryPane("summary")}>摘要</button>
             </nav>
             <div className="student-summary-layout">
               {summaryPane === "files" && <aside className="student-summary-list" role="tabpanel" aria-label="我的整理資料">
