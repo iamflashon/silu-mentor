@@ -4503,6 +4503,7 @@ a {
 }
 .crop-stage {
   position: relative;
+  container-type: size;
   height: min(58vh, 480px);
   overflow: hidden;
   touch-action: none;
@@ -4511,10 +4512,18 @@ a {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 .crop-stage img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transition: filter 0.2s;
+  transform: translate(-50%, -50%) rotate(var(--image-rotation, 0deg));
+  transition: filter 0.2s, transform 0.2s;
+}
+.crop-stage img.quarter-turn {
+  width: 100cqh;
+  height: 100cqw;
 }
 .crop-stage.enhanced img {
   filter: contrast(1.28) brightness(1.06) saturate(0.82);
