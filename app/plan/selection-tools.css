@@ -8,4 +8,31 @@
 .smart-selection-bar button:nth-of-type(2) { background: #496d86; }
 .smart-selection-bar button:last-child { background: transparent; padding: 3px 7px; font-size: 19px; }
 .smart-selection-bar button:disabled { opacity: .42; cursor: not-allowed; }
-@media (max-width: 760px) { .smart-selection-bar { width: min(340px, calc(100vw - 24px)); flex-wrap: wrap; } .smart-selection-bar span { width: calc(100% - 32px); } }
+@media (max-width: 760px) {
+  .smart-selection-bar {
+    width: min(360px, calc(100vw - 24px));
+    max-height: none;
+    box-sizing: border-box;
+    flex-wrap: wrap;
+    align-items: stretch;
+    row-gap: 8px;
+    padding: 10px 12px;
+    overflow: visible;
+  }
+
+  .smart-selection-bar span {
+    flex: 1 0 100%;
+    width: 100%;
+    max-width: 100%;
+    line-height: 1.45;
+  }
+
+  .smart-selection-bar button {
+    min-height: 38px;
+    white-space: nowrap;
+  }
+
+  .smart-selection-bar button:last-child {
+    margin-left: auto;
+  }
+}
