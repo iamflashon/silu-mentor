@@ -76,13 +76,7 @@ export async function POST(request: Request) {
       : body.level === "advanced" || body.level === "super"
         ? "精準回答結論、決定性要件與題目事實的涵攝；只處理導師當輪所問，不自行擴張。"
         : "像一般學生一樣先直接回答判斷，再用題目中的一項具體事實說明理由。";
-  const startedAt = Date.now();
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      model,
-      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。這題的科目是${subject}。${subjectRule}請針對指定的那一則 AI 導師訊息，寫出一則自然、短小、可以直接放進對話框的「模擬學生回答」。
+  const instructions = `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。這題的科目是${subject}。${subjectRule}請針對指定的那一則 AI 導師訊息，寫出一則自然、短小、可以直接放進對話框的「模擬學生回答」。
 
 要求：
 1. 找出 AI 導師在指定訊息中最後提出的當輪問題，第一句先直接回答「是／否、成立／不成立、同意／不同意」或相應的明確判斷，第二句再用題目事實說明理由。
@@ -91,14 +85,39 @@ export async function POST(request: Request) {
 4. 不得加入指定訊息與題目沒有出現的事實、法條、判決或新爭點，也不要重述整段訊息。
 5. 絕對不要輸出「【選取內容】」「追問給你」「處理要求」「請選邊站」或其他內部提示文字。
 6. 程度不足時可以回答不完整或答錯，讓導師後續糾正；但仍須正面回答當輪問題，不能以「我不確定」代替作答。
-7. 不要使用標題、條列、Markdown 或引號包住全文；使用繁體中文，約 40 至 120 字，直接輸出學生要說的內容。`,
-      input: `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}\n\n學生指定的訊息：\n${teacherText}`,
-      max_output_tokens: 600,
-    }),
-  });
-  const payload = await response.json() as Record<string, unknown>;
-  if (!response.ok) return Response.json({ error: "目前無法依老師回答產生接續問題" }, { status: 502 });
-  const reply = extractText(payload);
+7. 不要使用標題、條列、Markdown 或引號包住全文；使用繁體中文，約 40 至 120 字，直接輸出學生要說的內容。`;
+  const input = `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}\n\n學生指定的訊息：\n${teacherText}`;
+  const startedAt = Date.now();
+  let payload: Record<string, unknown> = {};
+  let reply = "";
+  let lastStatus = 0;
+
+  // Reasoning models can consume a small token allowance before emitting any
+  // visible text. Give the student answer enough room and retry once when the
+  // provider returns a successful response without an answer body.
+  for (const maxOutputTokens of [1600, 2400]) {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        instructions,
+        input,
+        reasoning: { effort: "low" },
+        text: { verbosity: "low" },
+        max_output_tokens: maxOutputTokens,
+      }),
+    });
+    lastStatus = response.status;
+    payload = await response.json() as Record<string, unknown>;
+    if (!response.ok) break;
+    reply = extractText(payload);
+    if (reply) break;
+  }
+
+  if (!reply && lastStatus >= 400) {
+    return Response.json({ error: "模擬學生目前無法連線，請再試一次" }, { status: 502 });
+  }
   if (!reply) return Response.json({ error: "AI 沒有產生可用的學生接續回覆" }, { status: 502 });
 
   const usage = readUsage(payload);
