@@ -32,10 +32,10 @@ function coachStageLabelsFor(subject: string) {
   return ["整理題目事實與法律關係", "形成爭點", "理解法律判準", "逐段涵攝", "確認結論與理由", "微型變化題驗收", "學生選擇下一步"];
 }
 
-function coachProgress(studentCount: number, subject: string): CoachProgress {
+function coachProgress(stageIndex: number, subject: string): CoachProgress {
   const coachStageLabels = coachStageLabelsFor(subject);
-  // 每一學習階段至少保留兩次學生實際回應，避免一、兩輪就跳進擬答。
-  const stage = Math.min(Math.floor(Math.max(studentCount, 0) / 2), coachStageLabels.length - 1);
+  // 學習階段只由「本輪是否答中關鍵判準」推進，不能用對話輪數代替理解程度。
+  const stage = Math.min(Math.max(Math.floor(stageIndex), 0), coachStageLabels.length - 1);
   return {
     stage,
     current: coachStageLabels[stage],
@@ -65,9 +65,15 @@ function providerLabel(provider: CoachProvider) { return provider === "luna" ? "
 
 function parseCoachReply(text: string) {
   const match = text.match(/^\s*【關聯判定：(related|drift|off_topic)】\s*/i);
+  const stageMatch = text.match(/【階段判定：(pass|retry|reveal)】/i);
   return {
     relevance: (match?.[1]?.toLowerCase() ?? "related") as "related" | "drift" | "off_topic",
-    text: text.replace(/^\s*【關聯判定：(related|drift|off_topic)】\s*/i, "").trim(),
+    stagePassed: stageMatch?.[1]?.toLowerCase() === "pass",
+    answerRevealed: stageMatch?.[1]?.toLowerCase() === "reveal",
+    text: text
+      .replace(/^\s*【關聯判定：(related|drift|off_topic)】\s*/i, "")
+      .replace(/【階段判定：(pass|retry|reveal)】\s*/i, "")
+      .trim(),
   };
 }
 
@@ -152,7 +158,7 @@ function canUseSimulatedStudent(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[]; modelMode?: string; teachingLevel?: string; roundLimit?: number; offTopicCount?: number };
+    const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[]; modelMode?: string; teachingLevel?: string; roundLimit?: number; offTopicCount?: number; currentStage?: number; currentStageRetryCount?: number };
     const questionId = Number(body.questionId);
     const action: CoachAction = ["start", "variation_basic", "variation_advanced", "subquestion_summary", "end_summary"].includes(String(body.action)) ? body.action as CoachAction : "coach";
     if (!Number.isInteger(questionId)) return Response.json({ error: "缺少真題資料" }, { status: 400 });
@@ -223,7 +229,12 @@ export async function POST(request: Request) {
             : action === "end_summary"
               ? "學生要求停止回答並結束本段對話。請依目前完整對話直接收束，不得再提出問題。用精簡格式整理：本段結論、已掌握重點、仍須留意一項、下一個尚未處理的行為或爭點；若本題均已處理，明示本題引導結束。"
               : "根據學生剛才的回答診斷理解缺口。若學生已答到核心、只是把同一結論換句話確認，或同一爭點已連續往返兩次，直接確認結論並標示『本段已完成』，不得再追問；接著用一句話轉入下一個尚未處理的行為或爭點。只有答案仍欠缺一個會改變結論的關鍵要件時，才補問一次短問題。";
-    const progress = coachProgress(studentCount, question.subject);
+    const currentStage = Math.min(Math.max(Math.floor(Number(body.currentStage ?? 0)), 0), coachStageLabelsFor(question.subject).length - 1);
+    const currentStageRetryCount = Math.min(Math.max(Math.floor(Number(body.currentStageRetryCount ?? 0)), 0), 3);
+    const latestLearnerText = [...acceptedMessages].reverse().find((message) => message.role === "student" || message.role === "scholar")?.text.trim() ?? "";
+    const learnerRequestsAnswer = /^(不知道|不會|沒有想法|想不到|請.{0,6}(公布|告訴我|直接講)|可以.{0,6}(公布|告訴我|直接講))/u.test(latestLearnerText);
+    const shouldRevealAnswer = action === "coach" && (currentStageRetryCount >= 2 || learnerRequestsAnswer);
+    const progress = coachProgress(currentStage, question.subject);
     const stage = progress.current;
     const teachingTone = body.teachingLevel === "beginner" ? "用法律小白聽得懂的語句，少用術語並逐步解釋。" : body.teachingLevel === "advanced" || body.teachingLevel === "super" ? "可追問學說、實務分歧與精準涵攝，但每次仍只問一個問題。" : "維持司律考生可理解的自然教練語氣。";
     const flow = criminalSubject
@@ -240,7 +251,7 @@ export async function POST(request: Request) {
       : action === "end_summary"
         ? "回覆限 100 至 180 字，直接總結並結束，不得使用問號、不得要求學生繼續回答，也不得出變化題。"
         : "一般回覆限 45 至 110 字。需要追問時只做一句具體回饋，再問一個短問題；已達標或出現重複追問時，改為一句確認、一句本段結論與下一步，不得為維持對話而硬問。不要寫成表格、講義或完整擬答。";
-    const relevanceInstruction = isVariation ? "" : `每次回覆第一行必須且只能標記【關聯判定：related】、【關聯判定：drift】或【關聯判定：off_topic】之一。related 是直接處理本題、相關法條學說、老師解析或合理延伸情境；drift 是仍屬本法科但偏離目前題目；off_topic 僅限閒聊、灌水或轉問完全不同事項，不得只靠關鍵字判斷。drift 應簡短回應後帶回本題；off_topic 不回答無關內容，只提醒回到本題。此前已明顯離題 ${priorOffTopicCount} 次；若此前是 0 次，本輪離題時溫和提醒；若此前是 1 次，本輪離題時明確警告再次離題將提前結束；若本輪判定 off_topic 且此前已達 2 次，直接整理目前成果並明示因三次離題而結束，不得再提問。標記後才輸出學生看得到的正文。`;
+    const relevanceInstruction = isVariation ? "" : `每次回覆開頭必須依序輸出兩個內部標記：【關聯判定：related／drift／off_topic】及【階段判定：pass／retry／reveal】。階段判定只能依學生最新回答是否已包含目前階段所需的關鍵法律判準、題目事實與明確結論；缺少任何會影響答案的要素、答錯、含糊或只重述老師問題，一律標 retry。只有已正面答中本輪核心才標 pass。若系統指示公布答案，必須標 reveal。這兩個標記不會顯示給學生。related 是直接處理本題、相關法條學說、老師解析或合理延伸情境；drift 是仍屬本法科但偏離目前題目；off_topic 僅限閒聊、灌水或轉問完全不同事項，不得只靠關鍵字判斷。drift 應簡短回應後帶回本題；off_topic 不回答無關內容，只提醒回到本題。此前已明顯離題 ${priorOffTopicCount} 次；若此前是 0 次，本輪離題時溫和提醒；若此前是 1 次，本輪離題時明確警告再次離題將提前結束；若本輪判定 off_topic 且此前已達 2 次，直接整理目前成果並明示因三次離題而結束，不得再提問。${shouldRevealAnswer ? "學生已連續無法作答或明確要求答案。本輪不要再追問；請直接公布正確判斷、關鍵法律判準及一項題目事實涵攝，明示『這一輪先由老師示範』，接著自然帶入下一階段，並標記【階段判定：reveal】。" : `學生在目前階段已重試 ${currentStageRetryCount} 次；未答中時換一種更小、更具體的提示繼續引導，不得提前跳到下一階段。`}`;
     const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${relevanceInstruction}\n${actionInstruction}\n${responseRule}你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。答錯時只給分級提示並留在目前階段，不得直接公布完整答案。你必須辨識三種收束訊號：學生已正確說出判準與結論、學生只是換句話重問已回答的疑問、學生表示想停止或要求總結。出現任一訊號時應主動收束，不能繼續用問題延長對話。每個決定性缺口最多補問一次；同一爭點不得連續出現兩次以上內容相同的追問。進入「微型變化題驗收」時只改變一個關鍵事實；學生已能運用判準即宣告驗收完成，不再追加第二題。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。不得使用 Markdown 星號、井號或反引號。`;
     const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
     const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
@@ -264,8 +275,12 @@ export async function POST(request: Request) {
     const recommendedResources = resources.slice(0, 4).map((item) => ({ type: item.resourceType, title: item.resourceTitle, location: item.resourceType === "course" && item.startSeconds != null ? `${item.segmentTitle} · ${Math.floor(item.startSeconds / 60)}:${String(item.startSeconds % 60).padStart(2, "0")}` : [item.lessonLabel, item.pageStart ? `第 ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `–${item.pageEnd}` : ""} 頁` : ""].filter(Boolean).join(" · "), url: item.sourceUrl, startSeconds: item.startSeconds }));
     const recommendedLaws = laws.slice(0, 4).map((item) => ({ type: "law", title: `${item.title} ${item.articleNo}`, location: item.content.slice(0, 140), url: item.sourceUrl, startSeconds: null }));
     const offTopicCount = Math.min(3, priorOffTopicCount + (primary.relevance === "off_topic" ? 1 : 0));
-    const ended = action === "end_summary" || roundReached || offTopicCount >= 3;
-    return Response.json({ reply: isVariation ? undefined : primary.text, variation, relevance: primary.relevance, offTopicCount, ended, diagnosedGap: "", keyIssue: stage, progress, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: parsedRuns.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
+    const stagePassed = action === "coach" && (primary.stagePassed || primary.answerRevealed || shouldRevealAnswer) && primary.relevance === "related";
+    const answerRevealed = action === "coach" && (primary.answerRevealed || shouldRevealAnswer) && primary.relevance === "related";
+    const nextProgress = coachProgress(stagePassed ? currentStage + 1 : currentStage, question.subject);
+    const nextStageRetryCount = stagePassed ? 0 : Math.min(currentStageRetryCount + 1, 3);
+    const ended = action === "end_summary" || offTopicCount >= 3;
+    return Response.json({ reply: isVariation ? undefined : primary.text, variation, relevance: primary.relevance, offTopicCount, ended, answerRevealed, currentStageRetryCount: nextStageRetryCount, diagnosedGap: stagePassed ? (answerRevealed ? "本階段由老師示範答案後繼續，未計為學生自行答對。" : "") : "尚未答中本階段關鍵，AI 導師會換一種方式繼續引導。", keyIssue: nextProgress.current, progress: nextProgress, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: parsedRuns.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 280) : "真題教練暫時無法回應" }, { status: 500 });
   }

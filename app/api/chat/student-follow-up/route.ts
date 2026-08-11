@@ -70,27 +70,28 @@ export async function POST(request: Request) {
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
   const levelLabel = body.level === "beginner" ? "法律小白" : body.level === "intermediate" ? "基礎考生" : body.level === "advanced" ? "進階考生" : body.level === "super" ? "頂尖學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
-    ? "用白話指出一個還不懂的地方，讓導師可以直接解釋。"
+    ? "用白話直接回答；可以只答到直覺或漏掉法律術語，甚至判斷錯誤，但仍須正面作答。"
     : body.level === "intermediate"
-      ? "鎖定一個尚未套入本題事實的要件，問它在本題中如何判斷。"
+      ? "先回答結論，再嘗試把一個法律要件套入本題事實；可以不完整，留給導師糾正。"
       : body.level === "advanced" || body.level === "super"
-        ? "鎖定原回答中的一個前提、要件或涵攝缺口，提出精準但仍可直接回答的問題，不開新爭點。"
-        : "自然指出一個尚未釐清的具體疑問，讓導師接著教。";
+        ? "精準回答結論、決定性要件與題目事實的涵攝；只處理導師當輪所問，不自行擴張。"
+        : "像一般學生一樣先直接回答判斷，再用題目中的一項具體事實說明理由。";
   const startedAt = Date.now();
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({
       model,
-      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。這題的科目是${subject}。${subjectRule}請針對學生指定的那一則訊息，寫出一則自然、短小、可以直接放進對話框的「AI 學霸回覆」。
+      instructions: `你是正在測試司律 AI 導師的${levelLabel}學生，不是老師，也不是評審。這題的科目是${subject}。${subjectRule}請針對指定的那一則 AI 導師訊息，寫出一則自然、短小、可以直接放進對話框的「模擬學生回答」。
 
 要求：
-1. 先用一至兩句話自然回應你對指定訊息的理解，再提出一個問題；這兩部分都必須像學生在和導師聊天，不是系統說明。
+1. 找出 AI 導師在指定訊息中最後提出的當輪問題，第一句先直接回答「是／否、成立／不成立、同意／不同意」或相應的明確判斷，第二句再用題目事實說明理由。
 2. ${levelRule}
-3. 只問一個問題。不要要求同時比較兩說、選邊站、說明整套理論或回答多個子問題。
-4. 不得加入指定訊息沒有出現的事實、法條、判決或新爭點，也不要重述整段訊息。
+3. 絕對不得反問 AI 導師，不得提出任何新問題，不得使用問號，也不得寫成「應如何認定」「是否可能」「我想請問」。
+4. 不得加入指定訊息與題目沒有出現的事實、法條、判決或新爭點，也不要重述整段訊息。
 5. 絕對不要輸出「【選取內容】」「追問給你」「處理要求」「請選邊站」或其他內部提示文字。
-6. 不要使用標題、條列、Markdown 或引號包住全文；使用繁體中文，約 60 至 150 字，直接輸出學霸要說的內容。`,
+6. 程度不足時可以回答不完整或答錯，讓導師後續糾正；但仍須正面回答當輪問題，不能以「我不確定」代替作答。
+7. 不要使用標題、條列、Markdown 或引號包住全文；使用繁體中文，約 40 至 120 字，直接輸出學生要說的內容。`,
       input: `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}\n\n學生指定的訊息：\n${teacherText}`,
       max_output_tokens: 600,
     }),
