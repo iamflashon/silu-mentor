@@ -4,6 +4,7 @@ import { examQuestions, issuePracticeRecords, studyRecords, usageLogs } from "..
 import { getAnthropicChatModel, getAnthropicKey, getOpenAIKey, openAIJson } from "../../../lib/openai";
 import { taipeiDate } from "../../../lib/taipei-time";
 import { supportsIssuePractice } from "../../../lib/issue-practice-subjects";
+import { inputFingerprint, relevantSections } from "../../../lib/input-budget";
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 const OWNER_EMAIL = "iamflashon@gmail.com";
@@ -236,13 +237,19 @@ export async function POST(request: Request) {
       return Response.json({ result: saved, workflow: currentWorkflow });
     }
     if (studentIssues.length < 10) return Response.json({ error: "請先寫下你辨識的爭點再送出" }, { status: 400 });
+    const fingerprint = inputFingerprint(question.stem, question.teacherAnswer, studentIssues, requestedModel);
+    const priorResult = parseResult(requestedModel === "sol" ? existing?.solResultJson ?? null : existing?.lunaResultJson ?? null) as (ResultShape & { inputFingerprint?: string }) | null;
+    if (priorResult?.analysis && priorResult.inputFingerprint === fingerprint) {
+      return Response.json({ ...priorResult, reused: true, reason: "沿用這位同學先前對同一題、同一爭點內容的結果，本次未重新呼叫模型", usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, estimatedCostUsd: 0, durationMs: 0 } });
+    }
     if (!await getOpenAIKey()) return Response.json({ error: "AI 模型尚未設定" }, { status: 503 });
     const model = requestedModel === "sol" ? "gpt-5.6-sol" : "gpt-5.6-luna";
     const lunaPrior = requestedModel === "sol" ? parseResult(existing?.lunaResultJson ?? null) as ResultShape | null : null;
     const instructions = `你是臺灣司法官、律師二試的爭點診斷員。原始題目是最高依據；老師擬答用來校準採說、標準順序與預期結論，但不是爭點上限。不得補造事實，不得因用語不同判錯。你的工作只有分類命中、遺漏與錯誤，不得自行給總分。\n\n評分必須依序完成四階段：\n第一，獨立完整解題。暫時不看學生答案與老師擬答，只依原始題目建立人物、行為、時間、順序、知悉時點、程序階段、結果、因果流程及例外事實清單；逐一檢查構成要件、未遂／既遂、違法性、責任、其他獨立罪名及罪數競合。行駛中交通工具的駕駛遭攻擊，必須檢查公共危險罪；飲酒或精神狀態，必須完整檢查責任能力及自行招致規定；已有實害結果，必須檢查結果犯及其與主要罪名的競合。\n第二，老師校準。對照老師擬答，保留老師採說、順序與標準結論，並辨識老師未列但第一階段已發現的項目。\n第三，必要性判斷。只有題示事實直接觸發、屬完整回答題問不可缺少，且能以現行法具體論證者，才列為必要獨立爭點。僅屬不同學說、邊緣延伸、事實不足或老師未採的補充爭議，不得扣分。老師沒寫到不等於當然不得扣分，但不得憑想像擴張罪名。\n第四，學生比對。逐項檢查學生是否處理事實、規範、主要／備位論證、各問結論、實害結果及罪數競合，不得只比對罪名或最終結論。\n\n每個實際扣分項目，必須在該項說明句末加一個機器標籤，且只能使用：\n【扣分:核心完全遺漏:8至12間整數】\n【扣分:必要獨立爭點遺漏:8至12間整數】\n【扣分:結論有寫正文未論證:3至5間整數】\n【扣分:關鍵事實未涵攝:5至10間整數】\n【扣分:備位論證遺漏:4至8間整數】\n【扣分:罪數競合遺漏:3至5間整數】\n【扣分:責任例外規定遺漏:3至5間整數】\n【扣分:行為人筆誤:1至2間整數】\n【扣分:法條罪名不精確:1至2間整數】\n單純補充爭議標記【扣分:老師未處理補充爭議:0】，不得加分或扣分。不得創造其他扣分類型；相同缺失只用最能描述實質問題的一類，不得重複扣分。\n\n只有以下條件全部成立，文末才可輸出【滿分檢核:通過】：獨立完整解題與老師擬答已交叉檢查；每個有法律意義的關鍵事實均已涵攝；必要獨立罪名、責任例外及罪數競合均已處理；全部問句均有明確結論；老師擬答的主要與備位論證均已處理；無法律錯誤、主體錯置或重要遺漏；表達已達可直接交卷程度。任一條件未達即輸出【滿分檢核:未通過】。\n\n固定標題：一、整體表現；二、已命中的爭點；三、遺漏的爭點；四、錯抓或過度延伸；五、表達可再精準之處；六、建議的最終爭點架構。控制在1400字內。你是 Luna，負責辨識並分類各項命中、遺漏與錯誤。`;
     const scoringCalibration = `補充校準規則：\n一、本功能評的是爭點清單，不要求展開成完整考場申論；但每一爭點至少須具體指出行為、法律問題或罪名及必要判斷方向。只有罪名、問號或「成立／不成立」而沒有理由者，標記【扣分:結論有寫正文未論證:3至5間整數】，不得因未寫完整三段論而額外扣分。\n二、另可使用【扣分:行為人主體錯置:6至12間整數】。「行為人筆誤」只限單一姓名或法條項次的偶發誤植；把其他行為人的整段罪責或總結放在錯誤行為人名下，必須標記「行為人主體錯置」。\n三、不得自行增加法條沒有規定、老師擬答也未採用的構成要件。例如刑法第318條之1不得另要求特定身分或一般性的保密義務。若認為學生欠缺某要件，必須先以現行條文及本次老師擬答確認；無法確認者只能列為不扣分的補充爭議。\n四、滿分檢核中的「可直接交卷」在本功能是指可直接轉寫為申論架構，不是要求學生已寫成完整申論。`;
     const safeInstructions = `${instructions}\n\n${scoringCalibration}\n\n再次確認：只可輸出純文字與自然換行，不得輸出 Markdown 星號、井號、底線、反引號、表格或程式碼區塊。`;
-    const input = `【題目｜第一階段必須先獨立解題】\n${question.stem}\n\n【學生寫下的爭點｜完成獨立解題後才可比對】\n${studentIssues}\n\n【同題老師擬答／解析｜用於校準，不是爭點上限】\n${question.teacherAnswer.slice(0, 15000)}`;
+    const focusedTeacherAnswer = relevantSections(question.teacherAnswer, `${question.stem}\n${studentIssues}`, 9000);
+    const input = `【題目｜第一階段必須先獨立解題】\n${question.stem}\n\n【學生寫下的爭點｜完成獨立解題後才可比對】\n${studentIssues}\n\n【同題老師擬答／解析｜已依本題爭點選取相關段落，用於校準】\n${focusedTeacherAnswer}`;
     const started = Date.now();
     let payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({ model, instructions: safeInstructions, input, max_output_tokens: requestedModel === "sol" ? 6000 : 5000 }) }) as Record<string, unknown>;
     let rawText = outputText(payload);
@@ -267,7 +274,7 @@ export async function POST(request: Request) {
     const sampleSuffix = body.sampleLevel ? `／${sampleLabels[body.sampleLevel]}` : "";
     await db.insert(usageLogs).values({ source: `${requestedModel === "sol" ? "練爭點／Sol學霸覆核" : "練爭點／Luna助教比對"}${sampleSuffix}`, model: String(payload.model || model), inputTokens, outputTokens, cachedTokens, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1e6) });
     await db.insert(studyRecords).values({ userKey: userKey(request), questionId, recordDate: taipeiDate(), subject: question.subject, title: `${question.year} ${question.examName || "司律二試"}第 ${question.questionNumber} 題｜練爭點`, activityType: "練爭點", reflection: studentIssues.slice(0, 3000), weakness: "依 AI 比對結果回補遺漏爭點", nextStep: "依建議架構重寫一次爭點清單" });
-    const savedResult = { analysis: text, model: requestedModel === "sol" ? "Sol 學霸" : "Luna 助教", modelId: String(payload.model || model), reason: requestedModel === "sol" ? "Sol 只覆核 Luna 的項目分類；總分由固定扣分規則計算" : "Luna 負責辨識命中、遺漏與錯誤；總分由固定扣分規則計算", sampleLevel: body.sampleLevel ?? null, sampleLabel: body.sampleLevel ? sampleLabels[body.sampleLevel] : null, usage: { inputTokens, outputTokens, cachedTokens, estimatedCostUsd, durationMs: Date.now() - started }, answerSource: question.answerSource || "老師參考擬答" };
+    const savedResult = { analysis: text, model: requestedModel === "sol" ? "Sol 學霸" : "Luna 助教", modelId: String(payload.model || model), reason: requestedModel === "sol" ? "Sol 只覆核 Luna 的項目分類；總分由固定扣分規則計算" : "Luna 負責辨識命中、遺漏與錯誤；總分由固定扣分規則計算", inputFingerprint: fingerprint, reused: false, sampleLevel: body.sampleLevel ?? null, sampleLabel: body.sampleLevel ? sampleLabels[body.sampleLevel] : null, usage: { inputTokens, outputTokens, cachedTokens, estimatedCostUsd, durationMs: Date.now() - started }, answerSource: question.answerSource || "老師參考擬答" };
     const resultField = requestedModel === "sol" ? { solResultJson: JSON.stringify(savedResult) } : { lunaResultJson: JSON.stringify(savedResult) };
     await db.insert(issuePracticeRecords).values({ userKey: userKey(request), questionId, studentIssues: studentIssues.slice(0, 12000), sampleLevel: body.sampleLevel ?? null, ...resultField, updatedAt: new Date() }).onConflictDoUpdate({ target: [issuePracticeRecords.userKey, issuePracticeRecords.questionId], set: { studentIssues: studentIssues.slice(0, 12000), sampleLevel: body.sampleLevel ?? null, ...resultField, updatedAt: new Date() } });
     return Response.json(savedResult);

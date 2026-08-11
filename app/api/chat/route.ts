@@ -13,6 +13,7 @@ import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekMode
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+import { compactConversation } from "../../../lib/input-budget";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -790,7 +791,7 @@ export async function POST(request: Request) {
     const requestedMode = String(body.modelMode ?? "auto");
     const allowedModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     let modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "auto";
-    const messages = Array.isArray(body.messages) ? body.messages.slice(-12) : [];
+    const messages = compactConversation(Array.isArray(body.messages) ? body.messages.slice(-30) : [], 6, 1200);
     if (!messages.length) return Response.json({ error: "缺少對話內容" }, { status: 400 });
     const latestStudent = [...messages].reverse().find((message) => message.role === "student" || message.role === "scholar");
     const rawContext = body.context;

@@ -9,6 +9,7 @@ import {
   getOpenAIKey,
 } from "../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../lib/usage";
+import { relevantSections } from "../../../lib/input-budget";
 
 type EssayModelMode = "luna" | "sol" | "claude" | "dual";
 
@@ -271,8 +272,8 @@ function gradingInput(question: {
   return JSON.stringify(
     {
       question: question.stem,
-      teacher_answer: question.teacherAnswer,
-      teacher_notes: question.teacherNotes,
+      teacher_answer: relevantSections(question.teacherAnswer, `${question.stem}\n${answer}`, 9000),
+      teacher_notes: relevantSections(question.teacherNotes, `${question.stem}\n${answer}`, 2500),
       rubric,
       original_max_score: maxScore,
       student_answer: answer,
