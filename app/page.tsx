@@ -879,6 +879,7 @@ export default function Home() {
           <a href="/issues" className="admin-link">找爭點</a>
           <a href="/summaries" className="admin-link">整摘要</a>
           {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
+          <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
           {currentMember ? <a href="/signout-with-chatgpt?return_to=/" className="member-chip" title={currentMember.email}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>登出</small></a> : <a href="/signin-with-chatgpt?return_to=/" className="member-signin">登入我的學習平台</a>}
         </div>
       </header>

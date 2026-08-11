@@ -3340,12 +3340,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
           >
             試題問答 <span>{examConversations.length}</span>
           </button>
-          <button
-            className={activeTab === "notes" ? "active" : ""}
-            onClick={() => setActiveTab("notes")}
-          >
-            筆記收藏 <span>{notes.length}</span>
-          </button>
+          <a href="/notes" className="plan-tab-link">我的筆記 <span>{notes.length}</span></a>
         </nav>}
         {activeTab === "summaries" && (
           <section className="student-summary-hub" aria-label="整摘要">

@@ -8,6 +8,7 @@ type JudicialDecision = { id: number; court: string; year: string; caseType: str
 type ToolPosition = { left: number; top: number; placement: "above" | "below" };
 type ExplainUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
 type LegalAnalysis = { kind?: string; officialName?: string; legalField?: string; nature?: string; reference?: string; points?: string[]; verification?: string; caveat?: string };
+type NoteDraft = { title: string; content: string; subject: string; tags: string; sourceLabel: string };
 const LAW_ALIASES: Record<string, string> = { 憲訴法: "憲法訴訟法", 憲法訴訟法: "憲法訴訟法", 民訴法: "民事訴訟法", 刑訴法: "刑事訴訟法", 行訴法: "行政訴訟法", 行程法: "行政程序法" };
 const LAW_REFERENCE = /(?:中華民國)?(?:憲訴法|憲法訴訟法|憲法|民法|刑法|行政程序法|行程法|行政訴訟法|行訴法|民事訴訟法|民訴法|刑事訴訟法|刑訴法|公司法|證券交易法|保險法|票據法|強制執行法|破產法|著作權法|商標法|公平交易法|消費者保護法|個人資料保護法)第\d+(?:條之\d+|之\d+條|條)(?:第\d+項)?(?:第\d+款)?/u;
 const JUDICIAL_REFERENCE = /(?<court>[\p{Script=Han}]{2,20}法院)(?:民事|刑事|行政)?(?:判決|裁定)?\s*(?<year>\d{1,3})\s*年度\s*(?<caseType>[\p{Script=Han}]{1,8})\s*字\s*第\s*(?<caseNo>\d+)\s*號/u;
@@ -23,6 +24,8 @@ export default function GlobalSelectionTools() {
   const [judicialQuery, setJudicialQuery] = useState<{ court: string; year: string; caseType: string; caseNo: string } | null>(null);
   const [position, setPosition] = useState<ToolPosition | null>(null);
   const [lookup, setLookup] = useState<{ mode: "search" | "explain"; loading: boolean; article: LegalArticle | null; decision: JudicialDecision | null; error: string; explanation: string; analysis: LegalAnalysis | null; explaining: boolean; usage: ExplainUsage | null } | null>(null);
+  const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
+  const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">("");
   const rangeRef = useRef<Range | null>(null);
 
   function place(range: Range) {
@@ -104,6 +107,24 @@ export default function GlobalSelectionTools() {
     setLookup((latest) => latest ? { ...latest, mode: "explain", loading: false, explaining: false, explanation: valid ? explanation : "", analysis: valid && data.analysis && typeof data.analysis === "object" ? data.analysis : null, usage: valid ? data.usage ?? null : null, error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。" } : latest);
   }
 
+  function noteFromLookup(): NoteDraft {
+    const title = lookup?.analysis?.officialName || lookup?.article?.articleNo || (lookup?.decision ? `${lookup.decision.year}年度${lookup.decision.caseType}字第${lookup.decision.caseNo}號` : selectedText.slice(0, 32)) || "法律學習筆記";
+    const parts = [selectedText];
+    if (lookup?.article) parts.push(`${lookup.article.title} ${lookup.article.articleNo}\n${lookup.article.content}`);
+    if (lookup?.decision) parts.push(`${lookup.decision.court} ${lookup.decision.year}年度${lookup.decision.caseType}字第${lookup.decision.caseNo}號\n${lookup.decision.fullText || lookup.decision.excerpt}`);
+    if (lookup?.analysis?.points?.length) parts.push(`拆解重點\n${lookup.analysis.points.map((point) => `・${point}`).join("\n")}`);
+    if (lookup?.explanation) parts.push(`白話解釋\n${lookup.explanation}`);
+    return { title, content: parts.filter(Boolean).join("\n\n"), subject: lookup?.analysis?.legalField || "綜合", tags: "待複習", sourceLabel: lookup?.article ? `${lookup.article.title} ${lookup.article.articleNo}` : lookup?.decision ? `${lookup.decision.court}裁判` : "AI 法律助教" };
+  }
+
+  async function saveSelection(kind: "favorite" | "note", draft = noteFromLookup()) {
+    setSaveState("saving");
+    const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, sourceType: kind, sourceId: `selection-${Date.now()}` }) });
+    if (!response.ok) { setSaveState("error"); return; }
+    setSaveState("saved"); setNoteDraft(null);
+    window.setTimeout(() => setSaveState(""), 1800);
+  }
+
   const close = () => { setLookup(null); setSelectedText(""); setLawQuery(""); setJudicialQuery(null); };
   return <>
     {selectedText && position && <div className={`smart-selection-bar global-selection-bar ${position.placement}`} style={{ left: position.left, top: position.top }}><span>已框選：{selectedText}</span>{judicialQuery ? <button type="button" onClick={() => void searchJudicial()}>裁判搜尋</button> : <button type="button" onClick={() => void searchLaw()} disabled={!lawQuery} title={lawQuery ? `搜尋 ${lawQuery}` : "框選內容未辨識出法規名稱與條號"}>法條搜尋</button>}<button type="button" onClick={() => void explain()}>白話解釋</button><button type="button" aria-label="關閉框選工具" onClick={() => dismiss(true)}>×</button></div>}
@@ -135,7 +156,9 @@ export default function GlobalSelectionTools() {
           {lookup.explanation && <section className="law-plain-explanation"><b>白話解釋</b><p>{lookup.explanation}</p><small>解釋以顯示的裁判內容為依據，不取代老師解析。</small>{lookup.usage && <div className="law-usage-meta"><b>{lookup.usage.model.replace("gpt-5.6-", "")}｜AI 白話解釋</b><span>輸入 {lookup.usage.inputTokens.toLocaleString()} · 輸出 {lookup.usage.outputTokens.toLocaleString()} · 合計 {(lookup.usage.inputTokens + lookup.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {lookup.usage.durationMs.toLocaleString()} ms · US$ {lookup.usage.estimatedCostUsd.toFixed(6)} · 約 NT$ {(lookup.usage.estimatedCostUsd * 32.5).toFixed(4)}</span></div>}</section>}
         </> : <div className="law-lookup-status error"><p>{lookup.error}</p>{judicialQuery && <small>{judicialQuery.court}｜{judicialQuery.year}年度｜{judicialQuery.caseType}字｜第{judicialQuery.caseNo}號</small>}<div className="official-search-fallback"><b>已整理並複製搜尋關鍵字</b><span>選擇官方網站後，可直接貼入搜尋欄。</span><div><button type="button" onClick={() => void openOfficialSearch("https://law.moj.gov.tw/")}>全國法規資料庫 ↗</button><button type="button" onClick={() => void openOfficialSearch("https://judgment.judicial.gov.tw/FJUD/default.aspx")}>司法院裁判書 ↗</button><button type="button" onClick={() => void openOfficialSearch("https://cons.judicial.gov.tw/judsearch.aspx?fid=46")}>憲法法庭 ↗</button></div></div></div>}
         {lookup.error && lookup.article && <p className="law-lookup-status error">{lookup.error}</p>}
+        {!lookup.loading && !lookup.error && <div className="selection-save-actions"><button type="button" onClick={() => void saveSelection("favorite")} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saved" ? "已存入我的筆記 ✓" : "☆ 快速收藏"}</button><button type="button" className="primary" onClick={() => setNoteDraft(noteFromLookup())}>＋ 整理成筆記</button><a href="/notes">前往我的筆記 →</a>{saveState === "error" && <small>目前無法保存，請稍後再試。</small>}</div>}
       </aside>
     </div>}
+    {noteDraft && <div className="selection-note-backdrop" role="presentation" onMouseDown={() => setNoteDraft(null)}><form className="selection-note-editor" onSubmit={(event) => { event.preventDefault(); void saveSelection("note", noteDraft); }} onMouseDown={(event) => event.stopPropagation()}><header><div><span>加入我的筆記</span><h3>整理後再保存</h3></div><button type="button" onClick={() => setNoteDraft(null)} aria-label="關閉">×</button></header><label>標題<input value={noteDraft.title} onChange={(event) => setNoteDraft({ ...noteDraft, title: event.target.value })} required /></label><div className="selection-note-fields"><label>科目<input value={noteDraft.subject} onChange={(event) => setNoteDraft({ ...noteDraft, subject: event.target.value })} /></label><label>標籤<input value={noteDraft.tags} onChange={(event) => setNoteDraft({ ...noteDraft, tags: event.target.value })} placeholder="重要、待複習" /></label></div><label>我的筆記<textarea rows={10} value={noteDraft.content} onChange={(event) => setNoteDraft({ ...noteDraft, content: event.target.value })} required /></label><small>原始來源會一併保留；儲存後可到獨立的「我的筆記」頁搜尋與編輯。</small><footer><button type="button" onClick={() => setNoteDraft(null)}>取消</button><button type="submit" className="primary" disabled={saveState === "saving"}>{saveState === "saving" ? "儲存中…" : "儲存筆記"}</button></footer></form></div>}
   </>;
 }
