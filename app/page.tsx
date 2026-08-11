@@ -134,6 +134,7 @@ export default function Home() {
   const [solReviewedIndexes, setSolReviewedIndexes] = useState<number[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [todayTasks, setTodayTasks] = useState<TodayTask[]>([]);
+  const [selectedTodayTaskId, setSelectedTodayTaskId] = useState<number | null>(null);
   const [yesterday, setYesterday] = useState<YesterdayContext | null>(null);
   const [dailyChoiceVisible, setDailyChoiceVisible] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -153,7 +154,7 @@ export default function Home() {
   const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
   const [modelMode, setModelMode] = useState<ChatModelMode>("luna");
   const [settingsPinned, setSettingsPinned] = useState(false);
-  const [settingsCollapsed, setSettingsCollapsed] = useState(false);
+  const [settingsCollapsed, setSettingsCollapsed] = useState(true);
   const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
   const [teachingRounds, setTeachingRounds] = useState<TeachingRound[]>([]);
   const [, setTeachingUsage] = useState<EvaluationUsage[]>([]);
@@ -294,6 +295,15 @@ export default function Home() {
     }).finally(() => setHistoryLoaded(true));
   }, []);
 
+  useEffect(() => {
+    const pending = todayTasks.filter((task) => task.status !== "completed");
+    if (!pending.length) {
+      setSelectedTodayTaskId(null);
+      return;
+    }
+    setSelectedTodayTaskId((current) => pending.some((task) => task.id === current) ? current : pending[0].id);
+  }, [todayTasks]);
+
   useEffect(() => { fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed(await response.json() as HomeFeed); }).catch(() => undefined); }, []);
   useEffect(() => { if (magazineArticles.length && !magazineArticles.some((article) => article.id === selectedMagazineArticleId)) setSelectedMagazineArticleId(magazineArticles[0].id); }, [magazineArticles, selectedMagazineArticleId]);
   useEffect(() => { fetch("/api/legal-learning").then(async (response) => { if (response.ok) setLegalLesson(((await response.json()) as { article?: LegalLesson | null }).article ?? null); }).catch(() => undefined); }, []);
@@ -322,16 +332,18 @@ export default function Home() {
     if (saved === "left" || saved === "right") setRailSide(saved);
     setRailCollapsed(true);
     setMobileRailOpen(false);
-    setSettingsCollapsed(window.localStorage.getItem("silu-ai-settings-collapsed") === "true");
+    setSettingsCollapsed(window.localStorage.getItem("silu-ai-settings-collapsed") !== "false");
     const pinned = window.localStorage.getItem(aiSettingsStorageKey);
+    let localPreferences: { pinned: boolean; teachingLevel: TeachingLevel; modelMode: ChatModelMode; collapsed: boolean } | null = null;
     if (pinned) {
       try {
         const parsed = JSON.parse(pinned) as { pinned?: unknown; teachingLevel?: unknown; modelMode?: unknown };
         if (isTeachingLevel(parsed.teachingLevel) && isChatModelMode(parsed.modelMode)) {
-          const restoredModelMode = parsed.modelMode === "deepseek" ? "luna" : parsed.modelMode;
+          const restoredModelMode: ChatModelMode = "luna";
           setSettingsPinned(parsed.pinned !== false);
           setPendingTeachingLevel(parsed.teachingLevel === "general" ? null : parsed.teachingLevel);
           setModelMode(restoredModelMode);
+          localPreferences = { pinned: parsed.pinned !== false, teachingLevel: parsed.teachingLevel, modelMode: restoredModelMode, collapsed: window.localStorage.getItem("silu-ai-settings-collapsed") !== "false" };
           if (restoredModelMode !== parsed.modelMode) {
             window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({ ...parsed, modelMode: restoredModelMode }));
           }
@@ -342,23 +354,39 @@ export default function Home() {
         window.localStorage.removeItem(aiSettingsStorageKey);
       }
     }
+    fetch("/api/chat/preferences").then(async (response) => {
+      if (!response.ok) return;
+      const data = await response.json() as { exists?: boolean; preferences?: { pinned?: unknown; teachingLevel?: unknown; modelMode?: unknown; collapsed?: unknown } };
+      if (!data.exists && localPreferences) {
+        void fetch("/api/chat/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(localPreferences) });
+        return;
+      }
+      const saved = data.preferences;
+      if (!saved || !isTeachingLevel(saved.teachingLevel) || !isChatModelMode(saved.modelMode)) return;
+      const restoredModelMode: ChatModelMode = "luna";
+      setSettingsPinned(saved.pinned === true);
+      setPendingTeachingLevel(saved.teachingLevel === "general" ? null : saved.teachingLevel);
+      setModelMode(restoredModelMode);
+      setSettingsCollapsed(saved.collapsed !== false);
+      window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({ pinned: saved.pinned === true, teachingLevel: saved.teachingLevel, modelMode: restoredModelMode }));
+      window.localStorage.setItem("silu-ai-settings-collapsed", String(saved.collapsed !== false));
+    }).catch(() => undefined);
   }, []);
+
+  function saveAiSettings(level: TeachingLevel, nextModelMode: ChatModelMode, pinned: boolean, collapsed: boolean) {
+    const preferences = { pinned, teachingLevel: level, modelMode: nextModelMode, collapsed };
+    window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify(preferences));
+    window.localStorage.setItem("silu-ai-settings-collapsed", String(collapsed));
+    void fetch("/api/chat/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(preferences) }).catch(() => undefined);
+  }
 
   function toggleSettingsPinned(next: boolean) {
     setSettingsPinned(next);
-    window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({
-      pinned: next,
-      teachingLevel: pendingTeachingLevel ?? "general",
-      modelMode,
-    }));
+    saveAiSettings(pendingTeachingLevel ?? "general", modelMode, next, settingsCollapsed);
   }
 
   function persistAiSettings(level: TeachingLevel, nextModelMode: ChatModelMode = modelMode) {
-    window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({
-      pinned: settingsPinned,
-      teachingLevel: level,
-      modelMode: nextModelMode,
-    }));
+    saveAiSettings(level, nextModelMode, settingsPinned, settingsCollapsed);
   }
 
   function toggleRailSide() {
@@ -928,10 +956,15 @@ export default function Home() {
           </button>
         </div>
         {todayTasks.length > 0 && <details className="today-plan-card">
-          <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.status !== "completed")?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
+          <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.id === selectedTodayTaskId)?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
           <div className="today-plan-head"><div><p>今日學習計畫</p><strong>{today || "今天"}</strong></div><a href="/calendar">查看行事曆 →</a></div>
-          <div className="today-task-list">{todayTasks.map((task) => <div className={`today-task ${task.status === "completed" ? "done" : ""}`} key={task.id}><span>{task.status === "completed" ? "✓" : ""}</span><div><strong>{task.subject} · {task.title}</strong><small>{task.durationMinutes} 分鐘{task.details ? ` · ${task.details}` : ""}</small></div></div>)}</div>
-          {todayTasks.some((task) => task.status !== "completed") && <button onClick={() => send(`請直接帶我開始今天第一個尚未完成的任務：${todayTasks.find((task) => task.status !== "completed")?.title}`)}>開始今日第一項</button>}
+          <p className="today-task-choice-hint">勾選你想先學的項目</p>
+          <div className="today-task-list">{todayTasks.map((task) => {
+            const completed = task.status === "completed";
+            const selected = !completed && task.id === selectedTodayTaskId;
+            return <button type="button" className={`today-task ${completed ? "done" : ""} ${selected ? "selected" : ""}`} aria-pressed={selected} disabled={completed} onClick={() => setSelectedTodayTaskId(task.id)} key={task.id}><span aria-hidden="true">{completed || selected ? "✓" : ""}</span><div><strong>{task.subject} · {task.title}</strong><small>{task.durationMinutes} 分鐘{task.details ? ` · ${task.details}` : ""}</small></div>{selected && <em>先學這項</em>}</button>;
+          })}</div>
+          {todayTasks.some((task) => task.status !== "completed") && <button className="today-task-start" disabled={!selectedTodayTaskId || thinking} onClick={() => { const task = todayTasks.find((item) => item.id === selectedTodayTaskId); if (task) void send(`請直接帶我開始今天選定的任務：${task.subject}・${task.title}。任務內容：${task.details || "依今日計畫開始教學"}`); }}>{thinking ? "教練準備中…" : "開始所選任務"}</button>}
         </details>}
 
         {practiceQuestion && <section className="practice-card" aria-label="對話中的真題教練">
@@ -1037,23 +1070,18 @@ export default function Home() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-        {currentMember?.canAdmin && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
-          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · {modelMode === "compare-luna-glm52" ? "Luna＋GLM-5.2" : modelMode.startsWith("compare-") ? modelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : modelMode === "auto" || modelMode === "luna" ? "Luna" : modelMode === "sol" ? "Sol" : modelMode === "sonnet" ? "Claude Sonnet" : modelMode === "glm" ? "GLM-4.7-Flash（免費測試）" : modelMode === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro"}{settingsPinned ? " · 已固定" : ""}</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="terra-challenge-button" onClick={() => void challengeSelectedMessageWithTerra()} disabled={terraChallenging || thinking || selectedFollowUps.length !== 1 || !/(?:luna|sol)/i.test(selectedFollowUps[0]?.model ?? "")} title="先在 Luna 或 Sol 訊息下方勾選「回覆此訊息」">{terraChallenging ? "Terra 質疑中…" : "Terra 質疑／吐槽"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; window.localStorage.setItem("silu-ai-settings-collapsed", String(next)); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          {currentMember?.canAdmin && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
               <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
             </select></label>
-            <label><span>回答</span><select value={modelMode.startsWith("compare-") ? modelMode.split("-")[1] : modelMode} onChange={(event) => { const next = event.target.value as ChatModelMode; setModelMode(next); persistAiSettings(pendingTeachingLevel ?? "general", next); }} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
-              <option value="luna">Luna</option><option value="glm">GLM-4.7-Flash｜免費測試</option><option value="glm52">GLM-5.2｜付費測試（上限 US$2）</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
-            </select></label>
-            <label><span>比較</span><select value={modelMode.startsWith("compare-") ? modelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; const next = value === "none" ? (modelMode.startsWith("compare-") ? modelMode.split("-")[1] as ChatModelMode : modelMode) : `compare-${value}` as ChatModelMode; setModelMode(next); persistAiSettings(pendingTeachingLevel ?? "general", next); }} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
-              <option value="none">不比較</option><option value="luna-glm52">Luna＋GLM-5.2</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
-            </select></label>
+            <label><span>回答</span><select value="luna" disabled><option value="luna">Luna</option></select></label>
           </div>
           <div className={`model-settings-pin-row ${settingsPinned ? "is-pinned" : ""}`}>
-            <label className="model-settings-pin"><input type="checkbox" checked={settingsPinned} onChange={(event) => toggleSettingsPinned(event.target.checked)} disabled={thinking || generatingStudentReply || evaluatingTeaching} /><span>固定此角色與模型</span></label>
-            <small>{settingsPinned ? "已固定；取消勾選後即可重新選擇。" : "勾選後會記住目前學生角色、回答模型與比較方式。"}</small>
+            <label className="model-settings-pin"><input type="checkbox" checked={settingsPinned} onChange={(event) => toggleSettingsPinned(event.target.checked)} disabled={thinking || generatingStudentReply || evaluatingTeaching} /><span>記住學生角色</span></label>
+            <small>Luna 為首頁固定模型；此設定只記住學生角色。</small>
           </div>
           </>}
         </section>}

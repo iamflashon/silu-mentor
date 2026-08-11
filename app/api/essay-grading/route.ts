@@ -10,7 +10,7 @@ import {
 } from "../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../lib/usage";
 
-type EssayModelMode = "sol" | "claude" | "dual";
+type EssayModelMode = "luna" | "sol" | "claude" | "dual";
 
 type EssayGrading = {
   score: number;
@@ -224,15 +224,15 @@ function modelFailure(error: unknown, fallbackModel: "sol" | "claude"): ModelFai
   if (error instanceof EssayModelError) {
     return {
       model: error.model,
-      label: error.model === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
+      label: error.model === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
       message: error.message,
       retryable: error.retryable,
     };
   }
   return {
     model: fallbackModel,
-    label: fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol",
-    message: (fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Sol") + "：批改暫時失敗，請稍後重試。",
+    label: fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
+    message: (fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna") + "：批改暫時失敗，請稍後重試。",
     retryable: true,
   };
 }
@@ -501,16 +501,13 @@ export async function POST(request: Request) {
     const body = await request.json() as { questionId?: number; answer?: string; mode?: EssayModelMode };
     const questionId = Number(body.questionId);
     const answer = String(body.answer ?? "").trim();
-    if (body.mode !== "sol" && body.mode !== "claude" && body.mode !== "dual") {
-      return Response.json({ error: "請先選擇申論批改模型" }, { status: 400 });
-    }
-    const mode: EssayModelMode = body.mode;
+    // 正式申論批改固定使用 Luna。即使舊頁面或舊快取仍送出 sol／dual，
+    // 也只執行一次 Luna，避免額外模型成本。
+    const mode: EssayModelMode = "luna";
     if (!Number.isInteger(questionId) || !answer) return Response.json({ error: "請提供題目與申論作答內容" }, { status: 400 });
 
-    const openAIKey = mode === "claude" ? "" : await getOpenAIKey();
-    const anthropicKey = mode === "sol" ? "" : await getAnthropicKey();
-    if (!openAIKey && mode !== "claude") return Response.json({ error: "OPENAI_API_KEY 尚未設定" }, { status: 503 });
-    if (!anthropicKey && mode !== "sol") return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定" }, { status: 503 });
+    const openAIKey = await getOpenAIKey();
+    if (!openAIKey) return Response.json({ error: "OPENAI_API_KEY 尚未設定" }, { status: 503 });
 
     const db = await getDb();
     const [question] = await db
@@ -522,26 +519,13 @@ export async function POST(request: Request) {
     if (!question.teacherAnswer.trim()) return Response.json({ error: "這題尚未完成老師擬答核對，暫不能進行依擬答批改。" }, { status: 409 });
 
     const solModel = await getEssayOpenAIModel("gpt-5.6-luna");
-    const claudeModel = await getAnthropicModel("claude-opus-5");
     const runs: ModelRun[] = [];
     const failures: ModelFailure[] = [];
-    if (mode === "sol") runs.push(await runSol(openAIKey, solModel, question, answer));
-    if (mode === "claude") runs.push(await runClaude(anthropicKey, claudeModel, question, answer));
-    if (mode === "dual") {
-      const results = await Promise.allSettled([
-        runSol(openAIKey, solModel, question, answer),
-        runClaude(anthropicKey, claudeModel, question, answer),
-      ]);
-      const [solResult, claudeResult] = results;
-      if (solResult.status === "fulfilled") runs.push(solResult.value);
-      else failures.push(modelFailure(solResult.reason, "sol"));
-      if (claudeResult.status === "fulfilled") runs.push(claudeResult.value);
-      else failures.push(modelFailure(claudeResult.reason, "claude"));
-    }
+    runs.push(await runSol(openAIKey, solModel, question, answer));
 
     const solRun = runs.find((run) => run.model === solModel) ?? (mode === "claude" ? undefined : runs[0]);
-    const claudeRun = runs.find((run) => run.model === claudeModel) ?? (mode === "claude" ? runs[0] : undefined);
-    const primary = mode === "claude" ? claudeRun : solRun ?? claudeRun;
+    const claudeRun = undefined;
+    const primary = solRun;
     if (!primary) {
       const failure = failures[0];
       if (failure) throw new EssayModelError(failure.message, failure.retryable ? 503 : 502, failure.model, failure.retryable);
@@ -566,7 +550,7 @@ export async function POST(request: Request) {
     for (const run of runs) {
       await db.insert(usageLogs).values({
         model: run.model,
-        source: mode === "dual" ? `二試申論批改（${run.model === solModel ? "Luna" : "Claude"}）` : "二試申論批改（Luna 測試）",
+        source: "二試申論批改（Luna）",
         inputTokens: run.inputTokens,
         cachedTokens: run.cachedTokens,
         outputTokens: run.outputTokens,

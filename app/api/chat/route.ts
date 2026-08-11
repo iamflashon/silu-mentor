@@ -801,6 +801,9 @@ export async function POST(request: Request) {
         : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
           ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
           : { type: "home" };
+    // 首頁是正式學習入口，固定使用 Luna 單模型。忽略舊偏好或前端送來的
+    // 比較模式，避免已保存的測試設定繼續觸發 Sol／Claude／其他供應商。
+    if (context.type === "home") modelMode = "luna";
     const mcqSubject = context.type === "home" && latestStudent ? requestedMcqSubject(latestStudent.text) : null;
     if (mcqSubject !== null) {
       const practiceQuestion = await findPublishedMcq(mcqSubject);

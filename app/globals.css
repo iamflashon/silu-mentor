@@ -3847,14 +3847,29 @@ a {
   flex-direction: column;
   gap: 7px;
 }
+.today-task-choice-hint {
+  margin: 0 0 7px;
+  color: #557b96;
+  font-size: 10px;
+  font-weight: 800;
+}
 .today-task {
+  position: relative;
+  width: 100%;
   display: flex;
   gap: 10px;
   align-items: flex-start;
+  text-align: left;
   padding: 10px 11px;
   border-radius: 11px;
   background: white;
   border: 1px solid #e0e9ef;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.today-task:not(:disabled):active {
+  transform: scale(0.99);
 }
 .today-task > span {
   width: 19px;
@@ -3866,6 +3881,29 @@ a {
   border-radius: 6px;
   color: #2d7654;
   font-size: 11px;
+}
+.today-task.selected {
+  border-color: #2f719b;
+  background: #eef7fc;
+  box-shadow: 0 0 0 2px rgba(47, 113, 155, 0.12);
+}
+.today-task.selected > span {
+  border-color: #2f719b;
+  background: #2f719b;
+  color: #fff;
+}
+.today-task > div {
+  min-width: 0;
+  flex: 1;
+}
+.today-task > em {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #2f719b;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 850;
+  white-space: nowrap;
 }
 .today-task strong,
 .today-task small {
@@ -3883,11 +3921,12 @@ a {
 }
 .today-task.done {
   opacity: 0.58;
+  cursor: default;
 }
 .today-task.done strong {
   text-decoration: line-through;
 }
-.today-plan-card > button {
+.today-plan-card > .today-task-start {
   margin-top: 12px;
   border: 0;
   border-radius: 10px;
@@ -3897,6 +3936,10 @@ a {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+}
+.today-plan-card > .today-task-start:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 .daily-handoff {
   align-self: flex-start;

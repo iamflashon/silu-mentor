@@ -45,7 +45,7 @@ type EssayGrading = {
   source_used: string;
 };
 
-type EssayModelMode = "sol" | "claude" | "dual";
+type EssayModelMode = "luna" | "sol" | "claude" | "dual";
 type EssayComparison = {
   scoreDifference: number;
   agreements: string[];
@@ -252,7 +252,7 @@ const gradingAnimationSteps = [
 function EssayBatchGrading() {
   const [attempts, setAttempts] = useState<EssayBatchAttempt[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const model: EssayModelMode = "sol";
+  const model: EssayModelMode = "luna";
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -367,9 +367,9 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     useState<EssayComparison | null>(null);
   const [essayModelFailures, setEssayModelFailures] = useState<EssayModelFailure[]>([]);
   const [essayModelMode, setEssayModelMode] =
-    useState<EssayModelMode | null>("sol");
+    useState<EssayModelMode | null>("luna");
   const [essayResultMode, setEssayResultMode] =
-    useState<EssayModelMode>("sol");
+    useState<EssayModelMode>("luna");
   const [submitting, setSubmitting] = useState(false);
   const [gradingAnimationStep, setGradingAnimationStep] = useState(0);
   const [teacherAnswerOpen, setTeacherAnswerOpen] = useState(false);
@@ -1168,7 +1168,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   async function submitEssay() {
     if (!question || !essay.trim() || submitting) return;
-    const selectedMode: EssayModelMode = "sol";
+    const selectedMode: EssayModelMode = "luna";
     setSubmitting(true);
     setEssayFeedback("");
     try {
@@ -2067,16 +2067,15 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                       {accountCanAdmin && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="管理測試設定">
                         <div className="model-mode-heading">
                           <strong>管理測試設定</strong>
-                          <span className="model-mode-summary">{coachTeachingLevel === "general" ? "一般學生" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · {coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : coachModelMode === "luna" ? "Luna" : coachModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}{coachSettingsPinned ? " · 已固定" : ""}</span>
+                          <span className="model-mode-summary">{coachTeachingLevel === "general" ? "一般學生" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · Luna</span>
                           <button type="button" className="model-settings-toggle" aria-expanded={coachSettingsOpen} onClick={() => setCoachSettingsOpen((open) => !open)}>{coachSettingsOpen ? "收合設定" : "展開設定"}</button>
                         </div>
                         {coachSettingsOpen && <>
                         <div className="model-mode-fields">
                           <label><span>模擬程度</span><select value={coachTeachingLevel} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as CoachTeachingLevel; setCoachTeachingLevel(value); persistCoachSetting(value, coachModelMode); }}><option value="general">一般學生</option><option value="beginner">法律小白</option><option value="intermediate">基礎考生</option><option value="advanced">進階考生</option><option value="super">頂尖學霸</option></select></label>
-                          <label><span>回答</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] : coachModelMode} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value as "luna" | "sonnet" | "deepseek"; setCoachModelMode(value); persistCoachSetting(coachTeachingLevel, value); }}><option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option></select></label>
-                          <label><span>比較</span><select value={coachModelMode.startsWith("compare-") ? coachModelMode.slice("compare-".length) : "none"} disabled={coachSettingsPinned || coaching} onChange={(event) => { const value = event.target.value; const next = value === "none" ? (coachModelMode.startsWith("compare-") ? coachModelMode.split("-")[1] as CoachModelMode : coachModelMode) : `compare-${value}` as CoachModelMode; setCoachModelMode(next); persistCoachSetting(coachTeachingLevel, next); }}><option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option></select></label>
+                          <label><span>回答</span><select value="luna" disabled><option value="luna">Luna</option></select></label>
                         </div>
-                        <div className={`model-settings-pin-row ${coachSettingsPinned ? "is-pinned" : ""}`}><label className="model-settings-pin"><input type="checkbox" checked={coachSettingsPinned} onChange={(event) => toggleCoachSettingsPinned(event.target.checked)} disabled={coaching} /><span>固定此測試條件</span></label><small>{coachSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "僅供管理員測試模擬程度、回答模型與比較方式。"}</small></div>
+                        <div className={`model-settings-pin-row ${coachSettingsPinned ? "is-pinned" : ""}`}><label className="model-settings-pin"><input type="checkbox" checked={coachSettingsPinned} onChange={(event) => toggleCoachSettingsPinned(event.target.checked)} disabled={coaching} /><span>記住學生角色</span></label><small>Luna 為固定模型；此設定只記住學生角色。</small></div>
                         </>}
                       </div>}
                       <div className="essay-chat-composer-actions">
