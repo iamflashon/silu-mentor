@@ -3808,9 +3808,32 @@ a {
   text-overflow: ellipsis;
 }
 .today-plan-card > summary em {
-  color: #668296;
-  font-size: 9px;
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 5px 8px;
+  border: 1px solid #8eb8d2;
+  border-radius: 999px;
+  background: #edf7fc;
+  color: #17638f;
+  font-size: 10px;
+  font-weight: 850;
   font-style: normal;
+  text-align: center;
+}
+.today-plan-collapse-label {
+  display: none;
+}
+.today-plan-card[open] .today-plan-expand-label {
+  display: none;
+}
+.today-plan-card[open] .today-plan-collapse-label {
+  display: inline;
+}
+.today-plan-card > summary:hover em,
+.today-plan-card > summary:focus-visible em {
+  border-color: #2378a8;
+  background: #dceff9;
+  color: #0d527b;
 }
 .today-plan-card[open] {
   padding: 0 12px 12px;

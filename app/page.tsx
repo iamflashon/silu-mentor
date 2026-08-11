@@ -956,7 +956,7 @@ export default function Home() {
           </button>
         </div>
         {todayTasks.length > 0 && <details className="today-plan-card">
-          <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.id === selectedTodayTaskId)?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
+          <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.id === selectedTodayTaskId)?.title ?? "今日任務已完成"}</span></div><em aria-hidden="true"><span className="today-plan-expand-label">展開任務⌄</span><span className="today-plan-collapse-label">收合任務⌃</span></em></summary>
           <div className="today-plan-head"><div><p>今日學習計畫</p><strong>{today || "今天"}</strong></div><a href="/calendar">查看行事曆 →</a></div>
           <p className="today-task-choice-hint">勾選你想先學的項目</p>
           <div className="today-task-list">{todayTasks.map((task) => {
