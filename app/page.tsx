@@ -917,7 +917,7 @@ export default function Home() {
           </div>
           <div className="home-calendar-entry">
             <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
-            <Link href="/calendar" aria-label="開啟我的行事曆">行事曆</Link>
+            <a href="/calendar" aria-label="開啟我的行事曆">行事曆</a>
           </div>
           <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
             {railCollapsed ? "展開學習工具" : "收合側欄"}
@@ -925,7 +925,7 @@ export default function Home() {
         </div>
         {todayTasks.length > 0 && <details className="today-plan-card">
           <summary><div><b>今日任務</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} 完成 · {todayTasks.find((task) => task.status !== "completed")?.title ?? "今日任務已完成"}</span></div><em>展開</em></summary>
-          <div className="today-plan-head"><div><p>今日學習計畫</p><strong>{today || "今天"}</strong></div><Link href="/plan">查看行事曆 →</Link></div>
+          <div className="today-plan-head"><div><p>今日學習計畫</p><strong>{today || "今天"}</strong></div><a href="/calendar">查看行事曆 →</a></div>
           <div className="today-task-list">{todayTasks.map((task) => <div className={`today-task ${task.status === "completed" ? "done" : ""}`} key={task.id}><span>{task.status === "completed" ? "✓" : ""}</span><div><strong>{task.subject} · {task.title}</strong><small>{task.durationMinutes} 分鐘{task.details ? ` · ${task.details}` : ""}</small></div></div>)}</div>
           {todayTasks.some((task) => task.status !== "completed") && <button onClick={() => send(`請直接帶我開始今天第一個尚未完成的任務：${todayTasks.find((task) => task.status !== "completed")?.title}`)}>開始今日第一項</button>}
         </details>}

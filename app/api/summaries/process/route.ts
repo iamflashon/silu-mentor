@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     const content = imageType(document.contentType)
       ? [{ type: "input_image", image_url: `data:${document.contentType};base64,${Buffer.from(bytes).toString("base64")}` }]
       : [{ type: "input_file", filename: document.fileName, file_data: `data:${document.contentType};base64,${Buffer.from(bytes).toString("base64")}` }];
-    const prompt = `請整理檔案「${document.fileName}」，科目為「${document.subject}」${topic ? `，使用者自訂分類主題為「${topic}」` : ""}。輸出：核心摘要、考試重點、重要爭點、常見錯誤、來源頁碼或原文位置、標籤，以及 3 至 8 張問答複習卡。若不是法律教材，也請依實際內容整理，不要假設它是法律。`;
+    const prompt = `請整理檔案「${document.fileName}」，科目為「${document.subject}」${topic ? `，使用者自訂分類主題為「${topic}」` : ""}。核心任務是產出一份精簡摘要：刪除贅詞與重複內容，但保留理解全文不可缺少的結論、理由、要件、例外及關鍵事實。另輸出考試重點、重要爭點、常見錯誤、來源頁碼或原文位置、標籤，以及 3 至 8 張問答複習卡，作為預設收合的補充資料。若不是法律教材，也請依實際內容整理，不要假設它是法律。`;
     const claudeContent = imageType(document.contentType)
       ? [{ type: "image", source: { type: "base64", media_type: document.contentType, data: Buffer.from(bytes).toString("base64") } }]
       : document.contentType === "application/pdf"

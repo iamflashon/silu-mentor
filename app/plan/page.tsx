@@ -130,9 +130,14 @@ type StudentSummary = {
   usage: { inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsd: number } | null;
 };
 type SummaryFolder = { subject: string; name: string };
-type SummarySection = "exam" | "key-points" | "issues" | "mistakes" | "sources" | "flashcards";
 type SummaryModel = "luna" | "sol";
-const summaryFieldOptions = [["summary", "核心摘要"], ["examFocus", "考試整理"], ["keyPoints", "重點"], ["issueOutline", "重要爭點"], ["commonMistakes", "常見錯誤"], ["sourceNotes", "來源位置"], ["flashcards", "複習卡"]] as const;
+const summaryFieldOptions = [
+  { key: "summary", label: "摘要", fields: ["summary"] },
+  { key: "focus", label: "考點與爭點", fields: ["examFocus", "keyPoints", "issueOutline"] },
+  { key: "mistakes", label: "常見錯誤", fields: ["commonMistakes"] },
+  { key: "sources", label: "來源依據", fields: ["sourceNotes"] },
+] as const;
+const defaultSummaryFields = summaryFieldOptions.flatMap((option) => [...option.fields]);
 type LearningResource = {
   id: number;
   resourceType: "book" | "course" | "trial" | "magazine";
@@ -633,7 +638,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<number>>(new Set());
   const [summaryModel, setSummaryModel] = useState<SummaryModel>("luna");
-  const [summaryFields, setSummaryFields] = useState<string[]>(summaryFieldOptions.map(([key]) => key));
+  const [summaryFields, setSummaryFields] = useState<string[]>(defaultSummaryFields);
   const [summaryCustomFields, setSummaryCustomFields] = useState<string[]>([]);
   const [summaryCustomDraft, setSummaryCustomDraft] = useState("");
   const [summaryPreferencesSaving, setSummaryPreferencesSaving] = useState(false);
@@ -646,7 +651,6 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   const [summaryFavorite, setSummaryFavorite] = useState(false);
   const [summarySelectedFile, setSummarySelectedFile] = useState<File | null>(null);
   const [summaryDeleting, setSummaryDeleting] = useState(false);
-  const [summarySection, setSummarySection] = useState<SummarySection>("exam");
   const [summaryTitleDraft, setSummaryTitleDraft] = useState("");
   const [summaryFontSize, setSummaryFontSize] = useState(20);
   const [summaryFolders, setSummaryFolders] = useState<SummaryFolder[]>([]);
@@ -2736,7 +2740,6 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       const uploaded = await upload.json() as { summary?: StudentSummary; error?: string };
       if (!upload.ok || !uploaded.summary) throw new Error(uploaded.error ?? "上傳失敗");
       setStudentSummaries((current) => [uploaded.summary!, ...current]);
-      setSelectedSummaryId(uploaded.summary.id);
       setSummaryNotice("已上傳，正在依選取模型與摘要欄位整理…");
       const process = await fetch("/api/summaries/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: uploaded.summary.id, model: summaryModel, fields: summaryFields, customFields: summaryCustomFields }) });
       const processed = await process.json() as { error?: string };
@@ -2778,11 +2781,19 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
     setSelectedSummaryId(item.id);
     setSummaryDraft(item.editedSummary || item.summary);
     setSummaryFavorite(item.favorite);
-    setSummarySection("exam");
     setSummaryTitleDraft(item.displayTitle || item.name);
     setSummaryTopic(item.topic || "");
     setSummaryCollectionTitle(item.collectionTitle || item.topic || item.displayTitle || "");
     setSummaryFontSize([16, 18, 20, 22, 24].includes(item.fontSize ?? 20) ? item.fontSize ?? 20 : 20);
+  }
+
+  function toggleSummaryFieldGroup(fields: readonly string[]) {
+    setSummaryFields((current) => {
+      const selected = fields.every((field) => current.includes(field));
+      return selected
+        ? current.filter((field) => !fields.includes(field))
+        : [...new Set([...current, ...fields])];
+    });
   }
 
   async function saveSummaryFolders(folders: SummaryFolder[]) {
@@ -2883,7 +2894,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       setSelectedSummaryIds(new Set());
       const nextSelected = selectedSummaryId !== null && !deletedIds.has(selectedSummaryId)
         ? remaining.find((item) => item.id === selectedSummaryId)
-        : remaining[0];
+        : undefined;
       setSelectedSummaryId(nextSelected?.id ?? null);
       setSummaryDraft(nextSelected ? nextSelected.editedSummary || nextSelected.summary : "");
       setSummaryFavorite(nextSelected?.favorite ?? false);
@@ -3367,7 +3378,6 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                 <label>整理模型<select value={summaryModel} onChange={(event) => setSummaryModel(event.target.value as SummaryModel)}><option value="luna">Luna｜快速一般整理</option><option value="sol">Sol｜深度考試整理</option></select></label>
               </div>
             </header>
-            <section className="summary-preference-panel"><div><strong>這次要整理哪些重點？</strong><span>基本欄位由平台提供，同學可自由勾選。</span></div><div className="summary-field-checks">{summaryFieldOptions.map(([key, label]) => <label key={key}><input type="checkbox" checked={summaryFields.includes(key)} onChange={() => setSummaryFields((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])} />{label}</label>)}</div><div className="summary-custom-fields"><label><span>自訂欄位（最多 3 個，可重複使用）</span><div><input value={summaryCustomDraft} maxLength={40} placeholder="例如：學說比較／申論答題句" onChange={(event) => setSummaryCustomDraft(event.target.value)} /><button type="button" disabled={!summaryCustomDraft.trim() || summaryCustomFields.length >= 3} onClick={() => { const name = summaryCustomDraft.trim(); if (name && !summaryCustomFields.includes(name)) setSummaryCustomFields((items) => [...items, name].slice(0, 3)); setSummaryCustomDraft(""); }}>加入</button></div></label><div>{summaryCustomFields.map((field) => <button type="button" key={field} onClick={() => setSummaryCustomFields((items) => items.filter((item) => item !== field))}>{field} ×</button>)}</div></div><button type="button" className="summary-save-default" onClick={() => void saveSummaryPreferences()} disabled={summaryPreferencesSaving}>{summaryPreferencesSaving ? "保存中…" : "儲存欄位並設為預設模型"}</button></section>
             <form className="student-summary-upload" onSubmit={uploadStudentSummary} onPaste={handleSummaryPaste}>
               <label className="student-summary-dropzone" tabIndex={0}>
                 <strong>拍照／選擇檔案／貼上截圖</strong>
@@ -3418,35 +3428,14 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
               </aside>
               <section className="student-summary-detail" aria-live="polite">
                 {(() => {
-                  const item = studentSummaries.find((summary) => summary.id === selectedSummaryId) ?? studentSummaries[0];
-                  if (!item) return <div className="student-summary-empty large">選擇左側資料，查看 AI 整理結果。</div>;
-                  if (selectedSummaryId !== item.id && !summaryDraft) { setTimeout(() => openStudentSummary(item), 0); }
+                  const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
+                  if (!item) return <div className="student-summary-empty large">請從左側點選一份整理資料，這裡才會顯示內容。</div>;
                   return <>
                     <div className="student-summary-detail-head"><div className="student-summary-detail-title"><span>{item.subject} · 原始檔案：{item.name}</span><h3>{item.status === "completed" ? "整理完成，可編輯與收藏" : item.processingMessage}</h3><div className="student-summary-title-grid"><label className="student-summary-title-editor"><span>左側顯示標題</span><input value={summaryTitleDraft} maxLength={120} onChange={(event) => setSummaryTitleDraft(event.target.value)} placeholder="例如：刑法鑑定制度重點" /></label><label className="student-summary-title-editor"><span>收藏主題</span><input value={summaryCollectionTitle} maxLength={120} onChange={(event) => setSummaryCollectionTitle(event.target.value)} placeholder="例如：刑事鑑定重要實務" /></label></div></div><div className="student-summary-detail-actions"><label className="student-summary-font-control"><span>摘要字級</span><select value={summaryFontSize} onChange={(event) => setSummaryFontSize(Number(event.target.value))}><option value={16}>小</option><option value={18}>標準</option><option value={20}>大</option><option value={22}>特大</option><option value={24}>超大</option></select></label><button type="button" className={summaryFavorite ? "favorite active" : "favorite"} onClick={() => setSummaryFavorite((value) => !value)}>{summaryFavorite ? "★ 已收藏" : "☆ 收藏摘要"}</button></div></div>
                     {item.status === "completed" ? <>
                       <label className="student-summary-editor"><span>我的摘要版本（可直接修改）</span><textarea style={{ fontSize: `${summaryFontSize}px` }} value={summaryDraft || item.editedSummary || item.summary} onChange={(event) => setSummaryDraft(event.target.value)} rows={10} /></label>
-                      <nav className="student-summary-subtabs" aria-label="摘要分類" role="tablist">
-                        {([
-                          ["exam", "考試整理"],
-                          ["key-points", "重點"],
-                          ["issues", "重要爭點"],
-                          ["mistakes", "常見錯誤"],
-                          ["sources", "來源位置"],
-                          ["flashcards", "複習卡"],
-                        ] as Array<[SummarySection, string]>).map(([section, label]) => (
-                          <button type="button" role="tab" aria-selected={summarySection === section} className={summarySection === section ? "active" : ""} key={section} onClick={() => setSummarySection(section)}>
-                            {label}
-                          </button>
-                        ))}
-                      </nav>
-                      <div className="student-summary-tabpanel" role="tabpanel" style={{ fontSize: `${summaryFontSize}px` }}>
-                        {summarySection === "exam" && <div className="student-summary-block student-summary-block-active"><b>考試整理</b><p>{item.examFocus || "原檔未明確提供考試整理，請依原文核對。"}</p></div>}
-                        {summarySection === "key-points" && <div className="student-summary-block student-summary-block-active"><b>重點</b>{item.keyPoints.length ? <ul>{item.keyPoints.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供重點，請依原文核對。</p>}</div>}
-                        {summarySection === "issues" && <div className="student-summary-block student-summary-block-active"><b>重要爭點</b>{item.issueOutline.length ? <ul>{item.issueOutline.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供重要爭點，請依原文核對。</p>}</div>}
-                        {summarySection === "mistakes" && <div className="student-summary-block student-summary-block-active"><b>常見錯誤</b>{item.commonMistakes.length ? <ul>{item.commonMistakes.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供常見錯誤，請依原文核對。</p>}</div>}
-                        {summarySection === "sources" && <div className="student-summary-block student-summary-block-active"><b>來源位置</b>{item.sourceNotes.length ? <ul>{item.sourceNotes.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供來源位置。</p>}</div>}
-                        {summarySection === "flashcards" && <div className="student-summary-block student-summary-block-active"><b>複習卡</b>{item.flashcards.length > 0 ? <div className="student-summary-flashcards">{item.flashcards.slice(0, 6).map((card) => <details key={card.question}><summary>{card.question}</summary><p>{card.answer}</p></details>)}</div> : <p>目前沒有可用的複習卡。</p>}</div>}
-                      </div>
+                      <details className="student-summary-supporting"><summary>查看考試補充</summary><div style={{ fontSize: `${summaryFontSize}px` }}><section><b>考點與爭點</b><p>{item.examFocus || "原檔未明確提供考試整理，請依原文核對。"}</p>{item.keyPoints.length > 0 && <ul>{item.keyPoints.map((point) => <li key={`point-${point}`}>{point}</li>)}</ul>}{item.issueOutline.length > 0 && <ul>{item.issueOutline.map((point) => <li key={`issue-${point}`}>{point}</li>)}</ul>}</section><section><b>常見錯誤</b>{item.commonMistakes.length ? <ul>{item.commonMistakes.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供常見錯誤。</p>}</section><section><b>來源依據</b>{item.sourceNotes.length ? <ul>{item.sourceNotes.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供來源位置。</p>}</section></div></details>
+                      <details className="student-summary-flashcard-toggle"><summary>用複習卡自我測驗</summary>{item.flashcards.length > 0 ? <div className="student-summary-flashcards">{item.flashcards.slice(0, 6).map((card) => <details key={card.question}><summary>{card.question}</summary><p>{card.answer}</p></details>)}</div> : <p>目前沒有可用的複習卡。</p>}</details>
                       <footer className="student-summary-meta"><span>{item.model || "尚未使用模型"} · {(item.usage?.inputTokens ?? 0) + (item.usage?.outputTokens ?? 0)} tokens · 約 US$ {(item.usage?.estimatedCostUsd ?? 0).toFixed(4)} · 約 NT$ {formatTwd(item.usage?.estimatedCostUsd ?? 0)}</span><div><button type="button" onClick={() => void saveStudentSummary()} disabled={summarySaving}>{summarySaving ? "保存中…" : "保存標題、收藏主題與摘要"}</button></div></footer>
                     </> : <div className="student-summary-empty large">{item.error || item.processingMessage || "正在處理…"}</div>}
                   </>;
