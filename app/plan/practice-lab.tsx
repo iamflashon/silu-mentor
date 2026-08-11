@@ -1133,6 +1133,13 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setCoachExtended(true);
   }
 
+  function sendGuidedCoachReply(kind: "hint" | "smaller_step") {
+    const text = kind === "hint"
+      ? "我還沒有把握。請先給我一個思考提示，不要直接公布完整答案，提示後再讓我回答。"
+      : "這一步我不確定，請把剛才的問題拆成一個更小、可以直接判斷的問題，再讓我回答。";
+    void askCoach("coach", { role: "student", text });
+  }
+
   function recommendationUrl(item: CoachRecommendation) {
     if (!item.url || !item.startSeconds) return item.url;
     try {
@@ -2062,8 +2069,13 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                         </>}
                       </div>}
                       <div className="essay-chat-composer-actions">
-                        {!coachStarted ? <><span>{accountCanAdmin ? "設定完成後，開始這一題的自然對話" : "準備好後，開始這一題的自然對話"}</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : coachEnded ? <><span className="essay-chat-ended-label">本次對話已結束，紀錄仍可閱讀</span></> : <><span>{coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length === coachRoundLimit - 1 ? "剩最後 1 輪" : "請在下方輸入自己的回答；系統會忠實保留原文"}</span>{coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= 7 && !coachExtended && <button type="button" className="essay-extend-button" onClick={extendCoachConversation} disabled={coaching}>延長 2 輪</button>}{accountCanAdmin && <button type="button" className="scholar-follow-up-button" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "AI 代答測試" : "AI 回覆指定訊息"}</button>}<button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>總結並結束</button></>}
+                        {!coachStarted ? <><span>{accountCanAdmin ? "設定完成後，開始這一題的自然對話" : "準備好後，開始這一題的自然對話"}</span><button type="button" className="essay-chat-start scholar-start-button" onClick={startEssayCoach} disabled={coaching}>開始對話</button></> : coachEnded ? <div className="essay-chat-finish-panel"><div><strong>本次引導已完成</strong><span>老師已完成收尾，請選擇下一步。</span></div><div><button type="button" onClick={startEssayCoach}>再練一次</button><button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>回到題目</button><button type="button" className="primary" onClick={() => setEssayUnlocked(true)}>進入考場擬答</button></div></div> : <><span>{coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length === coachRoundLimit - 1 ? "剩最後 1 輪" : "你可以直接回答，或使用下方引導"}</span>{coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= 7 && !coachExtended && <button type="button" className="essay-extend-button" onClick={extendCoachConversation} disabled={coaching}>延長 2 輪</button>}<button type="button" className="essay-end-summary-button" onClick={() => void askCoach("end_summary")} disabled={coaching}>請老師總結並結束</button></>}
                       </div>
+                      {coachStarted && !coachEnded && <div className="essay-chat-guidance-actions" aria-label="回答引導">
+                        <button type="button" onClick={() => sendGuidedCoachReply("hint")} disabled={coaching}>給我一點提示</button>
+                        <button type="button" onClick={() => sendGuidedCoachReply("smaller_step")} disabled={coaching}>拆成更小一步</button>
+                        {accountCanAdmin && <button type="button" className="student-simulation" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "讓模擬學生接著回答" : "讓模擬學生回覆這句"}</button>}
+                      </div>}
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachEnded ? "本次對話已結束" : coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit || !coachInput.trim()}>↑</button></form>
                     </div>
                 </div>

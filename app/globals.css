@@ -15538,6 +15538,32 @@ a {
 .essay-chat-session-status span { color: #326d6b; font-weight: 850; }
 .essay-chat-session-status small { text-align: right; }
 .essay-chat-ended-label { color: #526b74; font-weight: 800; }
+.essay-chat-guidance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px 2px;
+}
+.essay-chat-guidance-actions button,
+.essay-chat-finish-panel button {
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 1px solid #b9d3d2;
+  border-radius: 999px;
+  background: #fff;
+  color: #315f61;
+  font-weight: 800;
+  cursor: pointer;
+}
+.essay-chat-guidance-actions button:hover:not(:disabled) { background: #edf7f6; border-color: #76aaa7; }
+.essay-chat-guidance-actions .student-simulation { background: #e8f4f2; border-color: #71a9a5; color: #245d5a; }
+.essay-chat-guidance-actions button:disabled { opacity: .45; cursor: wait; }
+.essay-chat-finish-panel { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid #bad7d4; border-radius: 14px; background: #f3faf9; }
+.essay-chat-finish-panel > div:first-child { display: grid; gap: 3px; }
+.essay-chat-finish-panel strong { color: #285f5d; }
+.essay-chat-finish-panel span { color: #61777d; font-size: .84rem; }
+.essay-chat-finish-panel > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.essay-chat-finish-panel button.primary { color: #fff; background: #326d6b; border-color: #326d6b; }
 .essay-extend-button {
   flex: 0 0 auto;
   padding: 8px 12px;
@@ -15789,6 +15815,12 @@ a {
     line-height: 1.2;
   }
   .essay-chat-session-status { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .essay-chat-guidance-actions { padding-inline: 8px; }
+  .essay-chat-guidance-actions button { flex: 1 1 calc(50% - 8px); }
+  .essay-chat-guidance-actions .student-simulation { flex-basis: 100%; }
+  .essay-chat-finish-panel { align-items: stretch; flex-direction: column; }
+  .essay-chat-finish-panel > div:last-child { justify-content: stretch; }
+  .essay-chat-finish-panel button { flex: 1 1 30%; }
   .essay-chat-session-status small { text-align: left; }
   .essay-chat-settings {
     margin-bottom: 7px;
