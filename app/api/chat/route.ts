@@ -11,7 +11,7 @@ import { storedDocumentAnalysis } from "../../../lib/document-analysis";
 import { syncBookLearningRecord } from "../../../lib/book-learning-record";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel, getZaiKey, getZaiModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
-import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -528,6 +528,34 @@ function inferSubject(text: string) {
   return "綜合";
 }
 
+function requestedMcqSubject(text: string) {
+  const compact = text.replace(/\s+/g, "");
+  if (!/(?:一試|選擇題|單選題|真題|考古題)/.test(compact)) return null;
+  if (!/(?:找|給|出|練|做|來|抽|隨機|題庫|有沒有|是否有)/.test(compact)) return null;
+  if (/刑事訴訟法|刑訴/.test(compact)) return "刑事訴訟法";
+  if (/民事訴訟法|民訴/.test(compact)) return "民事訴訟法";
+  if (/刑法/.test(compact)) return "刑法";
+  if (/民法/.test(compact)) return "民法";
+  if (/憲法|行政法|公法/.test(compact)) return /憲法/.test(compact) ? "憲法" : /行政法/.test(compact) ? "行政法" : "公法";
+  if (/公司法|保險法|證券交易法|票據法|商法|商事法/.test(compact)) return "商事法";
+  return /一試|選擇題|單選題/.test(compact) ? "" : null;
+}
+
+async function findPublishedMcq(subject: string) {
+  const db = await getDb();
+  const filters = [eq(examQuestions.status, "published"), eq(examQuestions.examType, "mcq")];
+  if (subject) {
+    const subjectNeedle = subject === "商事法" ? "商" : subject === "公法" ? "公法" : subject;
+    filters.push(sql`${examQuestions.subject} like ${`%${subjectNeedle}%`}`);
+  }
+  const [question] = await db.select().from(examQuestions).where(and(...filters)).orderBy(sql`random()`).limit(1);
+  if (!question) return null;
+  let options: Record<string, string> | null = null;
+  try { options = question.optionsJson ? JSON.parse(question.optionsJson) as Record<string, string> : null; } catch { options = null; }
+  if (!options || !Object.keys(options).some((key) => /^[ABCD]$/.test(key))) return null;
+  return { id: question.id, examType: "mcq" as const, year: question.year, examName: question.examName, subject: question.subject, questionNumber: question.questionNumber, stem: question.stem, options };
+}
+
 const modelRates: Record<string, { input: number; cached: number; output: number }> = {
   "gpt-5.6-luna": { input: 0.10, cached: 0.01, output: 0.60 },
   "gpt-5.6-terra": { input: 1.00, cached: 0.10, output: 6.00 },
@@ -769,6 +797,21 @@ export async function POST(request: Request) {
         : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
           ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
           : { type: "home" };
+    const mcqSubject = context.type === "home" && latestStudent ? requestedMcqSubject(latestStudent.text) : null;
+    if (mcqSubject !== null) {
+      const practiceQuestion = await findPublishedMcq(mcqSubject);
+      const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "一試真題練習", context);
+      const reply = practiceQuestion
+        ? `已從「練真題」的已發布一試題庫抽出${mcqSubject ? `一題${mcqSubject}` : "一題"}真題。請直接在題目卡選 A、B、C 或 D；作答前不會顯示答案。`
+        : `「練真題」目前沒有找到符合${mcqSubject ? `「${mcqSubject}」` : "條件"}且已發布、選項完整的一試真題。這是題庫篩選結果，不是教材搜尋結果。`;
+      const db = await getDb();
+      if (body.persistStudentMessage !== false && latestStudent?.text.trim()) {
+        await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text.trim() });
+      }
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: reply, source: practiceQuestion ? "真題庫" : null });
+      await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank" });
+    }
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
     const route = modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
     if (route) modelMode = route.provider;

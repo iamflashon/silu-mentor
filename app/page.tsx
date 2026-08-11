@@ -5,6 +5,7 @@ import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "rea
 import { ListeningPlayer, ListeningFeed } from "./listening-player";
 import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
 import { formatTwd } from "../lib/currency";
+import { coreExamPoints, type CoreExamPoint } from "../lib/core-exam-points";
 
 type ComparisonResponse = {
   id: number;
@@ -136,6 +137,7 @@ export default function Home() {
   const [dailyChoiceVisible, setDailyChoiceVisible] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [today, setToday] = useState(() => taipeiDate());
+  const [homeExamPoint, setHomeExamPoint] = useState<CoreExamPoint>(() => coreExamPoints[0]);
   const [greeting, setGreeting] = useState(() => taipeiGreeting());
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
@@ -234,6 +236,10 @@ export default function Home() {
     refreshTaipeiClock();
     const timer = window.setInterval(refreshTaipeiClock, 60_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    setHomeExamPoint(coreExamPoints[Math.floor(Math.random() * coreExamPoints.length)] ?? coreExamPoints[0]);
   }, []);
 
   useEffect(() => {
@@ -395,6 +401,18 @@ export default function Home() {
   function teachLegalLesson() {
     if (!legalLesson) return;
     void send(`請帶我學習這條法條：\n${legalLesson.title} ${legalLesson.articleNo}\n${legalLesson.content}\n請先用一句話說明考點，再用一個生活化或司律題型情境問我；不要一開始就給完整答案。`);
+  }
+
+  function swapHomeExamPoint() {
+    setHomeExamPoint((current) => {
+      if (coreExamPoints.length < 2) return current;
+      const candidates = coreExamPoints.filter((point) => point.title !== current.title || point.subject !== current.subject);
+      return candidates[Math.floor(Math.random() * candidates.length)] ?? current;
+    });
+  }
+
+  function learnHomeExamPoint() {
+    void send(`請帶我學習司律熱考點「${homeExamPoint.subject}｜${homeExamPoint.title}」。先用一句話說明這個考點在二試申論中的判斷分岔，再問我一個可以直接回答的小問題；不要一開始就公布完整答案。`);
   }
 
   async function loadRandomLegalLesson() {
@@ -570,10 +588,21 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage }),
       });
-      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null };
+      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null; practiceQuestion?: PracticeQuestion | null };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
       setMessages((current) => [...current, { role: "mentor", text: result.reply!, model: result.usage?.model, usage: result.usage, sources: result.sources ?? [], citationStatus: result.citationStatus, teachingEvidence: result.teachingEvidence, comparison: result.comparison ?? undefined }]);
-      setSource(result.source ?? "AI 補充");
+      if (result.practiceQuestion) {
+        setPracticeQuestion(result.practiceQuestion);
+        setPracticeAnswer(null);
+        setPracticeCoachInput("");
+        setPracticeCoachMessages([]);
+        setPracticeCoachGap("");
+        setPracticeCoachIssue("");
+        setPracticeCoachRecommendations([]);
+        setSource(null);
+      } else {
+        setSource(result.source ?? "AI 補充");
+      }
       setLastUsage(result.usage ?? null);
       if (sentTeachingLevel) {
         const lunaResponse = result.comparison?.responses.find((item) => item.label === "Luna") ?? null;
@@ -854,6 +883,11 @@ export default function Home() {
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
           <h1>今天，照計畫前進。</h1>
+          <div className="home-exam-point" aria-label="今日熱考點推薦">
+            <span>今日熱考點</span>
+            <button type="button" className="home-exam-point-title" onClick={learnHomeExamPoint}><b>{homeExamPoint.subject}</b>{homeExamPoint.title}</button>
+            <button type="button" className="home-exam-point-swap" onClick={swapHomeExamPoint}>換一個</button>
+          </div>
           <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
           <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
             {railCollapsed ? "展開學習工具" : "收合側欄"}
