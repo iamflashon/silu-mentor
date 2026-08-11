@@ -2,14 +2,13 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { appSettings } from "../../../../db/schema";
 
-const allowedModels = new Set(["luna", "sol"]);
 const basicFields = new Set(["summary", "examFocus", "keyPoints", "issueOutline", "commonMistakes", "sourceNotes", "flashcards"]);
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 function settingKey(request: Request) { return `student-summary-preferences:${userKey(request).toLowerCase()}`; }
 function clean(value: unknown) {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
   return {
-    defaultModel: allowedModels.has(String(row.defaultModel)) ? String(row.defaultModel) : "luna",
+    defaultModel: "luna",
     fields: Array.isArray(row.fields) ? row.fields.map(String).filter((item) => basicFields.has(item)) : [...basicFields],
     customFields: Array.isArray(row.customFields) ? row.customFields.map((item) => String(item).trim().slice(0, 40)).filter(Boolean).slice(0, 3) : [],
   };
