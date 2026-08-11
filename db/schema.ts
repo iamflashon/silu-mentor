@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const members = sqliteTable("members", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -202,6 +202,37 @@ export const issuePracticeRecords = sqliteTable("issue_practice_records", {
     .$defaultFn(() => new Date()),
 }, (table) => [
   uniqueIndex("issue_practice_records_user_question_unique").on(table.userKey, table.questionId),
+]);
+
+export const personalIssueQuestions = sqliteTable("personal_issue_questions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  title: text("title").notNull(),
+  subject: text("subject").notNull().default("未分類"),
+  sourceLabel: text("source_label").notNull().default("我的書籍"),
+  questionText: text("question_text").notNull(),
+  imageStorageKey: text("image_storage_key"),
+  imageContentType: text("image_content_type"),
+  imageStorageKeysJson: text("image_storage_keys_json").notNull().default("[]"),
+  imageContentTypesJson: text("image_content_types_json").notNull().default("[]"),
+  ocrPartsJson: text("ocr_parts_json").notNull().default("[]"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("personal_issue_questions_user_updated_idx").on(table.userKey, table.updatedAt),
+  index("personal_issue_questions_user_subject_idx").on(table.userKey, table.subject),
+]);
+
+export const personalIssuePracticeRecords = sqliteTable("personal_issue_practice_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  personalQuestionId: integer("personal_question_id").notNull().references(() => personalIssueQuestions.id, { onDelete: "cascade" }),
+  studentIssues: text("student_issues").notNull().default(""),
+  aiResultJson: text("ai_result_json"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("personal_issue_records_user_question_unique").on(table.userKey, table.personalQuestionId),
 ]);
 
 export const learningAnalyses = sqliteTable("learning_analyses", {
