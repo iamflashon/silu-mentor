@@ -12,6 +12,14 @@ type CoachProgress = {
   items: Array<{ label: string; status: "done" | "current" | "pending" }>;
   readyForEssay: boolean;
 };
+type VariationQuestion = {
+  level: "basic" | "advanced";
+  stem: string;
+  options: Record<"A" | "B" | "C" | "D", string>;
+  correctAnswer: "A" | "B" | "C" | "D";
+  explanation: string;
+  changedFact: string;
+};
 
 function coachStageLabelsFor(subject: string) {
   const normalized = subject.toLowerCase();
@@ -61,6 +69,29 @@ function parseCoachReply(text: string) {
     relevance: (match?.[1]?.toLowerCase() ?? "related") as "related" | "drift" | "off_topic",
     text: text.replace(/^\s*【關聯判定：(related|drift|off_topic)】\s*/i, "").trim(),
   };
+}
+
+function parseVariationQuestion(text: string, level: "basic" | "advanced"): VariationQuestion | null {
+  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as Partial<VariationQuestion>;
+    const options = parsed.options as Record<string, unknown> | undefined;
+    const correctAnswer = String(parsed.correctAnswer ?? "").toUpperCase();
+    if (!parsed.stem || !options || !["A", "B", "C", "D"].every((key) => typeof options[key] === "string" && String(options[key]).trim()) || !["A", "B", "C", "D"].includes(correctAnswer)) return null;
+    return {
+      level,
+      stem: String(parsed.stem).trim(),
+      options: { A: String(options.A).trim(), B: String(options.B).trim(), C: String(options.C).trim(), D: String(options.D).trim() },
+      correctAnswer: correctAnswer as "A" | "B" | "C" | "D",
+      explanation: String(parsed.explanation ?? "請依原題判準重新檢驗變更後的關鍵事實。").trim(),
+      changedFact: String(parsed.changedFact ?? "已變更一項關鍵事實").trim(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function anthropicText(payload: unknown) {
@@ -173,7 +204,8 @@ export async function POST(request: Request) {
     const studentCount = acceptedMessages.filter((message) => message.role === "student" || (simulationAllowed && message.role === "scholar")).length;
     const roundLimit = Number(body.roundLimit) === 10 ? 10 : 8;
     const priorOffTopicCount = Math.min(2, Math.max(0, Number(body.offTopicCount ?? 0)));
-    const roundReached = action !== "start" && studentCount >= roundLimit;
+    const isVariation = action === "variation_basic" || action === "variation_advanced";
+    const roundReached = action !== "start" && !isVariation && studentCount >= roundLimit;
     const actionInstruction = roundReached
       ? `學生已完成本次第 ${roundLimit} 輪。直接整理本次已掌握重點、尚待加強處與建議下一步，明示本次對話已結束；不得再提問。`
       : action === "start"
@@ -183,9 +215,9 @@ export async function POST(request: Request) {
           ? "這是第一次引導。先肯定學生開始練習，接著只問一個問題：請學生先整理題目中的當事人、公司機關、法律關係與最可能的爭點，不要先寫完整答案。"
           : "這是第一次引導。先肯定學生開始練習，接著只問一個問題：請學生先整理題目事實中的當事人、法律關係與最可能爭點，不要直接公布完整答案。"
       : action === "variation_basic"
-        ? "依原真題改一個關鍵事實，出一題基礎模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
+        ? "依原真題只改一個關鍵事實，出一題基礎模擬單選題。必須有完整題幹與 A、B、C、D 四個彼此可區辨的選項，且只有一個正確答案。不得冒充歷屆真題。"
         : action === "variation_advanced"
-          ? "依原真題改變程序階段、當事人主張或關鍵要件，出一題進階模擬變化題；明確標示這是模擬變化題，不得冒充歷屆真題，最後只問一個問題。"
+          ? "依原真題改變一項程序階段、當事人主張或關鍵要件，出一題進階模擬單選題。必須有完整題幹與 A、B、C、D 四個彼此可區辨的選項，且只有一個正確答案。不得冒充歷屆真題。"
           : action === "subquestion_summary"
             ? "學生主動要求完成本單題。請批改學生剛才親自整理的小結；不要重述整份老師擬答，也不要另寫長篇解析。若小結欠缺法律判準、關鍵事實或結論，只指出最重要的一項缺漏，並用一個短問題請學生補上；此時不得宣告通過。若三者齊備，依指定的精簡格式宣告本單題通過。"
             : action === "end_summary"
@@ -199,14 +231,16 @@ export async function POST(request: Request) {
       : companySubject
         ? "先整理當事人與公司法律關係，再逐一處理公司機關、權利義務、決議效力或其他題目爭點，完成微型變化題驗收後，只能讓學生選擇下一步。"
         : "先整理題目事實與法律關係，再逐一處理各爭點的規範、涵攝與結論；完成微型變化題驗收後，只能讓學生選擇下一步。";
-    const responseRule = roundReached
+    const responseRule = isVariation
+      ? `只輸出可解析的 JSON，不得加 Markdown 或其他文字：{"stem":"完整題幹","options":{"A":"選項A","B":"選項B","C":"選項C","D":"選項D"},"correctAnswer":"A","explanation":"作答後顯示的精簡解析，說明判準與關鍵事實","changedFact":"相較原題改變的唯一關鍵事實"}。選項不得出現「以上皆是／以上皆非」，答案位置不可固定。`
+      : roundReached
       ? "回覆限 100 至 180 字，直接總結並結束，不得使用問號。"
       : action === "subquestion_summary"
       ? "回覆限 80 至 160 字。通過時只依序輸出四行：【單題批改：通過】、【答對重點】一項、【一項修正】最多一項、【合格小結】一句。未通過時只輸出：【單題批改：待補充】、【已掌握】一項、【請補上】一項，最後問一個短問題。不得貼出名師擬答，不得逐點羅列學生所有答對內容，不得重複總評。"
       : action === "end_summary"
         ? "回覆限 100 至 180 字，直接總結並結束，不得使用問號、不得要求學生繼續回答，也不得出變化題。"
         : "一般回覆限 45 至 110 字。需要追問時只做一句具體回饋，再問一個短問題；已達標或出現重複追問時，改為一句確認、一句本段結論與下一步，不得為維持對話而硬問。不要寫成表格、講義或完整擬答。";
-    const relevanceInstruction = `每次回覆第一行必須且只能標記【關聯判定：related】、【關聯判定：drift】或【關聯判定：off_topic】之一。related 是直接處理本題、相關法條學說、老師解析或合理延伸情境；drift 是仍屬本法科但偏離目前題目；off_topic 僅限閒聊、灌水或轉問完全不同事項，不得只靠關鍵字判斷。drift 應簡短回應後帶回本題；off_topic 不回答無關內容，只提醒回到本題。此前已明顯離題 ${priorOffTopicCount} 次；若此前是 0 次，本輪離題時溫和提醒；若此前是 1 次，本輪離題時明確警告再次離題將提前結束；若本輪判定 off_topic 且此前已達 2 次，直接整理目前成果並明示因三次離題而結束，不得再提問。標記後才輸出學生看得到的正文。`;
+    const relevanceInstruction = isVariation ? "" : `每次回覆第一行必須且只能標記【關聯判定：related】、【關聯判定：drift】或【關聯判定：off_topic】之一。related 是直接處理本題、相關法條學說、老師解析或合理延伸情境；drift 是仍屬本法科但偏離目前題目；off_topic 僅限閒聊、灌水或轉問完全不同事項，不得只靠關鍵字判斷。drift 應簡短回應後帶回本題；off_topic 不回答無關內容，只提醒回到本題。此前已明顯離題 ${priorOffTopicCount} 次；若此前是 0 次，本輪離題時溫和提醒；若此前是 1 次，本輪離題時明確警告再次離題將提前結束；若本輪判定 off_topic 且此前已達 2 次，直接整理目前成果並明示因三次離題而結束，不得再提問。標記後才輸出學生看得到的正文。`;
     const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${relevanceInstruction}\n${actionInstruction}\n${responseRule}你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。答錯時只給分級提示並留在目前階段，不得直接公布完整答案。你必須辨識三種收束訊號：學生已正確說出判準與結論、學生只是換句話重問已回答的疑問、學生表示想停止或要求總結。出現任一訊號時應主動收束，不能繼續用問題延長對話。每個決定性缺口最多補問一次；同一爭點不得連續出現兩次以上內容相同的追問。進入「微型變化題驗收」時只改變一個關鍵事實；學生已能運用判準即宣告驗收完成，不再追加第二題。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。不得使用 Markdown 星號、井號或反引號。`;
     const input = `真題：${question.year} ${question.subject} 第 ${question.questionNumber} 題\n${fullQuestion}\n老師擬答：${question.teacherAnswer || "尚無"}\n老師補充：${question.teacherNotes || "尚無"}\n學生申論草稿：${String(body.studentAnswer || "未提供").slice(0, 5000)}\n對話：\n${history || "尚未開始"}\n\n教材候選：\n${resourceContext || "無"}\n\n法條候選：\n${lawContext || "無"}`;
     const runs = await Promise.all(providersFor(String(body.modelMode ?? "luna")).map(async (provider) => {
@@ -221,13 +255,17 @@ export async function POST(request: Request) {
     // Administrator-generated simulation text must never be relabelled as the learner's own words.
     const latestStudent = [...acceptedMessages].reverse().find((message) => message.role === "student" && message.text.trim()) ?? null;
     if (latestStudent) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "student", text: latestStudent.text.trim() });
-    if (primary.text?.trim()) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "mentor", text: primary.text.trim() });
+    const variation = isVariation && primary?.text
+      ? parseVariationQuestion(primary.text, action === "variation_basic" ? "basic" : "advanced")
+      : null;
+    if (isVariation && !variation) return Response.json({ error: "AI 產生的變化題格式不完整，請再試一次" }, { status: 502 });
+    if (primary.text?.trim() && !isVariation) await db.insert(examCoachMessages).values({ userKey: key, questionId, role: "mentor", text: primary.text.trim() });
     for (const run of parsedRuns) await db.insert(usageLogs).values({ model: run.model, source: "真題教練", inputTokens: run.inputTokens, cachedTokens: 0, outputTokens: run.outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: 0 });
     const recommendedResources = resources.slice(0, 4).map((item) => ({ type: item.resourceType, title: item.resourceTitle, location: item.resourceType === "course" && item.startSeconds != null ? `${item.segmentTitle} · ${Math.floor(item.startSeconds / 60)}:${String(item.startSeconds % 60).padStart(2, "0")}` : [item.lessonLabel, item.pageStart ? `第 ${item.pageStart}${item.pageEnd && item.pageEnd !== item.pageStart ? `–${item.pageEnd}` : ""} 頁` : ""].filter(Boolean).join(" · "), url: item.sourceUrl, startSeconds: item.startSeconds }));
     const recommendedLaws = laws.slice(0, 4).map((item) => ({ type: "law", title: `${item.title} ${item.articleNo}`, location: item.content.slice(0, 140), url: item.sourceUrl, startSeconds: null }));
     const offTopicCount = Math.min(3, priorOffTopicCount + (primary.relevance === "off_topic" ? 1 : 0));
     const ended = action === "end_summary" || roundReached || offTopicCount >= 3;
-    return Response.json({ reply: primary.text, relevance: primary.relevance, offTopicCount, ended, diagnosedGap: "", keyIssue: stage, progress, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: parsedRuns.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
+    return Response.json({ reply: isVariation ? undefined : primary.text, variation, relevance: primary.relevance, offTopicCount, ended, diagnosedGap: "", keyIssue: stage, progress, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: parsedRuns.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 280) : "真題教練暫時無法回應" }, { status: 500 });
   }

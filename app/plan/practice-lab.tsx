@@ -91,6 +91,14 @@ type CoachRecommendation = {
   url: string;
   startSeconds: number | null;
 };
+type VariationQuestion = {
+  level: "basic" | "advanced";
+  stem: string;
+  options: Record<"A" | "B" | "C" | "D", string>;
+  correctAnswer: "A" | "B" | "C" | "D";
+  explanation: string;
+  changedFact: string;
+};
 
 type Props = { initialType: "mcq" | "essay"; standalone?: boolean; canAdmin?: boolean };
 type PracticeMode = "today" | "wrong" | "custom" | "laws";
@@ -367,6 +375,8 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const [teacherAnswerOpen, setTeacherAnswerOpen] = useState(false);
   const [coachInput, setCoachInput] = useState("");
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
+  const [variationQuestion, setVariationQuestion] = useState<VariationQuestion | null>(null);
+  const [variationAnswer, setVariationAnswer] = useState<string | null>(null);
   const [coachGap, setCoachGap] = useState("");
   const [coachIssue, setCoachIssue] = useState("");
   const [coachRecommendations, setCoachRecommendations] = useState<
@@ -706,6 +716,8 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setEssay("");
     setCoachInput("");
     setCoachMessages([]);
+    setVariationQuestion(null);
+    setVariationAnswer(null);
     setSelectedCoachMessageIndex(null);
     setCoachGap("");
     setCoachIssue("");
@@ -993,6 +1005,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
       });
       const result = (await response.json()) as {
         reply?: string;
+        variation?: VariationQuestion;
         diagnosedGap?: string;
         keyIssue?: string;
         recommendations?: CoachRecommendation[];
@@ -1003,7 +1016,11 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         ended?: boolean;
         error?: string;
       };
-      if (response.ok && result.reply) {
+      if (response.ok && result.variation) {
+        setVariationQuestion(result.variation);
+        setVariationAnswer(null);
+        setCoachStarted(true);
+      } else if (response.ok && result.reply) {
         setCoachMessages((current) => [
           ...current,
           { role: "mentor", text: result.reply! },
@@ -1887,6 +1904,38 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                       </button>
                     </div>
                   </header>
+                  {variationQuestion && (
+                    <section className="coach-variation-question" aria-live="polite">
+                      <div className="coach-variation-heading">
+                        <div>
+                          <span>{variationQuestion.level === "basic" ? "基礎模擬變化題" : "進階模擬變化題"}</span>
+                          <small>本題為 AI 依原題生成，非歷屆真題</small>
+                        </div>
+                        <button type="button" onClick={() => { setVariationQuestion(null); setVariationAnswer(null); }}>關閉</button>
+                      </div>
+                      <p>{variationQuestion.stem}</p>
+                      <div className="coach-variation-options">
+                        {(["A", "B", "C", "D"] as const).map((key) => (
+                          <button
+                            type="button"
+                            key={key}
+                            disabled={Boolean(variationAnswer)}
+                            className={variationAnswer === key ? "chosen" : ""}
+                            onClick={() => setVariationAnswer(key)}
+                          >
+                            <b>{key}</b><span>{variationQuestion.options[key]}</span>
+                          </button>
+                        ))}
+                      </div>
+                      {variationAnswer && (
+                        <div className={variationAnswer === variationQuestion.correctAnswer ? "variation-result correct" : "variation-result incorrect"}>
+                          <strong>{variationAnswer === variationQuestion.correctAnswer ? "答對了" : `答錯了，正確答案是 ${variationQuestion.correctAnswer}`}</strong>
+                          <p>{variationQuestion.explanation}</p>
+                          <small>本題變更：{variationQuestion.changedFact}</small>
+                        </div>
+                      )}
+                    </section>
+                  )}
                   <div className="practice-coach-messages">
                     {coachMessages.map((message, index) => (
                       <div
