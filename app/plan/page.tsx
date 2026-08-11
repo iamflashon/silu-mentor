@@ -635,7 +635,6 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   const [activeTab, setActiveTab] = useState<PlanTab>(initialTab);
   const [studentSummaries, setStudentSummaries] = useState<StudentSummary[]>([]);
   const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
-  const [summaryWorkspaceTab, setSummaryWorkspaceTab] = useState<"summary" | "organize">("summary");
   const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<number>>(new Set());
   const [summaryFields, setSummaryFields] = useState<string[]>(defaultSummaryFields);
   const [summaryCustomFields, setSummaryCustomFields] = useState<string[]>([]);
@@ -2739,7 +2738,10 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       if (!upload.ok || !uploaded.summary) throw new Error(uploaded.error ?? "上傳失敗");
       setStudentSummaries((current) => [uploaded.summary!, ...current]);
       setSelectedSummaryId(uploaded.summary.id);
-      setSummaryWorkspaceTab("summary");
+      setSummaryDraft(uploaded.summary.editedSummary || uploaded.summary.summary);
+      setSummaryFavorite(uploaded.summary.favorite);
+      setSummaryTitleDraft(uploaded.summary.displayTitle || uploaded.summary.name);
+      setSummaryCollectionTitle(uploaded.summary.collectionTitle || uploaded.summary.topic || uploaded.summary.displayTitle || "");
       setSummaryNotice("已上傳，Luna 正在整理精簡摘要…");
       const process = await fetch("/api/summaries/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: uploaded.summary.id, fields: summaryFields, customFields: summaryCustomFields }) });
       const processed = await process.json() as { error?: string };
@@ -2779,7 +2781,6 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
     setSummaryTopic(item.topic || "");
     setSummaryCollectionTitle(item.collectionTitle || item.topic || item.displayTitle || "");
     setSummaryFontSize([16, 18, 20, 22, 24].includes(item.fontSize ?? 20) ? item.fontSize ?? 20 : 20);
-    setSummaryWorkspaceTab("summary");
   }
 
   function toggleSummaryFieldGroup(fields: readonly string[]) {
@@ -3382,12 +3383,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
               <button type="submit" disabled={summaryUploadLoading}>{summaryUploadLoading ? "整理中…" : "上傳並整理"}</button>
             </form>
             {summaryNotice && <p className="student-summary-notice">{summaryNotice}</p>}
-            <nav className="student-summary-workspace-tabs" aria-label="摘要工作區切換">
-              <button type="button" className={summaryWorkspaceTab === "summary" ? "active" : ""} aria-selected={summaryWorkspaceTab === "summary"} onClick={() => setSummaryWorkspaceTab("summary")}>摘要</button>
-              <button type="button" className={summaryWorkspaceTab === "organize" ? "active" : ""} aria-selected={summaryWorkspaceTab === "organize"} onClick={() => setSummaryWorkspaceTab("organize")}>整理資料 <span>{studentSummaries.length}</span></button>
-            </nav>
-            <div className={`student-summary-layout ${summaryWorkspaceTab === "organize" ? "show-organize" : "show-summary"}`}>
-              {summaryWorkspaceTab === "organize" && <aside className="student-summary-list" aria-label="我的整理資料">
+            <div className="student-summary-layout">
+              <aside className="student-summary-list" aria-label="我的整理資料">
                 <div className="student-summary-list-head">
                   <div><strong>我的整理資料</strong><span>{studentSummaries.length} 份</span></div>
                   {studentSummaries.length > 0 && <label className="student-summary-select-all"><input type="checkbox" checked={studentSummaries.every((item) => selectedSummaryIds.has(item.id))} onChange={toggleAllSummaries} aria-label="全選摘要" />全選</label>}
@@ -3423,8 +3420,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                     })}
                   </details>
                 )) : <div className="student-summary-empty">尚未上傳資料。先上傳一份講義或照片，這裡會保存整理紀錄。</div>}
-              </aside>}
-              {summaryWorkspaceTab === "summary" && <section className="student-summary-detail" aria-live="polite">
+              </aside>
+              <section className="student-summary-detail" aria-live="polite">
                 {(() => {
                   const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
                   if (!item) return <div className="student-summary-empty large">請從左側點選一份整理資料，這裡才會顯示內容。</div>;
@@ -3438,7 +3435,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                     </> : <div className="student-summary-empty large">{item.error || item.processingMessage || "正在處理…"}</div>}
                   </>;
                 })()}
-              </section>}
+              </section>
             </div>
           </section>
         )}
