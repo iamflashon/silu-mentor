@@ -56,7 +56,7 @@ type DictionaryResult = { term: string; content: string; sourceUrl: string; sour
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
 type PracticeRecommendation = { type: string; title: string; location: string; url: string; startSeconds: number | null };
 type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
-type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string };
+type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string; className?: string };
 
 const trustPrincipleStudentTest = "我理解信賴原則是，駕駛人可以相信行人會遵守交通規則。可是如果行人只是站在路邊等紅綠燈，駕駛人應該可以信賴他不會突然衝出來；但如果行人已經有明顯要違規的樣子，例如一直往車道靠近，駕駛人就不能再主張信賴原則。那本題中，要怎麼判斷這個行人的動作已經達到「顯然即將違規」的程度？如果我主張駕駛人仍可相信行人不會衝出來，這樣的論證有機會成立嗎？";
 function cleanMessageText(text: string) { return text.replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
@@ -198,6 +198,7 @@ export default function Home() {
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [terraChallenging, setTerraChallenging] = useState(false);
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
+  const [memberMenuOpen, setMemberMenuOpen] = useState(false);
   const handoffHandled = useRef(false);
   useEffect(() => {
     fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
@@ -880,7 +881,10 @@ export default function Home() {
           <a href="/summaries" className="admin-link">整摘要</a>
           {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
-          {currentMember ? <a href="/signout-with-chatgpt?return_to=/" className="member-chip" title={currentMember.email}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>登出</small></a> : <a href="/signin-with-chatgpt?return_to=/" className="member-signin">登入我的學習平台</a>}
+          {currentMember ? <div className={`member-menu-wrap ${memberMenuOpen ? "is-open" : ""}`}>
+            <button type="button" className="member-chip" title={currentMember.email} aria-haspopup="menu" aria-expanded={memberMenuOpen} onClick={() => setMemberMenuOpen((open) => !open)}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>帳號</small><i aria-hidden="true">⌄</i></button>
+            {memberMenuOpen && <><button type="button" className="member-menu-backdrop" aria-label="關閉帳號選單" onClick={() => setMemberMenuOpen(false)} /><div className="member-menu" role="menu"><div><strong>{currentMember.displayName}</strong><small>{currentMember.email}</small></div><a href="/account" role="menuitem">會員設定</a><a href="/signout-with-chatgpt?return_to=/" role="menuitem" className="member-menu-signout">登出</a></div></>}
+          </div> : <a href="/signin-with-chatgpt?return_to=/" className="member-signin">登入我的學習平台</a>}
         </div>
       </header>
       <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "今日任務完成後，記得留下學習接續點", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>◆</b> : null}</span>)}</span></div></div>
