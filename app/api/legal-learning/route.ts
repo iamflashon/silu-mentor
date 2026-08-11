@@ -23,7 +23,7 @@ async function randomArticle(coreOnly: boolean) {
     eq(legalDocuments.category, "法律"),
   ];
   if (coreOnly) conditions.push(inArray(legalDocuments.title, examLaws));
-  return db
+  const rows = await db
     .select({
       documentId: legalDocuments.id,
       title: legalDocuments.title,
@@ -35,7 +35,17 @@ async function randomArticle(coreOnly: boolean) {
     .innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id))
     .where(and(...conditions))
     .orderBy(sql`random()`)
-    .limit(1);
+    .limit(80);
+
+  return rows.filter((article) => isLearnableArticle(article.content)).slice(0, 1);
+}
+
+function isLearnableArticle(content: string) {
+  const marker = content
+    .replace(/[\s\u3000]/g, "")
+    .replace(/[（）()【】〔〕［］\[\]。．.：:；;]/g, "");
+  if (!marker) return false;
+  return !/^(?:本條)?(?:業經|已)?(?:刪除|廢止|失效|停止適用)$/.test(marker);
 }
 
 export async function GET() {
