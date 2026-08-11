@@ -6761,6 +6761,27 @@ a {
     "Noto Sans TC",
     sans-serif;
 }
+.personal-issue-hint-action {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: 18px 0; padding: 16px 18px; border: 1px solid #c8dfdd; border-radius: 16px; background: #f3faf9;
+}
+.personal-issue-hint-action > div { display: grid; gap: 4px; }
+.personal-issue-hint-action b { color: #294d56; }
+.personal-issue-hint-action span { color: #6d858a; font-size: 13px; }
+.student-issue-answer .personal-issue-hint-action button { flex: 0 0 auto; padding: 11px 16px; background: #fff; color: #47747a; border: 1px solid #8fbabb; }
+.personal-issue-suggestion { margin: 0 0 18px; padding: 18px; border: 1px solid #9fc7c5; border-radius: 16px; background: #fff; }
+.personal-issue-suggestion > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.personal-issue-suggestion > header b { color: #2f6268; }
+.personal-issue-suggestion > header span { color: #7a9195; font-size: 12px; }
+.personal-issue-suggestion p { margin: 8px 0; color: #344f55; line-height: 1.7; }
+.personal-issue-suggestion > footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.student-issue-answer .personal-issue-suggestion button.secondary { background: #fff; color: #698186; border: 1px solid #c8d7d8; }
+@media (max-width: 640px) {
+  .personal-issue-hint-action { align-items: stretch; flex-direction: column; }
+  .student-issue-answer .personal-issue-hint-action button { width: 100%; }
+  .personal-issue-suggestion > header { align-items: flex-start; flex-direction: column; }
+  .personal-issue-suggestion > footer button { flex: 1; }
+}
 .student-issue-answer footer,
 .student-issue-result footer {
   display: flex;

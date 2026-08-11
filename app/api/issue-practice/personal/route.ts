@@ -64,7 +64,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { action?: "ocr" | "save" | "analyze"; imageDataUrl?: string; imageDataUrls?: string[]; ocrParts?: string[]; title?: string; subject?: string; sourceLabel?: string; questionText?: string; personalQuestionId?: number; studentIssues?: string };
+    const body = await request.json() as { action?: "ocr" | "save" | "suggest" | "analyze"; imageDataUrl?: string; imageDataUrls?: string[]; ocrParts?: string[]; title?: string; subject?: string; sourceLabel?: string; questionText?: string; personalQuestionId?: number; studentIssues?: string };
     if (body.action === "ocr") {
       const urls = (Array.isArray(body.imageDataUrls) ? body.imageDataUrls : body.imageDataUrl ? [body.imageDataUrl] : []).slice(0, 2);
       const images = urls.map(imageData);
@@ -98,6 +98,24 @@ export async function POST(request: Request) {
         await db.update(personalIssueQuestions).set({ imageStorageKey: storageKeys[0], imageStorageKeysJson: JSON.stringify(storageKeys), imageContentTypesJson: JSON.stringify(images.map((image) => image.contentType)) }).where(eq(personalIssueQuestions.id, created.id));
       }
       return Response.json({ question: { ...created, imageUrl: storageKeys.length ? `/api/issue-practice/personal?imageId=${created.id}&imageIndex=0` : null, imageUrls: storageKeys.map((_, index) => `/api/issue-practice/personal?imageId=${created.id}&imageIndex=${index}`) } });
+    }
+    if (body.action === "suggest") {
+      const id = Number(body.personalQuestionId);
+      if (!Number.isInteger(id)) return Response.json({ error: "找不到要分析的題目" }, { status: 400 });
+      const [question] = await db.select().from(personalIssueQuestions).where(and(eq(personalIssueQuestions.id, id), eq(personalIssueQuestions.userKey, owner(request)))).limit(1);
+      if (!question) return Response.json({ error: "找不到這筆個人題目" }, { status: 404 });
+      if (!await getOpenAIKey()) return Response.json({ error: "AI 模型尚未設定" }, { status: 503 });
+      const model = "gpt-5.6-luna"; const started = Date.now();
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model,
+        instructions: "你是臺灣司法官、律師二試的爭點提示助教。只依題目明示事實辨識必要爭點，不得補造事實，也不得直接寫完整解答、涵攝或罪責結論。每個爭點必須指出觸發它的題示事實。輸出 3 至 8 行；每行只能是一個爭點，格式固定為「一、〔對應事實〕行為人之行為是否涉及○○爭點？」並依行為人與事件順序排列。若資訊不足，該行末標示「（待確認）」；不要輸出前言、標題、法條全文或結語。只輸出繁體中文純文字。",
+        input: `【科目】${question.subject}\n【同學確認後的題目文字】\n${question.questionText}`,
+        max_output_tokens: 1800,
+      }) }) as Record<string, unknown>;
+      const suggestion = outputText(payload); if (!suggestion) return Response.json({ error: "AI 本次沒有產生爭點提示，請再試一次" }, { status: 502 });
+      const tokens = usage(payload); const estimatedCostUsd = tokens.inputTokens / 1e6 * .105 + tokens.outputTokens / 1e6 * .63;
+      await db.insert(usageLogs).values({ source: "找爭點／AI 爭點提示", model, ...tokens, fileSearchCalls: 0, estimatedCostUsdMicros: Math.round(estimatedCostUsd * 1e6) });
+      return Response.json({ suggestion, model: "Luna 助教", usage: { ...tokens, estimatedCostUsd, durationMs: Date.now() - started } });
     }
     if (body.action === "analyze") {
       const id = Number(body.personalQuestionId); const studentIssues = String(body.studentIssues ?? "").trim().slice(0, 12000);
