@@ -263,7 +263,10 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
 
   while (queue.length && pagesRead < limits.maxPages && output.size < limits.maxItems) {
     queue.sort((left, right) => crawlPriority(source, left) - crawlPriority(source, right));
-    const batch = queue.splice(0, Math.min(4, limits.maxPages - pagesRead));
+    // External pages are I/O-bound. A wider bounded batch keeps a broad
+    // catalogue crawl within the hosted request window without changing the
+    // depth or item limits.
+    const batch = queue.splice(0, Math.min(12, limits.maxPages - pagesRead));
     const results = await Promise.all(batch.map(async (parent) => {
       const key = canonicalUrl(parent.url);
       // A real detail URL can still contain an article list, author page or public
@@ -271,7 +274,7 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
       if (visited.has(key) || parent.depth >= limits.maxDepth || /#topic-\d+$/i.test(parent.url)) return [] as DiscoveredItem[];
       visited.add(key);
       try {
-        const response = await fetch(parent.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow", signal: AbortSignal.timeout(12000) });
+        const response = await fetch(parent.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow", signal: AbortSignal.timeout(7000) });
         if (!response.ok) return [];
         const html = await readHtml(response);
         const nextDepth = parent.depth + 1;
@@ -428,11 +431,27 @@ export async function POST(request: Request) {
     const current = await auth.db.select().from(resourceSegments).where(and(eq(resourceSegments.resourceId, resource.id), eq(resourceSegments.segmentType, "external_catalog")));
     const disabledUrls = new Set(current.filter((item) => item.reviewStatus === "disabled").map((item) => item.sourceUrl).filter(Boolean));
     await auth.db.delete(resourceSegments).where(and(eq(resourceSegments.resourceId, resource.id), eq(resourceSegments.segmentType, "external_catalog")));
-    for (let index = 0; index < discovered.length; index++) {
-      const item = discovered[index];
+    // Writing up to 1,600 rows one request at a time is substantially slower
+    // than the crawl and can make the hosting layer terminate the response.
+    // Insert bounded chunks so the endpoint still returns a JSON result.
+    const rows = discovered.map((item, index) => {
       const disabled = disabledUrls.has(item.url);
-      const values = { lessonLabel: config.label, title: item.title, sourceUrl: item.url, text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher }), summary: item.summary, importance: 3, reviewStatus: disabled ? "disabled" : "published", recommended: !disabled, sequence: index + 1 };
-      await auth.db.insert(resourceSegments).values({ resourceId: resource.id, segmentType: "external_catalog", ...values });
+      return {
+        resourceId: resource.id,
+        segmentType: "external_catalog",
+        lessonLabel: config.label,
+        title: item.title,
+        sourceUrl: item.url,
+        text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher }),
+        summary: item.summary,
+        importance: 3,
+        reviewStatus: disabled ? "disabled" : "published",
+        recommended: !disabled,
+        sequence: index + 1,
+      };
+    });
+    for (let index = 0; index < rows.length; index += 40) {
+      await auth.db.insert(resourceSegments).values(rows.slice(index, index + 40));
     }
     await auth.db.update(learningResources).set({ status: "active", updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
     return Response.json({ source, discovered: discovered.length, sources: await sourceRows(auth.db) });

@@ -456,6 +456,17 @@ export default function AdminPage() {
     } finally { setExternalLoading(false); }
   }
 
+  async function readExternalIndexResponse<T extends { error?: string }>(response: Response): Promise<T> {
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      await response.text().catch(() => "");
+      throw new Error(response.status >= 500
+        ? "同步處理時間過長，系統已停止本次作業；既有索引不受影響，請稍後再試。"
+        : "同步服務暫時無法回應，請重新整理後再試。");
+    }
+    return await response.json() as T;
+  }
+
   useEffect(() => { if (activeTab === "external-index") void loadExternalSources(); }, [activeTab]);
 
   async function syncExternalSource(source: ExternalIndexSource["key"] | "lawdata" | "get" | "ibrain") {
@@ -466,7 +477,7 @@ export default function AdminPage() {
     setExternalNotice("正在讀取公開索引…");
     try {
       const response = await fetch("/api/admin/external-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source }) });
-      const data = await response.json();
+      const data = await readExternalIndexResponse<{ sources?: ExternalIndexSource[]; discovered?: number; error?: string }>(response);
       if (!response.ok) throw new Error(data.error || "同步失敗");
       setExternalSources(data.sources ?? []);
       setExternalNotice(`已自動逐層探索並同步 ${data.discovered ?? 0} 筆公開索引；不必再逐頁點擊，且未抓取付費全文。`);
@@ -485,7 +496,7 @@ export default function AdminPage() {
     setExternalNotice(`正在讀取「${item.title}」的下一層公開資料…`);
     try {
       const response = await fetch("/api/admin/external-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: source.key, itemId: item.id }) });
-      const data = await response.json() as { sources?: ExternalIndexSource[]; discovered?: number; added?: number; error?: string };
+      const data = await readExternalIndexResponse<{ sources?: ExternalIndexSource[]; discovered?: number; added?: number; error?: string }>(response);
       if (!response.ok) throw new Error(data.error || "內層抓取失敗");
       setExternalSources(data.sources ?? []);
       setExternalPage(1);
@@ -500,7 +511,7 @@ export default function AdminPage() {
     setExternalNotice(`正在清除「${source.label}」舊資料…`);
     try {
       const response = await fetch("/api/admin/external-index", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: source.key }) });
-      const data = await response.json();
+      const data = await readExternalIndexResponse<{ sources?: ExternalIndexSource[]; deleted?: number; error?: string }>(response);
       if (!response.ok) throw new Error(data.error || "刪除失敗");
       setExternalSources(data.sources ?? []);
       setExternalPage(1);
