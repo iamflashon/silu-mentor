@@ -149,3 +149,28 @@ export async function PATCH(request: Request) {
   await auth.db.update(resourceSegments).set({ recommended: body.enabled === true, reviewStatus: body.enabled === true ? "published" : "disabled" }).where(eq(resourceSegments.id, id));
   return Response.json({ ok: true, enabled: body.enabled === true });
 }
+
+export async function DELETE(request: Request) {
+  const auth = await requireAdmin(request);
+  if ("error" in auth) return auth.error;
+  const body = await request.json() as { source?: SourceKey };
+  const source = body.source;
+  if (!source || !(source in SOURCES)) return Response.json({ error: "未知的同步來源" }, { status: 400 });
+
+  const [resource] = await auth.db.select().from(learningResources).where(and(
+    eq(learningResources.resourceType, "external_index"),
+    eq(learningResources.creator, source),
+  )).limit(1);
+  if (!resource) return Response.json({ ok: true, deleted: 0, sources: await sourceRows(auth.db) });
+
+  const current = await auth.db.select({ id: resourceSegments.id }).from(resourceSegments).where(and(
+    eq(resourceSegments.resourceId, resource.id),
+    eq(resourceSegments.segmentType, "external_catalog"),
+  ));
+  await auth.db.delete(resourceSegments).where(and(
+    eq(resourceSegments.resourceId, resource.id),
+    eq(resourceSegments.segmentType, "external_catalog"),
+  ));
+  await auth.db.delete(learningResources).where(eq(learningResources.id, resource.id));
+  return Response.json({ ok: true, deleted: current.length, sources: await sourceRows(auth.db) });
+}

@@ -4920,6 +4920,9 @@ a {
 .external-source-lists header span, .external-source-lists header a { color: #708096; font-size: 12px; }
 .external-source-actions { display: flex; align-items: center; gap: 12px; }
 .external-source-actions button, .external-index-empty button { border: 1px solid #b9c8d8; border-radius: 8px; padding: 7px 11px; background: #fff; color: #294967; font-size: 12px; font-weight: 800; cursor: pointer; }
+.external-source-actions button.danger { border-color: #e1bcc2; color: #a04452; background: #fffafa; }
+.external-source-actions button.danger:hover:not(:disabled) { border-color: #ca8e98; background: #fff2f4; }
+.external-source-actions button:disabled { cursor: not-allowed; opacity: .48; }
 .external-index-row { display: grid; grid-template-columns: minmax(280px, 1fr) 110px 90px 82px; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid #edf1f5; }
 .external-index-row.table-head { border: 0; background: #fbfcfd; color: #7a8798; font-size: 11px; font-weight: 800; }
 .external-index-row > div { display: grid; gap: 4px; }
