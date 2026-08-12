@@ -203,7 +203,10 @@ export async function POST(request: Request) {
     const lawContext = laws.map((item) => `ID ${item.id}｜${item.title} ${item.articleNo}｜${item.content.slice(0, 360)}`).join("\n");
     const criminalSubject = question.subject.includes("刑法") && !question.subject.includes("刑事訴訟");
     const companySubject = question.subject.includes("公司") || question.subject.includes("商事");
-    const subjectFrame = criminalSubject
+    const isMcq = question.examType === "mcq";
+    const subjectFrame = isMcq
+      ? `本題是一試選擇題。學生已選「${String(body.selectedAnswer ?? "尚未選擇").toUpperCase()}」，正確答案是「${String(question.correctAnswer ?? "待核對").toUpperCase()}」。${question.explanation?.trim() ? `題庫解析：${question.explanation.trim()}` : "題庫未提供完整解析，必須依題目、法條與教材候選說明。"}`
+      : criminalSubject
       ? "本題是刑法申論，才可以使用甲的行為、犯罪構成、故意、因果關係等刑法語彙。"
       : companySubject
         ? "本題是公司法／商事法申論，不得把題目改寫成刑法案例，也不要使用犯罪行為、犯罪故意或因果關係作為預設框架；應聚焦公司機關、股東／董事身分、法律關係、權利義務、決議效力、規範與涵攝。"
@@ -229,7 +232,9 @@ export async function POST(request: Request) {
             ? "學生主動要求完成本單題。請批改學生剛才親自整理的小結；不要重述整份老師擬答，也不要另寫長篇解析。若小結欠缺法律判準、關鍵事實或結論，只指出最重要的一項缺漏，並用一個短問題請學生補上；此時不得宣告通過。若三者齊備，依指定的精簡格式宣告本單題通過。"
             : action === "end_summary"
               ? "學生要求停止回答並結束本段對話。請依目前完整對話直接收束，不得再提出問題。用精簡格式整理：本段結論、已掌握重點、仍須留意一項、下一個尚未處理的行為或爭點；若本題均已處理，明示本題引導結束。"
-              : "根據學生剛才的回答診斷理解缺口。若學生已答到核心、只是把同一結論換句話確認，或同一爭點已連續往返兩次，直接確認結論並標示『本段已完成』，不得再追問；接著用一句話轉入下一個尚未處理的行為或爭點。只有答案仍欠缺一個會改變結論的關鍵要件時，才補問一次短問題。";
+              : isMcq
+                ? `學生已選「${String(body.selectedAnswer ?? "").toUpperCase()}」，並剛說明選擇理由。先針對他的理由給具體回饋，再明確告知本題答對或答錯；用一至三句說清楚決定答案的法律判準與關鍵題目文字。若理由仍有一個重要缺口，最後只問一個短問題；不要列出補強教材、弱點卡或推薦清單。`
+                : "根據學生剛才的回答診斷理解缺口。若學生已答到核心、只是把同一結論換句話確認，或同一爭點已連續往返兩次，直接確認結論並標示『本段已完成』，不得再追問；接著用一句話轉入下一個尚未處理的行為或爭點。只有答案仍欠缺一個會改變結論的關鍵要件時，才補問一次短問題。";
     const currentStage = Math.min(Math.max(Math.floor(Number(body.currentStage ?? 0)), 0), coachStageLabelsFor(question.subject).length - 1);
     const currentStageRetryCount = Math.min(Math.max(Math.floor(Number(body.currentStageRetryCount ?? 0)), 0), 3);
     const latestLearnerText = [...acceptedMessages].reverse().find((message) => message.role === "student" || message.role === "scholar")?.text.trim() ?? "";
@@ -238,7 +243,9 @@ export async function POST(request: Request) {
     const progress = coachProgress(currentStage, question.subject);
     const stage = progress.current;
     const teachingTone = body.teachingLevel === "beginner" ? "用法律小白聽得懂的語句，少用術語並逐步解釋。" : body.teachingLevel === "advanced" || body.teachingLevel === "super" ? "可追問學說、實務分歧與精準涵攝，但每次仍只問一個問題。" : "維持司律考生可理解的自然教練語氣。";
-    const flow = criminalSubject
+    const flow = isMcq
+      ? "以自然對話帶學生檢查選項：先聽理由，再回饋正誤與判斷關鍵；一次只處理一個最重要的理解缺口，不得改寫成申論六步驟或另列補強資源。"
+      : criminalSubject
       ? "先拆解題目中所有行為人的行為，再逐一處理每個行為的爭點、規範、涵攝與結論；完成微型變化題驗收後，只能讓學生選擇下一步，不得自動進入正式作答。"
       : companySubject
         ? "先整理當事人與公司法律關係，再逐一處理公司機關、權利義務、決議效力或其他題目爭點，完成微型變化題驗收後，只能讓學生選擇下一步。"
@@ -253,7 +260,7 @@ export async function POST(request: Request) {
         ? "回覆限 100 至 180 字，直接總結並結束，不得使用問號、不得要求學生繼續回答，也不得出變化題。"
         : "一般回覆限 45 至 110 字。需要追問時只做一句具體回饋，再問一個短問題；已達標或出現重複追問時，改為一句確認、一句本段結論與下一步，不得為維持對話而硬問。不要寫成表格、講義或完整擬答。";
     const relevanceInstruction = isVariation ? "" : `每次回覆開頭必須依序輸出兩個內部標記：【關聯判定：related／drift／off_topic】及【階段判定：pass／retry／reveal】。階段判定只能依學生最新回答是否已包含目前階段所需的關鍵法律判準、題目事實與明確結論；缺少任何會影響答案的要素、答錯、含糊或只重述老師問題，一律標 retry。只有已正面答中本輪核心才標 pass。若系統指示公布答案，必須標 reveal。這兩個標記不會顯示給學生。related 是直接處理本題、相關法條學說、老師解析或合理延伸情境；drift 是仍屬本法科但偏離目前題目；off_topic 僅限閒聊、灌水或轉問完全不同事項，不得只靠關鍵字判斷。drift 應簡短回應後帶回本題；off_topic 不回答無關內容，只提醒回到本題。此前已明顯離題 ${priorOffTopicCount} 次；若此前是 0 次，本輪離題時溫和提醒；若此前是 1 次，本輪離題時明確警告再次離題將提前結束；若本輪判定 off_topic 且此前已達 2 次，直接整理目前成果並明示因三次離題而結束，不得再提問。${shouldRevealAnswer ? "學生已連續無法作答或明確要求答案。本輪不要再追問；請直接公布正確判斷、關鍵法律判準及一項題目事實涵攝，明示『這一輪先由老師示範』，接著自然帶入下一階段，並標記【階段判定：reveal】。" : `學生在目前階段已重試 ${currentStageRetryCount} 次；未答中時換一種更小、更具體的提示繼續引導，不得提前跳到下一階段。`}`;
-    const instructions = `你是台灣司律考試的${question.subject}申論 AI 導師。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${relevanceInstruction}\n${actionInstruction}\n${responseRule}你必須${flow}一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。答錯時只給分級提示並留在目前階段，不得直接公布完整答案。你必須辨識三種收束訊號：學生已正確說出判準與結論、學生只是換句話重問已回答的疑問、學生表示想停止或要求總結。出現任一訊號時應主動收束，不能繼續用問題延長對話。每個決定性缺口最多補問一次；同一爭點不得連續出現兩次以上內容相同的追問。進入「微型變化題驗收」時只改變一個關鍵事實；學生已能運用判準即宣告驗收完成，不再追加第二題。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。不得使用 Markdown 星號、井號或反引號。`;
+    const instructions = `你是台灣司律考試的${question.subject}${isMcq ? "一試真題教練" : "申論 AI 導師"}。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${relevanceInstruction}\n${actionInstruction}\n${responseRule}你必須${flow}${isMcq ? "不要建立核心爭點、需要加強或推薦補強等獨立區塊；所有內容都寫成正在進行的簡短對話。" : "一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。答錯時只給分級提示並留在目前階段，不得直接公布完整答案。你必須辨識三種收束訊號：學生已正確說出判準與結論、學生只是換句話重問已回答的疑問、學生表示想停止或要求總結。出現任一訊號時應主動收束，不能繼續用問題延長對話。每個決定性缺口最多補問一次；同一爭點不得連續出現兩次以上內容相同的追問。進入「微型變化題驗收」時只改變一個關鍵事實；學生已能運用判準即宣告驗收完成，不再追加第二題。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。"}不得使用 Markdown 星號、井號或反引號。`;
     const answerQuery = `${fullQuestion}\n${String(body.studentAnswer || "")}\n${history}`;
     const teacherAnswer = question.teacherAnswer ? relevantSections(question.teacherAnswer, answerQuery, 7000) : "尚無";
     const teacherNotes = question.teacherNotes ? relevantSections(question.teacherNotes, answerQuery, 2500) : "尚無";

@@ -54,7 +54,6 @@ type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?:
 type LegalLesson = { documentId: number; title: string; articleNo: string; hierarchy: string; content: string };
 type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string; sourceType?: "judicial" | "legispedia"; sourceNote?: string };
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
-type PracticeRecommendation = { type: string; title: string; location: string; url: string; startSeconds: number | null };
 type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
 type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string; className?: string };
 
@@ -200,9 +199,6 @@ export default function Home() {
   const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
   const [practiceCoachInput, setPracticeCoachInput] = useState("");
   const [practiceCoachMessages, setPracticeCoachMessages] = useState<PracticeCoachMessage[]>([]);
-  const [practiceCoachGap, setPracticeCoachGap] = useState("");
-  const [practiceCoachIssue, setPracticeCoachIssue] = useState("");
-  const [practiceCoachRecommendations, setPracticeCoachRecommendations] = useState<PracticeRecommendation[]>([]);
   const [practiceCoaching, setPracticeCoaching] = useState(false);
   const practiceCoachEndRef = useRef<HTMLDivElement>(null);
   const [savedMessage, setSavedMessage] = useState<number | null>(null);
@@ -443,7 +439,7 @@ export default function Home() {
   }
 
   async function startPractice(examType: "mcq" | "essay") {
-    setPracticeLoading(true); setPracticeAnswer(null); setPracticeCoachInput(""); setPracticeCoachMessages([]); setPracticeCoachGap(""); setPracticeCoachIssue(""); setPracticeCoachRecommendations([]); setPracticeQuestion(null);
+    setPracticeLoading(true); setPracticeAnswer(null); setPracticeCoachInput(""); setPracticeCoachMessages([]); setPracticeQuestion(null);
     try {
       const response = await fetch(`/api/practice?type=${examType}`); const result = await response.json() as { question?: PracticeQuestion | null; message?: string };
       if (result.question) setPracticeQuestion(result.question);
@@ -519,17 +515,6 @@ export default function Home() {
     void send(`請用司律考生能理解的方式教我法律名詞「${dictionaryFeatured.term}」。\n司法院裁判書用語辭典內容：\n${dictionaryFeatured.content}\n請先說明白話意思，再補充它常出現在哪一科、容易和什麼概念混淆，最後問我一個判斷題。`);
   }
 
-  function recommendationUrl(item: PracticeRecommendation) {
-    if (!item.url || item.startSeconds == null) return item.url;
-    try {
-      const url = new URL(item.url);
-      if (url.hostname === "youtu.be") url.searchParams.set("t", String(item.startSeconds));
-      else if (url.hostname.includes("youtube.com")) url.searchParams.set("t", `${item.startSeconds}s`);
-      else url.hash = `t=${item.startSeconds}`;
-      return url.toString();
-    } catch { return item.url; }
-  }
-
   async function askPracticeCoach() {
     if (!practiceQuestion || practiceCoaching || !practiceCoachInput.trim()) return;
     const studentMessage = { role: "student" as const, text: practiceCoachInput.trim() };
@@ -539,13 +524,8 @@ export default function Home() {
     setPracticeCoaching(true);
     try {
       const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest }) });
-      const result = await response.json() as { reply?: string; diagnosedGap?: string; keyIssue?: string; recommendations?: PracticeRecommendation[]; error?: string };
+      const result = await response.json() as { reply?: string; error?: string };
       setPracticeCoachMessages((current) => [...current, { role: "mentor", text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" }]);
-      if (response.ok) {
-        setPracticeCoachGap(result.diagnosedGap ?? "");
-        setPracticeCoachIssue(result.keyIssue ?? "");
-        setPracticeCoachRecommendations(result.recommendations ?? []);
-      }
     } finally {
       setPracticeCoaching(false);
     }
@@ -561,7 +541,10 @@ export default function Home() {
     const result = await response.json() as { correct?: boolean; correctAnswer?: string; guidance?: string; error?: string };
     if (!response.ok || typeof result.correct !== "boolean" || !result.correctAnswer) return;
     setPracticeAnswer({ selected: answer, correct: result.correct, correctAnswer: result.correctAnswer });
-    setPracticeCoachMessages([{ role: "mentor", text: result.guidance ?? "先說說你的判斷理由，我們再逐一檢查其他選項。" }]);
+    setPracticeCoachMessages([
+      { role: "student", text: `我選 ${answer}` },
+      { role: "mentor", text: `好，先不公布答案。你為什麼選 ${answer}？請說出你判斷時抓到的法律原則或關鍵文字。` },
+    ]);
   }
 
   function chooseQuestionImage(file: File | undefined) {
@@ -993,18 +976,22 @@ export default function Home() {
           {todayTasks.some((task) => task.status !== "completed") && <button className="today-task-start" disabled={!selectedTodayTaskId || thinking} onClick={() => { const task = todayTasks.find((item) => item.id === selectedTodayTaskId); if (task) void send(`請直接帶我開始今天選定的任務：${task.subject}・${task.title}。任務內容：${task.details || "依今日計畫開始教學"}`); }}>{thinking ? "教練準備中…" : "開始所選任務"}</button>}
         </details>}
 
-        {practiceQuestion && <section className="practice-card" aria-label="對話中的真題教練">
-          <div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year}年｜{practiceQuestion.examName || "類科待辨識"}｜{practiceQuestion.subject}｜第 {practiceQuestion.questionNumber} 題</strong><button onClick={() => setPracticeQuestion(null)}>收起</button></div>
-          <p className="practice-stem">{practiceQuestion.stem}</p>
-          {practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid single-column-options" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => { const selected = practiceAnswer?.selected === key; const correct = practiceAnswer?.correctAnswer === key; return <button className={`${selected ? "selected" : ""} ${practiceAnswer && correct ? "correct" : ""} ${practiceAnswer && selected && !practiceAnswer.correct ? "wrong" : ""}`} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>; })}</div> : <button className="essay-start" onClick={beginEssayCoach}>開始學審題</button>}
-          {practiceAnswer && <div className={`answer-result ${practiceAnswer.correct ? "correct" : "wrong"}`}><strong>{practiceAnswer.correct ? "答對了" : "再想一步"}</strong><span>正確答案：{practiceAnswer.correctAnswer}。請在下方直接回答教練。</span></div>}
-          {practiceCoachMessages.length > 0 && <section className="practice-coach home-practice-coach">
-            <header><div><span>真題教練</span><h3>直接在這道題裡回答</h3></div></header>
-            <div className="practice-coach-messages">{practiceCoachMessages.map((message, index) => <div className={message.role} key={`${message.role}-${index}`}><b>{message.role === "mentor" ? "教練" : "我"}</b><p>{message.text}</p></div>)}<div ref={practiceCoachEndRef} /></div>
-            {(practiceCoachIssue || practiceCoachGap) && <div className="practice-diagnosis">{practiceCoachIssue && <p><b>核心爭點</b>{practiceCoachIssue}</p>}{practiceCoachGap && <p><b>需要加強</b>{practiceCoachGap}</p>}</div>}
-            <form onSubmit={(event) => { event.preventDefault(); void askPracticeCoach(); }}><textarea value={practiceCoachInput} onChange={(event) => setPracticeCoachInput(event.target.value)} placeholder="直接回答教練的問題；不知道也可以說卡在哪裡" rows={2} /><button disabled={practiceCoaching || !practiceCoachInput.trim()}>{practiceCoaching ? "教練思考中…" : "送出回答"}</button></form>
-            {practiceCoachRecommendations.length > 0 && <div className="practice-recommendations"><strong>依這題推薦補強</strong><div>{practiceCoachRecommendations.map((item, index) => <article key={`${item.type}-${item.title}-${index}`}><span>{item.type === "law" ? "法條" : item.type === "course" ? "影音" : "教材"}</span><b>{item.title}</b><p>{item.location}</p>{item.url && <a href={recommendationUrl(item)} target="_blank" rel="noreferrer">{item.type === "course" && item.startSeconds != null ? "跳到這個時間點 ↗" : "開啟內容 ↗"}</a>}</article>)}</div></div>}
-          </section>}
+        {practiceQuestion && <section className="practice-card practice-dialogue" aria-label="對話中的真題教練">
+          <div className="practice-dialogue-toolbar"><span>真題對話</span><button onClick={() => setPracticeQuestion(null)}>結束練習</button></div>
+          <div className="practice-dialogue-stream">
+            <div className="practice-dialogue-message mentor">
+              <span className="mentor-avatar">律</span>
+              <div className="practice-dialogue-bubble">
+                <div className="practice-meta"><span>{practiceQuestion.examType === "mcq" ? "一試選擇題" : "二試申論題"}</span><strong>{practiceQuestion.year}年｜{practiceQuestion.examName || "類科待辨識"}｜{practiceQuestion.subject}｜第 {practiceQuestion.questionNumber} 題</strong></div>
+                <p className="practice-stem">{practiceQuestion.stem}</p>
+                {practiceQuestion.examType === "mcq" && practiceQuestion.options ? <div className="option-grid single-column-options">{["A", "B", "C", "D"].filter((key) => practiceQuestion.options?.[key]).map((key) => <button className={practiceAnswer?.selected === key ? "selected" : ""} disabled={Boolean(practiceAnswer)} onClick={() => answerMcq(key)} key={key}><b>{key}</b><span>{practiceQuestion.options?.[key]}</span></button>)}</div> : <button className="essay-start" onClick={beginEssayCoach}>開始學審題</button>}
+              </div>
+            </div>
+            {practiceCoachMessages.map((message, index) => <div className={`practice-dialogue-message ${message.role}`} key={`${message.role}-${index}`}>{message.role === "mentor" && <span className="mentor-avatar">律</span>}<div className="practice-dialogue-bubble"><b>{message.role === "mentor" ? "教練" : "我"}</b><p>{message.text}</p></div></div>)}
+            {practiceCoaching && <div className="practice-dialogue-message mentor"><span className="mentor-avatar">律</span><div className="practice-dialogue-bubble typing"><i /><i /><i /></div></div>}
+            <div ref={practiceCoachEndRef} />
+          </div>
+          {practiceCoachMessages.length > 0 && <form className="practice-dialogue-composer" onSubmit={(event) => { event.preventDefault(); void askPracticeCoach(); }}><textarea value={practiceCoachInput} onChange={(event) => setPracticeCoachInput(event.target.value)} placeholder="回答教練的問題；不知道也可以說卡在哪裡" rows={2} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askPracticeCoach(); } }} /><button disabled={practiceCoaching || !practiceCoachInput.trim()} aria-label="送出回答">{practiceCoaching ? "…" : "↑"}</button></form>}
         </section>}
 
         {!practiceQuestion && <div className="message-list" ref={messageListRef}>

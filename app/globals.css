@@ -3084,6 +3084,51 @@ a {
 .home-practice-coach .practice-recommendations > div {
   grid-template-columns: 1fr;
 }
+.practice-dialogue {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #f7fbf9;
+}
+.practice-dialogue-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #dce9e3;
+  background: #fff;
+}
+.practice-dialogue-toolbar span { color: #49705f; font-size: 12px; font-weight: 850; }
+.practice-dialogue-toolbar button { border: 0; background: transparent; color: #71877d; font-size: 12px; cursor: pointer; }
+.practice-dialogue-stream {
+  display: flex;
+  max-height: calc(100dvh - 330px);
+  min-height: 320px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 18px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.practice-dialogue-message { display: flex; align-items: flex-start; gap: 10px; }
+.practice-dialogue-message.student { justify-content: flex-end; }
+.practice-dialogue-bubble { max-width: min(88%, 860px); padding: 12px 14px; border-radius: 13px; background: #eaf6ef; color: #355f50; }
+.practice-dialogue-message.student .practice-dialogue-bubble { background: #e9f1f6; color: #355d73; }
+.practice-dialogue-bubble > b { display: block; margin-bottom: 5px; font-size: 12px; }
+.practice-dialogue-bubble > p { margin: 0; font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
+.practice-dialogue-message:first-child .practice-dialogue-bubble { max-width: min(94%, 960px); background: #fff; border: 1px solid #d7e7e0; }
+.practice-dialogue .practice-meta { padding: 0; border: 0; }
+.practice-dialogue .practice-stem { margin: 15px 0; }
+.practice-dialogue .option-grid { margin-top: 0; }
+.practice-dialogue .option-grid button.selected { border-color: #4c876e; background: #e9f5ef; }
+.practice-dialogue-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; padding: 11px 14px 14px; border-top: 1px solid #dce9e3; background: #fff; }
+.practice-dialogue-composer textarea { width: 100%; min-height: 52px; max-height: 132px; resize: vertical; padding: 10px 12px; border: 1px solid #c8ddd4; border-radius: 11px; color: #2f5368; font: inherit; line-height: 1.55; outline: 0; }
+.practice-dialogue-composer textarea:focus { border-color: #6ea78f; box-shadow: 0 0 0 3px rgba(76, 139, 112, .1); }
+.practice-dialogue-composer button { display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 11px; background: #34775f; color: #fff; font-size: 20px; font-weight: 850; cursor: pointer; }
+.practice-dialogue-composer button:disabled { opacity: .45; cursor: default; }
 .message-list {
   min-height: 250px;
   height: calc(100dvh - 330px);
