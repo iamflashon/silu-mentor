@@ -3147,6 +3147,18 @@ a {
   align-items: flex-start;
   gap: 12px;
 }
+.message-row.mentor {
+  flex-wrap: wrap;
+}
+.message-row.mentor > .practice-inline-question {
+  width: calc(100% - 46px);
+  margin: -4px 0 0 46px;
+  padding: 16px;
+  border: 1px solid #d7e7e0;
+  border-radius: 14px;
+  background: #fff;
+  box-sizing: border-box;
+}
 .message-row.student {
   justify-content: flex-end;
 }

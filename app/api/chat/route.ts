@@ -883,7 +883,10 @@ export async function POST(request: Request) {
       if (body.persistStudentMessage !== false && latestStudent?.text.trim()) {
         await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text.trim() });
       }
-      await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: reply, source: practiceQuestion ? "真題庫" : null });
+      const storedReply = practiceQuestion
+        ? `${reply}\n\n<!--SILU_PRACTICE:${Buffer.from(JSON.stringify(practiceQuestion), "utf8").toString("base64url")}-->`
+        : reply;
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: storedReply, source: practiceQuestion ? "真題庫" : null });
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
       return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank" });
     }

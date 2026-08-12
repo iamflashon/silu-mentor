@@ -22,7 +22,12 @@ function mapMessage(message: typeof chatMessages.$inferSelect) {
   try { sources = message.citationsJson ? JSON.parse(message.citationsJson) as string[] : []; } catch { sources = []; }
   let comparison: unknown = undefined;
   try { comparison = message.comparisonJson ? JSON.parse(message.comparisonJson) : undefined; } catch { comparison = undefined; }
-  return { role: message.role, text: message.text, source: message.source, model: message.model, sources, citationStatus: message.citationStatus, comparison, createdAt: message.createdAt };
+  const marker = message.text.match(/\n\n<!--SILU_PRACTICE:([A-Za-z0-9_-]+)-->/);
+  let practiceQuestion: unknown = undefined;
+  if (marker) {
+    try { practiceQuestion = JSON.parse(Buffer.from(marker[1], "base64url").toString("utf8")); } catch { practiceQuestion = undefined; }
+  }
+  return { role: message.role, text: message.text.replace(/\n\n<!--SILU_PRACTICE:[A-Za-z0-9_-]+-->/g, ""), source: message.source, model: message.model, sources, citationStatus: message.citationStatus, comparison, practiceQuestion, createdAt: message.createdAt };
 }
 
 function buildSummary(messages: Array<typeof chatMessages.$inferSelect>) {
