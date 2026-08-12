@@ -77,7 +77,7 @@ function discoverIbrainTeachers(html: string, pageUrl: string, parentTitle: stri
 
 function discoverLinks(html: string, base: string, source: SourceKey, limit = 20, depth = 1, parentTitle = ""): DiscoveredItem[] {
   const seen = new Set<string>();
-  const rows: Array<{ title: string; url: string; summary: string }> = [];
+  const rows: DiscoveredItem[] = [];
   const matches = html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
   for (const match of matches) {
     const title = cleanHtml(match[2]).slice(0, 160);
@@ -113,6 +113,40 @@ function discoverAngleDetails(html: string, pageUrl: string, parentTitle: string
   return details.slice(0, 20);
 }
 
+function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitle: string, depth: number): DiscoveredItem[] {
+  if (!/\/magazine\/m_single\.asp|[?&]BKID=/i.test(pageUrl)) return [];
+  const rows: DiscoveredItem[] = [];
+  const seen = new Set<string>();
+  const anchors = html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi);
+  for (const match of anchors) {
+    const attributes = match[1] || "";
+    const title = cleanHtml(match[2]).replace(/^(?:試閱|試讀|全文|閱讀)\s*[：:、-]?\s*/u, "").slice(0, 160);
+    if (title.length < 4 || looksCorrupted(title) || /^(?:回首頁|首頁|訂閱|登入|註冊|購物車|上一頁|下一頁|更多)$/u.test(title)) continue;
+    const href = attributes.match(/href\s*=\s*["']([^"']+)["']/i)?.[1]
+      ?? attributes.match(/(?:window\.open|location(?:\.href)?)\s*\(?\s*["']([^"']+)["']/i)?.[1];
+    if (!href || /^javascript:\s*(?:void|;)$/i.test(href)) continue;
+    let url: URL;
+    try { url = new URL(href.replace(/^javascript:\s*(?:window\.)?open\s*\(\s*["']|["']\s*\).*$/gi, ""), pageUrl); } catch { continue; }
+    if (!SOURCES.lawdata.hosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))) continue;
+    const canonical = canonicalUrl(url.href);
+    if (canonical === canonicalUrl(pageUrl) || seen.has(canonical)) continue;
+    const context = cleanHtml(html.slice(Math.max(0, (match.index ?? 0) - 320), Math.min(html.length, (match.index ?? 0) + match[0].length + 320)));
+    const contentLike = /article|content|detail|preview|download|\.pdf|試閱|試讀|摘要|作者|頁碼|DOI|篇名|論著|裁判|法學/i.test(`${canonical} ${title} ${context}`);
+    if (!contentLike) continue;
+    const author = context.match(/(?:作者|文／|撰文)[：:\s]*([\u3400-\u9fffA-Za-z·．、，,\s]{2,40})/u)?.[1]?.trim().slice(0, 40);
+    rows.push({
+      title,
+      url: canonical,
+      summary: `期刊文章目錄${author ? `｜作者：${author}` : ""}｜上層：${parentTitle}`,
+      depth,
+      parentTitle,
+      kind: "entry",
+    });
+    seen.add(canonical);
+  }
+  return rows.slice(0, 80);
+}
+
 function isAngleRootSection(item: DiscoveredItem) {
   const value = `${item.title} ${item.url}`;
   if (/[?&](?:BKID|AID|PID|no|id)=/i.test(item.url) || /m_single|article[_/-]?(?:view|detail)|news[_/-]?(?:view|detail)/i.test(item.url)) return false;
@@ -131,7 +165,7 @@ function isIbrainRootSection(item: DiscoveredItem) {
 }
 
 const AUTO_CRAWL_LIMITS: Record<SourceKey, { maxDepth: number; maxPages: number; maxItems: number }> = {
-  lawdata: { maxDepth: 6, maxPages: 42, maxItems: 360 },
+  lawdata: { maxDepth: 10, maxPages: 72, maxItems: 720 },
   get: { maxDepth: 7, maxPages: 56, maxItems: 480 },
   ibrain: { maxDepth: 6, maxPages: 42, maxItems: 360 },
 };
@@ -149,7 +183,7 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
   const limits = AUTO_CRAWL_LIMITS[source];
   const output = new Map<string, DiscoveredItem>();
   const visited = new Set<string>();
-  let queue = roots.map((item) => ({ ...item, url: canonicalUrl(item.url) }));
+  const queue = roots.map((item) => ({ ...item, url: canonicalUrl(item.url) }));
   queue.forEach((item) => output.set(item.url, item));
   let pagesRead = 0;
 
@@ -157,7 +191,9 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
     const batch = queue.splice(0, Math.min(4, limits.maxPages - pagesRead));
     const results = await Promise.all(batch.map(async (parent) => {
       const key = canonicalUrl(parent.url);
-      if (visited.has(key) || parent.depth >= limits.maxDepth || parent.kind === "detail") return [] as DiscoveredItem[];
+      // A real detail URL can still contain an article list, author page or public
+      // preview. Only synthetic in-page headings are guaranteed leaf nodes.
+      if (visited.has(key) || parent.depth >= limits.maxDepth || /#topic-\d+$/i.test(parent.url)) return [] as DiscoveredItem[];
       visited.add(key);
       try {
         const response = await fetch(parent.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow", signal: AbortSignal.timeout(12000) });
@@ -166,7 +202,10 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
         const nextDepth = parent.depth + 1;
         const links = discoverLinks(html, response.url || parent.url, source, 60, nextDepth, parent.title);
         const details = source === "lawdata"
-          ? discoverAngleDetails(html, response.url || parent.url, parent.title, nextDepth)
+          ? [
+              ...discoverAngleMagazineContents(html, response.url || parent.url, parent.title, nextDepth),
+              ...discoverAngleDetails(html, response.url || parent.url, parent.title, nextDepth),
+            ]
           : source === "ibrain"
             ? discoverIbrainTeachers(html, response.url || parent.url, parent.title, nextDepth)
             : [];
@@ -232,7 +271,12 @@ export async function POST(request: Request) {
       const html = await readHtml(response);
       const nextDepth = Math.min((itemMeta.depth ?? 1) + 1, 8);
       const links = discoverLinks(html, response.url || item.sourceUrl, source, 40, nextDepth, item.title);
-      const details = source === "lawdata" ? discoverAngleDetails(html, response.url || item.sourceUrl, item.title, nextDepth) : source === "ibrain" ? discoverIbrainTeachers(html, response.url || item.sourceUrl, item.title, nextDepth) : [];
+      const details = source === "lawdata"
+        ? [
+            ...discoverAngleMagazineContents(html, response.url || item.sourceUrl, item.title, nextDepth),
+            ...discoverAngleDetails(html, response.url || item.sourceUrl, item.title, nextDepth),
+          ]
+        : source === "ibrain" ? discoverIbrainTeachers(html, response.url || item.sourceUrl, item.title, nextDepth) : [];
       const discovered = Array.from(new Map([...links, ...details].map((child) => [child.url, child])).values())
         .filter((child) => child.url !== item.sourceUrl)
         .slice(0, 40);
