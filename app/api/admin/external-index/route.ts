@@ -4,7 +4,7 @@ import { requireAdmin } from "../../../../lib/member-auth";
 
 const SOURCES = {
   lawdata: { label: "元照／月旦全站資源", url: "https://www.angle.com.tw/", hosts: ["angle.com.tw", "www.angle.com.tw", "lawdata.com.tw", "www.lawdata.com.tw"] },
-  get: { label: "高點出版", url: "https://publish.get.com.tw/", hosts: ["publish.get.com.tw"] },
+  get: { label: "高點文化", url: "https://publish.get.com.tw/", hosts: ["publish.get.com.tw"] },
   ibrain: { label: "iBrain 知識達", url: "https://www.ibrain.com.tw/Audition/List.aspx?1=1&iC=2089", hosts: ["www.ibrain.com.tw", "ibrain.com.tw"] },
 } as const;
 
@@ -66,7 +66,7 @@ function discoverLinks(html: string, base: string, source: SourceKey, limit = 20
     const relevant = source === "lawdata"
       ? /journal|article|book|course|lecture|news|magazine|download|法學|月旦|元照|期刊|雜誌|文章|專欄|書籍|新書|圖書|講座|研討|課程|影音|試閱|試讀|活動/i.test(`${title} ${url.pathname} ${url.search}`)
       : source === "get"
-        ? /book|BKID|司律|律師|司法官|法學|刑法|民法|訴訟|行政法|憲法|商法/i.test(`${title} ${url.pathname} ${url.search}`)
+        ? /book|course|lecture|article|BKID|圖書分類總覽|雲端微課群|波斯納讀書會|考前直播間|解讀大師文章|司律|律師|司法官|法學|刑法|民法|訴訟|行政法|憲法|商法/i.test(`${title} ${url.pathname} ${url.search}`)
         : /course|audition|試聽|司律|律師|司法官|法學|刑法|民法|訴訟|行政法|憲法|商法/i.test(`${title} ${url.pathname} ${url.search}`);
     if (!relevant) continue;
     seen.add(key);
@@ -86,6 +86,23 @@ function discoverAngleDetails(html: string, pageUrl: string, parentTitle: string
     details.push({ title, url: `${pageUrl}#topic-${details.length + 1}`, summary: `月旦案例課主題｜上層：${parentTitle}`, depth, parentTitle, kind: "detail" });
   }
   return details.slice(0, 20);
+}
+
+function isAngleRootSection(item: DiscoveredItem) {
+  const value = `${item.title} ${item.url}`;
+  if (/[?&](?:BKID|AID|PID|no|id)=/i.test(item.url) || /m_single|article[_/-]?(?:view|detail)|news[_/-]?(?:view|detail)/i.test(item.url)) return false;
+  if (/第\s*\d+\s*期|最高法院|高等法院|地方法院|民事判決|刑事判決|行政判決/i.test(item.title)) return false;
+  return /^(?:月旦|元照|研討|講座|課程|期刊|雜誌|書籍|新書|法學)(?:知識庫|書屋|案例課|學院|講堂|教室|期刊|雜誌|專區|中心|活動|研討|講座|課程|新書|出版|網路書店)?/i.test(value);
+}
+
+function isGetRootSection(item: DiscoveredItem) {
+  if (/[?&](?:BKID|bookid|id)=/i.test(item.url) || /detail|single|product/i.test(item.url)) return false;
+  return /^(?:圖書分類總覽|雲端微課群|波斯納讀書會|考前直播間|解讀大師文章)$/u.test(item.title.trim());
+}
+
+function isIbrainRootSection(item: DiscoveredItem) {
+  if (/[?&](?:courseid|id)=/i.test(item.url) || /detail|single/i.test(item.url)) return false;
+  return /(?:課程分類|課程總覽|試聽|司律|律師|司法官|法學)/u.test(item.title) && item.title.length <= 24;
 }
 
 async function sourceRows(db: Awaited<ReturnType<typeof requireAdmin>> extends infer _T ? any : never) {
@@ -112,18 +129,74 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { source?: SourceKey };
+  const body = await request.json() as { source?: SourceKey; itemId?: number };
   const source = body.source;
   if (!source || !(source in SOURCES)) return Response.json({ error: "未知的同步來源" }, { status: 400 });
   const config = SOURCES[source];
   try {
+    if (Number.isInteger(body.itemId)) {
+      const [item] = await auth.db.select().from(resourceSegments).where(and(
+        eq(resourceSegments.id, Number(body.itemId)),
+        eq(resourceSegments.segmentType, "external_catalog"),
+      )).limit(1);
+      if (!item) return Response.json({ error: "找不到要深入抓取的資料" }, { status: 404 });
+      const [resource] = await auth.db.select().from(learningResources).where(and(
+        eq(learningResources.id, item.resourceId),
+        eq(learningResources.resourceType, "external_index"),
+        eq(learningResources.creator, source),
+      )).limit(1);
+      if (!resource || !item.sourceUrl) return Response.json({ error: "這筆資料沒有可抓取的公開來源頁面" }, { status: 400 });
+
+      let itemMeta: { depth?: number } = {};
+      try { itemMeta = JSON.parse(item.text || "{}"); } catch {}
+      const response = await fetch(item.sourceUrl, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
+      if (!response.ok) throw new Error(`內層頁面回應 ${response.status}`);
+      const html = await readHtml(response);
+      const nextDepth = Math.min((itemMeta.depth ?? 1) + 1, 8);
+      const links = discoverLinks(html, response.url || item.sourceUrl, source, 40, nextDepth, item.title);
+      const details = source === "lawdata" ? discoverAngleDetails(html, response.url || item.sourceUrl, item.title, nextDepth) : [];
+      const discovered = Array.from(new Map([...links, ...details].map((child) => [child.url, child])).values())
+        .filter((child) => child.url !== item.sourceUrl)
+        .slice(0, 40);
+      if (!discovered.length) throw new Error("已讀取此頁，但沒有辨識到可建立索引的下一層公開資料");
+
+      const current = await auth.db.select().from(resourceSegments).where(and(
+        eq(resourceSegments.resourceId, resource.id),
+        eq(resourceSegments.segmentType, "external_catalog"),
+      ));
+      const existingUrls = new Set(current.map((row) => row.sourceUrl).filter(Boolean));
+      let added = 0;
+      let sequence = current.reduce((maximum, row) => Math.max(maximum, row.sequence ?? 0), 0);
+      for (const child of discovered) {
+        if (existingUrls.has(child.url)) continue;
+        sequence += 1;
+        await auth.db.insert(resourceSegments).values({
+          resourceId: resource.id,
+          segmentType: "external_catalog",
+          lessonLabel: config.label,
+          title: child.title,
+          sourceUrl: child.url,
+          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind }),
+          summary: child.summary,
+          importance: 3,
+          reviewStatus: "published",
+          recommended: true,
+          sequence,
+        });
+        existingUrls.add(child.url);
+        added += 1;
+      }
+      await auth.db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
+      return Response.json({ source, discovered: discovered.length, added, parentTitle: item.title, sources: await sourceRows(auth.db) });
+    }
+
     const response = await fetch(config.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
     if (!response.ok) throw new Error(`來源網站回應 ${response.status}`);
     const html = await readHtml(response);
     let discovered = discoverLinks(html, response.url || config.url, source, source === "lawdata" ? 60 : 12);
     if (source === "lawdata") {
       const caseHub: DiscoveredItem = { title: "月旦案例課", url: "https://www.angle.com.tw/event/practical_discuss_order/", summary: "案例研習／講座索引", depth: 1, parentTitle: "", kind: "entry" };
-      const firstLayer = Array.from(new Map([caseHub, ...discovered].map((item) => [item.url, item])).values());
+      const firstLayer = Array.from(new Map([caseHub, ...discovered.filter(isAngleRootSection)].map((item) => [item.url, { ...item, depth: 1, parentTitle: "" }])).values());
       const categoryLinks = firstLayer.filter((item) => item.url === caseHub.url || /期刊|雜誌|文章|專欄|書籍|圖書|講座|研討|課程|影音|試閱|活動/.test(`${item.title}${item.summary}`)).slice(0, 12);
       const nestedPages = await Promise.all(categoryLinks.map(async (item) => {
         try {
@@ -143,6 +216,10 @@ export async function POST(request: Request) {
       }));
       const unique = new Map(firstLayer.concat(...nestedPages.flatMap((page) => [page.links, page.details]), ...thirdLayer).map((item) => [item.url, item]));
       discovered = Array.from(unique.values()).slice(0, 180);
+    } else if (source === "get") {
+      discovered = discovered.filter(isGetRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+    } else if (source === "ibrain") {
+      discovered = discovered.filter(isIbrainRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
     }
     if (!discovered.length) throw new Error("頁面已讀取，但目前沒有辨識到可用的公開索引");
     const [existing] = await auth.db.select().from(learningResources).where(and(eq(learningResources.resourceType, "external_index"), eq(learningResources.creator, source))).limit(1);

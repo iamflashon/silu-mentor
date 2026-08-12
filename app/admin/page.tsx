@@ -429,6 +429,7 @@ export default function AdminPage() {
   const [externalSources, setExternalSources] = useState<ExternalIndexSource[]>([]);
   const [externalLoading, setExternalLoading] = useState(false);
   const [externalSyncing, setExternalSyncing] = useState<string>("");
+  const [externalDeepSyncing, setExternalDeepSyncing] = useState<number | null>(null);
   const [externalDeleting, setExternalDeleting] = useState<string>("");
   const [externalNotice, setExternalNotice] = useState("");
   const [externalQuery, setExternalQuery] = useState("");
@@ -477,6 +478,20 @@ export default function AdminPage() {
     const response = await fetch("/api/admin/external-index", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, enabled }) });
     if (!response.ok) { const data = await response.json(); setExternalNotice(data.error || "更新失敗"); return; }
     setExternalSources((sources) => sources.map((source) => ({ ...source, items: source.items.map((item) => item.id === id ? { ...item, enabled, indexed: enabled } : item) })));
+  }
+
+  async function syncExternalChildren(source: ExternalIndexSource, item: ExternalIndexSource["items"][number]) {
+    setExternalDeepSyncing(item.id);
+    setExternalNotice(`正在讀取「${item.title}」的下一層公開資料…`);
+    try {
+      const response = await fetch("/api/admin/external-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: source.key, itemId: item.id }) });
+      const data = await response.json() as { sources?: ExternalIndexSource[]; discovered?: number; added?: number; error?: string };
+      if (!response.ok) throw new Error(data.error || "內層抓取失敗");
+      setExternalSources(data.sources ?? []);
+      setExternalPage(1);
+      setExternalNotice(`已檢查「${item.title}」並辨識 ${data.discovered ?? 0} 筆下一層資料；新增 ${data.added ?? 0} 筆公開索引。`);
+    } catch (error) { setExternalNotice(error instanceof Error ? error.message : "內層抓取失敗"); }
+    finally { setExternalDeepSyncing(null); }
   }
 
   async function deleteExternalSource(source: ExternalIndexSource) {
@@ -3167,7 +3182,7 @@ export default function AdminPage() {
         </nav>
         {activeTab === "external-index" && <section className="panel external-index-admin">
           <div className="external-index-heading"><div><p>PUBLIC INDEX DEMO</p><h2>跨網站資源同步</h2><span>先抓公開索引供首頁 Luna 導航；不下載付費文章、教材或影片全文。</span></div><label className="external-index-search"><span>搜尋目前網站資源</span><input value={externalQuery} onChange={(event) => { setExternalQuery(event.target.value); setExternalPage(1); }} placeholder="篇名、書名、課程或來源" /></label></div>
-          <div className="external-source-tabs" role="tablist" aria-label="資源網站">{(["lawdata", "get", "ibrain"] as const).map((key) => { const config = key === "lawdata" ? { label: "元照／月旦", note: "期刊、文章、書籍、講座、課程、活動與公開試閱" } : key === "get" ? { label: "高點出版", note: "司律書籍與目錄" } : { label: "iBrain 知識達", note: "司律課程與試聽" }; const source = externalSources.find((item) => item.key === key); return <button type="button" role="tab" aria-selected={externalSourceTab === key} className={externalSourceTab === key ? "active" : ""} key={key} onClick={() => { setExternalSourceTab(key); setExternalPage(1); setExternalSelectedItemId(null); setExternalQuery(""); }}><span><b>{config.label}</b><small>{config.note}</small></span><strong>{source?.items.length ?? 0}<small> 筆</small></strong></button>; })}</div>
+          <div className="external-source-tabs" role="tablist" aria-label="資源網站">{(["lawdata", "get", "ibrain"] as const).map((key) => { const config = key === "lawdata" ? { label: "元照／月旦", note: "期刊、文章、書籍、講座、課程、活動與公開試閱" } : key === "get" ? { label: "高點文化", note: "主導覽、司律書籍、課程與文章" } : { label: "iBrain 知識達", note: "司律課程與試聽" }; const source = externalSources.find((item) => item.key === key); return <button type="button" role="tab" aria-selected={externalSourceTab === key} className={externalSourceTab === key ? "active" : ""} key={key} onClick={() => { setExternalSourceTab(key); setExternalPage(1); setExternalSelectedItemId(null); setExternalQuery(""); }}><span><b>{config.label}</b><small>{config.note}</small></span><strong>{source?.items.length ?? 0}<small> 筆</small></strong></button>; })}</div>
           {externalNotice && <p className="external-index-notice">{externalNotice}</p>}
           {externalLoading ? <p className="usage-empty">正在讀取同步紀錄…</p> : (() => {
             const source = externalSources.find((item) => item.key === externalSourceTab);
@@ -3185,11 +3200,11 @@ export default function AdminPage() {
             const openItem = (id: number) => { setExternalSelectedItemId(id); setExternalPage(1); setExternalQuery(""); };
             const goBack = () => { setExternalSelectedItemId(parentItem?.id ?? null); setExternalPage(1); setExternalQuery(""); };
             return <div className="external-source-lists"><section>
-              <header><div><h3>{selected ? selected.title : source.label}</h3><span>{selected ? `第 ${selected.depth ?? 1} 層 · ${levelItems.length} 筆下層資源` : `${source.items.filter((item) => item.enabled).length} 筆啟用／${source.items.length} 筆已抓取`}</span></div><div className="external-source-actions">{selected && <button type="button" onClick={goBack}>← 回上一層</button>}<a href={selected?.url || source.sourceUrl} target="_blank" rel="noreferrer">查看原始頁面 ↗</a>{!selected && <><button className="danger" disabled={externalSyncing !== "" || externalDeleting !== "" || source.items.length === 0} onClick={() => void deleteExternalSource(source)}>{externalDeleting === source.key ? "清除中…" : "清除此來源舊資料"}</button><button disabled={externalSyncing !== "" || externalDeleting !== ""} onClick={() => void syncExternalSource(source.key)}>{externalSyncing === source.key ? "同步中…" : "重新同步"}</button></>}</div></header>
+              <header><div><h3>{selected ? selected.title : source.label}</h3><span>{selected ? `第 ${selected.depth ?? 1} 層 · ${levelItems.length} 筆下層資源` : `${source.items.filter((item) => item.enabled).length} 筆啟用／${source.items.length} 筆已抓取`}</span></div><div className="external-source-actions">{selected && <><button type="button" onClick={goBack}>← 回上一層</button><button type="button" disabled={externalDeepSyncing !== null} onClick={() => void syncExternalChildren(source, selected)}>{externalDeepSyncing === selected.id ? "抓取中…" : "抓取此頁內層資料"}</button></>}<a href={selected?.url || source.sourceUrl} target="_blank" rel="noreferrer">查看原始頁面 ↗</a>{!selected && <><button className="danger" disabled={externalSyncing !== "" || externalDeleting !== "" || source.items.length === 0} onClick={() => void deleteExternalSource(source)}>{externalDeleting === source.key ? "清除中…" : "清除此來源舊資料"}</button><button disabled={externalSyncing !== "" || externalDeleting !== ""} onClick={() => void syncExternalSource(source.key)}>{externalSyncing === source.key ? "同步中…" : "重新同步"}</button></>}</div></header>
               <nav className="external-index-breadcrumb" aria-label="資源層級"><button type="button" onClick={() => { setExternalSelectedItemId(null); setExternalPage(1); setExternalQuery(""); }}>{source.label}</button>{parentItem && <><span>›</span><button type="button" onClick={() => openItem(parentItem.id)}>{parentItem.title}</button></>}{selected && <><span>›</span><strong>{selected.title}</strong></>}</nav>
               {selected && <div className="external-index-detail"><div><span>目前層級</span><strong>第 {selected.depth ?? 1} 層</strong></div><div><span>資料類型</span><strong>{selected.kind === "detail" ? "主題／內容" : "分類／入口"}</strong></div><div><span>上層來源</span><strong>{selected.parentTitle || source.label}</strong></div><div><span>下層資料</span><strong>{levelItems.length} 筆</strong></div><p>{selected.summary}</p></div>}
               <div className="external-index-table"><div className="external-index-row table-head"><span>{selected ? "下一層資源" : "資源名稱"}</span><span>權限</span><span>首頁索引</span><span>使用</span></div>{rows.map((item) => { const childCount = source.items.filter((child) => child.parentTitle === item.title).length; return <div className="external-index-row" key={item.id}><div><button type="button" className="external-index-title" onClick={() => openItem(item.id)}>{item.title}<span>進入確認 ›</span></button><small>{item.summary}{childCount ? ` · ${childCount} 筆下層資料` : " · 最末層"}</small></div><span><em>公開索引</em></span><span className={item.indexed ? "indexed" : "disabled"}>{item.indexed ? "已索引" : "已停用"}</span><label className="external-index-toggle"><input type="checkbox" checked={item.enabled} onChange={(event) => void toggleExternalItem(item.id, event.target.checked)} /><span>{item.enabled ? "啟用" : "停用"}</span></label></div>; })}</div>
-              {selected && levelItems.length === 0 && <div className="external-index-leaf"><b>這是目前抓到的最末層內容</b><span>可按右上角「查看原始頁面」核對公開內容；系統未抓取付費全文。</span></div>}
+              {selected && levelItems.length === 0 && <div className="external-index-leaf"><b>目前尚未抓到下一層資料</b><span>按右上角「抓取此頁內層資料」，系統會繼續辨識文章目錄、作者與公開／試閱連結；不抓取付費全文。</span></div>}
               {filtered.length === 0 && levelItems.length > 0 ? <p className="usage-empty">這一層沒有符合搜尋條件的資料。</p> : filtered.length > 0 && <nav className="external-pagination" aria-label="資源分頁"><span>第 {page}／{pageCount} 頁，共 {filtered.length} 筆</span><div><button disabled={page <= 1} onClick={() => setExternalPage(page - 1)}>上一頁</button>{Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => <button key={number} className={number === page ? "active" : ""} onClick={() => setExternalPage(number)}>{number}</button>)}<button disabled={page >= pageCount} onClick={() => setExternalPage(page + 1)}>下一頁</button></div></nav>}
             </section></div>;
           })()}
