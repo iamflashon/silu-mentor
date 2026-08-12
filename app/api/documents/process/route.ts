@@ -62,8 +62,7 @@ async function vectorStoreId() {
   return id;
 }
 
-async function uploadToVectorStore(document: typeof documents.$inferSelect, object: { arrayBuffer(): Promise<ArrayBuffer> }) {
-  const originalBytes = await object.arrayBuffer();
+async function uploadToVectorStore(document: typeof documents.$inferSelect, originalBytes: ArrayBuffer) {
   const source = resolveDocumentPayload(document.fileName, document.contentType, originalBytes);
   const form = new FormData();
   form.set("purpose", "assistants");
@@ -164,10 +163,13 @@ export async function POST(request: Request) {
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) throw new Error("找不到已上傳的原始檔案");
+    // R2 bodies are single-use streams. Read exactly once in this request and
+    // reuse the bytes for inspection and indexing.
+    const originalBytes = await object.arrayBuffer();
 
     if (["queued", "uploaded", "extracting"].includes(document.processingStage) || !document.fileSha256) {
       await db.update(documents).set({ status: "extracting", processingStage: "extracting", processingMessage: "正在檢查檔案、擷取文字與辨識結構", indexError: null }).where(eq(documents.id, documentId));
-      const bytes = await object.arrayBuffer();
+      const bytes = originalBytes;
       if (bytes.byteLength < 1 || bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("檔案大小不符合限制（最多 55MB）");
       if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、JSONL、MD、TXT、DOCX 或 ZIP 文件");
       const inspected = await inspectDocumentBytes(document.fileName, bytes);
@@ -187,7 +189,7 @@ export async function POST(request: Request) {
     if (!document) throw new Error("文件狀態更新失敗");
 
     if (!document.openaiFileId) {
-      const indexed = await uploadToVectorStore(document, object);
+      const indexed = await uploadToVectorStore(document, originalBytes);
       await db.update(documents).set({ status: indexed.status, processingStage: "indexing", processingMessage: "全文檔案已送入索引，等待向量建立", openaiFileId: indexed.fileId, indexError: null, processingResultJson: JSON.stringify({ ...readProcessingResult(document.processingResultJson), indexedFileName: indexed.indexedFileName }) }).where(eq(documents.id, documentId));
       return Response.json({ status: "indexing", stage: "indexing", message: "全文／向量索引建立中" }, { status: 202 });
     }

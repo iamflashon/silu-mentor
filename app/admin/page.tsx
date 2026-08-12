@@ -555,6 +555,8 @@ export default function AdminPage() {
   const [subject, setSubject] = useState("刑法");
   const [type, setType] = useState("教科書");
   const [files, setFiles] = useState<Uploaded[]>([]);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
+  const [deletingDocuments, setDeletingDocuments] = useState(false);
   const [documentPage, setDocumentPage] = useState(1);
   const [documentStats, setDocumentStats] = useState<DocumentStats>({
     total: 0,
@@ -2885,6 +2887,33 @@ export default function AdminPage() {
     await processDocument(documentId, true);
   }
 
+  async function deleteSelectedDocuments() {
+    if (!selectedDocumentIds.length || deletingDocuments) return;
+    if (!window.confirm(`確定刪除已選取的 ${selectedDocumentIds.length} 份教材？\n\n原始檔、全文／向量索引及處理紀錄都會一併刪除；已綁定的智能書會解除教材連結。`)) return;
+    setDeletingDocuments(true);
+    setNotice(`正在刪除 ${selectedDocumentIds.length} 份教材及其索引…`);
+    try {
+      const response = await fetch("/api/documents", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: selectedDocumentIds }) });
+      const result = await response.json() as { deleted?: number; deletedIds?: number[]; deletedReady?: number; deletedIndexedBytes?: number; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "教材刪除失敗");
+      const deletedIds = new Set(result.deletedIds ?? []);
+      setFiles((current) => current.filter((file) => !deletedIds.has(file.id)));
+      setSelectedDocumentIds([]);
+      setDocumentStats((current) => ({
+        ...current,
+        total: Math.max(0, current.total - (result.deleted ?? 0)),
+        ready: Math.max(0, current.ready - (result.deletedReady ?? 0)),
+        indexedBytes: Math.max(0, current.indexedBytes - (result.deletedIndexedBytes ?? 0)),
+      }));
+      setDocumentPage(1);
+      setNotice(`已刪除 ${result.deleted ?? 0} 份教材、原始檔與搜尋索引。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "教材刪除失敗");
+    } finally {
+      setDeletingDocuments(false);
+    }
+  }
+
   function chooseFiles(list: FileList | File[] | null) {
     const incoming = Array.from(list ?? []);
     const documents = incoming.filter((file) => /\.(pdf|jsonl|md|txt|docx|zip)$/i.test(file.name));
@@ -3687,7 +3716,24 @@ export default function AdminPage() {
               {notice && <div className="notice">{notice}</div>}
             </form>
             <section className="panel document-panel">
-              <h2>文件處理狀態</h2>
+              <div className="document-list-heading">
+                <h2>文件處理狀態</h2>
+                {files.length > 0 && (
+                  <div className="document-batch-actions">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={files.length > 0 && selectedDocumentIds.length === files.length}
+                        onChange={(event) => setSelectedDocumentIds(event.target.checked ? files.map((file) => file.id) : [])}
+                      />
+                      全選
+                    </label>
+                    <button type="button" disabled={!selectedDocumentIds.length || deletingDocuments} onClick={() => void deleteSelectedDocuments()}>
+                      {deletingDocuments ? "刪除中…" : `刪除已選（${selectedDocumentIds.length}）`}
+                    </button>
+                  </div>
+                )}
+              </div>
               <p className="panel-sub">
                 上傳後會自動完成檔案檢查、文字擷取、分類、章節／題目整理與全文／向量索引；不需要另外按處理。
               </p>
@@ -3714,6 +3760,13 @@ export default function AdminPage() {
                             : file.processingMessage ?? "等待自動處理";
                     return (
                       <div className="file-card" key={file.id}>
+                        <input
+                          className="document-select"
+                          type="checkbox"
+                          aria-label={`選取 ${file.name}`}
+                          checked={selectedDocumentIds.includes(file.id)}
+                          onChange={(event) => setSelectedDocumentIds((current) => event.target.checked ? [...current, file.id] : current.filter((id) => id !== file.id))}
+                        />
                         <span className="file-type">{file.name.split(".").pop()?.toUpperCase() ?? "FILE"}</span>
                         <div className="file-info">
                           <strong>{file.name}</strong>

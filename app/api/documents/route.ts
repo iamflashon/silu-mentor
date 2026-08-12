@@ -4,6 +4,7 @@ import { chatMessages, documents } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../lib/document-processing";
 import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
+import { openAIJson } from "../../../lib/openai";
 
 function processingResult(value: string) {
   try {
@@ -123,5 +124,38 @@ export async function POST(request: Request) {
     }
   } catch {
     return Response.json({ error: "文件上傳失敗" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json() as { ids?: unknown[] };
+    const ids = [...new Set((body.ids ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100);
+    if (!ids.length) return Response.json({ error: "請先選擇要刪除的教材" }, { status: 400 });
+
+    const db = await getDb();
+    const rows = await Promise.all(ids.map(async (id) => (await db.select().from(documents).where(eq(documents.id, id)).limit(1))[0]));
+    const selected = rows.filter((row): row is NonNullable<typeof row> => Boolean(row));
+    const { env } = await import("cloudflare:workers");
+    const bucket = env.BUCKET;
+    const [indexSetting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
+
+    for (const row of selected) {
+      if (row.openaiFileId && indexSetting?.value) {
+        await openAIJson(`/vector_stores/${indexSetting.value}/files/${row.openaiFileId}`, { method: "DELETE" }).catch(() => undefined);
+        await openAIJson(`/files/${row.openaiFileId}`, { method: "DELETE" }).catch(() => undefined);
+      }
+      if (bucket) await bucket.delete(row.storageKey).catch(() => undefined);
+      await db.delete(documents).where(eq(documents.id, row.id));
+    }
+
+    return Response.json({
+      deleted: selected.length,
+      deletedIds: selected.map((row) => row.id),
+      deletedReady: selected.filter((row) => row.status === "completed").length,
+      deletedIndexedBytes: selected.filter((row) => row.status === "completed").reduce((sum, row) => sum + row.sizeBytes, 0),
+    });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message.slice(0, 240) : "教材刪除失敗" }, { status: 500 });
   }
 }

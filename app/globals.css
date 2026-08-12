@@ -5945,6 +5945,44 @@ a {
   flex-direction: column;
   min-height: 100%;
 }
+.document-list-heading,
+.document-batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.document-list-heading h2 {
+  margin: 0;
+}
+.document-batch-actions label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #526f81;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.document-batch-actions button {
+  border: 1px solid #d8a8a8;
+  border-radius: 999px;
+  background: #fff7f7;
+  color: #a33f3f;
+  padding: 7px 11px;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.document-batch-actions button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.document-select {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: #194868;
+}
 .file-card {
   display: flex;
   gap: 12px;
