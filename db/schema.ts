@@ -39,6 +39,7 @@ export const documents = sqliteTable("documents", {
   processingResultJson: text("processing_result_json").notNull().default("{}"),
   fullTextIndexed: integer("full_text_indexed", { mode: "boolean" }).notNull().default(false),
   vectorIndexed: integer("vector_indexed", { mode: "boolean" }).notNull().default(false),
+  homepageSearchEnabled: integer("homepage_search_enabled", { mode: "boolean" }).notNull().default(false),
   processedAt: integer("processed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()

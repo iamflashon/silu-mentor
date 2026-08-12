@@ -56,6 +56,7 @@ export async function GET() {
         tags: (() => { try { return JSON.parse(row.tagsJson); } catch { return []; } })(),
         fullTextIndexed: row.fullTextIndexed,
         vectorIndexed: row.vectorIndexed,
+        homepageSearchEnabled: row.homepageSearchEnabled,
         summary: typeof result.summary === "string" ? result.summary : "",
         sourceFileName: typeof result.sourceFileName === "string" ? result.sourceFileName : row.fileName,
         indexedFileName: typeof result.indexedFileName === "string" ? result.indexedFileName : row.fileName,
@@ -157,5 +158,37 @@ export async function DELETE(request: Request) {
     });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 240) : "教材刪除失敗" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean };
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id < 1 || typeof body.homepageSearchEnabled !== "boolean") {
+      return Response.json({ error: "首頁搜尋設定不正確" }, { status: 400 });
+    }
+    const db = await getDb();
+    const [document] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
+    if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
+    if (body.homepageSearchEnabled && (document.status !== "completed" || !document.openaiFileId || !document.vectorIndexed)) {
+      return Response.json({ error: "教材完成全文／向量索引後，才能允許首頁搜尋" }, { status: 409 });
+    }
+    const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
+    if (document.openaiFileId && setting?.value) {
+      await openAIJson(`/vector_stores/${setting.value}/files/${document.openaiFileId}`, {
+        method: "POST",
+        body: JSON.stringify({ attributes: {
+          subject: document.subject,
+          document_type: document.documentType,
+          source_file: document.fileName,
+          homepage_enabled: body.homepageSearchEnabled,
+        } }),
+      });
+    }
+    await db.update(documents).set({ homepageSearchEnabled: body.homepageSearchEnabled }).where(eq(documents.id, id));
+    return Response.json({ id, homepageSearchEnabled: body.homepageSearchEnabled });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message.slice(0, 240) : "首頁搜尋設定更新失敗" }, { status: 500 });
   }
 }

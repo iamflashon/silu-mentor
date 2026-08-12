@@ -1,0 +1,1 @@
+ALTER TABLE `documents` ADD `homepage_search_enabled` integer DEFAULT false NOT NULL;

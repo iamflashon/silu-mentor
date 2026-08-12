@@ -1086,7 +1086,12 @@ export async function POST(request: Request) {
     // segment. Do not add the global vector store in that case: an unscoped
     // file_search result could silently teach from another book or chapter.
     const allowFileSearch = needsOpenAi && Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
-    if (allowFileSearch) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
+    if (allowFileSearch) tools.unshift({
+      type: "file_search",
+      vector_store_ids: [vectorStoreId],
+      max_num_results: 8,
+      ...(context.type === "home" ? { filters: { type: "eq", key: "homepage_enabled", value: true } } : {}),
+    });
     const allowWebSearch = needsOpenAi && context.type === "home" && homeWebSearchMode !== "off";
     if (allowWebSearch) tools.unshift({ type: "web_search" });
     let payload: unknown = {};

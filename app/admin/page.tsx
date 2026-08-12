@@ -31,6 +31,7 @@ type Uploaded = {
   tags?: string[];
   fullTextIndexed?: boolean;
   vectorIndexed?: boolean;
+  homepageSearchEnabled?: boolean;
   summary?: string;
   sourceFileName?: string;
   indexedFileName?: string;
@@ -757,6 +758,7 @@ export default function AdminPage() {
             tags?: string[];
             fullTextIndexed?: boolean;
             vectorIndexed?: boolean;
+            homepageSearchEnabled?: boolean;
             summary?: string;
             sourceFileName?: string;
             indexedFileName?: string;
@@ -786,6 +788,7 @@ export default function AdminPage() {
             tags: item.tags,
             fullTextIndexed: item.fullTextIndexed,
             vectorIndexed: item.vectorIndexed,
+            homepageSearchEnabled: item.homepageSearchEnabled,
             summary: item.summary,
             sourceFileName: item.sourceFileName,
             indexedFileName: item.indexedFileName,
@@ -2887,6 +2890,21 @@ export default function AdminPage() {
     await processDocument(documentId, true);
   }
 
+  async function toggleHomepageDocument(file: Uploaded) {
+    const next = !file.homepageSearchEnabled;
+    setFiles((current) => current.map((item) => item.id === file.id ? { ...item, homepageSearchEnabled: next } : item));
+    setNotice(next ? `正在開放「${file.name}」供首頁搜尋…` : `正在停止首頁搜尋「${file.name}」…`);
+    try {
+      const response = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, homepageSearchEnabled: next }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "首頁搜尋設定更新失敗");
+      setNotice(next ? `「${file.name}」已允許首頁 AI 搜尋；不必開啟或綁定智能書。` : `「${file.name}」已停止供首頁 AI 搜尋；智能書綁定不受影響。`);
+    } catch (error) {
+      setFiles((current) => current.map((item) => item.id === file.id ? { ...item, homepageSearchEnabled: !next } : item));
+      setNotice(error instanceof Error ? error.message : "首頁搜尋設定更新失敗");
+    }
+  }
+
   async function deleteSelectedDocuments() {
     if (!selectedDocumentIds.length || deletingDocuments) return;
     if (!window.confirm(`確定刪除已選取的 ${selectedDocumentIds.length} 份教材？\n\n原始檔、全文／向量索引及處理紀錄都會一併刪除；已綁定的智能書會解除教材連結。`)) return;
@@ -3810,6 +3828,12 @@ export default function AdminPage() {
                             </details>
                           )}
                         </div>
+                        {ready && (
+                          <label className={`homepage-search-toggle ${file.homepageSearchEnabled ? "enabled" : ""}`}>
+                            <input type="checkbox" checked={Boolean(file.homepageSearchEnabled)} onChange={() => void toggleHomepageDocument(file)} />
+                            <span>{file.homepageSearchEnabled ? "首頁可搜尋" : "允許首頁搜尋"}</span>
+                          </label>
+                        )}
                         {failed ? (
                           <button
                             className="index-btn"

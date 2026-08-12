@@ -73,7 +73,7 @@ async function uploadToVectorStore(document: typeof documents.$inferSelect, orig
   const storeId = await vectorStoreId();
   const indexed = await openAIJson(`/vector_stores/${storeId}/files`, {
     method: "POST",
-    body: JSON.stringify({ file_id: filePayload.id, attributes: { subject: document.subject, document_type: document.documentType, source_file: document.fileName, indexed_file: source.fileName } }),
+    body: JSON.stringify({ file_id: filePayload.id, attributes: { subject: document.subject, document_type: document.documentType, source_file: document.fileName, indexed_file: source.fileName, homepage_enabled: Boolean(document.homepageSearchEnabled) } }),
   });
   return { fileId: filePayload.id, storeId, status: typeof indexed.status === "string" ? indexed.status : "in_progress", indexedFileName: source.fileName };
 }
