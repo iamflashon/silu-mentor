@@ -443,7 +443,7 @@ async function sourceRows(db: Awaited<ReturnType<typeof requireAdmin>> extends i
     sourceUrl: resource.sourceUrl,
     status: resource.status,
     lastSyncedAt: resource.updatedAt,
-    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; publicLinks?: PublicLink[]; book?: BookMetadata } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: canonicalUrl(item.sourceUrl || ""), summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "", publicLinks: meta.publicLinks ?? [], book: meta.book }; }),
+    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: PublicLink[]; book?: BookMetadata } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: canonicalUrl(item.sourceUrl || ""), summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "", content: meta.content ?? "", publicLinks: meta.publicLinks ?? [], book: meta.book }; }),
   }));
 }
 
@@ -474,7 +474,7 @@ export async function POST(request: Request) {
       )).limit(1);
       if (!resource || !item.sourceUrl) return Response.json({ error: "這筆資料沒有可抓取的公開來源頁面" }, { status: 400 });
 
-      let itemMeta: { depth?: number } = {};
+      let itemMeta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: PublicLink[]; book?: BookMetadata } = {};
       try { itemMeta = JSON.parse(item.text || "{}"); } catch {}
       const response = await fetch(item.sourceUrl, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
       if (!response.ok) throw new Error(`內層頁面回應 ${response.status}`);
@@ -491,7 +491,32 @@ export async function POST(request: Request) {
         .filter((child) => child.url !== item.sourceUrl)
         .sort((left, right) => crawlPriority(source, left) - crawlPriority(source, right))
         .slice(0, source === "lawdata" ? 120 : 40);
-      if (!discovered.length) throw new Error("已讀取此頁，但沒有辨識到可建立索引的下一層公開資料");
+
+      // Magazine catalogue entries are sometimes plain text with neighbouring
+      // preview badges rather than links to a separate article page. In that
+      // case the useful final layer belongs on the current article record; it
+      // must not be reported as an empty hierarchy merely because no child URL
+      // exists.
+      let detailUpdated = false;
+      if (source === "lawdata") {
+        const catalogueRows = discoverAngleMagazineContents(html, response.url || item.sourceUrl, itemMeta.parentTitle || item.title, itemMeta.depth ?? 1);
+        const matched = catalogueRows.find((row) => row.title.trim() === item.title.trim())
+          ?? catalogueRows.find((row) => row.title.includes(item.title) || item.title.includes(row.title));
+        if (matched && (matched.content || matched.publicLinks?.length || matched.summary !== item.summary)) {
+          const mergedMeta = {
+            ...itemMeta,
+            kind: "detail",
+            content: matched.content || itemMeta.content,
+            publicLinks: matched.publicLinks?.length ? matched.publicLinks : itemMeta.publicLinks,
+          };
+          await auth.db.update(resourceSegments).set({
+            text: JSON.stringify({ source, accessType: "public_index", ...mergedMeta }),
+            summary: matched.summary || item.summary,
+          }).where(eq(resourceSegments.id, item.id));
+          detailUpdated = true;
+        }
+      }
+      if (!discovered.length && !detailUpdated && !itemMeta.content && !itemMeta.publicLinks?.length) throw new Error("已讀取此頁，但沒有辨識到文章詳情或下一層公開資料");
 
       const current = await auth.db.select().from(resourceSegments).where(and(
         eq(resourceSegments.resourceId, resource.id),
@@ -520,7 +545,7 @@ export async function POST(request: Request) {
         added += 1;
       }
       await auth.db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
-      return Response.json({ source, discovered: discovered.length, added, parentTitle: item.title, sources: await sourceRows(auth.db) });
+      return Response.json({ source, discovered: discovered.length, added, detailUpdated, parentTitle: item.title, sources: await sourceRows(auth.db) });
     }
 
     const response = await fetch(config.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
