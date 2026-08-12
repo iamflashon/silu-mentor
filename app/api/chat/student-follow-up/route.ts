@@ -8,7 +8,7 @@ type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
 function selectedOptionFromContext(prompt: string, teacherText: string) {
   const context = `${teacherText}\n${prompt}`;
-  const matches = [...context.matchAll(/(?:為什麼|理由|選擇|我選|選了|選)\s*[「『\"']?([ABCD])[」』\"']?/giu)];
+  const matches = [...context.matchAll(/(?:為什麼|理由|選擇|我選|選了|選)\s*[「『"']?([ABCD])[」』"']?/giu)];
   return matches.at(-1)?.[1]?.toUpperCase() ?? "";
 }
 
