@@ -28,6 +28,7 @@ export default function GlobalSelectionTools() {
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">("");
   const rangeRef = useRef<Range | null>(null);
+  const selectionBarRef = useRef<HTMLDivElement | null>(null);
 
   function applySelectedText(value: string) {
     const text = value.replace(/\s+/g, " ").trim().slice(0, 1200);
@@ -53,8 +54,19 @@ export default function GlobalSelectionTools() {
 
   function dismiss(clearText = false) {
     setPosition(null); setEditingSelection(false); rangeRef.current = null; window.getSelection()?.removeAllRanges();
-    if (clearText) { setSelectedText(""); setLawQuery(""); }
+    if (clearText) { setSelectedText(""); setLawQuery(""); setJudicialQuery(null); }
   }
+
+  useEffect(() => {
+    if (!position) return;
+    const dismissOnOutsidePress = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && selectionBarRef.current?.contains(target)) return;
+      dismiss(true);
+    };
+    document.addEventListener("pointerdown", dismissOnOutsidePress, true);
+    return () => document.removeEventListener("pointerdown", dismissOnOutsidePress, true);
+  }, [position]);
 
   useEffect(() => {
     const capture = () => {
@@ -135,7 +147,7 @@ export default function GlobalSelectionTools() {
 
   const close = () => { setLookup(null); setSelectedText(""); setLawQuery(""); setJudicialQuery(null); };
   return <>
-    {selectedText && position && <div className={`smart-selection-bar global-selection-bar ${position.placement} ${editingSelection ? "editing" : ""}`} style={{ left: position.left, top: position.top }}>
+    {selectedText && position && <div ref={selectionBarRef} className={`smart-selection-bar global-selection-bar ${position.placement} ${editingSelection ? "editing" : ""}`} style={{ left: position.left, top: position.top }}>
       {editingSelection ? <input autoFocus aria-label="編輯框選文字" value={selectedText} onChange={(event) => applySelectedText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setEditingSelection(false); if (event.key === "Escape") dismiss(true); }} /> : <span>已框選：{selectedText}</span>}
       <button type="button" className="selection-edit-button" onClick={() => setEditingSelection((current) => !current)}>{editingSelection ? "完成" : "編輯"}</button>
       {judicialQuery ? <button type="button" onClick={() => void searchJudicial()}>裁判搜尋</button> : <button type="button" onClick={() => void searchLaw()} disabled={!lawQuery} title={lawQuery ? `搜尋 ${lawQuery}` : "請先編輯為單一、完整的法規名稱與條號"}>法條搜尋</button>}
