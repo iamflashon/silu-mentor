@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Attachment = { id: number; url: string };
-type Note = { id: number; sourceType?: string; title: string; content: string; subject: string; tags: string; sourceLabel: string; updatedAt: string; attachments?: Attachment[] };
+type Note = { id: number; sourceType?: string; title: string; content: string; originalContent?: string; subject: string; tags: string; sourceLabel: string; updatedAt: string; attachments?: Attachment[] };
 type Filter = "all" | "favorite" | "note";
 
 const emptyDraft = (): Note => ({ id: 0, sourceType: "note", title: "", content: "", subject: "綜合", tags: "", sourceLabel: "", updatedAt: new Date().toISOString(), attachments: [] });
@@ -32,7 +32,7 @@ export default function NotesPage() {
     if (filter === "favorite" && note.sourceType !== "favorite") return false;
     if (filter === "note" && note.sourceType === "favorite") return false;
     const term = query.trim().toLowerCase();
-    return !term || [note.title, note.content, note.subject, note.tags, note.sourceLabel].some((value) => value?.toLowerCase().includes(term));
+    return !term || [note.title, note.content, note.originalContent, note.subject, note.tags, note.sourceLabel].some((value) => value?.toLowerCase().includes(term));
   }), [notes, query, filter]);
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize);

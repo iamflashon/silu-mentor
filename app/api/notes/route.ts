@@ -33,12 +33,22 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { sourceType?: string; sourceId?: string; title?: string; content?: string; subject?: string; tags?: string; sourceLabel?: string; imageDataUrl?: string; imageSourceUrl?: string; episodeTitle?: string; positionSeconds?: number };
+    const body = await request.json() as { sourceType?: string; sourceId?: string; title?: string; content?: string; originalContent?: string; subject?: string; tags?: string; sourceLabel?: string; imageDataUrl?: string; imageSourceUrl?: string; episodeTitle?: string; positionSeconds?: number };
     const image = parseImageDataUrl(body.imageDataUrl);
     if (body.imageDataUrl && !image) return Response.json({ error: "截圖格式不正確或檔案太大" }, { status: 400 });
     const owner = userKey(request);
     const db = await getDb();
-    const [note] = await db.insert(savedNotes).values({ userKey: owner, sourceType: body.sourceType?.trim() || "manual", sourceId: body.sourceId?.trim() || null, title: body.title?.trim() || "我的筆記", content: (body.content ?? "").trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", sourceLabel: body.sourceLabel?.trim() || "" }).returning();
+    const sourceId = body.sourceId?.trim() || null;
+    if (sourceId) {
+      const [existing] = await db.select().from(savedNotes).where(and(eq(savedNotes.userKey, owner), eq(savedNotes.sourceId, sourceId))).limit(1);
+      if (existing) {
+        if ((body.sourceType?.trim() || "manual") === "note") {
+          await db.update(savedNotes).set({ sourceType: "note", title: body.title?.trim() || existing.title, content: (body.content ?? "").trim() || existing.content, originalContent: (body.originalContent ?? existing.originalContent ?? existing.content).trim(), subject: body.subject?.trim() || existing.subject, tags: body.tags?.trim() || existing.tags, sourceLabel: body.sourceLabel?.trim() || existing.sourceLabel, updatedAt: new Date() }).where(and(eq(savedNotes.id, existing.id), eq(savedNotes.userKey, owner)));
+        }
+        return Response.json({ note: { ...existing, sourceType: body.sourceType === "note" ? "note" : existing.sourceType }, merged: true }, { status: 200 });
+      }
+    }
+    const [note] = await db.insert(savedNotes).values({ userKey: owner, sourceType: body.sourceType?.trim() || "manual", sourceId, title: body.title?.trim() || "我的筆記", content: (body.content ?? "").trim(), originalContent: (body.originalContent ?? "").trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", sourceLabel: body.sourceLabel?.trim() || "" }).returning();
     if (image) {
       const storageKey = `notes/${crypto.randomUUID()}.jpg`;
       try {

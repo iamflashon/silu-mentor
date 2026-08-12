@@ -83,6 +83,15 @@ export const legalExplanationCache = sqliteTable("legal_explanation_cache", {
     .$defaultFn(() => new Date()),
 });
 
+export const organizedNoteCache = sqliteTable("organized_note_cache", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cacheKey: text("cache_key").notNull().unique(),
+  model: text("model").notNull(),
+  noteJson: text("note_json").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const studyPlans = sqliteTable("study_plans", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   title: text("title").notNull(),
@@ -279,6 +288,7 @@ export const savedNotes = sqliteTable("saved_notes", {
   sourceId: text("source_id"),
   title: text("title").notNull(),
   content: text("content").notNull(),
+  originalContent: text("original_content").notNull().default(""),
   subject: text("subject").notNull().default("綜合"),
   tags: text("tags").notNull().default(""),
   sourceLabel: text("source_label").notNull().default(""),

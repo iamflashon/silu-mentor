@@ -1,7 +1,16 @@
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { getDb } from "../../../../db";
-import { usageLogs } from "../../../../db/schema";
+import { organizedNoteCache, usageLogs } from "../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
+import { eq } from "drizzle-orm";
+
+const NOTE_PROMPT_VERSION = "structured-note-v1";
+
+function normalizeCacheText(value: string) { return value.normalize("NFKC").replace(/\s+/g, " ").trim(); }
+async function sha256(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
@@ -48,9 +57,18 @@ export async function POST(request: Request) {
     const body = await request.json() as { title?: string; content?: string; subject?: string; tags?: string; sourceLabel?: string };
     const content = String(body.content ?? "").trim().slice(0, 12000);
     if (content.length < 2) return Response.json({ error: "目前沒有可整理的內容。" }, { status: 400 });
-    if (!await getOpenAIKey()) return Response.json({ error: "AI 筆記整理模型尚未設定。" }, { status: 503 });
-
     const model = "gpt-5.6-luna";
+    const cacheKey = await sha256(JSON.stringify({ version: NOTE_PROMPT_VERSION, model, title: normalizeCacheText(String(body.title ?? "")), subject: normalizeCacheText(String(body.subject ?? "綜合")), tags: normalizeCacheText(String(body.tags ?? "")), sourceLabel: normalizeCacheText(String(body.sourceLabel ?? "")), content: normalizeCacheText(content) }));
+    try {
+      const db = await getDb();
+      const [cached] = await db.select().from(organizedNoteCache).where(eq(organizedNoteCache.cacheKey, cacheKey)).limit(1);
+      if (cached) {
+        const note = JSON.parse(cached.noteJson) as OrganizedNote;
+        await db.update(organizedNoteCache).set({ lastUsedAt: new Date() }).where(eq(organizedNoteCache.id, cached.id));
+        return Response.json({ note: { title: note.title, subject: note.subject || String(body.subject ?? "綜合"), tags: note.tags || "待複習", content: `【爭點】\n${note.issue}\n\n【規範】\n${note.rule}\n\n【涵攝】\n${note.application}\n\n【結論】\n${note.conclusion}`, sourceLabel: String(body.sourceLabel ?? "AI 法律助教") }, reused: true, usage: { model: "沿用先前整理", inputTokens: 0, cachedTokens: 0, outputTokens: 0, durationMs: 0, estimatedCostUsd: 0 } });
+      }
+    } catch { /* 快取不可用時仍可由模型整理 */ }
+    if (!await getOpenAIKey()) return Response.json({ error: "AI 筆記整理模型尚未設定。" }, { status: 503 });
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", {
       method: "POST",
@@ -70,12 +88,13 @@ export async function POST(request: Request) {
     const estimatedCostUsdMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
     try {
       const db = await getDb();
+      await db.insert(organizedNoteCache).values({ cacheKey, model, noteJson: JSON.stringify(note) }).onConflictDoNothing();
       await db.insert(usageLogs).values({ model, source: "我的筆記｜AI 結構化整理", inputTokens, cachedTokens, outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros });
     } catch { /* 成本紀錄失敗不影響筆記預覽 */ }
 
     return Response.json({
       note: { title: note.title, subject: note.subject || String(body.subject ?? "綜合"), tags: note.tags || "待複習", content: `【爭點】\n${note.issue}\n\n【規範】\n${note.rule}\n\n【涵攝】\n${note.application}\n\n【結論】\n${note.conclusion}`, sourceLabel: String(body.sourceLabel ?? "AI 法律助教") },
-      usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 },
+      reused: false, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 },
     });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "AI 筆記整理暫時無法完成。" }, { status: 500 });
