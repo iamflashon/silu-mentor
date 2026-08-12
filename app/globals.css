@@ -28089,6 +28089,7 @@ a {
 .selection-note-editor input,.selection-note-editor textarea,.standalone-note-editor input,.standalone-note-editor textarea{width:100%;padding:11px 12px;border:1px solid #cfdee2;border-radius:10px;color:#173f53;font:inherit;line-height:1.65;outline:0}
 .selection-note-fields,.standalone-note-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .selection-note-editor>small{display:block;margin-top:10px;color:#78909a}
+.note-organize-usage{display:grid;gap:3px;margin-top:12px;padding:10px 12px;border-radius:9px;background:#eef7f5;color:#52717e;font-size:11px}.note-organize-usage b{color:#176b70}.note-organize-usage span{display:block}
 .selection-note-editor footer,.standalone-note-editor footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
 .selection-note-editor footer button,.standalone-note-editor footer button{min-height:40px;padding:9px 16px;border:1px solid #bfd0d6;border-radius:9px;background:#fff;color:#3c6371;font-weight:800;cursor:pointer}
 .notes-page{min-height:100vh;padding:34px clamp(18px,5vw,76px) 64px;background:linear-gradient(180deg,#f4f9f8 0,#fff 260px);color:#214c5b}

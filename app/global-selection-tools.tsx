@@ -8,7 +8,7 @@ type JudicialDecision = { id: number; court: string; year: string; caseType: str
 type ToolPosition = { left: number; top: number; placement: "above" | "below" };
 type ExplainUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
 type LegalAnalysis = { kind?: string; officialName?: string; legalField?: string; nature?: string; reference?: string; points?: string[]; verification?: string; caveat?: string };
-type NoteDraft = { title: string; content: string; subject: string; tags: string; sourceLabel: string };
+type NoteDraft = { title: string; content: string; subject: string; tags: string; sourceLabel: string; usage?: ExplainUsage };
 const LAW_ALIASES: Record<string, string> = { 憲訴法: "憲法訴訟法", 憲法訴訟法: "憲法訴訟法", 民訴法: "民事訴訟法", 刑訴法: "刑事訴訟法", 行訴法: "行政訴訟法", 行程法: "行政程序法" };
 const LAW_REFERENCE = /(?:中華民國)?(?:憲訴法|憲法訴訟法|憲法|民法|刑法|行政程序法|行程法|行政訴訟法|行訴法|民事訴訟法|民訴法|刑事訴訟法|刑訴法|公司法|證券交易法|保險法|票據法|強制執行法|破產法|著作權法|商標法|公平交易法|消費者保護法|個人資料保護法)第\d+(?:條之\d+|之\d+條|條)(?:第\d+項)?(?:第\d+款)?/u;
 const JUDICIAL_REFERENCE = /(?<court>[\p{Script=Han}]{2,20}法院)(?:民事|刑事|行政)?(?:判決|裁定)?\s*(?<year>\d{1,3})\s*年度\s*(?<caseType>[\p{Script=Han}]{1,8})\s*字\s*第\s*(?<caseNo>\d+)\s*號/u;
@@ -27,6 +27,7 @@ export default function GlobalSelectionTools() {
   const [lookup, setLookup] = useState<{ mode: "search" | "explain"; loading: boolean; article: LegalArticle | null; decision: JudicialDecision | null; error: string; explanation: string; analysis: LegalAnalysis | null; explaining: boolean; usage: ExplainUsage | null } | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">("");
+  const [organizeState, setOrganizeState] = useState<"" | "organizing" | "error">("");
   const rangeRef = useRef<Range | null>(null);
   const selectionBarRef = useRef<HTMLDivElement | null>(null);
 
@@ -145,6 +146,19 @@ export default function GlobalSelectionTools() {
     window.setTimeout(() => setSaveState(""), 1800);
   }
 
+  async function organizeNote() {
+    if (organizeState === "organizing") return;
+    setOrganizeState("organizing");
+    const source = noteFromLookup();
+    try {
+      const response = await fetch("/api/notes/organize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(source) });
+      const data = await response.json() as { note?: NoteDraft; usage?: ExplainUsage; error?: string };
+      if (!response.ok || !data.note) { setOrganizeState("error"); return; }
+      setNoteDraft({ ...data.note, usage: data.usage });
+      setOrganizeState("");
+    } catch { setOrganizeState("error"); }
+  }
+
   const close = () => { setLookup(null); setSelectedText(""); setLawQuery(""); setJudicialQuery(null); };
   return <>
     {selectedText && position && <div ref={selectionBarRef} className={`smart-selection-bar global-selection-bar ${position.placement} ${editingSelection ? "editing" : ""}`} style={{ left: position.left, top: position.top }}>
@@ -181,9 +195,9 @@ export default function GlobalSelectionTools() {
           {lookup.explanation && <section className="law-plain-explanation"><b>白話解釋</b><p>{lookup.explanation}</p><small>解釋以顯示的裁判內容為依據，不取代老師解析。</small>{lookup.usage && <div className="law-usage-meta"><b>{lookup.usage.model.replace("gpt-5.6-", "")}｜AI 白話解釋</b><span>輸入 {lookup.usage.inputTokens.toLocaleString()} · 輸出 {lookup.usage.outputTokens.toLocaleString()} · 合計 {(lookup.usage.inputTokens + lookup.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {lookup.usage.durationMs.toLocaleString()} ms · US$ {lookup.usage.estimatedCostUsd.toFixed(6)} · 約 NT$ {(lookup.usage.estimatedCostUsd * 32.5).toFixed(4)}</span></div>}</section>}
         </> : <div className="law-lookup-status error"><p>{lookup.error}</p>{judicialQuery && <small>{judicialQuery.court}｜{judicialQuery.year}年度｜{judicialQuery.caseType}字｜第{judicialQuery.caseNo}號</small>}<div className="official-search-fallback"><b>已整理並複製搜尋關鍵字</b><span>選擇官方網站後，可直接貼入搜尋欄。</span><div><button type="button" onClick={() => void openOfficialSearch("https://law.moj.gov.tw/")}>全國法規資料庫 ↗</button><button type="button" onClick={() => void openOfficialSearch("https://judgment.judicial.gov.tw/FJUD/default.aspx")}>司法院裁判書 ↗</button><button type="button" onClick={() => void openOfficialSearch("https://cons.judicial.gov.tw/judsearch.aspx?fid=46")}>憲法法庭 ↗</button></div></div></div>}
         {lookup.error && lookup.article && <p className="law-lookup-status error">{lookup.error}</p>}
-        {!lookup.loading && !lookup.error && <div className="selection-save-actions"><button type="button" onClick={() => void saveSelection("favorite")} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saved" ? "已存入我的筆記 ✓" : "☆ 快速收藏"}</button><button type="button" className="primary" onClick={() => setNoteDraft(noteFromLookup())}>＋ 整理成筆記</button><a href="/notes">前往我的筆記 →</a>{saveState === "error" && <small>目前無法保存，請稍後再試。</small>}</div>}
+        {!lookup.loading && !lookup.error && <div className="selection-save-actions"><button type="button" onClick={() => void saveSelection("favorite")} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saved" ? "已收藏原文 ✓" : "☆ 快速收藏原文"}</button><button type="button" className="primary" onClick={() => void organizeNote()} disabled={organizeState === "organizing"}>{organizeState === "organizing" ? "AI 正在整理…" : "＋ AI 整理成筆記"}</button><a href="/notes">前往我的筆記 →</a>{saveState === "error" && <small>目前無法保存，請稍後再試。</small>}{organizeState === "error" && <small>AI 整理未完成，請再試一次。</small>}</div>}
       </aside>
     </div>}
-    {noteDraft && <div className="selection-note-backdrop" role="presentation" onMouseDown={() => setNoteDraft(null)}><form className="selection-note-editor" onSubmit={(event) => { event.preventDefault(); void saveSelection("note", noteDraft); }} onMouseDown={(event) => event.stopPropagation()}><header><div><span>加入我的筆記</span><h3>整理後再保存</h3></div><button type="button" onClick={() => setNoteDraft(null)} aria-label="關閉">×</button></header><label>標題<input value={noteDraft.title} onChange={(event) => setNoteDraft({ ...noteDraft, title: event.target.value })} required /></label><div className="selection-note-fields"><label>科目<input value={noteDraft.subject} onChange={(event) => setNoteDraft({ ...noteDraft, subject: event.target.value })} /></label><label>標籤<input value={noteDraft.tags} onChange={(event) => setNoteDraft({ ...noteDraft, tags: event.target.value })} placeholder="重要、待複習" /></label></div><label>我的筆記<textarea rows={10} value={noteDraft.content} onChange={(event) => setNoteDraft({ ...noteDraft, content: event.target.value })} required /></label><small>原始來源會一併保留；儲存後可到獨立的「我的筆記」頁搜尋與編輯。</small><footer><button type="button" onClick={() => setNoteDraft(null)}>取消</button><button type="submit" className="primary" disabled={saveState === "saving"}>{saveState === "saving" ? "儲存中…" : "儲存筆記"}</button></footer></form></div>}
+    {noteDraft && <div className="selection-note-backdrop" role="presentation" onMouseDown={() => setNoteDraft(null)}><form className="selection-note-editor" onSubmit={(event) => { event.preventDefault(); void saveSelection("note", noteDraft); }} onMouseDown={(event) => event.stopPropagation()}><header><div><span>AI 整理成筆記</span><h3>預覽與編輯</h3></div><button type="button" onClick={() => setNoteDraft(null)} aria-label="關閉">×</button></header><label>標題<input value={noteDraft.title} onChange={(event) => setNoteDraft({ ...noteDraft, title: event.target.value })} required /></label><div className="selection-note-fields"><label>科目<input value={noteDraft.subject} onChange={(event) => setNoteDraft({ ...noteDraft, subject: event.target.value })} /></label><label>標籤<input value={noteDraft.tags} onChange={(event) => setNoteDraft({ ...noteDraft, tags: event.target.value })} placeholder="重要、待複習" /></label></div><label>結構化筆記<textarea rows={13} value={noteDraft.content} onChange={(event) => setNoteDraft({ ...noteDraft, content: event.target.value })} required /></label><small>AI 已依「爭點、規範、涵攝、結論」整理；你可修改後再儲存，原始來源會一併保留。</small>{noteDraft.usage && <div className="note-organize-usage"><b>{noteDraft.usage.model.replace("gpt-5.6-", "")}｜AI 筆記整理</b><span>輸入 {noteDraft.usage.inputTokens.toLocaleString()} · 輸出 {noteDraft.usage.outputTokens.toLocaleString()} · 合計 {(noteDraft.usage.inputTokens + noteDraft.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {noteDraft.usage.durationMs.toLocaleString()} ms · US$ {noteDraft.usage.estimatedCostUsd.toFixed(6)} · 約 NT$ {(noteDraft.usage.estimatedCostUsd * 32.5).toFixed(4)}</span></div>}<footer><button type="button" onClick={() => setNoteDraft(null)}>取消</button><button type="submit" className="primary" disabled={saveState === "saving"}>{saveState === "saving" ? "儲存中…" : "儲存筆記"}</button></footer></form></div>}
   </>;
 }
