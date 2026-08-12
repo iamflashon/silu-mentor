@@ -3828,24 +3828,21 @@ export default function AdminPage() {
                             </details>
                           )}
                         </div>
-                        {ready && (
-                          <label className={`homepage-search-toggle ${file.homepageSearchEnabled ? "enabled" : ""}`}>
-                            <input type="checkbox" checked={Boolean(file.homepageSearchEnabled)} onChange={() => void toggleHomepageDocument(file)} />
-                            <span>{file.homepageSearchEnabled ? "首頁可搜尋" : "允許首頁搜尋"}</span>
-                          </label>
-                        )}
-                        {failed ? (
-                          <button
-                            className="index-btn"
-                            onClick={() => startIndex(file.id)}
-                          >
-                            重新處理
-                          </button>
-                        ) : (
-                          <span className={`status ${ready ? "" : "pending"}`}>
-                            {ready ? "可供 AI 搜尋" : waiting ? "即將自動處理" : "自動處理中"}
-                          </span>
-                        )}
+                        <div className="file-card-actions">
+                          {ready && (
+                            <label className={`homepage-search-toggle ${file.homepageSearchEnabled ? "enabled" : ""}`}>
+                              <input type="checkbox" checked={Boolean(file.homepageSearchEnabled)} onChange={() => void toggleHomepageDocument(file)} />
+                              <span>{file.homepageSearchEnabled ? "首頁可搜尋" : "允許首頁搜尋"}</span>
+                            </label>
+                          )}
+                          {failed ? (
+                            <button className="index-btn" onClick={() => startIndex(file.id)}>重新處理</button>
+                          ) : (
+                            <span className={`status ${ready ? "" : "pending"}`}>
+                              {ready ? "索引完成" : waiting ? "等待處理" : "處理中"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
