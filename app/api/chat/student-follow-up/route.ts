@@ -6,6 +6,39 @@ import { requireAdmin } from "../../../../lib/member-auth";
 type TeacherResponse = { label?: string; model?: string; text?: string; error?: string | null };
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
 
+function selectedOptionFromContext(prompt: string, teacherText: string) {
+  const context = `${teacherText}\n${prompt}`;
+  const matches = [...context.matchAll(/(?:為什麼|理由|選擇|我選|選了|選)\s*[「『\"']?([ABCD])[」』\"']?/giu)];
+  return matches.at(-1)?.[1]?.toUpperCase() ?? "";
+}
+
+function optionTextFromQuestion(question: string, option: string) {
+  if (!option) return "";
+  const match = question.match(new RegExp(`(?:^|\\n)\\s*${option}\\s*[.．、:]?\\s*(.+?)(?=\\n\\s*[ABCD]\\s*[.．、:]?\\s*|$)`, "isu"));
+  return match?.[1]?.trim() ?? "";
+}
+
+function meaningfulOptionNgrams(optionText: string) {
+  const compact = optionText.replace(/[\s，。；：、（）()「」『』！？,.!?]/gu, "");
+  const excluded = new Set(["法院", "被告", "題目", "規定", "情形", "可以", "不得", "應該", "現在", "另因", "有罪", "宣告", "法律", "關係", "權利", "義務"]);
+  const grams = new Set<string>();
+  for (let size = 4; size >= 2; size -= 1) {
+    for (let index = 0; index <= compact.length - size; index += 1) {
+      const gram = compact.slice(index, index + size);
+      if (!excluded.has(gram)) grams.add(gram);
+    }
+  }
+  return [...grams];
+}
+
+function concretelyAddressesOption(reply: string, optionText: string) {
+  if (!optionText) return true;
+  const genericOnly = /^(?:我選\s*[ABCD][，,。\s]*)?(?:因為)?(?:這個選項|該選項|題目所載|題目中的關鍵文字|當事人間|依該法律關係|符合題意|符合題目|法律關係合理|處理方式正確|應依實際情況判斷|負擔相應權利義務)[\s\S]{0,80}$/u;
+  if (genericOnly.test(reply.trim())) return false;
+  const hits = meaningfulOptionNgrams(optionText).filter((gram) => reply.includes(gram));
+  return hits.some((gram) => gram.length >= 4) || new Set(hits.filter((gram) => gram.length >= 2)).size >= 2;
+}
+
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
   const direct = (payload as { output_text?: unknown }).output_text;
@@ -68,6 +101,8 @@ export async function POST(request: Request) {
       ? "這是刑法題目，可以依題目內容討論行為、犯罪構成、故意、未遂、共犯與因果關係，但不得捏造題目沒有的事實。"
       : `這是${subject}題目，請依該科目的法律關係與規範回答，不要套用其他法科的固定模板。`;
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
+  const selectedOption = selectedOptionFromContext(prompt, teacherText);
+  const selectedOptionText = optionTextFromQuestion(question, selectedOption);
   const levelLabel = body.level === "beginner" ? "法律小白" : body.level === "intermediate" ? "基礎考生" : body.level === "advanced" ? "進階考生" : body.level === "super" ? "頂尖學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
     ? "用白話直接回答；可以不會法律術語、誤解選項或判斷錯誤，但仍須指出選項實際在說什麼，不能用空泛套話代替理解。"
@@ -87,7 +122,7 @@ export async function POST(request: Request) {
 6. 絕對不要輸出「【選取內容】」「追問給你」「處理要求」「請選邊站」或其他內部提示文字。
 7. 程度不足時可以回答不完整或答錯，讓導師後續糾正；但仍須正面回答當輪問題，不能以「我不確定」代替作答。
 8. 不要使用標題、條列、Markdown 或引號包住全文；使用繁體中文，約 40 至 140 字，直接輸出學生要說的內容。`;
-  const input = `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}\n\n學生指定的訊息：\n${teacherText}`;
+  const baseInput = `題目科目：${subject}\n題目內容：${question.slice(0, 5000)}${selectedOptionText ? `\n\n本輪學生選的是 ${selectedOption}，該選項原文：${selectedOptionText}` : ""}\n\n學生指定的訊息：\n${teacherText}`;
   const startedAt = Date.now();
   let payload: Record<string, unknown> = {};
   let reply = "";
@@ -96,7 +131,10 @@ export async function POST(request: Request) {
   // Reasoning models can consume a small token allowance before emitting any
   // visible text. Give the student answer enough room and retry once when the
   // provider returns a successful response without an answer body.
-  for (const maxOutputTokens of [1600, 2400]) {
+  for (const [attempt, maxOutputTokens] of [1600, 2000, 2400].entries()) {
+    const input = attempt === 0
+      ? baseInput
+      : `${baseInput}\n\n上一版回答未具體處理所選選項，已被系統退回。請重新回答，必須明確重述「${selectedOptionText}」中的至少一個決定性法律概念或關鍵用語，並說明它為何支持或不支持學生選 ${selectedOption}；不得使用「當事人間應依法律關係負擔權利義務」等萬用句。`;
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
@@ -113,13 +151,14 @@ export async function POST(request: Request) {
     payload = await response.json() as Record<string, unknown>;
     if (!response.ok) break;
     reply = extractText(payload);
-    if (reply) break;
+    if (reply && concretelyAddressesOption(reply, selectedOptionText)) break;
+    reply = "";
   }
 
   if (!reply && lastStatus >= 400) {
     return Response.json({ error: "模擬學生目前無法連線，請再試一次" }, { status: 502 });
   }
-  if (!reply) return Response.json({ error: "AI 沒有產生可用的學生接續回覆" }, { status: 502 });
+  if (!reply) return Response.json({ error: "模擬學生尚未具體回應所選選項，請再試一次" }, { status: 502 });
 
   const usage = readUsage(payload);
   const estimatedCostUsd = (Math.max(0, usage.inputTokens - usage.cachedTokens) * 0.10 + usage.cachedTokens * 0.01 + usage.outputTokens * 0.60) / 1_000_000;
