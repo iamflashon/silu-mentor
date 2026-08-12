@@ -14,6 +14,31 @@ function cleanHtml(value: string) {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;|&#34;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/\s+/g, " ").trim();
 }
 
+function corruptionScore(value: string) {
+  const replacementCharacters = (value.match(/\uFFFD/g) || []).length;
+  const mojibakeRuns = (value.match(/[ÃÂæç¤¥¦§©ª«¬®¯°±²³]{2,}/g) || []).length;
+  return replacementCharacters * 20 + mojibakeRuns * 8;
+}
+
+function looksCorrupted(value: string) {
+  return corruptionScore(value) > 0 || /�{1,}|\?{4,}/.test(value);
+}
+
+async function readHtml(response: Response) {
+  const bytes = await response.arrayBuffer();
+  const headerCharset = response.headers.get("content-type")?.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1];
+  const asciiHead = new TextDecoder("windows-1252").decode(bytes.slice(0, 4096));
+  const metaCharset = asciiHead.match(/<meta[^>]+charset\s*=\s*["']?([^\s"'/>]+)/i)?.[1]
+    ?? asciiHead.match(/<meta[^>]+content\s*=\s*["'][^"']*charset\s*=\s*([^\s;"']+)/i)?.[1];
+  const declared = (headerCharset || metaCharset || "").toLowerCase().replace(/_/g, "-");
+  if (/big-?5|cp950|ms950/.test(declared)) return new TextDecoder("big5").decode(bytes);
+  if (/utf-?8/.test(declared)) return new TextDecoder("utf-8").decode(bytes);
+
+  const utf8 = new TextDecoder("utf-8").decode(bytes);
+  const big5 = new TextDecoder("big5").decode(bytes);
+  return corruptionScore(big5) < corruptionScore(utf8) ? big5 : utf8;
+}
+
 function angleResourceType(value: string) {
   if (/journal|雜誌|期刊|月旦法學|法學教室/i.test(value)) return "期刊／文章索引";
   if (/book|書籍|新書|圖書|出版/i.test(value)) return "書籍／目錄索引";
@@ -29,7 +54,7 @@ function discoverLinks(html: string, base: string, source: SourceKey, limit = 20
   const matches = html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
   for (const match of matches) {
     const title = cleanHtml(match[2]).slice(0, 160);
-    if (title.length < 4 || /^(更多|more|回首頁|首頁|登入|註冊|上一頁|下一頁)$/i.test(title)) continue;
+    if (title.length < 4 || looksCorrupted(title) || /^(更多|more|回首頁|首頁|登入|註冊|上一頁|下一頁)$/i.test(title)) continue;
     let url: URL;
     try { url = new URL(match[1], base); } catch { continue; }
     if (url.protocol !== "https:" && url.protocol !== "http:") continue;
@@ -80,7 +105,7 @@ export async function POST(request: Request) {
   try {
     const response = await fetch(config.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
     if (!response.ok) throw new Error(`來源網站回應 ${response.status}`);
-    const html = await response.text();
+    const html = await readHtml(response);
     let discovered = discoverLinks(html, response.url || config.url, source, source === "lawdata" ? 60 : 12);
     if (source === "lawdata") {
       const categoryLinks = discovered.filter((item) => /期刊|雜誌|文章|專欄|書籍|圖書|講座|研討|課程|影音|試閱|活動/.test(`${item.title}${item.summary}`)).slice(0, 8);
@@ -88,7 +113,7 @@ export async function POST(request: Request) {
         try {
           const nestedResponse = await fetch(item.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
           if (!nestedResponse.ok) return [];
-          return discoverLinks(await nestedResponse.text(), nestedResponse.url || item.url, source, 24);
+          return discoverLinks(await readHtml(nestedResponse), nestedResponse.url || item.url, source, 24);
         } catch { return []; }
       }));
       const unique = new Map(discovered.concat(...nested).map((item) => [item.url, item]));
@@ -98,12 +123,13 @@ export async function POST(request: Request) {
     const [existing] = await auth.db.select().from(learningResources).where(and(eq(learningResources.resourceType, "external_index"), eq(learningResources.creator, source))).limit(1);
     const resource = existing ?? (await auth.db.insert(learningResources).values({ resourceType: "external_index", title: config.label, creator: source, subject: "綜合", description: "Demo 公開索引；不含付費全文", sourceUrl: config.url, accessType: "public_index", status: "active", sortOrder: Object.keys(SOURCES).indexOf(source) }).returning())[0];
     const current = await auth.db.select().from(resourceSegments).where(and(eq(resourceSegments.resourceId, resource.id), eq(resourceSegments.segmentType, "external_catalog")));
+    const disabledUrls = new Set(current.filter((item) => item.reviewStatus === "disabled").map((item) => item.sourceUrl).filter(Boolean));
+    await auth.db.delete(resourceSegments).where(and(eq(resourceSegments.resourceId, resource.id), eq(resourceSegments.segmentType, "external_catalog")));
     for (let index = 0; index < discovered.length; index++) {
       const item = discovered[index];
-      const row = current.find((candidate) => candidate.sourceUrl === item.url || candidate.title === item.title);
-      const values = { lessonLabel: config.label, title: item.title, sourceUrl: item.url, text: JSON.stringify({ source, accessType: "public_index" }), summary: item.summary, importance: 3, reviewStatus: row?.reviewStatus === "disabled" ? "disabled" : "published", recommended: row?.reviewStatus === "disabled" ? false : true, sequence: index + 1 };
-      if (row) await auth.db.update(resourceSegments).set(values).where(eq(resourceSegments.id, row.id));
-      else await auth.db.insert(resourceSegments).values({ resourceId: resource.id, segmentType: "external_catalog", ...values });
+      const disabled = disabledUrls.has(item.url);
+      const values = { lessonLabel: config.label, title: item.title, sourceUrl: item.url, text: JSON.stringify({ source, accessType: "public_index" }), summary: item.summary, importance: 3, reviewStatus: disabled ? "disabled" : "published", recommended: !disabled, sequence: index + 1 };
+      await auth.db.insert(resourceSegments).values({ resourceId: resource.id, segmentType: "external_catalog", ...values });
     }
     await auth.db.update(learningResources).set({ status: "active", updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
     return Response.json({ source, discovered: discovered.length, sources: await sourceRows(auth.db) });
