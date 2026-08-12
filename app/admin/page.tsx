@@ -688,6 +688,8 @@ export default function AdminPage() {
   const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
   const [learningCenterEnabled, setLearningCenterEnabled] = useState(true);
   const [savingLearningCenter, setSavingLearningCenter] = useState(false);
+  const [homeWebSearchMode, setHomeWebSearchMode] = useState<"off" | "fallback" | "always">("off");
+  const [savingWebSearchMode, setSavingWebSearchMode] = useState(false);
   const [savingHomepage, setSavingHomepage] = useState(false);
   const chapterBuildRunningRef = useRef<Set<number>>(new Set());
 
@@ -844,12 +846,13 @@ export default function AdminPage() {
     fetch("/api/site-settings")
       .then(async (response) => {
         if (!response.ok) return;
-        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean };
+        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean; homeWebSearchMode?: "off" | "fallback" | "always" };
         setFocusMusicUrl(result.focusMusicUrl ?? "");
         setFocusMusicDraft(result.focusMusicUrl ?? "");
         setExamCountdowns(result.examCountdowns ?? []);
         setBattleAlerts(result.battleAlerts ?? []);
         setLearningCenterEnabled(result.learningCenterEnabled !== false);
+        setHomeWebSearchMode(result.homeWebSearchMode ?? "off");
       })
       .catch(() => undefined);
   }, []);
@@ -1010,6 +1013,17 @@ export default function AdminPage() {
       setNotice(next ? "學習專區入口已重新開放。" : "學習專區入口已暫時隱藏；既有學習資料仍保留。");
     } else setNotice(result.error ?? "學習專區開關更新失敗");
     setSavingLearningCenter(false);
+  }
+
+  async function saveHomeWebSearchMode(mode: "off" | "fallback" | "always") {
+    setSavingWebSearchMode(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ homeWebSearchMode: mode }) });
+    const result = (await readJson(response)) as { homeWebSearchMode?: "off" | "fallback" | "always"; error?: string };
+    if (response.ok) {
+      setHomeWebSearchMode(result.homeWebSearchMode ?? mode);
+      setNotice(mode === "off" ? "首頁外網搜尋已關閉。" : mode === "always" ? "首頁每次回答都會先查外網。" : "首頁會先查站內，資料不足時才查外網。");
+    } else setNotice(result.error ?? "外網搜尋設定失敗");
+    setSavingWebSearchMode(false);
   }
 
   useEffect(() => {
@@ -3270,6 +3284,15 @@ export default function AdminPage() {
           <section className="panel site-settings-panel">
             <div className="setting-block">
               <div className="setting-block-head"><div><h3>學習專區入口</h3><p>可先隱藏首頁的「學習專區」按鈕；再次開啟時，會員原有進度與紀錄仍會保留。</p></div><label className="cost-toggle"><input type="checkbox" checked={learningCenterEnabled} disabled={savingLearningCenter} onChange={() => void toggleLearningCenter()} /><span>{savingLearningCenter ? "更新中…" : learningCenterEnabled ? "目前開放" : "目前關閉"}</span></label></div>
+            </div>
+            <div className="setting-block home-web-search-setting">
+              <div className="setting-block-head"><div><h3>首頁回答｜外網搜尋</h3><p>讓 Luna 在首頁回答時查證特定作者、著作、判決與最新資料。回答會列出實際來源網址，並計入本次成本。</p></div><span className={`source-count ${homeWebSearchMode === "off" ? "" : "configured"}`}>{homeWebSearchMode === "off" ? "未啟用" : "試驗中"}</span></div>
+              <div className="web-search-mode-options" role="radiogroup" aria-label="首頁外網搜尋模式">
+                <label><input type="radio" name="home-web-search" checked={homeWebSearchMode === "off"} disabled={savingWebSearchMode} onChange={() => void saveHomeWebSearchMode("off")} /><span><b>關閉</b><small>只使用站內教材、題庫與既有索引</small></span></label>
+                <label><input type="radio" name="home-web-search" checked={homeWebSearchMode === "fallback"} disabled={savingWebSearchMode} onChange={() => void saveHomeWebSearchMode("fallback")} /><span><b>站內不足才搜尋（建議）</b><small>作者、著作、特定判決或最新資料不足時才查外網</small></span></label>
+                <label><input type="radio" name="home-web-search" checked={homeWebSearchMode === "always"} disabled={savingWebSearchMode} onChange={() => void saveHomeWebSearchMode("always")} /><span><b>每次都搜尋</b><small>方便短期比較效果，但速度與費用較高</small></span></label>
+              </div>
+              <p className="web-search-trust-note">優先來源：司法院、全國法規資料庫、考選部、政府機關、大學、出版社與作者官方頁面。AI 必須區分原文、作者主張與整理推論。</p>
             </div>
             <div className="cost-heading">
               <div>

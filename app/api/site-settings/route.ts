@@ -36,11 +36,12 @@ export async function GET() {
     examCountdowns: parseJsonSetting<ExamCountdown[]>(values.exam_countdowns, []),
     battleAlerts: parseJsonSetting<BattleAlert[]>(values.battle_alerts, []),
     learningCenterEnabled: values.learning_center_enabled !== "false",
+    homeWebSearchMode: ["off", "fallback", "always"].includes(values.home_web_search_mode) ? values.home_web_search_mode : "off",
   });
 }
 
 export async function PATCH(request: Request) {
-  const body = await request.json() as { focusMusicUrl?: unknown; examCountdowns?: unknown; battleAlerts?: unknown; learningCenterEnabled?: unknown };
+  const body = await request.json() as { focusMusicUrl?: unknown; examCountdowns?: unknown; battleAlerts?: unknown; learningCenterEnabled?: unknown; homeWebSearchMode?: unknown };
   const response: Record<string, unknown> = {};
   if (Object.prototype.hasOwnProperty.call(body, "focusMusicUrl")) {
     const value = typeof body.focusMusicUrl === "string" ? body.focusMusicUrl.trim() : "";
@@ -71,6 +72,12 @@ export async function PATCH(request: Request) {
     const enabled = body.learningCenterEnabled !== false;
     await saveSetting("learning_center_enabled", String(enabled));
     response.learningCenterEnabled = enabled;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "homeWebSearchMode")) {
+    const mode = String(body.homeWebSearchMode ?? "off");
+    if (!["off", "fallback", "always"].includes(mode)) return Response.json({ error: "外網搜尋模式不正確" }, { status: 400 });
+    await saveSetting("home_web_search_mode", mode);
+    response.homeWebSearchMode = mode;
   }
   return Response.json(response);
 }

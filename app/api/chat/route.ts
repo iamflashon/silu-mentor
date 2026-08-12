@@ -487,6 +487,36 @@ function usedFileSearch(payload: unknown) {
   return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "file_search_call");
 }
 
+function usedWebSearch(payload: unknown) {
+  if (!payload || typeof payload !== "object") return false;
+  const output = (payload as { output?: unknown[] }).output;
+  return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "web_search_call");
+}
+
+function extractWebSources(payload: unknown) {
+  if (!payload || typeof payload !== "object") return [] as string[];
+  const output = (payload as { output?: unknown[] }).output;
+  if (!Array.isArray(output)) return [] as string[];
+  const sources: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const content = (item as { content?: unknown[] }).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const annotations = (part as { annotations?: unknown[] }).annotations;
+      if (!Array.isArray(annotations)) continue;
+      for (const annotation of annotations) {
+        if (!annotation || typeof annotation !== "object" || (annotation as { type?: string }).type !== "url_citation") continue;
+        const url = String((annotation as { url?: unknown }).url ?? "").trim();
+        const title = String((annotation as { title?: unknown }).title ?? "外網來源").trim();
+        if (/^https?:\/\//.test(url)) sources.push(`${title}｜${url}`);
+      }
+    }
+  }
+  return [...new Set(sources)].slice(0, 8);
+}
+
 function extractSources(payload: unknown) {
   if (!payload || typeof payload !== "object") return [] as string[];
   const output = (payload as { output?: unknown[] }).output;
@@ -902,10 +932,13 @@ export async function POST(request: Request) {
       : messages;
 
     let vectorStoreId = "";
+    let homeWebSearchMode: "off" | "fallback" | "always" = "off";
     try {
       const db = await getDb();
-      const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-      vectorStoreId = setting?.value ?? "";
+      const settings = await db.select().from(appSettings).where(sql`${appSettings.key} in ('openai_vector_store_id', 'home_web_search_mode')`);
+      vectorStoreId = settings.find((item) => item.key === "openai_vector_store_id")?.value ?? "";
+      const configuredMode = settings.find((item) => item.key === "home_web_search_mode")?.value;
+      if (configuredMode === "fallback" || configuredMode === "always") homeWebSearchMode = configuredMode;
     } catch { /* answer from model knowledge until the index is ready */ }
 
     const today = taipeiDate();
@@ -969,13 +1002,18 @@ export async function POST(request: Request) {
     const teacherFeedbackInstruction = body.teacherFeedback && context.type === "book"
       ? "\n\n【追問後回饋並完成解題】AI 學霸剛剛已回答你上一個理解追問。先用一至三句指出已掌握之處與一個需要修正或補強之處；接著不要再提新問題，直接依老師原文整理完整解題架構，固定使用「爭點→判準→各說→評析→涵攝→明確結論」。結論必須寫出每位行為人的法條、罪名及未遂／間接正犯等犯罪型態。最後只銜接一句「接下來可進入模考擬答」，不得再出反事實題。"
       : "";
-    const instructions = (context.type === "book"
+    let instructions = (context.type === "book"
       ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。${bookEvidenceInstruction}${bookFlowGuardInstruction}${teacherFeedbackInstruction}`
       : context.type === "magazine"
         ? `${baseInstructions}\n\n這是獨立的法學教室試讀文章問答，不是首頁每日導師對話。只根據目前期數、文章標題、摘要、核心爭點與學生框選的文字回答。若試讀內容不足以確認全文脈絡，必須明確標示限制，不得補造作者主張、判決內容或文章結論；不得建立、修改或刪除行事曆。`
         : context.type === "my-course" || context.type === "public-course"
           ? `${baseInstructions}\n\n這是「${context.type === "public-course" ? "開放課" : "我的課"}」的課程提問，不是平台已上傳字幕的課程。平台沒有讀取 YouTube 影片聲音、畫面或 SRT；你只能依課程名稱、集數名稱、學生提供的截圖、學生自行輸入的文字，以及可靠的一般法律知識回答。絕對不要說你看過影片、聽過老師講解或知道該影片的特定內容。你正在接續同一段課程對話：必須先閱讀前面 AI 的回答與學生回覆，再直接承接學生現在的追問，不要重新開一個主題。若學生問的是老師在影片中的特定說法，而問題沒有提供原文、截圖或足夠描述，請明確請學生貼上老師說法或畫面後再判斷。回答聚焦學生當下問題，不要建立、修改或刪除行事曆。`
       : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`) + teachingLevelInstruction;
+    if (context.type === "home" && homeWebSearchMode !== "off") {
+      instructions += homeWebSearchMode === "always"
+        ? "\n\n【外網查證已開啟】本次必須搜尋外網後再回答。優先採用司法院、全國法規資料庫、考選部、政府機關、大學、出版社與作者官方頁面；清楚區分判決原文、作者主張與 AI 整理，不得用搜尋摘要冒充原文。"
+        : "\n\n【外網查證備援已開啟】先使用站內教材、真題、法規與索引；只有站內資料不足、問題涉及特定作者／著作／判決，或需要最新資訊時才搜尋外網。優先採用司法院、全國法規資料庫、考選部、政府機關、大學、出版社與作者官方頁面；無法確認時不得猜測。";
+    }
     // 「Luna」是明確的單模型選擇，不得被環境變數或問題長度偷偷切換
     // 成 Terra／Sol；只有使用者選擇雙模型比較時，才另外呼叫 Claude。
     const selectedModel = providers.includes("sol") ? await getTeachingJudgeOpenAIModel("gpt-5.6-sol") : await getOpenAIModel("gpt-5.6-luna");
@@ -1036,6 +1074,8 @@ export async function POST(request: Request) {
     // file_search result could silently teach from another book or chapter.
     const allowFileSearch = needsOpenAi && Boolean(vectorStoreId) && !(context.type === "book" && bookEvidence?.status === "verified");
     if (allowFileSearch) tools.unshift({ type: "file_search", vector_store_ids: [vectorStoreId], max_num_results: 8 });
+    const allowWebSearch = needsOpenAi && context.type === "home" && homeWebSearchMode !== "off";
+    if (allowWebSearch) tools.unshift({ type: "web_search" });
     let payload: unknown = {};
     let openAiPayload: unknown = {};
     let openAiDurationMs = 0;
@@ -1160,6 +1200,8 @@ export async function POST(request: Request) {
     }
 
     const searchedFiles = needsOpenAi && usedFileSearch(payload);
+    const searchedWeb = needsOpenAi && usedWebSearch(payload);
+    const webSources = searchedWeb ? extractWebSources(payload) : [];
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
@@ -1252,17 +1294,17 @@ export async function POST(request: Request) {
       : effectiveTeachingEvidence?.status === "full_text_search"
           ? [effectiveTeachingEvidence.fileName || "教材全文索引（章節待核對）"]
           : []
-      : [...new Set([...citationSources, ...searchResultNames])];
+      : [...new Set([...citationSources, ...searchResultNames, ...webSources])];
     const fromFiles = context.type === "book"
       ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "applied_inference" || effectiveTeachingEvidence?.status === "full_text_search"
-      : sources.length > 0;
+      : searchedFiles && (citationSources.length > 0 || searchResultNames.length > 0);
     const citationStatus = context.type === "book"
       ? effectiveTeachingEvidence?.status ?? "unavailable"
-      : searchedFiles && sources.length ? "full_text_search" : "unavailable";
+      : searchedWeb && webSources.length ? "web_search" : searchedFiles && sources.length ? "full_text_search" : "unavailable";
     const openAiUsage = needsOpenAi ? readUsage(openAiPayload) : { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
     const openAiRates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
     const openAiCostUsd = needsOpenAi
-      ? (Math.max(0, openAiUsage.inputTokens - openAiUsage.cachedTokens) * openAiRates.input + openAiUsage.cachedTokens * openAiRates.cached + openAiUsage.outputTokens * openAiRates.output) / 1_000_000 + (searchedFiles ? 0.0025 : 0)
+      ? (Math.max(0, openAiUsage.inputTokens - openAiUsage.cachedTokens) * openAiRates.input + openAiUsage.cachedTokens * openAiRates.cached + openAiUsage.outputTokens * openAiRates.output) / 1_000_000 + (searchedFiles ? 0.0025 : 0) + (searchedWeb ? 0.01 : 0)
       : 0;
     const deepSeekUsage = deepSeekRun
       ? { inputTokens: deepSeekRun.inputTokens, cachedTokens: 0, outputTokens: deepSeekRun.outputTokens }
@@ -1442,7 +1484,7 @@ export async function POST(request: Request) {
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
-      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
+      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, webSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedWeb ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
       planSaved,
       replacedTasks,
       tasksDeleted,

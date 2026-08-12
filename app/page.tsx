@@ -34,7 +34,7 @@ type ChallengeThread = { targetLabel: string; targetExcerpt: string; challengeTe
 type Message = { role: "mentor" | "student"; text: string; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread };
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
-type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; estimatedCostUsd: number };
+type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; webSearchCalls?: number; estimatedCostUsd: number; durationMs: number };
 type ChatModelMode = "auto" | "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52" | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
 const aiSettingsStorageKey = "silu-ai-settings-pinned";
 const conversationContinuationThreshold = 40;
@@ -79,6 +79,7 @@ function citationStatusLabel(status?: string) {
   if (status === "verified") return "引用狀態：原文直接支持";
   if (status === "applied_inference") return "引用狀態：教材判準＋AI 涵攝";
   if (status === "full_text_search") return "引用狀態：找到相關教材，但不足以核對本次內容";
+  if (status === "web_search") return "外網查證：已附本次實際搜尋來源";
   return "引用狀態：未取得可核對教材";
 }
 function TeachingEvidenceDetails({ evidence }: { evidence?: TeachingEvidence | null }) {
