@@ -3149,6 +3149,13 @@ a {
   overscroll-behavior: contain;
   scroll-behavior: smooth;
 }
+@media (min-width: 901px) {
+  .command-layout.rail-collapsed .message-list > .message-row {
+    width: 84%;
+    margin-inline: auto;
+    box-sizing: border-box;
+  }
+}
 .message-row {
   display: flex;
   align-items: flex-start;
