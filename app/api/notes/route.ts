@@ -75,14 +75,27 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const id = Number(new URL(request.url).searchParams.get("id")); const owner = userKey(request); const db = await getDb();
-    const attachments = await db.select({ storageKey: noteAttachments.storageKey }).from(noteAttachments).where(and(eq(noteAttachments.noteId, id), eq(noteAttachments.userKey, owner)));
+    const url = new URL(request.url);
+    let ids: number[] = [];
+    const singleId = Number(url.searchParams.get("id"));
+    if (Number.isInteger(singleId) && singleId > 0) ids = [singleId];
+    else {
+      const body = await request.json().catch(() => ({})) as { ids?: unknown[] };
+      ids = [...new Set((body.ids ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+    }
+    if (!ids.length) return Response.json({ error: "請先選擇要刪除的筆記" }, { status: 400 });
+    if (ids.length > 100) return Response.json({ error: "一次最多刪除 100 則筆記" }, { status: 400 });
+    const owner = userKey(request); const db = await getDb();
+    const owned = await db.select({ id: savedNotes.id }).from(savedNotes).where(and(eq(savedNotes.userKey, owner), inArray(savedNotes.id, ids)));
+    const ownedIds = owned.map((note) => note.id);
+    if (!ownedIds.length) return Response.json({ error: "找不到可刪除的筆記" }, { status: 404 });
+    const attachments = await db.select({ storageKey: noteAttachments.storageKey }).from(noteAttachments).where(and(inArray(noteAttachments.noteId, ownedIds), eq(noteAttachments.userKey, owner)));
     try {
       const { env } = await import("cloudflare:workers");
       for (const attachment of attachments) await env.BUCKET.delete(attachment.storageKey);
     } catch { /* the database deletion still removes the user's note */ }
-    await db.delete(savedNotes).where(and(eq(savedNotes.id, id), eq(savedNotes.userKey, owner)));
-    return Response.json({ id });
+    await db.delete(savedNotes).where(and(eq(savedNotes.userKey, owner), inArray(savedNotes.id, ownedIds)));
+    return Response.json({ id: ownedIds.length === 1 ? ownedIds[0] : undefined, ids: ownedIds, deleted: ownedIds.length });
   }
   catch { return Response.json({ error: "無法刪除筆記" }, { status: 500 }); }
 }
