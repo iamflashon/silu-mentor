@@ -12,7 +12,7 @@ type MemberRow = { id: number; email: string; displayName: string; role: "teache
 type ExternalBookData = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
 type ExternalIndexSource = { id: number; key: "lawdata" | "angle_books" | "angle_media" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: Array<{ label: string; url: string }>; book?: ExternalBookData }> };
 type ExternalRetrievalMatch = { id: number; source: string; title: string; summary: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; excerpt: string };
-type ExternalRetrievalTest = { query: string; mode: "children" | "single"; found: boolean; complete: boolean; failureReason: string; stats: { total: number; complete: number; titleOnly: number; missing: number; disabled: number }; target: { id: number; title: string; enabled: boolean; indexed: boolean; parentTitle: string }; tests: Array<{ id: number; title: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; found: boolean; complete: boolean; failureReason: string; matches: ExternalRetrievalMatch[] }>; matches: ExternalRetrievalMatch[] };
+type ExternalRetrievalTest = { query: string; mode: "children" | "single"; found: boolean; complete: boolean; failureReason: string; stats: { total: number; complete: number; titleOnly: number; missing: number; disabled: number }; hierarchy: { categories: number; issues: number; articles: number; unresolved: number }; target: { id: number; title: string; enabled: boolean; indexed: boolean; parentTitle: string }; tests: Array<{ id: number; title: string; parentTitle: string; depth: number; dataType: "category" | "issue" | "article" | "unresolved"; enabled: boolean; indexed: boolean; found: boolean; complete: boolean; failureReason: string; matches: ExternalRetrievalMatch[] }>; matches: ExternalRetrievalMatch[] };
 
 type Uploaded = {
   id: number;
@@ -524,7 +524,7 @@ export default function AdminPage() {
       const data = await readExternalIndexResponse<ExternalRetrievalTest & { error?: string }>(response);
       if (!response.ok) throw new Error(data.error || "首頁檢索測試失敗");
       setExternalTestResult(data);
-      setExternalNotice(data.complete ? `首頁可完整找到本次測試的 ${data.stats.complete} 筆資料。` : `已完成 ${data.stats.total} 筆測試：完整 ${data.stats.complete}、僅標題 ${data.stats.titleOnly}、找不到 ${data.stats.missing}。`);
+      setExternalNotice(data.complete ? `首頁可完整找到本次測試的 ${data.stats.complete} 筆最末層資料。` : `已遞迴到底層：文章 ${data.hierarchy.articles}、期數 ${data.hierarchy.issues}；完整 ${data.stats.complete}、僅標題 ${data.stats.titleOnly}、找不到 ${data.stats.missing}。`);
     } catch (error) { setExternalNotice(error instanceof Error ? error.message : "首頁檢索測試失敗"); }
     finally { setExternalTestLoading(false); }
   }

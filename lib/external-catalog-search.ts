@@ -16,15 +16,15 @@ export type ExternalCatalogMatch = {
   score: number;
 };
 
+export type ExternalCatalogRow = Omit<ExternalCatalogMatch, "score">;
+
 function queryGrams(query: string) {
   const compact = query.replace(/\s+/g, "");
   return Array.from({ length: Math.max(0, compact.length - 1) }, (_, index) => compact.slice(index, index + 2))
     .filter((gram) => !/^(什麼|哪些|如何|可以|推薦|相關|我要|請問)$/.test(gram));
 }
 
-export async function searchExternalCatalog(query: string, limit = 6): Promise<ExternalCatalogMatch[]> {
-  const compact = query.replace(/\s+/g, "");
-  if (compact.length < 2) return [];
+export async function loadExternalCatalogRows(): Promise<ExternalCatalogRow[]> {
   const db = await getDb();
   const rows = await db.select({
     id: resourceSegments.id,
@@ -44,18 +44,32 @@ export async function searchExternalCatalog(query: string, limit = 6): Promise<E
       eq(resourceSegments.segmentType, "external_catalog"),
       eq(resourceSegments.reviewStatus, "published"),
       eq(resourceSegments.recommended, true),
-    ))
-    .limit(200);
-  const grams = queryGrams(query);
+    ));
   return rows.map((row) => {
     let meta: { parentTitle?: string; depth?: number; content?: string } = {};
     try { meta = JSON.parse(row.text || "{}"); } catch {}
-    const haystack = `${row.source}${row.title}${row.summary}${meta.parentTitle ?? ""}${meta.content ?? ""}`.replace(/\s+/g, "");
+    return { id: row.id, source: row.source, title: row.title, summary: row.summary, url: row.url, enabled: row.recommended, indexed: row.reviewStatus === "published", parentTitle: meta.parentTitle ?? "", depth: meta.depth ?? 1, content: meta.content ?? "" };
+  });
+}
+
+export function rankExternalCatalogRows(rows: ExternalCatalogRow[], query: string, limit = 6): ExternalCatalogMatch[] {
+  const compact = query.replace(/\s+/g, "");
+  if (compact.length < 2) return [];
+  const grams = queryGrams(query);
+  const requestedIssue = compact.match(/第?\d{1,4}期/u)?.[0]?.replace(/^第/u, "") ?? "";
+  return rows.map((row) => {
+    const haystack = `${row.source}${row.title}${row.summary}${row.parentTitle}${row.content}`.replace(/\s+/g, "");
     const exactTitle = compact.includes(row.title.replace(/\s+/g, "")) || row.title.replace(/\s+/g, "").includes(compact);
-    const exactParent = Boolean(meta.parentTitle) && compact.includes((meta.parentTitle ?? "").replace(/\s+/g, ""));
-    const score = grams.reduce((total, gram) => total + (haystack.includes(gram) ? 1 : 0), 0) + (exactTitle ? 12 : 0) + (exactParent ? 8 : 0);
-    return { id: row.id, source: row.source, title: row.title, summary: row.summary, url: row.url, enabled: row.recommended, indexed: row.reviewStatus === "published", parentTitle: meta.parentTitle ?? "", depth: meta.depth ?? 1, content: meta.content ?? "", score };
+    const exactParent = Boolean(row.parentTitle) && compact.includes(row.parentTitle.replace(/\s+/g, ""));
+    const sameIssue = Boolean(requestedIssue) && haystack.includes(requestedIssue);
+    const conflictingIssue = Boolean(requestedIssue) && /第?\d{1,4}期/u.test(haystack) && !sameIssue;
+    const score = grams.reduce((total, gram) => total + (haystack.includes(gram) ? 1 : 0), 0) + (exactTitle ? 30 : 0) + (exactParent ? 20 : 0) + (sameIssue ? 40 : 0) - (conflictingIssue ? 50 : 0);
+    return { ...row, score };
   }).filter((row) => row.score > 0).sort((a, b) => b.score - a.score || b.depth - a.depth).slice(0, limit);
+}
+
+export async function searchExternalCatalog(query: string, limit = 6): Promise<ExternalCatalogMatch[]> {
+  return rankExternalCatalogRows(await loadExternalCatalogRows(), query, limit);
 }
 
 export function formatExternalCatalogEvidence(rows: ExternalCatalogMatch[]) {
