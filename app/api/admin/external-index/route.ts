@@ -144,6 +144,67 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
     });
     seen.add(canonical);
   }
+
+  // Angle's magazine pages often render the article title as plain text and
+  // attach URLs only to the neighbouring 試讀／書籍／影音 badges.  Link-only
+  // discovery therefore misses the complete visible table of contents.
+  const contentStart = html.search(/本期內容|本期試讀/i);
+  const catalogHtml = contentStart >= 0 ? html.slice(contentStart, contentStart + 180_000) : html;
+  // Avoid matching container <div>s: a non-recursive regex would otherwise
+  // consume the inner list rows before they can be inspected individually.
+  const blocks = catalogHtml.matchAll(/<(li|p|tr)\b[^>]*>([\s\S]*?)<\/\1>/gi);
+  let section = "本期內容";
+  let syntheticIndex = 0;
+  for (const match of blocks) {
+    const blockHtml = match[2] || "";
+    const blockText = cleanHtml(blockHtml)
+      .replace(/(?:試閱|試讀|書籍|影音|下載|購買)\s*/gu, " ")
+      .replace(/^[·•．。\-—–◎]+\s*/u, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const sectionMatch = blockText.match(/^【([^】]{2,30})】$/u);
+    if (sectionMatch) {
+      section = sectionMatch[1].trim();
+      continue;
+    }
+    if (blockText.length < 6 || blockText.length > 220 || looksCorrupted(blockText)) continue;
+    if (/^(?:本期內容|雜誌介紹|定期|訂閱方案|放入購物車|出版單位|出版日|定價|特價|書號)/u.test(blockText)) continue;
+    if (!/[\u3400-\u9fff]/u.test(blockText)) continue;
+
+    const parts = blockText.split(/\s*[／/]\s*/u);
+    const title = (parts[0] || "").replace(/^【[^】]+】\s*/u, "").trim().slice(0, 160);
+    if (title.length < 6 || /^(?:作者|目錄|更多|關於|客服|會員)/u.test(title)) continue;
+    const author = (parts[1] || "").match(/^[\u3400-\u9fffA-Za-z·．、，,\s]{2,40}/u)?.[0]?.trim();
+
+    const badgeLinks = Array.from(blockHtml.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi));
+    let publicUrl = "";
+    for (const badge of badgeLinks) {
+      const label = cleanHtml(badge[2]);
+      if (!/試閱|試讀|書籍|影音|下載/u.test(label)) continue;
+      const href = (badge[1] || "").match(/href\s*=\s*["']([^"']+)["']/i)?.[1];
+      if (!href) continue;
+      try {
+        const candidate = new URL(href, pageUrl);
+        if (SOURCES.lawdata.hosts.some((host) => candidate.hostname === host || candidate.hostname.endsWith(`.${host}`))) {
+          publicUrl = canonicalUrl(candidate.href);
+          break;
+        }
+      } catch {}
+    }
+
+    const identity = `${section}|${title}|${author || ""}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    syntheticIndex += 1;
+    rows.push({
+      title,
+      url: publicUrl || `${canonicalUrl(pageUrl)}&catalog_item=${syntheticIndex}`,
+      summary: `本期目錄｜分類：${section}${author ? `｜作者：${author}` : ""}｜上層：${parentTitle}`,
+      depth,
+      parentTitle,
+      kind: "detail",
+    });
+  }
   return rows.slice(0, 80);
 }
 
