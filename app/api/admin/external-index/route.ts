@@ -226,10 +226,23 @@ function isIbrainRootSection(item: DiscoveredItem) {
 }
 
 const AUTO_CRAWL_LIMITS: Record<SourceKey, { maxDepth: number; maxPages: number; maxItems: number }> = {
-  lawdata: { maxDepth: 10, maxPages: 72, maxItems: 720 },
+  lawdata: { maxDepth: 10, maxPages: 180, maxItems: 1600 },
   get: { maxDepth: 7, maxPages: 56, maxItems: 480 },
   ibrain: { maxDepth: 6, maxPages: 42, maxItems: 360 },
 };
+
+function crawlPriority(source: SourceKey, item: DiscoveredItem) {
+  if (source !== "lawdata") return item.depth * 100;
+  const value = `${item.title} ${item.url}`;
+  // The useful magazine catalogue is behind the issue page.  Process these
+  // before generic navigation/search links so a broad site crawl cannot spend
+  // the entire page and item budget before reaching 本期內容.
+  if (/\/magazine\/m_single\.asp|[?&]BKID=/i.test(item.url)) return item.depth * 10;
+  if (/\/magazine\/m_search\.asp|[?&]KindID=/i.test(item.url)) return item.depth * 10 + 1;
+  if (/月旦法學教室|月旦法學雜誌|裁判時報|實務選評|律評|財經法/i.test(value)) return item.depth * 10 + 2;
+  if (/search\.asp|\/media\/|作者|書籍|影音/i.test(value)) return 10_000 + item.depth;
+  return 1_000 + item.depth;
+}
 
 function canonicalUrl(value: string) {
   try {
@@ -249,6 +262,7 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
   let pagesRead = 0;
 
   while (queue.length && pagesRead < limits.maxPages && output.size < limits.maxItems) {
+    queue.sort((left, right) => crawlPriority(source, left) - crawlPriority(source, right));
     const batch = queue.splice(0, Math.min(4, limits.maxPages - pagesRead));
     const results = await Promise.all(batch.map(async (parent) => {
       const key = canonicalUrl(parent.url);
@@ -330,7 +344,7 @@ export async function POST(request: Request) {
       const response = await fetch(item.sourceUrl, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
       if (!response.ok) throw new Error(`內層頁面回應 ${response.status}`);
       const html = await readHtml(response);
-      const nextDepth = Math.min((itemMeta.depth ?? 1) + 1, 8);
+      const nextDepth = Math.min((itemMeta.depth ?? 1) + 1, AUTO_CRAWL_LIMITS[source].maxDepth);
       const links = discoverLinks(html, response.url || item.sourceUrl, source, 40, nextDepth, item.title);
       const details = source === "lawdata"
         ? [
@@ -340,7 +354,8 @@ export async function POST(request: Request) {
         : source === "ibrain" ? discoverIbrainTeachers(html, response.url || item.sourceUrl, item.title, nextDepth) : [];
       const discovered = Array.from(new Map([...links, ...details].map((child) => [child.url, child])).values())
         .filter((child) => child.url !== item.sourceUrl)
-        .slice(0, 40);
+        .sort((left, right) => crawlPriority(source, left) - crawlPriority(source, right))
+        .slice(0, source === "lawdata" ? 120 : 40);
       if (!discovered.length) throw new Error("已讀取此頁，但沒有辨識到可建立索引的下一層公開資料");
 
       const current = await auth.db.select().from(resourceSegments).where(and(
