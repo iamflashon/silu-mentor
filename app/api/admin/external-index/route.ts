@@ -431,9 +431,10 @@ export async function POST(request: Request) {
     const current = await auth.db.select().from(resourceSegments).where(and(eq(resourceSegments.resourceId, resource.id), eq(resourceSegments.segmentType, "external_catalog")));
     const disabledUrls = new Set(current.filter((item) => item.reviewStatus === "disabled").map((item) => item.sourceUrl).filter(Boolean));
     await auth.db.delete(resourceSegments).where(and(eq(resourceSegments.resourceId, resource.id), eq(resourceSegments.segmentType, "external_catalog")));
-    // Writing up to 1,600 rows one request at a time is substantially slower
-    // than the crawl and can make the hosting layer terminate the response.
-    // Insert bounded chunks so the endpoint still returns a JSON result.
+    // D1/SQLite caps the number of bound parameters in one statement. Each
+    // resource segment currently binds 16 columns, so keep each insert below
+    // that ceiling while still avoiding one request per row.
+    const insertBatchSize = 4;
     const rows = discovered.map((item, index) => {
       const disabled = disabledUrls.has(item.url);
       return {
@@ -450,13 +451,17 @@ export async function POST(request: Request) {
         sequence: index + 1,
       };
     });
-    for (let index = 0; index < rows.length; index += 40) {
-      await auth.db.insert(resourceSegments).values(rows.slice(index, index + 40));
+    for (let index = 0; index < rows.length; index += insertBatchSize) {
+      await auth.db.insert(resourceSegments).values(rows.slice(index, index + insertBatchSize));
     }
     await auth.db.update(learningResources).set({ status: "active", updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
     return Response.json({ source, discovered: discovered.length, sources: await sourceRows(auth.db) });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message.slice(0, 240) : "同步失敗" }, { status: 502 });
+    const rawMessage = error instanceof Error ? error.message : "";
+    const errorMessage = /failed query|resource_segments|too many sql variables|too many bound parameters/i.test(rawMessage)
+      ? "資料已抓取，但寫入索引時失敗；本次同步未完成，請稍後再試。"
+      : rawMessage.slice(0, 240) || "同步失敗";
+    return Response.json({ error: errorMessage }, { status: 502 });
   }
 }
 
