@@ -39,6 +39,21 @@ function concretelyAddressesOption(reply: string, optionText: string) {
   return hits.some((gram) => gram.length >= 4) || new Set(hits.filter((gram) => gram.length >= 2)).size >= 2;
 }
 
+function isInitialChoiceReasonRequest(teacherText: string, selectedOption: string) {
+  if (!selectedOption) return false;
+  const escaped = selectedOption.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:先不公布答案|為什麼選\\s*[「『\"']?${escaped})`, "iu").test(teacherText)
+    && !/(?:改選|修正|重新判斷|再比較|提示|答錯|不正確)/u.test(teacherText);
+}
+
+function preservesInitialChoice(reply: string, selectedOption: string) {
+  if (!selectedOption) return true;
+  const escaped = selectedOption.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rejectsChoice = new RegExp(`(?:不選|不該選|改選|不是|並非|選錯|錯在選|${escaped}\\s*(?:不成立|錯誤|不正確)|(?:答案|正解)\\s*(?:是|為)\\s*(?!${escaped})[ABCD])`, "iu");
+  if (rejectsChoice.test(reply)) return false;
+  return new RegExp(`(?:我選|選擇|所以選|因此選)\\s*[「『\"']?${escaped}|${escaped}\\s*(?:成立|正確|有道理)`, "iu").test(reply);
+}
+
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
   const direct = (payload as { output_text?: unknown }).output_text;
@@ -103,6 +118,7 @@ export async function POST(request: Request) {
   const teacherText = responses.map((response) => `${response.label || "老師"}（${response.model || ""}）：\n${String(response.text).slice(0, 6000)}`).join("\n\n");
   const selectedOption = selectedOptionFromContext(prompt, teacherText);
   const selectedOptionText = optionTextFromQuestion(question, selectedOption);
+  const initialChoiceReasonRequest = isInitialChoiceReasonRequest(teacherText, selectedOption);
   const levelLabel = body.level === "beginner" ? "法律小白" : body.level === "intermediate" ? "基礎考生" : body.level === "advanced" ? "進階考生" : body.level === "super" ? "頂尖學霸" : "目前程度的學生";
   const levelRule = body.level === "beginner"
     ? "用白話直接回答；可以不會法律術語、誤解選項或判斷錯誤，但仍須指出選項實際在說什麼，不能用空泛套話代替理解。"
@@ -117,6 +133,7 @@ export async function POST(request: Request) {
 1. 找出 AI 導師在指定訊息中最後提出的當輪問題，第一句先直接回答「是／否、成立／不成立、同意／不同意」或相應的明確判斷，第二句再用題目事實說明理由。
 2. ${levelRule}
 3. 若當輪是在問「為什麼選 A／B／C／D」，必須先閱讀題目中的該選項，並在回答中用自己的話說出該選項的具體法律主張：至少包含「誰對誰主張什麼權利／應負什麼義務」或該選項的決定性法律概念，再連結一項題目事實。不得只說「符合題意」「符合關鍵文字」「法律關係合理」「處理方式正確」「依實際情況判斷」等可套用任何選項的空泛理由。
+3-1. ${initialChoiceReasonRequest ? `本輪是學生第一次解釋自己為何選 ${selectedOption}。你必須鎖定並維護這個選擇，站在「${selectedOption} 是正確答案」的錯誤立場，生成一個與該選項內容相符、看似合理但可能法律上錯誤的學生理由。第一句必須說「我選 ${selectedOption}，因為……」。絕對不得說「不選 ${selectedOption}」、「${selectedOption} 不成立／錯誤」、改選其他選項或提前講出正解；即使你知道正確答案也不得自行糾正。` : "若導師已經指出原選項錯誤並提供提示，才可以明確說明原先哪裡想錯，並依提示改選；不得假裝自己一開始就知道正解。"}
 4. 絕對不得反問 AI 導師，不得提出任何新問題，不得使用問號，也不得寫成「應如何認定」「是否可能」「我想請問」。
 5. 不得加入指定訊息與題目沒有出現的事實、法條、判決或新爭點，也不要重述整段訊息。
 6. 絕對不要輸出「【選取內容】」「追問給你」「處理要求」「請選邊站」或其他內部提示文字。
@@ -134,7 +151,7 @@ export async function POST(request: Request) {
   for (const [attempt, maxOutputTokens] of [1600, 2000, 2400].entries()) {
     const input = attempt === 0
       ? baseInput
-      : `${baseInput}\n\n上一版回答未具體處理所選選項，已被系統退回。請重新回答，必須明確重述「${selectedOptionText}」中的至少一個決定性法律概念或關鍵用語，並說明它為何支持或不支持學生選 ${selectedOption}；不得使用「當事人間應依法律關係負擔權利義務」等萬用句。`;
+      : `${baseInput}\n\n上一版回答未通過檢查，已被系統退回。請重新回答，必須明確重述「${selectedOptionText}」中的至少一個決定性法律概念或關鍵用語。${initialChoiceReasonRequest ? `學生已經選 ${selectedOption}，你必須順著這個選擇提出支持 ${selectedOption} 的理由，即使該理由在法律上是錯的；不得否定 ${selectedOption}、不得改選、不得揭露正解。` : `請依導師本輪提示說明原先哪裡想錯或現在如何修正。`}不得使用「當事人間應依法律關係負擔權利義務」等萬用句。`;
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
@@ -151,7 +168,7 @@ export async function POST(request: Request) {
     payload = await response.json() as Record<string, unknown>;
     if (!response.ok) break;
     reply = extractText(payload);
-    if (reply && concretelyAddressesOption(reply, selectedOptionText)) break;
+    if (reply && concretelyAddressesOption(reply, selectedOptionText) && (!initialChoiceReasonRequest || preservesInitialChoice(reply, selectedOption))) break;
     reply = "";
   }
 
