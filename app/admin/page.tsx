@@ -2887,7 +2887,7 @@ export default function AdminPage() {
 
   function chooseFiles(list: FileList | File[] | null) {
     const incoming = Array.from(list ?? []);
-    const documents = incoming.filter((file) => /\.(pdf|jsonl|txt|zip)$/i.test(file.name));
+    const documents = incoming.filter((file) => /\.(pdf|jsonl|md|txt|docx|zip)$/i.test(file.name));
     const rejected = incoming.length - documents.length;
     setQueue((current) => {
       const known = new Set(
@@ -2911,8 +2911,8 @@ export default function AdminPage() {
     });
     setNotice(
       documents.length
-        ? `已加入 ${documents.length} 份教材（PDF／JSONL／TXT／ZIP）${rejected ? `，另排除 ${rejected} 個不支援檔案` : ""}。確認科目與類型後即可自動處理。`
-        : "拖入的檔案不是 PDF、JSONL、TXT 或 ZIP，請重新選擇。",
+        ? `已加入 ${documents.length} 份教材（PDF／JSONL／MD／TXT／DOCX／ZIP）${rejected ? `，另排除 ${rejected} 個不支援檔案` : ""}。確認科目與類型後即可自動處理。`
+        : "拖入的檔案不是 PDF、JSONL、MD、TXT、DOCX 或 ZIP，請重新選擇。",
     );
   }
 
@@ -2928,6 +2928,10 @@ export default function AdminPage() {
       ? "application/pdf"
       : selected.name.toLowerCase().endsWith(".jsonl")
         ? "application/jsonl"
+        : selected.name.toLowerCase().endsWith(".md")
+          ? "text/markdown"
+          : selected.name.toLowerCase().endsWith(".docx")
+            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         : selected.name.toLowerCase().endsWith(".zip")
           ? "application/zip"
           : "text/plain";
@@ -3587,7 +3591,7 @@ export default function AdminPage() {
                 <input
                   ref={fileRef}
                   type="file"
-                  accept=".pdf,.jsonl,.txt,.zip,application/pdf,application/jsonl,text/plain,application/zip"
+                  accept=".pdf,.jsonl,.md,.txt,.docx,.zip,application/pdf,application/jsonl,text/markdown,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/zip"
                   multiple
                   hidden
                   onChange={(e) => chooseFiles(e.target.files)}
@@ -3598,7 +3602,7 @@ export default function AdminPage() {
                     ? "放開滑鼠，加入批次佇列"
                     : queue.length
                       ? `已選擇 ${queue.length} 份教材`
-                    : "拖曳 PDF、JSONL、TXT 或 ZIP 到這裡"}
+                    : "拖曳 PDF、JSONL、MD、TXT、DOCX 或 ZIP 到這裡"}
                 </strong>
                 <span>
                   {queue.length

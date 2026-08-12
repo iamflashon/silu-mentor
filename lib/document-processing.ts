@@ -1,9 +1,9 @@
 import { unzipSync } from "fflate";
 
-export const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".jsonl", ".txt", ".zip"] as const;
+export const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".jsonl", ".md", ".txt", ".docx", ".zip"] as const;
 export const MAX_DOCUMENT_BYTES = 55 * 1024 * 1024;
 
-export type DocumentExtension = "pdf" | "jsonl" | "txt" | "zip";
+export type DocumentExtension = "pdf" | "jsonl" | "md" | "txt" | "docx" | "zip";
 
 export type ResolvedDocumentPayload = {
   fileName: string;
@@ -13,7 +13,7 @@ export type ResolvedDocumentPayload = {
 };
 
 export type ExtractedDocumentFacts = {
-  extension: "pdf" | "jsonl" | "txt";
+  extension: "pdf" | "jsonl" | "md" | "txt" | "docx";
   container?: "zip";
   sourceFileName?: string;
   extractionMode: "structured_text" | "plain_text" | "pdf_index_service";
@@ -23,6 +23,7 @@ export type ExtractedDocumentFacts = {
   chapterCandidates: string[];
   questionCandidates: Array<{ number: string; title: string; chapter: string }>;
   inferredTags: string[];
+  metadata: { title: string; source: string; category: string; date: string; version: string; parentPath: string; enabled: boolean };
   validation: { valid: boolean; checks: string[]; warnings: string[] };
 };
 
@@ -30,7 +31,9 @@ export function documentExtension(fileName: string): DocumentExtension | null {
   const lower = fileName.toLocaleLowerCase("en-US");
   if (lower.endsWith(".pdf")) return "pdf";
   if (lower.endsWith(".jsonl")) return "jsonl";
+  if (lower.endsWith(".md")) return "md";
   if (lower.endsWith(".txt")) return "txt";
+  if (lower.endsWith(".docx")) return "docx";
   if (lower.endsWith(".zip")) return "zip";
   return null;
 }
@@ -43,7 +46,9 @@ export function contentTypeForDocument(fileName: string, contentType = "") {
   const extension = documentExtension(fileName);
   if (extension === "pdf") return "application/pdf";
   if (extension === "jsonl") return "application/jsonl";
+  if (extension === "md") return "text/markdown";
   if (extension === "txt") return "text/plain";
+  if (extension === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   if (extension === "zip") return "application/zip";
   return contentType || "application/octet-stream";
 }
@@ -73,15 +78,15 @@ export function resolveDocumentPayload(fileName: string, contentType: string, by
   const candidates = Object.entries(entries)
     .filter(([name, value]) => value.byteLength > 0 && !name.endsWith("/"))
     .map(([name, value]) => ({ name, value, extension: documentExtension(name) }))
-    .filter((entry): entry is { name: string; value: Uint8Array; extension: "pdf" | "jsonl" | "txt" } =>
-      entry.extension === "pdf" || entry.extension === "jsonl" || entry.extension === "txt",
+    .filter((entry): entry is { name: string; value: Uint8Array; extension: "pdf" | "jsonl" | "md" | "txt" | "docx" } =>
+      entry.extension === "pdf" || entry.extension === "jsonl" || entry.extension === "md" || entry.extension === "txt" || entry.extension === "docx",
     )
     .sort((left, right) => {
-      const priority = { pdf: 0, jsonl: 1, txt: 2 } as const;
+      const priority = { pdf: 0, jsonl: 1, md: 2, docx: 3, txt: 4 } as const;
       return priority[left.extension] - priority[right.extension] || right.value.byteLength - left.value.byteLength;
     });
   const selected = candidates[0];
-  if (!selected) throw new Error("ZIP 內找不到可處理的 PDF、JSONL 或 TXT 文件");
+  if (!selected) throw new Error("ZIP 內找不到可處理的 PDF、JSONL、MD、TXT 或 DOCX 文件");
   const safeInnerName = selected.name.split(/[\\/]/).filter(Boolean).at(-1) ?? selected.name;
   return {
     fileName: safeInnerName,
@@ -105,6 +110,19 @@ function first(record: Record<string, unknown>, keys: string[]) {
     if (value) return value;
   }
   return "";
+}
+
+function metadataFromRecord(record: Record<string, unknown>, fallbackTitle = "") {
+  const enabledValue = record.enabled ?? record.is_enabled ?? record.active;
+  return {
+    title: first(record, ["document_title", "book_title", "title", "name"]) || fallbackTitle,
+    source: first(record, ["source", "publisher", "author", "origin"]),
+    category: first(record, ["category", "subject", "document_type", "type"]),
+    date: first(record, ["date", "published_at", "publication_date", "updated_at"]),
+    version: first(record, ["version", "edition", "revision"]),
+    parentPath: first(record, ["parent_path", "section_path", "chapter", "folder"]),
+    enabled: enabledValue === undefined ? true : ![false, 0, "0", "false", "disabled"].includes(enabledValue as never),
+  };
 }
 
 function tagsFromText(text: string) {
@@ -136,6 +154,7 @@ function factsFromJsonl(text: string): ExtractedDocumentFacts {
   const chapters: string[] = [];
   const questions: Array<{ number: string; title: string; chapter: string }> = [];
   const tags = [...tagsFromText(text)];
+  const metadata = metadataFromRecord(records[0] ?? {});
   for (const record of records) {
     const section = first(record, ["section_path", "sectionPath", "part", "chapter", "chapter_title", "section", "topic"]);
     if (section) chapters.push(section);
@@ -159,36 +178,51 @@ function factsFromJsonl(text: string): ExtractedDocumentFacts {
     chapterCandidates: unique(chapters, 120),
     questionCandidates: questions.slice(0, 240),
     inferredTags: unique(tags, 24),
+    metadata,
     validation: { valid: records.length > 0 && warnings.length === 0, checks: [`JSONL ${records.length} 筆`], warnings: warnings.slice(0, 12) },
   };
 }
 
-function factsFromText(text: string): ExtractedDocumentFacts {
+function factsFromText(text: string, extension: "txt" | "md" | "docx" = "txt"): ExtractedDocumentFacts {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const chapters = lines.filter((line) => /^(?:第\s*[一二三四五六七八九十百0-9]+\s*(?:編|篇|章|節)|[一二三四五六七八九十百]+、|\d+(?:\.\d+){0,3}\s+\S+)/.test(line));
+  const chapters = lines.filter((line) => /^(?:#{1,6}\s+|第\s*[一二三四五六七八九十百0-9]+\s*(?:編|篇|章|節)|[一二三四五六七八九十百]+、|\d+(?:\.\d+){0,3}\s+\S+)/.test(line));
   const questions: Array<{ number: string; title: string; chapter: string }> = [];
   for (const line of lines) {
     const match = line.match(/^(?:第\s*)?([0-9一二三四五六七八九十百]+)\s*(?:題|、|\.)\s*(.*)$/);
     if (match) questions.push({ number: match[1], title: match[2].slice(0, 180), chapter: chapters.at(-1) ?? "" });
   }
   return {
-    extension: "txt",
-    extractionMode: "plain_text",
+    extension,
+    extractionMode: extension === "md" ? "structured_text" : "plain_text",
     textChars: text.length,
     recordCount: 1,
     chapterCandidates: unique(chapters, 120),
     questionCandidates: questions.slice(0, 240),
     inferredTags: tagsFromText(text),
-    validation: { valid: text.trim().length > 0, checks: ["TXT 文字已擷取"], warnings: [] },
+    metadata: { title: (lines.find((line) => /^#\s+/.test(line)) ?? lines[0] ?? "").replace(/^#+\s*/, ""), source: "", category: "", date: "", version: "", parentPath: "", enabled: true },
+    validation: { valid: text.trim().length > 0, checks: [`${extension.toUpperCase()} 文字已擷取`], warnings: [] },
   };
+}
+
+function extractDocxText(bytes: ArrayBuffer) {
+  let entries: Record<string, Uint8Array>;
+  try { entries = unzipSync(new Uint8Array(bytes)); } catch { throw new Error("DOCX 檔案無法解壓，請確認檔案沒有損壞"); }
+  const xml = entries["word/document.xml"];
+  if (!xml) throw new Error("DOCX 內找不到文件正文");
+  return new TextDecoder().decode(xml)
+    .replace(/<w:tab\b[^>]*\/>/g, "\t")
+    .replace(/<\/w:p>/g, "\n")
+    .replace(/<w:br\b[^>]*\/>/g, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 }
 
 export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer): Promise<{ facts: ExtractedDocumentFacts; text: string; sha256: string }> {
   const originalExtension = documentExtension(fileName);
-  if (!originalExtension) throw new Error("僅支援 PDF、JSONL、TXT 或 ZIP 文件");
+  if (!originalExtension) throw new Error("僅支援 PDF、JSONL、MD、TXT、DOCX 或 ZIP 文件");
   const payload = resolveDocumentPayload(fileName, contentTypeForDocument(fileName), bytes);
   const extension = documentExtension(payload.fileName);
-  if (!extension || extension === "zip") throw new Error("ZIP 內找不到可處理的 PDF、JSONL 或 TXT 文件");
+  if (!extension || extension === "zip") throw new Error("ZIP 內找不到可處理的 PDF、JSONL、MD、TXT 或 DOCX 文件");
   const view = new Uint8Array(payload.bytes);
   const latin1 = new TextDecoder("latin1").decode(view.subarray(0, Math.min(view.length, 4_000_000)));
   const digestPromise = crypto.subtle.digest("SHA-256", bytes);
@@ -205,12 +239,15 @@ export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer)
       chapterCandidates: [],
       questionCandidates: [],
       inferredTags: tagsFromText(fileName),
+      metadata: { title: fileName.replace(/\.pdf$/i, ""), source: "", category: "", date: "", version: "", parentPath: "", enabled: true },
       validation: { valid: true, checks: [originalExtension === "zip" ? `ZIP 內 PDF：${payload.fileName}` : "PDF 標頭有效", pages ? `偵測到約 ${pages} 頁` : "頁數待索引服務確認"], warnings: ["PDF 文字與章節將由索引服務及 AI 依原檔分析"] },
     };
     return { facts: { ...facts, pageCount: pages }, text: "", sha256: toHex(await digestPromise) };
   }
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(view).replace(/^\uFEFF/, "");
-  const facts = extension === "jsonl" ? factsFromJsonl(text) : factsFromText(text);
+  const text = extension === "docx"
+    ? extractDocxText(payload.bytes)
+    : new TextDecoder("utf-8", { fatal: false }).decode(view).replace(/^\uFEFF/, "");
+  const facts = extension === "jsonl" ? factsFromJsonl(text) : factsFromText(text, extension);
   return {
     facts: originalExtension === "zip"
       ? { ...facts, container: "zip", sourceFileName: payload.fileName }

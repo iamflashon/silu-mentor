@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { appSettings, documents } from "../../../../db/schema";
+import { appSettings, documents, usageLogs } from "../../../../db/schema";
 import { getOpenAIModel, openAIHeaders, openAIJson } from "../../../../lib/openai";
 import { inspectDocumentBytes, MAX_DOCUMENT_BYTES, isSupportedDocument, resolveDocumentPayload } from "../../../../lib/document-processing";
 
@@ -110,7 +110,39 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
       },
     }),
   });
-  return { model, analysis: parseAnalysis(payload) };
+  const usage = payload.usage && typeof payload.usage === "object"
+    ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
+    : {};
+  return { model, analysis: parseAnalysis(payload), usage };
+}
+
+function hasReliableLocalStructure(facts: Record<string, unknown>) {
+  const extension = String(facts.extension ?? "");
+  const chapters = Array.isArray(facts.chapterCandidates) ? facts.chapterCandidates.length : 0;
+  const questions = Array.isArray(facts.questionCandidates) ? facts.questionCandidates.length : 0;
+  const records = Number(facts.recordCount ?? 0);
+  if (extension === "jsonl") return records > 0;
+  if (extension === "md") return chapters > 0;
+  return (extension === "txt" || extension === "docx") && (chapters >= 3 || questions >= 3);
+}
+
+function localAnalysis(document: typeof documents.$inferSelect, facts: Record<string, unknown>): Analysis {
+  const metadata = facts.metadata && typeof facts.metadata === "object" ? facts.metadata as Record<string, unknown> : {};
+  const chapters = (Array.isArray(facts.chapterCandidates) ? facts.chapterCandidates : []).map((title) => ({
+    title: String(title).replace(/^#{1,6}\s*/, ""), path: String(title).replace(/^#{1,6}\s*/, ""), page_start: null, page_end: null,
+  }));
+  const questions = (Array.isArray(facts.questionCandidates) ? facts.questionCandidates : []).map((item) => {
+    const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    return { number: String(row.number ?? ""), title: String(row.title ?? ""), content_type: "題目", chapter: String(row.chapter ?? "") };
+  });
+  return {
+    document_title: String(metadata.title ?? "") || document.fileName.replace(/\.[^.]+$/, ""),
+    content_type: String(metadata.category ?? "") || document.documentType,
+    summary: "文件結構完整，已依原始標題與欄位直接整理，未使用生成式 AI 改寫。",
+    tags: Array.isArray(facts.inferredTags) ? facts.inferredTags.map(String) : [],
+    chapters,
+    questions,
+  };
 }
 
 export async function POST(request: Request) {
@@ -137,7 +169,7 @@ export async function POST(request: Request) {
       await db.update(documents).set({ status: "extracting", processingStage: "extracting", processingMessage: "正在檢查檔案、擷取文字與辨識結構", indexError: null }).where(eq(documents.id, documentId));
       const bytes = await object.arrayBuffer();
       if (bytes.byteLength < 1 || bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("檔案大小不符合限制（最多 55MB）");
-      if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、JSONL、TXT 文件");
+      if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、JSONL、MD、TXT、DOCX 或 ZIP 文件");
       const inspected = await inspectDocumentBytes(document.fileName, bytes);
       const existingResult = {
         facts: inspected.facts,
@@ -176,14 +208,27 @@ export async function POST(request: Request) {
 
     let facts: Record<string, unknown> = {};
     try { facts = JSON.parse(document.processingResultJson).facts ?? {}; } catch { /* use AI only */ }
-    const ai = await analyzeIndexedDocument(document, storeId, facts);
-    const analysis = ai.analysis ?? {};
+    const ruleOnly = hasReliableLocalStructure(facts);
+    const ai = ruleOnly ? null : await analyzeIndexedDocument(document, storeId, facts);
+    const analysis = ruleOnly ? localAnalysis(document, facts) : ai?.analysis ?? {};
     const chapters = Array.isArray(analysis.chapters) ? analysis.chapters.filter((item) => String(item?.title ?? "").trim()).slice(0, 120) : [];
     const questions = Array.isArray(analysis.questions) ? analysis.questions.filter((item) => String(item?.title ?? item?.number ?? "").trim()).slice(0, 240) : [];
     const localTags = Array.isArray(facts.inferredTags) ? facts.inferredTags.map(String) : [];
     const aiTags = Array.isArray(analysis.tags) ? analysis.tags.map(String) : [];
-    const result = { ...readProcessingResult(document.processingResultJson || "{}"), analysisStatus: ai.analysis ? "completed" : "indexed_without_confirmed_structure", model: ai.model, summary: String(analysis.summary ?? ""), chapters, questions };
-    await db.update(documents).set({ status: "completed", processingStage: "completed", processingMessage: ai.analysis ? "教材已完成檢查、擷取、分類、全文／向量索引與 AI 結構分析" : "教材已完成全文／向量索引；AI 未確認可保存的章節或題目，未自行補造", chapterCount: chapters.length || Number((facts.chapterCandidates as unknown[])?.length ?? 0), questionCount: questions.length || Number((facts.questionCandidates as unknown[])?.length ?? 0), tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...localTags, ...aiTags])), processingResultJson: JSON.stringify(result), processedAt: new Date(), indexError: null, fullTextIndexed: true, vectorIndexed: true }).where(eq(documents.id, documentId));
+    const metadata = facts.metadata && typeof facts.metadata === "object" ? facts.metadata : {};
+    const result = { ...readProcessingResult(document.processingResultJson || "{}"), analysisStatus: ruleOnly ? "rule_only" : ai?.analysis ? "completed" : "indexed_without_confirmed_structure", processingMode: ruleOnly ? "rules_and_index" : "rules_index_and_ai", model: ruleOnly ? "規則整理（0 生成 Token）" : ai?.model, metadata, summary: String(analysis.summary ?? ""), chapters, questions };
+    if (ai) {
+      await db.insert(usageLogs).values({
+        model: ai.model,
+        source: `智能書上架｜結構分析｜${document.fileName}`,
+        inputTokens: ai.usage.input_tokens ?? 0,
+        cachedTokens: ai.usage.input_tokens_details?.cached_tokens ?? 0,
+        outputTokens: ai.usage.output_tokens ?? 0,
+        fileSearchCalls: 1,
+        estimatedCostUsdMicros: 2500,
+      }).catch(() => undefined);
+    }
+    await db.update(documents).set({ status: "completed", processingStage: "completed", processingMessage: ruleOnly ? "教材結構完整，已用規則整理並完成全文／向量索引；未使用生成式 AI" : ai?.analysis ? "教材已完成檢查、擷取、分類、全文／向量索引與 AI 結構分析" : "教材已完成全文／向量索引；AI 未確認可保存的章節或題目，未自行補造", chapterCount: chapters.length || Number((facts.chapterCandidates as unknown[])?.length ?? 0), questionCount: questions.length || Number((facts.questionCandidates as unknown[])?.length ?? 0), tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...localTags, ...aiTags])), processingResultJson: JSON.stringify(result), processedAt: new Date(), indexError: null, fullTextIndexed: true, vectorIndexed: true }).where(eq(documents.id, documentId));
     return Response.json({ status: "completed", stage: "completed", message: "教材自動處理完成" });
   } catch (error) {
     const message = processingError(error);
