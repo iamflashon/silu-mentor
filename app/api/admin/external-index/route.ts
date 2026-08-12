@@ -363,7 +363,9 @@ function canonicalUrl(value: string) {
   try {
     const url = new URL(value);
     url.hash = "";
-    [...url.searchParams.keys()].filter((key) => /^utm_|^(?:fbclid|gclid)$/i.test(key)).forEach((key) => url.searchParams.delete(key));
+    [...url.searchParams.keys()]
+      .filter((key) => /^utm_|^(?:fbclid|gclid)$/i.test(key) || !url.searchParams.get(key)?.trim())
+      .forEach((key) => url.searchParams.delete(key));
     return url.href.replace(/\/$/, "");
   } catch { return value; }
 }
@@ -429,7 +431,7 @@ async function sourceRows(db: Awaited<ReturnType<typeof requireAdmin>> extends i
     sourceUrl: resource.sourceUrl,
     status: resource.status,
     lastSyncedAt: resource.updatedAt,
-    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; publicLinks?: PublicLink[]; book?: BookMetadata } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: item.sourceUrl, summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "", publicLinks: meta.publicLinks ?? [], book: meta.book }; }),
+    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; publicLinks?: PublicLink[]; book?: BookMetadata } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: canonicalUrl(item.sourceUrl || ""), summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "", publicLinks: meta.publicLinks ?? [], book: meta.book }; }),
   }));
 }
 
