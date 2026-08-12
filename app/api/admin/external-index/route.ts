@@ -48,7 +48,9 @@ function angleResourceType(value: string) {
   return "元照公開資源索引";
 }
 
-type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail"; subject?: string; teacher?: string };
+type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail"; subject?: string; teacher?: string; content?: string };
+
+const ANGLE_MAGAZINE_SECTIONS = ["本期試讀", "法學教室", "新聞法律", "法學思維導引", "實務選編", "時事直擊", "編輯手札"] as const;
 
 const LEGAL_SUBJECTS = ["憲法", "行政法", "刑法", "刑事訴訟法", "刑訴", "民法", "民事訴訟法", "民訴", "商事法", "公司法", "證券交易法", "保險法", "票據法", "法律倫理", "國際公法", "國際私法"];
 
@@ -150,6 +152,10 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
   // discovery therefore misses the complete visible table of contents.
   const contentStart = html.search(/本期內容|本期試讀/i);
   const catalogHtml = contentStart >= 0 ? html.slice(contentStart, contentStart + 180_000) : html;
+  const sectionMarkers = ANGLE_MAGAZINE_SECTIONS.flatMap((name) => {
+    const pattern = new RegExp(`【\\s*${name}\\s*】`, "g");
+    return Array.from(catalogHtml.matchAll(pattern)).map((match) => ({ name, index: match.index ?? 0 }));
+  }).sort((left, right) => left.index - right.index);
   // Avoid matching container <div>s: a non-recursive regex would otherwise
   // consume the inner list rows before they can be inspected individually.
   const blocks = catalogHtml.matchAll(/<(li|p|tr)\b[^>]*>([\s\S]*?)<\/\1>/gi);
@@ -162,6 +168,8 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
       .replace(/^[·•．。\-—–◎]+\s*/u, "")
       .replace(/\s+/g, " ")
       .trim();
+    const marker = sectionMarkers.filter((item) => item.index <= (match.index ?? 0)).at(-1);
+    if (marker) section = marker.name;
     const sectionMatch = blockText.match(/^【([^】]{2,30})】$/u);
     if (sectionMatch) {
       section = sectionMatch[1].trim();
@@ -203,7 +211,28 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
       depth,
       parentTitle,
       kind: "detail",
+      content: blockText,
     });
+  }
+
+  // 編輯手札是完整的公開導讀文字，不是文章連結。保留整段內容供搜尋與 AI 使用。
+  const editorMarker = sectionMarkers.find((item) => item.name === "編輯手札");
+  if (editorMarker) {
+    const nextMarker = sectionMarkers.find((item) => item.index > editorMarker.index);
+    const editorHtml = catalogHtml.slice(editorMarker.index, nextMarker?.index ?? catalogHtml.length);
+    const editorText = cleanHtml(editorHtml).replace(/^【\s*編輯手札\s*】\s*/u, "").trim().slice(0, 12_000);
+    if (editorText.length >= 40) {
+      const identity = `編輯手札|${parentTitle}`;
+      if (!seen.has(identity)) rows.push({
+        title: "編輯手札",
+        url: `${canonicalUrl(pageUrl)}&catalog_item=editor-note`,
+        summary: `本期目錄｜分類：編輯手札｜上層：${parentTitle}｜${editorText.slice(0, 180)}`,
+        depth,
+        parentTitle,
+        kind: "detail",
+        content: editorText,
+      });
+    }
   }
   return rows.slice(0, 80);
 }
@@ -377,7 +406,7 @@ export async function POST(request: Request) {
           lessonLabel: config.label,
           title: child.title,
           sourceUrl: child.url,
-          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind, subject: child.subject, teacher: child.teacher }),
+          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind, subject: child.subject, teacher: child.teacher, content: child.content }),
           summary: child.summary,
           importance: 3,
           reviewStatus: "published",
@@ -435,7 +464,7 @@ export async function POST(request: Request) {
     // resource segment currently binds 16 columns, so keep each insert below
     // that ceiling while still avoiding one request per row.
     const insertBatchSize = 4;
-    const rows = discovered.map((item, index) => {
+  const rows = discovered.map((item, index) => {
       const disabled = disabledUrls.has(item.url);
       return {
         resourceId: resource.id,
@@ -443,7 +472,7 @@ export async function POST(request: Request) {
         lessonLabel: config.label,
         title: item.title,
         sourceUrl: item.url,
-        text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher }),
+        text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher, content: item.content }),
         summary: item.summary,
         importance: 3,
         reviewStatus: disabled ? "disabled" : "published",

@@ -345,6 +345,15 @@ type MagazineFeed = {
     reviewStatus: string;
     sequence: number;
   }>;
+  catalog?: Array<{
+    id: number;
+    title: string;
+    sourceUrl: string;
+    category: string;
+    author: string;
+    content: string;
+    sequence: number;
+  }>;
 };
 type HomeFeed = {
   magazines?: MagazineFeed[];
@@ -1538,6 +1547,11 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
           article.title,
           article.summary,
           article.issue,
+        ]),
+        ...(magazine.catalog ?? []).flatMap((item) => [
+          item.title,
+          item.category,
+          item.author,
         ]),
       ]
         .join(" ")
@@ -4804,7 +4818,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                       <small>
                         {highlightMagazineText(magazine.title, magazineQuery)}
                       </small>
-                      <span>{magazine.articles?.length ?? 0} 篇試讀</span>
+                      <span>{magazine.catalog?.length || magazine.articles?.length || 0} 筆本期內容</span>
                     </button>
                   ))}
                   {!filteredMagazines.length && <p>找不到符合的期數或文章。</p>}
@@ -4823,8 +4837,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                           )}
                         </h3>
                         <small>
-                          本期共 {selectedMagazine.articles?.length ?? 0}{" "}
-                          篇試讀內容
+                          本期共 {selectedMagazine.catalog?.length || selectedMagazine.articles?.length || 0}{" "}
+                          筆目錄內容
                         </small>
                       </div>
                       <a
@@ -4839,6 +4853,25 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                       <p className="column-notice">
                         目前先顯示後台匯入的試讀目錄，完整分析仍由後台確認。
                       </p>
+                    )}
+                    {(selectedMagazine.catalog?.length ?? 0) > 0 && (
+                      <div className="magazine-catalog">
+                        {[...new Set(selectedMagazine.catalog?.map((item) => item.category) ?? [])].map((category) => (
+                          <section className="magazine-catalog-section" key={category}>
+                            <h4>【{category}】</h4>
+                            {(selectedMagazine.catalog ?? []).filter((item) => item.category === category).map((item) => (
+                              <article className="magazine-catalog-item" key={item.id}>
+                                <div>
+                                  <strong>{highlightMagazineText(item.title, magazineQuery)}</strong>
+                                  {item.author ? <small>{highlightMagazineText(item.author, magazineQuery)}</small> : null}
+                                  {item.content && item.category === "編輯手札" ? <p>{highlightMagazineText(item.content, magazineQuery)}</p> : null}
+                                </div>
+                                {item.sourceUrl && !/[?&]catalog_item=/i.test(item.sourceUrl) ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">查看公開資料 ↗</a> : <span>目錄</span>}
+                              </article>
+                            ))}
+                          </section>
+                        ))}
+                      </div>
                     )}
                     <div
                       className="magazine-reading-list"

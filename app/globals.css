@@ -24104,6 +24104,64 @@ a {
   font-size: 11px;
   font-weight: 800;
 }
+.magazine-catalog {
+  display: grid;
+  gap: 18px;
+  padding: 22px 0 8px;
+  border-bottom: 1px solid #dfe8ec;
+}
+.magazine-catalog-section h4 {
+  margin: 0 0 8px;
+  color: #173f59;
+  font-size: 14px;
+  font-weight: 900;
+}
+.magazine-catalog-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 2px;
+  border-bottom: 1px dashed #dce6ea;
+}
+.magazine-catalog-item:last-child {
+  border-bottom: 0;
+}
+.magazine-catalog-item strong,
+.magazine-catalog-item small {
+  display: block;
+}
+.magazine-catalog-item p {
+  margin: 9px 0 0;
+  color: #334f60;
+  font-size: 13px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+.magazine-catalog-item strong {
+  color: #173f59;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.magazine-catalog-item small {
+  margin-top: 3px;
+  color: #758a96;
+  font-size: 11px;
+}
+.magazine-catalog-item > a,
+.magazine-catalog-item > span {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #edf4f6;
+  color: #396a81;
+  font-size: 10px;
+  font-weight: 800;
+}
+.magazine-catalog-item > span {
+  background: #f2f4f5;
+  color: #85939a;
+}
 .magazine-reading-list {
   display: grid;
 }
