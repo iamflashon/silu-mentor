@@ -9,7 +9,7 @@ import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
-type ExternalIndexSource = { id: number; key: "lawdata" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string }> };
+type ExternalIndexSource = { id: number; key: "lawdata" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string }> };
 
 type Uploaded = {
   id: number;
@@ -466,7 +466,7 @@ export default function AdminPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "同步失敗");
       setExternalSources(data.sources ?? []);
-      setExternalNotice(`已同步 ${data.discovered ?? 0} 筆公開索引；未抓取付費全文。`);
+      setExternalNotice(`已同步 ${data.discovered ?? 0} 筆公開索引；包含可辨識的下層分類與主題，未抓取付費全文。`);
     } catch (error) { setExternalNotice(error instanceof Error ? error.message : "同步失敗"); }
     finally { setExternalSyncing(""); }
   }
