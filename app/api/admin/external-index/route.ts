@@ -48,7 +48,32 @@ function angleResourceType(value: string) {
   return "元照公開資源索引";
 }
 
-type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail" };
+type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail"; subject?: string; teacher?: string };
+
+const LEGAL_SUBJECTS = ["憲法", "行政法", "刑法", "刑事訴訟法", "刑訴", "民法", "民事訴訟法", "民訴", "商事法", "公司法", "證券交易法", "保險法", "票據法", "法律倫理", "國際公法", "國際私法"];
+
+function discoverIbrainTeachers(html: string, pageUrl: string, parentTitle: string, depth: number): DiscoveredItem[] {
+  const rows: DiscoveredItem[] = [];
+  const seen = new Set<string>();
+  for (const match of html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']*(?:ListDetail|Teacher|Lecturer|Course)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const title = cleanHtml(match[2]).slice(0, 160);
+    if (title.length < 2 || looksCorrupted(title)) continue;
+    let url: URL;
+    try { url = new URL(match[1], pageUrl); } catch { continue; }
+    if (!SOURCES.ibrain.hosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))) continue;
+    const contextStart = Math.max(0, (match.index ?? 0) - 500);
+    const contextEnd = Math.min(html.length, (match.index ?? 0) + match[0].length + 500);
+    const context = cleanHtml(html.slice(contextStart, contextEnd));
+    const subject = LEGAL_SUBJECTS.find((name) => context.includes(name)) || "司律綜合";
+    const teacherMatch = context.match(/(?:師資|老師|講師)[：:\s]*([\u3400-\u9fff·]{2,8})/u);
+    const teacher = teacherMatch?.[1] || (/^[\u3400-\u9fff·]{2,8}(?:老師|師)$/u.test(title) ? title.replace(/老師|師$/u, "") : "");
+    const key = `${url.href}|${title}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ title, url: url.href, summary: `${subject}${teacher ? `｜師資：${teacher}` : ""}｜公開課程／試聽索引`, depth, parentTitle, kind: "detail", subject, teacher });
+  }
+  return rows.slice(0, 60);
+}
 
 function discoverLinks(html: string, base: string, source: SourceKey, limit = 20, depth = 1, parentTitle = ""): DiscoveredItem[] {
   const seen = new Set<string>();
@@ -97,12 +122,65 @@ function isAngleRootSection(item: DiscoveredItem) {
 
 function isGetRootSection(item: DiscoveredItem) {
   if (/[?&](?:BKID|bookid|id)=/i.test(item.url) || /detail|single|product/i.test(item.url)) return false;
-  return /^(?:圖書分類總覽|雲端微課群|波斯納讀書會|考前直播間|解讀大師文章)$/u.test(item.title.trim());
+  return /^(?:圖書分類(?:總覽|速覽)|雲端微課群|波斯納讀書會|考前直播間|解讀大師文章)$/u.test(item.title.trim());
 }
 
 function isIbrainRootSection(item: DiscoveredItem) {
   if (/[?&](?:courseid|id)=/i.test(item.url) || /detail|single/i.test(item.url)) return false;
   return /(?:課程分類|課程總覽|試聽|司律|律師|司法官|法學)/u.test(item.title) && item.title.length <= 24;
+}
+
+const AUTO_CRAWL_LIMITS: Record<SourceKey, { maxDepth: number; maxPages: number; maxItems: number }> = {
+  lawdata: { maxDepth: 6, maxPages: 42, maxItems: 360 },
+  get: { maxDepth: 7, maxPages: 56, maxItems: 480 },
+  ibrain: { maxDepth: 6, maxPages: 42, maxItems: 360 },
+};
+
+function canonicalUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    [...url.searchParams.keys()].filter((key) => /^utm_|^(?:fbclid|gclid)$/i.test(key)).forEach((key) => url.searchParams.delete(key));
+    return url.href.replace(/\/$/, "");
+  } catch { return value; }
+}
+
+async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
+  const limits = AUTO_CRAWL_LIMITS[source];
+  const output = new Map<string, DiscoveredItem>();
+  const visited = new Set<string>();
+  let queue = roots.map((item) => ({ ...item, url: canonicalUrl(item.url) }));
+  queue.forEach((item) => output.set(item.url, item));
+  let pagesRead = 0;
+
+  while (queue.length && pagesRead < limits.maxPages && output.size < limits.maxItems) {
+    const batch = queue.splice(0, Math.min(4, limits.maxPages - pagesRead));
+    const results = await Promise.all(batch.map(async (parent) => {
+      const key = canonicalUrl(parent.url);
+      if (visited.has(key) || parent.depth >= limits.maxDepth || parent.kind === "detail") return [] as DiscoveredItem[];
+      visited.add(key);
+      try {
+        const response = await fetch(parent.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow", signal: AbortSignal.timeout(12000) });
+        if (!response.ok) return [];
+        const html = await readHtml(response);
+        const nextDepth = parent.depth + 1;
+        const links = discoverLinks(html, response.url || parent.url, source, 60, nextDepth, parent.title);
+        const details = source === "lawdata"
+          ? discoverAngleDetails(html, response.url || parent.url, parent.title, nextDepth)
+          : source === "ibrain"
+            ? discoverIbrainTeachers(html, response.url || parent.url, parent.title, nextDepth)
+            : [];
+        return Array.from(new Map([...links, ...details].map((item) => [canonicalUrl(item.url), { ...item, url: canonicalUrl(item.url) }])).values());
+      } catch { return []; }
+    }));
+    pagesRead += batch.length;
+    for (const child of results.flat()) {
+      if (output.size >= limits.maxItems || output.has(child.url)) continue;
+      output.set(child.url, child);
+      if (child.kind !== "detail" && child.depth < limits.maxDepth) queue.push(child);
+    }
+  }
+  return { items: Array.from(output.values()), pagesRead, truncated: queue.length > 0 || output.size >= limits.maxItems };
 }
 
 async function sourceRows(db: Awaited<ReturnType<typeof requireAdmin>> extends infer _T ? any : never) {
@@ -116,7 +194,7 @@ async function sourceRows(db: Awaited<ReturnType<typeof requireAdmin>> extends i
     sourceUrl: resource.sourceUrl,
     status: resource.status,
     lastSyncedAt: resource.updatedAt,
-    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: item.sourceUrl, summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry" }; }),
+    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: item.sourceUrl, summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "" }; }),
   }));
 }
 
@@ -154,7 +232,7 @@ export async function POST(request: Request) {
       const html = await readHtml(response);
       const nextDepth = Math.min((itemMeta.depth ?? 1) + 1, 8);
       const links = discoverLinks(html, response.url || item.sourceUrl, source, 40, nextDepth, item.title);
-      const details = source === "lawdata" ? discoverAngleDetails(html, response.url || item.sourceUrl, item.title, nextDepth) : [];
+      const details = source === "lawdata" ? discoverAngleDetails(html, response.url || item.sourceUrl, item.title, nextDepth) : source === "ibrain" ? discoverIbrainTeachers(html, response.url || item.sourceUrl, item.title, nextDepth) : [];
       const discovered = Array.from(new Map([...links, ...details].map((child) => [child.url, child])).values())
         .filter((child) => child.url !== item.sourceUrl)
         .slice(0, 40);
@@ -176,7 +254,7 @@ export async function POST(request: Request) {
           lessonLabel: config.label,
           title: child.title,
           sourceUrl: child.url,
-          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind }),
+          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind, subject: child.subject, teacher: child.teacher }),
           summary: child.summary,
           importance: 3,
           reviewStatus: "published",
@@ -215,11 +293,14 @@ export async function POST(request: Request) {
         } catch { return []; }
       }));
       const unique = new Map(firstLayer.concat(...nestedPages.flatMap((page) => [page.links, page.details]), ...thirdLayer).map((item) => [item.url, item]));
-      discovered = Array.from(unique.values()).slice(0, 180);
+      const crawled = await crawlHierarchy(source, Array.from(unique.values()).filter((item) => item.depth === 1));
+      discovered = Array.from(new Map([...unique.values(), ...crawled.items].map((item) => [canonicalUrl(item.url), { ...item, url: canonicalUrl(item.url) }])).values()).slice(0, AUTO_CRAWL_LIMITS[source].maxItems);
     } else if (source === "get") {
-      discovered = discovered.filter(isGetRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+      const roots = discovered.filter(isGetRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+      discovered = (await crawlHierarchy(source, roots)).items;
     } else if (source === "ibrain") {
-      discovered = discovered.filter(isIbrainRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+      const roots = discovered.filter(isIbrainRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+      discovered = (await crawlHierarchy(source, roots)).items;
     }
     if (!discovered.length) throw new Error("頁面已讀取，但目前沒有辨識到可用的公開索引");
     const [existing] = await auth.db.select().from(learningResources).where(and(eq(learningResources.resourceType, "external_index"), eq(learningResources.creator, source))).limit(1);
@@ -230,7 +311,7 @@ export async function POST(request: Request) {
     for (let index = 0; index < discovered.length; index++) {
       const item = discovered[index];
       const disabled = disabledUrls.has(item.url);
-      const values = { lessonLabel: config.label, title: item.title, sourceUrl: item.url, text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind }), summary: item.summary, importance: 3, reviewStatus: disabled ? "disabled" : "published", recommended: !disabled, sequence: index + 1 };
+      const values = { lessonLabel: config.label, title: item.title, sourceUrl: item.url, text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher }), summary: item.summary, importance: 3, reviewStatus: disabled ? "disabled" : "published", recommended: !disabled, sequence: index + 1 };
       await auth.db.insert(resourceSegments).values({ resourceId: resource.id, segmentType: "external_catalog", ...values });
     }
     await auth.db.update(learningResources).set({ status: "active", updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
