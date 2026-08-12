@@ -206,6 +206,8 @@ export default function Home() {
   const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
   const [practiceCoachMessages, setPracticeCoachMessages] = useState<PracticeCoachMessage[]>([]);
   const [practiceCoaching, setPracticeCoaching] = useState(false);
+  const [practiceCompleted, setPracticeCompleted] = useState(false);
+  const [practiceDiscussion, setPracticeDiscussion] = useState(false);
   const [savedMessage, setSavedMessage] = useState<number | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
   const [legalLesson, setLegalLesson] = useState<LegalLesson | null>(null);
@@ -538,11 +540,12 @@ export default function Home() {
     setInput("");
     setPracticeCoaching(true);
     try {
-      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest }) });
-      const result = await response.json() as { reply?: string; error?: string };
+      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode: practiceDiscussion ? "discussion" : "answer_reason" }) });
+      const result = await response.json() as { reply?: string; error?: string; completed?: boolean };
       const mentorMessage = { role: "mentor" as const, text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" };
       setPracticeCoachMessages((current) => [...current, mentorMessage]);
       setMessages((current) => [...current, { ...mentorMessage, source: "真題練習" }]);
+      if (result.completed) setPracticeCompleted(true);
       if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: [studentMessage, mentorMessage] }) });
       if (/本題引導結束|本次對話已結束/.test(mentorMessage.text)) setPracticeQuestion(null);
     } finally {
@@ -560,6 +563,8 @@ export default function Home() {
     const result = await response.json() as { correct?: boolean; correctAnswer?: string; guidance?: string; error?: string };
     if (!response.ok || typeof result.correct !== "boolean" || !result.correctAnswer) return;
     setPracticeAnswer({ selected: answer, correct: result.correct, correctAnswer: result.correctAnswer });
+    setPracticeCompleted(false);
+    setPracticeDiscussion(false);
     const turns: PracticeCoachMessage[] = [
       { role: "student", text: `我選 ${answer}` },
       { role: "mentor", text: `好，先不公布答案。你為什麼選 ${answer}？請說出你判斷時抓到的法律原則或關鍵文字。` },
@@ -1012,6 +1017,10 @@ export default function Home() {
               {message.role === "mentor" && showEvidence && <TeachingEvidenceDetails evidence={message.teachingEvidence} />}
             </div>
           ))}
+          {practiceQuestion && practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions" aria-label="本題完成後的選擇">
+            <div><b>本題完成</b><span>由你決定下一步，AI 不會自動延伸新爭點。</span></div>
+            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeCompleted(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>繼續討論本題</button></div>
+          </section>}
           {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="昨日學習接續選擇">
             <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
             <div className="daily-handoff-actions">
@@ -1107,7 +1116,7 @@ export default function Home() {
           <textarea
             ref={composerInputRef}
             aria-label="輸入你想學習的內容"
-            placeholder={practiceQuestion && practiceCoachMessages.length > 0 ? "回答教練的問題；不知道也可以說卡在哪裡" : "告訴我你想學什麼，或直接貼上一道題目……"}
+            placeholder={practiceQuestion && practiceDiscussion ? "針對本題自由追問；AI 會直接回答，不會再反問" : practiceQuestion && practiceCoachMessages.length > 0 ? "回答教練的問題；不知道也可以說卡在哪裡" : "告訴我你想學什麼，或直接貼上一道題目……"}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
