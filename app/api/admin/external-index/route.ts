@@ -3,7 +3,7 @@ import { learningResources, resourceSegments } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 
 const SOURCES = {
-  lawdata: { label: "月旦法學教室", url: "https://lawdata.com.tw/tw/journal_list.aspx?no=140", hosts: ["lawdata.com.tw"] },
+  lawdata: { label: "元照／月旦全站資源", url: "https://www.angle.com.tw/", hosts: ["angle.com.tw", "www.angle.com.tw", "lawdata.com.tw", "www.lawdata.com.tw"] },
   get: { label: "高點出版", url: "https://publish.get.com.tw/", hosts: ["publish.get.com.tw"] },
   ibrain: { label: "iBrain 知識達", url: "https://www.ibrain.com.tw/Audition/List.aspx?1=1&iC=2089", hosts: ["www.ibrain.com.tw", "ibrain.com.tw"] },
 } as const;
@@ -14,7 +14,16 @@ function cleanHtml(value: string) {
   return value.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;|&#34;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/\s+/g, " ").trim();
 }
 
-function discoverLinks(html: string, base: string, source: SourceKey) {
+function angleResourceType(value: string) {
+  if (/journal|雜誌|期刊|月旦法學|法學教室/i.test(value)) return "期刊／文章索引";
+  if (/book|書籍|新書|圖書|出版/i.test(value)) return "書籍／目錄索引";
+  if (/course|lecture|影音|講座|研討|課程|學院/i.test(value)) return "講座／課程索引";
+  if (/news|article|焦點|時事|評論|專欄/i.test(value)) return "公開文章索引";
+  if (/試閱|試讀|download|pdf/i.test(value)) return "公開試閱索引";
+  return "元照公開資源索引";
+}
+
+function discoverLinks(html: string, base: string, source: SourceKey, limit = 20) {
   const seen = new Set<string>();
   const rows: Array<{ title: string; url: string; summary: string }> = [];
   const matches = html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
@@ -28,14 +37,14 @@ function discoverLinks(html: string, base: string, source: SourceKey) {
     const key = `${title}|${url.href}`;
     if (seen.has(key)) continue;
     const relevant = source === "lawdata"
-      ? /journal|article|期|法學|教室|篇|月旦/i.test(`${title} ${url.pathname} ${url.search}`)
+      ? /journal|article|book|course|lecture|news|magazine|download|法學|月旦|元照|期刊|雜誌|文章|專欄|書籍|新書|圖書|講座|研討|課程|影音|試閱|試讀|活動/i.test(`${title} ${url.pathname} ${url.search}`)
       : source === "get"
         ? /book|BKID|司律|律師|司法官|法學|刑法|民法|訴訟|行政法|憲法|商法/i.test(`${title} ${url.pathname} ${url.search}`)
         : /course|audition|試聽|司律|律師|司法官|法學|刑法|民法|訴訟|行政法|憲法|商法/i.test(`${title} ${url.pathname} ${url.search}`);
     if (!relevant) continue;
     seen.add(key);
-    rows.push({ title, url: url.href, summary: source === "lawdata" ? "公開期刊／文章索引" : source === "get" ? "公開書籍／目錄索引" : "公開課程／試聽索引" });
-    if (rows.length >= (source === "lawdata" ? 20 : 12)) break;
+    rows.push({ title, url: url.href, summary: source === "lawdata" ? angleResourceType(`${title} ${url.pathname} ${url.search}`) : source === "get" ? "公開書籍／目錄索引" : "公開課程／試聽索引" });
+    if (rows.length >= limit) break;
   }
   return rows;
 }
@@ -72,7 +81,19 @@ export async function POST(request: Request) {
     const response = await fetch(config.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
     if (!response.ok) throw new Error(`來源網站回應 ${response.status}`);
     const html = await response.text();
-    const discovered = discoverLinks(html, response.url || config.url, source);
+    let discovered = discoverLinks(html, response.url || config.url, source, source === "lawdata" ? 60 : 12);
+    if (source === "lawdata") {
+      const categoryLinks = discovered.filter((item) => /期刊|雜誌|文章|專欄|書籍|圖書|講座|研討|課程|影音|試閱|活動/.test(`${item.title}${item.summary}`)).slice(0, 8);
+      const nested = await Promise.all(categoryLinks.map(async (item) => {
+        try {
+          const nestedResponse = await fetch(item.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
+          if (!nestedResponse.ok) return [];
+          return discoverLinks(await nestedResponse.text(), nestedResponse.url || item.url, source, 24);
+        } catch { return []; }
+      }));
+      const unique = new Map(discovered.concat(...nested).map((item) => [item.url, item]));
+      discovered = Array.from(unique.values()).slice(0, 80);
+    }
     if (!discovered.length) throw new Error("頁面已讀取，但目前沒有辨識到可用的公開索引");
     const [existing] = await auth.db.select().from(learningResources).where(and(eq(learningResources.resourceType, "external_index"), eq(learningResources.creator, source))).limit(1);
     const resource = existing ?? (await auth.db.insert(learningResources).values({ resourceType: "external_index", title: config.label, creator: source, subject: "綜合", description: "Demo 公開索引；不含付費全文", sourceUrl: config.url, accessType: "public_index", status: "active", sortOrder: Object.keys(SOURCES).indexOf(source) }).returning())[0];
