@@ -3,7 +3,9 @@ import { learningResources, resourceSegments } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 
 const SOURCES = {
-  lawdata: { label: "元照／月旦全站資源", url: "https://www.angle.com.tw/", hosts: ["angle.com.tw", "www.angle.com.tw", "lawdata.com.tw", "www.lawdata.com.tw"] },
+  lawdata: { label: "元照雜誌", url: "https://www.angle.com.tw/magazine/magazine.asp", hosts: ["angle.com.tw", "www.angle.com.tw", "lawdata.com.tw", "www.lawdata.com.tw"] },
+  angle_books: { label: "元照圖書", url: "https://www.angle.com.tw/message.asp", hosts: ["angle.com.tw", "www.angle.com.tw"] },
+  angle_media: { label: "品評家", url: "https://www.angle.com.tw/media/web/", hosts: ["angle.com.tw", "www.angle.com.tw"] },
   get: { label: "高點文化", url: "https://publish.get.com.tw/", hosts: ["publish.get.com.tw"] },
   ibrain: { label: "iBrain 知識達", url: "https://www.ibrain.com.tw/Audition/List.aspx?1=1&iC=2089", hosts: ["www.ibrain.com.tw", "ibrain.com.tw"] },
 } as const;
@@ -90,14 +92,14 @@ function discoverLinks(html: string, base: string, source: SourceKey, limit = 20
     if (!SOURCES[source].hosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))) continue;
     const key = `${title}|${url.href}`;
     if (seen.has(key)) continue;
-    const relevant = source === "lawdata"
+    const relevant = source === "lawdata" || source === "angle_books" || source === "angle_media"
       ? /journal|article|book|course|lecture|news|magazine|download|法學|月旦|元照|期刊|雜誌|文章|專欄|書籍|新書|圖書|講座|研討|課程|影音|試閱|試讀|活動/i.test(`${title} ${url.pathname} ${url.search}`)
       : source === "get"
         ? /book|course|lecture|article|BKID|圖書分類總覽|雲端微課群|波斯納讀書會|考前直播間|解讀大師文章|司律|律師|司法官|法學|刑法|民法|訴訟|行政法|憲法|商法/i.test(`${title} ${url.pathname} ${url.search}`)
         : /course|audition|試聽|司律|律師|司法官|法學|刑法|民法|訴訟|行政法|憲法|商法/i.test(`${title} ${url.pathname} ${url.search}`);
     if (!relevant) continue;
     seen.add(key);
-    rows.push({ title, url: url.href, summary: source === "lawdata" ? angleResourceType(`${title} ${url.pathname} ${url.search}`) : source === "get" ? "公開書籍／目錄索引" : "公開課程／試聽索引", depth, parentTitle, kind: "entry" });
+    rows.push({ title, url: url.href, summary: source === "lawdata" || source === "angle_books" || source === "angle_media" ? angleResourceType(`${title} ${url.pathname} ${url.search}`) : source === "get" ? "公開書籍／目錄索引" : "公開課程／試聽索引", depth, parentTitle, kind: "entry" });
     if (rows.length >= limit) break;
   }
   return rows;
@@ -150,15 +152,27 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
   // Angle's magazine pages often render the article title as plain text and
   // attach URLs only to the neighbouring 試讀／書籍／影音 badges.  Link-only
   // discovery therefore misses the complete visible table of contents.
-  const contentStart = html.search(/本期內容|本期試讀/i);
-  const catalogHtml = contentStart >= 0 ? html.slice(contentStart, contentStart + 180_000) : html;
+  // Do not start at the first plain-text occurrence of 本期試讀. Angle repeats
+  // that phrase in the document's meta description, which caused the crawler
+  // to include the global navigation and promotional sidebar as issue items.
+  // Anchor the catalogue to the actual 本期內容 table cell and stop before the
+  // following 注意事項 section.
+  const contentCell = /<td\b[^>]*>\s*(?:&nbsp;|&#160;)?\s*本期內容\s*<\/td>/i.exec(html);
+  if (!contentCell || contentCell.index === undefined) return rows;
+  const contentStart = contentCell.index + contentCell[0].length;
+  const remainder = html.slice(contentStart);
+  const noticeCell = /<td\b[^>]*>\s*(?:&nbsp;|&#160;)?\s*注意事項\s*<\/td>/i.exec(remainder);
+  const catalogHtml = remainder.slice(0, noticeCell?.index ?? Math.min(remainder.length, 180_000));
   const sectionMarkers = ANGLE_MAGAZINE_SECTIONS.flatMap((name) => {
     const pattern = new RegExp(`【\\s*${name}\\s*】`, "g");
     return Array.from(catalogHtml.matchAll(pattern)).map((match) => ({ name, index: match.index ?? 0 }));
   }).sort((left, right) => left.index - right.index);
   // Avoid matching container <div>s: a non-recursive regex would otherwise
   // consume the inner list rows before they can be inspected individually.
-  const blocks = catalogHtml.matchAll(/<(li|p|tr)\b[^>]*>([\s\S]*?)<\/\1>/gi);
+  // A <tr> wraps the entire catalogue on Angle. Including it in this
+  // non-overlapping scan consumes all nested <p>/<li> article rows, leaving
+  // only the outer container. Inspect the actual entry elements only.
+  const blocks = catalogHtml.matchAll(/<(li|p)\b[^>]*>([\s\S]*?)<\/\1>/gi);
   let section = "本期內容";
   let syntheticIndex = 0;
   for (const match of blocks) {
@@ -175,6 +189,7 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
       section = sectionMatch[1].trim();
       continue;
     }
+    if (section === "編輯手札") continue;
     if (blockText.length < 6 || blockText.length > 220 || looksCorrupted(blockText)) continue;
     if (/^(?:本期內容|雜誌介紹|定期|訂閱方案|放入購物車|出版單位|出版日|定價|特價|書號)/u.test(blockText)) continue;
     if (!/[\u3400-\u9fff]/u.test(blockText)) continue;
@@ -256,11 +271,23 @@ function isIbrainRootSection(item: DiscoveredItem) {
 
 const AUTO_CRAWL_LIMITS: Record<SourceKey, { maxDepth: number; maxPages: number; maxItems: number }> = {
   lawdata: { maxDepth: 10, maxPages: 180, maxItems: 1600 },
+  angle_books: { maxDepth: 8, maxPages: 100, maxItems: 900 },
+  angle_media: { maxDepth: 8, maxPages: 100, maxItems: 900 },
   get: { maxDepth: 7, maxPages: 56, maxItems: 480 },
   ibrain: { maxDepth: 6, maxPages: 42, maxItems: 360 },
 };
 
 function crawlPriority(source: SourceKey, item: DiscoveredItem) {
+  if (source === "angle_books") {
+    const value = `${item.title} ${item.url}`;
+    if (/book|message|書籍|圖書|新書|出版|分類/i.test(value)) return item.depth * 10;
+    return 1_000 + item.depth;
+  }
+  if (source === "angle_media") {
+    const value = `${item.title} ${item.url}`;
+    if (/media|web|品評|文章|影音|講座|作者|講者/i.test(value)) return item.depth * 10;
+    return 1_000 + item.depth;
+  }
   if (source !== "lawdata") return item.depth * 100;
   const value = `${item.title} ${item.url}`;
   // The useful magazine catalogue is behind the issue page.  Process these
@@ -423,7 +450,7 @@ export async function POST(request: Request) {
     const response = await fetch(config.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
     if (!response.ok) throw new Error(`來源網站回應 ${response.status}`);
     const html = await readHtml(response);
-    let discovered = discoverLinks(html, response.url || config.url, source, source === "lawdata" ? 60 : 12);
+    let discovered = discoverLinks(html, response.url || config.url, source, source === "lawdata" || source === "angle_books" || source === "angle_media" ? 60 : 12);
     if (source === "lawdata") {
       const caseHub: DiscoveredItem = { title: "月旦案例課", url: "https://www.angle.com.tw/event/practical_discuss_order/", summary: "案例研習／講座索引", depth: 1, parentTitle: "", kind: "entry" };
       const firstLayer = Array.from(new Map([caseHub, ...discovered.filter(isAngleRootSection)].map((item) => [item.url, { ...item, depth: 1, parentTitle: "" }])).values());
@@ -447,6 +474,16 @@ export async function POST(request: Request) {
       const unique = new Map(firstLayer.concat(...nestedPages.flatMap((page) => [page.links, page.details]), ...thirdLayer).map((item) => [item.url, item]));
       const crawled = await crawlHierarchy(source, Array.from(unique.values()).filter((item) => item.depth === 1));
       discovered = Array.from(new Map([...unique.values(), ...crawled.items].map((item) => [canonicalUrl(item.url), { ...item, url: canonicalUrl(item.url) }])).values()).slice(0, AUTO_CRAWL_LIMITS[source].maxItems);
+    } else if (source === "angle_books") {
+      const roots = discovered
+        .filter((item) => /book|message|書籍|圖書|新書|出版|分類/i.test(`${item.title} ${item.url}`))
+        .map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+      discovered = (await crawlHierarchy(source, roots)).items;
+    } else if (source === "angle_media") {
+      const roots = discovered
+        .filter((item) => /media|web|品評|文章|影音|講座|作者|講者|法學/i.test(`${item.title} ${item.url}`))
+        .map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+      discovered = (await crawlHierarchy(source, roots)).items;
     } else if (source === "get") {
       const roots = discovered.filter(isGetRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
       discovered = (await crawlHierarchy(source, roots)).items;

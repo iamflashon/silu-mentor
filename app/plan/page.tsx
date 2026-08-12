@@ -603,6 +603,7 @@ type CurrentMember = { canAdmin: boolean };
 export default function StudyPlanPage({ initialTab = "calendar", standalone = false }: StudyPlanPageProps = {}) {
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const [month, setMonth] = useState(monthValue());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(taipeiDate());
   const [plans, setPlans] = useState<Plan[]>([]);
 
   useEffect(() => {
@@ -1386,8 +1387,14 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
 
   function moveMonth(delta: number) {
     const [year, monthNumber] = month.split("-").map(Number);
-    setMonth(monthValue(new Date(year, monthNumber - 1 + delta, 1)));
+    const nextMonth = monthValue(new Date(year, monthNumber - 1 + delta, 1));
+    setMonth(nextMonth);
+    setSelectedCalendarDate(`${nextMonth}-01`);
   }
+
+  const selectedCalendarTasks = tasks.filter(
+    (task) => task.taskDate === selectedCalendarDate,
+  );
 
   const filteredNotes = notes.filter(
     (note) =>
@@ -5052,13 +5059,19 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
               ))}
               {days.map((day, index) => (
                 <div
-                  className={`calendar-day ${day ? "" : "blank"}`}
+                  className={`calendar-day ${day ? "" : "blank"} ${day && selectedCalendarDate === dateFor(day) ? "selected" : ""}`}
                   key={`${day}-${index}`}
+                  onClick={() => day && setSelectedCalendarDate(dateFor(day))}
                   onDoubleClick={() => day && openNew(day)}
                 >
                   {day && (
                     <>
                       <span className="day-number">{day}</span>
+                      {tasks.some((task) => task.taskDate === dateFor(day)) && (
+                        <span className="mobile-task-count" aria-label={`${tasks.filter((task) => task.taskDate === dateFor(day)).length} 項任務`}>
+                          {tasks.filter((task) => task.taskDate === dateFor(day)).length}
+                        </span>
+                      )}
                       <div className="day-tasks">
                         {tasks
                           .filter((task) => task.taskDate === dateFor(day))
@@ -5066,7 +5079,10 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                             <div
                               className={`calendar-task ${task.status === "completed" ? "done" : ""}`}
                               key={task.id}
-                              onClick={() => openTask(task)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTask(task);
+                              }}
                             >
                               <button
                                 onClick={(event) => {
@@ -5085,7 +5101,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                             </div>
                           ))}
                       </div>
-                      <button className="day-add" onClick={() => openNew(day)}>
+                      <button className="day-add" onClick={(event) => { event.stopPropagation(); openNew(day); }}>
                         ＋
                       </button>
                     </>
@@ -5093,6 +5109,37 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                 </div>
               ))}
             </div>
+            <section className="mobile-calendar-agenda" aria-live="polite">
+              <header>
+                <div>
+                  <span>所選日期</span>
+                  <h2>{Number(selectedCalendarDate.slice(5, 7))} 月 {Number(selectedCalendarDate.slice(8, 10))} 日</h2>
+                </div>
+                <b>{selectedCalendarTasks.length} 項任務</b>
+              </header>
+              {selectedCalendarTasks.length ? (
+                <div className="mobile-agenda-list">
+                  {selectedCalendarTasks.map((task) => (
+                    <article className={task.status === "completed" ? "done" : ""} key={task.id}>
+                      <button className="mobile-agenda-main" onClick={() => openTask(task)}>
+                        <span>{task.subject}・{task.durationMinutes} 分鐘</span>
+                        <strong>{task.title}</strong>
+                        <small>{task.details || "點開查看或開始這項學習任務"}</small>
+                        <em>查看內容 ›</em>
+                      </button>
+                      <button className="mobile-agenda-toggle" onClick={() => void toggle(task)}>
+                        {task.status === "completed" ? "✓ 已完成（點此取消）" : "○ 標記完成"}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="mobile-agenda-empty">
+                  <p>這一天還沒有安排任務。</p>
+                  <button onClick={() => openNew(Number(selectedCalendarDate.slice(8, 10)))}>＋ 新增這天任務</button>
+                </div>
+              )}
+            </section>
           </>
         )}
         {activeTab === "practice" && <PracticeLab initialType="mcq" standalone canAdmin={currentMember?.canAdmin === true} />}

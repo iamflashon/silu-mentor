@@ -19512,6 +19512,10 @@ a {
 .calendar-day:hover .day-add {
   opacity: 1;
 }
+.mobile-task-count,
+.mobile-calendar-agenda {
+  display: none;
+}
 .editor-backdrop {
   position: fixed;
   inset: 0;
@@ -21252,41 +21256,164 @@ a {
     font-size: 10px;
   }
   .calendar-day {
-    min-height: 92px;
-    padding: 5px 3px;
+    min-height: 58px;
+    padding: 7px 4px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .calendar-day:not(.blank):active {
+    background: #e8f1f7;
+  }
+  .calendar-day.selected {
+    background: #e7f1f8;
+    box-shadow: inset 0 0 0 2px #245f88;
+  }
+  .calendar-day.selected .day-number {
+    color: #163f60;
   }
   .day-number {
-    font-size: 10px;
+    font-size: 12px;
   }
   .day-tasks {
-    gap: 3px;
-    margin-top: 5px;
-  }
-  .calendar-task {
-    gap: 3px;
-    padding: 4px 3px;
-    border-radius: 6px;
-  }
-  .calendar-task > button {
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-    font-size: 9px;
-  }
-  .calendar-task strong {
-    font-size: 8px;
-  }
-  .calendar-task span {
-    margin: 1px 0;
-    font-size: 9px;
-  }
-  .calendar-task small {
     display: none;
   }
+  .mobile-task-count {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin: 5px auto 0;
+    border-radius: 999px;
+    background: #245f88;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .calendar-day.selected .mobile-task-count {
+    background: #173b5e;
+  }
   .day-add {
-    top: 3px;
-    right: 3px;
+    display: none;
+  }
+  .mobile-calendar-agenda {
+    display: block;
+    width: 100%;
+    margin: 14px auto 0;
+    padding: 16px;
+    border: 1px solid #d7e3eb;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(31, 63, 86, 0.07);
+  }
+  .mobile-calendar-agenda > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .mobile-calendar-agenda header span {
+    display: block;
+    color: #6c8292;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
+  .mobile-calendar-agenda h2 {
+    margin: 2px 0 0;
+    color: #173b5e;
+    font-size: 21px;
+  }
+  .mobile-calendar-agenda header b {
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #e8f1f7;
+    color: #245f88;
     font-size: 12px;
+  }
+  .mobile-agenda-list {
+    display: grid;
+    gap: 10px;
+  }
+  .mobile-agenda-list article {
+    overflow: hidden;
+    border: 1px solid #d9e5ec;
+    border-radius: 13px;
+    background: #f7fafc;
+  }
+  .mobile-agenda-list article.done {
+    opacity: .68;
+  }
+  .mobile-agenda-main {
+    width: 100%;
+    padding: 14px;
+    border: 0;
+    background: transparent;
+    color: #24475f;
+    text-align: left;
+  }
+  .mobile-agenda-main span,
+  .mobile-agenda-main strong,
+  .mobile-agenda-main small,
+  .mobile-agenda-main em {
+    display: block;
+  }
+  .mobile-agenda-main span {
+    margin-bottom: 5px;
+    color: #557286;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .mobile-agenda-main strong {
+    color: #183d59;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+  .mobile-agenda-main small {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 6px;
+    color: #6a7f8e;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .mobile-agenda-main em {
+    margin-top: 9px;
+    color: #175f91;
+    font-size: 13px;
+    font-style: normal;
+    font-weight: 800;
+  }
+  .mobile-agenda-toggle {
+    width: 100%;
+    min-height: 44px;
+    border: 0;
+    border-top: 1px solid #d9e5ec;
+    background: #edf4f8;
+    color: #2e607f;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .mobile-agenda-empty {
+    padding: 20px 12px;
+    border-radius: 12px;
+    background: #f5f8fa;
+    text-align: center;
+  }
+  .mobile-agenda-empty p {
+    margin: 0 0 12px;
+    color: #687d8c;
+  }
+  .mobile-agenda-empty button {
+    min-height: 44px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 10px;
+    background: #173b5e;
+    color: #fff;
+    font-weight: 800;
   }
   .plan-main {
     overflow-x: hidden;
