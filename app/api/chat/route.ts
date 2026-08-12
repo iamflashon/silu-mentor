@@ -14,6 +14,7 @@ import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
+import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -319,19 +320,7 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
 }
 
 async function readExternalCatalogEvidence(query: string) {
-  const compact = query.replace(/\s+/g, "");
-  if (compact.length < 2) return "";
-  const db = await getDb();
-  const rows = await db.select({ source: learningResources.title, title: resourceSegments.title, summary: resourceSegments.summary, url: resourceSegments.sourceUrl })
-    .from(resourceSegments)
-    .innerJoin(learningResources, eq(resourceSegments.resourceId, learningResources.id))
-    .where(and(eq(learningResources.resourceType, "external_index"), eq(learningResources.status, "active"), eq(resourceSegments.segmentType, "external_catalog"), eq(resourceSegments.reviewStatus, "published"), eq(resourceSegments.recommended, true)))
-    .limit(80);
-  const grams = Array.from({ length: Math.max(0, compact.length - 1) }, (_, index) => compact.slice(index, index + 2)).filter((gram) => !/^(什麼|哪些|如何|可以|推薦|相關|我要|請問)$/.test(gram));
-  const ranked = rows.map((row) => ({ ...row, score: grams.reduce((score, gram) => score + (`${row.source}${row.title}${row.summary}`.includes(gram) ? 1 : 0), 0) }))
-    .filter((row) => row.score > 0).sort((a, b) => b.score - a.score).slice(0, 6);
-  if (!ranked.length) return "";
-  return `\n\n【管理後台已啟用的公開索引命中】\n${ranked.map((row, index) => `${index + 1}. [${row.source}] ${row.title}｜${row.summary}｜${row.url}`).join("\n")}\n以上只有公開篇名、書名、課程名稱、目錄或試聽索引，不代表平台擁有或讀過全文。回答可推薦這些資源並附來源連結；不得補造作者主張、書中內容或課程講解。`;
+  return formatExternalCatalogEvidence(await searchExternalCatalog(query, 6));
 }
 
 const baseInstructions = `你是「司律備考」的 AI 學習教練，專門協助台灣律師與司法官考試。
