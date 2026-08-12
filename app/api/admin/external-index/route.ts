@@ -126,6 +126,7 @@ function discoverLinks(html: string, base: string, source: SourceKey, limit = 20
 function labelledText(html: string, labels: string[]) {
   const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
   const patterns = [
+    new RegExp(`[〖【\[]\\s*(?:${escaped})\\s*[〗】\]]\\s*([^<\\r\\n]{1,500})`, "i"),
     new RegExp(`(?:${escaped})\\s*[：:]?\\s*<\\/[^>]+>\\s*<[^>]+>([\\s\\S]{1,500}?)<\\/`, "i"),
     new RegExp(`(?:${escaped})\\s*[：:]\\s*([^<\\r\\n]{1,500})`, "i"),
   ];
@@ -144,14 +145,25 @@ function splitAuthors(value: string) {
 
 function discoverGetBook(html: string, pageUrl: string): BookMetadata | undefined {
   if (!/[?&](?:BKID|bookid|id)=/i.test(pageUrl) && !/detail|single|product/i.test(pageUrl)) return undefined;
+  const pageText = cleanHtml(html);
   const authorText = labelledText(html, ["作者", "編著者", "編者", "著者"]);
   const edition = labelledText(html, ["版次", "版本"]);
-  const publishedAt = labelledText(html, ["出版日期", "出版日", "出版年月"]);
+  const publishedAt = labelledText(html, ["出版日期", "出版日", "出版年月", "出版"]);
   const isbn = labelledText(html, ["ISBN", "國際書號"]).match(/[\dXx-]{10,20}/)?.[0] || "";
   const bookCode = labelledText(html, ["書號", "產品編號"]);
-  const description = labelledText(html, ["內容簡介", "本書特色", "書籍介紹", "商品介紹"]).slice(0, 4000);
+  const featureStart = pageText.search(/(?:內容簡介|本書特色|書籍介紹|商品介紹)/u);
+  const catalogueStart = pageText.search(/(?:第一篇|第一編|第[一二三四五六七八九十百\d]+章)/u);
+  const fallbackDescription = featureStart >= 0
+    ? pageText.slice(featureStart, catalogueStart > featureStart ? catalogueStart : featureStart + 6000).replace(/^(?:內容簡介|本書特色|書籍介紹|商品介紹)\s*/u, "").trim()
+    : "";
+  const description = (labelledText(html, ["內容簡介", "本書特色", "書籍介紹", "商品介紹"]) || fallbackDescription).slice(0, 6000);
   const catalogueRaw = labelledText(html, ["目錄", "本書目錄", "章節目錄"]);
-  const catalogue = catalogueRaw.split(/(?:\r?\n|\s{2,}|(?=第[一二三四五六七八九十百\d]+(?:章|編|篇|節)))/u).map((row) => row.trim()).filter((row) => row.length >= 2 && row.length <= 180).slice(0, 160);
+  const fallbackCatalogue = catalogueStart >= 0 ? pageText.slice(catalogueStart, catalogueStart + 12000) : "";
+  const catalogue = (catalogueRaw || fallbackCatalogue)
+    .split(/(?:\r?\n|\s{2,}|(?=第[一二三四五六七八九十百\d]+(?:章|編|篇|節)))/u)
+    .map((row) => row.trim())
+    .filter((row) => /^(?:第[一二三四五六七八九十百\d]+(?:章|編|篇|節)|[一二三四五六七八九十]+、)/u.test(row) && row.length <= 180)
+    .slice(0, 160);
   const authors = splitAuthors(authorText);
   const fields = [authors.length > 0, Boolean(edition), Boolean(publishedAt), Boolean(isbn || bookCode), Boolean(description), catalogue.length > 0];
   if (!fields.some(Boolean)) return undefined;
