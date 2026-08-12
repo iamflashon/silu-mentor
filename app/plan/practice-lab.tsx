@@ -1102,7 +1102,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
             : `學生指定要回答這一則 AI 導師訊息。請只針對這則訊息中的問題正面作答；先表明判斷，再依題目事實簡短說明理由。不得反問、不得另開爭點，也不要輸出「選取內容」、內部分析或處理說明：\n${selectedMessage.text}`,
           level: coachTeachingLevel,
           subject: question.subject,
-          question: question.stem,
+          question: `${question.stem}\n${question.options ? Object.entries(question.options).map(([key, value]) => `${key}. ${value}`).join("\n") : ""}`.trim(),
           responses: [{ label: selectedMessage.role === "mentor" ? "AI 導師" : selectedMessage.role === "scholar" ? "AI 學霸" : "學生指定訊息", model: coachModelMode, text: selectedMessage.text }],
         }),
       });

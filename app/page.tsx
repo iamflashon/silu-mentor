@@ -828,6 +828,10 @@ export default function Home() {
         body: JSON.stringify({
           prompt: followUpPrompt,
           level: requestedLevel,
+          subject: practiceQuestion?.subject,
+          question: practiceQuestion
+            ? `${practiceQuestion.stem}\n${practiceQuestion.options ? Object.entries(practiceQuestion.options).map(([key, value]) => `${key}. ${value}`).join("\n") : ""}`.trim()
+            : undefined,
           responses: followUpResponses.map((item) => ({ label: item.label, model: item.model, text: item.excerpt ? `老師回答中被勾選的段落：\n${item.excerpt}` : item.text })),
         }),
       });
