@@ -508,9 +508,8 @@ function extractWebSources(payload: unknown) {
       if (!Array.isArray(annotations)) continue;
       for (const annotation of annotations) {
         if (!annotation || typeof annotation !== "object" || (annotation as { type?: string }).type !== "url_citation") continue;
-        const url = String((annotation as { url?: unknown }).url ?? "").trim();
         const title = String((annotation as { title?: unknown }).title ?? "外網來源").trim();
-        if (/^https?:\/\//.test(url)) sources.push(`${title}｜${url}`);
+        if (title) sources.push(title);
       }
     }
   }
@@ -1303,8 +1302,13 @@ export async function POST(request: Request) {
       : searchedWeb && webSources.length ? "web_search" : searchedFiles && sources.length ? "full_text_search" : "unavailable";
     const openAiUsage = needsOpenAi ? readUsage(openAiPayload) : { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
     const openAiRates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
+    const modelTokenCostUsd = needsOpenAi
+      ? (Math.max(0, openAiUsage.inputTokens - openAiUsage.cachedTokens) * openAiRates.input + openAiUsage.cachedTokens * openAiRates.cached + openAiUsage.outputTokens * openAiRates.output) / 1_000_000
+      : 0;
+    const fileSearchCostUsd = searchedFiles ? 0.0025 : 0;
+    const webSearchCostUsd = searchedWeb ? 0.01 : 0;
     const openAiCostUsd = needsOpenAi
-      ? (Math.max(0, openAiUsage.inputTokens - openAiUsage.cachedTokens) * openAiRates.input + openAiUsage.cachedTokens * openAiRates.cached + openAiUsage.outputTokens * openAiRates.output) / 1_000_000 + (searchedFiles ? 0.0025 : 0) + (searchedWeb ? 0.01 : 0)
+      ? modelTokenCostUsd + fileSearchCostUsd + webSearchCostUsd
       : 0;
     const deepSeekUsage = deepSeekRun
       ? { inputTokens: deepSeekRun.inputTokens, cachedTokens: 0, outputTokens: deepSeekRun.outputTokens }
@@ -1484,7 +1488,7 @@ export async function POST(request: Request) {
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
-      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, webSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedWeb ? 1 : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
+      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, webSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedWeb ? 1 : 0, modelTokenCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? modelTokenCostUsd : primaryEstimatedCostUsd, fileSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? fileSearchCostUsd : 0, webSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? webSearchCostUsd : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
       planSaved,
       replacedTasks,
       tasksDeleted,
