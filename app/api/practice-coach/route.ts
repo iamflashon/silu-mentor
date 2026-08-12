@@ -217,8 +217,14 @@ export async function POST(request: Request) {
     const isVariation = action === "variation_basic" || action === "variation_advanced";
     const roundReached = action !== "start" && !isVariation && studentCount >= roundLimit;
     const mcqReasonTurns = isMcq ? Math.max(0, studentCount - 1) : 0;
-    const actionInstruction = body.dialogueMode === "discussion" && isMcq
-      ? "學生已主動選擇繼續討論本題。直接回答他現在的問題，可以比較學說、例外或選項，但不得再用問題反問學生，不得擅自延伸到本題以外的爭點；結尾標示本次補充已完成。"
+    const answerIsCorrect = isMcq && String(body.selectedAnswer ?? "").toUpperCase() === String(question.correctAnswer ?? "").toUpperCase();
+    const answerConsistencyInstruction = isMcq
+      ? `答案判定是系統資料，不得自行改變：學生選 ${String(body.selectedAnswer ?? "").toUpperCase()}，正確答案是 ${String(question.correctAnswer ?? "").toUpperCase()}，所以學生${answerIsCorrect ? "答對" : "答錯"}。每一句都必須與此一致，嚴禁出現前後矛盾的答案判定。`
+      : "";
+    const actionInstruction = body.dialogueMode === "complete_confirm" && isMcq
+      ? "學生已明確表示理解並要求完成本題。請自然收尾：先肯定他完成釐清，再整理兩個最值得記住的判斷，最後寫『這題先完成』。不得再提問、不得擴張新爭點。"
+      : body.dialogueMode === "discussion" && isMcq
+      ? "學生仍在討論本題。直接回答他現在問的白話解釋、選項比較、學說或例外；不得反問、不得擅自延伸到本題以外，也不得寫『本題完成』或任何結束標記。回答後讓學生自行決定是否繼續。"
       : roundReached
       ? `學生已完成本次第 ${roundLimit} 輪。直接整理本次已掌握重點、尚待加強處與建議下一步，明示本次對話已結束；不得再提問。`
       : action === "start"
@@ -237,10 +243,10 @@ export async function POST(request: Request) {
               ? "學生要求停止回答並結束本段對話。請依目前完整對話直接收束，不得再提出問題。用精簡格式整理：本段結論、已掌握重點、仍須留意一項、下一個尚未處理的行為或爭點；若本題均已處理，明示本題引導結束。"
               : isMcq
                 ? `學生已選「${String(body.selectedAnswer ?? "").toUpperCase()}」，並剛說明選擇理由。你正在面對不同程度與反應的學生，必須依下列規則選擇節奏：
-1. 答案與理由均正確：直接確認、說明決定性判準，標示「本題完成」，不得再問問題。
-2. 答案正確但理由薄弱：若這是第一次說理由，只補問一個會影響判斷的短問題；若已補問過一次，直接補齊理由並標示「本題完成」。
-3. 答錯但已展現可修正思路：第一次只給一個分層提示並問一個短問題；第二次仍未答出時，直接公布答案與判準並標示「本題完成」。
-4. 學生說不知道、卡住或要求答案：直接用適合其程度的方式示範，不再追問，標示「本題完成」。
+1. 答案與理由均正確：直接確認、說明決定性判準，進入「已解析、待學生確認」，不得宣告本題完成。
+2. 答案正確但理由薄弱：若這是第一次說理由，只補問一個會影響判斷的短問題；若已補問過一次，直接補齊理由，進入「已解析、待學生確認」。
+3. 答錯但已展現可修正思路：第一次只給一個分層提示並問一個短問題；第二次仍未答出時，直接公布答案與判準，進入「已解析、待學生確認」。
+4. 學生說不知道、卡住或要求答案：直接用適合其程度的方式示範，不再追問，進入「已解析、待學生確認」。
 5. 學生主動提出本題內的學說、例外或反例：先回應，但只有學生明確選擇繼續討論時才能深入；不得自行擴張到其他爭點。
 本題目前已收到 ${mcqReasonTurns} 次理由／補充回答。先具體回饋，再明確告知答對或答錯；用一至三句說清楚法律判準與關鍵題目文字。不要列出補強教材、弱點卡或推薦清單。`
                 : "根據學生剛才的回答診斷理解缺口。若學生已答到核心、只是把同一結論換句話確認，或同一爭點已連續往返兩次，直接確認結論並標示『本段已完成』，不得再追問；接著用一句話轉入下一個尚未處理的行為或爭點。只有答案仍欠缺一個會改變結論的關鍵要件時，才補問一次短問題。";
@@ -268,10 +274,14 @@ export async function POST(request: Request) {
       : action === "end_summary"
         ? "回覆限 100 至 180 字，直接總結並結束，不得使用問號、不得要求學生繼續回答，也不得出變化題。"
         : isMcq
-          ? "回覆限 55 至 150 字。回覆最後必須另起一行輸出內部標記【回合判定：complete】或【回合判定：follow_up】；只有確有一個決定性缺口且尚未補問過時才能標 follow_up。complete 時正文須寫「本題完成」，不得有問號或『下一步可』。此標記不會顯示給學生。"
+          ? body.dialogueMode === "complete_confirm"
+            ? "回覆限 80 至 180 字。最後另起一行輸出內部標記【回合判定：complete】；正文只在此模式可以寫『這題先完成』。"
+            : body.dialogueMode === "discussion"
+              ? "回覆限 70 至 180 字。最後另起一行輸出內部標記【回合判定：follow_up】；不得出現『本題完成』、『這題先完成』或其他結束文字。"
+              : "回覆限 55 至 150 字。回覆最後必須另起一行輸出內部標記【回合判定：complete】或【回合判定：follow_up】；complete 只代表解析已足夠、可讓學生確認，不代表本題已完成，因此正文不得寫『本題完成』。只有確有一個決定性缺口且尚未補問過時才能標 follow_up。此標記不會顯示給學生。"
           : "一般回覆限 45 至 110 字。需要追問時只做一句具體回饋，再問一個短問題；已達標或出現重複追問時，改為一句確認、一句本段結論與下一步，不得為維持對話而硬問。不要寫成表格、講義或完整擬答。";
     const relevanceInstruction = isVariation ? "" : `每次回覆開頭必須依序輸出兩個內部標記：【關聯判定：related／drift／off_topic】及【階段判定：pass／retry／reveal】。階段判定只能依學生最新回答是否已包含目前階段所需的關鍵法律判準、題目事實與明確結論；缺少任何會影響答案的要素、答錯、含糊或只重述老師問題，一律標 retry。只有已正面答中本輪核心才標 pass。若系統指示公布答案，必須標 reveal。這兩個標記不會顯示給學生。related 是直接處理本題、相關法條學說、老師解析或合理延伸情境；drift 是仍屬本法科但偏離目前題目；off_topic 僅限閒聊、灌水或轉問完全不同事項，不得只靠關鍵字判斷。drift 應簡短回應後帶回本題；off_topic 不回答無關內容，只提醒回到本題。此前已明顯離題 ${priorOffTopicCount} 次；若此前是 0 次，本輪離題時溫和提醒；若此前是 1 次，本輪離題時明確警告再次離題將提前結束；若本輪判定 off_topic 且此前已達 2 次，直接整理目前成果並明示因三次離題而結束，不得再提問。${shouldRevealAnswer ? "學生已連續無法作答或明確要求答案。本輪不要再追問；請直接公布正確判斷、關鍵法律判準及一項題目事實涵攝，明示『這一輪先由老師示範』，接著自然帶入下一階段，並標記【階段判定：reveal】。" : `學生在目前階段已重試 ${currentStageRetryCount} 次；未答中時換一種更小、更具體的提示繼續引導，不得提前跳到下一階段。`}`;
-    const instructions = `你是台灣司律考試的${question.subject}${isMcq ? "一試真題教練" : "申論 AI 導師"}。${subjectFrame}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${relevanceInstruction}\n${actionInstruction}\n${responseRule}你必須${flow}${isMcq ? "不要建立核心爭點、需要加強或推薦補強等獨立區塊；所有內容都寫成正在進行的簡短對話。" : "一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。答錯時只給分級提示並留在目前階段，不得直接公布完整答案。你必須辨識三種收束訊號：學生已正確說出判準與結論、學生只是換句話重問已回答的疑問、學生表示想停止或要求總結。出現任一訊號時應主動收束，不能繼續用問題延長對話。每個決定性缺口最多補問一次；同一爭點不得連續出現兩次以上內容相同的追問。進入「微型變化題驗收」時只改變一個關鍵事實；學生已能運用判準即宣告驗收完成，不再追加第二題。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。"}不得使用 Markdown 星號、井號或反引號。`;
+    const instructions = `你是台灣司律考試的${question.subject}${isMcq ? "一試真題教練" : "申論 AI 導師"}。${subjectFrame}${answerConsistencyInstruction}只使用提供的真題、老師資料、法條與教材候選，不得捏造來源。${teachingTone}\n目前階段：${stage}\n${relevanceInstruction}\n${actionInstruction}\n${responseRule}你必須${flow}${isMcq ? "不要建立核心爭點、需要加強或推薦補強等獨立區塊；所有內容都寫成正在進行的簡短對話。只有學生明確確認理解後才能完成本題。" : "一題有多位行為人或多個爭點時，必須逐項完成，不得以一個答案代表全部通過。答錯時只給分級提示並留在目前階段，不得直接公布完整答案。你必須辨識三種收束訊號：學生已正確說出判準與結論、學生只是換句話重問已回答的疑問、學生表示想停止或要求總結。出現任一訊號時應主動收束，不能繼續用問題延長對話。每個決定性缺口最多補問一次；同一爭點不得連續出現兩次以上內容相同的追問。進入「微型變化題驗收」時只改變一個關鍵事實；學生已能運用判準即宣告驗收完成，不再追加第二題。驗收完成後只能提示「再練一輪、整理解題架構、模考擬答」三種選擇，不得自行產生擬答。"}不得使用 Markdown 星號、井號或反引號。`;
     const answerQuery = `${fullQuestion}\n${String(body.studentAnswer || "")}\n${history}`;
     const teacherAnswer = question.teacherAnswer ? relevantSections(question.teacherAnswer, answerQuery, 7000) : "尚無";
     const teacherNotes = question.teacherNotes ? relevantSections(question.teacherNotes, answerQuery, 2500) : "尚無";
@@ -283,7 +293,7 @@ export async function POST(request: Request) {
       catch (error) { return { provider, label: providerLabel(provider), model: provider, text: `【${providerLabel(provider)}暫時無法回應】`, inputTokens: 0, outputTokens: 0, error: error instanceof Error ? error.message : "模型暫時無法回應" }; }
     }));
     const parsedRuns = runs.map((run) => {
-      const completed = /【回合判定：complete】/i.test(run.text) || (isMcq && /本題完成/.test(run.text));
+      const completed = /【回合判定：complete】/i.test(run.text);
       const cleaned = run.text.replace(/【回合判定：(complete|follow_up)】\s*/gi, "").trim();
       return { ...run, text: cleaned, completed, ...parseCoachReply(cleaned) };
     });

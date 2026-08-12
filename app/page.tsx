@@ -207,6 +207,7 @@ export default function Home() {
   const [practiceCoachMessages, setPracticeCoachMessages] = useState<PracticeCoachMessage[]>([]);
   const [practiceCoaching, setPracticeCoaching] = useState(false);
   const [practiceCompleted, setPracticeCompleted] = useState(false);
+  const [practiceReadyToComplete, setPracticeReadyToComplete] = useState(false);
   const [practiceDiscussion, setPracticeDiscussion] = useState(false);
   const [savedMessage, setSavedMessage] = useState<number | null>(null);
   const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
@@ -531,7 +532,7 @@ export default function Home() {
     void send(`請用司律考生能理解的方式教我法律名詞「${dictionaryFeatured.term}」。\n司法院裁判書用語辭典內容：\n${dictionaryFeatured.content}\n請先說明白話意思，再補充它常出現在哪一科、容易和什麼概念混淆，最後問我一個判斷題。`);
   }
 
-  async function askPracticeCoach(text: string) {
+  async function askPracticeCoach(text: string, modeOverride?: "answer_reason" | "discussion" | "complete_confirm") {
     if (!practiceQuestion || practiceCoaching || !text.trim()) return;
     const studentMessage = { role: "student" as const, text: text.trim() };
     const messagesForRequest = [...practiceCoachMessages, studentMessage];
@@ -540,12 +541,21 @@ export default function Home() {
     setInput("");
     setPracticeCoaching(true);
     try {
-      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode: practiceDiscussion ? "discussion" : "answer_reason" }) });
+      const dialogueMode = modeOverride ?? (practiceDiscussion ? "discussion" : "answer_reason");
+      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode }) });
       const result = await response.json() as { reply?: string; error?: string; completed?: boolean };
       const mentorMessage = { role: "mentor" as const, text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" };
       setPracticeCoachMessages((current) => [...current, mentorMessage]);
       setMessages((current) => [...current, { ...mentorMessage, source: "真題練習" }]);
-      if (result.completed) setPracticeCompleted(true);
+      if (dialogueMode === "complete_confirm" && result.completed) {
+        setPracticeCompleted(true);
+        setPracticeReadyToComplete(false);
+      } else if (result.completed) {
+        setPracticeReadyToComplete(true);
+        setPracticeCompleted(false);
+      } else {
+        setPracticeReadyToComplete(false);
+      }
       if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: [studentMessage, mentorMessage] }) });
       if (/本題引導結束|本次對話已結束/.test(mentorMessage.text)) setPracticeQuestion(null);
     } finally {
@@ -564,6 +574,7 @@ export default function Home() {
     if (!response.ok || typeof result.correct !== "boolean" || !result.correctAnswer) return;
     setPracticeAnswer({ selected: answer, correct: result.correct, correctAnswer: result.correctAnswer });
     setPracticeCompleted(false);
+    setPracticeReadyToComplete(false);
     setPracticeDiscussion(false);
     const turns: PracticeCoachMessage[] = [
       { role: "student", text: `我選 ${answer}` },
@@ -1017,9 +1028,17 @@ export default function Home() {
               {message.role === "mentor" && showEvidence && <TeachingEvidenceDetails evidence={message.teachingEvidence} />}
             </div>
           ))}
+          {practiceQuestion && practiceReadyToComplete && !practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-understanding-actions" aria-label="解析後由學生決定是否完成">
+            <div><b>這題要先收尾嗎？</b><span>你仍可繼續追問；只有你確認理解後，系統才會完成本題。</span></div>
+            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我懂了，請幫我完成本題。", "complete_confirm"); }}>我懂了，完成本題</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); void askPracticeCoach("請再用白話解釋這題最關鍵的判斷。", "discussion"); }}>再白話解釋</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); void askPracticeCoach("請比較我選的選項與正確選項，說明兩者差在哪裡。", "discussion"); }}>比較兩個選項</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>我還想問</button></div>
+          </section>}
+          {practiceQuestion && practiceDiscussion && !practiceReadyToComplete && !practiceCompleted && !practiceCoaching && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-discussion-actions" aria-label="本題持續討論中的選擇">
+            <div><b>還在討論這一題</b><span>可以繼續輸入問題；理解後再由你親自完成。</span></div>
+            <div><button type="button" onClick={() => void askPracticeCoach("我懂了，請幫我完成本題。", "complete_confirm")}>我懂了，完成本題</button><button type="button" className="secondary" onClick={() => requestAnimationFrame(() => composerInputRef.current?.focus())}>繼續提問</button></div>
+          </section>}
           {practiceQuestion && practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions" aria-label="本題完成後的選擇">
             <div><b>本題完成</b><span>由你決定下一步，AI 不會自動延伸新爭點。</span></div>
-            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeCompleted(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>繼續討論本題</button></div>
+            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>繼續討論本題</button></div>
           </section>}
           {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="昨日學習接續選擇">
             <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
