@@ -9,6 +9,7 @@ import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
+type ExternalIndexSource = { id: number; key: "lawdata" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string }> };
 
 type Uploaded = {
   id: number;
@@ -417,6 +418,7 @@ export default function AdminPage() {
     | "members"
     | "homepage"
     | "ai-feedback"
+    | "external-index"
   >("documents");
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [aiFeedback, setAiFeedback] = useState<Array<{ id: number; userKey: string; feedbackType: string; messageText: string; rating: number; errorTypes: string[]; studentNote: string; model: string; originalPrompt: string; reviewStatus: string; solRequested: boolean; teacherDecision: string; teacherNote: string; correctedContent: string; createdAt: string }>>([]);
@@ -424,6 +426,11 @@ export default function AdminPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberNotice, setMemberNotice] = useState("");
   const [memberCreating, setMemberCreating] = useState(false);
+  const [externalSources, setExternalSources] = useState<ExternalIndexSource[]>([]);
+  const [externalLoading, setExternalLoading] = useState(false);
+  const [externalSyncing, setExternalSyncing] = useState<string>("");
+  const [externalNotice, setExternalNotice] = useState("");
+  const [externalQuery, setExternalQuery] = useState("");
   const [newMember, setNewMember] = useState({ displayName: "", email: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
 
   useEffect(() => {
@@ -431,6 +438,39 @@ export default function AdminPage() {
     setFeedbackLoading(true);
     fetch("/api/chat/feedback").then((response) => response.json()).then((data) => setAiFeedback(data.feedback ?? [])).finally(() => setFeedbackLoading(false));
   }, [activeTab]);
+
+  async function loadExternalSources() {
+    setExternalLoading(true);
+    try {
+      const response = await fetch("/api/admin/external-index");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "讀取資源同步狀態失敗");
+      setExternalSources(data.sources ?? []);
+    } catch (error) {
+      setExternalNotice(error instanceof Error ? error.message : "讀取失敗");
+    } finally { setExternalLoading(false); }
+  }
+
+  useEffect(() => { if (activeTab === "external-index") void loadExternalSources(); }, [activeTab]);
+
+  async function syncExternalSource(source: ExternalIndexSource["key"] | "lawdata" | "get" | "ibrain") {
+    setExternalSyncing(source);
+    setExternalNotice("正在讀取公開索引…");
+    try {
+      const response = await fetch("/api/admin/external-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "同步失敗");
+      setExternalSources(data.sources ?? []);
+      setExternalNotice(`已同步 ${data.discovered ?? 0} 筆公開索引；未抓取付費全文。`);
+    } catch (error) { setExternalNotice(error instanceof Error ? error.message : "同步失敗"); }
+    finally { setExternalSyncing(""); }
+  }
+
+  async function toggleExternalItem(id: number, enabled: boolean) {
+    const response = await fetch("/api/admin/external-index", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, enabled }) });
+    if (!response.ok) { const data = await response.json(); setExternalNotice(data.error || "更新失敗"); return; }
+    setExternalSources((sources) => sources.map((source) => ({ ...source, items: source.items.map((item) => item.id === id ? { ...item, enabled, indexed: enabled } : item) })));
+  }
 
   async function updateAiFeedback(id: number, values: { reviewStatus: string; teacherDecision?: string; teacherNote?: string; correctedContent?: string }) {
     const response = await fetch("/api/chat/feedback", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...values }) });
@@ -3054,6 +3094,9 @@ export default function AdminPage() {
           >
             月旦法學教室
           </button>
+          <button className={activeTab === "external-index" ? "active" : ""} onClick={() => setActiveTab("external-index")}>
+            資源同步
+          </button>
           <button
             className={activeTab === "legal" ? "active" : ""}
             onClick={() => setActiveTab("legal")}
@@ -3098,6 +3141,12 @@ export default function AdminPage() {
             首頁與播放
           </button>
         </nav>
+        {activeTab === "external-index" && <section className="panel external-index-admin">
+          <div className="external-index-heading"><div><p>PUBLIC INDEX DEMO</p><h2>跨網站資源同步</h2><span>先抓公開索引供首頁 Luna 導航；不下載付費文章、教材或影片全文。</span></div><label className="external-index-search"><span>搜尋已抓資源</span><input value={externalQuery} onChange={(event) => setExternalQuery(event.target.value)} placeholder="篇名、書名、課程或來源" /></label></div>
+          <div className="external-source-summary">{(["lawdata", "get", "ibrain"] as const).map((key) => { const config = key === "lawdata" ? { label: "月旦法學教室", note: "期刊與文章索引" } : key === "get" ? { label: "高點出版", note: "司律書籍與目錄" } : { label: "iBrain 知識達", note: "司律課程與試聽" }; const source = externalSources.find((item) => item.key === key); return <article key={key}><div><b>{config.label}</b><span>{config.note}</span></div><strong>{source?.items.length ?? 0}<small> 筆</small></strong><button disabled={externalSyncing !== ""} onClick={() => void syncExternalSource(key)}>{externalSyncing === key ? "同步中…" : source ? "重新同步" : "開始同步"}</button></article>; })}</div>
+          {externalNotice && <p className="external-index-notice">{externalNotice}</p>}
+          {externalLoading ? <p className="usage-empty">正在讀取同步紀錄…</p> : externalSources.length === 0 ? <div className="external-index-empty"><b>尚未建立 Demo 索引</b><span>可先按上方任一來源的「開始同步」，抓取少量公開資料測試首頁跨來源推薦。</span></div> : <div className="external-source-lists">{externalSources.map((source) => { const rows = source.items.filter((item) => !externalQuery.trim() || `${source.label} ${item.title} ${item.summary}`.toLowerCase().includes(externalQuery.trim().toLowerCase())); return <section key={source.id}><header><div><h3>{source.label}</h3><span>{source.items.filter((item) => item.enabled).length} 筆啟用／{source.items.length} 筆已抓取</span></div><a href={source.sourceUrl} target="_blank" rel="noreferrer">查看來源 ↗</a></header><div className="external-index-table"><div className="external-index-row table-head"><span>資源名稱</span><span>權限</span><span>首頁索引</span><span>使用</span></div>{rows.map((item) => <div className="external-index-row" key={item.id}><div><a href={item.url} target="_blank" rel="noreferrer">{item.title}</a><small>{item.summary}</small></div><span><em>公開索引</em></span><span className={item.indexed ? "indexed" : "disabled"}>{item.indexed ? "已索引" : "已停用"}</span><label className="external-index-toggle"><input type="checkbox" checked={item.enabled} onChange={(event) => void toggleExternalItem(item.id, event.target.checked)} /><span>{item.enabled ? "啟用" : "停用"}</span></label></div>)}</div>{rows.length === 0 && <p className="usage-empty">這個來源沒有符合搜尋條件的資料。</p>}</section>; })}</div>}
+        </section>}
         {activeTab === "ai-feedback" && <section className="panel ai-feedback-admin"><div className="cost-heading"><div><h2>AI 回答覆核</h2><p className="panel-sub">學生回報先由 Sol 協助檢查，最後仍由老師確認是否有誤及是否寫回標準解析。</p></div><span className="source-count configured">{aiFeedback.length} 筆</span></div>{feedbackLoading ? <p>讀取回饋中…</p> : <div className="ai-feedback-list">{aiFeedback.map((item) => <article key={item.id}><header><div><b>{item.model || "AI 助教"}</b><span>{item.userKey} · {item.rating ? `${item.rating} 分` : "未評分"}</span></div><em>{item.reviewStatus === "pending" ? "待檢查" : item.reviewStatus === "ai_review_requested" ? "等待 Sol 覆核" : item.reviewStatus === "ai_reviewed" ? "AI 已覆核" : item.reviewStatus === "teacher_confirmed" ? "老師已確認" : item.reviewStatus === "corrected" ? "已修正" : "無需修正"}</em></header>{item.originalPrompt && <details><summary>學生原問題</summary><p>{item.originalPrompt}</p></details>}<details><summary>被回報的回答</summary><p>{item.messageText}</p></details><p className="student-feedback-note"><b>學生回饋：</b>{item.studentNote || "未補充說明"}</p><small>{item.errorTypes.join("、") || "未選錯誤類型"}</small><label>老師判斷<select value={item.teacherDecision} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherDecision: event.target.value } : row))}><option value="">待確認</option><option value="confirmed_error">確認有誤</option><option value="no_error">確認無誤</option><option value="partly_correct">部分需修正</option></select></label><label>老師說明<textarea rows={3} value={item.teacherNote} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherNote: event.target.value } : row))} /></label><label>修正後內容<textarea rows={5} value={item.correctedContent} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, correctedContent: event.target.value } : row))} /></label><div className="ai-feedback-actions"><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "teacher_confirmed", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>老師確認</button><button disabled={!item.correctedContent.trim()} onClick={() => void updateAiFeedback(item.id, { reviewStatus: "corrected", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>標記已修正</button><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "dismissed", teacherDecision: "no_error", teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>確認無誤</button></div></article>)}</div>}</section>}
         {activeTab === "members" && (
           <section className="panel member-admin-panel">

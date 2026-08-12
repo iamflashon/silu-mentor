@@ -318,6 +318,22 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
   };
 }
 
+async function readExternalCatalogEvidence(query: string) {
+  const compact = query.replace(/\s+/g, "");
+  if (compact.length < 2) return "";
+  const db = await getDb();
+  const rows = await db.select({ source: learningResources.title, title: resourceSegments.title, summary: resourceSegments.summary, url: resourceSegments.sourceUrl })
+    .from(resourceSegments)
+    .innerJoin(learningResources, eq(resourceSegments.resourceId, learningResources.id))
+    .where(and(eq(learningResources.resourceType, "external_index"), eq(learningResources.status, "active"), eq(resourceSegments.segmentType, "external_catalog"), eq(resourceSegments.reviewStatus, "published"), eq(resourceSegments.recommended, true)))
+    .limit(80);
+  const grams = Array.from({ length: Math.max(0, compact.length - 1) }, (_, index) => compact.slice(index, index + 2)).filter((gram) => !/^(什麼|哪些|如何|可以|推薦|相關|我要|請問)$/.test(gram));
+  const ranked = rows.map((row) => ({ ...row, score: grams.reduce((score, gram) => score + (`${row.source}${row.title}${row.summary}`.includes(gram) ? 1 : 0), 0) }))
+    .filter((row) => row.score > 0).sort((a, b) => b.score - a.score).slice(0, 6);
+  if (!ranked.length) return "";
+  return `\n\n【管理後台已啟用的公開索引命中】\n${ranked.map((row, index) => `${index + 1}. [${row.source}] ${row.title}｜${row.summary}｜${row.url}`).join("\n")}\n以上只有公開篇名、書名、課程名稱、目錄或試聽索引，不代表平台擁有或讀過全文。回答可推薦這些資源並附來源連結；不得補造作者主張、書中內容或課程講解。`;
+}
+
 const baseInstructions = `你是「司律備考」的 AI 學習教練，專門協助台灣律師與司法官考試。
 你的任務是教會學生思考，不是立刻交付完整答案。
 
@@ -821,6 +837,7 @@ export async function POST(request: Request) {
       return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank" });
     }
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
+    const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "") : "";
     const route = modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
     if (route) modelMode = route.provider;
     const providers = activeProviders(modelMode);
@@ -932,7 +949,7 @@ export async function POST(request: Request) {
           : `\n\n【本次已核對教材內容】\n書名：${bookEvidence.resourceTitle}\n章節：${bookEvidence.segmentTitle}\n分類：${bookEvidence.lessonLabel || "未標示"}\n頁碼：${bookEvidence.pageStart ? `第 ${bookEvidence.pageStart}${bookEvidence.pageEnd && bookEvidence.pageEnd !== bookEvidence.pageStart ? `–${bookEvidence.pageEnd}` : ""} 頁` : "待核對"}\n原文摘錄：${bookEvidence.excerpt}\n以上是本次唯一可直接作為教材依據的章節內容。回答時優先依此內容；若學生問到摘錄以外的細節，必須說明需要再查核，不得把一般知識冒充本章原文。`
         : `\n\n【教材核對狀態】\n目前只知道學生選了「${context.resourceTitle}／${context.segmentTitle}」，但系統尚未取得這一章足夠的原文。不得說「教材提到」「本章指出」或虛構頁碼；若要回答，只能明確標示為一般法律補充，並先告知教材原文尚未核對。`
       : "";
-    const teachingLevelInstruction = body.teachingLevel === "beginner"
+    const teachingLevelInstruction = externalCatalogEvidence + (body.teachingLevel === "beginner"
       ? `\n\n【本輪學生身分：法律小白】學生可能把「有意做出動作」與刑法上的故意責任混在一起，也可能因挫折而懷疑自己。先用一句話接住情緒，再用極白話但法律上精準的例子拆開概念。比喻必須對應本題的錯誤類型；若是誤想防衛，學生知道自己在攻擊人，只是誤認存在防衛情狀，不得錯講成以為打蚊子卻打到人的一般錯誤。最後只問一個能讓他重拾信心的小問題。`
       : body.teachingLevel === "intermediate"
         ? `\n\n【本輪學生身分：基礎考生】學生會背公式但可能把理論名稱當成完整涵攝。不要直接說可以拿滿分；指出他已寫對的骨架後，要求逐一帶入題目中的照明、時間、環境、攻擊手段、錯誤可避免性與結果因果關聯等實際事實。最後只問一個需要具體涵攝的問題。`
@@ -940,7 +957,7 @@ export async function POST(request: Request) {
           ? `\n\n【本輪學生身分：進階考生】學生會正面挑戰通說。不得用「通說如此」壓過異說；要沉著區分嚴格罪責理論與限縮法律效果罪責理論的理論位置、法律效果、可避免性判斷及價值取捨，包括保留故意犯責任與轉入過失犯檢驗的實質差異。最後只留一個足以推進學說辯論的問題。`
           : body.teachingLevel === "super"
             ? `\n\n【本輪學生身分：頂尖學霸】要求處理體系一致性、隱藏前提、反例、學說邊界與考場策略；發現概念偷換時直接精準指出。完整罪責結論後只用一個改變關鍵事實的高難度追問測試論證；學生回答後不得繼續連問，必須回到完整解題架構，接著進入模考擬答。`
-            : "";
+            : "");
     const bookFlowGuardInstruction = context.type === "book" && bookEvidence?.basis === "teacher_solution"
       ? `\n\n【解題書互動與擬答最終檢核】
 1. 學生按「開始審題」時，第一則回覆不得直接公布全部題型或核心爭點；先從題示事實引導學生辨認行為人關係或第一個決定性問題，學生回答後才逐步揭示法律名稱。
