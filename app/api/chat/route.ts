@@ -363,7 +363,29 @@ const baseInstructions = `你是「司律備考」的 AI 學習教練，專門�
 23. 刑法共犯問題必須依序分層判斷：先判斷是否具有共同犯意與功能性犯罪支配，再判斷是否至少有物理或心理幫助，只有先前已成立正犯或共犯關係時，才討論共犯關係脫離及其效果。不得因正犯已著手，就直接推定另一人也具有犯罪支配。
 24. 判斷心理幫助時，必須具體說明正犯是否知道該承諾或助力、該行為是否實際強化或維持犯意，以及實行時是否仍受其影響；未被使用的物理工具不得在欠缺上述事實時直接改稱心理幫助。
 25. 不得無對話證據指責學生「反覆迴避」「又問一次」或虛構提問次數。更正應針對法律概念與涵攝本身，保持臺灣法律補教老師的精確、平和語氣，不使用羞辱、審問、挑釁或中國大陸式辯論用語。
-26. 比較正犯、幫助犯與不罰時，應清楚交代使結論改變的事實節點與法律理由；「不可或缺」「離開現場」「著手時間」都只能作為判斷因素，不得未經涵攝直接等同犯罪支配、幫助因果或有效脫離。`;
+26. 比較正犯、幫助犯與不罰時，應清楚交代使結論改變的事實節點與法律理由；「不可或缺」「離開現場」「著手時間」都只能作為判斷因素，不得未經涵攝直接等同犯罪支配、幫助因果或有效脫離。
+27. 回答正文不得輸出任何網址、網域名稱或 Markdown 連結。外網查證只在系統的「查證來源」欄顯示來源名稱，正文引用時只寫「依全國法規資料庫」或「依司法院資料」等可讀名稱。`;
+
+function sourceNameFromUrl(value: string) {
+  const lower = value.toLowerCase();
+  if (lower.includes("law.moj.gov.tw")) return "全國法規資料庫";
+  if (lower.includes("judicial.gov.tw")) return "司法院";
+  if (lower.includes("moex.gov.tw")) return "考選部";
+  return "外網查證來源";
+}
+
+function hideExternalUrls(text: string) {
+  return text
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi, (_match, label: string, url: string) => {
+      const cleanLabel = label.trim();
+      return /^(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+(?:\/\S*)?$/i.test(cleanLabel) ? sourceNameFromUrl(url) : cleanLabel;
+    })
+    .replace(/https?:\/\/[^\s)\]}>]+/gi, (url) => sourceNameFromUrl(url))
+    .replace(/\(\s*\)/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
 
 function extractText(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
@@ -1230,6 +1252,7 @@ export async function POST(request: Request) {
       sonnet: claudeRun?.reply ?? "",
     })).find(Boolean) ?? "";
     if (!reply) return Response.json({ error: zaiError || openAiError || deepSeekError || claudeError || "AI 未產生可顯示內容" }, { status: 502 });
+    reply = hideExternalUrls(reply);
 
     const fileSearchConfirmedForBook = Boolean(
       context.type === "book" &&
