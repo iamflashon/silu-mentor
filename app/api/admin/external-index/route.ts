@@ -6,7 +6,7 @@ const SOURCES = {
   lawdata: { label: "元照雜誌", url: "https://www.angle.com.tw/magazine/magazine.asp", hosts: ["angle.com.tw", "www.angle.com.tw", "lawdata.com.tw", "www.lawdata.com.tw"] },
   angle_books: { label: "元照圖書", url: "https://www.angle.com.tw/message.asp", hosts: ["angle.com.tw", "www.angle.com.tw"] },
   angle_media: { label: "品評家", url: "https://www.angle.com.tw/media/web/", hosts: ["angle.com.tw", "www.angle.com.tw"] },
-  get: { label: "高點文化", url: "https://publish.get.com.tw/", hosts: ["publish.get.com.tw"] },
+  get: { label: "高點文化圖書目錄", url: "https://publish.get.com.tw/catalogue.asp", hosts: ["publish.get.com.tw"] },
   ibrain: { label: "iBrain 知識達", url: "https://www.ibrain.com.tw/Audition/List.aspx?1=1&iC=2089", hosts: ["www.ibrain.com.tw", "ibrain.com.tw"] },
 } as const;
 
