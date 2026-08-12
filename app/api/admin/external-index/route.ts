@@ -51,7 +51,8 @@ function angleResourceType(value: string) {
 }
 
 type PublicLink = { label: string; url: string };
-type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail"; subject?: string; teacher?: string; content?: string; publicLinks?: PublicLink[] };
+type BookMetadata = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
+type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail"; subject?: string; teacher?: string; content?: string; publicLinks?: PublicLink[]; book?: BookMetadata };
 
 // Different Angle magazines use different, but stable, catalogue headings.
 // Keep the shared trial/editorial sections and recognise the headings used by
@@ -120,6 +121,46 @@ function discoverLinks(html: string, base: string, source: SourceKey, limit = 20
     if (rows.length >= limit) break;
   }
   return rows;
+}
+
+function labelledText(html: string, labels: string[]) {
+  const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const patterns = [
+    new RegExp(`(?:${escaped})\\s*[：:]?\\s*<\\/[^>]+>\\s*<[^>]+>([\\s\\S]{1,500}?)<\\/`, "i"),
+    new RegExp(`(?:${escaped})\\s*[：:]\\s*([^<\\r\\n]{1,500})`, "i"),
+  ];
+  for (const pattern of patterns) {
+    const value = cleanHtml(pattern.exec(html)?.[1] || "");
+    if (value) return value;
+  }
+  const text = cleanHtml(html);
+  const textPattern = new RegExp(`(?:${escaped})\\s*[：:]\\s*(.{1,300}?)(?=\\s(?:作者|編著|版次|出版日|出版日期|ISBN|書號|內容簡介|本書特色|目錄)\\s*[：:]|$)`, "i");
+  return textPattern.exec(text)?.[1]?.trim() || "";
+}
+
+function splitAuthors(value: string) {
+  return Array.from(new Set(value.replace(/(?:編著|著|編|審訂|譯)$/gu, "").split(/[、,，／/;&＆]+|\s{2,}/u).map((name) => name.trim()).filter((name) => /^[\u3400-\u9fffA-Za-z·．\s]{2,30}$/u.test(name))));
+}
+
+function discoverGetBook(html: string, pageUrl: string): BookMetadata | undefined {
+  if (!/[?&](?:BKID|bookid|id)=/i.test(pageUrl) && !/detail|single|product/i.test(pageUrl)) return undefined;
+  const authorText = labelledText(html, ["作者", "編著者", "編者", "著者"]);
+  const edition = labelledText(html, ["版次", "版本"]);
+  const publishedAt = labelledText(html, ["出版日期", "出版日", "出版年月"]);
+  const isbn = labelledText(html, ["ISBN", "國際書號"]).match(/[\dXx-]{10,20}/)?.[0] || "";
+  const bookCode = labelledText(html, ["書號", "產品編號"]);
+  const description = labelledText(html, ["內容簡介", "本書特色", "書籍介紹", "商品介紹"]).slice(0, 4000);
+  const catalogueRaw = labelledText(html, ["目錄", "本書目錄", "章節目錄"]);
+  const catalogue = catalogueRaw.split(/(?:\r?\n|\s{2,}|(?=第[一二三四五六七八九十百\d]+(?:章|編|篇|節)))/u).map((row) => row.trim()).filter((row) => row.length >= 2 && row.length <= 180).slice(0, 160);
+  const authors = splitAuthors(authorText);
+  const fields = [authors.length > 0, Boolean(edition), Boolean(publishedAt), Boolean(isbn || bookCode), Boolean(description), catalogue.length > 0];
+  if (!fields.some(Boolean)) return undefined;
+  return { authors, edition, publishedAt, isbn, bookCode, description, catalogue, completeness: Math.round(fields.filter(Boolean).length / fields.length * 100) };
+}
+
+function getBookSummary(title: string, book: BookMetadata) {
+  const parts = ["高點文化書籍", book.authors?.length ? `作者：${book.authors.join("、")}` : "作者待補", book.edition ? `版次：${book.edition}` : "", book.publishedAt ? `出版：${book.publishedAt}` : "", book.isbn ? `ISBN：${book.isbn}` : "", book.catalogue?.length ? `目錄：${book.catalogue.length} 項` : "目錄待補", `完整率：${book.completeness ?? 0}%`].filter(Boolean);
+  return `${parts.join("｜")}｜書名：${title}`;
 }
 
 function discoverAngleDetails(html: string, pageUrl: string, parentTitle: string, depth = 3): DiscoveredItem[] {
@@ -291,7 +332,7 @@ const AUTO_CRAWL_LIMITS: Record<SourceKey, { maxDepth: number; maxPages: number;
   lawdata: { maxDepth: 10, maxPages: 180, maxItems: 1600 },
   angle_books: { maxDepth: 8, maxPages: 100, maxItems: 900 },
   angle_media: { maxDepth: 8, maxPages: 100, maxItems: 900 },
-  get: { maxDepth: 7, maxPages: 56, maxItems: 480 },
+  get: { maxDepth: 9, maxPages: 220, maxItems: 1800 },
   ibrain: { maxDepth: 6, maxPages: 42, maxItems: 360 },
 };
 
@@ -345,12 +386,14 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
       const key = canonicalUrl(parent.url);
       // A real detail URL can still contain an article list, author page or public
       // preview. Only synthetic in-page headings are guaranteed leaf nodes.
-      if (visited.has(key) || parent.depth >= limits.maxDepth || /#topic-\d+$/i.test(parent.url)) return [] as DiscoveredItem[];
+      if (visited.has(key) || parent.depth >= limits.maxDepth || /#topic-\d+$/i.test(parent.url)) return { children: [] as DiscoveredItem[], parent };
       visited.add(key);
       try {
         const response = await fetch(parent.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow", signal: AbortSignal.timeout(7000) });
-        if (!response.ok) return [];
+        if (!response.ok) return { children: [] as DiscoveredItem[], parent };
         const html = await readHtml(response);
+        const book = source === "get" ? discoverGetBook(html, response.url || parent.url) : undefined;
+        const enrichedParent = book ? { ...parent, kind: "detail" as const, book, teacher: book.authors?.join("、") || "", content: [book.description, ...(book.catalogue || [])].filter(Boolean).join("\n"), summary: getBookSummary(parent.title, book) } : parent;
         const nextDepth = parent.depth + 1;
         const links = discoverLinks(html, response.url || parent.url, source, 60, nextDepth, parent.title);
         const details = source === "lawdata"
@@ -361,14 +404,15 @@ async function crawlHierarchy(source: SourceKey, roots: DiscoveredItem[]) {
           : source === "ibrain"
             ? discoverIbrainTeachers(html, response.url || parent.url, parent.title, nextDepth)
             : [];
-        return Array.from(new Map([...links, ...details].map((item) => [canonicalUrl(item.url), { ...item, url: canonicalUrl(item.url) }])).values());
-      } catch { return []; }
+        return { parent: enrichedParent, children: Array.from(new Map([...links, ...details].map((item) => [canonicalUrl(item.url), { ...item, url: canonicalUrl(item.url) }])).values()) };
+      } catch { return { children: [] as DiscoveredItem[], parent }; }
     }));
     pagesRead += batch.length;
-    for (const child of results.flat()) {
+    for (const result of results) output.set(canonicalUrl(result.parent.url), result.parent);
+    for (const child of results.flatMap((result) => result.children)) {
       if (output.size >= limits.maxItems || output.has(child.url)) continue;
       output.set(child.url, child);
-      if (child.kind !== "detail" && child.depth < limits.maxDepth) queue.push(child);
+      if (child.depth < limits.maxDepth) queue.push(child);
     }
   }
   return { items: Array.from(output.values()), pagesRead, truncated: queue.length > 0 || output.size >= limits.maxItems };
@@ -385,7 +429,7 @@ async function sourceRows(db: Awaited<ReturnType<typeof requireAdmin>> extends i
     sourceUrl: resource.sourceUrl,
     status: resource.status,
     lastSyncedAt: resource.updatedAt,
-    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; publicLinks?: PublicLink[] } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: item.sourceUrl, summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "", publicLinks: meta.publicLinks ?? [] }; }),
+    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; publicLinks?: PublicLink[]; book?: BookMetadata } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: item.sourceUrl, summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "", publicLinks: meta.publicLinks ?? [], book: meta.book }; }),
   }));
 }
 
@@ -451,7 +495,7 @@ export async function POST(request: Request) {
           lessonLabel: config.label,
           title: child.title,
           sourceUrl: child.url,
-          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind, subject: child.subject, teacher: child.teacher, content: child.content, publicLinks: child.publicLinks }),
+          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind, subject: child.subject, teacher: child.teacher, content: child.content, publicLinks: child.publicLinks, book: child.book }),
           summary: child.summary,
           importance: 3,
           reviewStatus: "published",
@@ -468,7 +512,7 @@ export async function POST(request: Request) {
     const response = await fetch(config.url, { headers: { "user-agent": "iBrain-SiluMentor-Demo/1.0", accept: "text/html,application/xhtml+xml" }, redirect: "follow" });
     if (!response.ok) throw new Error(`來源網站回應 ${response.status}`);
     const html = await readHtml(response);
-    let discovered = discoverLinks(html, response.url || config.url, source, source === "lawdata" || source === "angle_books" || source === "angle_media" ? 60 : 12);
+    let discovered = discoverLinks(html, response.url || config.url, source, source === "get" ? 160 : source === "lawdata" || source === "angle_books" || source === "angle_media" ? 60 : 12);
     if (source === "lawdata") {
       const caseHub: DiscoveredItem = { title: "月旦案例課", url: "https://www.angle.com.tw/event/practical_discuss_order/", summary: "案例研習／講座索引", depth: 1, parentTitle: "", kind: "entry" };
       const firstLayer = Array.from(new Map([caseHub, ...discovered.filter(isAngleRootSection)].map((item) => [item.url, { ...item, depth: 1, parentTitle: "" }])).values());
@@ -503,7 +547,7 @@ export async function POST(request: Request) {
         .map((item) => ({ ...item, depth: 1, parentTitle: "" }));
       discovered = (await crawlHierarchy(source, roots)).items;
     } else if (source === "get") {
-      const roots = discovered.filter(isGetRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
+      const roots = discovered.filter((item) => isGetRootSection(item) || /catalogue|book|BKID|圖書|書籍|司律|司法官|律師|法學/i.test(`${item.title} ${item.url}`)).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
       discovered = (await crawlHierarchy(source, roots)).items;
     } else if (source === "ibrain") {
       const roots = discovered.filter(isIbrainRootSection).map((item) => ({ ...item, depth: 1, parentTitle: "" }));
@@ -527,7 +571,7 @@ export async function POST(request: Request) {
         lessonLabel: config.label,
         title: item.title,
         sourceUrl: item.url,
-        text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher, content: item.content, publicLinks: item.publicLinks }),
+        text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher, content: item.content, publicLinks: item.publicLinks, book: item.book }),
         summary: item.summary,
         importance: 3,
         reviewStatus: disabled ? "disabled" : "published",
@@ -539,7 +583,15 @@ export async function POST(request: Request) {
       await auth.db.insert(resourceSegments).values(rows.slice(index, index + insertBatchSize));
     }
     await auth.db.update(learningResources).set({ status: "active", updatedAt: new Date() }).where(eq(learningResources.id, resource.id));
-    return Response.json({ source, discovered: discovered.length, sources: await sourceRows(auth.db) });
+    const books = discovered.filter((item) => item.book);
+    const coverage = source === "get" ? {
+      books: books.length,
+      authors: books.filter((item) => item.book?.authors?.length).length,
+      catalogues: books.filter((item) => item.book?.catalogue?.length).length,
+      descriptions: books.filter((item) => item.book?.description).length,
+      complete: books.filter((item) => (item.book?.completeness ?? 0) >= 80).length,
+    } : undefined;
+    return Response.json({ source, discovered: discovered.length, coverage, sources: await sourceRows(auth.db) });
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : "";
     const errorMessage = /failed query|resource_segments|too many sql variables|too many bound parameters/i.test(rawMessage)
