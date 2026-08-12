@@ -50,9 +50,26 @@ function angleResourceType(value: string) {
   return "元照公開資源索引";
 }
 
-type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail"; subject?: string; teacher?: string; content?: string };
+type PublicLink = { label: string; url: string };
+type DiscoveredItem = { title: string; url: string; summary: string; depth: number; parentTitle: string; kind: "entry" | "detail"; subject?: string; teacher?: string; content?: string; publicLinks?: PublicLink[] };
 
-const ANGLE_MAGAZINE_SECTIONS = ["本期試讀", "法學教室", "新聞法律", "法學思維導引", "實務選編", "時事直擊", "編輯手札"] as const;
+// Different Angle magazines use different, but stable, catalogue headings.
+// Keep the shared trial/editorial sections and recognise the headings used by
+// both 月旦法學教室 and 月旦法學雜誌 instead of forcing every issue into the
+// 法學教室 taxonomy.
+const ANGLE_MAGAZINE_SECTIONS = [
+  "本期試讀",
+  "本月企劃",
+  "經典裁判",
+  "法學論述",
+  "專題講座",
+  "法學教室",
+  "新聞法律",
+  "法學思維導引",
+  "實務選編",
+  "時事直擊",
+  "編輯手札",
+] as const;
 
 const LEGAL_SUBJECTS = ["憲法", "行政法", "刑法", "刑事訴訟法", "刑訴", "民法", "民事訴訟法", "民訴", "商事法", "公司法", "證券交易法", "保險法", "票據法", "法律倫理", "國際公法", "國際私法"];
 
@@ -200,7 +217,7 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
     const author = (parts[1] || "").match(/^[\u3400-\u9fffA-Za-z·．、，,\s]{2,40}/u)?.[0]?.trim();
 
     const badgeLinks = Array.from(blockHtml.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi));
-    let publicUrl = "";
+    const publicLinks: PublicLink[] = [];
     for (const badge of badgeLinks) {
       const label = cleanHtml(badge[2]);
       if (!/試閱|試讀|書籍|影音|下載/u.test(label)) continue;
@@ -209,8 +226,8 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
       try {
         const candidate = new URL(href, pageUrl);
         if (SOURCES.lawdata.hosts.some((host) => candidate.hostname === host || candidate.hostname.endsWith(`.${host}`))) {
-          publicUrl = canonicalUrl(candidate.href);
-          break;
+          const link = { label: label.slice(0, 12), url: canonicalUrl(candidate.href) };
+          if (!publicLinks.some((item) => item.url === link.url && item.label === link.label)) publicLinks.push(link);
         }
       } catch {}
     }
@@ -221,12 +238,13 @@ function discoverAngleMagazineContents(html: string, pageUrl: string, parentTitl
     syntheticIndex += 1;
     rows.push({
       title,
-      url: publicUrl || `${canonicalUrl(pageUrl)}&catalog_item=${syntheticIndex}`,
-      summary: `本期目錄｜分類：${section}${author ? `｜作者：${author}` : ""}｜上層：${parentTitle}`,
+      url: publicLinks[0]?.url || `${canonicalUrl(pageUrl)}&catalog_item=${syntheticIndex}`,
+      summary: `本期目錄｜分類：${section}${author ? `｜作者：${author}` : ""}${publicLinks.length ? `｜公開資源：${publicLinks.map((item) => item.label).join("、")}` : ""}｜上層：${parentTitle}`,
       depth,
       parentTitle,
       kind: "detail",
       content: blockText,
+      publicLinks,
     });
   }
 
@@ -367,7 +385,7 @@ async function sourceRows(db: Awaited<ReturnType<typeof requireAdmin>> extends i
     sourceUrl: resource.sourceUrl,
     status: resource.status,
     lastSyncedAt: resource.updatedAt,
-    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: item.sourceUrl, summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "" }; }),
+    items: segments.filter((item: typeof resourceSegments.$inferSelect) => item.resourceId === resource.id).map((item: typeof resourceSegments.$inferSelect) => { let meta: { depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; publicLinks?: PublicLink[] } = {}; try { meta = JSON.parse(item.text || "{}"); } catch {} return { id: item.id, title: item.title, url: item.sourceUrl, summary: item.summary, enabled: item.recommended && item.reviewStatus !== "disabled", indexed: item.reviewStatus === "published", accessType: "公開索引", depth: meta.depth ?? 1, parentTitle: meta.parentTitle ?? "", kind: meta.kind ?? "entry", subject: meta.subject ?? "", teacher: meta.teacher ?? "", publicLinks: meta.publicLinks ?? [] }; }),
   }));
 }
 
@@ -433,7 +451,7 @@ export async function POST(request: Request) {
           lessonLabel: config.label,
           title: child.title,
           sourceUrl: child.url,
-          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind, subject: child.subject, teacher: child.teacher, content: child.content }),
+          text: JSON.stringify({ source, accessType: "public_index", depth: child.depth, parentTitle: child.parentTitle, kind: child.kind, subject: child.subject, teacher: child.teacher, content: child.content, publicLinks: child.publicLinks }),
           summary: child.summary,
           importance: 3,
           reviewStatus: "published",
@@ -509,7 +527,7 @@ export async function POST(request: Request) {
         lessonLabel: config.label,
         title: item.title,
         sourceUrl: item.url,
-        text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher, content: item.content }),
+        text: JSON.stringify({ source, accessType: "public_index", depth: item.depth, parentTitle: item.parentTitle, kind: item.kind, subject: item.subject, teacher: item.teacher, content: item.content, publicLinks: item.publicLinks }),
         summary: item.summary,
         importance: 3,
         reviewStatus: disabled ? "disabled" : "published",
