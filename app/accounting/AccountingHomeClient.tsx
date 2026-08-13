@@ -10,6 +10,22 @@ export default function AccountingHomeClient({ canAdmin }: { canAdmin: boolean }
     if (canAdmin) setStudentPreview(window.localStorage.getItem("accounting-student-preview") === "1");
   }, [canAdmin]);
 
+  useEffect(() => {
+    // Mobile browsers commonly restore the previous scroll position after a
+    // reload.  The accounting home should always introduce the page first;
+    // the CTA below remains the explicit way to jump into the conversation.
+    if (!window.matchMedia("(max-width: 800px)").matches || window.location.hash) return;
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
   function switchMode(preview: boolean) {
     setStudentPreview(preview);
     window.localStorage.setItem("accounting-student-preview", preview ? "1" : "0");
