@@ -28524,3 +28524,11 @@ a.is-action-pending {
 /* Medtech notes readability */
 .medtech-note-dialog input{font-size:15px;line-height:1.55}
 .medtech-note-dialog textarea{font-size:16px;font-weight:500;line-height:1.7}
+
+/* Medtech guided-question contrast */
+.medtech-ai-question{background:linear-gradient(135deg,#14534f,#176b64 62%,#23776f)}
+.medtech-ai-question>div>button{border-color:#82b9b0;background:#e7f3f0;color:#174f4b;box-shadow:0 1px 0 rgba(255,255,255,.35) inset}
+.medtech-ai-question>div>button b{color:#177168}
+.medtech-ai-question>div>button:hover:not(:disabled){border-color:#fff;background:#f7fbfa;color:#104a46;box-shadow:0 5px 15px rgba(4,42,39,.18);transform:translateY(-1px)}
+.medtech-ai-question>div>button.selected{border-color:#fff;background:#fff;color:#104a46;box-shadow:0 6px 18px rgba(4,42,39,.2)}
+.medtech-ai-question>div>button:disabled:not(.selected){opacity:.72;background:#cfe5e0}
