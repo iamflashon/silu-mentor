@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       if ("error" in auth) return auth.error;
     }
     const messages = (body.messages ?? []).filter((item) => item && ["student", "mentor"].includes(item.role) && typeof item.text === "string").slice(-10);
+    const studentTurnCount = messages.filter((item) => item.role === "student").length;
     const latest = [...messages].reverse().find((item) => item.role === "student")?.text.trim();
     if (!latest) return Response.json({ error: "請先輸入中級會計問題。" }, { status: 400 });
     if (!await getOpenAIKey()) return Response.json({ error: "Luna 助教模型尚未設定。" }, { status: 503 });
@@ -56,11 +57,14 @@ export async function POST(request: Request) {
     const imageDataUrls = (body.imageDataUrls ?? []).filter((value) => typeof value === "string" && /^data:image\/(?:jpeg|png|webp);base64,/.test(value) && value.length < 4_500_000).slice(0, 2);
     const groundedConversation=`${boundEvidence?`${boundEvidence}\n\n`:""}${conversation}`;
     const input = imageDataUrls.length && !body.simulateStudent ? [{ role: "user", content: [{ type: "input_text", text: `${groundedConversation}\n\n圖片共有 ${imageDataUrls.length} 張，請按照第 1 頁、第 2 頁順序視為同一道跨頁題目閱讀。` }, ...imageDataUrls.map((image_url) => ({ type: "input_image", image_url }))] }] : groundedConversation;
-    const guidedRules = guided ? `目前是申論逐步解題模式。題型：${questionType}；學生程度：${level}；目前階段：${stage}。不得一開始直接給完整答案。每輪只完成一個步驟，依序確認題目要求、已知條件、準則、計算式或分錄、完整作答與核對。學生答錯時先指出要重想的判斷點，再給一層提示。每次結尾只問一個明確問題。` : "目前是首頁課業答疑模式。學生不需要選書或選章節；直接針對觀念、準則、計算、分錄或照片題目回答。先給白話結論，再按需要逐步列式與核對。教材只作為背後的回答依據，不要要求學生進入章節學習。";
+    const answerDepth = studentTurnCount <= 1
+      ? "這是本題第一次回答。先簡答：第一句直接給結論，接著只列 2 至 4 個最重要的判斷或計算重點，通常控制在 250 個中文字內。不要一開始展開完整教科書式詳解，也不要重抄題目；除非沒有列式就無法回答，否則先省略次要計算與延伸例外。"
+      : "這是同一題的接續追問。只補充學生這一輪問到的部分；需要時再展開相關計算、分錄或準則，不要重講整題。";
+    const guidedRules = guided ? `目前是申論逐步解題模式。題型：${questionType}；學生程度：${level}；目前階段：${stage}。不得一開始直接給完整答案。每輪只完成一個步驟，依序確認題目要求、已知條件、準則、計算式或分錄、完整作答與核對。學生答錯時先指出要重想的判斷點，再給一層提示。每次結尾只問一個明確問題。` : `目前是首頁課業答疑模式。學生不需要選書或選章節；直接針對觀念、準則、計算、分錄或照片題目回答。${answerDepth}教材只作為背後的回答依據，不要要求學生進入章節學習。`;
     const simulationRules = body.simulateStudent ? `你現在不是老師，而是模擬一位「${level}」程度的中會學生。先閱讀 Luna 助教最後一則回答，找出其中最可能還沒聽懂的一個觀念、計算步驟、分錄方向或教材依據，提出一個自然且具體的接續問題。問題必須延續目前同一題，不得另起新題；不要重貼整題，不要批改老師，不要說明你在模擬，也不要自行公布答案。只輸出學生要送出的那一句或一小段繁體中文問題。` : "";
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-      instructions: `你是臺灣國考與校內考試的中級會計學 AI 教練。只能以中級會計學、IFRS 與所附會計教材範圍回答，絕不可混入司律或醫檢師內容。以繁體中文教學。${simulationRules || guidedRules} ${body.simulateStudent ? "" : `先確認題目要求與已知條件，再依序說明適用準則、計算或分錄、最後核對。數字題必須逐步列式並檢查單位；分錄題要明列借方、貸方與金額；觀念題要區分原則、適用條件與常見陷阱。若資料不足，直接指出還缺哪些條件，不可自行補造數字。已開放老師教材時必須先搜尋教材；若附有圖片，先辨認題目中的關鍵句、科目與數字，再用關鍵句搜尋教材。${boundQuestion?"輸入中已有【已入庫老師題庫直接命中】，這就是有效教材依據；必須依該題教材答案校準，不得再說未命中教材。":"只有在題庫直接比對與 file_search 的實際結果都沒有教材時，才明示本次未找到已開放的中會教材。"}`}只輸出純文字，避免 Markdown 表格與標題符號。`,
+      instructions: `你是臺灣國考與校內考試的中級會計學 AI 教練。只能以中級會計學、IFRS 與所附會計教材範圍回答，絕不可混入司律或醫檢師內容。以繁體中文教學。${simulationRules || guidedRules} ${body.simulateStudent ? "" : `先確認題目要求與已知條件，再回答結論與關鍵理由。只有學生追問或正確性確實需要時，才逐步展開計算或分錄；數字與單位仍須核對，分錄的借貸方向與金額不得省略到無法判斷。若資料不足，直接指出還缺哪些條件，不可自行補造數字。已開放老師教材時必須先搜尋教材；若附有圖片，先辨認題目中的關鍵句、科目與數字，再用關鍵句搜尋教材。${boundQuestion?"輸入中已有【已入庫老師題庫直接命中】，這就是有效教材依據；必須依該題教材答案校準，不得再說未命中教材。":"只有在題庫直接比對與 file_search 的實際結果都沒有教材時，才明示本次未找到已開放的中會教材。"}`}只輸出純文字，避免 Markdown 表格與標題符號。`,
       input,
       ...(allowSearch ? { tools: [{ type: "file_search", vector_store_ids: [setting!.value], max_num_results: 8, filters: { type: "and", filters: [{ key: "exam_category", type: "eq", value: "accounting" }, { key: "homepage_enabled", type: "eq", value: true }] } }], tool_choice: "required", include: ["file_search_call.results"] } : {}),
       max_output_tokens: 1200,
