@@ -22,12 +22,13 @@ export async function GET(request: Request) {
     eq(examQuestions.status, "published"),
   )).orderBy(sql`random()`).limit(limit);
 
+  const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
   return Response.json({
     items: rows.map((row) => ({
       id: row.id,
       year: row.year,
       questionNumber: row.questionNumber,
-      stem: row.stem,
+      stem: cleanStem(row.stem),
       options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
       answer: row.correctAnswer,
       explanation: row.explanation,
