@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const messages = (body.messages ?? []).filter((item) => item && ["student", "mentor"].includes(item.role) && typeof item.text === "string").slice(-10);
     const latest = [...messages].reverse().find((item) => item.role === "student")?.text.trim();
     if (!latest) return Response.json({ error: "請先輸入中級會計問題。" }, { status: 400 });
-    if (!await getOpenAIKey()) return Response.json({ error: "中會 AI 模型尚未設定。" }, { status: 503 });
+    if (!await getOpenAIKey()) return Response.json({ error: "Luna 助教模型尚未設定。" }, { status: 503 });
     const db = await getDb();
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     const [enabled] = await db.select({ id: documents.id }).from(documents).where(and(eq(documents.examCategory, "accounting"), eq(documents.homepageSearchEnabled, true), eq(documents.vectorIndexed, true))).limit(1);
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const boundEvidence=boundQuestion?`【已入庫老師題庫直接命中】\n來源書：${boundQuestion.examName}\n考試來源：${boundQuestion.year}\n題號：${boundQuestion.questionNumber}\n原稿位置：${boundQuestion.teacherNotes}\n題目：${removeAccountingPageFurniture(boundQuestion.stem)}\n${boundOptions}\n教材答案與解析：${removeAccountingPageFurniture(boundQuestion.explanation||boundQuestion.teacherAnswer)||"本題尚未拆出獨立解析"}`:"";
     const allowSearch = Boolean(setting?.value && enabled);
     const model = "gpt-5.6-luna", startedAt = Date.now();
-    const conversation = messages.map((item) => `${item.role === "student" ? "學生" : "中會 AI 教練"}：${item.text.slice(0, 2500)}`).join("\n\n");
+    const conversation = messages.map((item) => `${item.role === "student" ? "學生" : "Luna 助教"}：${item.text.slice(0, 2500)}`).join("\n\n");
     const guided = body.mode === "guided";
     const level = ["入門", "進階", "考前"].includes(body.level || "") ? body.level! : "入門";
     const stage = ["讀題", "條件", "準則", "計算", "核對"].includes(body.stage || "") ? body.stage! : "讀題";
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       ...(allowSearch ? { tools: [{ type: "file_search", vector_store_ids: [setting!.value], max_num_results: 8, filters: { type: "and", filters: [{ key: "exam_category", type: "eq", value: "accounting" }, { key: "homepage_enabled", type: "eq", value: true }] } }], include: ["file_search_call.results"] } : {}),
       max_output_tokens: 1200,
     }) }) as Record<string, unknown>;
-    const reply = outputText(payload); if (!reply) return Response.json({ error: "中會 AI 暫時沒有完成回答，請再試一次。" }, { status: 502 });
+    const reply = outputText(payload); if (!reply) return Response.json({ error: "Luna 助教 暫時沒有完成回答，請再試一次。" }, { status: 502 });
     const usage = (payload.usage ?? {}) as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
     const inputTokens = Number(usage.input_tokens || 0), outputTokens = Number(usage.output_tokens || 0), cachedTokens = Number(usage.input_tokens_details?.cached_tokens || 0);
     const estimatedCostUsdMicros = estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens });
@@ -55,5 +55,5 @@ export async function POST(request: Request) {
     const searched = usedFileSearch(payload);
     const directSource=boundQuestion?`${boundQuestion.examName}｜${boundQuestion.year}｜第 ${boundQuestion.questionNumber} 題${boundQuestion.teacherNotes?`｜${boundQuestion.teacherNotes}`:""}`:"";
     return Response.json({ reply, source: directSource?`已命中老師教材：${directSource}`:searched ? "中會教材檢索＋AI 說明" : allowSearch ? "本次未命中中會教材" : "AI 一般知識說明（尚無已開放中會教材）", usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "中會 AI 回答失敗" }, { status: 500 }); }
+  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Luna 助教 回答失敗" }, { status: 500 }); }
 }
