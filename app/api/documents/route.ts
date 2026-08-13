@@ -19,10 +19,11 @@ function safeName(value: string) {
   return value.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const db = await getDb();
-    const rows = await db.select().from(documents).orderBy(desc(documents.createdAt)).limit(50);
+    const category = new URL(request.url).searchParams.get("category")?.trim();
+    const rows = await db.select().from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
     const [documentStats] = await db.select({
       total: sql<number>`count(*)`,
       ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
@@ -41,6 +42,7 @@ export async function GET() {
       return {
         id: row.id,
         name: row.fileName,
+        examCategory: row.examCategory,
         subject: row.subject,
         type: row.documentType,
         sizeBytes: row.sizeBytes,
@@ -85,6 +87,7 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const file = form.get("file");
     const subject = String(form.get("subject") ?? "").trim();
+    const examCategory = String(form.get("examCategory") ?? "law").trim();
     const documentType = String(form.get("documentType") ?? "").trim();
 
     if (!(file instanceof File) || !isSupportedDocument(file.name, file.type)) {
@@ -114,6 +117,7 @@ export async function POST(request: Request) {
         fileName: file.name,
         contentType: contentTypeForDocument(file.name, file.type),
         sizeBytes: file.size,
+        examCategory: ["law", "accounting", "medtech"].includes(examCategory) ? examCategory : "law",
         subject,
         documentType,
         status: "uploaded",

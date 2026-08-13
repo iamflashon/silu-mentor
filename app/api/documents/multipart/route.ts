@@ -16,6 +16,7 @@ type CompletePayload = {
   fileName: string;
   contentType: string;
   sizeBytes: number;
+  examCategory: string;
   subject: string;
   documentType: string;
 };
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
           fileName: body.fileName,
           contentType: contentTypeForDocument(body.fileName, body.contentType),
           sizeBytes: body.sizeBytes,
+          examCategory: ["law", "accounting", "medtech"].includes(body.examCategory) ? body.examCategory : "law",
           subject: body.subject,
           documentType: body.documentType,
           status: "uploaded",

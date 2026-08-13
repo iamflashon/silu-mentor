@@ -17,6 +17,7 @@ type ExternalRetrievalTest = { query: string; mode: "children" | "single"; found
 type Uploaded = {
   id: number;
   name: string;
+  examCategory?: string;
   subject: string;
   size: string;
   status: string;
@@ -553,6 +554,7 @@ export default function AdminPage() {
   }
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [examCategory, setExamCategory] = useState<"law" | "accounting" | "medtech">("law");
   const [subject, setSubject] = useState("刑法");
   const [type, setType] = useState("教科書");
   const [files, setFiles] = useState<Uploaded[]>([]);
@@ -744,6 +746,7 @@ export default function AdminPage() {
           documents?: Array<{
             id: number;
             name: string;
+            examCategory?: string;
             subject: string;
             type: string;
             sizeBytes: number;
@@ -774,6 +777,7 @@ export default function AdminPage() {
           (result.documents ?? []).map((item) => ({
             id: item.id,
             name: item.name,
+            examCategory: item.examCategory ?? "law",
             subject: item.subject,
             size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
             status: item.status,
@@ -3057,6 +3061,7 @@ export default function AdminPage() {
         fileName: selected.name,
         contentType: documentContentType,
         sizeBytes: selected.size,
+        examCategory,
         subject,
         documentType: type,
       }),
@@ -3072,6 +3077,7 @@ export default function AdminPage() {
       {
         id: newId,
         name: selected.name,
+        examCategory,
         subject,
         size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${documentContentType}`,
         status: "processing",
@@ -3617,7 +3623,7 @@ export default function AdminPage() {
             <form className="panel" onSubmit={submit}>
               <h2>上傳教材</h2>
               <p className="panel-sub">
-                上傳後由系統自動檢查檔案、擷取文字、整理章節／題目、建立標籤，並完成全文／向量索引，供司律備考回答與教學。
+                上傳後由系統自動檢查檔案、擷取文字、整理章節／題目、建立標籤與索引；不同類科的教材與題庫不會混用。
               </p>
               <label
                 className={`upload-zone ${dragActive ? "drag-active" : ""}`}
@@ -3694,18 +3700,20 @@ export default function AdminPage() {
               )}
               <div className="meta-fields">
                 <label className="field">
+                  類科
+                  <select value={examCategory} onChange={(e) => { const next = e.target.value as "law" | "accounting" | "medtech"; setExamCategory(next); setSubject(next === "law" ? "刑法" : next === "accounting" ? "中級會計學" : "臨床病毒學"); }}>
+                    <option value="law">司律</option>
+                    <option value="accounting">會計</option>
+                    <option value="medtech">醫檢師</option>
+                  </select>
+                </label>
+                <label className="field">
                   科目
                   <select
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
                   >
-                    <option>刑法</option>
-                    <option>刑事訴訟法</option>
-                    <option>民法</option>
-                    <option>民事訴訟法</option>
-                    <option>憲法</option>
-                    <option>行政法</option>
-                    <option>商事法</option>
+                    {examCategory === "law" ? <><option>刑法</option><option>刑事訴訟法</option><option>民法</option><option>民事訴訟法</option><option>憲法</option><option>行政法</option><option>商事法</option></> : examCategory === "accounting" ? <><option>中級會計學</option><option>高等會計學</option><option>成本與管理會計</option><option>審計學</option><option>稅務法規</option></> : <><option>臨床病毒學</option><option>臨床血液學</option><option>臨床生化學</option><option>臨床微生物學</option><option>血庫學</option><option>醫學分子檢驗學</option></>}
                   </select>
                 </label>
                 <label className="field">
@@ -3796,7 +3804,7 @@ export default function AdminPage() {
                         <div className="file-info">
                           <strong>{file.name}</strong>
                           <span>
-                            {file.subject} · {file.size}
+                            {(file.examCategory === "medtech" ? "醫檢師" : file.examCategory === "accounting" ? "會計" : "司律")} · {file.subject} · {file.size}
                           </span>
                           <small>{stageLabel}{file.error ? ` · ${file.error}` : ""}</small>
                           {(ready || file.processingStage === "analyzing") && (

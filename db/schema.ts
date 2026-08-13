@@ -23,6 +23,7 @@ export const documents = sqliteTable("documents", {
   fileName: text("file_name").notNull(),
   contentType: text("content_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
+  examCategory: text("exam_category").notNull().default("law"),
   subject: text("subject").notNull(),
   documentType: text("document_type").notNull(),
   status: text("status").notNull().default("uploaded"),
@@ -322,6 +323,7 @@ export const noteAttachments = sqliteTable("note_attachments", {
 export const examQuestions = sqliteTable("exam_questions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   examType: text("exam_type").notNull(),
+  examCategory: text("exam_category").notNull().default("law"),
   year: text("year").notNull(),
   examName: text("exam_name").notNull().default("類科待辨識"),
   subject: text("subject").notNull(),
