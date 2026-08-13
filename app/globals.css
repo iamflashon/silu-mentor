@@ -28679,6 +28679,7 @@ a.is-action-pending {
 .accounting-essay-coach .accounting-essay-question-panel>p{
   max-height:460px;
 }
+.accounting-question-body{max-height:460px;padding:18px 20px;overflow:auto;border-top:1px solid #e2d3a6;background:#fffdf8}.accounting-question-copy{margin:0 0 12px}.accounting-question-copy p{margin:0 0 7px;white-space:pre-wrap;line-height:1.7}.accounting-table-wrap{margin:12px 0;overflow-x:auto;border:1px solid #dfd2ab;border-radius:9px;background:#fff}.accounting-table-wrap table{width:100%;min-width:560px;border-collapse:collapse;font-variant-numeric:tabular-nums}.accounting-table-wrap th,.accounting-table-wrap td{padding:9px 12px;border-bottom:1px solid #eee5ca}.accounting-table-wrap th{text-align:left;color:#23483a;font-weight:750}.accounting-table-wrap td{text-align:right;color:#18251f;white-space:nowrap}.accounting-table-wrap tr:last-child th,.accounting-table-wrap tr:last-child td{border-bottom:0}
 /* Softer student and simulation surfaces for long accounting answers. */
 .accounting-essay-coach .accounting-chat article.student,
 .accounting-coach .accounting-chat article.student{

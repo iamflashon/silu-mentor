@@ -2,13 +2,11 @@ import { and, eq } from "drizzle-orm";
 import { extractText } from "unpdf";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
+import { accountingQuestionFlags, removeAccountingPageFurniture } from "../../../../lib/accounting-question";
 
 type ParsedQuestion={number:string;stem:string;options:Record<string,string>;answer:string;explanation:string;teacherAnswer:string;chapter:string;examSource:string;page:number;examType:"mcq"|"essay"};
 
-function removePageFurniture(value:string){return value
-  .replace(/^\s*第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}?\d{1,2}\s*[-－–]\s*\d{1,3}\s*$/gmu,"")
-  .replace(/^\s*\d{1,2}\s*[-－–]\s*\d{1,3}\s+第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}$/gmu,"")}
-function clean(value:string){return removePageFurniture(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu,"").replace(/[ \t]+/gu," ").replace(/ *\n */gu,"\n").replace(/\n{3,}/gu,"\n\n").trim()}
+function clean(value:string){return removeAccountingPageFurniture(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu,"").replace(/[ \t]+/gu," ").replace(/ *\n */gu,"\n").replace(/\n{3,}/gu,"\n\n").trim()}
 function normalize(value:string){return clean(value
   .replace(//gu,"(A)").replace(//gu,"(B)").replace(//gu,"(C)").replace(//gu,"(D)")
   .replace(/[（(]([A-D])[）)]/gu,"($1)")
@@ -91,7 +89,7 @@ export async function POST(request:Request){
   if(offset===0)await db.delete(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,sourceUrl)));
   let imported=0;
   for(const question of questions.slice(offset,offset+limit)){
-   try{await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:question.examSource||(inferredType==="年度解題"?"114年度考題":"未標示考試來源"),examName:inferredType,subject:"中級會計學",questionNumber:question.number,stem:question.stem,optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:question.explanation,teacherAnswer:question.examType==="essay"?question.teacherAnswer:"",teacherNotes:[question.chapter,`原稿第 ${question.page} 頁`].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
+   try{const flags=accountingQuestionFlags(question.stem);await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:question.examSource||(inferredType==="年度解題"?"114年度考題":"未標示考試來源"),examName:inferredType,subject:"中級會計學",questionNumber:question.number,stem:removeAccountingPageFurniture(question.stem),optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:removeAccountingPageFurniture(question.explanation),teacherAnswer:question.examType==="essay"?removeAccountingPageFurniture(question.teacherAnswer):"",teacherNotes:[question.chapter,`原稿第 ${question.page} 頁`,flags.needsTableReview?"HTML表格呈現":"",flags.brokenGlyphs?"缺字待核對":""].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
   }
   const nextOffset=Math.min(questions.length,offset+limit),done=nextOffset>=questions.length;
   const mcq=questions.filter(q=>q.examType==="mcq").length,essay=questions.length-mcq,missingAnswer=questions.filter(q=>q.examType==="mcq"&&!q.answer).length;

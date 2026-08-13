@@ -2,17 +2,9 @@ import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { getOpenAIKey } from "../../../lib/openai";
 import { examQuestions } from "../../../db/schema";
+import { removeAccountingPageFurniture } from "../../../lib/accounting-question";
 
 const allowedAnswerHosts = new Set(["lawyer.get.com.tw", "fd.get.com.tw"]);
-
-function removeAccountingPageFurniture(value: string | null) {
-  if (!value) return value;
-  return value
-    .replace(/^\s*第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}?\d{1,2}\s*[-－–]\s*\d{1,3}\s*$/gmu, "")
-    .replace(/^\s*\d{1,2}\s*[-－–]\s*\d{1,3}\s+第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}$/gmu, "")
-    .replace(/\n{3,}/gu, "\n\n")
-    .trim();
-}
 
 function assertAnswerSource(raw: string) {
   const url = new URL(raw);
