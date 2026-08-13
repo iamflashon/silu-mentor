@@ -2,9 +2,12 @@ import { eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { examQuestions } from "../../../../db/schema";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
+import { requireAdmin } from "../../../../lib/member-auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireAdmin(request);
+    if ("error" in auth) return auth.error;
     const db = await getDb();
     const fields = { id: examQuestions.id, examName: examQuestions.examName, questionNumber: examQuestions.questionNumber, examType: examQuestions.examType, stem: examQuestions.stem, optionsJson: examQuestions.optionsJson };
     let rows = await db.select(fields).from(examQuestions).where(sql`${examQuestions.examCategory} = 'accounting' AND ${examQuestions.status} = 'published'`).orderBy(sql`random()`).limit(1);
