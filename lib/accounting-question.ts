@@ -1,6 +1,7 @@
 export function removeAccountingPageFurniture(value: string | null | undefined) {
   if (!value) return "";
   return value
+    .replace(/\[\[PAGE:\s*\d+\]\]/gu, "")
     // Chapter running heads, with or without spaces between title and page code.
     .replace(/^\s*第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}?(?:\s|^)(?:\d{1,2}\s*[-－–]\s*\d{1,3})\s*$/gmu, "")
     .replace(/^\s*\d{1,2}\s*[-－–]\s*\d{1,3}\s*第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}$/gmu, "")

@@ -100,6 +100,7 @@ export async function GET(request: Request) {
   const cleanedItems = items.map((item) => item.examCategory === "accounting" ? {
     ...item,
     stem: removeAccountingPageFurniture(item.stem) ?? "",
+    optionsJson: (() => { try { const options = JSON.parse(item.optionsJson || "{}") as Record<string, string>; return JSON.stringify(Object.fromEntries(Object.entries(options).map(([key, value]) => [key, removeAccountingPageFurniture(value)]))); } catch { return item.optionsJson; } })(),
     explanation: removeAccountingPageFurniture(item.explanation) ?? "",
     teacherAnswer: removeAccountingPageFurniture(item.teacherAnswer) ?? "",
   } : item);
