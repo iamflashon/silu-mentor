@@ -2,7 +2,7 @@ import Link from "next/link";
 
 const subjects = [
   { code: "LAW", name: "司律備考", desc: "律師、司法官｜練真題、寫申論、找爭點、整摘要", href: "/", tone: "law", status: "進入平台" },
-  { code: "ACC", name: "會計備考", desc: "會計師｜選擇題、計算題、分錄與準則整理", href: "#", tone: "accounting", status: "建置中" },
+  { code: "ACC", name: "中級會計備考", desc: "中級會計學｜真題、計算、分錄與準則整理", href: "/accounting", tone: "accounting", status: "進入平台" },
   { code: "MED", name: "醫檢師備考", desc: "醫事檢驗師｜國考題、病例與檢驗判讀", href: "/medtech", tone: "medtech", status: "進入平台" },
 ];
 export default function PlatformEntry() {

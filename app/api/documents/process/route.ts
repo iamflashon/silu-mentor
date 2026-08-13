@@ -73,18 +73,19 @@ async function uploadToVectorStore(document: typeof documents.$inferSelect, orig
   const storeId = await vectorStoreId();
   const indexed = await openAIJson(`/vector_stores/${storeId}/files`, {
     method: "POST",
-    body: JSON.stringify({ file_id: filePayload.id, attributes: { subject: document.subject, document_type: document.documentType, source_file: document.fileName, indexed_file: source.fileName, homepage_enabled: Boolean(document.homepageSearchEnabled) } }),
+    body: JSON.stringify({ file_id: filePayload.id, attributes: { exam_category: document.examCategory, subject: document.subject, document_type: document.documentType, source_file: document.fileName, indexed_file: source.fileName, homepage_enabled: Boolean(document.homepageSearchEnabled) } }),
   });
   return { fileId: filePayload.id, storeId, status: typeof indexed.status === "string" ? indexed.status : "in_progress", indexedFileName: source.fileName };
 }
 
 async function analyzeIndexedDocument(document: typeof documents.$inferSelect, storeId: string, facts: Record<string, unknown>) {
   const model = await getOpenAIModel("gpt-5.6-luna");
+  const isMedtech = document.examCategory === "medtech";
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({
       model,
-      instructions: "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的章節、題目與分類，不得依一般法律知識補造。無法確認的欄位請留空或不列出。題目只在檔案明確有題號、題型或考題標記時列出；章節只列出原文可確認的篇、章、節或主題。",
+      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的科目、章節、專有名詞、題目與分類，不得依一般醫學知識補造。保留中文、英文、縮寫、檢驗方法與數值單位；無法確認的欄位留空。題目只在原檔明確有題號、題型或考題標記時列出。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的章節、題目與分類，不得依一般法律知識補造。無法確認的欄位請留空或不列出。題目只在檔案明確有題號、題型或考題標記時列出；章節只列出原文可確認的篇、章、節或主題。",
       input: `請處理教材「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。本機已完成的技術檢查與結構線索如下，僅供核對，不得取代原檔搜尋：${JSON.stringify(facts)}`,
       tools: [{ type: "file_search", vector_store_ids: [storeId], max_num_results: 24 }],
       text: {
@@ -181,7 +182,7 @@ export async function POST(request: Request) {
       await db.update(documents).set({ status: "extracting", processingStage: "extracting", processingMessage: "正在檢查檔案、擷取文字與辨識結構", indexError: null }).where(eq(documents.id, documentId));
       const bytes = originalBytes;
       if (bytes.byteLength < 1 || bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("檔案大小不符合限制（最多 55MB）");
-      if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、JSONL、MD、TXT、DOCX 或 ZIP 文件");
+      if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、JSON、JSONL、MD、TXT、DOCX 或 ZIP 文件");
       const inspected = await inspectDocumentBytes(document.fileName, bytes);
       const existingResult = {
         facts: inspected.facts,

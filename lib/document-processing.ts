@@ -1,9 +1,9 @@
 import { unzipSync } from "fflate";
 
-export const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".jsonl", ".md", ".txt", ".docx", ".zip"] as const;
+export const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".json", ".jsonl", ".md", ".txt", ".docx", ".zip"] as const;
 export const MAX_DOCUMENT_BYTES = 55 * 1024 * 1024;
 
-export type DocumentExtension = "pdf" | "jsonl" | "md" | "txt" | "docx" | "zip";
+export type DocumentExtension = "pdf" | "json" | "jsonl" | "md" | "txt" | "docx" | "zip";
 
 export type ResolvedDocumentPayload = {
   fileName: string;
@@ -13,7 +13,7 @@ export type ResolvedDocumentPayload = {
 };
 
 export type ExtractedDocumentFacts = {
-  extension: "pdf" | "jsonl" | "md" | "txt" | "docx";
+  extension: "pdf" | "json" | "jsonl" | "md" | "txt" | "docx";
   container?: "zip";
   sourceFileName?: string;
   extractionMode: "structured_text" | "plain_text" | "pdf_index_service";
@@ -30,6 +30,7 @@ export type ExtractedDocumentFacts = {
 export function documentExtension(fileName: string): DocumentExtension | null {
   const lower = fileName.toLocaleLowerCase("en-US");
   if (lower.endsWith(".pdf")) return "pdf";
+  if (lower.endsWith(".json")) return "json";
   if (lower.endsWith(".jsonl")) return "jsonl";
   if (lower.endsWith(".md")) return "md";
   if (lower.endsWith(".txt")) return "txt";
@@ -45,6 +46,7 @@ export function isSupportedDocument(fileName: string, contentType = "") {
 export function contentTypeForDocument(fileName: string, contentType = "") {
   const extension = documentExtension(fileName);
   if (extension === "pdf") return "application/pdf";
+  if (extension === "json") return "application/json";
   if (extension === "jsonl") return "application/jsonl";
   if (extension === "md") return "text/markdown";
   if (extension === "txt") return "text/plain";
@@ -78,15 +80,15 @@ export function resolveDocumentPayload(fileName: string, contentType: string, by
   const candidates = Object.entries(entries)
     .filter(([name, value]) => value.byteLength > 0 && !name.endsWith("/"))
     .map(([name, value]) => ({ name, value, extension: documentExtension(name) }))
-    .filter((entry): entry is { name: string; value: Uint8Array; extension: "pdf" | "jsonl" | "md" | "txt" | "docx" } =>
-      entry.extension === "pdf" || entry.extension === "jsonl" || entry.extension === "md" || entry.extension === "txt" || entry.extension === "docx",
+    .filter((entry): entry is { name: string; value: Uint8Array; extension: "pdf" | "json" | "jsonl" | "md" | "txt" | "docx" } =>
+      entry.extension === "pdf" || entry.extension === "json" || entry.extension === "jsonl" || entry.extension === "md" || entry.extension === "txt" || entry.extension === "docx",
     )
     .sort((left, right) => {
-      const priority = { pdf: 0, jsonl: 1, md: 2, docx: 3, txt: 4 } as const;
+      const priority = { pdf: 0, json: 1, jsonl: 2, md: 3, docx: 4, txt: 5 } as const;
       return priority[left.extension] - priority[right.extension] || right.value.byteLength - left.value.byteLength;
     });
   const selected = candidates[0];
-  if (!selected) throw new Error("ZIP 內找不到可處理的 PDF、JSONL、MD、TXT 或 DOCX 文件");
+  if (!selected) throw new Error("ZIP 內找不到可處理的 PDF、JSON、JSONL、MD、TXT 或 DOCX 文件");
   const docxEntries = candidates
     .filter((entry) => entry.extension === "docx")
     .sort((left, right) => left.name.localeCompare(right.name, "zh-Hant", { numeric: true }));
@@ -198,6 +200,17 @@ function factsFromJsonl(text: string): ExtractedDocumentFacts {
   };
 }
 
+function factsFromJson(text: string): ExtractedDocumentFacts {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { throw new Error("JSON 格式無法解析，請確認逗號、括號與引號是否完整"); }
+  const records = Array.isArray(parsed) ? parsed : [parsed];
+  if (!records.length || records.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+    throw new Error("JSON 必須是物件或物件陣列");
+  }
+  const facts = factsFromJsonl(records.map((item) => JSON.stringify(item)).join("\n"));
+  return { ...facts, extension: "json", validation: { ...facts.validation, checks: [`JSON ${records.length} 筆`] } };
+}
+
 function factsFromText(text: string, extension: "txt" | "md" | "docx" = "txt"): ExtractedDocumentFacts {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const chapters = lines.filter((line) => /^(?:#{1,6}\s+|第\s*[一二三四五六七八九十百0-9]+\s*(?:編|篇|章|節)|[一二三四五六七八九十百]+、|\d+(?:\.\d+){0,3}\s+\S+)/.test(line));
@@ -234,10 +247,10 @@ function extractDocxText(bytes: ArrayBuffer) {
 
 export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer): Promise<{ facts: ExtractedDocumentFacts; text: string; sha256: string }> {
   const originalExtension = documentExtension(fileName);
-  if (!originalExtension) throw new Error("僅支援 PDF、JSONL、MD、TXT、DOCX 或 ZIP 文件");
+  if (!originalExtension) throw new Error("僅支援 PDF、JSON、JSONL、MD、TXT、DOCX 或 ZIP 文件");
   const payload = resolveDocumentPayload(fileName, contentTypeForDocument(fileName), bytes);
   const extension = documentExtension(payload.fileName);
-  if (!extension || extension === "zip") throw new Error("ZIP 內找不到可處理的 PDF、JSONL、MD、TXT 或 DOCX 文件");
+  if (!extension || extension === "zip") throw new Error("ZIP 內找不到可處理的 PDF、JSON、JSONL、MD、TXT 或 DOCX 文件");
   const view = new Uint8Array(payload.bytes);
   const latin1 = new TextDecoder("latin1").decode(view.subarray(0, Math.min(view.length, 4_000_000)));
   const digestPromise = crypto.subtle.digest("SHA-256", bytes);
@@ -262,7 +275,7 @@ export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer)
   const text = extension === "docx"
     ? extractDocxText(payload.bytes)
     : new TextDecoder("utf-8", { fatal: false }).decode(view).replace(/^\uFEFF/, "");
-  const facts = extension === "jsonl" ? factsFromJsonl(text) : factsFromText(text, extension);
+  const facts = extension === "json" ? factsFromJson(text) : extension === "jsonl" ? factsFromJsonl(text) : factsFromText(text, extension);
   return {
     facts: originalExtension === "zip"
       ? { ...facts, container: "zip", sourceFileName: payload.fileName }
