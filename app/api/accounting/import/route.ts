@@ -73,18 +73,20 @@ export async function POST(request:Request){
   const db=await getDb();
   const [document]=await db.select().from(documents).where(and(eq(documents.id,documentId),eq(documents.examCategory,"accounting"))).limit(1);
   if(!document||document.documentType==="核心教材")return Response.json({error:"這份文件不是中會題庫"},{status:404});
+  const inferredType=/51MM320901|會研所.*題庫制霸/u.test(document.fileName)?"章節題庫":/51MG123611|申論題完全制霸/u.test(document.fileName)?"申論題庫":/51MG122110|114年解題全攻略/u.test(document.fileName)?"年度解題":document.documentType;
+  if(inferredType!==document.documentType)await db.update(documents).set({documentType:inferredType,subject:"中級會計學"}).where(eq(documents.id,documentId));
   const {env}=await import("cloudflare:workers"); const object=await env.BUCKET?.get(document.storageKey);
   if(!object)return Response.json({error:"找不到教材原始檔"},{status:404});
   await db.update(documents).set({status:"extracting",processingStage:"extracting",processingMessage:offset?`正在分批入庫：已處理 ${offset} 題`:"正在逐頁讀取完整題目"}).where(eq(documents.id,documentId));
   const bytes=new Uint8Array(await object.arrayBuffer());
   const extracted=await extractText(bytes,{mergePages:false});
-  const questions=parseQuestions(Array.isArray(extracted.text)?extracted.text:[String(extracted.text)],document.documentType);
+  const questions=parseQuestions(Array.isArray(extracted.text)?extracted.text:[String(extracted.text)],inferredType);
   if(!questions.length)throw new Error("未辨識到可入庫的完整題目");
   const sourceUrl=`document:${document.id}`;
   if(offset===0)await db.delete(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,sourceUrl)));
   let imported=0;
   for(const question of questions.slice(offset,offset+limit)){
-   try{await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:document.documentType==="年度解題"?"114":"題庫",examName:document.documentType,subject:document.subject,questionNumber:question.number,stem:question.stem,optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:question.explanation,teacherAnswer:question.examType==="essay"?question.teacherAnswer:"",teacherNotes:[question.chapter,`原稿第 ${question.page} 頁`].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
+   try{await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:inferredType==="年度解題"?"114":"題庫",examName:inferredType,subject:"中級會計學",questionNumber:question.number,stem:question.stem,optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:question.explanation,teacherAnswer:question.examType==="essay"?question.teacherAnswer:"",teacherNotes:[question.chapter,`原稿第 ${question.page} 頁`].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
   }
   const nextOffset=Math.min(questions.length,offset+limit),done=nextOffset>=questions.length;
   const mcq=questions.filter(q=>q.examType==="mcq").length,essay=questions.length-mcq,missingAnswer=questions.filter(q=>q.examType==="mcq"&&!q.answer).length;
