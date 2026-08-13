@@ -28532,3 +28532,25 @@ a.is-action-pending {
 .medtech-ai-question>div>button:hover:not(:disabled){border-color:#fff;background:#f7fbfa;color:#104a46;box-shadow:0 5px 15px rgba(4,42,39,.18);transform:translateY(-1px)}
 .medtech-ai-question>div>button.selected{border-color:#fff;background:#fff;color:#104a46;box-shadow:0 6px 18px rgba(4,42,39,.2)}
 .medtech-ai-question>div>button:disabled:not(.selected){opacity:.72;background:#cfe5e0}
+
+/* Medtech palette — supplied soft teal #59AEAA */
+.medtech-home,.medtech-practice,.medtech-ai-page,.medtech-notes-page,.medtech-guided-layout{--medtech-teal:#59aeaa;--medtech-teal-deep:#247d79;--medtech-ink:#123f3d;--medtech-soft:#e5f5f3;--medtech-pale:#f3fbfa;color:var(--medtech-ink)}
+.medtech-brand>span{background:var(--medtech-teal);color:var(--medtech-ink)}
+.medtech-top nav a.active,.medtech-study-tabs a.active{background:var(--medtech-soft);border-bottom-color:var(--medtech-teal-deep);color:var(--medtech-ink)}
+.medtech-hero{background:linear-gradient(135deg,#59aeaa,#68bbb6 58%,#85cbc7);color:var(--medtech-ink)}
+.medtech-hero>div>span,.medtech-hero p,.medtech-hero aside>span,.medtech-hero dt{color:#174f4c}
+.medtech-hero-actions a:first-child{color:var(--medtech-ink)}
+.medtech-hero aside{border-color:rgba(18,63,61,.2);background:rgba(255,255,255,.25)}
+.medtech-exam-head{background:#dff2f0}
+.medtech-exam-head>button,.medtech-question-map button.answered,.medtech-options button.selected b,.medtech-notes-tools button,.medtech-note-dialog .primary,.medtech-ai-workspace form button{background:var(--medtech-teal);color:var(--medtech-ink)}
+.medtech-options button.selected,.medtech-modes .ready,.medtech-ai-card{border-color:var(--medtech-teal);background:var(--medtech-pale)}
+.medtech-ai-question{background:linear-gradient(135deg,#59aeaa,#64b8b4 62%,#76c2be);color:var(--medtech-ink)}
+.medtech-ai-question header,.medtech-answer-hint{color:#174f4c}
+.medtech-ai-question>div>button{border-color:#b5dfdc;background:#edf9f7;color:var(--medtech-ink)}
+.medtech-ai-question>div>button b{color:#247d79}
+.medtech-ai-question>div>button:hover:not(:disabled){border-color:#247d79;background:#fff;color:var(--medtech-ink)}
+.medtech-ai-question>div>button.selected{border-color:#247d79;background:#fff;color:var(--medtech-ink)}
+.medtech-ai-question>div>button:disabled:not(.selected){opacity:.78;background:#d9efed}
+.medtech-ai-settings>span,.medtech-ai-chat article>b,.medtech-note-card small,.medtech-notes-head span{color:var(--medtech-teal-deep)}
+.medtech-ai-settings label button.active{border-color:var(--medtech-teal);background:var(--medtech-soft);color:var(--medtech-ink)}
+.medtech-ai-quick button,.medtech-new-question,.medtech-note-card button,.medtech-note-dialog button{border-color:#8bc8c4;color:#205e5b}
