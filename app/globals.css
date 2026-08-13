@@ -28640,6 +28640,7 @@ a.is-action-pending {
 .accounting-brand b{color:#141916}.accounting-brand small{color:#8e702d}
 .accounting-top nav a{color:#4f5c55}.accounting-top nav a:hover{color:#0e3f2e}.accounting-top nav a.active{background:#f5d765;color:#101712;box-shadow:inset 0 0 0 1px #dbb33e}
 .accounting-hero{position:relative;overflow:hidden;background:linear-gradient(120deg,#080a09 0%,#111713 38%,#123d2d 72%,#0b241b 100%)}
+.accounting-help-hero{grid-template-columns:minmax(0,780px)}
 .accounting-hero:after,.accounting-chapters-head:after,.accounting-admin-hero:after{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(244,202,82,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(244,202,82,.045) 1px,transparent 1px);background-size:24px 24px;mask-image:linear-gradient(90deg,transparent,black 70%)}
 .accounting-hero>div,.accounting-hero>aside,.accounting-chapters-head>*,.accounting-admin-hero>*{position:relative;z-index:1}
 .accounting-hero>div>span,.accounting-books header span,.accounting-coach header span{color:#f0c74e}
@@ -28653,6 +28654,7 @@ a.is-action-pending {
 .accounting-books article,.accounting-import-map article{border:1px solid #ead9a8;background:linear-gradient(145deg,#faf5e7,#fffdf8)}.accounting-books article>span,.accounting-practice-page>section>span{color:#bd8b18}.accounting-books h3,.accounting-coach h2,.accounting-books h2{color:#153528}.accounting-books article p,.accounting-books header p,.accounting-coach header small{color:#6c746f}
 .accounting-chat{border-color:#e2d5ae;background:#f8f5ec}.accounting-chat article{border:1px solid #eee4ca}.accounting-chat article.student{border-color:#173f30;background:linear-gradient(135deg,#101714,#174936);color:#fff}.accounting-chat article b{color:#a97810}.accounting-chat article.student b{color:#f3d565}
 .accounting-message-images{display:grid;grid-template-columns:repeat(2,minmax(0,150px));gap:8px;margin-top:10px}.accounting-message-images img{display:block;width:100%;height:116px;object-fit:contain;border:1px solid #e1cf94;border-radius:9px;background:#fff}
+.accounting-chat article small.accounting-source{width:fit-content;margin-top:12px;padding:5px 9px;border:1px solid #d8c37c;border-radius:99px;background:#fff9df;color:#466052;font-size:10px;font-weight:800}
 .accounting-starters button{border-color:#d8bd72;background:#fffdf8;color:#194535}.accounting-starters button:hover{background:#f8dc72;color:#111712}.accounting-coach textarea{border-color:#d8c58d;background:#fffefb}.accounting-coach textarea:focus{outline:2px solid rgba(224,180,59,.35);border-color:#c99920}.accounting-coach form button,.accounting-practice-page section div a:first-child,.accounting-upload-form button,.accounting-admin-heading button,.accounting-document-list button{background:linear-gradient(135deg,#f1ce58,#d5a42c);color:#111712;box-shadow:0 7px 18px rgba(184,135,23,.16)}
 .accounting-practice-page section div a{border-color:#d2b151;color:#16402f}
 .accounting-chapters-head,.accounting-admin-hero{position:relative;overflow:hidden;background:linear-gradient(120deg,#080a09 0%,#111713 40%,#123d2d 100%)}

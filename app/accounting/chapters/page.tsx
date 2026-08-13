@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "學章節｜中級會計備考" };
+export const metadata: Metadata = { title: "學章節｜中級會計課業答疑" };
 
 const chapters = [
   ["01", "財務報導之觀念架構", "會計定義、編製基礎、基本假設與品質特性"],
@@ -24,7 +24,7 @@ const chapters = [
 
 export default function AccountingChapters() {
   return <main className="accounting-chapters-page">
-    <header className="accounting-top"><a href="/accounting" className="accounting-brand"><span>中</span><div><b>中級會計備考</b><small>SMART BOOK</small></div></a><nav><a href="/accounting">首頁</a><a className="active" href="/accounting/chapters">學章節</a><a href="/accounting/admin">管理後台</a></nav></header>
+    <header className="accounting-top"><a href="/accounting" className="accounting-brand"><span>中</span><div><b>中級會計課業答疑</b><small>SMART BOOK</small></div></a><nav><a href="/accounting">課業答疑</a><a className="active" href="/accounting/chapters">學章節</a><a href="/accounting/admin">管理後台</a></nav></header>
     <section className="accounting-chapters-head"><span>《中級會計學霸》上、下冊</span><h1>17 章中會智能書</h1><p>章名依教材目錄建立；教材完成索引後，點選章節即可限定該章向 AI 提問並顯示實際引用。</p></section>
     <section className="accounting-chapter-grid">{chapters.map(([number,title,description])=><a href={`/accounting#accounting-coach`} key={number}><small>CHAPTER {number}</small><h2>{title}</h2><p>{description}</p><b>進入章節學習 →</b></a>)}</section>
   </main>;
