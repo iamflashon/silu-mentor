@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "司律備考｜AI 司律考試教練",
-  description: "以公司教材為依據，主動帶你準備律師與司法官考試。",
+  title: { default: "司律備考｜AI 司律考試教練", template: "%s｜iBrain 備考" },
+  description: "不同類科各自獨立的 AI 備考與線上測驗平台。",
   other: {
     "codex-preview": "development",
   },
