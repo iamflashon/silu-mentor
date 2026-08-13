@@ -3,7 +3,7 @@ import { extractText } from "unpdf";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 
-type ParsedQuestion={number:string;stem:string;options:Record<string,string>;answer:string;explanation:string;teacherAnswer:string;chapter:string;page:number;examType:"mcq"|"essay"};
+type ParsedQuestion={number:string;stem:string;options:Record<string,string>;answer:string;explanation:string;teacherAnswer:string;chapter:string;examSource:string;page:number;examType:"mcq"|"essay"};
 
 function clean(value:string){return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu,"").replace(/[ \t]+/gu," ").replace(/ *\n */gu,"\n").replace(/\n{3,}/gu,"\n\n").trim()}
 function normalize(value:string){return clean(value
@@ -45,8 +45,10 @@ function parseQuestions(pages:string[],documentType:string){
   if(raw.length<18)continue;
   while(pageIndex+1<pageMarkers.length&&(pageMarkers[pageIndex+1].index??0)<from)pageIndex++;
   const page=Number(pageMarkers[pageIndex]?.[1]??1);
-  const pagePrefix=pages[Math.max(0,page-1)]?.slice(0,Math.max(0,raw.length))??"";
+  const pagePrefix=normalize(pages[Math.max(0,page-1)]??"");
   const chapter=chapterOf(pagePrefix)||chapterOf(raw);
+  const sourceMatches=[...raw.matchAll(/[（(]((?:10\d|11\d)年[^）)\n]{2,50}(?:研究所|考試|特考|高考|普考|會計師|記帳士)[^）)\n]*)[）)]/gu)];
+  const examSource=clean(sourceMatches.at(-1)?.[1]??"");
   const options=parseOptions(raw);
   const completeOptions=["A","B","C","D"].every(key=>Boolean(options[key]));
   const forcedEssay=documentType==="申論題庫";
@@ -61,7 +63,7 @@ function parseQuestions(pages:string[],documentType:string){
   const explanation=calculation>=0?clean(raw.slice(calculation+8).replace(/\[\[PAGE:\d+\]\]/gu,"").replace(/\n\s*\([A-D]\)\s*$/u,"")):"";
   const teacherAnswer=answerLabel>=0?clean(raw.slice(answerLabel).replace(/^【?解答】?[：:]?/u,"").replace(/\[\[PAGE:\d+\]\]/gu,"")):explanation;
   if(stem.length<12)continue;
-  parsed.push({number:match[1],stem,options,answer,explanation,teacherAnswer,chapter,page,examType});
+  parsed.push({number:match[1],stem,options,answer,explanation,teacherAnswer,chapter,examSource,page,examType});
  }
  return parsed;
 }
@@ -86,7 +88,7 @@ export async function POST(request:Request){
   if(offset===0)await db.delete(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,sourceUrl)));
   let imported=0;
   for(const question of questions.slice(offset,offset+limit)){
-   try{await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:inferredType==="年度解題"?"114":"題庫",examName:inferredType,subject:"中級會計學",questionNumber:question.number,stem:question.stem,optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:question.explanation,teacherAnswer:question.examType==="essay"?question.teacherAnswer:"",teacherNotes:[question.chapter,`原稿第 ${question.page} 頁`].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
+   try{await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:question.examSource||(inferredType==="年度解題"?"114年度考題":"未標示考試來源"),examName:inferredType,subject:"中級會計學",questionNumber:question.number,stem:question.stem,optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:question.explanation,teacherAnswer:question.examType==="essay"?question.teacherAnswer:"",teacherNotes:[question.chapter,`原稿第 ${question.page} 頁`].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
   }
   const nextOffset=Math.min(questions.length,offset+limit),done=nextOffset>=questions.length;
   const mcq=questions.filter(q=>q.examType==="mcq").length,essay=questions.length-mcq,missingAnswer=questions.filter(q=>q.examType==="mcq"&&!q.answer).length;

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { getOpenAIKey } from "../../../lib/openai";
 import { examQuestions } from "../../../db/schema";
@@ -67,12 +67,16 @@ export async function GET(request: Request) {
   const examType = url.searchParams.get("examType") || "all";
   const year = url.searchParams.get("year") || "all";
   const subject = url.searchParams.get("subject") || "all";
+  const sourceBook = url.searchParams.get("sourceBook") || "all";
+  const chapter = url.searchParams.get("chapter") || "all";
   const examCategory = url.searchParams.get("examCategory") || "all";
   const filters = [];
   if (status !== "all") filters.push(eq(examQuestions.status, status));
   if (examType !== "all") filters.push(eq(examQuestions.examType, examType));
   if (year !== "all") filters.push(eq(examQuestions.year, year));
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
+  if (sourceBook !== "all") filters.push(eq(examQuestions.examName, sourceBook));
+  if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
   if (examCategory !== "all") filters.push(eq(examQuestions.examCategory, examCategory));
   const db = await getDb();
   const where = filters.length ? and(...filters) : undefined;
@@ -81,15 +85,18 @@ export async function GET(request: Request) {
   if (examType !== "all") facetFilters.push(eq(examQuestions.examType, examType));
   if (examCategory !== "all") facetFilters.push(eq(examQuestions.examCategory, examCategory));
   const facetWhere = facetFilters.length ? and(...facetFilters) : undefined;
-  const [items, countRows, totals, typeTotals, years, subjects] = await Promise.all([
+  const [items, countRows, totals, typeTotals, years, subjects, sourceBooks, chapterRows] = await Promise.all([
     db.select().from(examQuestions).where(where).orderBy(desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
     db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(where),
     db.select({ status: examQuestions.status, count: sql<number>`count(*)` }).from(examQuestions).groupBy(examQuestions.status),
     db.select({ examType: examQuestions.examType, count: sql<number>`count(*)` }).from(examQuestions).where(facetWhere).groupBy(examQuestions.examType),
     db.selectDistinct({ year: examQuestions.year }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.year)),
     db.selectDistinct({ subject: examQuestions.subject }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.subject)),
+    db.selectDistinct({ sourceBook: examQuestions.examName }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.examName)),
+    db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(facetWhere),
   ]);
-  return Response.json({ items, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject) } });
+  const chapters=[...new Set(chapterRows.map(row=>row.teacherNotes.split("｜")[0].trim()).filter(value=>/^第.+章/u.test(value)))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
+  return Response.json({ items, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject), sourceBooks:sourceBooks.map(row=>row.sourceBook), chapters } });
 }
 
 export async function POST(request: Request) {
