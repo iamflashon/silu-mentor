@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     const questionType = ["選擇題", "計算題", "觀念題"].includes(body.questionType || "") ? body.questionType! : "選擇題";
     const imageDataUrls = (body.imageDataUrls ?? []).filter((value) => typeof value === "string" && /^data:image\/(?:jpeg|png|webp);base64,/.test(value) && value.length < 4_500_000).slice(0, 2);
     const input = imageDataUrls.length && !body.simulateStudent ? [{ role: "user", content: [{ type: "input_text", text: `${conversation}\n\n圖片共有 ${imageDataUrls.length} 張，請按照第 1 頁、第 2 頁順序視為同一道跨頁題目閱讀。` }, ...imageDataUrls.map((image_url) => ({ type: "input_image", image_url }))] }] : conversation;
-    const guidedRules = guided ? `目前是以練題為主的引導學習模式。指定章節：${chapter}；題型：${questionType}；學生程度：${level}；目前階段：${stage}。不得一開始直接給完整答案。每一輪只推進一個可回答的小步驟。選擇題先請學生選答案並說理由，再逐項比較；計算題一次只要求完成一個算式或一組分錄；觀念題用例子、比較與反問釐清。讀題階段先問題目要求；條件階段整理數字、日期、單位與限制；準則階段選分類、準則或公式；計算階段檢查列式、計算或借貸分錄；核對階段才統整完整答案。學生答錯時先指出需要重想的判斷點，再給一層提示，不可立刻代答。入門用白話與二選一提示；進階要求自行提出準則及步驟；考前採簡潔考場追問。每次結尾只提出一個明確問題。` : "目前是自由問答模式，可依問題完整說明，但仍須逐步列式與核對。";
+    const guidedRules = guided ? `目前是申論逐步解題模式。題型：${questionType}；學生程度：${level}；目前階段：${stage}。不得一開始直接給完整答案。每輪只完成一個步驟，依序確認題目要求、已知條件、準則、計算式或分錄、完整作答與核對。學生答錯時先指出要重想的判斷點，再給一層提示。每次結尾只問一個明確問題。` : "目前是首頁課業答疑模式。學生不需要選書或選章節；直接針對觀念、準則、計算、分錄或照片題目回答。先給白話結論，再按需要逐步列式與核對。教材只作為背後的回答依據，不要要求學生進入章節學習。";
     const simulationRules = body.simulateStudent ? `你現在不是老師，而是模擬一位「${level}」程度的中會學生，針對對話中老師最後提出的問題作答。回答必須像真實學生：入門可能只抓到表面數字、混淆分類或公式；進階有方向但可能漏一個條件或計算步驟；考前應接近正確但仍留下值得追問的細節。只輸出學生的一次回答，不要批改自己、不要說明你在模擬、不要公布完整標準答案。` : "";
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,

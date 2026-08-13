@@ -81,13 +81,14 @@ async function uploadToVectorStore(document: typeof documents.$inferSelect, orig
 async function analyzeIndexedDocument(document: typeof documents.$inferSelect, storeId: string, facts: Record<string, unknown>) {
   const model = await getOpenAIModel("gpt-5.6-luna");
   const isMedtech = document.examCategory === "medtech";
+  const isAccounting = document.examCategory === "accounting";
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({
       model,
-      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的科目、章節、專有名詞、題目與分類，不得依一般醫學知識補造。保留中文、英文、縮寫、檢驗方法與數值單位；無法確認的欄位留空。題目只在原檔明確有題號、題型或考題標記時列出。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的章節、題目與分類，不得依一般法律知識補造。無法確認的欄位請留空或不列出。題目只在檔案明確有題號、題型或考題標記時列出；章節只列出原文可確認的篇、章、節或主題。",
-      input: `請處理教材「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。本機已完成的技術檢查與結構線索如下，僅供核對，不得取代原檔搜尋：${JSON.stringify(facts)}`,
-      tools: [{ type: "file_search", vector_store_ids: [storeId], max_num_results: 24 }],
+      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的科目、章節、專有名詞、題目與分類，不得補造。" : isAccounting ? "你是台灣中級會計教材與題庫資料編輯。必須使用 file_search 廣泛讀取指定原檔，做完整題目盤點，不是摘要抽樣。逐章辨識所有明確存在的例題、範例、選擇題、練習題、計算題、分錄題、申論題及其子題；跨頁題幹合併為同一題，(1)(2)(3) 子題保留在同一題 title 內，不可各算一題。不同章的重複題號仍分別列出並標明 chapter。title 盡量保留完整題幹，不得只寫主題。content_type 標示選擇題、計算題、分錄題、申論題、例題或其他。只整理原檔內容，不得補造。題庫或年度解題以找齊全書題目為優先；核心教材同時盤點例題與章末練習。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的章節、題目與分類，不得補造。",
+      input: `請完整處理教材「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。搜尋目錄、各章題號頁、例題、練習、選擇題、計算題、分錄題與申論題等不同關鍵詞，盡可能盤點全書，不要只回傳代表性題目。結構線索僅供核對：${JSON.stringify(facts)}`,
+      tools: [{ type: "file_search", vector_store_ids: [storeId], max_num_results: isAccounting ? 50 : 24 }],
       text: {
         format: {
           type: "json_schema",
@@ -108,6 +109,7 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
           },
         },
       },
+      max_output_tokens: isAccounting ? 16000 : 6000,
     }),
   });
   const usage = payload.usage && typeof payload.usage === "object"
@@ -148,7 +150,7 @@ function localAnalysis(document: typeof documents.$inferSelect, facts: Record<st
 export async function POST(request: Request) {
   let documentId = 0;
   try {
-    const body = await request.json() as { documentId?: number; retry?: boolean };
+    const body = await request.json() as { documentId?: number; retry?: boolean; reanalyze?: boolean };
     documentId = Number(body.documentId);
     if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "文件編號不正確" }, { status: 400 });
     const db = await getDb();
@@ -158,7 +160,7 @@ export async function POST(request: Request) {
     // vector-index flags or no longer have a usable OpenAI file binding.  Only
     // short-circuit when the searchable index is actually complete.
     if (
-      !body.retry &&
+      !body.retry && !body.reanalyze &&
       document.status === "completed" &&
       document.processingStage === "completed" &&
       document.openaiFileId &&
