@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
     // has many columns, so keep batches comfortably below that limit.
-    const batchSize = 10;
+    const batchSize = 4;
     for (let start = 0; start < questions.length; start += batchSize) {
       await db.insert(examQuestions).values(questions.slice(start, start + batchSize).map((question) => ({
         examCategory: "medtech",
