@@ -15,7 +15,15 @@ function parseOptions(text: string) {
 }
 
 function parseQuestions(text: string): ParsedQuestion[] {
-  const lines = text.split(/\r?\n/u).map(clean).filter(Boolean);
+  // Word's automatic numbering is stored as a SEQ field.  The visible number
+  // can therefore be glued to the field code instead of starting a paragraph
+  // after DOCX extraction (for example: `SEQ 序 \\* ARABIC \\s +16. 題目`).
+  // Normalize those fields before looking for numbered questions.
+  const normalizedText = text.replace(
+    /SEQ\s*序\s*\\\*\s*ARABIC(?:\s*\\[a-z]+\s*[+\-]?\d+)*\s*(\d{1,3}[.、])/giu,
+    "\n$1",
+  );
+  const lines = normalizedText.split(/\r?\n/u).map(clean).filter(Boolean);
   const results: ParsedQuestion[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const start = lines[index].match(/^(\d{1,3})[.、]\s*(.+)$/u);
