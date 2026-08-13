@@ -27,7 +27,13 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "Luna 助教模型尚未設定。" }, { status: 503 });
     const db = await getDb();
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-    const enabledDocuments = await db.select({ id: documents.id, fileName: documents.fileName }).from(documents).where(and(eq(documents.examCategory, "accounting"), eq(documents.homepageSearchEnabled, true), eq(documents.vectorIndexed, true)));
+    const enabledDocuments = await db.select({ id: documents.id, fileName: documents.fileName, openaiFileId: documents.openaiFileId, subject: documents.subject, documentType: documents.documentType }).from(documents).where(and(eq(documents.examCategory, "accounting"), eq(documents.homepageSearchEnabled, true), eq(documents.vectorIndexed, true)));
+    if (setting?.value && enabledDocuments.length) {
+      await Promise.all(enabledDocuments.map(document => document.openaiFileId ? openAIJson(`/vector_stores/${setting.value}/files/${document.openaiFileId}`, {
+        method: "POST",
+        body: JSON.stringify({ attributes: { exam_category: "accounting", subject: document.subject, document_type: document.documentType, source_file: document.fileName, homepage_enabled: true } }),
+      }).catch(() => null) : null));
+    }
     const questionRows = await db.select({ examName:examQuestions.examName, questionNumber:examQuestions.questionNumber, year:examQuestions.year, stem:examQuestions.stem, optionsJson:examQuestions.optionsJson, explanation:examQuestions.explanation, teacherAnswer:examQuestions.teacherAnswer, teacherNotes:examQuestions.teacherNotes }).from(examQuestions).where(eq(examQuestions.examCategory,"accounting"));
     const matchQuery=messages.filter(item=>item.role==="student").slice(-3).map(item=>item.text).join("\n");
     const directMatch = questionRows.map(row=>({row,score:matchScore(matchQuery,row.stem)})).sort((a,b)=>b.score-a.score)[0];

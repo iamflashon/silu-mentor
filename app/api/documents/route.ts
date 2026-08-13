@@ -194,6 +194,7 @@ export async function PATCH(request: Request) {
       await openAIJson(`/vector_stores/${setting.value}/files/${document.openaiFileId}`, {
         method: "POST",
         body: JSON.stringify({ attributes: {
+          exam_category: document.examCategory,
           subject: document.subject,
           document_type: document.documentType,
           source_file: document.fileName,
