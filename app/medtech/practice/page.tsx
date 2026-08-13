@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import MedtechTabs from "../MedtechTabs";
 
 type Question = { id:number; year:string; questionNumber:string; stem:string; options:Record<string,string>; answer:string; explanation:string; answerSource:string; subject:string };
 const letters = ["A", "B", "C", "D"];
@@ -12,7 +13,7 @@ export default function MedtechPractice() {
   const params=typeof window!=="undefined"?new URLSearchParams(window.location.search):new URLSearchParams(); const topic=params.get("topic")||""; const wrongOnly=params.get("wrongOnly")==="1";
   useEffect(()=>{const query=new URLSearchParams({limit:"30"});if(topic)query.set("topic",topic);if(wrongOnly)query.set("wrongOnly","1");fetch(`/api/medtech/questions?${query}`).then(async response=>{const result=await response.json() as {items?:Question[];error?:string;message?:string};if(!response.ok)throw new Error(result.error||"題庫讀取失敗");setRows(result.items??[]);if(!result.items?.length)setError(result.message||"目前沒有符合條件的醫檢師題目。");}).catch(reason=>setError(reason instanceof Error?reason.message:"題庫讀取失敗")).finally(()=>setLoading(false));},[topic,wrongOnly]);
   const q=rows[index]; const score=useMemo(()=>rows.filter(item=>answers[item.id]===item.answer).length,[answers,rows]); const answered=Object.keys(answers).length;
-  const top=<header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>臨床病毒學</small></div></a><nav><a href="/medtech">首頁</a><a href="/medtech/practice" className="active">練國考題</a></nav></header>;
+  const top=<><header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>臨床病毒學</small></div></a></header><MedtechTabs active={wrongOnly?"wrong":"random"}/></>;
   async function submitExam(){setSubmitted(true);setIndex(0);const payload=Object.entries(answers).map(([questionId,answer])=>({questionId:Number(questionId),answer}));if(payload.length)await fetch("/api/medtech/questions",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({answers:payload})}).catch(()=>undefined);}
   useEffect(()=>{if(submitted)void submitExam();},[submitted]);
   if(loading||error||!q)return <main className="medtech-practice">{top}<section className="medtech-result"><span>{loading?"讀取中":"題庫狀態"}</span><h1>{loading?"正在準備題目…":error}</h1>{!loading&&<Link href="/medtech">返回醫檢師首頁</Link>}</section></main>;
