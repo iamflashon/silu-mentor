@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { appSettings, documents, usageLogs } from "../../../../db/schema";
+import { appSettings, documents, examQuestions, usageLogs } from "../../../../db/schema";
 import { getOpenAIModel, openAIHeaders, openAIJson } from "../../../../lib/openai";
 import { inspectDocumentBytes, MAX_DOCUMENT_BYTES, isSupportedDocument, resolveDocumentPayload } from "../../../../lib/document-processing";
 
@@ -10,7 +10,7 @@ type Analysis = {
   summary?: string;
   tags?: string[];
   chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
-  questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
+  questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string; year?: string; options?: Record<string, string>; correct_answer?: string; explanation?: string; teacher_answer?: string; page_start?: number | null; page_end?: number | null }>;
 };
 
 function responseText(payload: Record<string, unknown>) {
@@ -87,7 +87,7 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
     method: "POST",
     body: JSON.stringify({
       model,
-      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。" : isAccountingBook ? "你是台灣中級會計教材索引編輯。這是核心書本，不是題庫。必須使用 file_search 廣泛讀取指定原檔，完整整理篇、章、節、主題、重要觀念、會計準則、公式、分錄類型、例題所在主題與頁面範圍，建立供 AI 課業答疑檢索的內容索引。chapters 應保留階層 path 與可確認頁碼；tags 應涵蓋可搜尋的觀念詞。questions 必須回傳空陣列，不要把例題轉成練習題庫。只整理原檔明確內容，不得補造。" : isAccounting ? "你是台灣中級會計題庫資料編輯。必須使用 file_search 廣泛讀取指定原檔，做完整題目盤點，不是摘要抽樣。逐章辨識所有選擇題、計算題、分錄題、申論題及其子題；跨頁題幹合併為同一題，子題保留在同一題內。不同章的重複題號仍分別列出並標明 chapter。title 盡量保留完整題幹；content_type 準確標示題型。只整理原檔內容，不得補造。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。",
+      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。" : isAccountingBook ? "你是台灣中級會計教材索引編輯。這是核心書本，不是題庫。必須使用 file_search 廣泛讀取指定原檔，完整整理篇、章、節、主題、重要觀念、會計準則、公式、分錄類型、例題所在主題與頁面範圍，建立供 AI 課業答疑檢索的內容索引。chapters 應保留階層 path 與可確認頁碼；tags 應涵蓋可搜尋的觀念詞。questions 必須回傳空陣列，不要把例題轉成練習題庫。只整理原檔明確內容，不得補造。" : isAccounting ? "你是台灣中級會計題庫資料編輯。必須使用 file_search 廣泛讀取指定原檔，做完整題目盤點，不是摘要抽樣。逐章辨識所有選擇題、計算題、分錄題、申論題及其子題；跨頁題幹合併為同一題，子題保留在同一題內。不同章的重複題號仍分別列出並標明 chapter。title 必須保留可獨立作答的完整題幹，不可只寫題目摘要。選擇題必須逐字保存 A、B、C、D 四個選項；原稿有答案或解析時一併保存。申論、計算或分錄題的 options 四欄回傳空字串，並將原稿解答放入 teacher_answer。content_type 準確標示題型。只整理原檔內容，不得補造。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。",
       input: `請完整處理「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。${isAccountingBook ? "請以目錄、章節層級、準則、公式、分錄與重要觀念建立全文索引，不要拆成題庫。" : "請搜尋各章題號頁、選擇題、計算題、分錄題與申論題，盡可能盤點全書，不要只回傳代表性題目。"}結構線索僅供核對：${JSON.stringify(facts)}`,
       tools: [{ type: "file_search", vector_store_ids: [storeId], max_num_results: isAccounting ? 50 : 24 }],
       text: {
@@ -104,7 +104,11 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
               summary: { type: "string" },
               tags: { type: "array", items: { type: "string" } },
               chapters: { type: "array", items: { type: "object", additionalProperties: false, properties: { title: { type: "string" }, path: { type: "string" }, page_start: { type: ["integer", "null"] }, page_end: { type: ["integer", "null"] } }, required: ["title", "path", "page_start", "page_end"] } },
-              questions: { type: "array", items: { type: "object", additionalProperties: false, properties: { number: { type: "string" }, title: { type: "string" }, content_type: { type: "string" }, chapter: { type: "string" } }, required: ["number", "title", "content_type", "chapter"] } },
+              questions: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+                number: { type: "string" }, title: { type: "string" }, content_type: { type: "string" }, chapter: { type: "string" }, year: { type: "string" },
+                options: { type: "object", additionalProperties: false, properties: { A: { type: "string" }, B: { type: "string" }, C: { type: "string" }, D: { type: "string" } }, required: ["A", "B", "C", "D"] },
+                correct_answer: { type: "string" }, explanation: { type: "string" }, teacher_answer: { type: "string" }, page_start: { type: ["integer", "null"] }, page_end: { type: ["integer", "null"] },
+              }, required: ["number", "title", "content_type", "chapter", "year", "options", "correct_answer", "explanation", "teacher_answer", "page_start", "page_end"] } },
             },
             required: ["document_title", "content_type", "summary", "tags", "chapters", "questions"],
           },
@@ -117,6 +121,45 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
     ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
     : {};
   return { model, analysis: parseAnalysis(payload), usage };
+}
+
+function accountingExamType(document: typeof documents.$inferSelect, question: NonNullable<Analysis["questions"]>[number]) {
+  if (document.documentType === "申論題庫") return "essay";
+  const type = `${question.content_type ?? ""} ${question.title ?? ""}`;
+  const options = question.options ?? {};
+  return ["A", "B", "C", "D"].every((key) => String(options[key] ?? "").trim()) && !/申論|分錄|計算題/u.test(type) ? "mcq" : "essay";
+}
+
+async function saveAccountingQuestions(document: typeof documents.$inferSelect, questions: NonNullable<Analysis["questions"]>) {
+  if (document.examCategory !== "accounting" || document.documentType === "核心教材") return 0;
+  const db = await getDb();
+  const sourceUrl = `document:${document.id}`;
+  await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "accounting"), eq(examQuestions.sourceUrl, sourceUrl), eq(examQuestions.status, "draft")));
+  let saved = 0;
+  for (const [index, question] of questions.entries()) {
+    const stem = String(question.title ?? "").trim();
+    if (!stem) continue;
+    const examType = accountingExamType(document, question);
+    const options = question.options ?? {};
+    const teacherAnswer = String(question.teacher_answer || (examType === "essay" ? question.explanation : "") || "").trim();
+    try {
+      await db.insert(examQuestions).values({
+        examCategory: "accounting", examType,
+        year: String(question.year || (document.documentType === "年度解題" ? "114" : "題庫")).trim(),
+        examName: document.documentType, subject: document.subject,
+        questionNumber: String(question.number || index + 1), stem,
+        optionsJson: examType === "mcq" ? JSON.stringify(options) : null,
+        correctAnswer: String(question.correct_answer ?? "").replace(/[()（）\s]/g, "").slice(0, 1).toUpperCase() || null,
+        explanation: String(question.explanation ?? "").trim(), teacherAnswer,
+        teacherNotes: String(question.chapter ?? "").trim(),
+        answerSource: teacherAnswer || question.correct_answer ? "上傳教材原稿" : "",
+        answerStatus: teacherAnswer || question.correct_answer ? "source_matched" : "missing",
+        sourceUrl, status: "draft",
+      });
+      saved += 1;
+    } catch { /* keep the remaining extracted questions */ }
+  }
+  return saved;
 }
 
 function hasReliableLocalStructure(facts: Record<string, unknown>) {
@@ -259,8 +302,12 @@ export async function POST(request: Request) {
         estimatedCostUsdMicros: 2500,
       }).catch(() => undefined);
     }
-    await db.update(documents).set({ status: "completed", processingStage: "completed", processingMessage: ruleOnly ? "教材結構完整，已用規則整理並完成全文／向量索引；未使用生成式 AI" : ai?.analysis ? "教材已完成檢查、擷取、分類、全文／向量索引與 AI 結構分析" : "教材已完成全文／向量索引；AI 未確認可保存的章節或題目，未自行補造", chapterCount: chapters.length || Number((facts.chapterCandidates as unknown[])?.length ?? 0), questionCount: questions.length || Number((facts.questionCandidates as unknown[])?.length ?? 0), tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...localTags, ...aiTags])), processingResultJson: JSON.stringify(result), processedAt: new Date(), indexError: null, fullTextIndexed: true, vectorIndexed: true }).where(eq(documents.id, documentId));
-    return Response.json({ status: "completed", stage: "completed", message: "教材自動處理完成" });
+    const savedQuestions = await saveAccountingQuestions(document, questions);
+    const completedMessage = document.examCategory === "accounting" && document.documentType !== "核心教材"
+      ? `教材拆解完成，${savedQuestions} 題已進入待審核題庫`
+      : ruleOnly ? "教材結構完整，已用規則整理並完成全文／向量索引；未使用生成式 AI" : ai?.analysis ? "教材已完成檢查、擷取、分類、全文／向量索引與 AI 結構分析" : "教材已完成全文／向量索引；AI 未確認可保存的章節或題目，未自行補造";
+    await db.update(documents).set({ status: "completed", processingStage: "completed", processingMessage: completedMessage, chapterCount: chapters.length || Number((facts.chapterCandidates as unknown[])?.length ?? 0), questionCount: document.examCategory === "accounting" && document.documentType !== "核心教材" ? savedQuestions : questions.length || Number((facts.questionCandidates as unknown[])?.length ?? 0), tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...localTags, ...aiTags])), processingResultJson: JSON.stringify({ ...result, savedQuestions }), processedAt: new Date(), indexError: null, fullTextIndexed: true, vectorIndexed: true }).where(eq(documents.id, documentId));
+    return Response.json({ status: "completed", stage: "completed", message: completedMessage, savedQuestions });
   } catch (error) {
     const message = processingError(error);
     if (documentId) {
