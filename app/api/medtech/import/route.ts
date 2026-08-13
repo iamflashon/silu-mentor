@@ -68,7 +68,9 @@ export async function POST(request: Request) {
     const questions = parseQuestions(inspected.text);
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
     await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
-    const batchSize = 80;
+    // D1 limits the number of bound values in one statement. Each question
+    // has many columns, so keep batches comfortably below that limit.
+    const batchSize = 10;
     for (let start = 0; start < questions.length; start += batchSize) {
       await db.insert(examQuestions).values(questions.slice(start, start + batchSize).map((question) => ({
         examCategory: "medtech",
