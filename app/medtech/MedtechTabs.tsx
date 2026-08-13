@@ -6,5 +6,5 @@ export default function MedtechTabs({active}:{active:"chapters"|"random"|"wrong"
     ["guided","引導學習","/medtech/ai-study"],
     ["notes","我的筆記","/medtech/notes"],
   ];
-  return <nav className="medtech-study-tabs" data-no-navigation-feedback aria-label="醫檢師學習模式">{tabs.map(([key,label,href])=><a className={active===key?"active":""} href={href} key={key}>{label}</a>)}</nav>;
+  return <nav className="medtech-study-tabs" aria-label="醫檢師學習模式">{tabs.map(([key,label,href])=><a className={active===key?"active":""} href={href} key={key}>{label}</a>)}</nav>;
 }
