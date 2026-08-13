@@ -4,6 +4,7 @@ import { appSettings, documents, examQuestions, usageLogs } from "../../../../db
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
+import { requireAdmin } from "../../../../lib/member-auth";
 
 type Turn = { role: "student" | "mentor"; text: string };
 function outputText(payload: Record<string, unknown>) { if (typeof payload.output_text === "string") return payload.output_text.trim(); const output = Array.isArray(payload.output) ? payload.output : []; return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []).map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim(); }
@@ -21,6 +22,10 @@ function matchScore(query:string,stem:string){const q=matchText(query),s=matchTe
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { messages?: Turn[]; mode?: string; level?: string; stage?: string; chapter?: string; questionType?: string; simulateStudent?: boolean; imageDataUrls?: string[] };
+    if (body.simulateStudent) {
+      const auth = await requireAdmin(request);
+      if ("error" in auth) return auth.error;
+    }
     const messages = (body.messages ?? []).filter((item) => item && ["student", "mentor"].includes(item.role) && typeof item.text === "string").slice(-10);
     const latest = [...messages].reverse().find((item) => item.role === "student")?.text.trim();
     if (!latest) return Response.json({ error: "請先輸入中級會計問題。" }, { status: 400 });
@@ -52,7 +57,7 @@ export async function POST(request: Request) {
     const groundedConversation=`${boundEvidence?`${boundEvidence}\n\n`:""}${conversation}`;
     const input = imageDataUrls.length && !body.simulateStudent ? [{ role: "user", content: [{ type: "input_text", text: `${groundedConversation}\n\n圖片共有 ${imageDataUrls.length} 張，請按照第 1 頁、第 2 頁順序視為同一道跨頁題目閱讀。` }, ...imageDataUrls.map((image_url) => ({ type: "input_image", image_url }))] }] : groundedConversation;
     const guidedRules = guided ? `目前是申論逐步解題模式。題型：${questionType}；學生程度：${level}；目前階段：${stage}。不得一開始直接給完整答案。每輪只完成一個步驟，依序確認題目要求、已知條件、準則、計算式或分錄、完整作答與核對。學生答錯時先指出要重想的判斷點，再給一層提示。每次結尾只問一個明確問題。` : "目前是首頁課業答疑模式。學生不需要選書或選章節；直接針對觀念、準則、計算、分錄或照片題目回答。先給白話結論，再按需要逐步列式與核對。教材只作為背後的回答依據，不要要求學生進入章節學習。";
-    const simulationRules = body.simulateStudent ? `你現在不是老師，而是模擬一位「${level}」程度的中會學生，針對對話中老師最後提出的問題作答。回答必須像真實學生：入門可能只抓到表面數字、混淆分類或公式；進階有方向但可能漏一個條件或計算步驟；考前應接近正確但仍留下值得追問的細節。只輸出學生的一次回答，不要批改自己、不要說明你在模擬、不要公布完整標準答案。` : "";
+    const simulationRules = body.simulateStudent ? `你現在不是老師，而是模擬一位「${level}」程度的中會學生。先閱讀 Luna 助教最後一則回答，找出其中最可能還沒聽懂的一個觀念、計算步驟、分錄方向或教材依據，提出一個自然且具體的接續問題。問題必須延續目前同一題，不得另起新題；不要重貼整題，不要批改老師，不要說明你在模擬，也不要自行公布答案。只輸出學生要送出的那一句或一小段繁體中文問題。` : "";
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
       instructions: `你是臺灣國考與校內考試的中級會計學 AI 教練。只能以中級會計學、IFRS 與所附會計教材範圍回答，絕不可混入司律或醫檢師內容。以繁體中文教學。${simulationRules || guidedRules} ${body.simulateStudent ? "" : `先確認題目要求與已知條件，再依序說明適用準則、計算或分錄、最後核對。數字題必須逐步列式並檢查單位；分錄題要明列借方、貸方與金額；觀念題要區分原則、適用條件與常見陷阱。若資料不足，直接指出還缺哪些條件，不可自行補造數字。已開放老師教材時必須先搜尋教材；若附有圖片，先辨認題目中的關鍵句、科目與數字，再用關鍵句搜尋教材。${boundQuestion?"輸入中已有【已入庫老師題庫直接命中】，這就是有效教材依據；必須依該題教材答案校準，不得再說未命中教材。":"只有在題庫直接比對與 file_search 的實際結果都沒有教材時，才明示本次未找到已開放的中會教材。"}`}只輸出純文字，避免 Markdown 表格與標題符號。`,
