@@ -62,7 +62,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json() as { answers?: Array<{ questionId: number; answer: string }> };
+  const body = await request.json() as { answers?: Array<{ questionId: number; answer: string }>; masteredQuestionId?: number };
+  if (Number.isInteger(body.masteredQuestionId)) {
+    const db = await getDb();
+    const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, Number(body.masteredQuestionId)), eq(examQuestions.examCategory, "medtech"))).limit(1);
+    if (!question) return Response.json({ error: "找不到醫檢師題目" }, { status: 404 });
+    await db.insert(examAttempts).values({ userKey: userKey(request), questionId: question.id, selectedAnswer: null, correct: true, gradingJson: JSON.stringify({ action: "mastered" }) });
+    await db.insert(studyRecords).values({ userKey: userKey(request), questionId: question.id, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師錯題複習", correct: true, weakness: "", nextStep: "已手動標記學會" });
+    return Response.json({ mastered: true, questionId: question.id });
+  }
   const answers = (body.answers ?? []).filter((item) => Number.isInteger(item.questionId) && /^[A-D]$/.test(item.answer));
   if (!answers.length) return Response.json({ saved: 0 });
   const db = await getDb();
