@@ -22,6 +22,7 @@ function isEditable(node: Node | null) {
 export default function GlobalSelectionTools() {
   const pathname = usePathname();
   const isMedtech = pathname.startsWith("/medtech");
+  const isAccounting = pathname.startsWith("/accounting");
   const [selectedText, setSelectedText] = useState("");
   const [editingSelection, setEditingSelection] = useState(false);
   const [lawQuery, setLawQuery] = useState("");
@@ -124,14 +125,19 @@ export default function GlobalSelectionTools() {
     dismiss(); const current = lookup ?? { mode: "explain" as const, loading: false, article: null, decision: null, error: "", explanation: "", analysis: null, explaining: false, usage: null };
     setLookup({ ...current, mode: "explain", loading: !lookup, explaining: true, error: "" });
     const reference = current.article ?? (current.decision ? { title: current.decision.court, articleNo: `${current.decision.year}年度${current.decision.caseType}字第${current.decision.caseNo}號`, content: current.decision.fullText || current.decision.excerpt } : null);
-    const response = await fetch(isMedtech ? "/api/medtech/explain" : "/api/legal-explain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(isMedtech ? { selectedText } : { selectedText, article: reference }) }); const data = await response.json();
-    const explanation = typeof data.explanation === "string" ? data.explanation.trim() : "";
+    const response = await fetch(isMedtech ? "/api/medtech/explain" : isAccounting ? "/api/accounting/tutor" : "/api/legal-explain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(isMedtech ? { selectedText } : isAccounting ? { messages: [{ role: "student", text: `請只針對這段中級會計內容做簡短白話說明：\n${selectedText}` }], mode: "free" } : { selectedText, article: reference }) }); const data = await response.json();
+    const explanation = typeof (isAccounting ? data.reply : data.explanation) === "string" ? String(isAccounting ? data.reply : data.explanation).trim() : "";
     const looksLikeRawJson = explanation.startsWith("{") || explanation.includes('"analysis"') || explanation.includes('"explanation"');
     const valid = response.ok && explanation.length > 0 && !looksLikeRawJson;
     setLookup((latest) => latest ? { ...latest, mode: "explain", loading: false, explaining: false, explanation: valid ? explanation : "", analysis: valid && data.analysis && typeof data.analysis === "object" ? data.analysis : null, usage: valid ? data.usage ?? null : null, error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。" } : latest);
   }
 
   function noteFromLookup(): NoteDraft {
+    if (isAccounting) {
+      const parts = [selectedText];
+      if (lookup?.explanation) parts.push(`中會白話說明\n${lookup.explanation}`);
+      return { title: selectedText.slice(0, 32) || "中級會計學習筆記", content: parts.filter(Boolean).join("\n\n"), subject: "中級會計", tags: "中會、待複習", sourceLabel: "Luna 助教答疑" };
+    }
     if (isMedtech) {
       const parts = [selectedText];
       if (lookup?.explanation) parts.push(`醫檢白話解析\n${lookup.explanation}`);
@@ -182,6 +188,9 @@ export default function GlobalSelectionTools() {
       {isMedtech ? <>
         <button type="button" onClick={() => void saveMedtechSelection()} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saving" ? "儲存中…" : saveState === "saved" ? "已加入 ✓" : "加入筆記"}</button>
         <button type="button" onClick={() => void explain()}>醫檢白話解析</button>
+      </> : isAccounting ? <>
+        <button type="button" className="selection-edit-button" onClick={() => setEditingSelection((current) => !current)}>{editingSelection ? "完成" : "編輯"}</button>
+        <button type="button" onClick={() => void explain()}>中會白話說明</button>
       </> : <>
         <button type="button" className="selection-edit-button" onClick={() => setEditingSelection((current) => !current)}>{editingSelection ? "完成" : "編輯"}</button>
         {judicialQuery ? <button type="button" onClick={() => void searchJudicial()}>裁判搜尋</button> : <button type="button" onClick={() => void searchLaw()} disabled={!lawQuery} title={lawQuery ? `搜尋 ${lawQuery}` : "請先編輯為單一、完整的法規名稱與條號"}>法條搜尋</button>}
@@ -190,7 +199,7 @@ export default function GlobalSelectionTools() {
     </div>}
     {lookup && <div className="law-lookup-backdrop" role="presentation" onMouseDown={close}>
       <aside className="law-lookup-panel" role="dialog" aria-modal="true" aria-label="智能框選結果" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><span>{isMedtech ? "醫檢 AI 助教｜專有名詞解析" : lookup.mode === "explain" ? "AI 法律助教｜辨識與拆解" : lookup.decision ? "司法院裁判資料庫｜已下載資料" : "全國法規資料庫｜已下載資料"}</span><h3>{selectedText || "框選內容"}</h3></div><button type="button" onClick={close} aria-label="關閉">×</button></header>
+        <header><div><span>{isMedtech ? "醫檢 AI 助教｜專有名詞解析" : isAccounting ? "Luna 助教｜中會白話說明" : lookup.mode === "explain" ? "AI 法律助教｜辨識與拆解" : lookup.decision ? "司法院裁判資料庫｜已下載資料" : "全國法規資料庫｜已下載資料"}</span><h3>{selectedText || "框選內容"}</h3></div><button type="button" onClick={close} aria-label="關閉">×</button></header>
         {lookup.loading ? <p className="law-lookup-status">{isMedtech ? "正在整理中文、英文與臨床檢驗重點…" : lookup.mode === "explain" ? "正在辨識法律類型並進行白話拆解…" : "正在查詢已下載的法規／裁判資料…"}</p> : lookup.mode === "explain" && !lookup.article && !lookup.decision ? <>
           {lookup.error ? <p className="law-lookup-status error">{lookup.error}</p> : <section className="legal-analysis-card">
             <small>框選內容</small><h4>{selectedText}</h4>
@@ -203,7 +212,7 @@ export default function GlobalSelectionTools() {
               {lookup.analysis.verification && <div><span>{isMedtech ? "國考重點" : "查證來源"}</span><b>{lookup.analysis.verification}</b></div>}
             </div>}
             {lookup.analysis?.points?.length ? <div className="legal-analysis-points"><b>拆解重點</b><ul>{lookup.analysis.points.map((point, index) => <li key={index}>{point}</li>)}</ul></div> : null}
-            <div className="law-plain-explanation"><b>{isMedtech ? "醫檢白話解析" : "白話解釋"}</b><p>{lookup.explanation}</p>{lookup.analysis?.caveat && <small>{lookup.analysis.caveat}</small>}</div>
+            <div className="law-plain-explanation"><b>{isMedtech ? "醫檢白話解析" : isAccounting ? "中會白話說明" : "白話解釋"}</b><p>{lookup.explanation}</p>{lookup.analysis?.caveat && <small>{lookup.analysis.caveat}</small>}</div>
             {lookup.usage && <div className="law-usage-meta"><b>{lookup.usage.model.replace("gpt-5.6-", "")}｜{isMedtech ? "AI 醫檢白話解析" : "AI 法律辨識與白話解釋"}</b><span>輸入 {lookup.usage.inputTokens.toLocaleString()} · 輸出 {lookup.usage.outputTokens.toLocaleString()} · 合計 {(lookup.usage.inputTokens + lookup.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {lookup.usage.durationMs.toLocaleString()} ms · US$ {lookup.usage.estimatedCostUsd.toFixed(6)} · 約 NT$ {(lookup.usage.estimatedCostUsd * 32.5).toFixed(4)}</span></div>}
           </section>}
         </> : lookup.article ? <>
