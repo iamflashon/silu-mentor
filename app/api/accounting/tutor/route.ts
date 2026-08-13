@@ -18,6 +18,14 @@ function fileSearchResults(payload: Record<string, unknown>) {
 }
 function matchText(value:string){return value.toLowerCase().replace(/\[\[page:\s*\d+\]\]/giu,"").replace(/[\s，。！？、；：,.!?;:（）()$％%]/gu,"")}
 function matchScore(query:string,stem:string){const q=matchText(query),s=matchText(stem);if(q.length<12||s.length<12)return 0;if(q.includes(s.slice(0,Math.min(80,s.length)))||s.includes(q.slice(0,Math.min(80,q.length))))return 1;const chunks=[...new Set(Array.from({length:Math.max(0,q.length-11)},(_,i)=>q.slice(i,i+12)))];if(!chunks.length)return 0;return chunks.filter(chunk=>s.includes(chunk)).length/chunks.length}
+function sourceBookName(value:string){
+  return value
+    .trim()
+    .replace(/\.pdf$/iu,"")
+    .replace(/^51MG\d+[_-]?/iu,"")
+    .replace(/全書$/u,"")
+    .trim();
+}
 
 export async function POST(request: Request) {
   try {
@@ -75,8 +83,8 @@ export async function POST(request: Request) {
     const estimatedCostUsdMicros = estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens });
     const searchResults = fileSearchResults(payload);
     await db.insert(usageLogs).values({ model, source: guided ? "中會引導學習" : "中會首頁 AI", inputTokens, outputTokens, cachedTokens, fileSearchCalls: searchResults.length ? 1 : 0, estimatedCostUsdMicros });
-    const searchedFiles = [...new Set(searchResults.map(result => String(result.filename ?? "").trim()).filter(Boolean))].slice(0, 3);
-    const directSource=boundQuestion?`${boundQuestion.examName}｜${boundQuestion.year}｜第 ${boundQuestion.questionNumber} 題${boundQuestion.teacherNotes?`｜${boundQuestion.teacherNotes}`:""}`:"";
-    return Response.json({ reply, source: directSource?`已命中老師教材：${directSource}`:searchResults.length ? `已命中老師教材：${searchedFiles.length?searchedFiles.join("、"):`共 ${searchResults.length} 個相關片段`}` : allowSearch ? "本次已搜尋，但未命中老師教材" : "尚無已開放搜尋的老師教材，以下為 AI 一般知識說明", usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
+    const searchedFiles = [...new Set(searchResults.map(result => sourceBookName(String(result.filename ?? ""))).filter(Boolean))].slice(0, 3);
+    const directSource=boundQuestion?sourceBookName(boundQuestion.examName):"";
+    return Response.json({ reply, source: directSource?`依據來源：${directSource}`:searchResults.length ? `依據來源：${searchedFiles.length?searchedFiles.join("、"):`老師教材相關片段`}` : allowSearch ? "本次已搜尋，但未命中老師教材" : "尚無已開放搜尋的老師教材，以下為 AI 一般知識說明", usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Luna 助教 回答失敗" }, { status: 500 }); }
 }
