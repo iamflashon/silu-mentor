@@ -82,12 +82,13 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
   const model = await getOpenAIModel("gpt-5.6-luna");
   const isMedtech = document.examCategory === "medtech";
   const isAccounting = document.examCategory === "accounting";
+  const isAccountingBook = isAccounting && document.documentType === "核心教材";
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({
       model,
-      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的科目、章節、專有名詞、題目與分類，不得補造。" : isAccounting ? "你是台灣中級會計教材與題庫資料編輯。必須使用 file_search 廣泛讀取指定原檔，做完整題目盤點，不是摘要抽樣。逐章辨識所有明確存在的例題、範例、選擇題、練習題、計算題、分錄題、申論題及其子題；跨頁題幹合併為同一題，(1)(2)(3) 子題保留在同一題 title 內，不可各算一題。不同章的重複題號仍分別列出並標明 chapter。title 盡量保留完整題幹，不得只寫主題。content_type 標示選擇題、計算題、分錄題、申論題、例題或其他。只整理原檔內容，不得補造。題庫或年度解題以找齊全書題目為優先；核心教材同時盤點例題與章末練習。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理檔案中明確存在的章節、題目與分類，不得補造。",
-      input: `請完整處理教材「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。搜尋目錄、各章題號頁、例題、練習、選擇題、計算題、分錄題與申論題等不同關鍵詞，盡可能盤點全書，不要只回傳代表性題目。結構線索僅供核對：${JSON.stringify(facts)}`,
+      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。" : isAccountingBook ? "你是台灣中級會計教材索引編輯。這是核心書本，不是題庫。必須使用 file_search 廣泛讀取指定原檔，完整整理篇、章、節、主題、重要觀念、會計準則、公式、分錄類型、例題所在主題與頁面範圍，建立供 AI 課業答疑檢索的內容索引。chapters 應保留階層 path 與可確認頁碼；tags 應涵蓋可搜尋的觀念詞。questions 必須回傳空陣列，不要把例題轉成練習題庫。只整理原檔明確內容，不得補造。" : isAccounting ? "你是台灣中級會計題庫資料編輯。必須使用 file_search 廣泛讀取指定原檔，做完整題目盤點，不是摘要抽樣。逐章辨識所有選擇題、計算題、分錄題、申論題及其子題；跨頁題幹合併為同一題，子題保留在同一題內。不同章的重複題號仍分別列出並標明 chapter。title 盡量保留完整題幹；content_type 準確標示題型。只整理原檔內容，不得補造。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。",
+      input: `請完整處理「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。${isAccountingBook ? "請以目錄、章節層級、準則、公式、分錄與重要觀念建立全文索引，不要拆成題庫。" : "請搜尋各章題號頁、選擇題、計算題、分錄題與申論題，盡可能盤點全書，不要只回傳代表性題目。"}結構線索僅供核對：${JSON.stringify(facts)}`,
       tools: [{ type: "file_search", vector_store_ids: [storeId], max_num_results: isAccounting ? 50 : 24 }],
       text: {
         format: {
@@ -242,7 +243,7 @@ export async function POST(request: Request) {
     const ai = ruleOnly ? null : await analyzeIndexedDocument(document, storeId, facts);
     const analysis = ruleOnly ? localAnalysis(document, facts) : ai?.analysis ?? {};
     const chapters = Array.isArray(analysis.chapters) ? analysis.chapters.filter((item) => String(item?.title ?? "").trim()).slice(0, 120) : [];
-    const questions = Array.isArray(analysis.questions) ? analysis.questions.filter((item) => String(item?.title ?? item?.number ?? "").trim()).slice(0, 240) : [];
+    const questions = document.examCategory === "accounting" && document.documentType === "核心教材" ? [] : Array.isArray(analysis.questions) ? analysis.questions.filter((item) => String(item?.title ?? item?.number ?? "").trim()).slice(0, 240) : [];
     const localTags = Array.isArray(facts.inferredTags) ? facts.inferredTags.map(String) : [];
     const aiTags = Array.isArray(analysis.tags) ? analysis.tags.map(String) : [];
     const metadata = facts.metadata && typeof facts.metadata === "object" ? facts.metadata : {};
