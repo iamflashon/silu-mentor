@@ -6,9 +6,14 @@ function userKey(request: Request) { return request.headers.get("oai-authenticat
 
 export async function GET(request: Request) {
   try {
-    const query = new URL(request.url).searchParams.get("q")?.trim() ?? ""; const db = await getDb();
+    const params = new URL(request.url).searchParams;
+    const query = params.get("q")?.trim() ?? "";
+    const category = params.get("category")?.trim() ?? "";
+    const db = await getDb();
     const owner = eq(savedNotes.userKey, userKey(request));
-    const where = query ? and(owner, or(like(savedNotes.title, `%${query}%`), like(savedNotes.content, `%${query}%`), like(savedNotes.tags, `%${query}%`))) : owner;
+    const categoryFilter = category === "medtech" ? or(like(savedNotes.sourceId, "medtech-selection-%"), like(savedNotes.subject, "醫檢師%"), like(savedNotes.tags, "%醫檢師%")) : undefined;
+    const queryFilter = query ? or(like(savedNotes.title, `%${query}%`), like(savedNotes.content, `%${query}%`), like(savedNotes.tags, `%${query}%`)) : undefined;
+    const where = categoryFilter && queryFilter ? and(owner, categoryFilter, queryFilter) : categoryFilter ? and(owner, categoryFilter) : queryFilter ? and(owner, queryFilter) : owner;
     const notes = await db.select().from(savedNotes).where(where).orderBy(desc(savedNotes.updatedAt)).limit(100);
     const attachments = notes.length
       ? await db.select().from(noteAttachments).where(inArray(noteAttachments.noteId, notes.map((note) => note.id)))
