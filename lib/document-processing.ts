@@ -87,6 +87,21 @@ export function resolveDocumentPayload(fileName: string, contentType: string, by
     });
   const selected = candidates[0];
   if (!selected) throw new Error("ZIP 內找不到可處理的 PDF、JSONL、MD、TXT 或 DOCX 文件");
+  const docxEntries = candidates
+    .filter((entry) => entry.extension === "docx")
+    .sort((left, right) => left.name.localeCompare(right.name, "zh-Hant", { numeric: true }));
+  if (docxEntries.length > 1) {
+    const combinedText = docxEntries.map((entry) => {
+      const innerName = entry.name.split(/[\\/]/).filter(Boolean).at(-1) ?? entry.name;
+      return `\n\n===== ${innerName} =====\n\n${extractDocxText(toArrayBuffer(entry.value))}`;
+    }).join("");
+    return {
+      fileName: `${fileName.replace(/\.zip$/i, "")}-完整合併.txt`,
+      contentType: "text/plain",
+      bytes: new TextEncoder().encode(combinedText).buffer as ArrayBuffer,
+      containerFileName: fileName,
+    };
+  }
   const safeInnerName = selected.name.split(/[\\/]/).filter(Boolean).at(-1) ?? selected.name;
   return {
     fileName: safeInnerName,

@@ -157,14 +157,15 @@ export async function POST(request: Request) {
     // vector-index flags or no longer have a usable OpenAI file binding.  Only
     // short-circuit when the searchable index is actually complete.
     if (
+      !body.retry &&
       document.status === "completed" &&
       document.processingStage === "completed" &&
       document.openaiFileId &&
       document.fullTextIndexed &&
       document.vectorIndexed
     ) return Response.json({ status: "completed", document });
-    if (body.retry && document.status === "failed") {
-      await db.update(documents).set({ status: "uploaded", processingStage: "queued", processingMessage: "已重新排入自動處理", indexError: null }).where(eq(documents.id, documentId));
+    if (body.retry) {
+      await db.update(documents).set({ status: "uploaded", processingStage: "queued", processingMessage: "已由原始教材重新擷取全部檔案", indexError: null, fileSha256: null, openaiFileId: null, fullTextIndexed: false, vectorIndexed: false }).where(eq(documents.id, documentId));
       [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
     }
     if (!document) throw new Error("找不到這份文件");
