@@ -17,6 +17,20 @@ export const members = sqliteTable("members", {
     .$defaultFn(() => new Date()),
 });
 
+export const memberExamAccess = sqliteTable("member_exam_access", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  examCategory: text("exam_category").notNull(),
+  status: text("status").notNull().default("active"),
+  canAdmin: integer("can_admin", { mode: "boolean" }).notNull().default(false),
+  className: text("class_name").notNull().default("未分班"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("member_exam_access_member_category_unique").on(table.memberId, table.examCategory),
+  index("member_exam_access_category_status_idx").on(table.examCategory, table.status),
+]);
+
 export const documents = sqliteTable("documents", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   storageKey: text("storage_key").notNull().unique(),

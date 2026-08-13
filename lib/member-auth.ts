@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { members } from "../db/schema";
+import { memberExamAccess, members } from "../db/schema";
 
 export type MemberRole = "teacher" | "student";
 
@@ -49,5 +49,23 @@ export async function requireAdmin(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth;
   if (!auth.member.canAdmin) return { error: Response.json({ error: "需要管理員權限" }, { status: 403 }) } as const;
+  return auth;
+}
+
+export async function requireMedtechMember(request: Request) {
+  const auth = await requireMember(request);
+  if ("error" in auth) return auth;
+  let [access] = await auth.db.select().from(memberExamAccess).where(and(eq(memberExamAccess.memberId, auth.member.id), eq(memberExamAccess.examCategory, "medtech"))).limit(1);
+  if (!access && auth.member.email === OWNER_EMAIL) {
+    [access] = await auth.db.insert(memberExamAccess).values({ memberId: auth.member.id, examCategory: "medtech", status: "active", canAdmin: true, className: "管理員" }).returning();
+  }
+  if (!access || access.status !== "active") return { error: Response.json({ error: "此帳號尚未開通醫檢師類科" }, { status: 403 }) } as const;
+  return { ...auth, access } as const;
+}
+
+export async function requireMedtechAdmin(request: Request) {
+  const auth = await requireMedtechMember(request);
+  if ("error" in auth) return auth;
+  if (!auth.access.canAdmin) return { error: Response.json({ error: "需要醫檢師管理權限" }, { status: 403 }) } as const;
   return auth;
 }
