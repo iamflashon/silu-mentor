@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: "中級會計備考", description: "�
 
 const tabs = [
   { label: "練題庫", detail: "依章節、年度與弱點練習歷屆題", href: "/accounting/practice", mark: "01" },
-  { label: "解申論", detail: "逐步檢查計算、分錄與答案", href: "#accounting-coach", mark: "02" },
+  { label: "引導學習", detail: "逐步拆題、計算、分錄與核對", href: "#accounting-coach", mark: "02" },
   { label: "學章節", detail: "沿著 17 章教材建立完整觀念", href: "/accounting/chapters", mark: "03" },
   { label: "整觀念", detail: "比較準則、衡量與易錯差異", href: "#accounting-coach", mark: "04" },
 ];
