@@ -67,16 +67,19 @@ export async function GET(request: Request) {
   const examType = url.searchParams.get("examType") || "all";
   const year = url.searchParams.get("year") || "all";
   const subject = url.searchParams.get("subject") || "all";
+  const examCategory = url.searchParams.get("examCategory") || "all";
   const filters = [];
   if (status !== "all") filters.push(eq(examQuestions.status, status));
   if (examType !== "all") filters.push(eq(examQuestions.examType, examType));
   if (year !== "all") filters.push(eq(examQuestions.year, year));
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
+  if (examCategory !== "all") filters.push(eq(examQuestions.examCategory, examCategory));
   const db = await getDb();
   const where = filters.length ? and(...filters) : undefined;
   const facetFilters = [];
   if (status !== "all") facetFilters.push(eq(examQuestions.status, status));
   if (examType !== "all") facetFilters.push(eq(examQuestions.examType, examType));
+  if (examCategory !== "all") facetFilters.push(eq(examQuestions.examCategory, examCategory));
   const facetWhere = facetFilters.length ? and(...facetFilters) : undefined;
   const [items, countRows, totals, typeTotals, years, subjects] = await Promise.all([
     db.select().from(examQuestions).where(where).orderBy(desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
@@ -136,6 +139,7 @@ export async function PATCH(request: Request) {
     teacherAnswer?: string;
     teacherNotes?: string;
     rubricJson?: string;
+    examCategory?: string;
   };
   const db = await getDb();
   if (body.action === "update") {
@@ -160,7 +164,8 @@ export async function PATCH(request: Request) {
     return Response.json({ question: updated });
   }
   if (body.publishAllDrafts) {
-    const rows = await db.update(examQuestions).set({ status: "published" }).where(sql`${examQuestions.status} = 'draft' AND (${examQuestions.examType} = 'mcq' OR ${examQuestions.teacherAnswer} <> '')`).returning({ id: examQuestions.id });
+    const category = ["law", "accounting", "medtech"].includes(body.examCategory || "") ? body.examCategory! : "law";
+    const rows = await db.update(examQuestions).set({ status: "published" }).where(and(eq(examQuestions.examCategory, category), sql`${examQuestions.status} = 'draft' AND (${examQuestions.examType} = 'mcq' OR ${examQuestions.teacherAnswer} <> '')`)).returning({ id: examQuestions.id });
     return Response.json({ updated: rows.length });
   }
   const ids = body.ids?.length ? body.ids : body.id ? [body.id] : [];

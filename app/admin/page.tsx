@@ -692,6 +692,7 @@ export default function AdminPage() {
   );
   const [questionTypeTotals, setQuestionTypeTotals] = useState<Record<string, number>>({});
   const [questionExamType, setQuestionExamType] = useState<"mcq" | "essay">("mcq");
+  const [questionExamCategory, setQuestionExamCategory] = useState<"law" | "accounting" | "medtech">("law");
   const [questionYear, setQuestionYear] = useState("all");
   const [questionSubject, setQuestionSubject] = useState("all");
   const [questionFilterOptions, setQuestionFilterOptions] = useState<QuestionFilterOptions>({ years: [], subjects: [] });
@@ -1059,7 +1060,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (activeTab === "questions") loadExamQuestions(questionPage);
-  }, [activeTab, questionPage, questionExamType, questionStatus, questionYear, questionSubject]);
+  }, [activeTab, questionPage, questionExamType, questionExamCategory, questionStatus, questionYear, questionSubject]);
 
   async function syncLegal(sourceKey: string, restart = false) {
     setSyncingLegal(sourceKey);
@@ -1736,7 +1737,7 @@ export default function AdminPage() {
   }
 
   async function loadExamQuestions(page = questionPage) {
-    const params = new URLSearchParams({ page: String(page), status: questionStatus, examType: questionExamType });
+    const params = new URLSearchParams({ page: String(page), status: questionStatus, examType: questionExamType, examCategory: questionExamCategory });
     if (questionYear !== "all") params.set("year", questionYear);
     if (questionSubject !== "all") params.set("subject", questionSubject);
     const response = await fetch(
@@ -1761,7 +1762,7 @@ export default function AdminPage() {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(
-        all ? { publishAllDrafts: true } : { ids, status: "published" },
+        all ? { publishAllDrafts: true, examCategory: questionExamCategory } : { ids, status: "published" },
       ),
     });
     const result = await readJson(response);
@@ -4840,7 +4841,8 @@ export default function AdminPage() {
               <button type="button" className={questionExamType === "essay" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("essay"); setQuestionYear("all"); setQuestionSubject("all"); }}><strong>二試申論題</strong><span>{questionTypeTotals.essay ?? 0} 題</span><small>獨立題庫／老師擬答與評分點</small></button>
             </div>
             <div className="question-taxonomy" aria-label="考科年度篩選">
-              <div><span>目前分類</span><strong>{questionExamType === "mcq" ? "一試選擇題" : "二試申論題"}</strong></div>
+              <label><span>類科</span><select value={questionExamCategory} onChange={(event) => { const category = event.target.value as "law" | "accounting" | "medtech"; setQuestionPage(1); setQuestionExamCategory(category); setQuestionYear("all"); setQuestionSubject("all"); }}><option value="law">司律</option><option value="accounting">會計</option><option value="medtech">醫檢師</option></select></label>
+              <div><span>目前分類</span><strong>{questionExamCategory === "medtech" ? "醫檢師" : questionExamCategory === "accounting" ? "會計" : "司律"}／{questionExamType === "mcq" ? "選擇題" : "申論題"}</strong></div>
               <label><span>顯示狀態</span><select value={questionStatus} onChange={(event) => { setQuestionPage(1); setQuestionStatus(event.target.value as "draft" | "published" | "all"); }}><option value="draft">待審核草稿</option><option value="published">已發布</option><option value="all">全部題目</option></select></label>
               <label><span>考科</span><select value={questionSubject} onChange={(event) => { setQuestionPage(1); setQuestionSubject(event.target.value); }}><option value="all">全部考科</option>{questionFilterOptions.subjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>
               <label><span>年度</span><select value={questionYear} onChange={(event) => { setQuestionPage(1); setQuestionYear(event.target.value); }}><option value="all">全部年度</option>{questionFilterOptions.years.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
