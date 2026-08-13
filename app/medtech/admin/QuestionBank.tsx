@@ -1,4 +1,5 @@
 "use client";
+import "./question-bank.css";
 import { useEffect, useState } from "react";
 
 type Question={id:number;year:string;subject:string;questionNumber:string;stem:string;options:Record<string,string>;correctAnswer:string|null;explanation:string;answerSource:string;status:string};
