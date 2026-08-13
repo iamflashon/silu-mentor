@@ -4,7 +4,7 @@ import { formatTwd } from "../../../lib/currency";
 type Question={id:number;year:string;examName:string;subject:string;questionNumber:string;stem:string;teacherNotes:string};
 type Usage={model:string;inputTokens:number;outputTokens:number;cachedTokens:number;durationMs:number;estimatedCostUsd:number};
 type Message={role:"student"|"mentor";text:string;usage?:Usage}; type Facets={sourceBooks:string[];chapters:string[];years:string[]};
-const steps=["讀題要求","整理條件","判斷準則","列計算式／分錄","完整作答","核對答案"];
+const steps=["拆解各子題","整理已知條件","選用會計準則","逐步計算／分錄","組織完整答案","檢查金額與格式"];
 function cleanStem(stem:string){let child=0;return stem.replace(/□\s*(?=[^\n]{2,80}?[？?])/gu,()=>`\n（${++child}）`).replace(/([^\n])\s+(（\d+）)/gu,"$1\n$2").replace(/\s*\n\s*/g,"\n").trim()}
 function UsageLine({usage}:{usage:Usage}){return <div className="accounting-usage"><b>{usage.model}</b><span>輸入 {usage.inputTokens.toLocaleString()}・輸出 {usage.outputTokens.toLocaleString()}・合計 {(usage.inputTokens+usage.outputTokens).toLocaleString()} Tokens</span><span>約 NT$ {formatTwd(usage.estimatedCostUsd,4)}・{(usage.durationMs/1000).toFixed(1)} 秒</span></div>}
 export default function AccountingEssayCoach(){
