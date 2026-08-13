@@ -153,7 +153,16 @@ export async function POST(request: Request) {
     const db = await getDb();
     let [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
     if (!document) return Response.json({ error: "找不到這份文件" }, { status: 404 });
-    if (document.status === "completed" && document.processingStage === "completed") return Response.json({ status: "completed", document });
+    // Older records can say "completed" even though they predate the current
+    // vector-index flags or no longer have a usable OpenAI file binding.  Only
+    // short-circuit when the searchable index is actually complete.
+    if (
+      document.status === "completed" &&
+      document.processingStage === "completed" &&
+      document.openaiFileId &&
+      document.fullTextIndexed &&
+      document.vectorIndexed
+    ) return Response.json({ status: "completed", document });
     if (body.retry && document.status === "failed") {
       await db.update(documents).set({ status: "uploaded", processingStage: "queued", processingMessage: "已重新排入自動處理", indexError: null }).where(eq(documents.id, documentId));
       [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
@@ -196,7 +205,22 @@ export async function POST(request: Request) {
 
     const storeId = await vectorStoreId();
     if (document.processingStage === "indexing" || !document.vectorIndexed) {
-      const indexed = await openAIJson(`/vector_stores/${storeId}/files/${document.openaiFileId}`);
+      const indexed = await openAIJson(`/vector_stores/${storeId}/files/${document.openaiFileId}`).catch(() => null);
+      if (!indexed) {
+        // The database may still contain an ID created by the retired index.
+        // Clear only that stale remote binding; the original R2 file remains
+        // intact and will be uploaded to the current vector store next poll.
+        await db.update(documents).set({
+          status: "indexing",
+          processingStage: "indexing",
+          processingMessage: "舊索引已失效，正在由原始教材補建新版索引",
+          openaiFileId: null,
+          fullTextIndexed: false,
+          vectorIndexed: false,
+          indexError: null,
+        }).where(eq(documents.id, documentId));
+        return Response.json({ status: "indexing", stage: "indexing", message: "舊索引已失效，正在自動補建" }, { status: 202 });
+      }
       const indexStatus = typeof indexed.status === "string" ? indexed.status : "in_progress";
       if (indexStatus !== "completed") {
         if (["failed", "cancelled"].includes(indexStatus)) throw new Error("全文／向量索引服務處理失敗，請按重新處理");

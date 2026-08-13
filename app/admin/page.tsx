@@ -2895,8 +2895,15 @@ export default function AdminPage() {
     setFiles((current) => current.map((item) => item.id === file.id ? { ...item, homepageSearchEnabled: next } : item));
     setNotice(next ? `正在開放「${file.name}」供首頁搜尋…` : `正在停止首頁搜尋「${file.name}」…`);
     try {
-      const response = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, homepageSearchEnabled: next }) });
-      const result = await response.json() as { error?: string };
+      let response = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, homepageSearchEnabled: next }) });
+      let result = await response.json() as { error?: string; code?: string; repairable?: boolean };
+      if (!response.ok && next && response.status === 409 && result.code === "INDEX_REPAIR_REQUIRED" && result.repairable) {
+        setNotice(`「${file.name}」是舊版索引，正在自動補建；完成後會直接開放首頁搜尋…`);
+        const repaired = await processDocument(file.id, true);
+        if (!repaired) throw new Error("舊版索引補建失敗，請查看這份教材的處理訊息");
+        response = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, homepageSearchEnabled: next }) });
+        result = await response.json() as { error?: string; code?: string; repairable?: boolean };
+      }
       if (!response.ok) throw new Error(result.error ?? "首頁搜尋設定更新失敗");
       setNotice(next ? `「${file.name}」已允許首頁 AI 搜尋；不必開啟或綁定智能書。` : `「${file.name}」已停止供首頁 AI 搜尋；智能書綁定不受影響。`);
     } catch (error) {

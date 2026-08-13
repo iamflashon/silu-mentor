@@ -171,10 +171,21 @@ export async function PATCH(request: Request) {
     const db = await getDb();
     const [document] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
     if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
-    if (body.homepageSearchEnabled && (document.status !== "completed" || !document.openaiFileId || !document.vectorIndexed)) {
-      return Response.json({ error: "教材完成全文／向量索引後，才能允許首頁搜尋" }, { status: 409 });
-    }
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
+    if (body.homepageSearchEnabled && document.status !== "completed") {
+      return Response.json({ error: "教材仍在處理，完成全文／向量索引後才能開放首頁搜尋", code: "INDEX_NOT_READY", repairable: false }, { status: 409 });
+    }
+    if (body.homepageSearchEnabled && (!document.openaiFileId || !setting?.value)) {
+      return Response.json({ error: "這是舊版教材索引，系統將自動補建後再開放首頁搜尋", code: "INDEX_REPAIR_REQUIRED", repairable: true }, { status: 409 });
+    }
+    if (body.homepageSearchEnabled && document.openaiFileId && setting?.value && !document.vectorIndexed) {
+      const indexed = await openAIJson(`/vector_stores/${setting.value}/files/${document.openaiFileId}`).catch(() => null);
+      if (indexed && indexed.status === "completed") {
+        await db.update(documents).set({ fullTextIndexed: true, vectorIndexed: true, indexError: null }).where(eq(documents.id, id));
+      } else {
+        return Response.json({ error: "這是舊版教材索引，系統將自動補建後再開放首頁搜尋", code: "INDEX_REPAIR_REQUIRED", repairable: true }, { status: 409 });
+      }
+    }
     if (document.openaiFileId && setting?.value) {
       await openAIJson(`/vector_stores/${setting.value}/files/${document.openaiFileId}`, {
         method: "POST",
