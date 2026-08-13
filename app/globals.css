@@ -28564,19 +28564,20 @@ a.is-action-pending {
   position:relative;
   overflow:hidden;
   background:
-    radial-gradient(circle at 82% 15%,rgba(255,255,255,.55),transparent 28%),
-    radial-gradient(circle at 18% 92%,rgba(223,196,105,.18),transparent 30%),
-    linear-gradient(135deg,#83cbc4 0%,#9bd8d2 48%,#b9e5df 100%);
-  color:#103f3c;
+    radial-gradient(circle at 82% 15%,rgba(131,203,196,.24),transparent 28%),
+    radial-gradient(circle at 18% 92%,rgba(223,196,105,.12),transparent 30%),
+    linear-gradient(135deg,#0d4844 0%,#125b55 52%,#176b64 100%);
+  color:#b9e5df;
 }
 .medtech-home .medtech-hero::after{content:"";position:absolute;right:-90px;bottom:-150px;width:390px;height:390px;border:1px solid rgba(255,255,255,.5);border-radius:50%;box-shadow:0 0 0 54px rgba(255,255,255,.08),0 0 0 108px rgba(255,255,255,.05);pointer-events:none}
 .medtech-home .medtech-hero>div,.medtech-home .medtech-hero>aside{position:relative;z-index:1}
-.medtech-home .medtech-hero>div>span{color:#176a63}
-.medtech-home .medtech-hero aside{border-color:rgba(23,106,99,.18);background:rgba(255,255,255,.58);box-shadow:0 18px 45px rgba(24,103,96,.1);backdrop-filter:blur(8px)}
+.medtech-home .medtech-hero>div>span{color:#9bd8d2}
+.medtech-home .medtech-hero aside{border-color:rgba(185,229,223,.3);background:rgba(131,203,196,.18);box-shadow:0 18px 45px rgba(4,35,32,.18);backdrop-filter:blur(8px)}
 .medtech-home .medtech-hero aside{align-self:center;padding:30px}
-.medtech-home .medtech-hero aside>span,.medtech-home .medtech-hero dt{color:#3f726e}
+.medtech-home .medtech-hero aside>small,.medtech-home .medtech-hero aside>b{color:#d9f1ee}
+.medtech-home .medtech-hero aside>span,.medtech-home .medtech-hero dt{color:#a7d8d2}
 .medtech-home .medtech-hero dl{border-top-color:rgba(23,106,99,.17)}
 .medtech-home .medtech-hero dl div{border-bottom-color:rgba(23,106,99,.13)}
-.medtech-home .medtech-hero-actions a{border-color:rgba(16,82,76,.3);background:rgba(255,255,255,.18);color:#104b47}
+.medtech-home .medtech-hero-actions a{border-color:rgba(185,229,223,.48);background:rgba(185,229,223,.1);color:#d9f1ee}
 .medtech-home .medtech-hero-actions a:first-child{background:#fff;color:#0d514b;box-shadow:0 8px 22px rgba(24,103,96,.12)}
 .medtech-home .medtech-hero-actions a:last-child{background:#4d9f97;color:#fff;border-color:#4d9f97}
