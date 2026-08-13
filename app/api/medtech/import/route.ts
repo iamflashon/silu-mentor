@@ -56,8 +56,10 @@ function parseQuestions(text: string): ParsedQuestion[] {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { documentId?: number };
+    const body = await request.json() as { documentId?: number; offset?: number; limit?: number };
     const documentId = Number(body.documentId);
+    const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
+    const limit = Math.min(150, Math.max(1, Math.floor(Number(body.limit) || 100)));
     const db = await getDb();
     const [document] = await db.select().from(documents).where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech"))).limit(1);
     if (!document) return Response.json({ error: "找不到醫檢師教材" }, { status: 404 });
@@ -67,12 +69,12 @@ export async function POST(request: Request) {
     const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
     const questions = parseQuestions(inspected.text);
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
-    await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
+    if (offset === 0) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
     // has many columns, so keep batches comfortably below that limit.
     let imported = 0;
     const failures: Array<{ number: string; stem: string }> = [];
-    for (const question of questions) {
+    for (const question of questions.slice(offset, offset + limit)) {
       try {
         await db.insert(examQuestions).values({
         examCategory: "medtech",
@@ -95,7 +97,8 @@ export async function POST(request: Request) {
         failures.push({ number: question.number, stem: question.stem.slice(0, 120) });
       }
     }
-    return Response.json({ imported, parsed: questions.length, failed: failures.length, failures: failures.slice(0, 20), status: "draft", documentId, subject: document.subject });
+    const nextOffset = Math.min(questions.length, offset + limit);
+    return Response.json({ imported, parsed: questions.length, offset, nextOffset, done: nextOffset >= questions.length, failed: failures.length, failures: failures.slice(0, 20), status: "draft", documentId, subject: document.subject });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 300) : "醫檢題庫匯入失敗" }, { status: 500 });
   }
