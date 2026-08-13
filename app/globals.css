@@ -28556,6 +28556,7 @@ a.is-action-pending {
 .medtech-ai-quick button,.medtech-new-question,.medtech-note-card button,.medtech-note-dialog button{border-color:#8bc8c4;color:#205e5b}
 .medtech-ai-question header small,.medtech-result>span,.medtech-notes-head span{color:#f1e6aa}
 .medtech-ai-question>div>button.selected{border-color:var(--medtech-gold);box-shadow:0 0 0 2px rgba(201,183,101,.3),0 6px 18px rgba(4,42,39,.16)}
+.medtech-ai-question h2{color:#fff}
 
 /* Medtech home — brighter jade-teal presentation */
 .medtech-home{background:#f7fbfa}
