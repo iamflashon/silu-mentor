@@ -70,9 +70,10 @@ export async function POST(request: Request) {
       : "這是同一題的接續追問。只補充學生這一輪問到的部分；需要時再展開相關計算、分錄或準則，不要重講整題。";
     const guidedRules = guided ? `目前是申論逐步解題模式。題型：${questionType}；學生程度：${level}；目前階段：${stage}。不得一開始直接給完整答案。每輪只完成一個步驟，依序確認題目要求、已知條件、準則、計算式或分錄、完整作答與核對。學生答錯時先指出要重想的判斷點，再給一層提示。每次結尾只問一個明確問題。` : `目前是首頁課業答疑模式。學生不需要選書或選章節；直接針對觀念、準則、計算、分錄或照片題目回答。${answerDepth}教材只作為背後的回答依據，不要要求學生進入章節學習。`;
     const simulationRules = body.simulateStudent ? `你現在不是老師，而是模擬一位「${level}」程度的中會學生。先閱讀 Luna 助教最後一則回答，找出其中最可能還沒聽懂的一個觀念、計算步驟、分錄方向或教材依據，提出一個自然且具體的接續問題。問題必須延續目前同一題，不得另起新題；不要重貼整題，不要批改老師，不要說明你在模擬，也不要自行公布答案。只輸出學生要送出的那一句或一小段繁體中文問題。` : "";
+    const completionMarker = "【LUNA回答完整】";
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-      instructions: `你是臺灣國考與校內考試的中級會計學 AI 教練。只能以中級會計學、IFRS 與所附會計教材範圍回答，絕不可混入司律或醫檢師內容。以繁體中文教學。${simulationRules || guidedRules} ${body.simulateStudent ? "" : `先在內部完成題意與條件核對，輸出直接從答案開始，不要把核對過程寫給學生。只有學生追問或正確性確實需要時，才逐步展開計算或分錄；數字與單位仍須核對，分錄的借貸方向與金額不得省略到無法判斷。若資料不足，直接指出還缺哪些條件，不可自行補造數字。已開放老師教材時必須先搜尋教材；若附有圖片，先辨認題目中的關鍵句、科目與數字，再用關鍵句搜尋教材。${boundQuestion?"輸入中已有【已入庫老師題庫直接命中】，這就是有效教材依據；必須依該題教材答案校準，不得再說未命中教材。":"只有在題庫直接比對與 file_search 的實際結果都沒有教材時，才明示本次未找到已開放的中會教材。"}`}只輸出純文字，避免 Markdown 表格與標題符號。`,
+      instructions: `你是臺灣國考與校內考試的中級會計學 AI 教練。只能以中級會計學、IFRS 與所附會計教材範圍回答，絕不可混入司律或醫檢師內容。以繁體中文教學。${simulationRules || guidedRules} ${body.simulateStudent ? "" : `先在內部完成題意與條件核對，輸出直接從答案開始，不要把核對過程寫給學生。只有學生追問或正確性確實需要時，才逐步展開計算或分錄；數字與單位仍須核對，分錄的借貸方向與金額不得省略到無法判斷。若資料不足，直接指出還缺哪些條件，不可自行補造數字。已開放老師教材時必須先搜尋教材；若附有圖片，先辨認題目中的關鍵句、科目與數字，再用關鍵句搜尋教材。${boundQuestion?"輸入中已有【已入庫老師題庫直接命中】，這就是有效教材依據；必須依該題教材答案校準，不得再說未命中教材。":"只有在題庫直接比對與 file_search 的實際結果都沒有教材時，才明示本次未找到已開放的中會教材。"}回答最後必須有一行明確的『答案：』或『結論：』，並在所有算式、分錄與結論都完成後，另起一行輸出 ${completionMarker}。不得在回答尚未完成時輸出此標記。`}只輸出純文字，避免 Markdown 表格與標題符號。`,
       input,
       ...(allowSearch ? { tools: [{ type: "file_search", vector_store_ids: [setting!.value], max_num_results: 8, filters: { type: "and", filters: [{ key: "exam_category", type: "eq", value: "accounting" }, { key: "homepage_enabled", type: "eq", value: true }] } }], tool_choice: "required", include: ["file_search_call.results"] } : {}),
       max_output_tokens: studentTurnCount <= 1 ? 2000 : 3000,
@@ -80,18 +81,20 @@ export async function POST(request: Request) {
     let reply = outputText(payload);
     const usageRows = [(payload.usage ?? {}) as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }];
     const incomplete = payload.status === "incomplete" || (payload.incomplete_details && typeof payload.incomplete_details === "object" && (payload.incomplete_details as { reason?: string }).reason === "max_output_tokens");
-    if (incomplete && typeof payload.id === "string") {
+    const missingCompletion = !body.simulateStudent && !reply.includes(completionMarker);
+    if ((incomplete || missingCompletion) && typeof payload.id === "string") {
       const continuation = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model,
         previous_response_id: payload.id,
-        instructions: "上一則中級會計回答因長度上限中斷。只從中斷處補完尚未完成的算式或句子，不要重複前文，不要新增延伸說明；務必完整收尾。",
-        input: "請從中斷處接續並完成回答。",
+        instructions: `上一則中級會計回答尚未確認完整。只從中斷處補完尚未完成的算式、分錄、答案或結論，不要重複前文，不要新增延伸說明。最後必須另起一行輸出 ${completionMarker}。`,
+        input: "請檢查上一則回答；若內容未完，從中斷處接續。務必補上明確答案或結論並完整收尾。",
         max_output_tokens: 1600,
       }) }) as Record<string, unknown>;
       const continuationText = outputText(continuation);
       if (continuationText) reply = `${reply}\n${continuationText}`.trim();
       usageRows.push((continuation.usage ?? {}) as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } });
     }
+    reply = reply.replaceAll(completionMarker, "").trim();
     if (!reply) return Response.json({ error: "Luna 助教 暫時沒有完成回答，請再試一次。" }, { status: 502 });
     const inputTokens = usageRows.reduce((sum, usage) => sum + Number(usage.input_tokens || 0), 0), outputTokens = usageRows.reduce((sum, usage) => sum + Number(usage.output_tokens || 0), 0), cachedTokens = usageRows.reduce((sum, usage) => sum + Number(usage.input_tokens_details?.cached_tokens || 0), 0);
     const estimatedCostUsdMicros = estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens });
