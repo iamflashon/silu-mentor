@@ -14856,6 +14856,9 @@ a {
   font-style: normal;
   font-weight: 800;
 }
+.essay-mode-mobile-summary {
+  display: none;
+}
 .essay-question-picker {
   margin-top: 12px;
   padding: 16px;
@@ -21372,9 +21375,83 @@ a {
   .essay-workflow {
     grid-template-columns: 1fr 1fr;
   }
-  .essay-mode-grid,
   .mock-exam-setup {
     grid-template-columns: 1fr;
+  }
+  .essay-mode-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    padding: 4px;
+    border: 1px solid #ded7ca;
+    border-radius: 14px;
+    background: #f4f1eb;
+  }
+  .essay-mode-grid button,
+  .essay-mode-grid button.active,
+  .essay-mode-grid button.exam,
+  .essay-mode-grid button.exam.active {
+    display: block;
+    min-height: 46px;
+    padding: 11px 8px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    box-shadow: none;
+    color: #6d5b45;
+    text-align: center;
+  }
+  .essay-mode-grid button.active {
+    background: #fffaf1;
+    box-shadow: 0 2px 8px rgba(104, 79, 52, 0.14);
+    color: #684f34;
+  }
+  .essay-mode-grid button.exam.active {
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(40, 93, 127, 0.14);
+    color: #285d7f;
+  }
+  .essay-mode-grid button > span,
+  .essay-mode-grid button > p,
+  .essay-mode-grid button > em {
+    display: none;
+  }
+  .essay-mode-grid button > strong {
+    font-size: 15px;
+  }
+  .essay-mode-mobile-summary {
+    display: grid;
+    gap: 7px;
+    margin-top: 10px;
+    padding: 16px;
+    border: 1px solid #d8ccba;
+    border-radius: 12px;
+    background: #fffaf1;
+    color: #684f34;
+  }
+  .essay-mode-mobile-summary.exam {
+    border-color: #c7dce6;
+    background: #f5fafc;
+    color: #285d7f;
+  }
+  .essay-mode-mobile-summary span {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    opacity: 0.72;
+  }
+  .essay-mode-mobile-summary strong {
+    font-size: 18px;
+  }
+  .essay-mode-mobile-summary p {
+    margin: 0;
+    color: #6f7e86;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+  .essay-mode-mobile-summary em {
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 800;
   }
   .mock-exam-standalone > header,
   .answer-sheet-heading {

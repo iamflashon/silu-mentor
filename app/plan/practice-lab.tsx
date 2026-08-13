@@ -1706,6 +1706,16 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
               <em>適合整題實戰測驗</em>
             </button>
           </div>
+          <div className={`essay-mode-mobile-summary ${essayMode === "exam" ? "exam" : "guided"}`} aria-live="polite">
+            <span>{essayMode === "exam" ? "MOCK EXAM" : "GUIDED PRACTICE"}</span>
+            <strong>{essayMode === "exam" ? "擬真考試" : "引導練習"}</strong>
+            <p>
+              {essayMode === "exam"
+                ? "全程不提示、限時作答、自動存檔；交卷後才顯示分項批改。"
+                : "AI 先陪你辨認人物、行為與爭點，再完成規範、涵攝及結論。"}
+            </p>
+            <em>{essayMode === "exam" ? "適合整題實戰測驗" : "適合第一次練這類題型"}</em>
+          </div>
           <section className={`essay-question-picker ${essayPickerOpen || !question ? "is-open" : ""}`} aria-label="選擇二試申論題">
             <header>
               <div>
