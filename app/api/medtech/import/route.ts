@@ -70,9 +70,11 @@ export async function POST(request: Request) {
     await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
     // has many columns, so keep batches comfortably below that limit.
-    const batchSize = 4;
-    for (let start = 0; start < questions.length; start += batchSize) {
-      await db.insert(examQuestions).values(questions.slice(start, start + batchSize).map((question) => ({
+    let imported = 0;
+    const failures: Array<{ number: string; stem: string }> = [];
+    for (const question of questions) {
+      try {
+        await db.insert(examQuestions).values({
         examCategory: "medtech",
         examType: "mcq",
         year: question.year,
@@ -86,10 +88,14 @@ export async function POST(request: Request) {
         answerSource: "教材原稿",
         answerStatus: "source_matched",
         sourceUrl: `document:${document.id}`,
-        status: "draft",
-      })));
+          status: "draft",
+        });
+        imported += 1;
+      } catch {
+        failures.push({ number: question.number, stem: question.stem.slice(0, 120) });
+      }
     }
-    return Response.json({ imported: questions.length, status: "draft", documentId, subject: document.subject });
+    return Response.json({ imported, parsed: questions.length, failed: failures.length, failures: failures.slice(0, 20), status: "draft", documentId, subject: document.subject });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 300) : "醫檢題庫匯入失敗" }, { status: 500 });
   }
