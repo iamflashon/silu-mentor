@@ -5,6 +5,15 @@ import { examQuestions } from "../../../db/schema";
 
 const allowedAnswerHosts = new Set(["lawyer.get.com.tw", "fd.get.com.tw"]);
 
+function removeAccountingPageFurniture(value: string | null) {
+  if (!value) return value;
+  return value
+    .replace(/^\s*第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}?\d{1,2}\s*[-－–]\s*\d{1,3}\s*$/gmu, "")
+    .replace(/^\s*\d{1,2}\s*[-－–]\s*\d{1,3}\s+第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}$/gmu, "")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+}
+
 function assertAnswerSource(raw: string) {
   const url = new URL(raw);
   if (url.protocol !== "https:" || !allowedAnswerHosts.has(url.hostname)) throw new Error("目前只允許從核准的高點真題來源抓取擬答");
@@ -96,7 +105,13 @@ export async function GET(request: Request) {
     db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(facetWhere),
   ]);
   const chapters=[...new Set(chapterRows.map(row=>row.teacherNotes.split("｜")[0].trim()).filter(value=>/^第.+章/u.test(value)))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
-  return Response.json({ items, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject), sourceBooks:sourceBooks.map(row=>row.sourceBook), chapters } });
+  const cleanedItems = items.map((item) => item.examCategory === "accounting" ? {
+    ...item,
+    stem: removeAccountingPageFurniture(item.stem) ?? "",
+    explanation: removeAccountingPageFurniture(item.explanation) ?? "",
+    teacherAnswer: removeAccountingPageFurniture(item.teacherAnswer) ?? "",
+  } : item);
+  return Response.json({ items: cleanedItems, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject), sourceBooks:sourceBooks.map(row=>row.sourceBook), chapters } });
 }
 
 export async function POST(request: Request) {

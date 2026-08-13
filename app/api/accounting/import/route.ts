@@ -5,7 +5,10 @@ import { documents, examQuestions } from "../../../../db/schema";
 
 type ParsedQuestion={number:string;stem:string;options:Record<string,string>;answer:string;explanation:string;teacherAnswer:string;chapter:string;examSource:string;page:number;examType:"mcq"|"essay"};
 
-function clean(value:string){return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu,"").replace(/[ \t]+/gu," ").replace(/ *\n */gu,"\n").replace(/\n{3,}/gu,"\n\n").trim()}
+function removePageFurniture(value:string){return value
+  .replace(/^\s*第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}?\d{1,2}\s*[-－–]\s*\d{1,3}\s*$/gmu,"")
+  .replace(/^\s*\d{1,2}\s*[-－–]\s*\d{1,3}\s+第\s*[一二三四五六七八九十百0-9]+\s*章[^\n]{0,80}$/gmu,"")}
+function clean(value:string){return removePageFurniture(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/gu,"").replace(/[ \t]+/gu," ").replace(/ *\n */gu,"\n").replace(/\n{3,}/gu,"\n\n").trim()}
 function normalize(value:string){return clean(value
   .replace(//gu,"(A)").replace(//gu,"(B)").replace(//gu,"(C)").replace(//gu,"(D)")
   .replace(/[（(]([A-D])[）)]/gu,"($1)")
