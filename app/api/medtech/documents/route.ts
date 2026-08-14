@@ -62,10 +62,17 @@ export async function PUT(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean };
+  const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; subject?: string };
   const db = await getDb();
-  const [row] = await db.select({ id: documents.id }).from(documents).where(and(eq(documents.id, Number(body.id)), eq(documents.examCategory, "medtech"))).limit(1);
+  const [row] = await db.select().from(documents).where(and(eq(documents.id, Number(body.id)), eq(documents.examCategory, "medtech"))).limit(1);
   if (!row) return Response.json({ error: "找不到醫檢師教材" }, { status: 404 });
+  if (typeof body.subject === "string") {
+    const subject = body.subject.replace(/\s+/gu, " ").trim().slice(0, 80);
+    if (!subject) return Response.json({ error: "請輸入科目名稱" }, { status: 400 });
+    await db.update(documents).set({ subject }).where(eq(documents.id, row.id));
+    await db.update(examQuestions).set({ subject }).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${row.id}`)));
+    return Response.json({ id: row.id, subject, questionsUpdated: row.questionCount });
+  }
   return patchDocument(new Request(request.url, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
 }
 
