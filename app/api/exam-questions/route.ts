@@ -96,7 +96,7 @@ export async function GET(request: Request) {
   if (examCategory !== "all") facetFilters.push(eq(examQuestions.examCategory, examCategory));
   const facetWhere = facetFilters.length ? and(...facetFilters) : undefined;
   const [items, countRows, totals, typeTotals, years, subjects, sourceBooks, chapterRows, paperRows] = await Promise.all([
-    db.select().from(examQuestions).where(where).orderBy(desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
+    db.select().from(examQuestions).where(where).orderBy(paper !== "all" ? asc(examQuestions.id) : desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
     db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(where),
     db.select({ status: examQuestions.status, count: sql<number>`count(*)` }).from(examQuestions).groupBy(examQuestions.status),
     db.select({ examType: examQuestions.examType, count: sql<number>`count(*)` }).from(examQuestions).where(facetWhere).groupBy(examQuestions.examType),
