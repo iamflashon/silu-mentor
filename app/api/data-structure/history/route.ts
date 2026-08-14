@@ -1,0 +1,9 @@
+import { and,asc,desc,eq,inArray } from "drizzle-orm";
+import { getDb } from "../../../../db";
+import { chatMessages,chatSessions } from "../../../../db/schema";
+
+function owner(request:Request){return request.headers.get("oai-authenticated-user-email")??"default-owner"}
+
+export async function GET(request:Request){try{const db=await getDb(),sessions=await db.select().from(chatSessions).where(and(eq(chatSessions.userKey,owner(request)),eq(chatSessions.contextType,"data-structure"))).orderBy(desc(chatSessions.updatedAt)).limit(80),ids=sessions.map(row=>row.id),messages=ids.length?await db.select().from(chatMessages).where(inArray(chatMessages.sessionId,ids)).orderBy(asc(chatMessages.id)):[];return Response.json({records:sessions.map(session=>{const rows=messages.filter(message=>message.sessionId===session.id),student=rows.find(message=>message.role==="student"),mentor=rows.find(message=>message.role==="mentor");let diagram;try{diagram=mentor?.comparisonJson?JSON.parse(mentor.comparisonJson).diagram:undefined}catch{diagram=undefined}return{id:session.id,title:session.title,question:student?.text??"",answer:mentor?.text??"",source:mentor?.source??"",model:mentor?.model??"Luna",costUsd:(mentor?.estimatedCostUsdMicros??0)/1_000_000,diagram,createdAt:session.createdAt}})})}catch{return Response.json({error:"問答紀錄暫時無法讀取"},{status:503})}}
+
+export async function DELETE(request:Request){try{const id=Number(new URL(request.url).searchParams.get("id"));if(!Number.isInteger(id))return Response.json({error:"紀錄資料不完整"},{status:400});const db=await getDb();await db.delete(chatSessions).where(and(eq(chatSessions.id,id),eq(chatSessions.userKey,owner(request)),eq(chatSessions.contextType,"data-structure")));return Response.json({id})}catch{return Response.json({error:"無法刪除問答紀錄"},{status:500})}}

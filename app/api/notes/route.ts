@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const category = params.get("category")?.trim() ?? "";
     const db = await getDb();
     const owner = eq(savedNotes.userKey, userKey(request));
-    const categoryFilter = category === "medtech" ? or(like(savedNotes.sourceId, "medtech-selection-%"), like(savedNotes.subject, "醫檢師%"), like(savedNotes.tags, "%醫檢師%")) : undefined;
+    const categoryFilter = category === "medtech" ? or(like(savedNotes.sourceId, "medtech-selection-%"), like(savedNotes.subject, "醫檢師%"), like(savedNotes.tags, "%醫檢師%")) : category === "data-structure" ? or(eq(savedNotes.subject,"資料結構"),like(savedNotes.tags,"%資料結構%"),like(savedNotes.sourceId,"data-structure-%")) : undefined;
     const queryFilter = query ? or(like(savedNotes.title, `%${query}%`), like(savedNotes.content, `%${query}%`), like(savedNotes.tags, `%${query}%`)) : undefined;
     const where = categoryFilter && queryFilter ? and(owner, categoryFilter, queryFilter) : categoryFilter ? and(owner, categoryFilter) : queryFilter ? and(owner, queryFilter) : owner;
     const notes = await db.select().from(savedNotes).where(where).orderBy(desc(savedNotes.updatedAt)).limit(100);
