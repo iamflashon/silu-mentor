@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./plan/selection-tools.css";
 import GlobalSelectionTools from "./global-selection-tools";
 import StudyBreakReminder from "./study-break-reminder";
 import NavigationFeedback from "./navigation-feedback";

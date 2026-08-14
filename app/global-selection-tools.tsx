@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import "./plan/selection-tools.css";
 
 type LegalArticle = { title: string; articleNo: string; hierarchy?: string; content: string; modifiedDate?: string; sourceUrl?: string };
 type JudicialDecision = { id: number; court: string; year: string; caseType: string; caseNo: string; judgmentDate: string; title: string; fullText: string; excerpt: string };
