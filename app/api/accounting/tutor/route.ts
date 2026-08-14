@@ -1,6 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { appSettings, documents, examQuestions, usageLogs } from "../../../../db/schema";
+import { appSettings, chatMessages, chatSessions, documents, examQuestions, usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
@@ -102,6 +102,14 @@ export async function POST(request: Request) {
     await db.insert(usageLogs).values({ model, source: guided ? "中會引導學習" : "中會首頁 AI", inputTokens, outputTokens, cachedTokens, fileSearchCalls: searchResults.length ? 1 : 0, estimatedCostUsdMicros });
     const searchedFiles = [...new Set(searchResults.map(result => sourceBookName(String(result.filename ?? ""))).filter(Boolean))].slice(0, 3);
     const directSource=boundQuestion?sourceBookName(boundQuestion.examName):"";
-    return Response.json({ reply, source: directSource?`依據來源：${directSource}`:searchResults.length ? `依據來源：${searchedFiles.length?searchedFiles.join("、"):`老師教材相關片段`}` : allowSearch ? "本次已搜尋，但未命中老師教材" : "尚無已開放搜尋的老師教材，以下為 AI 一般知識說明", usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
+    const source=directSource?`依據來源：${directSource}`:searchResults.length ? `依據來源：${searchedFiles.length?searchedFiles.join("、"):`老師教材相關片段`}` : allowSearch ? "本次已搜尋，但未命中老師教材" : "尚無已開放搜尋的老師教材，以下為 AI 一般知識說明";
+    let recordId:number|undefined;
+    if(!body.simulateStudent&&!guided){
+      const userKey=request.headers.get("oai-authenticated-user-email")??"default-owner";
+      const [session]=await db.insert(chatSessions).values({userKey,title:latest.slice(0,80),summary:reply.slice(0,220),progressStatus:"completed",contextType:"accounting",updatedAt:new Date()}).returning();
+      recordId=session.id;
+      await db.insert(chatMessages).values([{sessionId:session.id,role:"student",text:latest},{sessionId:session.id,role:"mentor",text:reply,source,model:"Luna",estimatedCostUsdMicros}]);
+    }
+    return Response.json({ reply, source, recordId, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Luna 助教 回答失敗" }, { status: 500 }); }
 }
