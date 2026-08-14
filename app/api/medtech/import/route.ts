@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { inspectDocumentBytes } from "../../../../lib/document-processing";
+import { requireMedtechAdmin } from "../../../../lib/member-auth";
 
 type ParsedQuestion = { year: string; number: string; stem: string; options: Record<string, string>; answer: string; explanation: string };
 
@@ -56,6 +57,8 @@ function parseQuestions(text: string): ParsedQuestion[] {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireMedtechAdmin(request);
+    if ("error" in auth) return auth.error;
     const body = await request.json() as { documentId?: number; offset?: number; limit?: number };
     const documentId = Number(body.documentId);
     const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
