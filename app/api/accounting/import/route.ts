@@ -3,6 +3,7 @@ import { extractText } from "unpdf";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { accountingQuestionFlags, removeAccountingPageFurniture } from "../../../../lib/accounting-question";
+import { inspectDocumentBytes } from "../../../../lib/document-processing";
 
 type ParsedQuestion={number:string;stem:string;options:Record<string,string>;answer:string;explanation:string;teacherAnswer:string;chapter:string;examSource:string;page:number;examType:"mcq"|"essay"};
 
@@ -69,21 +70,43 @@ function parseQuestions(pages:string[],documentType:string){
  return parsed;
 }
 
+function parseGroupedWordQuestions(text:string):ParsedQuestion[]{
+  const markers=[...text.matchAll(/【\s*(?:解答|解析)\s*】/gu)];
+  if(!markers.length)return [];
+  const starts=[...text.matchAll(/(?:^|\n)\s*(?:\d{1,3}[.、]\s*|(?:甲|乙|丙|丁|戊|己|庚|辛|壬|癸)?[\u4e00-\u9fff]{1,10}公司\s*(?=[X\d一二三四五六七八九十]|於|本期|年度))/gu)].map(match=>(match.index??0)+(match[0].startsWith("\n")?1:0));
+  const result:ParsedQuestion[]=[];
+  for(let index=0;index<markers.length;index++){
+    const marker=markers[index], previousEnd=index?markerPositionEnd(markers[index-1]):0;
+    const blockStart=starts.find(position=>position>=previousEnd&&position<=(marker.index??0));
+    if(blockStart===undefined)continue;
+    const blockEnd=marker.index??text.length;
+    const nextStart=starts.find(position=>position>blockEnd)??(index+1<markers.length?markers[index+1].index??text.length:text.length);
+    const stem=clean(text.slice(blockStart,blockEnd));
+    const teacherAnswer=clean(text.slice(markerPositionEnd(marker),nextStart));
+    if(stem.length<20)continue;
+    result.push({number:String(index+1),stem,options:{},answer:"",explanation:teacherAnswer,teacherAnswer,chapter:"",examSource:"",page:1,examType:"essay"});
+  }
+  return result;
+}
+function markerPositionEnd(match:RegExpMatchArray){return (match.index??0)+match[0].length;}
+
 export async function POST(request:Request){
  try{
   const body=await request.json() as {documentId?:number;offset?:number;limit?:number};
   const documentId=Number(body.documentId),offset=Math.max(0,Math.floor(Number(body.offset)||0)),limit=Math.min(80,Math.max(10,Math.floor(Number(body.limit)||60)));
   const db=await getDb();
   const [document]=await db.select().from(documents).where(and(eq(documents.id,documentId),eq(documents.examCategory,"accounting"))).limit(1);
-  if(!document||document.documentType==="核心教材")return Response.json({error:"這份文件不是中會題庫"},{status:404});
+  if(!document)return Response.json({error:"找不到中會教材"},{status:404});
   const inferredType=/51MM320901|會研所.*題庫制霸/u.test(document.fileName)?"章節題庫":/51MG123611|申論題完全制霸/u.test(document.fileName)?"申論題庫":/51MG122110|114年解題全攻略/u.test(document.fileName)?"年度解題":document.documentType;
   if(inferredType!==document.documentType)await db.update(documents).set({documentType:inferredType,subject:"中級會計學"}).where(eq(documents.id,documentId));
   const {env}=await import("cloudflare:workers"); const object=await env.BUCKET?.get(document.storageKey);
   if(!object)return Response.json({error:"找不到教材原始檔"},{status:404});
   await db.update(documents).set({status:"extracting",processingStage:"extracting",processingMessage:offset?`正在分批入庫：已處理 ${offset} 題`:"正在逐頁讀取完整題目"}).where(eq(documents.id,documentId));
   const bytes=new Uint8Array(await object.arrayBuffer());
-  const extracted=await extractText(bytes,{mergePages:false});
-  const questions=parseQuestions(Array.isArray(extracted.text)?extracted.text:[String(extracted.text)],inferredType);
+  const isWordQuiz=/\.docx$/iu.test(document.fileName)&&/(?:小考|模擬考|考題|題庫|測驗)/u.test(document.fileName);
+  let pages:string[]=[];let totalPages=1;
+  if(/\.pdf$/iu.test(document.fileName)){const extracted=await extractText(bytes,{mergePages:false});pages=Array.isArray(extracted.text)?extracted.text:[String(extracted.text)];totalPages=extracted.totalPages??pages.length}else{const inspected=await inspectDocumentBytes(document.fileName,bytes.buffer as ArrayBuffer);pages=[inspected.text]}
+  const parsed=parseQuestions(pages,inferredType);const grouped=isWordQuiz?parseGroupedWordQuestions(pages.join("\n")):[];const questions=grouped.length>parsed.length?grouped:parsed;
   if(!questions.length)throw new Error("未辨識到可入庫的完整題目");
   const sourceUrl=`document:${document.id}`;
   if(offset===0)await db.delete(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,sourceUrl)));
@@ -93,7 +116,7 @@ export async function POST(request:Request){
   }
   const nextOffset=Math.min(questions.length,offset+limit),done=nextOffset>=questions.length;
   const mcq=questions.filter(q=>q.examType==="mcq").length,essay=questions.length-mcq,missingAnswer=questions.filter(q=>q.examType==="mcq"&&!q.answer).length;
-  await db.update(documents).set({status:done?"completed":"extracting",processingStage:done?"completed":"extracting",processingMessage:done?`逐頁拆解完成：${questions.length} 題（選擇 ${mcq}、申論／計算 ${essay}）已進入待審核題庫`:`正在分批入庫：${nextOffset} / ${questions.length} 題`,pageCount:extracted.totalPages,questionCount:questions.length,processedAt:done?new Date():null,indexError:null}).where(eq(documents.id,documentId));
+  await db.update(documents).set({status:done?"completed":"extracting",processingStage:done?"completed":"extracting",processingMessage:done?`逐頁拆解完成：${questions.length} 題（選擇 ${mcq}、申論／計算 ${essay}）已進入待審核題庫`:`正在分批入庫：${nextOffset} / ${questions.length} 題`,pageCount:totalPages,questionCount:questions.length,processedAt:done?new Date():null,indexError:null}).where(eq(documents.id,documentId));
   return Response.json({status:done?"completed":"importing",documentId,parsed:questions.length,imported,offset,nextOffset,done,stats:{mcq,essay,missingAnswer,pages:extracted.totalPages},message:done?`拆解完成，共 ${questions.length} 題`: `已入庫 ${nextOffset} / ${questions.length} 題`},{status:done?200:202});
  }catch(error){return Response.json({error:error instanceof Error?error.message:"中會題庫拆解失敗",status:"failed"},{status:500})}
 }

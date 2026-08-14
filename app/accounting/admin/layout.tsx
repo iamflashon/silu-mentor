@@ -6,5 +6,11 @@ export const metadata: Metadata = {
 };
 
 export default function AccountingAdminLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <>
+    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", padding: "8px 24px", background: "#fffaf0", borderBottom: "1px solid #e3bd58" }}>
+      <a href="/accounting/admin/document-workspace" style={{ color: "#174b43", fontWeight: 700, textDecoration: "none" }}>文件拆解工作區</a>
+      <a href="/accounting/admin/questions" style={{ color: "#174b43", fontWeight: 700, textDecoration: "none" }}>拆解題庫審核</a>
+    </div>
+    {children}
+  </>;
 }
