@@ -28745,3 +28745,11 @@ a.is-action-pending {
 .data-structure-home .accounting-photo-question{border-color:#9fcddd;background:#f7fdff}
 .data-structure-home .accounting-photo-question header button{border-color:#6fb9ce;background:#fff;color:#075f82}
 .data-structure-home .accounting-photo-question header button:hover{background:#dff6fb}
+.accounting-answer-text{display:grid;gap:10px}.accounting-answer-text p{margin:0!important;white-space:pre-wrap;line-height:1.75}
+.data-structure-home .structure-diagram{border-color:#9dcfdf;background:linear-gradient(180deg,#fbfeff,#eef9fc);box-shadow:inset 0 0 0 1px rgba(255,255,255,.8)}
+.data-structure-home .structure-diagram figcaption{color:#075f82}
+.data-structure-home .structure-diagram line{stroke:#0879a8}.data-structure-home .structure-diagram g.dashed line{stroke-dasharray:7 6}
+.data-structure-home .structure-diagram circle,.data-structure-home .structure-diagram rect{fill:#f7fdff;stroke:#0879a8;stroke-width:2}
+.data-structure-home .structure-diagram g.label text{font-size:15px}.data-structure-home .structure-diagram g.box text{font-size:13px}
+.data-structure-home .structure-diagram text{fill:#08334c}.data-structure-home .structure-diagram text .detail{font-size:12px;font-weight:500;fill:#3e6b7c}
+.data-structure-home .accounting-usage{border-color:#add7e3;background:#f1fbfd;color:#205c72}.data-structure-home .accounting-usage>b{color:#076b95}

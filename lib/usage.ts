@@ -10,9 +10,9 @@ function ratesForModel(model: string) {
   if (normalized.includes("sonnet-5")) return { input: 2, cached: 0, output: 10 };
   if (normalized.includes("haiku")) return { input: 1, cached: 0, output: 5 };
   if (normalized.includes("deepseek")) return { input: 0.435, cached: 0.003625, output: 0.87 };
-  if (normalized.includes("terra")) return { input: 1, cached: 0.1, output: 6 };
-  if (normalized.includes("sol")) return { input: 2.5, cached: 0.25, output: 15 };
-  return { input: 0.1, cached: 0.01, output: 0.6 };
+  if (normalized.includes("terra")) return { input: 2, cached: 0.2, output: 12 };
+  if (normalized.includes("sol")) return { input: 5, cached: 0.5, output: 30 };
+  return { input: 0.2, cached: 0.02, output: 1.2 };
 }
 
 /** Prices are USD per one million tokens; the result is stored as USD micros. */
