@@ -2,22 +2,44 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { inspectDocumentBytes } from "../../../../lib/document-processing";
+import { storedDocumentAnalysis } from "../../../../lib/document-analysis";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
 
 type ParsedQuestion = { year: string; number: string; stem: string; options: Record<string, string>; answer: string; explanation: string };
 
 function questionsFromProcessingResult(value: string): ParsedQuestion[] {
-  try {
-    const parsed = JSON.parse(value) as { questions?: Array<Record<string, unknown>> };
-    return (parsed.questions ?? []).map((row, index) => ({
-      year: clean(String(row.year ?? "模擬")),
-      number: clean(String(row.number ?? index + 1)),
-      stem: clean(String(row.title ?? "")),
-      options: row.options && typeof row.options === "object" ? Object.fromEntries(Object.entries(row.options as Record<string, unknown>).map(([key, val]) => [key, clean(String(val ?? ""))])) : {},
-      answer: clean(String(row.correct_answer ?? "")).replace(/[()（）\s]/gu, "").slice(0, 1).toUpperCase(),
-      explanation: clean(String(row.explanation ?? row.teacher_answer ?? "")),
-    })).filter((row) => row.stem && ["A", "B", "C", "D"].every((key) => row.options[key]));
-  } catch { return []; }
+  // A malformed/legacy result can contain an entire HTML export. Refuse to
+  // parse an unbounded blob inside the Worker; the caller can explicitly run
+  // a fresh rebuild instead of taking down the request with an OOM.
+  if (value.length > 5_000_000) return [];
+  // Processed documents have existed in several result shapes over time
+  // (root.questions, analysis.questions, result.questions, and facts
+  // questionCandidates). Read all of them so opening an old document can
+  // materialise its saved index without parsing the original PDF again.
+  const parsed = storedDocumentAnalysis(value);
+  const rows = Array.isArray(parsed.questions) ? parsed.questions : [];
+  const firstText = (row: Record<string, unknown>, keys: string[]) => {
+    for (const key of keys) {
+      const text = clean(String(row[key] ?? ""));
+      if (text) return text;
+    }
+    return "";
+  };
+  return rows.map((raw, index) => {
+    const row = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const rawOptions = row.options ?? row.choices ?? row.answers;
+    const options = rawOptions && typeof rawOptions === "object"
+      ? Object.fromEntries(Object.entries(rawOptions as Record<string, unknown>).map(([key, val]) => [key.replace(/[選項答案]/gu, "").toUpperCase(), clean(String(val ?? ""))]))
+      : {};
+    return {
+      year: clean(firstText(row, ["year", "exam_year"]) || "模擬"),
+      number: clean(firstText(row, ["number", "question_number", "questionNumber"]) || String(index + 1)),
+      stem: firstText(row, ["title", "stem", "question", "content", "text"]),
+      options,
+      answer: clean(firstText(row, ["correct_answer", "correctAnswer", "answer"])).replace(/[()（）\s]/gu, "").slice(0, 1).toUpperCase(),
+      explanation: firstText(row, ["explanation", "teacher_answer", "teacherAnswer"]),
+    };
+  }).filter((row) => row.stem && ["A", "B", "C", "D"].every((key) => row.options[key]));
 }
 
 function clean(value: string) {
@@ -90,7 +112,7 @@ export async function POST(request: Request) {
     const body = await request.json() as { documentId?: number; offset?: number; limit?: number; materializeOnly?: boolean };
     const documentId = Number(body.documentId);
     const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
-    const limit = Math.min(150, Math.max(1, Math.floor(Number(body.limit) || 100)));
+    const limit = Math.min(body.materializeOnly ? 25 : 150, Math.max(1, Math.floor(Number(body.limit) || 100)));
     const db = await getDb();
     const [document] = await db.select().from(documents).where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech"))).limit(1);
     if (!document) return Response.json({ error: "找不到醫檢師教材" }, { status: 404 });
@@ -101,7 +123,10 @@ export async function POST(request: Request) {
     let localQuestions: ParsedQuestion[] = [];
     // When the normal document processor already stored the parsed questions,
     // materialising them into editable rows must not re-read the PDF.
-    if (!indexedQuestions.length) {
+    // If the document is already marked as processed, do not fall back to
+    // PDF.js in this request. A large PDF can exceed the Worker memory limit;
+    // an explicit retry/rebuild is the only path that should re-read it.
+    if (!indexedQuestions.length && !body.materializeOnly && !document.questionCount) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
       localQuestions = parseQuestions(inspected.text);
     }

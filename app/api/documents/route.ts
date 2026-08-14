@@ -30,7 +30,37 @@ export async function GET(request: Request) {
   try {
     const db = await getDb();
     const category = new URL(request.url).searchParams.get("category")?.trim();
-    const rows = await db.select().from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
+    // Do not pull an unbounded processingResultJson into every admin list
+    // request. Older HTML imports may contain a very large serialized result;
+    // selecting that column for 50 documents can exceed the Worker memory
+    // limit before the response is even built. Small results still provide
+    // rich metadata and source variants; large documents use scalar counts and
+    // can be opened normally through their dedicated source endpoint.
+    const rows = await db.select({
+      id: documents.id,
+      storageKey: documents.storageKey,
+      fileName: documents.fileName,
+      contentType: documents.contentType,
+      sizeBytes: documents.sizeBytes,
+      examCategory: documents.examCategory,
+      subject: documents.subject,
+      documentType: documents.documentType,
+      status: documents.status,
+      indexError: documents.indexError,
+      processingStage: documents.processingStage,
+      processingMessage: documents.processingMessage,
+      pageCount: documents.pageCount,
+      extractedChars: documents.extractedChars,
+      chapterCount: documents.chapterCount,
+      questionCount: documents.questionCount,
+      tagsJson: documents.tagsJson,
+      processingResultJson: sql<string>`case when length(${documents.processingResultJson}) <= 2000000 then ${documents.processingResultJson} else '{}' end`,
+      fullTextIndexed: documents.fullTextIndexed,
+      vectorIndexed: documents.vectorIndexed,
+      homepageSearchEnabled: documents.homepageSearchEnabled,
+      processedAt: documents.processedAt,
+      createdAt: documents.createdAt,
+    }).from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
     const [documentStats] = await db.select({
       total: sql<number>`count(*)`,
       ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
