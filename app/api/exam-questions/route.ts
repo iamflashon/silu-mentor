@@ -3,7 +3,7 @@ import { getDb } from "../../../db";
 import { getOpenAIKey } from "../../../lib/openai";
 import { examQuestions } from "../../../db/schema";
 import { removeAccountingPageFurniture } from "../../../lib/accounting-question";
-import { importAccountingWordBank } from "../../../lib/accounting-word-bank";
+import { ACCOUNTING_WORD_BANK_SOURCE, importAccountingWordBank } from "../../../lib/accounting-word-bank";
 
 const allowedAnswerHosts = new Set(["lawyer.get.com.tw", "fd.get.com.tw"]);
 
@@ -71,6 +71,7 @@ export async function GET(request: Request) {
   const subject = url.searchParams.get("subject") || "all";
   const sourceBook = url.searchParams.get("sourceBook") || "all";
   const chapter = url.searchParams.get("chapter") || "all";
+  const paper = url.searchParams.get("paper") || "all";
   const examCategory = url.searchParams.get("examCategory") || "all";
   const filters = [];
   if (status !== "all") filters.push(eq(examQuestions.status, status));
@@ -79,6 +80,7 @@ export async function GET(request: Request) {
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
   if (sourceBook !== "all") filters.push(eq(examQuestions.examName, sourceBook));
   if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
+  if (paper !== "all") filters.push(like(examQuestions.teacherNotes, `內部來源：${paper}.docx｜%`));
   if (examCategory !== "all") filters.push(eq(examQuestions.examCategory, examCategory));
   const db = await getDb();
   if (examCategory === "accounting") await importAccountingWordBank(db);
@@ -88,7 +90,7 @@ export async function GET(request: Request) {
   if (examType !== "all") facetFilters.push(eq(examQuestions.examType, examType));
   if (examCategory !== "all") facetFilters.push(eq(examQuestions.examCategory, examCategory));
   const facetWhere = facetFilters.length ? and(...facetFilters) : undefined;
-  const [items, countRows, totals, typeTotals, years, subjects, sourceBooks, chapterRows] = await Promise.all([
+  const [items, countRows, totals, typeTotals, years, subjects, sourceBooks, chapterRows, paperRows] = await Promise.all([
     db.select().from(examQuestions).where(where).orderBy(desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
     db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(where),
     db.select({ status: examQuestions.status, count: sql<number>`count(*)` }).from(examQuestions).groupBy(examQuestions.status),
@@ -97,8 +99,10 @@ export async function GET(request: Request) {
     db.selectDistinct({ subject: examQuestions.subject }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.subject)),
     db.selectDistinct({ sourceBook: examQuestions.examName }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.examName)),
     db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(facetWhere),
+    db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.examName,ACCOUNTING_WORD_BANK_SOURCE),like(examQuestions.sourceUrl,"accounting-word-bank:v2:%"))),
   ]);
   const chapters=[...new Set(chapterRows.map(row=>row.teacherNotes.split("｜")[0].trim()).filter(value=>/^第.+章/u.test(value)))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
+  const papers=[...new Set(paperRows.map(row=>row.teacherNotes.match(/^內部來源：(.+?)\.docx｜/u)?.[1]??"").filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
   const cleanedItems = items.map((item) => item.examCategory === "accounting" ? {
     ...item,
     stem: removeAccountingPageFurniture(item.stem) ?? "",
@@ -106,7 +110,7 @@ export async function GET(request: Request) {
     explanation: removeAccountingPageFurniture(item.explanation) ?? "",
     teacherAnswer: removeAccountingPageFurniture(item.teacherAnswer) ?? "",
   } : item);
-  return Response.json({ items: cleanedItems, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject), sourceBooks:sourceBooks.map(row=>row.sourceBook), chapters } });
+  return Response.json({ items: cleanedItems, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject), sourceBooks:sourceBooks.map(row=>row.sourceBook), chapters, papers } });
 }
 
 export async function POST(request: Request) {
