@@ -48,6 +48,28 @@ export async function PATCH(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as Record<string, unknown>;
+  const replaceFind = typeof body.replaceFind === "string" ? body.replaceFind : "";
+  if (replaceFind) {
+    const documentId = Number(body.documentId);
+    const replacement = typeof body.replaceWith === "string" ? body.replaceWith : "";
+    if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "缺少文件編號" }, { status: 400 });
+    if (replaceFind.length > 2000 || replacement.length > 4000) return Response.json({ error: "搜尋或取代文字過長" }, { status: 400 });
+    const db = await getDb();
+    const rows = await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${documentId}`)));
+    let matched = 0;
+    for (const row of rows) {
+      const options = JSON.parse(row.optionsJson || "{}") as Record<string, string>;
+      const replace = (value: string) => value.split(replaceFind).join(replacement);
+      const nextStem = replace(row.stem);
+      const nextExplanation = replace(row.explanation);
+      const nextOptions = Object.fromEntries(Object.entries(options).map(([key, value]) => [key, replace(String(value ?? ""))]));
+      const changed = nextStem !== row.stem || nextExplanation !== row.explanation || JSON.stringify(nextOptions) !== JSON.stringify(options);
+      if (!changed) continue;
+      matched += 1;
+      await db.update(examQuestions).set({ stem: sanitizeRichHtml(nextStem), explanation: sanitizeRichHtml(nextExplanation), optionsJson: JSON.stringify(Object.fromEntries(Object.entries(nextOptions).map(([key, value]) => [key, sanitizeRichHtml(value)]))) }).where(eq(examQuestions.id, row.id));
+    }
+    return Response.json({ replaced: true, matched, updated: matched, find: replaceFind, replaceWith: replacement });
+  }
   const id = Number(body.id);
   const db = await getDb();
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
