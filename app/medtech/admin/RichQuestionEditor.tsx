@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { unzipSync, strFromU8 } from "fflate";
 
-const symbols = ["α","β","γ","δ","μ","λ","±","×","÷","≠","≤","≥","≈","→","←","↔","℃","°","％","‰","✓","✕","①","②","③","④"];
+const symbols = ["°C","℃","α","β","γ","δ","μ","λ","±","×","÷","≠","≤","≥","≈","→","←","↔","％","‰","✓","✕","①","②","③","④"];
+
+function normalizeTemperature(value:string){
+  return value.replace(/(\d+(?:\.\d+)?)\s*(?:[oº°]\s*)?C(?=\s|冷|熱|保存|培養|$|<)/giu,"$1°C");
+}
 
 function cleanOfficeHtml(value:string){
   return value.replace(/<!--([\s\S]*?)-->/g,"").replace(/<(meta|link|style)[^>]*>[\s\S]*?<\/\1>/gi,"").replace(/\s(class|style|lang)=("[^"]*"|'[^']*')/gi,"");
@@ -11,8 +15,8 @@ function cleanOfficeHtml(value:string){
 
 export function RichQuestionEditor({label,value,onChange,compact=false}:{label:string;value:string;onChange:(value:string)=>void;compact?:boolean}){
   const ref=useRef<HTMLDivElement>(null); const fileRef=useRef<HTMLInputElement>(null); const [showSymbols,setShowSymbols]=useState(false); const [uploading,setUploading]=useState(false);
-  useEffect(()=>{if(ref.current&&ref.current.innerHTML!==value)ref.current.innerHTML=value||""},[value]);
-  function sync(){onChange(ref.current?.innerHTML??"")}
+  useEffect(()=>{const normalized=normalizeTemperature(value||"");if(ref.current&&ref.current.innerHTML!==normalized)ref.current.innerHTML=normalized},[value]);
+  function sync(){const normalized=normalizeTemperature(ref.current?.innerHTML??"");if(ref.current&&ref.current.innerHTML!==normalized)ref.current.innerHTML=normalized;onChange(normalized)}
   function command(name:string,arg?:string){ref.current?.focus();document.execCommand(name,false,arg);sync()}
   async function upload(file:File){
     if(!file.type.startsWith("image/"))return; setUploading(true);
@@ -30,7 +34,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false}:{label:s
     <button type="button" title="上標" onClick={()=>command("superscript")}>x²</button><button type="button" title="下標" onClick={()=>command("subscript")}>x₂</button><button type="button" title="插入項目符號" onClick={()=>command("insertUnorderedList")}>• 項目</button>
     <button type="button" title="新增表格" onClick={table}>▦ 表格</button><button type="button" title="特殊符號" onClick={()=>setShowSymbols(!showSymbols)}>Ω 符號</button><button type="button" title="插入圖片" onClick={()=>fileRef.current?.click()}>{uploading?"上傳中…":"▧ 圖片"}</button>
     <button type="button" title="復原" onClick={()=>command("undo")}>↶</button><button type="button" title="重做" onClick={()=>command("redo")}>↷</button><input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={e=>{const f=e.target.files?.[0];if(f)void upload(f);e.target.value=""}}/>
-  </div>{showSymbols&&<div className="symbol-palette">{symbols.map(x=><button type="button" key={x} onClick={()=>command("insertText",x)}>{x}</button>)}</div>}
+  </div>{showSymbols&&<div className="symbol-palette">{symbols.map(x=><button type="button" key={x} title={x==="°C"?"攝氏溫度格式":"插入特殊符號"} onClick={()=>command("insertText",x)}>{x}</button>)}</div>}
   <div ref={ref} className="rich-canvas" contentEditable suppressContentEditableWarning data-placeholder={`輸入${label}，也可以直接貼上 Word 內容或截圖`} onInput={sync} onBlur={sync} onPaste={paste}/><small>可直接貼上 Word 格式與螢幕截圖；圖片會保存到醫檢題庫空間。</small></label>
 }
 

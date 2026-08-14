@@ -20,7 +20,9 @@ function questionsFromProcessingResult(value: string): ParsedQuestion[] {
   } catch { return []; }
 }
 
-function clean(value: string) { return value.replace(/\s+/gu, " ").trim(); }
+function clean(value: string) {
+  return value.replace(/\s+/gu, " ").trim().replace(/(\d+(?:\.\d+)?)\s*(?:[oº°]\s*)?C(?=\s|冷|熱|保存|培養|$)/giu, "$1°C");
+}
 
 function parseOptions(text: string) {
   const options: Record<string, string> = {};
