@@ -28588,7 +28588,7 @@ a.is-action-pending {
 .medtech-home .medtech-hero-actions a{border-color:rgba(185,229,223,.48);background:rgba(185,229,223,.1);color:#d9f1ee}
 .medtech-home .medtech-hero-actions a:first-child{background:#fff;color:#0d514b;box-shadow:0 8px 22px rgba(24,103,96,.12)}
 .medtech-home .medtech-hero-actions a:last-child{background:#4d9f97;color:#f1e6aa;border-color:#4d9f97}
-@media(max-width:760px){.medtech-home .medtech-hero>div{width:100%;text-align:center}.medtech-home .medtech-hero>div>span{display:block}.medtech-home .medtech-hero h1{width:100%;max-width:none;margin-left:auto;margin-right:auto;font-size:clamp(25px,7.8vw,31px);letter-spacing:-.07em;text-align:center;white-space:nowrap}.medtech-home .medtech-hero-actions{width:100%;justify-content:center}}
+@media(max-width:760px){.medtech-home .medtech-hero>div{width:100%;text-align:center}.medtech-home .medtech-hero>div>span{display:block}.medtech-home .medtech-hero h1{width:100%;max-width:none;margin-left:auto;margin-right:auto;font-size:clamp(29px,8.6vw,35px);letter-spacing:-.08em;text-align:center;white-space:nowrap}.medtech-home .medtech-hero-actions{width:100%;justify-content:center}}
 
 /* Medtech membership and category-scoped administration */
 .medtech-member-link{padding:9px 14px;border:1px solid #9ccdc7;border-radius:9px;color:#176b64;font-size:12px;font-weight:850}
