@@ -82,14 +82,15 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
   const model = await getOpenAIModel("gpt-5.6-luna");
   const isMedtech = document.examCategory === "medtech";
   const isAccounting = document.examCategory === "accounting";
+  const isDataStructure = document.examCategory === "data-structure";
   const isAccountingBook = isAccounting && document.documentType === "核心教材";
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({
       model,
-      instructions: isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。" : isAccountingBook ? "你是台灣中級會計教材索引編輯。這是核心書本，不是題庫。必須使用 file_search 廣泛讀取指定原檔，完整整理篇、章、節、主題、重要觀念、會計準則、公式、分錄類型、例題所在主題與頁面範圍，建立供 AI 課業答疑檢索的內容索引。chapters 應保留階層 path 與可確認頁碼；tags 應涵蓋可搜尋的觀念詞。questions 必須回傳空陣列，不要把例題轉成練習題庫。只整理原檔明確內容，不得補造。" : isAccounting ? "你是台灣中級會計題庫資料編輯。必須使用 file_search 廣泛讀取指定原檔，做完整題目盤點，不是摘要抽樣。逐章辨識所有選擇題、計算題、分錄題、申論題及其子題；跨頁題幹合併為同一題，子題保留在同一題內。不同章的重複題號仍分別列出並標明 chapter。title 必須保留可獨立作答的完整題幹，不可只寫題目摘要。選擇題必須逐字保存 A、B、C、D 四個選項；原稿有答案或解析時一併保存。申論、計算或分錄題的 options 四欄回傳空字串，並將原稿解答放入 teacher_answer。content_type 準確標示題型。只整理原檔內容，不得補造。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。",
-      input: `請完整處理「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。${isAccountingBook ? "請以目錄、章節層級、準則、公式、分錄與重要觀念建立全文索引，不要拆成題庫。" : "請搜尋各章題號頁、選擇題、計算題、分錄題與申論題，盡可能盤點全書，不要只回傳代表性題目。"}結構線索僅供核對：${JSON.stringify(facts)}`,
-      tools: [{ type: "file_search", vector_store_ids: [storeId], max_num_results: isAccounting ? 50 : 24 }],
+      instructions: isDataStructure ? "你是資料結構教材索引編輯。必須使用 file_search 廣泛讀取指定原檔，只整理原檔內容，不得補造。完整建立章、節、主題、定義、資料表示、演算法步驟、時間與空間複雜度、例題及解答索引。遇到樹、圖、鏈結串列、堆疊、佇列或排序示意圖，應用文字記錄節點、邊、方向、順序與圖說，供問答時重建精準 SVG；不可只寫『見圖』。同名教材的更正版優先於舊版。" : isMedtech ? "你是台灣醫事檢驗師國考教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。" : isAccountingBook ? "你是台灣中級會計教材索引編輯。這是核心書本，不是題庫。必須使用 file_search 廣泛讀取指定原檔，完整整理篇、章、節、主題、重要觀念、會計準則、公式、分錄類型、例題所在主題與頁面範圍，建立供 AI 課業答疑檢索的內容索引。chapters 應保留階層 path 與可確認頁碼；tags 應涵蓋可搜尋的觀念詞。questions 必須回傳空陣列，不要把例題轉成練習題庫。只整理原檔明確內容，不得補造。" : isAccounting ? "你是台灣中級會計題庫資料編輯。必須使用 file_search 廣泛讀取指定原檔，做完整題目盤點，不是摘要抽樣。逐章辨識所有選擇題、計算題、分錄題、申論題及其子題；跨頁題幹合併為同一題，子題保留在同一題內。不同章的重複題號仍分別列出並標明 chapter。title 必須保留可獨立作答的完整題幹，不可只寫題目摘要。選擇題必須逐字保存 A、B、C、D 四個選項；原稿有答案或解析時一併保存。申論、計算或分錄題的 options 四欄回傳空字串，並將原稿解答放入 teacher_answer。content_type 準確標示題型。只整理原檔內容，不得補造。" : "你是台灣司律教材資料編輯。必須使用 file_search 讀取指定原檔，只整理原檔內容，不得補造。",
+      input: `請完整處理「${document.fileName}」。科目：${document.subject}；文件類型：${document.documentType}。${isDataStructure ? "請完整建立章節、定義、演算法、複雜度、例題解答與圖形結構索引；圖形須轉述節點、邊、方向與順序，不要只寫見圖。" : isAccountingBook ? "請以目錄、章節層級、準則、公式、分錄與重要觀念建立全文索引，不要拆成題庫。" : "請搜尋各章題號頁、選擇題、計算題、分錄題與申論題，盡可能盤點全書，不要只回傳代表性題目。"}結構線索僅供核對：${JSON.stringify(facts)}`,
+      tools: [{ type: "file_search", vector_store_ids: [storeId], max_num_results: isAccounting || isDataStructure ? 50 : 24 }],
       text: {
         format: {
           type: "json_schema",
@@ -114,7 +115,7 @@ async function analyzeIndexedDocument(document: typeof documents.$inferSelect, s
           },
         },
       },
-      max_output_tokens: isAccounting ? 16000 : 6000,
+      max_output_tokens: isAccounting || isDataStructure ? 16000 : 6000,
     }),
   });
   const usage = payload.usage && typeof payload.usage === "object"
