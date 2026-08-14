@@ -80,7 +80,7 @@ export async function GET(request: Request) {
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
   if (sourceBook !== "all") filters.push(eq(examQuestions.examName, sourceBook));
   if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
-  if (paper !== "all") filters.push(like(examQuestions.teacherNotes, `內部來源：${paper}.docx｜%`));
+  if (paper !== "all") filters.push(like(examQuestions.sourceUrl, `accounting-word-bank:v2:${paper}.docx:%`));
   if (examCategory !== "all") filters.push(eq(examQuestions.examCategory, examCategory));
   const db = await getDb();
   if (examCategory === "accounting") await importAccountingWordBank(db);
