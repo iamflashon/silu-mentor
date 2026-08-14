@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: "司律備考｜AI 司律考試教練", template: "%s｜iBrain 備考" },
-  description: "不同類科各自獨立的 AI 備考與線上測驗平台。",
+  title: { default: "iBrain AI 學習平台", template: "%s｜iBrain AI 學習平台" },
+  description: "iBrain 各類科獨立的 AI 學習與測驗平台。",
   other: {
     "codex-preview": "development",
   },
