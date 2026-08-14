@@ -225,7 +225,8 @@ export async function POST(request: Request) {
     // reuse the bytes for inspection and indexing.
     const originalBytes = await object.arrayBuffer();
 
-    if (["queued", "uploaded", "extracting"].includes(document.processingStage) || !document.fileSha256) {
+    const isAccountingWordQuiz = document.examCategory === "accounting" && /\.(?:docx)$/iu.test(document.fileName) && /(?:小考|模擬考|考題|題庫|測驗)/u.test(document.fileName);
+    if (["queued", "uploaded", "extracting"].includes(document.processingStage) || !document.fileSha256 || (body.reanalyze && isAccountingWordQuiz)) {
       await db.update(documents).set({ status: "extracting", processingStage: "extracting", processingMessage: "正在檢查檔案、擷取文字與辨識結構", indexError: null }).where(eq(documents.id, documentId));
       const bytes = originalBytes;
       if (bytes.byteLength < 1 || bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("檔案大小不符合限制（最多 55MB）");
@@ -304,10 +305,13 @@ export async function POST(request: Request) {
       }).catch(() => undefined);
     }
     const savedQuestions = await saveAccountingQuestions(document, questions);
-    const completedMessage = document.examCategory === "accounting" && document.documentType !== "核心教材"
+    const detectedWordQuestions = isAccountingWordQuiz ? Number(facts.docxQuestionRows ?? 0) : 0;
+    const completedMessage = detectedWordQuestions
+      ? `已辨識 ${detectedWordQuestions} 題，並完成全文／向量索引，可供 Luna 助教檢索`
+      : document.examCategory === "accounting" && document.documentType !== "核心教材"
       ? `教材拆解完成，${savedQuestions} 題已進入待審核題庫`
       : ruleOnly ? "教材結構完整，已用規則整理並完成全文／向量索引；未使用生成式 AI" : ai?.analysis ? "教材已完成檢查、擷取、分類、全文／向量索引與 AI 結構分析" : "教材已完成全文／向量索引；AI 未確認可保存的章節或題目，未自行補造";
-    await db.update(documents).set({ status: "completed", processingStage: "completed", processingMessage: completedMessage, chapterCount: chapters.length || Number((facts.chapterCandidates as unknown[])?.length ?? 0), questionCount: document.examCategory === "accounting" && document.documentType !== "核心教材" ? savedQuestions : questions.length || Number((facts.questionCandidates as unknown[])?.length ?? 0), tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...localTags, ...aiTags])), processingResultJson: JSON.stringify({ ...result, savedQuestions }), processedAt: new Date(), indexError: null, fullTextIndexed: true, vectorIndexed: true }).where(eq(documents.id, documentId));
+    await db.update(documents).set({ status: "completed", processingStage: "completed", processingMessage: completedMessage, chapterCount: detectedWordQuestions ? 0 : chapters.length || Number((facts.chapterCandidates as unknown[])?.length ?? 0), questionCount: detectedWordQuestions || (document.examCategory === "accounting" && document.documentType !== "核心教材" ? savedQuestions : questions.length || Number((facts.questionCandidates as unknown[])?.length ?? 0)), tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...localTags, ...aiTags])), processingResultJson: JSON.stringify({ ...result, savedQuestions, detectedWordQuestions }), processedAt: new Date(), indexError: null, fullTextIndexed: true, vectorIndexed: true }).where(eq(documents.id, documentId));
     return Response.json({ status: "completed", stage: "completed", message: completedMessage, savedQuestions });
   } catch (error) {
     const message = processingError(error);

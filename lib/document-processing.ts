@@ -22,6 +22,7 @@ export type ExtractedDocumentFacts = {
   recordCount: number;
   chapterCandidates: string[];
   questionCandidates: Array<{ number: string; title: string; chapter: string }>;
+  docxQuestionRows?: number;
   inferredTags: string[];
   metadata: { title: string; source: string; category: string; date: string; version: string; parentPath: string; enabled: boolean };
   validation: { valid: boolean; checks: string[]; warnings: string[] };
@@ -245,6 +246,22 @@ function extractDocxText(bytes: ArrayBuffer) {
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 }
 
+function countDocxAnswerRows(bytes: ArrayBuffer) {
+  let entries: Record<string, Uint8Array>;
+  try { entries = unzipSync(new Uint8Array(bytes)); } catch { return 0; }
+  const xml = entries["word/document.xml"];
+  if (!xml) return 0;
+  const source = new TextDecoder().decode(xml);
+  let count = 0;
+  for (const row of source.match(/<w:tr\b[\s\S]*?<\/w:tr>/g) ?? []) {
+    const cells = row.match(/<w:tc\b[\s\S]*?<\/w:tc>/g) ?? [];
+    if (cells.length !== 2) continue;
+    const answer = [...cells[1].matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map(match => match[1]).join("").replace(/&amp;/g,"&").trim();
+    if (/^[（(]?\s*[A-Da-d]\s*[）)]?\.?$/u.test(answer)) count += 1;
+  }
+  return count;
+}
+
 export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer): Promise<{ facts: ExtractedDocumentFacts; text: string; sha256: string }> {
   const originalExtension = documentExtension(fileName);
   if (!originalExtension) throw new Error("僅支援 PDF、JSON、JSONL、MD、TXT、DOCX 或 ZIP 文件");
@@ -276,6 +293,7 @@ export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer)
     ? extractDocxText(payload.bytes)
     : new TextDecoder("utf-8", { fatal: false }).decode(view).replace(/^\uFEFF/, "");
   const facts = extension === "json" ? factsFromJson(text) : extension === "jsonl" ? factsFromJsonl(text) : factsFromText(text, extension);
+  if (extension === "docx") facts.docxQuestionRows = countDocxAnswerRows(payload.bytes);
   return {
     facts: originalExtension === "zip"
       ? { ...facts, container: "zip", sourceFileName: payload.fileName }
