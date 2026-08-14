@@ -56,15 +56,20 @@ function parseQuestions(text: string): ParsedQuestion[] {
       if (/^[^A-Za-z0-9]*[（(][A-D][）)]\s*$/u.test(lines[cursor])) { answerIndex = cursor; break; }
       if (cursor > index + 1 && /^\d{1,3}[.、]\s*\S/u.test(lines[cursor])) break;
     }
-    if (answerIndex < 0) continue;
+    // Some uploaded HTML/Word papers contain only the question and four
+    // options. Do not discard those questions just because the answer key is
+    // stored in another file; import them with an empty answer so the editor
+    // can complete it later.
+    const optionEnd = answerIndex >= 0 ? answerIndex : lines.findIndex((line, cursor) => cursor > optionStart && cursor > index && /^\d{1,3}[.、]\s*\S/u.test(line));
+    const endOfOptions = optionEnd >= 0 ? optionEnd : lines.length;
     const stem = clean([start[2], ...lines.slice(index + 1, optionStart)].join(" "));
-    const optionText = lines.slice(optionStart, answerIndex).join(" ");
+    const optionText = lines.slice(optionStart, endOfOptions).join(" ");
     const options = parseOptions(optionText);
     if (!["A", "B", "C", "D"].every((key) => options[key])) continue;
-    const answer = lines[answerIndex].match(/[（(]([A-D])[）)]/u)?.[1] ?? "";
-    let end = answerIndex + 1;
+    const answer = answerIndex >= 0 ? lines[answerIndex].match(/[（(]([A-D])[）)]/u)?.[1] ?? "" : "";
+    let end = answerIndex >= 0 ? answerIndex + 1 : endOfOptions;
     const explanation: string[] = [];
-    if (lines[end] === "【解析】") end += 1;
+    if (answerIndex >= 0 && lines[end] === "【解析】") end += 1;
     while (end < lines.length && explanation.length < 12) {
       if (/^\d{1,3}[.、]\s*\S/u.test(lines[end]) || /^第\s*\d+\s*(?:章|節)/u.test(lines[end]) || /^=====/.test(lines[end])) break;
       explanation.push(lines[end]); end += 1;
@@ -118,8 +123,8 @@ export async function POST(request: Request) {
         optionsJson: JSON.stringify(question.options),
         correctAnswer: question.answer,
         explanation: question.explanation,
-        answerSource: "教材原稿",
-        answerStatus: "source_matched",
+        answerSource: question.answer ? "教材原稿" : "待補答案",
+        answerStatus: question.answer ? "source_matched" : "missing",
         sourceUrl: `document:${document.id}`,
           status: "draft",
         });
