@@ -14,6 +14,7 @@ export default function MedtechAdminPage(){
  async function loadMembers(){const r=await fetch("/api/medtech/members");const d=await r.json() as {members?:Member[]};setMembers(d.members??[])}
  async function loadDocs(){const r=await fetch("/api/medtech/documents",{cache:"no-store"});const d=await r.json() as {documents?:Doc[]};setDocs(d.documents??[])}
  useEffect(()=>{void loadMembers();void loadDocs();const timer=window.setInterval(()=>{void loadDocs()},4000);return()=>window.clearInterval(timer)},[]);
+ useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("tab");if(requested==="questions"||requested==="documents"||requested==="members")setTab(requested)},[]);
  useEffect(()=>{for(const doc of docs){if(["indexing","analyzing"].includes(doc.processingStage)&&!processing.current.has(doc.id))void process(doc.id)}},[docs]);
  async function create(){const r=await fetch("/api/medtech/members",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(draft)});if(r.ok){setNotice("醫檢師會員已新增。");setDraft({displayName:"",email:"",className:"",role:"student",status:"active",canAdmin:false});await loadMembers()}else setNotice("新增失敗，請檢查資料。")}
  async function update(id:number,patch:Partial<Member>){const r=await fetch("/api/medtech/members",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({id,...patch})});if(r.ok){setMembers(list=>list.map(x=>x.id===id?{...x,...patch}:x))}}
