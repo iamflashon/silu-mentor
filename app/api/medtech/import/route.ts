@@ -87,7 +87,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMedtechAdmin(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { documentId?: number; offset?: number; limit?: number };
+    const body = await request.json() as { documentId?: number; offset?: number; limit?: number; materializeOnly?: boolean };
     const documentId = Number(body.documentId);
     const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
     const limit = Math.min(150, Math.max(1, Math.floor(Number(body.limit) || 100)));
@@ -99,13 +99,15 @@ export async function POST(request: Request) {
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
     const indexedQuestions = questionsFromProcessingResult(document.processingResultJson);
     let localQuestions: ParsedQuestion[] = [];
-    if (/\.pdf$/iu.test(document.fileName) || !indexedQuestions.length) {
+    // When the normal document processor already stored the parsed questions,
+    // materialising them into editable rows must not re-read the PDF.
+    if (!indexedQuestions.length) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
       localQuestions = parseQuestions(inspected.text);
     }
     const questions = localQuestions.length > indexedQuestions.length ? localQuestions : indexedQuestions;
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
-    if (offset === 0) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
+    if (offset === 0 && !body.materializeOnly) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
     // has many columns, so keep batches comfortably below that limit.
     let imported = 0;
