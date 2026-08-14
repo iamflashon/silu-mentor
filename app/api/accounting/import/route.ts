@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { unzipSync } from "fflate";
 import { extractText } from "unpdf";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
@@ -23,17 +24,52 @@ function chapterOf(text:string){
 function parseOptions(segment:string){
  const options:Record<string,string>={};
  for(const key of ["A","B","C","D"]){
-  const start=segment.indexOf(`(${key})`); if(start<0)continue;
+  const marker=new RegExp(`(?:\\(${key}\\)|(?:^|\\n)\\s*${key}[.)])\\s*`,"iu"); const found=marker.exec(segment); const start=found?.index??-1; if(start<0)continue;
+  const markerLength=found?.[0].length??3;
   const nextKey=String.fromCharCode(key.charCodeAt(0)+1);
-  const next=key==="D"?-1:segment.indexOf(`(${nextKey})`,start+3);
+  const next=key==="D"?-1:(()=>{const nextMatch=new RegExp(`(?:\\(${nextKey}\\)|(?:^|\\n)\\s*${nextKey}[.)])\\s*`,"iu").exec(segment.slice(start+markerLength));return nextMatch?start+markerLength+nextMatch.index:-1})();
   let end=next>=0?next:segment.length;
   if(key==="D"){
    const stops=[segment.indexOf("【計算過程】",start),segment.slice(start).search(/\n\s*\(\d{2,3}年[^\n]*\)/u)>=0?start+segment.slice(start).search(/\n\s*\(\d{2,3}年[^\n]*\)/u):-1].filter(v=>v>=0);
    if(stops.length)end=Math.min(...stops);
   }
-  options[key]=clean(segment.slice(start+3,end).replace(/\n\s*\([A-D]\)\s*$/u,""));
+  options[key]=clean(segment.slice(start+markerLength,end).replace(/\n\s*\([A-D]\)\s*$/u,""));
  }
  return options;
+}
+
+function xmlText(value:string){
+ return value.replace(/<w:tab\b[^>]*\/>/giu,"\t").replace(/<w:br\b[^>]*\/>/giu,"\n").replace(/<\/w:p>/giu,"\n").replace(/<\/w:tc>/giu,"\n").replace(/<[^>]+>/gu,"").replace(/&lt;/gu,"<").replace(/&gt;/gu,">").replace(/&amp;/gu,"&").replace(/&quot;/gu,'"').replace(/&#39;|&apos;/gu,"'");
+}
+
+function parseWordTableQuestions(bytes:Uint8Array):ParsedQuestion[]{
+ let entries:Record<string,Uint8Array>;
+ try{entries=unzipSync(bytes)}catch{return []}
+ const source=entries["word/document.xml"]?new TextDecoder().decode(entries["word/document.xml"]):"";
+ if(!source)return [];
+ const tables=source.match(/<w:tbl\b[\s\S]*?<\/w:tbl>/giu)??[];
+ const result:ParsedQuestion[]=[];
+ for(const table of tables){
+  const rows=table.match(/<w:tr\b[\s\S]*?<\/w:tr>/giu)??[];
+  for(const row of rows){
+   const cells=row.match(/<w:tc\b[\s\S]*?<\/w:tc>/giu)??[]; if(!cells.length)continue;
+   const raw=clean(xmlText(cells[0])); if(raw.length<18)continue;
+   const answerCell=clean(xmlText(cells[1]??""));
+   const answer=(answerCell.match(/(?:^|\s)[(（]?\s*([A-Da-d])\s*[)）]?\s*$/u)?.[1]??"").toUpperCase();
+   const options=parseOptions(raw);
+   const beforeAnswer=raw.split(/(?:【\s*(?:解答|解析)\s*】|計算過程)/u)[0];
+   const stemEnd=Math.min(...[beforeAnswer.indexOf("(A)"),beforeAnswer.search(/(?:^|\n)\s*[Aa][.)]\s*/u)].filter((value)=>value>=0),beforeAnswer.length);
+   const stem=clean(beforeAnswer.slice(0,stemEnd));
+   if(stem.length<12)continue;
+   const hasQuestionMark=/[?？]/u.test(stem),hasOptions=Object.keys(options).length>=2;
+   if(!answer&&!hasOptions&&!hasQuestionMark)continue;
+   const calc=raw.search(/【\s*(?:解答|解析)\s*】|計算過程/u);
+   const explanation=calc>=0?clean(raw.slice(calc).replace(/^.*?(?:【\s*(?:解答|解析)\s*】|計算過程)/u,"")):"";
+   const sourceMatches=[...raw.matchAll(/[（(]((?:10\d|11\d)年[^）)\n]{2,50}(?:研究所|考試|特考|高考|普考|會計師|記帳士)[^）)\n]*)[）)]/gu)];
+   result.push({number:String(result.length+1),stem,options,answer,explanation,teacherAnswer:explanation,chapter:chapterOf(raw),examSource:clean(sourceMatches.at(-1)?.[1]??""),page:1,examType:hasOptions||answer?"mcq":"essay"});
+  }
+ }
+ return result;
 }
 
 function parseQuestions(pages:string[],documentType:string){
@@ -108,7 +144,7 @@ export async function POST(request:Request){
   const isWordQuiz=/\.docx$/iu.test(document.fileName)&&/(?:小考|模擬考|考題|題庫|測驗)/u.test(document.fileName);
   let pages:string[]=[];let totalPages=1;
   if(/\.pdf$/iu.test(document.fileName)){const extracted=await extractText(bytes,{mergePages:false});pages=Array.isArray(extracted.text)?extracted.text:[String(extracted.text)];totalPages=extracted.totalPages??pages.length}else{const inspected=await inspectDocumentBytes(document.fileName,bytes.buffer as ArrayBuffer);pages=[inspected.text]}
-  const parsed=parseQuestions(pages,inferredType);const grouped=isWordQuiz?parseGroupedWordQuestions(pages.join("\n")):[];const questions=grouped.length>parsed.length?grouped:parsed;
+  const parsed=parseQuestions(pages,inferredType);const wordTable=isWordQuiz?parseWordTableQuestions(bytes):[];const grouped=isWordQuiz?parseGroupedWordQuestions(pages.join("\n")):[];const questions=wordTable.length?wordTable:(grouped.length>parsed.length?grouped:parsed);
   if(!questions.length)throw new Error("未辨識到可入庫的完整題目");
   const sourceUrl=`document:${document.id}`;
   if(offset===0)await db.delete(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,sourceUrl)));

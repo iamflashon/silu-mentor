@@ -153,8 +153,8 @@ export function docxToHtml(bytes: ArrayBuffer, assetPrefix: string) {
   }
   flushList();
   return '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>\n' +
-    'body{margin:0;background:#f5f7f7;color:#173f3c;font-family:Arial,"Noto Sans TC",sans-serif;line-height:1.75}.docx-sheet{box-sizing:border-box;max-width:960px;margin:24px auto;padding:42px 52px;background:#fff;box-shadow:0 2px 14px #174b4318}p,h1,h2,h3,h4,h5,h6{margin:0 0 14px}table{width:100%;border-collapse:collapse;margin:18px 0}td,th{border:1px solid #8eaaa7;padding:8px 10px;vertical-align:top}img{display:block;max-width:100%;height:auto;margin:8px auto}li{margin:3px 0}.docx-empty{min-height:1em}.docx-page-break{border:0;border-top:2px dashed #c79f32;margin:32px 0;page-break-after:always}\n' +
-    '@media(max-width:700px){.docx-sheet{margin:0;padding:22px 18px;box-shadow:none}td,th{padding:6px;word-break:break-word}}\n' +
+    'body{margin:0;background:#edf3f2;color:#171d1d;font-family:"Noto Serif TC","PMingLiU","Times New Roman",serif;line-height:1.65}.docx-sheet{box-sizing:border-box;width:min(210mm,100%);min-height:297mm;margin:22px auto;padding:22mm 19mm;background:#fff;box-shadow:0 2px 16px #173f3c22;overflow-wrap:anywhere}p,h1,h2,h3,h4,h5,h6{margin:0 0 12px;white-space:pre-wrap}h1,h2,h3,h4,h5,h6{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:#173f3c}ul{margin:0 0 14px;padding-left:1.8em}table{width:100%;border-collapse:collapse;table-layout:auto;margin:16px 0;font-size:.96em}td,th{border:1px solid #667875;padding:6px 9px;vertical-align:top;white-space:pre-wrap}td p,td li{margin:0}img{display:block;max-width:100%;height:auto;margin:10px auto}li{margin:3px 0}.docx-empty{min-height:1em}.docx-page-break{border:0;border-top:1px dashed #c79f32;margin:32px 0;page-break-after:always}\n' +
+    '@media(max-width:700px){.docx-sheet{width:100%;min-height:0;margin:0;padding:15mm 12mm;box-shadow:none}table{font-size:.9em}td,th{padding:5px;word-break:break-word}}\n' +
     '</style></head><body><article class="docx-sheet">' + rendered.join("\n") + "</article></body></html>";
 }
 

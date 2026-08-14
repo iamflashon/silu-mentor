@@ -71,6 +71,7 @@ export async function GET(request: Request) {
         indexedFileName: typeof result.indexedFileName === "string" ? result.indexedFileName : row.fileName,
         sourceVariants: sourceVariants(row.processingResultJson).map((item) => ({
           kind: typeof item.kind === "string" ? item.kind : "other",
+          storageKey: typeof item.storageKey === "string" ? item.storageKey : "",
           fileName: typeof item.fileName === "string" ? item.fileName : "原稿版本",
           contentType: typeof item.contentType === "string" ? item.contentType : "application/octet-stream",
           sizeBytes: Number(item.sizeBytes ?? 0),
