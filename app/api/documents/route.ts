@@ -15,6 +15,13 @@ function processingResult(value: string) {
   }
 }
 
+function sourceVariants(value: string) {
+  const result = processingResult(value);
+  return Array.isArray(result.sourceVariants)
+    ? result.sourceVariants.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && typeof (item as Record<string, unknown>).storageKey === "string"))
+    : [];
+}
+
 function safeName(value: string) {
   return value.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
 }
@@ -62,6 +69,12 @@ export async function GET(request: Request) {
         summary: typeof result.summary === "string" ? result.summary : "",
         sourceFileName: typeof result.sourceFileName === "string" ? result.sourceFileName : row.fileName,
         indexedFileName: typeof result.indexedFileName === "string" ? result.indexedFileName : row.fileName,
+        sourceVariants: sourceVariants(row.processingResultJson).map((item) => ({
+          kind: typeof item.kind === "string" ? item.kind : "other",
+          fileName: typeof item.fileName === "string" ? item.fileName : "原稿版本",
+          contentType: typeof item.contentType === "string" ? item.contentType : "application/octet-stream",
+          sizeBytes: Number(item.sizeBytes ?? 0),
+        })),
         extractionNote: typeof result.extractionNote === "string" ? result.extractionNote : "",
         analysisStatus: typeof result.analysisStatus === "string" ? result.analysisStatus : "",
         chapters,

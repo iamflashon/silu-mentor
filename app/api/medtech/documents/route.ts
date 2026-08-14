@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
-import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
+import { contentTypeForDocument, documentExtension, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
 import { DELETE as deleteDocuments, GET as getDocuments, PATCH as patchDocument, POST as postDocument } from "../../documents/route";
 
 export async function GET(request: Request) {
@@ -40,9 +40,20 @@ export async function PUT(request: Request) {
     const newKey = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
     await env.BUCKET.put(newKey, file.stream(), { httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) }, customMetadata: { subject: current.subject, documentType: current.documentType, originalName: file.name } });
     try {
-      await db.update(documents).set({ storageKey: newKey, fileName: file.name, contentType: contentTypeForDocument(file.name, file.type), sizeBytes: file.size, processingMessage: "原始文件已更換；現有題目、解析與順序均保留，未重新拆題", indexError: null }).where(eq(documents.id, id));
-      await env.BUCKET.delete(current.storageKey).catch(() => undefined);
-      return Response.json({ replaced: true, id, name: file.name });
+      let parsedResult: Record<string, unknown> = {};
+      try { parsedResult = JSON.parse(current.processingResultJson) as Record<string, unknown>; } catch { parsedResult = {}; }
+      const variants = Array.isArray(parsedResult.sourceVariants)
+        ? parsedResult.sourceVariants.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && typeof (item as Record<string, unknown>).storageKey === "string"))
+        : [];
+      const currentKind = documentExtension(current.fileName);
+      const nextKind = documentExtension(file.name);
+      const variantKind = nextKind === "pdf" ? "pdf" : nextKind === "html" ? "html" : nextKind ?? "other";
+      const nextVariants = variants.filter((item) => item.kind !== variantKind);
+      // Keep the existing primary object instead of deleting it. A PDF and an
+      // HTML rendering can therefore coexist and be switched in the workspace.
+      nextVariants.push({ kind: currentKind === "pdf" ? "pdf" : currentKind === "html" ? "html" : currentKind ?? "other", storageKey: current.storageKey, fileName: current.fileName, contentType: current.contentType, sizeBytes: current.sizeBytes, createdAt: new Date().toISOString() });
+      await db.update(documents).set({ storageKey: newKey, fileName: file.name, contentType: contentTypeForDocument(file.name, file.type), sizeBytes: file.size, processingMessage: `已新增${variantKind === "html" ? " HTML" : variantKind === "pdf" ? " PDF" : "原稿版本"}；既有題目、解析與順序均保留，未重新拆題`, processingResultJson: JSON.stringify({ ...parsedResult, sourceVariants: nextVariants }), indexError: null }).where(eq(documents.id, id));
+      return Response.json({ replaced: true, variant: variantKind, id, name: file.name, variants: nextVariants.map((item) => ({ kind: item.kind, fileName: item.fileName })) });
     } catch (error) {
       await env.BUCKET.delete(newKey).catch(() => undefined);
       throw error;
