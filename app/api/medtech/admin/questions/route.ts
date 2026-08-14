@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { examQuestions } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     return Response.json({ item: { ...item, options: JSON.parse(item.optionsJson || "{}") } });
   }
   const documentId = Number(url.searchParams.get("documentId"));
+  const sourceOrder = url.searchParams.get("order") === "source";
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const limit = Math.min(100, Math.max(10, Number(url.searchParams.get("limit")) || 30));
   const query = url.searchParams.get("query")?.trim() ?? "";
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
   const db = await getDb();
   const where = and(...filters);
   const [countRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(where);
-  const items = await db.select().from(examQuestions).where(where).orderBy(desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
+  const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0 ? asc(examQuestions.id) : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
   const facets = await db.select({ year: examQuestions.year, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech"));
   return Response.json({
     items: items.map(item => ({ ...item, options: JSON.parse(item.optionsJson || "{}") })),
