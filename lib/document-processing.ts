@@ -259,7 +259,13 @@ function countDocxAnswerRows(bytes: ArrayBuffer) {
     const answer = [...cells[1].matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map(match => match[1]).join("").replace(/&amp;/g,"&").trim();
     if (/^[（(]?\s*[A-Da-d]\s*[）)]?\.?$/u.test(answer)) count += 1;
   }
-  return count;
+  // Some accounting quizzes put the entire paper in one large table row rather
+  // than one question per row.  In that layout each top-level question is
+  // followed by its own 【解答】 block, so the answer-block count is the reliable
+  // boundary while the right-column count remains reliable for MCQ papers.
+  const plainText = extractDocxText(bytes);
+  const answerBlocks = (plainText.match(/【\s*(?:解答|解析)\s*】/gu) ?? []).length;
+  return Math.max(count, answerBlocks);
 }
 
 export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer): Promise<{ facts: ExtractedDocumentFacts; text: string; sha256: string }> {
