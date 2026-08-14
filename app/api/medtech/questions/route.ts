@@ -1,16 +1,16 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { examAttempts, examQuestions, studyRecords } from "../../../../db/schema";
+import { documents, examAttempts, examQuestions, studyRecords } from "../../../../db/schema";
 import { taipeiDate } from "../../../../lib/taipei-time";
 
-const topics = ["總論與培養", "病毒檢驗", "DNA 病毒", "RNA 病毒", "肝炎病毒", "抗病毒藥物與疫苗"] as const;
-function topicOf(text: string) {
-  if (/藥物|疫苗|amantadine|oseltamivir|acyclovir|ganciclovir|干擾素/i.test(text)) return topics[5];
-  if (/肝炎|HBV|HCV|HAV|HDV|HEV|HBs|HBe/i.test(text)) return topics[4];
-  if (/PCR|檢測|檢驗|培養|抗體|抗原|螢光|ELISA|檢體|細胞株/i.test(text)) return topics[1];
-  if (/herpes|疱疹|腺病毒|乳突|parvovirus|pox|polyoma|DNA病毒|DNA 病毒/i.test(text)) return topics[2];
-  if (/流感|冠狀|腸病毒|輪狀|登革|HIV|RNA病毒|RNA 病毒|Ebola|狂犬/i.test(text)) return topics[3];
-  return topics[0];
+const topics = ["臨床病毒學總論", "DNA 病毒", "RNA 病毒", "全真模擬試題"] as const;
+function topicOf(sourceName = "", subject = ""): (typeof topics)[number] | null {
+  const source = `${sourceName} ${subject}`;
+  if (/全真模擬|模擬試題/i.test(source)) return topics[3];
+  if (/DNA\s*病毒/i.test(source)) return topics[1];
+  if (/RNA\s*病毒/i.test(source)) return topics[2];
+  if (/臨床病毒學.*總論|總論.*臨床病毒學/i.test(source)) return topics[0];
+  return null;
 }
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
@@ -28,6 +28,8 @@ export async function GET(request: Request) {
     wrongIds = [...latest].filter(([, correct]) => correct === false).map(([id]) => id);
     if (!wrongIds.length) return Response.json({ items: [], message: "目前沒有待複習的錯題。" });
   }
+  const sourceDocuments = await db.select({ id: documents.id, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech"));
+  const sourceById = new Map(sourceDocuments.map(document => [document.id, document]));
   const rows = await db.select({
     id: examQuestions.id,
     year: examQuestions.year,
@@ -38,6 +40,7 @@ export async function GET(request: Request) {
     explanation: examQuestions.explanation,
     answerSource: examQuestions.answerSource,
     subject: examQuestions.subject,
+    sourceUrl: examQuestions.sourceUrl,
   }).from(examQuestions).where(and(
     eq(examQuestions.examCategory, "medtech"),
     eq(examQuestions.examType, "mcq"),
@@ -46,7 +49,11 @@ export async function GET(request: Request) {
   ));
 
   const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
-  const mapped = rows.map((row) => ({
+  const mapped = rows.map((row) => {
+    const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
+    const source = sourceById.get(sourceId);
+    const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
+    return {
       id: row.id,
       year: row.year,
       questionNumber: row.questionNumber,
@@ -56,9 +63,10 @@ export async function GET(request: Request) {
       explanation: row.explanation,
       answerSource: row.answerSource,
       subject: row.subject,
-      topic: topicOf(`${row.stem} ${row.explanation}`),
-    })).filter((row) => !topic || row.topic === topic).sort(() => Math.random() - .5).slice(0, limit);
-  return Response.json({ items: mapped, topics: topics.map((name) => ({ name, count: rows.filter((row) => topicOf(`${row.stem} ${row.explanation}`) === name).length })) });
+      topic,
+    };
+  }).filter((row) => !topic || row.topic === topic).sort(() => Math.random() - .5).slice(0, limit);
+  return Response.json({ items: mapped, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const sourceId = Number(row.sourceUrl.replace(/^document:/, "")); const source = sourceById.get(sourceId); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });
 }
 
 export async function POST(request: Request) {
@@ -81,7 +89,7 @@ export async function POST(request: Request) {
     if (!question?.correctAnswer) continue;
     const correct = item.answer === question.correctAnswer;
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId: item.questionId, selectedAnswer: item.answer, correct });
-    await db.insert(studyRecords).values({ userKey: userKey(request), questionId: item.questionId, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師練題", correct, weakness: correct ? "" : topicOf(`${question.stem} ${question.explanation}`), nextStep: correct ? "已掌握" : "加入錯題複習" });
+    await db.insert(studyRecords).values({ userKey: userKey(request), questionId: item.questionId, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師練題", correct, weakness: correct ? "" : (topicOf("", question.subject) ?? topics[0]), nextStep: correct ? "已掌握" : "加入錯題複習" });
     saved += 1;
   }
   return Response.json({ saved });
