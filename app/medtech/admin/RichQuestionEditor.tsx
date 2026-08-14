@@ -13,7 +13,7 @@ function cleanOfficeHtml(value:string){
   return value.replace(/<!--([\s\S]*?)-->/g,"").replace(/<(meta|link|style)[^>]*>[\s\S]*?<\/\1>/gi,"").replace(/\s(class|style|lang)=("[^"]*"|'[^']*')/gi,"");
 }
 
-export function RichQuestionEditor({label,value,onChange,compact=false}:{label:string;value:string;onChange:(value:string)=>void;compact?:boolean}){
+export function RichQuestionEditor({label,value,onChange,compact=false,category="medtech"}:{label:string;value:string;onChange:(value:string)=>void;compact?:boolean;category?:"medtech"|"accounting"}){
   const ref=useRef<HTMLDivElement>(null); const fileRef=useRef<HTMLInputElement>(null); const selectionRef=useRef<Range|null>(null); const [showSymbols,setShowSymbols]=useState(false); const [showTableGrid,setShowTableGrid]=useState(false); const [gridSize,setGridSize]=useState({rows:3,cols:4}); const [selectedCell,setSelectedCell]=useState<HTMLTableCellElement|null>(null); const [uploading,setUploading]=useState(false); const [formatState,setFormatState]=useState({bold:false,italic:false,underline:false,unorderedList:false});
   function rememberSelection(){const selection=window.getSelection();if(!selection||!selection.rangeCount||!ref.current)return;const range=selection.getRangeAt(0);if(ref.current.contains(range.commonAncestorContainer))selectionRef.current=range.cloneRange()}
   function restoreSelection(){const canvas=ref.current;if(!canvas)return;canvas.focus();const selection=window.getSelection();const range=selectionRef.current;if(selection&&range&&canvas.contains(range.commonAncestorContainer)){selection.removeAllRanges();selection.addRange(range)}}
@@ -25,7 +25,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false}:{label:s
   function command(name:string,arg?:string){restoreSelection();const before=ref.current?.innerHTML??"";document.execCommand(name,false,arg);if(name==="insertUnorderedList"&&ref.current&&ref.current.innerHTML===before){document.execCommand("insertHTML",false,"<ul><li><br></li></ul>")}rememberSelection();sync();refreshFormatState()}
   async function upload(file:File){
     if(!file.type.startsWith("image/"))return; setUploading(true);
-    const form=new FormData();form.set("file",file);const response=await fetch("/api/medtech/admin/question-assets",{method:"POST",body:form});const data=await response.json() as {url?:string;error?:string};
+    const form=new FormData();form.set("file",file);const response=await fetch(category==="accounting"?"/api/accounting/admin/question-assets":"/api/medtech/admin/question-assets",{method:"POST",body:form});const data=await response.json() as {url?:string;error?:string};
     if(response.ok&&data.url)command("insertImage",data.url);else alert(data.error||"圖片上傳失敗");setUploading(false);
   }
   async function paste(event:React.ClipboardEvent<HTMLDivElement>){

@@ -1,24 +1,68 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { examQuestions } from "../../../../../db/schema";
+import { requireAccountingAdmin } from "../../../../../lib/member-auth";
 import { removeAccountingPageFurniture } from "../../../../../lib/accounting-question";
+import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
-export async function GET(request: Request) {
-  const url = new URL(request.url), documentId = Number(url.searchParams.get("documentId"));
-  const db = await getDb();
-  const where = and(eq(examQuestions.examCategory, "accounting"), ...(documentId > 0 ? [eq(examQuestions.sourceUrl, `document:${documentId}`)] : []));
-  const [count] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(where);
-  const items = await db.select().from(examQuestions).where(where).orderBy(asc(examQuestions.id)).limit(Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 100))).offset(Math.max(0, Number(url.searchParams.get("page") || 1) - 1) * 100);
-  return Response.json({ items: items.map(item => ({ ...item, stem: removeAccountingPageFurniture(item.stem), explanation: removeAccountingPageFurniture(item.explanation), teacherAnswer: removeAccountingPageFurniture(item.teacherAnswer), options: JSON.parse(item.optionsJson || "{}") })), total: Number(count?.total ?? 0) });
+function present(item:typeof examQuestions.$inferSelect){
+  return {...item,stem:removeAccountingPageFurniture(item.stem),explanation:removeAccountingPageFurniture(item.explanation),teacherAnswer:removeAccountingPageFurniture(item.teacherAnswer),options:JSON.parse(item.optionsJson||"{}")};
 }
 
-export async function PATCH(request: Request) {
-  const body = await request.json() as Record<string, unknown>, id = Number(body.id), db = await getDb();
-  const [existing] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "accounting"))).limit(1);
-  if (!existing) return Response.json({ error: "找不到中會題目" }, { status: 404 });
-  const update: Record<string, string> = {};
-  for (const key of ["year", "subject", "questionNumber", "stem", "explanation", "teacherAnswer", "answerSource", "status"] as const) if (typeof body[key] === "string") update[key] = String(body[key]).trim();
-  if (body.options && typeof body.options === "object") update.optionsJson = JSON.stringify(body.options);
-  await db.update(examQuestions).set(update).where(eq(examQuestions.id, id));
-  return Response.json({ updated: true });
+export async function GET(request:Request){
+  const auth=await requireAccountingAdmin(request);if("error" in auth)return auth.error;
+  const url=new URL(request.url),requestedId=Number(url.searchParams.get("id"));
+  const db=await getDb();
+  if(Number.isInteger(requestedId)&&requestedId>0){
+    const [item]=await db.select().from(examQuestions).where(and(eq(examQuestions.id,requestedId),eq(examQuestions.examCategory,"accounting"))).limit(1);
+    return item?Response.json({item:present(item)}):Response.json({error:"找不到中會題目"},{status:404});
+  }
+  const documentId=Number(url.searchParams.get("documentId")),sourceOrder=url.searchParams.get("order")==="source",page=Math.max(1,Number(url.searchParams.get("page"))||1),limit=Math.min(100,Math.max(10,Number(url.searchParams.get("limit"))||30));
+  const query=url.searchParams.get("query")?.trim()??"",year=url.searchParams.get("year")?.trim()??"",subject=url.searchParams.get("subject")?.trim()??"",status=url.searchParams.get("status")?.trim()??"";
+  const filters=[eq(examQuestions.examCategory,"accounting"),...(query?[or(like(examQuestions.stem,"%"+query+"%"),like(examQuestions.explanation,"%"+query+"%"),like(examQuestions.teacherAnswer,"%"+query+"%"),like(examQuestions.questionNumber,"%"+query+"%"))!]:[]),...(year?[eq(examQuestions.year,year)]:[]),...(subject?[eq(examQuestions.subject,subject)]:[]),...(status?[eq(examQuestions.status,status)]:[]),...(Number.isInteger(documentId)&&documentId>0?[eq(examQuestions.sourceUrl,"document:"+documentId)]:[])];
+  const where=and(...filters);
+  const [countRow]=await db.select({total:sql<number>`count(*)`}).from(examQuestions).where(where);
+  const [draftRow]=await db.select({total:sql<number>`count(*)`}).from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.status,"draft")));
+  const items=await db.select().from(examQuestions).where(where).orderBy(sourceOrder&&documentId>0?asc(examQuestions.id):desc(examQuestions.id)).limit(limit).offset((page-1)*limit);
+  const facets=await db.select({year:examQuestions.year,subject:examQuestions.subject}).from(examQuestions).where(eq(examQuestions.examCategory,"accounting"));
+  return Response.json({items:items.map(present),total:Number(countRow?.total??0),draftTotal:Number(draftRow?.total??0),page,limit,years:[...new Set(facets.map(item=>item.year).filter(Boolean))].sort((a,b)=>b.localeCompare(a,"zh-Hant",{numeric:true})),subjects:[...new Set(facets.map(item=>item.subject).filter(Boolean))].sort()});
+}
+
+export async function PATCH(request:Request){
+  const auth=await requireAccountingAdmin(request);if("error" in auth)return auth.error;
+  const body=await request.json() as Record<string,unknown>,db=await getDb();
+  if(body.publishAllDrafts===true){
+    const rows=await db.update(examQuestions).set({status:"published"}).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.status,"draft"))).returning({id:examQuestions.id});
+    return Response.json({updated:rows.length,status:"published"});
+  }
+  const replaceFind=typeof body.replaceFind==="string"?body.replaceFind:"";
+  if(replaceFind){
+    const documentId=Number(body.documentId),replacement=typeof body.replaceWith==="string"?body.replaceWith:"";
+    if(!Number.isInteger(documentId)||documentId<1)return Response.json({error:"缺少文件編號"},{status:400});
+    if(replaceFind.length>2000||replacement.length>4000)return Response.json({error:"搜尋或取代文字過長"},{status:400});
+    const rows=await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,"document:"+documentId)));
+    let matched=0;
+    for(const row of rows){
+      const options=JSON.parse(row.optionsJson||"{}") as Record<string,string>,replace=(value:string)=>value.split(replaceFind).join(replacement);
+      const nextStem=replace(row.stem),nextExplanation=replace(row.explanation),nextTeacherAnswer=replace(row.teacherAnswer),nextOptions=Object.fromEntries(Object.entries(options).map(([key,value])=>[key,replace(String(value??""))]));
+      if(nextStem===row.stem&&nextExplanation===row.explanation&&nextTeacherAnswer===row.teacherAnswer&&JSON.stringify(nextOptions)===JSON.stringify(options))continue;
+      matched+=1;await db.update(examQuestions).set({stem:sanitizeRichHtml(nextStem),explanation:sanitizeRichHtml(nextExplanation),teacherAnswer:sanitizeRichHtml(nextTeacherAnswer),optionsJson:JSON.stringify(Object.fromEntries(Object.entries(nextOptions).map(([key,value])=>[key,sanitizeRichHtml(value)])))}).where(eq(examQuestions.id,row.id));
+    }
+    return Response.json({replaced:true,matched,updated:matched});
+  }
+  const id=Number(body.id);
+  const [existing]=await db.select({id:examQuestions.id}).from(examQuestions).where(and(eq(examQuestions.id,id),eq(examQuestions.examCategory,"accounting"))).limit(1);
+  if(!existing)return Response.json({error:"找不到中會題目"},{status:404});
+  const allowed=["year","subject","questionNumber","stem","correctAnswer","explanation","teacherAnswer","teacherNotes","answerSource","status"] as const,values:Record<string,string>={};
+  for(const key of allowed)if(typeof body[key]==="string")values[key]=["stem","explanation","teacherAnswer"].includes(key)?sanitizeRichHtml(String(body[key]).trim()):String(body[key]).trim();
+  if(body.options&&typeof body.options==="object")values.optionsJson=JSON.stringify(Object.fromEntries(Object.entries(body.options).map(([key,value])=>[key,sanitizeRichHtml(String(value))])));
+  await db.update(examQuestions).set(values).where(eq(examQuestions.id,id));
+  return Response.json({updated:true});
+}
+
+export async function DELETE(request:Request){
+  const auth=await requireAccountingAdmin(request);if("error" in auth)return auth.error;
+  const {id}=await request.json() as {id?:number},db=await getDb();
+  await db.delete(examQuestions).where(and(eq(examQuestions.id,Number(id)),eq(examQuestions.examCategory,"accounting")));
+  return Response.json({deleted:true});
 }

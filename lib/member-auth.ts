@@ -69,3 +69,21 @@ export async function requireMedtechAdmin(request: Request) {
   if (!auth.access.canAdmin) return { error: Response.json({ error: "需要醫檢師管理權限" }, { status: 403 }) } as const;
   return auth;
 }
+
+export async function requireAccountingMember(request: Request) {
+  const auth = await requireMember(request);
+  if ("error" in auth) return auth;
+  let [access] = await auth.db.select().from(memberExamAccess).where(and(eq(memberExamAccess.memberId, auth.member.id), eq(memberExamAccess.examCategory, "accounting"))).limit(1);
+  if (!access && auth.member.email === OWNER_EMAIL) {
+    [access] = await auth.db.insert(memberExamAccess).values({ memberId: auth.member.id, examCategory: "accounting", status: "active", canAdmin: true, className: "管理員" }).returning();
+  }
+  if (!access || access.status !== "active") return { error: Response.json({ error: "此帳號尚未開通中級會計類科" }, { status: 403 }) } as const;
+  return { ...auth, access } as const;
+}
+
+export async function requireAccountingAdmin(request: Request) {
+  const auth = await requireAccountingMember(request);
+  if ("error" in auth) return auth;
+  if (!auth.access.canAdmin) return { error: Response.json({ error: "需要中級會計管理權限" }, { status: 403 }) } as const;
+  return auth;
+}
