@@ -30,8 +30,9 @@ export async function importAccountingWordBank(db: Awaited<ReturnType<typeof get
   await db.delete(examQuestions).where(like(examQuestions.sourceUrl, SOURCE_PREFIX));
   const sourceRecords = records as WordBankRecord[];
   let imported = 0;
-  for (let offset = 0; offset < sourceRecords.length; offset += 20) {
-    const batch = sourceRecords.slice(offset, offset + 20).map((row) => ({
+  // D1 has a low bound-parameter ceiling; five records keep every statement below it.
+  for (let offset = 0; offset < sourceRecords.length; offset += 5) {
+    const batch = sourceRecords.slice(offset, offset + 5).map((row) => ({
       examType: "mcq",
       examCategory: "accounting",
       year: row.year,
