@@ -29,6 +29,13 @@ def clean(value: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+", " ", value)).strip()
 
 
+def clean_option(value: str) -> str:
+    normalized = clean(value).rstrip("。.")
+    if re.fullmatch(r"[a-f]{5,6}", normalized, re.IGNORECASE):
+        return " → ".join(normalized)
+    return clean(value)
+
+
 def paragraph_text(paragraph: etree._Element) -> str:
     return clean("".join(paragraph.xpath(".//w:t/text()", namespaces=NS)))
 
@@ -48,8 +55,24 @@ def cell_paragraphs(cell: etree._Element) -> list[dict[str, str]]:
 
 
 def split_explicit_options(lines: list[dict[str, str]]) -> tuple[str, dict[str, str], list[str]] | None:
-    joined = "\n".join(line["text"] for line in lines)
-    matches = list(re.finditer(r"(?:^|\n)\s*[（(]([A-D])[）)]\s*", joined))
+    rendered_lines = [dict(line) for line in lines]
+    question_num_id = rendered_lines[0]["num_id"] if rendered_lines else ""
+    nested_ids = Counter(
+        line["num_id"] for line in rendered_lines[1:]
+        if line["num_id"] and line["num_id"] != question_num_id
+    )
+    # Word stores automatic list markers outside w:t.  A six-item nested list
+    # immediately before explicit A–D choices is the common a–f ordering form.
+    six_item_id = next((num_id for num_id, count in nested_ids.items() if count == 6), "")
+    if six_item_id:
+        marker = iter("abcdef")
+        for line in rendered_lines:
+            if line["num_id"] == six_item_id:
+                line["text"] = f"{next(marker)}. {line['text']}"
+    joined = "\n".join(line["text"] for line in rendered_lines)
+    # A number of the source tables place all four choices in one or two
+    # paragraphs, so a choice label does not necessarily start a new line.
+    matches = list(re.finditer(r"(?<!\w)[（(]([A-D])[）)]\s*", joined))
     if len(matches) < 4 or [m.group(1) for m in matches[:4]] != list("ABCD"):
         matches = list(re.finditer(r"(?:^|\n)\s*([A-Da-d])[.、]\s*", joined))
     if len(matches) < 4 or [m.group(1).upper() for m in matches[:4]] != list("ABCD"):
@@ -159,12 +182,12 @@ def parse_docx(path: Path) -> tuple[list[dict[str, object]], Counter]:
                 "subject": "中級會計學",
                 "questionNumber": str(internal_sequence),
                 "stem": stem,
-                "options": {key: clean(options[key]) for key in "ABCD"},
+                "options": {key: clean_option(options[key]) for key in "ABCD"},
                 "correctAnswer": answer_match.group(1).upper(),
                 "explanation": explanation,
                 "teacherNotes": f"內部來源：{internal_name}｜原始列序：{counters['answer_rows']}",
                 "answerSource": "Word教師題庫答案欄",
-                "sourceUrl": f"accounting-word-bank:v2:{internal_name}:{counters['answer_rows']}",
+                "sourceUrl": f"accounting-word-bank:v3:{internal_name}:{counters['answer_rows']}",
                 "status": "published",
             }
         )
@@ -189,10 +212,11 @@ def main() -> None:
     unique_questions: list[dict[str, object]] = []
     seen: set[str] = set()
     for question in all_questions:
+        source_file = str(question["teacherNotes"]).split("｜", 1)[0]
         fingerprint = re.sub(
             r"\W+",
             "",
-            str(question["stem"]) + json.dumps(question["options"], ensure_ascii=False, sort_keys=True),
+            source_file + str(question["stem"]) + json.dumps(question["options"], ensure_ascii=False, sort_keys=True),
         ).lower()
         if fingerprint in seen:
             totals["rejected_duplicate"] += 1

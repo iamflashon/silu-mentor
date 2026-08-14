@@ -83,7 +83,7 @@ export async function GET(request: Request) {
   if (sourceBook !== "all") filters.push(eq(examQuestions.examName, sourceBook));
   if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
   if (paper !== "all") {
-    const paperPrefix = `accounting-word-bank:v2:${paper}.docx:`;
+    const paperPrefix = `accounting-word-bank:v3:${paper}.docx:`;
     const wordRows = await db.select({ id: examQuestions.id, sourceUrl: examQuestions.sourceUrl }).from(examQuestions).where(eq(examQuestions.examName, ACCOUNTING_WORD_BANK_SOURCE));
     const paperIds = wordRows.filter((row) => row.sourceUrl.startsWith(paperPrefix)).map((row) => row.id);
     filters.push(paperIds.length ? inArray(examQuestions.id, paperIds) : eq(examQuestions.id, -1));
@@ -104,7 +104,7 @@ export async function GET(request: Request) {
     db.selectDistinct({ subject: examQuestions.subject }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.subject)),
     db.selectDistinct({ sourceBook: examQuestions.examName }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.examName)),
     db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(facetWhere),
-    db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.examName,ACCOUNTING_WORD_BANK_SOURCE),like(examQuestions.sourceUrl,"accounting-word-bank:v2:%"))),
+    db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.examName,ACCOUNTING_WORD_BANK_SOURCE),like(examQuestions.sourceUrl,"accounting-word-bank:v3:%"))),
   ]);
   const chapters=[...new Set(chapterRows.map(row=>row.teacherNotes.split("｜")[0].trim()).filter(value=>/^第.+章/u.test(value)))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
   const papers=[...new Set(paperRows.map(row=>row.teacherNotes.match(/^內部來源：(.+?)\.docx｜/u)?.[1]??"").filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
