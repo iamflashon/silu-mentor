@@ -30,7 +30,7 @@ export async function PUT(request: Request) {
     const form = await request.formData();
     const id = Number(form.get("id"));
     const file = form.get("file");
-    if (!Number.isInteger(id) || id < 1 || !(file instanceof File) || !isSupportedDocument(file.name, file.type)) return Response.json({ error: "請選擇正確的 PDF 或 Word 原稿" }, { status: 400 });
+    if (!Number.isInteger(id) || id < 1 || !(file instanceof File) || !isSupportedDocument(file.name, file.type)) return Response.json({ error: "請選擇正確的 PDF、HTML 或 Word 原稿" }, { status: 400 });
     if (file.size > MAX_DOCUMENT_BYTES) return Response.json({ error: "文件不可超過 55MB" }, { status: 413 });
     const db = await getDb();
     const [current] = await db.select().from(documents).where(and(eq(documents.id, id), eq(documents.examCategory, "medtech"))).limit(1);

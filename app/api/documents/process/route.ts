@@ -169,7 +169,7 @@ function hasReliableLocalStructure(facts: Record<string, unknown>) {
   const questions = Array.isArray(facts.questionCandidates) ? facts.questionCandidates.length : 0;
   const records = Number(facts.recordCount ?? 0);
   if (extension === "jsonl") return records > 0;
-  if (extension === "md") return chapters > 0;
+  if (extension === "md" || extension === "html") return chapters > 0 || questions > 0;
   return (extension === "txt" || extension === "docx") && (chapters >= 3 || questions >= 3);
 }
 
@@ -233,7 +233,7 @@ export async function POST(request: Request) {
       await db.update(documents).set({ status: "extracting", processingStage: "extracting", processingMessage: "正在檢查檔案、擷取文字與辨識結構", indexError: null }).where(eq(documents.id, documentId));
       const bytes = inspectionBytes;
       if (bytes.byteLength < 1 || bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("檔案大小不符合限制（最多 55MB）");
-      if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、JSON、JSONL、MD、TXT、DOCX 或 ZIP 文件");
+      if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、HTML、JSON、JSONL、MD、TXT、DOCX 或 ZIP 文件");
       const inspected = await inspectDocumentBytes(document.fileName, bytes);
       const existingResult = {
         facts: inspected.facts,

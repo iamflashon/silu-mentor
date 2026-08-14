@@ -1,4 +1,12 @@
 import type { Metadata } from "next";
+import "../../medtech/admin/question-bank.css";
+import "../../medtech/admin/question-workbench.css";
+import "../../medtech/admin/document-workspace/page.css";
+import "../../medtech/admin/document-workspace/library.css";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 export const metadata: Metadata = {
   title: "中級會計管理後台",
