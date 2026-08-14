@@ -224,11 +224,14 @@ export async function POST(request: Request) {
     // R2 bodies are single-use streams. Read exactly once in this request and
     // reuse the bytes for inspection and indexing.
     const originalBytes = await object.arrayBuffer();
+    // PDF.js may transfer/detach the ArrayBuffer while extracting text. Keep a
+    // separate copy for the later OpenAI file upload in this same request.
+    const inspectionBytes = originalBytes.slice(0);
 
     const isAccountingWordQuiz = document.examCategory === "accounting" && /\.(?:docx)$/iu.test(document.fileName) && /(?:小考|模擬考|考題|題庫|測驗)/u.test(document.fileName);
     if (["queued", "uploaded", "extracting"].includes(document.processingStage) || !document.fileSha256 || (body.reanalyze && isAccountingWordQuiz)) {
       await db.update(documents).set({ status: "extracting", processingStage: "extracting", processingMessage: "正在檢查檔案、擷取文字與辨識結構", indexError: null }).where(eq(documents.id, documentId));
-      const bytes = originalBytes;
+      const bytes = inspectionBytes;
       if (bytes.byteLength < 1 || bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("檔案大小不符合限制（最多 55MB）");
       if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、JSON、JSONL、MD、TXT、DOCX 或 ZIP 文件");
       const inspected = await inspectDocumentBytes(document.fileName, bytes);

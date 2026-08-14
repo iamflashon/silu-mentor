@@ -109,6 +109,11 @@ export async function POST(request: Request) {
       httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) },
       customMetadata: { subject, documentType, originalName: file.name },
     });
+    const stored = await bucket.head(key);
+    if (!stored || stored.size !== file.size || stored.size < 1) {
+      await bucket.delete(key).catch(() => undefined);
+      return Response.json({ error: "檔案內容未完整寫入，請重新選擇原稿再上傳" }, { status: 500 });
+    }
 
     try {
       const db = await getDb();
