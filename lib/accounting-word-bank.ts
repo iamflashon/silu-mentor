@@ -18,9 +18,10 @@ type WordBankRecord = {
 export const ACCOUNTING_WORD_BANK_SOURCE = "115年會計研究所班 中級會計學";
 export const ACCOUNTING_WORD_BANK_SIZE = records.length;
 const SOURCE_PREFIX = "accounting-word-bank:%";
+const CURRENT_SOURCE_PREFIX = "accounting-word-bank:v2:%";
 
 export async function countAccountingWordBank(db: Awaited<ReturnType<typeof getDb>>) {
-  const [row] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(like(examQuestions.sourceUrl, SOURCE_PREFIX));
+  const [row] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(like(examQuestions.sourceUrl, CURRENT_SOURCE_PREFIX));
   return Number(row?.count ?? 0);
 }
 

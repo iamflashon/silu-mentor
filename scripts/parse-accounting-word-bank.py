@@ -164,7 +164,7 @@ def parse_docx(path: Path) -> tuple[list[dict[str, object]], Counter]:
                 "explanation": explanation,
                 "teacherNotes": f"內部來源：{internal_name}｜原始列序：{counters['answer_rows']}",
                 "answerSource": "Word教師題庫答案欄",
-                "sourceUrl": f"accounting-word-bank:{original_name}:{counters['answer_rows']}",
+                "sourceUrl": f"accounting-word-bank:v2:{internal_name}:{counters['answer_rows']}",
                 "status": "published",
             }
         )
