@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { examQuestions } from "../../../../../db/schema";
+import { documents, examQuestions } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
@@ -23,15 +23,23 @@ export async function GET(request: Request) {
   const year = url.searchParams.get("year")?.trim() ?? "";
   const subject = url.searchParams.get("subject")?.trim() ?? "";
   const status = url.searchParams.get("status")?.trim() ?? "";
+  const db = await getDb();
+  let documentSources: string[] = [];
+  if (Number.isInteger(documentId) && documentId > 0) {
+    const [document] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName })
+      .from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
+      .limit(1);
+    documentSources = [...new Set([`document:${documentId}`, document?.storageKey, document?.fileName].filter((value): value is string => Boolean(value)))];
+  }
   const filters = [
     eq(examQuestions.examCategory, "medtech"),
     ...(query ? [or(like(examQuestions.stem, `%${query}%`), like(examQuestions.explanation, `%${query}%`), like(examQuestions.questionNumber, `%${query}%`))!] : []),
     ...(year ? [eq(examQuestions.year, year)] : []),
     ...(subject ? [eq(examQuestions.subject, subject)] : []),
     ...(status ? [eq(examQuestions.status, status)] : []),
-    ...(Number.isInteger(documentId) && documentId > 0 ? [eq(examQuestions.sourceUrl, `document:${documentId}`)] : []),
+    ...(documentSources.length ? [or(...documentSources.map(source => eq(examQuestions.sourceUrl, source)))] : []),
   ];
-  const db = await getDb();
   const where = and(...filters);
   const [countRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(where);
   const [draftRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(and(
@@ -60,7 +68,12 @@ export async function PATCH(request: Request) {
     if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "缺少文件編號" }, { status: 400 });
     if (replaceFind.length > 2000 || replacement.length > 4000) return Response.json({ error: "搜尋或取代文字過長" }, { status: 400 });
     const db = await getDb();
-    const rows = await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${documentId}`)));
+    const [document] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName })
+      .from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
+      .limit(1);
+    const sources = [...new Set([`document:${documentId}`, document?.storageKey, document?.fileName].filter((value): value is string => Boolean(value)))];
+    const rows = await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), or(...sources.map(source => eq(examQuestions.sourceUrl, source)))));
     let matched = 0;
     for (const row of rows) {
       const options = JSON.parse(row.optionsJson || "{}") as Record<string, string>;

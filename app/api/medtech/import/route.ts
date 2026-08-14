@@ -116,6 +116,17 @@ export async function POST(request: Request) {
     const db = await getDb();
     const [document] = await db.select().from(documents).where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech"))).limit(1);
     if (!document) return Response.json({ error: "找不到醫檢師教材" }, { status: 404 });
+    // A previous processing run could have counted the detected questions in
+    // `documents.questionCount` without ever materialising editable rows. In
+    // that case the workspace opens with 0 questions and the materialise-only
+    // request used to stop before reading the original file. Check for rows,
+    // rather than trusting the cached count, so a stale index can be repaired
+    // automatically without asking the administrator to upload the file again.
+    const existingRows = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(
+      eq(examQuestions.examCategory, "medtech"),
+      eq(examQuestions.sourceUrl, `document:${document.id}`),
+    )).limit(1);
+    const hasMaterializedRows = existingRows.length > 0;
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
@@ -126,7 +137,12 @@ export async function POST(request: Request) {
     // If the document is already marked as processed, do not fall back to
     // PDF.js in this request. A large PDF can exceed the Worker memory limit;
     // an explicit retry/rebuild is the only path that should re-read it.
-    if (!indexedQuestions.length && !body.materializeOnly && !document.questionCount) {
+    // If there are no saved editable rows, materialize-only is allowed to
+    // recover from the original PDF/HTML even when questionCount is stale.
+    // This is intentionally bounded by the normal upload limit and happens
+    // only for a document with an empty row set; existing rows are never
+    // re-parsed or replaced by opening the workspace.
+    if (!indexedQuestions.length && (!body.materializeOnly || !hasMaterializedRows)) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
       localQuestions = parseQuestions(inspected.text);
     }
