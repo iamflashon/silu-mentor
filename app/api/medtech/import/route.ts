@@ -6,6 +6,20 @@ import { requireMedtechAdmin } from "../../../../lib/member-auth";
 
 type ParsedQuestion = { year: string; number: string; stem: string; options: Record<string, string>; answer: string; explanation: string };
 
+function questionsFromProcessingResult(value: string): ParsedQuestion[] {
+  try {
+    const parsed = JSON.parse(value) as { questions?: Array<Record<string, unknown>> };
+    return (parsed.questions ?? []).map((row, index) => ({
+      year: clean(String(row.year ?? "模擬")),
+      number: clean(String(row.number ?? index + 1)),
+      stem: clean(String(row.title ?? "")),
+      options: row.options && typeof row.options === "object" ? Object.fromEntries(Object.entries(row.options as Record<string, unknown>).map(([key, val]) => [key, clean(String(val ?? ""))])) : {},
+      answer: clean(String(row.correct_answer ?? "")).replace(/[()（）\s]/gu, "").slice(0, 1).toUpperCase(),
+      explanation: clean(String(row.explanation ?? row.teacher_answer ?? "")),
+    })).filter((row) => row.stem && ["A", "B", "C", "D"].every((key) => row.options[key]));
+  } catch { return []; }
+}
+
 function clean(value: string) { return value.replace(/\s+/gu, " ").trim(); }
 
 function parseOptions(text: string) {
@@ -69,8 +83,11 @@ export async function POST(request: Request) {
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
-    const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
-    const questions = parseQuestions(inspected.text);
+    let questions = questionsFromProcessingResult(document.processingResultJson);
+    if (!questions.length) {
+      const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
+      questions = parseQuestions(inspected.text);
+    }
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
     if (offset === 0) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
