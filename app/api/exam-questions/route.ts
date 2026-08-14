@@ -73,6 +73,8 @@ export async function GET(request: Request) {
   const chapter = url.searchParams.get("chapter") || "all";
   const paper = url.searchParams.get("paper") || "all";
   const examCategory = url.searchParams.get("examCategory") || "all";
+  const db = await getDb();
+  if (examCategory === "accounting") await importAccountingWordBank(db);
   const filters = [];
   if (status !== "all") filters.push(eq(examQuestions.status, status));
   if (examType !== "all") filters.push(eq(examQuestions.examType, examType));
@@ -80,10 +82,13 @@ export async function GET(request: Request) {
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
   if (sourceBook !== "all") filters.push(eq(examQuestions.examName, sourceBook));
   if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
-  if (paper !== "all") filters.push(like(examQuestions.sourceUrl, `accounting-word-bank:v2:${paper}.docx:%`));
+  if (paper !== "all") {
+    const paperPrefix = `accounting-word-bank:v2:${paper}.docx:`;
+    const wordRows = await db.select({ id: examQuestions.id, sourceUrl: examQuestions.sourceUrl }).from(examQuestions).where(eq(examQuestions.examName, ACCOUNTING_WORD_BANK_SOURCE));
+    const paperIds = wordRows.filter((row) => row.sourceUrl.startsWith(paperPrefix)).map((row) => row.id);
+    filters.push(paperIds.length ? inArray(examQuestions.id, paperIds) : eq(examQuestions.id, -1));
+  }
   if (examCategory !== "all") filters.push(eq(examQuestions.examCategory, examCategory));
-  const db = await getDb();
-  if (examCategory === "accounting") await importAccountingWordBank(db);
   const where = filters.length ? and(...filters) : undefined;
   const facetFilters = [];
   if (status !== "all") facetFilters.push(eq(examQuestions.status, status));
