@@ -38,7 +38,7 @@ export async function POST(request: Request) {
 
     if (body.action === "init") {
       if (!body.fileName || !isSupportedDocument(body.fileName, body.contentType)) {
-        return Response.json({ error: "請選擇 PDF、JSONL、MD、TXT、DOCX 或 ZIP 文件" }, { status: 400 });
+        return Response.json({ error: "請選擇 PDF、HTML、JSONL、MD、TXT、DOCX 或 ZIP 文件" }, { status: 400 });
       }
       const key = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName(body.fileName)}`;
       const upload = await bucket.createMultipartUpload(key, {

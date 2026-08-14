@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     const documentType = String(form.get("documentType") ?? "").trim();
 
     if (!(file instanceof File) || !isSupportedDocument(file.name, file.type)) {
-      return Response.json({ error: "請上傳 PDF、JSONL、MD、TXT、DOCX 或 ZIP 文件" }, { status: 400 });
+      return Response.json({ error: "請上傳 PDF、HTML、JSONL、MD、TXT、DOCX 或 ZIP 文件" }, { status: 400 });
     }
     if (!subject || !documentType) {
       return Response.json({ error: "請選擇科目與文件類型" }, { status: 400 });
