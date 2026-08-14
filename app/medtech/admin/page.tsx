@@ -1,6 +1,8 @@
 "use client";
 import { useEffect,useState } from "react";
 import QuestionBank from "./QuestionBank";
+import "./processing-progress.css";
+import "./processing-note.css";
 type Member={id:number;email:string;displayName:string;status:"active"|"disabled";canAdmin:boolean;className:string};
 type Doc={id:number;name:string;subject:string;type:string;sizeBytes:number;status:string;processingStage:string;processingMessage:string;chapterCount:number;questionCount:number;error?:string|null};
 const subjects=["臨床病毒學","臨床血液學","臨床生化學","臨床微生物學","血庫學","醫學分子檢驗學","其他醫檢科目"];
@@ -10,7 +12,7 @@ export default function MedtechAdminPage(){
  const [subject,setSubject]=useState(subjects[0]),[documentType,setDocumentType]=useState("教材"),[file,setFile]=useState<File|null>(null),[busy,setBusy]=useState(false);
  async function loadMembers(){const r=await fetch("/api/medtech/members");const d=await r.json() as {members?:Member[]};setMembers(d.members??[])}
  async function loadDocs(){const r=await fetch("/api/medtech/documents",{cache:"no-store"});const d=await r.json() as {documents?:Doc[]};setDocs(d.documents??[])}
- useEffect(()=>{void loadMembers();void loadDocs()},[]);
+ useEffect(()=>{void loadMembers();void loadDocs();const timer=window.setInterval(()=>{void loadDocs()},4000);return()=>window.clearInterval(timer)},[]);
  async function create(){const r=await fetch("/api/medtech/members",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(draft)});if(r.ok){setNotice("醫檢師會員已新增。");setDraft({displayName:"",email:"",className:"",role:"student",status:"active",canAdmin:false});await loadMembers()}else setNotice("新增失敗，請檢查資料。")}
  async function update(id:number,patch:Partial<Member>){const r=await fetch("/api/medtech/members",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({id,...patch})});if(r.ok){setMembers(list=>list.map(x=>x.id===id?{...x,...patch}:x))}}
  async function process(id:number){await fetch("/api/medtech/documents/process",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({documentId:id,retry:true})});await loadDocs()}
