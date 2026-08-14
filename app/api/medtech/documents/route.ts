@@ -1,9 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { appSettings, documents, examQuestions } from "../../../../db/schema";
+import { documents, examQuestions } from "../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
-import { openAIJson } from "../../../../lib/openai";
 import { DELETE as deleteDocuments, GET as getDocuments, PATCH as patchDocument, POST as postDocument } from "../../documents/route";
 
 export async function GET(request: Request) {
@@ -41,13 +40,7 @@ export async function PUT(request: Request) {
     const newKey = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
     await env.BUCKET.put(newKey, file.stream(), { httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) }, customMetadata: { subject: current.subject, documentType: current.documentType, originalName: file.name } });
     try {
-      const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
-      if (current.openaiFileId && setting?.value) {
-        await openAIJson(`/vector_stores/${setting.value}/files/${current.openaiFileId}`, { method: "DELETE" }).catch(() => undefined);
-        await openAIJson(`/files/${current.openaiFileId}`, { method: "DELETE" }).catch(() => undefined);
-      }
-      await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${id}`)));
-      await db.update(documents).set({ storageKey: newKey, fileName: file.name, contentType: contentTypeForDocument(file.name, file.type), sizeBytes: file.size, status: "uploaded", processingStage: "queued", processingMessage: "原始文件已更換，等待重新擷取與完整拆題", openaiFileId: null, indexError: null, fileSha256: null, pageCount: null, extractedChars: 0, chapterCount: 0, questionCount: 0, tagsJson: "[]", processingResultJson: "{}", fullTextIndexed: false, vectorIndexed: false, processedAt: null }).where(eq(documents.id, id));
+      await db.update(documents).set({ storageKey: newKey, fileName: file.name, contentType: contentTypeForDocument(file.name, file.type), sizeBytes: file.size, processingMessage: "原始文件已更換；現有題目、解析與順序均保留，未重新拆題", indexError: null }).where(eq(documents.id, id));
       await env.BUCKET.delete(current.storageKey).catch(() => undefined);
       return Response.json({ replaced: true, id, name: file.name });
     } catch (error) {
