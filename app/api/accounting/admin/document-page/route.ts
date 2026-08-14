@@ -1,8 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions } from "../../../../../db/schema";
+import { requireAccountingAdmin } from "../../../../../lib/member-auth";
 function normalize(value: string) { return value.replace(/<[^>]*>/gu, " ").replace(/[\s，。；：、（）()？?．·\-]/gu, "").toLowerCase(); }
 export async function GET(request: Request) {
+  const auth = await requireAccountingAdmin(request); if ("error" in auth) return auth.error;
   const url = new URL(request.url), documentId = Number(url.searchParams.get("documentId")), questionId = Number(url.searchParams.get("questionId")), db = await getDb();
   const [[doc], [question]] = await Promise.all([
     db.select().from(documents).where(and(eq(documents.id, documentId), eq(documents.examCategory, "accounting"))).limit(1),

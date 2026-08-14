@@ -2,8 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents } from "../../../../../db/schema";
 import { docxToHtml } from "../../../../../lib/docx-html";
+import { requireAccountingAdmin } from "../../../../../lib/member-auth";
 
 export async function GET(request: Request) {
+  const auth = await requireAccountingAdmin(request); if ("error" in auth) return auth.error;
   const id = Number(new URL(request.url).searchParams.get("id"));
   if (!Number.isInteger(id) || id < 1) return new Response("缺少文件編號", { status: 400 });
   const db = await getDb();

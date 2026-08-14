@@ -4,6 +4,7 @@ import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { accountingQuestionFlags, removeAccountingPageFurniture } from "../../../../lib/accounting-question";
 import { inspectDocumentBytes } from "../../../../lib/document-processing";
+import { requireAccountingAdmin } from "../../../../lib/member-auth";
 
 type ParsedQuestion={number:string;stem:string;options:Record<string,string>;answer:string;explanation:string;teacherAnswer:string;chapter:string;examSource:string;page:number;examType:"mcq"|"essay"};
 
@@ -92,6 +93,7 @@ function markerPositionEnd(match:RegExpMatchArray){return (match.index??0)+match
 
 export async function POST(request:Request){
  try{
+  const auth=await requireAccountingAdmin(request);if("error" in auth)return auth.error;
   const body=await request.json() as {documentId?:number;offset?:number;limit?:number};
   const documentId=Number(body.documentId),offset=Math.max(0,Math.floor(Number(body.offset)||0)),limit=Math.min(80,Math.max(10,Math.floor(Number(body.limit)||60)));
   const db=await getDb();

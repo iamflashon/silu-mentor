@@ -2,8 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents } from "../../../../../db/schema";
 import { docxAsset } from "../../../../../lib/docx-html";
+import { requireAccountingAdmin } from "../../../../../lib/member-auth";
 
 export async function GET(request: Request) {
+  const auth = await requireAccountingAdmin(request); if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const id = Number(url.searchParams.get("id"));
   const asset = url.searchParams.get("asset") ?? "";
