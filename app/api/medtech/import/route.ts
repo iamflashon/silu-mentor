@@ -24,7 +24,7 @@ function clean(value: string) { return value.replace(/\s+/gu, " ").trim(); }
 
 function parseOptions(text: string) {
   const options: Record<string, string> = {};
-  const matches = [...text.matchAll(/\(([A-D])\)\s*([\s\S]*?)(?=\s*\([A-D]\)|$)/gu)];
+  const matches = [...text.matchAll(/[（(]([A-D])[）)]\s*([\s\S]*?)(?=\s*[（(][A-D][）)]|$)/gu)];
   for (const match of matches) options[match[1]] = clean(match[2]);
   return options;
 }
@@ -43,16 +43,23 @@ function parseQuestions(text: string): ParsedQuestion[] {
   for (let index = 0; index < lines.length; index += 1) {
     const start = lines[index].match(/^(\d{1,3})[.、]\s*(.+)$/u);
     if (!start || !/[？?]|下列|何者|何種|最適|有關|關於/u.test(start[2])) continue;
+    let optionStart = -1;
+    for (let cursor = index + 1; cursor < Math.min(lines.length, index + 12); cursor += 1) {
+      if (/[（(]A[）)]/u.test(lines[cursor])) { optionStart = cursor; break; }
+      if (/^\d{1,3}[.、]\s*\S/u.test(lines[cursor])) break;
+    }
+    if (optionStart < 0) continue;
     let answerIndex = -1;
-    for (let cursor = index + 1; cursor < Math.min(lines.length, index + 18); cursor += 1) {
-      if (/^\([A-D]\)$/u.test(lines[cursor])) { answerIndex = cursor; break; }
+    for (let cursor = optionStart; cursor < Math.min(lines.length, optionStart + 24); cursor += 1) {
+      if (/^[^A-Za-z0-9]*[（(][A-D][）)]\s*$/u.test(lines[cursor])) { answerIndex = cursor; break; }
       if (cursor > index + 1 && /^\d{1,3}[.、]\s*\S/u.test(lines[cursor])) break;
     }
     if (answerIndex < 0) continue;
-    const optionText = lines.slice(index + 1, answerIndex).join(" ");
+    const stem = clean([start[2], ...lines.slice(index + 1, optionStart)].join(" "));
+    const optionText = lines.slice(optionStart, answerIndex).join(" ");
     const options = parseOptions(optionText);
     if (!["A", "B", "C", "D"].every((key) => options[key])) continue;
-    const answer = lines[answerIndex].slice(1, 2);
+    const answer = lines[answerIndex].match(/[（(]([A-D])[）)]/u)?.[1] ?? "";
     let end = answerIndex + 1;
     const explanation: string[] = [];
     if (lines[end] === "【解析】") end += 1;
@@ -60,8 +67,8 @@ function parseQuestions(text: string): ParsedQuestion[] {
       if (/^\d{1,3}[.、]\s*\S/u.test(lines[end]) || /^第\s*\d+\s*(?:章|節)/u.test(lines[end]) || /^=====/.test(lines[end])) break;
       explanation.push(lines[end]); end += 1;
     }
-    const yearMatch = start[2].match(/（(\d{2,3})[.．](?:2|7)月專技）/u);
-    results.push({ year: yearMatch?.[1] ?? "模擬", number: start[1], stem: clean(start[2]), options, answer, explanation: clean(explanation.join(" ")) });
+    const yearMatch = stem.match(/（(\d{2,3})[.．](?:2|7)月專技）/u);
+    results.push({ year: yearMatch?.[1] ?? "模擬", number: start[1], stem, options, answer, explanation: clean(explanation.join(" ")) });
     index = answerIndex;
   }
   const unique = new Map<string, ParsedQuestion>();
@@ -83,11 +90,13 @@ export async function POST(request: Request) {
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
-    let questions = questionsFromProcessingResult(document.processingResultJson);
-    if (!questions.length) {
+    const indexedQuestions = questionsFromProcessingResult(document.processingResultJson);
+    let localQuestions: ParsedQuestion[] = [];
+    if (/\.pdf$/iu.test(document.fileName) || !indexedQuestions.length) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
-      questions = parseQuestions(inspected.text);
+      localQuestions = parseQuestions(inspected.text);
     }
+    const questions = localQuestions.length > indexedQuestions.length ? localQuestions : indexedQuestions;
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
     if (offset === 0) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
@@ -118,6 +127,9 @@ export async function POST(request: Request) {
       }
     }
     const nextOffset = Math.min(questions.length, offset + limit);
+    if (nextOffset >= questions.length) {
+      await db.update(documents).set({ questionCount: questions.length, processingMessage: `已完整拆出 ${questions.length} 題，可進入文件工作區逐題核對` }).where(eq(documents.id, documentId));
+    }
     return Response.json({ imported, parsed: questions.length, offset, nextOffset, done: nextOffset >= questions.length, failed: failures.length, failures: failures.slice(0, 20), status: "draft", documentId, subject: document.subject });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 300) : "醫檢題庫匯入失敗" }, { status: 500 });

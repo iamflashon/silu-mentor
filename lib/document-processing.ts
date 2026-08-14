@@ -280,20 +280,32 @@ export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer)
   const toHex = (value: ArrayBuffer) => [...new Uint8Array(value)].map((item) => item.toString(16).padStart(2, "0")).join("");
   if (extension === "pdf") {
     if (!latin1.startsWith("%PDF-")) throw new Error("檔案副檔名是 PDF，但檔案標頭無效");
-    const pages = Math.max(0, (latin1.match(/\/Type\s*\/Page\b/g) ?? []).length);
+    const estimatedPages = Math.max(0, (latin1.match(/\/Type\s*\/Page\b/g) ?? []).length);
+    let extractedText = "";
+    let pages = estimatedPages;
+    const extractionWarnings: string[] = [];
+    try {
+      const { extractText } = await import("unpdf");
+      const extracted = await extractText(new Uint8Array(payload.bytes), { mergePages: true });
+      extractedText = typeof extracted.text === "string" ? extracted.text : extracted.text.join("\n\f\n");
+      pages = extracted.totalPages || estimatedPages;
+    } catch {
+      extractionWarnings.push("PDF 本地文字擷取未完成，將由索引服務接續辨識");
+    }
+    const localFacts = extractedText ? factsFromText(extractedText, "txt") : null;
     const facts: ExtractedDocumentFacts = {
       extension,
       ...(originalExtension === "zip" ? { container: "zip" as const, sourceFileName: payload.fileName } : {}),
       extractionMode: "pdf_index_service",
-      textChars: 0,
+      textChars: extractedText.length,
       recordCount: 0,
-      chapterCandidates: [],
-      questionCandidates: [],
-      inferredTags: tagsFromText(fileName),
+      chapterCandidates: localFacts?.chapterCandidates ?? [],
+      questionCandidates: localFacts?.questionCandidates ?? [],
+      inferredTags: unique([...tagsFromText(fileName), ...(localFacts?.inferredTags ?? [])]),
       metadata: { title: fileName.replace(/\.pdf$/i, ""), source: "", category: "", date: "", version: "", parentPath: "", enabled: true },
-      validation: { valid: true, checks: [originalExtension === "zip" ? `ZIP 內 PDF：${payload.fileName}` : "PDF 標頭有效", pages ? `偵測到約 ${pages} 頁` : "頁數待索引服務確認"], warnings: ["PDF 文字與章節將由索引服務及 AI 依原檔分析"] },
+      validation: { valid: true, checks: [originalExtension === "zip" ? `ZIP 內 PDF：${payload.fileName}` : "PDF 標頭有效", pages ? `偵測到 ${pages} 頁` : "頁數待索引服務確認", extractedText ? `已擷取 ${extractedText.length.toLocaleString()} 字` : "文字交由索引服務辨識"], warnings: extractionWarnings },
     };
-    return { facts: { ...facts, pageCount: pages }, text: "", sha256: toHex(await digestPromise) };
+    return { facts: { ...facts, pageCount: pages }, text: extractedText, sha256: toHex(await digestPromise) };
   }
   const text = extension === "docx"
     ? extractDocxText(payload.bytes)
