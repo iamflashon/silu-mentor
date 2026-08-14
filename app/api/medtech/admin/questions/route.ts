@@ -2,6 +2,7 @@ import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { examQuestions } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
 export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
@@ -43,8 +44,8 @@ export async function PATCH(request: Request) {
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
   const allowed = ["year","subject","questionNumber","stem","correctAnswer","explanation","answerSource","status"] as const;
   const values: Record<string,string> = {};
-  for (const key of allowed) if (typeof body[key] === "string") values[key] = String(body[key]).trim();
-  if (body.options && typeof body.options === "object") values.optionsJson = JSON.stringify(body.options);
+  for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
+  if (body.options && typeof body.options === "object") values.optionsJson = JSON.stringify(Object.fromEntries(Object.entries(body.options).map(([key,value])=>[key,sanitizeRichHtml(String(value))])));
   await db.update(examQuestions).set(values).where(eq(examQuestions.id, id));
   return Response.json({ updated: true });
 }
