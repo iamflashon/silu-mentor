@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { getOpenAIKey } from "../../../lib/openai";
 import { examQuestions } from "../../../db/schema";
 import { removeAccountingPageFurniture } from "../../../lib/accounting-question";
+import { importAccountingWordBank } from "../../../lib/accounting-word-bank";
 
 const allowedAnswerHosts = new Set(["lawyer.get.com.tw", "fd.get.com.tw"]);
 
@@ -80,6 +81,7 @@ export async function GET(request: Request) {
   if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
   if (examCategory !== "all") filters.push(eq(examQuestions.examCategory, examCategory));
   const db = await getDb();
+  if (examCategory === "accounting") await importAccountingWordBank(db);
   const where = filters.length ? and(...filters) : undefined;
   const facetFilters = [];
   if (status !== "all") facetFilters.push(eq(examQuestions.status, status));
