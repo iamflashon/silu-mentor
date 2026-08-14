@@ -235,6 +235,7 @@ export async function POST(request: Request) {
       if (bytes.byteLength < 1 || bytes.byteLength > MAX_DOCUMENT_BYTES) throw new Error("檔案大小不符合限制（最多 55MB）");
       if (!isSupportedDocument(document.fileName, document.contentType)) throw new Error("僅支援 PDF、HTML、JSON、JSONL、MD、TXT、DOCX 或 ZIP 文件");
       const inspected = await inspectDocumentBytes(document.fileName, bytes);
+      const extractionWarning = inspected.facts.validation.warnings.at(0);
       const existingResult = {
         facts: inspected.facts,
         localTextExtracted: inspected.text.length > 0,
@@ -245,7 +246,7 @@ export async function POST(request: Request) {
           ? "已在上傳階段擷取本地文字"
           : "PDF 文字由全文／向量索引服務擷取，完成後由 AI 依索引內容整理章節與題目",
       };
-      await db.update(documents).set({ status: "indexing", processingStage: "indexing", processingMessage: "檔案檢查完成，正在建立全文／向量索引", fileSha256: inspected.sha256, pageCount: inspected.facts.pageCount ?? null, extractedChars: inspected.facts.textChars, tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...inspected.facts.inferredTags])), processingResultJson: JSON.stringify(existingResult), indexError: null }).where(eq(documents.id, documentId));
+      await db.update(documents).set({ status: "indexing", processingStage: "indexing", processingMessage: extractionWarning ? `檔案檢查完成；${extractionWarning}，正在建立全文／向量索引` : "檔案檢查完成，正在建立全文／向量索引", fileSha256: inspected.sha256, pageCount: inspected.facts.pageCount ?? null, extractedChars: inspected.facts.textChars, tagsJson: JSON.stringify(unique([document.subject, document.documentType, ...inspected.facts.inferredTags])), processingResultJson: JSON.stringify(existingResult), indexError: null }).where(eq(documents.id, documentId));
       [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
     }
     if (!document) throw new Error("文件狀態更新失敗");

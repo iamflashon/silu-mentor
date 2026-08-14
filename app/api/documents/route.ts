@@ -1,6 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { chatMessages, documents } from "../../../db/schema";
+import { chatMessages, documents, examQuestions } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../lib/document-processing";
 import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
@@ -156,6 +156,7 @@ export async function DELETE(request: Request) {
         await openAIJson(`/files/${row.openaiFileId}`, { method: "DELETE" }).catch(() => undefined);
       }
       if (bucket) await bucket.delete(row.storageKey).catch(() => undefined);
+      await db.delete(examQuestions).where(eq(examQuestions.sourceUrl, `document:${row.id}`));
       await db.delete(documents).where(eq(documents.id, row.id));
     }
 

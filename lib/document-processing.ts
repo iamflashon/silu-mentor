@@ -2,6 +2,8 @@ import { unzipSync } from "fflate";
 
 export const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".html", ".htm", ".json", ".jsonl", ".md", ".txt", ".docx", ".zip"] as const;
 export const MAX_DOCUMENT_BYTES = 55 * 1024 * 1024;
+const LARGE_HTML_BYTES = 8 * 1024 * 1024;
+const LARGE_HTML_SCAN_BYTES = 2 * 1024 * 1024;
 
 export type DocumentExtension = "pdf" | "html" | "json" | "jsonl" | "md" | "txt" | "docx" | "zip";
 
@@ -326,12 +328,15 @@ export async function inspectDocumentBytes(fileName: string, bytes: ArrayBuffer)
     };
     return { facts: { ...facts, pageCount: pages }, text: extractedText, sha256: toHex(await digestPromise) };
   }
+  const largeHtml = extension === "html" && view.byteLength > LARGE_HTML_BYTES;
+  const htmlView = largeHtml ? view.subarray(0, LARGE_HTML_SCAN_BYTES) : view;
   const text = extension === "docx"
     ? extractDocxText(payload.bytes)
     : extension === "html"
-      ? extractHtmlText(new TextDecoder("utf-8", { fatal: false }).decode(view).replace(/^\uFEFF/, ""))
+      ? extractHtmlText(new TextDecoder("utf-8", { fatal: false }).decode(htmlView).replace(/^\uFEFF/, ""))
     : new TextDecoder("utf-8", { fatal: false }).decode(view).replace(/^\uFEFF/, "");
   const facts = extension === "json" ? factsFromJson(text) : extension === "jsonl" ? factsFromJsonl(text) : factsFromText(text, extension);
+  if (largeHtml) facts.validation.warnings.push("HTML 原稿超過 8MB，已快速擷取前段結構線索；完整原稿仍會保留並交由全文索引服務處理");
   if (extension === "docx") facts.docxQuestionRows = countDocxAnswerRows(payload.bytes);
   return {
     facts: originalExtension === "zip"
