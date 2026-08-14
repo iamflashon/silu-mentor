@@ -34,11 +34,16 @@ export async function GET(request: Request) {
   const db = await getDb();
   const where = and(...filters);
   const [countRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(where);
+  const [draftRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(and(
+    eq(examQuestions.examCategory, "medtech"),
+    eq(examQuestions.examType, "mcq"),
+    eq(examQuestions.status, "draft"),
+  ));
   const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0 ? asc(examQuestions.id) : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
   const facets = await db.select({ year: examQuestions.year, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech"));
   return Response.json({
     items: items.map(item => ({ ...item, options: JSON.parse(item.optionsJson || "{}") })),
-    total: Number(countRow?.total ?? 0), page, limit,
+    total: Number(countRow?.total ?? 0), draftTotal: Number(draftRow?.total ?? 0), page, limit,
     years: [...new Set(facets.map(item => item.year).filter(Boolean))].sort((a,b)=>b.localeCompare(a,"zh-Hant",{numeric:true})),
     subjects: [...new Set(facets.map(item => item.subject).filter(Boolean))].sort(),
   });
@@ -72,6 +77,14 @@ export async function PATCH(request: Request) {
   }
   const id = Number(body.id);
   const db = await getDb();
+  if (body.publishAllDrafts === true) {
+    const rows = await db.update(examQuestions).set({ status: "published" }).where(and(
+      eq(examQuestions.examCategory, "medtech"),
+      eq(examQuestions.examType, "mcq"),
+      eq(examQuestions.status, "draft"),
+    )).returning({ id: examQuestions.id });
+    return Response.json({ updated: rows.length, status: "published" });
+  }
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
   const allowed = ["year","subject","questionNumber","stem","correctAnswer","explanation","answerSource","status"] as const;
