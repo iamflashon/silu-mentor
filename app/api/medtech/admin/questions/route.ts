@@ -8,6 +8,13 @@ export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
+  const requestedId = Number(url.searchParams.get("id"));
+  if (Number.isInteger(requestedId) && requestedId > 0) {
+    const db = await getDb();
+    const [item] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, requestedId), eq(examQuestions.examCategory, "medtech"))).limit(1);
+    if (!item) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
+    return Response.json({ item: { ...item, options: JSON.parse(item.optionsJson || "{}") } });
+  }
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const limit = Math.min(100, Math.max(10, Number(url.searchParams.get("limit")) || 30));
   const query = url.searchParams.get("query")?.trim() ?? "";
