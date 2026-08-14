@@ -119,6 +119,6 @@ export async function POST(request:Request){
   const nextOffset=Math.min(questions.length,offset+limit),done=nextOffset>=questions.length;
   const mcq=questions.filter(q=>q.examType==="mcq").length,essay=questions.length-mcq,missingAnswer=questions.filter(q=>q.examType==="mcq"&&!q.answer).length;
   await db.update(documents).set({status:done?"completed":"extracting",processingStage:done?"completed":"extracting",processingMessage:done?`逐頁拆解完成：${questions.length} 題（選擇 ${mcq}、申論／計算 ${essay}）已進入待審核題庫`:`正在分批入庫：${nextOffset} / ${questions.length} 題`,pageCount:totalPages,questionCount:questions.length,processedAt:done?new Date():null,indexError:null}).where(eq(documents.id,documentId));
-  return Response.json({status:done?"completed":"importing",documentId,parsed:questions.length,imported,offset,nextOffset,done,stats:{mcq,essay,missingAnswer,pages:extracted.totalPages},message:done?`拆解完成，共 ${questions.length} 題`: `已入庫 ${nextOffset} / ${questions.length} 題`},{status:done?200:202});
+  return Response.json({status:done?"completed":"importing",documentId,parsed:questions.length,imported,offset,nextOffset,done,stats:{mcq,essay,missingAnswer,pages:totalPages},message:done?`拆解完成，共 ${questions.length} 題`: `已入庫 ${nextOffset} / ${questions.length} 題`},{status:done?200:202});
  }catch(error){return Response.json({error:error instanceof Error?error.message:"中會題庫拆解失敗",status:"failed"},{status:500})}
 }
