@@ -16,8 +16,13 @@ function questionsFromProcessingResult(value: string): ParsedQuestion[] {
   // (root.questions, analysis.questions, result.questions, and facts
   // questionCandidates). Read all of them so opening an old document can
   // materialise its saved index without parsing the original PDF again.
+  let reparsedRows: unknown[] = [];
+  try {
+    const root = JSON.parse(value) as Record<string, unknown>;
+    reparsedRows = Array.isArray(root.reparsedQuestions) ? root.reparsedQuestions : [];
+  } catch { /* fall through to the saved analysis */ }
   const parsed = storedDocumentAnalysis(value);
-  const rows = Array.isArray(parsed.questions) ? parsed.questions : [];
+  const rows = reparsedRows.length ? reparsedRows : Array.isArray(parsed.questions) ? parsed.questions : [];
   const firstText = (row: Record<string, unknown>, keys: string[]) => {
     for (const key of keys) {
       const text = clean(String(row[key] ?? ""));
@@ -137,7 +142,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMedtechAdmin(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { documentId?: number; offset?: number; limit?: number; materializeOnly?: boolean };
+    const body = await request.json() as { documentId?: number; offset?: number; limit?: number; materializeOnly?: boolean; forceReparse?: boolean };
     const documentId = Number(body.documentId);
     const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
     const limit = Math.min(body.materializeOnly ? 25 : 150, Math.max(1, Math.floor(Number(body.limit) || 100)));
@@ -167,7 +172,7 @@ export async function POST(request: Request) {
         && Math.abs(count - expected) <= 2,
       )
         ?? ranked.find(([, count]) => Math.abs(count - expected) <= 2);
-      if (recovered) {
+      if (recovered && !body.forceReparse) {
         await db.update(documents).set({ processingMessage: `已回復既有 ${recovered[1]} 題索引；原稿未重新拆解` }).where(eq(documents.id, documentId));
         return Response.json({ imported: 0, parsed: recovered[1], offset, nextOffset: recovered[1], done: true, failed: 0, failures: [], recovered: true, status: "draft", documentId, subject: document.subject });
       }
@@ -175,8 +180,10 @@ export async function POST(request: Request) {
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
-    const indexedQuestions = questionsFromProcessingResult(document.processingResultJson);
-    const savedCandidates = indexedQuestions.length ? [] : questionCandidatesFromProcessingResult(document.processingResultJson);
+    const indexedQuestions = body.forceReparse ? [] : questionsFromProcessingResult(document.processingResultJson);
+    const savedCandidates = indexedQuestions.length && indexedQuestions.length >= expected
+      ? []
+      : questionCandidatesFromProcessingResult(document.processingResultJson);
     let localQuestions: ParsedQuestion[] = [];
     // When the normal document processor already stored the parsed questions,
     // materialising them into editable rows must not re-read the PDF.
@@ -187,12 +194,19 @@ export async function POST(request: Request) {
     // PDF/HTML even when questionCount is stale. Materialisation is paged to
     // stay under D1's bound-parameter limit, so each continuation request
     // needs the same parsed source list before inserting its next slice.
-    if (!indexedQuestions.length && !savedCandidates.length) {
+    const storedCount = Math.max(indexedQuestions.length, savedCandidates.length);
+    const shouldReparseOriginal = Boolean(body.forceReparse) || (!indexedQuestions.length && !savedCandidates.length) || (Boolean(body.materializeOnly) && expected > 0 && storedCount < expected);
+    if (shouldReparseOriginal) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
       localQuestions = parseQuestions(inspected.text);
     }
-    const questions = indexedQuestions.length ? indexedQuestions : savedCandidates.length ? savedCandidates : localQuestions;
+    const questions = [localQuestions, indexedQuestions, savedCandidates].sort((left, right) => right.length - left.length)[0] ?? [];
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
+    if (offset === 0 && shouldReparseOriginal && localQuestions.length) {
+      let stored: Record<string, unknown> = {};
+      try { stored = JSON.parse(document.processingResultJson || "{}") as Record<string, unknown>; } catch { /* replace malformed legacy JSON */ }
+      await db.update(documents).set({ processingResultJson: JSON.stringify({ ...stored, reparsedQuestions: localQuestions }) }).where(eq(documents.id, documentId));
+    }
     if (offset === 0 && !body.materializeOnly) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
     // has many columns, so keep batches comfortably below that limit.
