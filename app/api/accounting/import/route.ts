@@ -21,6 +21,23 @@ function chapterOf(text:string){
  return clean(matches.at(-1)?.[0]??"");
 }
 
+function normalizeExamSource(value:string){
+ const compact=clean(value).replace(/\s+/gu," ");
+ return compact.replace(/^((?:10\d|11\d))(?!年)/u,"$1年");
+}
+
+function extractExamSource(text:string){
+ const parenthesized=[...text.matchAll(/[（(]\s*((?:10\d|11\d)\s*年?\s*[^\n）)]{2,100})\s*[）)]/gu)];
+ const candidate=parenthesized.at(-1)?.[1];
+ if(candidate)return normalizeExamSource(candidate);
+ return "";
+}
+
+function documentExamSource(fileName:string){
+ const match=fileName.match(/((?:10\d|11\d)\s*年[^.]{2,120})\.(?:docx|pdf|txt)$/iu);
+ return normalizeExamSource(match?.[1]??"");
+}
+
 function parseOptions(segment:string){
  const options:Record<string,string>={};
  for(const key of ["A","B","C","D"]){
@@ -65,8 +82,7 @@ function parseWordTableQuestions(bytes:Uint8Array):ParsedQuestion[]{
    if(!answer&&!hasOptions&&!hasQuestionMark)continue;
    const calc=raw.search(/【\s*(?:解答|解析)\s*】|計算過程/u);
    const explanation=calc>=0?clean(raw.slice(calc).replace(/^.*?(?:【\s*(?:解答|解析)\s*】|計算過程)/u,"")):"";
-   const sourceMatches=[...raw.matchAll(/[（(]((?:10\d|11\d)年[^）)\n]{2,50}(?:研究所|考試|特考|高考|普考|會計師|記帳士)[^）)\n]*)[）)]/gu)];
-   result.push({number:String(result.length+1),stem,options,answer,explanation,teacherAnswer:explanation,chapter:chapterOf(raw),examSource:clean(sourceMatches.at(-1)?.[1]??""),page:1,examType:hasOptions||answer?"mcq":"essay"});
+   result.push({number:String(result.length+1),stem,options,answer,explanation,teacherAnswer:explanation,chapter:chapterOf(raw),examSource:extractExamSource(raw),page:1,examType:hasOptions||answer?"mcq":"essay"});
   }
  }
  return result;
@@ -86,8 +102,7 @@ function parseQuestions(pages:string[],documentType:string){
   const page=Number(pageMarkers[pageIndex]?.[1]??1);
   const pagePrefix=normalize(pages[Math.max(0,page-1)]??"");
   const chapter=chapterOf(pagePrefix)||chapterOf(raw);
-  const sourceMatches=[...raw.matchAll(/[（(]((?:10\d|11\d)年[^）)\n]{2,50}(?:研究所|考試|特考|高考|普考|會計師|記帳士)[^）)\n]*)[）)]/gu)];
-  const examSource=clean(sourceMatches.at(-1)?.[1]??"");
+  const examSource=extractExamSource(raw);
   const options=parseOptions(raw);
   const completeOptions=["A","B","C","D"].every(key=>Boolean(options[key]));
   const forcedEssay=documentType==="申論題庫";
@@ -144,13 +159,13 @@ export async function POST(request:Request){
   const isWordQuiz=/\.docx$/iu.test(document.fileName)&&/(?:小考|模擬考|考題|題庫|測驗)/u.test(document.fileName);
   let pages:string[]=[];let totalPages=1;
   if(/\.pdf$/iu.test(document.fileName)){const extracted=await extractText(bytes,{mergePages:false});pages=Array.isArray(extracted.text)?extracted.text:[String(extracted.text)];totalPages=extracted.totalPages??pages.length}else{const inspected=await inspectDocumentBytes(document.fileName,bytes.buffer as ArrayBuffer);pages=[inspected.text]}
-  const parsed=parseQuestions(pages,inferredType);const wordTable=isWordQuiz?parseWordTableQuestions(bytes):[];const grouped=isWordQuiz?parseGroupedWordQuestions(pages.join("\n")):[];const questions=wordTable.length?wordTable:(grouped.length>parsed.length?grouped:parsed);
+  const parsed=parseQuestions(pages,inferredType);const wordTable=isWordQuiz?parseWordTableQuestions(bytes):[];const grouped=isWordQuiz?parseGroupedWordQuestions(pages.join("\n")):[];const questions=wordTable.length?wordTable:(grouped.length>parsed.length?grouped:parsed);const documentSource=documentExamSource(document.fileName);
   if(!questions.length)throw new Error("未辨識到可入庫的完整題目");
   const sourceUrl=`document:${document.id}`;
   if(offset===0)await db.delete(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,sourceUrl)));
   let imported=0;
   for(const question of questions.slice(offset,offset+limit)){
-   try{const flags=accountingQuestionFlags(question.stem);await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:question.examSource||(inferredType==="年度解題"?"114年度考題":"未標示考試來源"),examName:inferredType,subject:"中級會計學",questionNumber:question.number,stem:removeAccountingPageFurniture(question.stem),optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:removeAccountingPageFurniture(question.explanation),teacherAnswer:question.examType==="essay"?removeAccountingPageFurniture(question.teacherAnswer):"",teacherNotes:[question.chapter,`原稿第 ${question.page} 頁`,flags.needsTableReview?"HTML表格呈現":"",flags.brokenGlyphs?"缺字待核對":""].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
+   try{const flags=accountingQuestionFlags(question.stem);await db.insert(examQuestions).values({examCategory:"accounting",examType:question.examType,year:question.examSource||documentSource||(inferredType==="年度解題"?"114年度考題":"未標示考試來源"),examName:inferredType,subject:"中級會計學",questionNumber:question.number,stem:removeAccountingPageFurniture(question.stem),optionsJson:question.examType==="mcq"?JSON.stringify(question.options):null,correctAnswer:question.answer||null,explanation:removeAccountingPageFurniture(question.explanation),teacherAnswer:question.examType==="essay"?removeAccountingPageFurniture(question.teacherAnswer):"",teacherNotes:[question.examSource?`考試來源：${question.examSource}`:"",question.chapter,`原稿第 ${question.page} 頁`,flags.needsTableReview?"HTML表格呈現":"",flags.brokenGlyphs?"缺字待核對":""].filter(Boolean).join("｜"),answerSource:question.answer||question.teacherAnswer?"上傳教材原稿":"",answerStatus:question.answer||question.teacherAnswer?"source_matched":"missing",sourceUrl,status:"draft"});imported++}catch{/* continue remaining */}
   }
   const nextOffset=Math.min(questions.length,offset+limit),done=nextOffset>=questions.length;
   const mcq=questions.filter(q=>q.examType==="mcq").length,essay=questions.length-mcq,missingAnswer=questions.filter(q=>q.examType==="mcq"&&!q.answer).length;
