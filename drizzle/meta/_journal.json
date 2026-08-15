@@ -337,6 +337,13 @@
       "when": 1786597842383,
       "tag": "0047_redundant_power_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1786784786392,
+      "tag": "0048_thick_jean_grey",
+      "breakpoints": true
     }
   ]
 }

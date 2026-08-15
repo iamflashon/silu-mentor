@@ -47,6 +47,7 @@ export async function GET(request: Request) {
     questionNumber: examQuestions.questionNumber,
     stem: examQuestions.stem,
     explanation: examQuestions.explanation,
+    completeExplanation: examQuestions.completeExplanation,
     correctAnswer: examQuestions.correctAnswer,
   }).from(examQuestions)
     .where(eq(examQuestions.examCategory, "medtech"))
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
     try {
       let row;
       if (old) {
-        [row] = await db.update(listeningSolutions).set({ audioStorageKey: key, audioFileName: file.name, updatedAt: new Date() }).where(eq(listeningSolutions.id, old.id)).returning({ id: listeningSolutions.id });
+        [row] = await db.update(listeningSolutions).set({ audioStorageKey: key, audioFileName: file.name, narrationScript: plain(question.completeExplanation), updatedAt: new Date() }).where(eq(listeningSolutions.id, old.id)).returning({ id: listeningSolutions.id });
         if (old.audioStorageKey) await env.BUCKET.delete(old.audioStorageKey).catch(() => undefined);
       } else {
         [row] = await db.insert(listeningSolutions).values({
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
           year: question.year || "",
           subject: question.subject || "醫事檢驗",
           questionText: question.stem,
-          narrationScript: plain(question.explanation),
+          narrationScript: plain(question.completeExplanation),
           sourceUrl: `medtech:question:${question.id}`,
           audioStorageKey: key,
           audioFileName: file.name,

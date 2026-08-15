@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   }
   const baseFilters = [
     eq(examQuestions.examCategory, "medtech"),
-    ...(query ? [or(like(examQuestions.stem, `%${query}%`), like(examQuestions.explanation, `%${query}%`), like(examQuestions.questionNumber, `%${query}%`))!] : []),
+    ...(query ? [or(like(examQuestions.stem, `%${query}%`), like(examQuestions.explanation, `%${query}%`), like(examQuestions.completeExplanation, `%${query}%`), like(examQuestions.questionNumber, `%${query}%`))!] : []),
     ...(year ? [eq(examQuestions.year, year)] : []),
     ...(subject ? [eq(examQuestions.subject, subject)] : []),
     ...(status ? [eq(examQuestions.status, status)] : []),
@@ -117,11 +117,12 @@ export async function PATCH(request: Request) {
       const replace = (value: string) => value.split(replaceFind).join(replacement);
       const nextStem = replace(row.stem);
       const nextExplanation = replace(row.explanation);
+      const nextCompleteExplanation = replace(row.completeExplanation);
       const nextOptions = Object.fromEntries(Object.entries(options).map(([key, value]) => [key, replace(String(value ?? ""))]));
-      const changed = nextStem !== row.stem || nextExplanation !== row.explanation || JSON.stringify(nextOptions) !== JSON.stringify(options);
+      const changed = nextStem !== row.stem || nextExplanation !== row.explanation || nextCompleteExplanation !== row.completeExplanation || JSON.stringify(nextOptions) !== JSON.stringify(options);
       if (!changed) continue;
       matched += 1;
-      await db.update(examQuestions).set({ stem: sanitizeRichHtml(nextStem), explanation: sanitizeRichHtml(nextExplanation), optionsJson: JSON.stringify(Object.fromEntries(Object.entries(nextOptions).map(([key, value]) => [key, sanitizeRichHtml(value)]))) }).where(eq(examQuestions.id, row.id));
+      await db.update(examQuestions).set({ stem: sanitizeRichHtml(nextStem), explanation: sanitizeRichHtml(nextExplanation), completeExplanation: sanitizeRichHtml(nextCompleteExplanation), optionsJson: JSON.stringify(Object.fromEntries(Object.entries(nextOptions).map(([key, value]) => [key, sanitizeRichHtml(value)]))) }).where(eq(examQuestions.id, row.id));
     }
     return Response.json({ replaced: true, matched, updated: matched, find: replaceFind, replaceWith: replacement });
   }
@@ -137,9 +138,9 @@ export async function PATCH(request: Request) {
   }
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
-  const allowed = ["year","subject","questionNumber","stem","correctAnswer","explanation","answerSource","status"] as const;
+  const allowed = ["year","subject","questionNumber","stem","correctAnswer","explanation","completeExplanation","answerSource","status"] as const;
   const values: Record<string,string> = {};
-  for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
+  for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
   if (body.options && typeof body.options === "object") values.optionsJson = JSON.stringify(Object.fromEntries(Object.entries(body.options).map(([key,value])=>[key,sanitizeRichHtml(String(value))])));
   await db.update(examQuestions).set(values).where(eq(examQuestions.id, id));
   return Response.json({ updated: true });

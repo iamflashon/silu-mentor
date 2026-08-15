@@ -346,6 +346,7 @@ export const examQuestions = sqliteTable("exam_questions", {
   optionsJson: text("options_json"),
   correctAnswer: text("correct_answer"),
   explanation: text("explanation").notNull().default(""),
+  completeExplanation: text("complete_explanation").notNull().default(""),
   teacherAnswer: text("teacher_answer").notNull().default(""),
   teacherNotes: text("teacher_notes").notNull().default(""),
   rubricJson: text("rubric_json").notNull().default("[]"),
