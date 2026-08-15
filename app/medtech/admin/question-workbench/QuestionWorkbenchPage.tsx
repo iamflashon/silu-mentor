@@ -21,6 +21,7 @@ export default function QuestionWorkbenchPage({ category = "medtech" }: { catego
   const [item, setItem] = useState<Question | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -40,6 +41,43 @@ export default function QuestionWorkbenchPage({ category = "medtech" }: { catego
     setSaving(false);
   }
 
+  async function generateAiSimulation() {
+    if (!item || accounting || !item.isSimulation) return;
+    const optionsReady = ["A", "B", "C", "D"].every((letter) => String(item.options?.[letter] ?? "").trim());
+    if (!item.stem.trim() || !optionsReady) {
+      setNotice("請先確認題幹與 A～D 選項都已填寫，再產生 AI 擬答。");
+      return;
+    }
+    setAiGenerating(true);
+    setNotice("AI 正在依題幹與 A～D 選項產生擬答與完整解析…");
+    try {
+      const response = await fetch("/api/medtech/admin/questions/simulation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: item.id, force: true }),
+      });
+      const data = await response.json() as { item?: Partial<Question> & { optionsJson?: string }; error?: string };
+      if (!response.ok || !data.item) {
+        setNotice(data.error || "AI 擬答產生失敗，請稍後再試。");
+        return;
+      }
+      const returned = data.item;
+      let options = item.options;
+      if (returned.options && typeof returned.options === "object") options = returned.options;
+      else if (returned.optionsJson) {
+        try { options = JSON.parse(returned.optionsJson) as Record<string, string>; } catch { /* keep current options */ }
+      }
+      const { optionsJson: _optionsJson, ...generated } = returned;
+      const next = { ...item, ...generated, options, isSimulation: true } as Question;
+      setItem(next);
+      setNotice("AI 擬答與 AI 完整解析已產生，請老師核對後再填入老師版。");
+    } catch {
+      setNotice("AI 擬答請求失敗，請稍後再試。");
+    } finally {
+      setAiGenerating(false);
+    }
+  }
+
   if (loading) return <main className="standalone-workbench-state">正在開啟題目工作台…</main>;
   if (!item) return <main className="standalone-workbench-state"><p>{notice}</p><a href={back}>返回管理後台</a></main>;
   const essay = item.examType === "essay";
@@ -48,7 +86,7 @@ export default function QuestionWorkbenchPage({ category = "medtech" }: { catego
     <header><div><a href={back}>← 返回題庫</a><h1>題目工作台</h1><p>{item.year} 年 · {item.subject} · 第 {item.questionNumber} 題</p></div><div><span className={notice.startsWith("已儲存") ? "saved" : ""}>{notice}</span><button disabled={saving} onClick={() => void save()}>{saving ? "儲存中…" : "儲存題目"}</button></div></header>
     <section className="standalone-workbench-grid"><SourceWorkspace/><article className="standalone-question-editor">
       <div className="question-editor-meta"><label>年份<input value={item.year} onChange={event => setItem({ ...item, year: event.target.value })}/></label><label>科目<input value={item.subject} onChange={event => setItem({ ...item, subject: event.target.value })}/></label><label>題號<input value={item.questionNumber} onChange={event => setItem({ ...item, questionNumber: event.target.value })}/></label></div>
-      {!essay && <div className="answer-version-grid"><div className="answer-version-card ai-answer-card"><span>AI 擬答（AI 版）</span><strong>{item.isSimulation ? (item.simulatedAnswer || "尚未產生") : "非擬真題"}</strong><small>{item.isSimulation ? "AI 獨立推論，不是老師標準答案" : "本題沒有獨立 AI 擬答"}</small></div><label className="answer-version-card teacher-answer-card"><span>老師答案（老師版）</span><select value={item.teacherAnswer || item.correctAnswer || ""} onChange={event => setItem({ ...item, teacherAnswer: event.target.value, correctAnswer: event.target.value || null })}><option value="">尚未確認</option>{["A", "B", "C", "D"].map(letter => <option key={letter}>{letter}</option>)}</select><small>{item.teacherAnswer || item.correctAnswer ? "已設定老師答案，前台會優先使用" : "尚未設定；前台才會使用 AI 擬答並標示"}</small></label></div>}
+      {!essay && <div className="answer-version-grid"><div className="answer-version-card ai-answer-card"><span>AI 擬答（AI 版）</span><strong>{item.isSimulation ? (item.simulatedAnswer || "尚未產生") : "非擬真題"}</strong><small>{item.isSimulation ? "AI 獨立推論，不是老師標準答案" : "本題沒有獨立 AI 擬答"}</small>{item.isSimulation && <button type="button" className="ai-generate-button" disabled={aiGenerating} onClick={() => void generateAiSimulation()}>{aiGenerating ? "AI 產生中…" : "AI 產生答案與解析"}</button>}</div><label className="answer-version-card teacher-answer-card"><span>老師答案（老師版）</span><select value={item.teacherAnswer || item.correctAnswer || ""} onChange={event => setItem({ ...item, teacherAnswer: event.target.value, correctAnswer: event.target.value || null })}><option value="">尚未確認</option>{["A", "B", "C", "D"].map(letter => <option key={letter}>{letter}</option>)}</select><small>{item.teacherAnswer || item.correctAnswer ? "已設定老師答案，前台會優先使用" : "尚未設定；前台才會使用 AI 擬答並標示"}</small></label></div>}
       <RichQuestionEditor label="題幹" value={item.stem} onChange={stem => setItem({ ...item, stem })}/>
       {!essay && ["A", "B", "C", "D"].map(key => <RichQuestionEditor compact key={key} label={`選項 ${key}`} value={item.options[key] ?? ""} onChange={value => setItem({ ...item, options: { ...item.options, [key]: value } })}/>)}
       {!essay && <RichQuestionEditor label="解析（題目原有簡要解析）" value={item.explanation} onChange={value => setItem({ ...item, explanation: value })}/>} 
