@@ -91,23 +91,23 @@ function parseQuestions(text: string): ParsedQuestion[] {
   // can therefore be glued to the field code instead of starting a paragraph
   // after DOCX extraction (for example: `SEQ 序 \\* ARABIC \\s +16. 題目`).
   // Normalize those fields before looking for numbered questions.
-  const normalizedText = text.replace(
+  const normalizedText = text.replace(/\f/g, "\n").replace(
     /SEQ\s*序\s*\\\*\s*ARABIC(?:\s*\\[a-z]+\s*[+\-]?\d+)*\s*(\d{1,3}[.、])/giu,
     "\n$1",
-  );
+  ).replace(/(?<!\d)(\d{1,3})[.、]\s*/gu, "\n$1. ").replace(/\s*([（(][A-D][）)])/gu, "\n$1 ");
   const lines = normalizedText.split(/\r?\n/u).map(clean).filter(Boolean);
   const results: ParsedQuestion[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const start = lines[index].match(/^(\d{1,3})[.、]\s*(.+)$/u);
-    if (!start || !/[？?]|下列|何者|何種|最適|有關|關於/u.test(start[2])) continue;
+    if (!start) continue;
     let optionStart = -1;
-    for (let cursor = index + 1; cursor < Math.min(lines.length, index + 12); cursor += 1) {
+    for (let cursor = index + 1; cursor < Math.min(lines.length, index + 36); cursor += 1) {
       if (/[（(]A[）)]/u.test(lines[cursor])) { optionStart = cursor; break; }
       if (/^\d{1,3}[.、]\s*\S/u.test(lines[cursor])) break;
     }
     if (optionStart < 0) continue;
     let answerIndex = -1;
-    for (let cursor = optionStart; cursor < Math.min(lines.length, optionStart + 24); cursor += 1) {
+    for (let cursor = optionStart; cursor < Math.min(lines.length, optionStart + 36); cursor += 1) {
       if (/^[^A-Za-z0-9]*[（(][A-D][）)]\s*$/u.test(lines[cursor])) { answerIndex = cursor; break; }
       if (cursor > index + 1 && /^\d{1,3}[.、]\s*\S/u.test(lines[cursor])) break;
     }
@@ -131,7 +131,7 @@ function parseQuestions(text: string): ParsedQuestion[] {
     }
     const yearMatch = stem.match(/（(\d{2,3})[.．](?:2|7)月專技）/u);
     results.push({ year: yearMatch?.[1] ?? "模擬", number: start[1], stem, options, answer, explanation: clean(explanation.join(" ")) });
-    index = answerIndex;
+    index = answerIndex >= 0 ? answerIndex : Math.max(index, endOfOptions - 1);
   }
   const unique = new Map<string, ParsedQuestion>();
   for (const question of results) unique.set(`${question.year}|${question.stem}`, question);
@@ -200,7 +200,8 @@ export async function POST(request: Request) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
       localQuestions = parseQuestions(inspected.text);
     }
-    const questions = [localQuestions, indexedQuestions, savedCandidates].sort((left, right) => right.length - left.length)[0] ?? [];
+    const questionQuality = (rows: ParsedQuestion[]) => rows.reduce((score, row) => score + ( ["A", "B", "C", "D"].every(key => row.options[key]) ? 1000000 : 1 ), 0);
+    const questions = [localQuestions, indexedQuestions, savedCandidates].sort((left, right) => questionQuality(right) - questionQuality(left) || right.length - left.length)[0] ?? [];
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
     if (offset === 0 && shouldReparseOriginal && localQuestions.length) {
       let stored: Record<string, unknown> = {};
