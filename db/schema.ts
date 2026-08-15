@@ -61,6 +61,14 @@ export const documents = sqliteTable("documents", {
     .$defaultFn(() => new Date()),
 });
 
+export const medtechUsage = sqliteTable("medtech_usage", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull().unique(),
+  audioTrialQuestionIdsJson: text("audio_trial_question_ids_json").notNull().default("[]"),
+  aiCredits: integer("ai_credits").notNull().default(10),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -349,6 +357,7 @@ export const examQuestions = sqliteTable("exam_questions", {
   completeExplanation: text("complete_explanation").notNull().default(""),
   aiCompleteExplanation: text("ai_complete_explanation").notNull().default(""),
   teacherCompleteExplanation: text("teacher_complete_explanation").notNull().default(""),
+  voiceScript: text("voice_script").notNull().default(""),
   teacherAnswer: text("teacher_answer").notNull().default(""),
   teacherNotes: text("teacher_notes").notNull().default(""),
   rubricJson: text("rubric_json").notNull().default("[]"),
@@ -365,6 +374,17 @@ export const examQuestions = sqliteTable("exam_questions", {
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
+});
+
+export const medtechAiExplanationCache = sqliteTable("medtech_ai_explanation_cache", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cacheKey: text("cache_key").notNull().unique(),
+  questionId: integer("question_id").notNull().references(() => examQuestions.id, { onDelete: "cascade" }),
+  answer: text("answer").notNull().default(""),
+  level: text("level").notNull().default("入門"),
+  reply: text("reply").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export const examAttempts = sqliteTable("exam_attempts", {

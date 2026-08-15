@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { documents, examAttempts, examQuestions, studyRecords } from "../../../../db/schema";
+import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, studyRecords } from "../../../../db/schema";
 import { taipeiDate } from "../../../../lib/taipei-time";
 
 const topics = ["臨床病毒學總論", "DNA 病毒", "RNA 病毒", "全真模擬試題"] as const;
@@ -54,6 +54,17 @@ export async function GET(request: Request) {
     ...(wrongOnly ? [inArray(examQuestions.id, wrongIds)] : []),
   ));
 
+  const questionIds = rows.map((row) => row.id);
+  const mediaRows = questionIds.length
+    ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey }).from(listeningSolutions).where(inArray(listeningSolutions.questionId, questionIds))
+    : [];
+  const mediaIds = mediaRows.map((row) => row.id);
+  const cueRows = mediaIds.length
+    ? await db.select({ id: listeningSubtitleCues.id, listeningId: listeningSubtitleCues.listeningId, startSeconds: listeningSubtitleCues.startSeconds, endSeconds: listeningSubtitleCues.endSeconds, text: listeningSubtitleCues.text, sequence: listeningSubtitleCues.sequence }).from(listeningSubtitleCues).where(inArray(listeningSubtitleCues.listeningId, mediaIds))
+    : [];
+  const mediaByQuestion = new Map<number, { id: number; audioStorageKey: string | null; cues: typeof cueRows }>();
+  for (const media of mediaRows) if (media.questionId) mediaByQuestion.set(media.questionId, { id: media.id, audioStorageKey: media.audioStorageKey, cues: cueRows.filter((cue) => cue.listeningId === media.id).sort((left, right) => left.sequence - right.sequence) });
+
   const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
   const mapped = rows.map((row) => {
     const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
@@ -72,6 +83,8 @@ export async function GET(request: Request) {
       answerSource: row.answerSource,
       subject: row.subject,
       topic,
+      audioUrl: mediaByQuestion.get(row.id)?.audioStorageKey ? `/api/listening/audio?id=${mediaByQuestion.get(row.id)!.id}` : "",
+      subtitles: (mediaByQuestion.get(row.id)?.cues ?? []).map((cue) => ({ id: cue.id, segmentId: null, startSeconds: cue.startSeconds, endSeconds: cue.endSeconds, text: cue.text, sequence: cue.sequence })),
     };
   }).filter((row) => !topic || row.topic === topic).sort(() => Math.random() - .5).slice(0, limit);
   return Response.json({ items: mapped, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const sourceId = Number(row.sourceUrl.replace(/^document:/, "")); const source = sourceById.get(sourceId); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });

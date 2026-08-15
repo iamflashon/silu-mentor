@@ -193,9 +193,9 @@ export async function PATCH(request: Request) {
   }
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
-  const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
+  const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
   const values: Record<string,string | null> = {};
-  for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
+  for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
   const hasTeacherAnswer = typeof body.teacherAnswer === "string";
   const teacherAnswer = hasTeacherAnswer ? String(body.teacherAnswer).trim().toUpperCase() : (typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "");
   const simulatedAnswer = typeof body.simulatedAnswer === "string" ? body.simulatedAnswer.trim().toUpperCase() : "";

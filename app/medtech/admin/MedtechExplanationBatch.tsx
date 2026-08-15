@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useMemo, useState } from "react";
 import "./medtech-explanation-batch.css";
 
@@ -8,115 +9,65 @@ type Question = {
   subject: string;
   questionNumber: string;
   stem: string;
-  explanation: string;
-  completeExplanation: string;
-  aiCompleteExplanation: string;
-  teacherCompleteExplanation: string;
-  teacherAnswer: string;
-  correctAnswer: string | null;
-  simulatedAnswer: string;
-  simulatedExplanation: string;
-  simulatedCompleteExplanation: string;
-  simulatedSource: string;
-  simulatedAnswerStatus: string;
-  simulatedTeacherNote: string;
-  answerStatus: string;
-  status: string;
   topic?: string;
   isSimulation?: boolean;
-  aiAccuracy?: "correct" | "incorrect" | "pending";
+  simulatedAnswer?: string;
+  simulatedExplanation?: string;
+  simulatedCompleteExplanation?: string;
+  aiCompleteExplanation?: string;
+  teacherCompleteExplanation?: string;
+  completeExplanation?: string;
+  voiceScript?: string;
+  teacherAnswer?: string;
+  correctAnswer?: string | null;
 };
 
-function plain(value: string) { return String(value ?? "").replace(/<br\s*\/?\s*>/giu, "\n").replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ").trim(); }
+function plain(value: string) { return String(value ?? "").replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ").trim(); }
 
 export default function MedtechExplanationBatch() {
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
-  const [topicFilter, setTopicFilter] = useState("全部");
-  const [pageSize, setPageSize] = useState(30);
-  const [page, setPage] = useState(1);
+  const [topic, setTopic] = useState("全部");
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
 
   async function load() {
     setLoading(true);
-    const all: Question[] = [];
-    for (let page = 1; page <= 50; page += 1) {
-      const response = await fetch(`/api/medtech/admin/questions?page=${page}&limit=100&order=source`, { cache: "no-store" });
-      const data = await response.json() as { items?: Question[]; total?: number; error?: string };
-      if (!response.ok) { setNotice(data.error ?? "題庫讀取失敗"); break; }
-      all.push(...(data.items ?? []));
-      if (all.length >= Number(data.total ?? all.length) || !(data.items ?? []).length) break;
+    try {
+      const all: Question[] = [];
+      for (let page = 1; page <= 60; page += 1) {
+        const response = await fetch(`/api/medtech/admin/questions?limit=100&page=${page}`, { cache: "no-store" });
+        const data = await response.json() as { items?: Question[]; total?: number; error?: string };
+        if (!response.ok) throw new Error(data.error || "題庫讀取失敗");
+        all.push(...(data.items ?? []));
+        if (all.length >= Number(data.total ?? all.length) || !(data.items ?? []).length) break;
+      }
+      setQuestions(all);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "題庫讀取失敗");
+    } finally {
+      setLoading(false);
     }
-    setQuestions(all); setLoading(false);
   }
+
   useEffect(() => { void load(); }, []);
 
   const simulated = questions.filter((question) => question.isSimulation);
-  const simulationPending = simulated.filter((question) => !plain(question.simulatedAnswer) || !plain(question.simulatedExplanation) || !plain(question.simulatedCompleteExplanation));
-  const simulationReviewed = simulated.filter((question) => question.simulatedAnswer && (question.teacherAnswer || question.correctAnswer));
-  const simulationCorrect = simulationReviewed.filter((question) => question.simulatedAnswer === (question.teacherAnswer || question.correctAnswer)).length;
-  const accuracy = simulationReviewed.length ? `${Math.round(simulationCorrect / simulationReviewed.length * 100)}%` : "—";
-  const pendingComplete = questions.filter((question) => !plain(question.aiCompleteExplanation || (question.isSimulation ? question.simulatedCompleteExplanation : "")));
+  const pendingSimulation = simulated.filter((question) => !plain(question.simulatedAnswer || ""));
+  const pendingAi = questions.filter((question) => !question.isSimulation && !plain(question.aiCompleteExplanation || ""));
+  const pendingTeacher = questions.filter((question) => !question.isSimulation && !plain(question.teacherCompleteExplanation || question.completeExplanation || ""));
+  const pendingVoice = questions.filter((question) => !question.isSimulation && !plain(question.voiceScript || ""));
   const filtered = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase("zh-Hant");
-    return questions.filter((item) => {
-      const matchesKeyword = !keyword || `${item.year} ${item.subject} ${item.questionNumber} ${item.topic ?? ""} ${plain(item.stem)}`.toLocaleLowerCase("zh-Hant").includes(keyword);
-      const matchesTopic = topicFilter === "全部" || (item.topic ?? "其他") === topicFilter;
-      return matchesKeyword && matchesTopic;
+    return questions.filter((question) => {
+      const matchTopic = topic === "全部" || question.topic === topic;
+      const matchSearch = !keyword || `${question.year} ${question.subject} ${question.questionNumber} ${plain(question.stem)}`.toLocaleLowerCase("zh-Hant").includes(keyword);
+      return matchTopic && matchSearch;
     });
-  }, [questions, search, topicFilter]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => { setPage(1); }, [search, topicFilter, pageSize]);
-  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
-
-  async function generate(question: Question, simulation = false) {
-    const response = await fetch(simulation ? "/api/medtech/admin/questions/simulation" : "/api/medtech/admin/questions/explanation", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: question.id }),
-    });
-    const data = await response.json() as { item?: Question; error?: string };
-    if (!response.ok || !data.item) throw new Error(data.error ?? "產生失敗");
-    setQuestions((list) => list.map((item) => item.id === question.id ? { ...item, ...data.item } : item));
-  }
-
-  async function review(question: Question, answer: string) {
-    if (!/^[A-D]$/.test(answer)) return;
-    const response = await fetch("/api/medtech/admin/questions/simulation/review", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: question.id, correctAnswer: answer }),
-    });
-    const data = await response.json() as { item?: Question; error?: string; aiAccuracy?: string };
-    if (!response.ok || !data.item) { setNotice(data.error ?? "老師答案儲存失敗"); return; }
-    setQuestions((list) => list.map((item) => item.id === question.id ? { ...item, ...data.item, aiAccuracy: data.aiAccuracy === "ai_correct" ? "correct" : data.aiAccuracy === "ai_incorrect" ? "incorrect" : "pending" } : item));
-    setNotice(`第 ${question.questionNumber || question.id} 題已完成老師批改。`);
-  }
-
-  async function generateSimulationAll() {
-    if (!simulationPending.length) { setNotice("目前每一題擬真題都已有模擬答案與解析。"); return; }
-    if (!confirm(`目前有 ${simulationPending.length} 題擬真題缺少模擬答案或解析。AI 將逐題產生，完成後請老師批改答案。確定開始？`)) return;
-    setBusy(true); let success = 0; let failed = 0;
-    for (const question of simulationPending) {
-      setNotice(`正在產生擬真答案與解析：${success + failed + 1}/${simulationPending.length}（第 ${question.questionNumber || question.id} 題）`);
-      try { await generate(question, true); success += 1; } catch { failed += 1; }
-    }
-    setBusy(false); setNotice(`擬真題完成：成功 ${success} 題${failed ? `，失敗 ${failed} 題` : ""}。請老師逐題批改以計算 AI 答對率。`);
-  }
-
-  async function generateAll() {
-    if (!pendingComplete.length) { setNotice("目前每一題都已有正式完整解析。"); return; }
-    if (!confirm(`目前有 ${pendingComplete.length} 題缺少正式完整解析。AI 將逐題產生，完成後仍需老師抽查。確定開始？`)) return;
-    setBusy(true); let success = 0; let failed = 0;
-    for (const question of pendingComplete) {
-      setNotice(`正在產生正式完整解析：${success + failed + 1}/${pendingComplete.length}（第 ${question.questionNumber || question.id} 題）`);
-      try { await generate(question); success += 1; } catch { failed += 1; }
-    }
-    setBusy(false); setNotice(`完成：成功 ${success} 題${failed ? `，失敗 ${failed} 題` : ""}。請抽查後再下載 TXT／匯入語音。`);
-  }
+  }, [questions, search, topic]);
 
   return <>
-    <section className="medtech-admin-panel medtech-explanation-hero"><div><span>醫檢師 · 擬真題 AI 後台</span><h2>AI 版、老師版分開管理</h2><p>簡要解析、AI 完整解析、老師完整解析、AI 擬答與老師答案各自保存；沒有老師答案時，前台只會標示為 AI 擬答。</p></div><div className="explanation-count"><b>{simulationPending.length}</b><small>題待 AI 擬答</small></div></section>
-    <section className="medtech-admin-panel simulated-answer-panel"><div className="explanation-tools"><div><h2>一鍵補齊擬真答案與解析</h2><p>AI 會產生模擬答案、模擬解析、完整解析及依據註記，全部標記為「待老師批改」。</p></div><button disabled={busy || loading || !simulationPending.length} onClick={() => void generateSimulationAll()}>{busy ? "逐題產生中…" : simulationPending.length ? `AI補齊擬真題 ${simulationPending.length} 題` : "擬真題已完成 AI 擬答"}</button></div><div className="simulation-accuracy-summary"><span>擬真題總數 <b>{simulated.length}</b></span><span>老師已批改 <b>{simulationReviewed.length}</b></span><span>AI 答對率 <b>{accuracy}</b></span></div></section>
-    <section className="medtech-admin-panel"><div className="explanation-tools"><div><h2>一鍵補齊 AI 完整解析</h2><p>只寫入 AI 版欄位；老師版請在題目工作台另外編輯與保存。</p></div><button disabled={busy || loading || !pendingComplete.length} onClick={() => void generateAll()}>{busy ? "逐題產生中…" : pendingComplete.length ? `AI補齊完整解析 ${pendingComplete.length} 題` : "全部已有 AI 完整解析"}</button></div>{notice && <p className="medtech-admin-notice">{notice}</p>}<div className="explanation-search-row"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜尋年份、科目、題號或題幹" /><select aria-label="依題庫分類篩選" value={topicFilter} onChange={(event) => setTopicFilter(event.target.value)}>{["全部", "臨床病毒學總論", "DNA 病毒", "RNA 病毒", "全真模擬試題", "其他"].map((topic) => <option key={topic} value={topic}>{topic}</option>)}</select><label className="page-size-control">每頁<select aria-label="每頁顯示題數" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>{[10, 30, 50, 100].map((size) => <option key={size} value={size}>{size} 題</option>)}</select></label><span>顯示 {filtered.length} 題 · 第 {page}/{pageCount} 頁 · 擬真題 {simulated.length} 題 · 待補 AI 完整解析 {pendingComplete.length} 題</span></div>{loading ? <p>正在讀取醫檢題庫…</p> : <><div className="explanation-question-list">{pageItems.map((question) => <article key={question.id} className={question.isSimulation ? "is-simulation" : ""}><div><b>{question.topic ?? (question.isSimulation ? "全真模擬試題" : "其他")} · {question.isSimulation ? "擬真題" : "正式題"} · {question.subject} · {question.year} · 第 {question.questionNumber} 題</b><small>q{question.id} · {plain(question.stem).slice(0, 150)}</small></div>{question.isSimulation ? <><span className={question.simulatedAnswerStatus === "ai_correct" ? "ready" : question.simulatedAnswerStatus === "ai_incorrect" ? "wrong" : "pending"}>{question.simulatedAnswer ? `AI：${question.simulatedAnswer}${question.simulatedAnswerStatus === "ai_correct" ? " · 答對" : question.simulatedAnswerStatus === "ai_incorrect" ? " · 答錯" : " · 待批改"}` : "待 AI 擬答"}</span><div className="simulation-review-controls"><span>AI答案：<b>{question.simulatedAnswer || "—"}</b></span><label>老師答案<select value={question.teacherAnswer || ""} disabled={!question.simulatedAnswer || busy} onChange={(event) => void review(question, event.target.value)}><option value="">待批改</option>{["A", "B", "C", "D"].map((letter) => <option key={letter}>{letter}</option>)}</select></label></div><button disabled={busy || Boolean(question.simulatedAnswer && question.simulatedExplanation && question.simulatedCompleteExplanation)} onClick={() => { setBusy(true); setNotice(`正在產生第 ${question.questionNumber || question.id} 題擬真答案…`); void generate(question, true).then(() => setNotice(`第 ${question.questionNumber || question.id} 題擬真答案與解析已產生，請老師批改。`)).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "產生失敗")).finally(() => setBusy(false)); }}>{question.simulatedAnswer ? "已產生" : "產生 AI 擬答"}</button></> : <><span className={plain(question.aiCompleteExplanation) ? "ready" : "pending"}>{plain(question.aiCompleteExplanation) ? (question.teacherCompleteExplanation ? "AI／老師版皆有" : "已有 AI 完整解析 · 待老師版") : "待補 AI 完整解析"}</span><button disabled={busy || Boolean(plain(question.aiCompleteExplanation)) || !question.correctAnswer} onClick={() => { setBusy(true); setNotice(`正在產生第 ${question.questionNumber || question.id} 題 AI 完整解析…`); void generate(question).then(() => setNotice(`第 ${question.questionNumber || question.id} 題 AI 完整解析已產生，請開啟工作台補老師版。`)).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "產生失敗")).finally(() => setBusy(false)); }}>{!question.correctAnswer ? "先補正式答案" : plain(question.aiCompleteExplanation) ? "已完成" : "產生 AI 完整解析"}</button></>}</article>)}{!pageItems.length && <p>找不到符合條件的題目。</p>}</div><div className="explanation-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>上一頁</button><span>第 {page}／{pageCount} 頁 · 每頁 {pageSize} 題</span><button type="button" disabled={page >= pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>下一頁</button></div></>}</section>
+    <section className="medtech-admin-panel medtech-explanation-hero"><div><span>醫檢師 · 文件內解析狀態</span><h2>AI、老師與語音腳本分開管理</h2><p>AI 擬答、AI 完整解析、老師完整解析與語音解析腳本，全部在「文件拆題工作區」內依題目生成與編輯；本頁只提供整體狀態查看，不會從外部批次寫入內容。</p></div><div className="explanation-count"><b>{questions.length}</b><small>題</small></div></section>
+    <section className="medtech-admin-panel"><div className="simulation-accuracy-summary"><span>擬真題待 AI 擬答 <b>{pendingSimulation.length}</b></span><span>AI 完整解析待補 <b>{pendingAi.length}</b></span><span>老師解析待確認 <b>{pendingTeacher.length}</b></span><span>語音腳本待補 <b>{pendingVoice.length}</b></span></div>{notice && <p className="medtech-admin-notice">{notice}</p>}<div className="explanation-search-row"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜尋年份、科目、題號或題幹" /><select aria-label="依題庫分類篩選" value={topic} onChange={(event) => setTopic(event.target.value)}>{["全部", "臨床病毒學總論", "DNA 病毒", "RNA 病毒", "全真模擬試題", "其他"].map((item) => <option key={item}>{item}</option>)}</select><button type="button" onClick={() => void load()}>重新整理</button><span>顯示 {filtered.length} 題</span></div>{loading ? <p>正在讀取醫檢題庫…</p> : <div className="explanation-question-list">{filtered.map((question) => <article key={question.id} className={question.isSimulation ? "is-simulation" : ""}><div><b>{question.topic ?? (question.isSimulation ? "全真模擬試題" : "其他")} · {question.subject} · {question.year} · 第 {question.questionNumber} 題</b><small>q{question.id} · {plain(question.stem).slice(0, 150)}</small></div><div className="explanation-status-grid"><span className={question.isSimulation && question.simulatedAnswer ? "ready" : question.isSimulation ? "pending" : "muted"}>{question.isSimulation ? question.simulatedAnswer ? "AI 擬答已生成" : "待 AI 擬答" : "正式題"}</span><span className={plain(question.aiCompleteExplanation || "") ? "ready" : "pending"}>{plain(question.aiCompleteExplanation || "") ? "AI 完整解析" : "AI 解析待補"}</span><span className={plain(question.teacherCompleteExplanation || question.completeExplanation || "") ? "ready" : "pending"}>{plain(question.teacherCompleteExplanation || question.completeExplanation || "") ? "老師解析" : "老師解析待補"}</span><span className={plain(question.voiceScript || "") ? "ready" : "pending"}>{plain(question.voiceScript || "") ? "語音腳本" : "語音腳本待補"}</span></div></article>)}{!filtered.length && <p>找不到符合條件的題目。</p>}</div>}</section>
   </>;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import MedtechTabs from "../MedtechTabs";
 
 type Plan = {
@@ -15,6 +15,7 @@ type Plan = {
 
 const plans: Plan[] = [
   { id: "free", name: "免費版", price: "NT$0", period: "永久使用", note: "先熟悉題庫與基本作答", features: ["基本題目與作答", "基本錯題紀錄", "每日 2 題 AI 解析試用"] },
+  { id: "credits", name: "AI 點數包", price: "NT$99", period: "一次購買／30 點", note: "適合只想補充 AI 互動的考生", features: ["AI 助教互動 30 點", "不改變題庫與試聽權益", "用完可再次購買"] },
   { id: "month", name: "月方案", price: "NT$249", period: "每月", note: "適合考前短期衝刺", features: ["完整逐選項解析", "AI 引導學習與筆記", "圖片、表格與醫學英文解析"] },
   { id: "exam", name: "185 天方案", price: "NT$1,288", period: "一次付費／185 天", note: "對應一次醫檢師考試週期", recommended: true, features: ["全部醫檢師題庫與模考", "錯題複習與學會移除", "完整 AI 解析與個人化進度"] },
   { id: "year", name: "年方案", price: "NT$1,490", period: "一次付費／365 天", note: "適合長期備考", features: ["185 天方案全部權益", "跨年度保存學習紀錄", "AI 點數用量與成本明細"] },
@@ -22,8 +23,10 @@ const plans: Plan[] = [
 
 export default function MedtechUpgradePage() {
   const [selected, setSelected] = useState("exam");
+  const [reason, setReason] = useState("");
   const [state, setState] = useState<"idle" | "success" | "failed" | "cancelled" | "pending">("idle");
   const plan = useMemo(() => plans.find((item) => item.id === selected) ?? plans[2], [selected]);
+  useEffect(() => { const value = new URLSearchParams(location.search).get("reason") || ""; setReason(value); if (value === "ai-credits") setSelected("credits"); }, []);
 
   return <main className="medtech-upgrade-page">
     <header className="medtech-top" data-no-navigation-feedback>
@@ -36,7 +39,7 @@ export default function MedtechUpgradePage() {
       <h1>把需要的解析，放進你的備考計畫。</h1>
       <p>目前是測試付款頁：不會連接信用卡，也不會實際扣款。先確認方案、訂單與權限流程。</p>
     </section>
-    <div className="medtech-test-banner"><b>測試模式</b><span>以下按鈕只會模擬付款結果，不會產生真實訂單或扣款。</span></div>
+    <div className="medtech-test-banner"><b>{reason === "ai-credits" ? "AI 點數不足" : reason === "audio-trial" ? "免費試聽已用完" : "測試模式"}</b><span>{reason === "ai-credits" ? "你可以購買 AI 點數包，或改選完整會員方案。" : reason === "audio-trial" ? "前三題語音解析試聽已用完，訂閱後可繼續收聽。" : "以下按鈕只會模擬付款結果，不會產生真實訂單或扣款。"}</span></div>
     <section className="medtech-upgrade-grid" aria-label="醫檢師方案">
       <div className="medtech-plan-list">{plans.map((item) => <button type="button" key={item.id} className={`medtech-plan-card ${selected === item.id ? "selected" : ""}`} onClick={() => { setSelected(item.id); setState("idle"); }}>
         {item.recommended && <span className="recommended">建議</span>}
