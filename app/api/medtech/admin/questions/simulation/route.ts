@@ -74,6 +74,7 @@ export async function POST(request: Request) {
     simulatedAnswer,
     simulatedExplanation: sanitizeRichHtml(simulatedExplanation),
     simulatedCompleteExplanation: sanitizeRichHtml(simulatedCompleteExplanation),
+    aiCompleteExplanation: sanitizeRichHtml(simulatedCompleteExplanation),
     simulatedSource: sanitizeRichHtml(simulatedSource),
     simulatedAnswerStatus: question.correctAnswer ? (simulatedAnswer === question.correctAnswer ? "ai_correct" : "ai_incorrect") : "pending_review",
   }).where(eq(examQuestions.id, question.id)).returning();
