@@ -47,7 +47,13 @@ function parseOptions(segment:string){
   const next=key==="D"?-1:(()=>{const nextMatch=new RegExp(`(?:\\(${nextKey}\\)|(?:^|\\n)\\s*${nextKey}[.)])\\s*`,"iu").exec(segment.slice(start+markerLength));return nextMatch?start+markerLength+nextMatch.index:-1})();
   let end=next>=0?next:segment.length;
   if(key==="D"){
-   const stops=[segment.indexOf("【計算過程】",start),segment.slice(start).search(/\n\s*\(\d{2,3}年[^\n]*\)/u)>=0?start+segment.slice(start).search(/\n\s*\(\d{2,3}年[^\n]*\)/u):-1].filter(v=>v>=0);
+   const tail=segment.slice(start);
+   const sourceOffset=tail.search(/\n\s*[（(]\d{2,3}(?:年)?[^\n）)]{2,100}[）)]/u);
+   const calculationOffset=tail.search(/(?:【\s*(?:計算過程|解答|解析)\s*】|\n\s*(?:計算過程|解答|解析)\s*[：:]?)/u);
+   const stops=[
+    calculationOffset>=0?start+calculationOffset:-1,
+    sourceOffset>=0?start+sourceOffset:-1,
+   ].filter(v=>v>=0);
    if(stops.length)end=Math.min(...stops);
   }
   options[key]=clean(segment.slice(start+markerLength,end).replace(/\n\s*\([A-D]\)\s*$/u,""));
@@ -110,11 +116,12 @@ function parseQuestions(pages:string[],documentType:string){
   const firstOption=raw.indexOf("(A)");
   const answerMatches=[...raw.matchAll(/(?:^|\n)\s*\(([A-D])\)\s*(?=\n|$)/gu)];
   const answer=answerMatches.at(-1)?.[1]??"";
-  const calculation=raw.indexOf("【計算過程】");
+  const calculationMatch=raw.match(/(?:【\s*(?:計算過程|解答|解析)\s*】|(?:^|\n)\s*(?:計算過程|解答|解析)\s*[：:]?)/u);
+  const calculation=calculationMatch?.index??-1;
   const answerLabel=raw.search(/【解答】|(?:^|\n)\s*解答[：:]?/u);
   const stemEnd=firstOption>=0?firstOption:answerLabel>=0?answerLabel:raw.length;
   const stem=clean(raw.slice(0,stemEnd).replace(/\[\[PAGE:\d+\]\]/gu,""));
-  const explanation=calculation>=0?clean(raw.slice(calculation+8).replace(/\[\[PAGE:\d+\]\]/gu,"").replace(/\n\s*\([A-D]\)\s*$/u,"")):"";
+  const explanation=calculation>=0?clean(raw.slice(calculation).replace(/^\s*(?:【\s*(?:計算過程|解答|解析)\s*】|計算過程|解答[：:]?|解析[：:]?)/u,"").replace(/\[\[PAGE:\d+\]\]/gu,"").replace(/\n\s*\([A-D]\)\s*$/u,"")):"";
   const teacherAnswer=answerLabel>=0?clean(raw.slice(answerLabel).replace(/^【?解答】?[：:]?/u,"").replace(/\[\[PAGE:\d+\]\]/gu,"")):explanation;
   if(stem.length<12)continue;
   parsed.push({number:match[1],stem,options,answer,explanation,teacherAnswer,chapter,examSource,page,examType});
