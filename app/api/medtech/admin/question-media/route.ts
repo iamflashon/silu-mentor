@@ -26,6 +26,23 @@ function safeName(name: string) {
   return name.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-160) || "audio.mp3";
 }
 
+function narrationText(question: {
+  teacherCompleteExplanation?: string | null;
+  completeExplanation?: string | null;
+  aiCompleteExplanation?: string | null;
+  simulatedCompleteExplanation?: string | null;
+  voiceScript?: string | null;
+  explanation?: string | null;
+}) {
+  return question.teacherCompleteExplanation
+    || question.completeExplanation
+    || question.aiCompleteExplanation
+    || question.simulatedCompleteExplanation
+    || question.voiceScript
+    || question.explanation
+    || "";
+}
+
 async function questionFor(id: number) {
   const db = await getDb();
   const [question] = await db.select().from(examQuestions)
@@ -75,7 +92,7 @@ export async function POST(request: Request) {
       year: question.year || "",
       subject: question.subject || "醫事檢驗",
       questionText: question.stem,
-      narrationScript: question.voiceScript || "",
+      narrationScript: narrationText(question),
       sourceUrl: `medtech:question:${question.id}`,
       status: "draft",
     }).returning();
@@ -101,7 +118,7 @@ export async function POST(request: Request) {
       audioStorageKey: key,
       audioFileName: file.name,
       questionText: question.stem,
-      narrationScript: question.voiceScript || solution.narrationScript || "",
+      narrationScript: narrationText(question) || solution.narrationScript || "",
       updatedAt: new Date(),
     }).where(eq(listeningSolutions.id, solution.id)).returning({ id: listeningSolutions.id, audioFileName: listeningSolutions.audioFileName });
     if (solution.audioStorageKey) await env.BUCKET.delete(solution.audioStorageKey).catch(() => undefined);

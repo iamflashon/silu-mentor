@@ -20,6 +20,8 @@ export async function GET(request: Request) {
   const topic = url.searchParams.get("topic") || "";
   const wrongOnly = url.searchParams.get("wrongOnly") === "1";
   const practiceOnly = url.searchParams.get("mode") === "practice";
+  const reviewOnly = url.searchParams.get("mode") === "review";
+  const reviewIds = url.searchParams.get("ids")?.split(",").map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0).slice(0, 50) ?? [];
   const db = await getDb();
   let wrongIds: number[] = [];
   if (wrongOnly) {
@@ -60,7 +62,9 @@ export async function GET(request: Request) {
     const source = sourceById.get(sourceId);
     return !topic || topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === topic;
   });
-  const selectedRows = topicRows.sort(() => Math.random() - .5).slice(0, limit);
+  const selectedRows = reviewOnly
+    ? topicRows.filter((row) => reviewIds.includes(row.id)).slice(0, limit)
+    : topicRows.sort(() => Math.random() - .5).slice(0, limit);
   const questionIds = selectedRows.map((row) => row.id);
   const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
 
@@ -103,6 +107,30 @@ export async function GET(request: Request) {
       }).from(examQuestions).where(inArray(examQuestions.id, questionIds))
     : [];
   const detailByQuestion = new Map(detailRows.map((row) => [row.id, row]));
+  if (reviewOnly) {
+    const mapped = selectedRows.map((row) => {
+      const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
+      const source = sourceById.get(sourceId);
+      const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
+      const detail = detailByQuestion.get(row.id);
+      const fullExplanation = detail?.teacherCompleteExplanation || detail?.completeExplanation || detail?.aiCompleteExplanation || detail?.simulatedCompleteExplanation || "";
+      return {
+        id: row.id,
+        year: row.year,
+        questionNumber: row.questionNumber,
+        stem: cleanStem(row.stem),
+        options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
+        answer: row.teacherAnswer || row.correctAnswer || row.simulatedAnswer,
+        answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
+        explanation: detail?.explanation || "",
+        answerSource: row.answerSource,
+        subject: row.subject,
+        topic,
+        hasFullExplanation: Boolean(fullExplanation.trim()),
+      };
+    });
+    return Response.json({ items: mapped });
+  }
   const mediaRows = questionIds.length
     ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey }).from(listeningSolutions).where(inArray(listeningSolutions.questionId, questionIds))
     : [];
