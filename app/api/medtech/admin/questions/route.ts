@@ -194,9 +194,10 @@ export async function PATCH(request: Request) {
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
   const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
-  const values: Record<string,string> = {};
+  const values: Record<string,string | null> = {};
   for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
-  const teacherAnswer = typeof body.teacherAnswer === "string" ? body.teacherAnswer.trim().toUpperCase() : (typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "");
+  const hasTeacherAnswer = typeof body.teacherAnswer === "string";
+  const teacherAnswer = hasTeacherAnswer ? String(body.teacherAnswer).trim().toUpperCase() : (typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "");
   const simulatedAnswer = typeof body.simulatedAnswer === "string" ? body.simulatedAnswer.trim().toUpperCase() : "";
   if (typeof body.teacherCompleteExplanation === "string") {
     const teacherCompleteExplanation = sanitizeRichHtml(String(body.teacherCompleteExplanation).trim());
@@ -204,9 +205,9 @@ export async function PATCH(request: Request) {
     // Keep the legacy export/audio field synchronized with the teacher-confirmed version.
     values.completeExplanation = teacherCompleteExplanation;
   }
-  if (teacherAnswer) {
+  if (hasTeacherAnswer || typeof body.correctAnswer === "string") {
     values.teacherAnswer = teacherAnswer;
-    values.correctAnswer = teacherAnswer;
+    values.correctAnswer = teacherAnswer || null;
   }
   if (/^[A-D]$/.test(teacherAnswer) && /^[A-D]$/.test(simulatedAnswer)) {
     values.answerStatus = "teacher_confirmed";

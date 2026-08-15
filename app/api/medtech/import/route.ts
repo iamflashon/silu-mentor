@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { inspectDocumentBytes } from "../../../../lib/document-processing";
@@ -196,10 +196,21 @@ export async function POST(request: Request) {
     if (offset === 0 && !body.materializeOnly) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
     // has many columns, so keep batches comfortably below that limit.
+    const existingKeys = new Set<string>();
+    if (body.materializeOnly && offset === 0) {
+      const aliases = [document.storageKey, document.fileName, `document:${document.id}`];
+      const existing = await db.select({ questionNumber: examQuestions.questionNumber, stem: examQuestions.stem })
+        .from(examQuestions)
+        .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), inArray(examQuestions.sourceUrl, aliases)))
+        .limit(1600);
+      for (const row of existing) existingKeys.add(`${row.questionNumber}|${row.stem}`);
+    }
     let imported = 0;
     const failures: Array<{ number: string; stem: string }> = [];
     for (const question of questions.slice(offset, offset + limit)) {
       try {
+        const key = `${question.number}|${question.stem}`;
+        if (body.materializeOnly && existingKeys.has(key)) continue;
         await db.insert(examQuestions).values({
         examCategory: "medtech",
         examType: "mcq",
@@ -216,6 +227,7 @@ export async function POST(request: Request) {
         sourceUrl: `document:${document.id}`,
           status: "draft",
         });
+        existingKeys.add(key);
         imported += 1;
       } catch {
         failures.push({ number: question.number, stem: question.stem.slice(0, 120) });
