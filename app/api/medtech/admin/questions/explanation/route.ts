@@ -1,0 +1,64 @@
+import { and, eq } from "drizzle-orm";
+import { getDb } from "../../../../../../db";
+import { examQuestions, usageLogs } from "../../../../../../db/schema";
+import { requireMedtechAdmin } from "../../../../../../lib/member-auth";
+import { getOpenAIModel, openAIJson } from "../../../../../../lib/openai";
+
+function outputText(payload: Record<string, unknown>) {
+  if (typeof payload.output_text === "string") return payload.output_text.trim();
+  for (const item of Array.isArray(payload.output) ? payload.output : []) {
+    const content = item && typeof item === "object" && Array.isArray((item as { content?: unknown[] }).content)
+      ? (item as { content: unknown[] }).content : [];
+    for (const part of content) if (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string") return (part as { text: string }).text.trim();
+  }
+  return "";
+}
+
+function plain(value: string) {
+  return String(value ?? "").replace(/<br\s*\/?>/giu, "\n").replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+export async function POST(request: Request) {
+  const auth = await requireMedtechAdmin(request);
+  if ("error" in auth) return auth.error;
+  const body = await request.json() as { id?: number; force?: boolean };
+  const id = Number(body.id);
+  if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
+  const db = await getDb();
+  const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
+  if (!question) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
+  if (question.explanation.trim() && !body.force) return Response.json({ item: question, skipped: true });
+  if (!question.correctAnswer) return Response.json({ error: "本題尚未設定正確答案，請先補上答案再產生解析" }, { status: 422 });
+  const options = JSON.parse(question.optionsJson || "{}") as Record<string, string>;
+  const model = await getOpenAIModel("gpt-5.6-luna");
+  const payload = await openAIJson("/responses", {
+    method: "POST",
+    body: JSON.stringify({
+      model,
+      instructions: "你是台灣醫事檢驗師國考的資深老師。請依題目與四個選項，寫一段可直接放進題庫、也可直接錄成語音的繁體中文完整解析。只能依題目與已知正確答案說明，不得補造題目沒有的條件；不得把不確定內容寫成確定事實。解析要包含：先說正確答案與判斷重點、逐項說明 A 到 D 為何正確或錯誤、補充必要的醫學／檢驗原理、最後用一句話整理記憶重點。語氣自然、清楚、像老師講解；不要使用 Markdown 星號、表格或『AI 生成』字樣。若題目資訊不足，明確寫『依目前題幹可確認』並提醒老師核對。",
+      input: `科目：${question.subject}\n年份：${question.year}\n題號：${question.questionNumber}\n題幹：${plain(question.stem)}\n選項：${JSON.stringify(Object.fromEntries(Object.entries(options).map(([key, value]) => [key, plain(value)])))}\n正確答案：${question.correctAnswer}\n既有解析（如有，請修整但不要偏離）：${plain(question.explanation) || "無"}`,
+      text: { format: { type: "json_schema", name: "medtech_explanation", strict: true, schema: { type: "object", additionalProperties: false, properties: { explanation: { type: "string" } }, required: ["explanation"] } } },
+      max_output_tokens: 1800,
+    }),
+  });
+  let parsed: { explanation?: string } = {};
+  try { parsed = JSON.parse(outputText(payload)) as { explanation?: string }; } catch { /* handled below */ }
+  const explanation = String(parsed.explanation ?? "").trim();
+  if (explanation.length < 30) return Response.json({ error: "AI 沒有產生可用的完整解析，請稍後重試" }, { status: 502 });
+  const [updated] = await db.update(examQuestions).set({
+    explanation,
+    answerSource: question.answerSource || "AI 產生，待老師核對",
+    answerStatus: question.answerStatus === "missing" ? "ai_generated" : question.answerStatus,
+  }).where(eq(examQuestions.id, question.id)).returning();
+  const usage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
+  await db.insert(usageLogs).values({
+    model,
+    source: `醫檢師完整解析｜題目 ${question.id}`,
+    inputTokens: usage.input_tokens ?? 0,
+    cachedTokens: usage.input_tokens_details?.cached_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    fileSearchCalls: 0,
+    estimatedCostUsdMicros: 0,
+  }).catch(() => undefined);
+  return Response.json({ item: updated, generated: true, model, usage: { inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } });
+}
