@@ -54,7 +54,18 @@ export async function GET(request: Request) {
     ...(wrongOnly ? [inArray(examQuestions.id, wrongIds)] : []),
   ));
 
-  const questionIds = rows.map((row) => row.id);
+  // Filter and sample before loading optional audio/subtitle relations. The
+  // published medical-tech bank can contain more than a thousand questions;
+  // passing every question id to D1's `IN (...)` query exceeds its bound
+  // parameter limit and makes the random-practice endpoint return an empty
+  // response.
+  const topicRows = rows.filter((row) => {
+    const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
+    const source = sourceById.get(sourceId);
+    return !topic || topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === topic;
+  });
+  const selectedRows = topicRows.sort(() => Math.random() - .5).slice(0, limit);
+  const questionIds = selectedRows.map((row) => row.id);
   const mediaRows = questionIds.length
     ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey }).from(listeningSolutions).where(inArray(listeningSolutions.questionId, questionIds))
     : [];
@@ -66,7 +77,7 @@ export async function GET(request: Request) {
   for (const media of mediaRows) if (media.questionId) mediaByQuestion.set(media.questionId, { id: media.id, audioStorageKey: media.audioStorageKey, cues: cueRows.filter((cue) => cue.listeningId === media.id).sort((left, right) => left.sequence - right.sequence) });
 
   const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
-  const mapped = rows.map((row) => {
+  const mapped = selectedRows.map((row) => {
     const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
     const source = sourceById.get(sourceId);
     const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
@@ -86,7 +97,7 @@ export async function GET(request: Request) {
       audioUrl: mediaByQuestion.get(row.id)?.audioStorageKey ? `/api/listening/audio?id=${mediaByQuestion.get(row.id)!.id}` : "",
       subtitles: (mediaByQuestion.get(row.id)?.cues ?? []).map((cue) => ({ id: cue.id, segmentId: null, startSeconds: cue.startSeconds, endSeconds: cue.endSeconds, text: cue.text, sequence: cue.sequence })),
     };
-  }).filter((row) => !topic || row.topic === topic).sort(() => Math.random() - .5).slice(0, limit);
+  });
   return Response.json({ items: mapped, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const sourceId = Number(row.sourceUrl.replace(/^document:/, "")); const source = sourceById.get(sourceId); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });
 }
 
