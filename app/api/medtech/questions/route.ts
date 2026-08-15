@@ -19,6 +19,7 @@ export async function GET(request: Request) {
   const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 30));
   const topic = url.searchParams.get("topic") || "";
   const wrongOnly = url.searchParams.get("wrongOnly") === "1";
+  const practiceOnly = url.searchParams.get("mode") === "practice";
   const db = await getDb();
   let wrongIds: number[] = [];
   if (wrongOnly) {
@@ -39,11 +40,6 @@ export async function GET(request: Request) {
     correctAnswer: examQuestions.correctAnswer,
     teacherAnswer: examQuestions.teacherAnswer,
     simulatedAnswer: examQuestions.simulatedAnswer,
-    teacherCompleteExplanation: examQuestions.teacherCompleteExplanation,
-    aiCompleteExplanation: examQuestions.aiCompleteExplanation,
-    simulatedCompleteExplanation: examQuestions.simulatedCompleteExplanation,
-    completeExplanation: examQuestions.completeExplanation,
-    explanation: examQuestions.explanation,
     answerSource: examQuestions.answerSource,
     subject: examQuestions.subject,
     sourceUrl: examQuestions.sourceUrl,
@@ -66,6 +62,47 @@ export async function GET(request: Request) {
   });
   const selectedRows = topicRows.sort(() => Math.random() - .5).slice(0, limit);
   const questionIds = selectedRows.map((row) => row.id);
+  const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
+
+  // The exam-taking screen only needs question data. Do not load explanation
+  // columns or optional audio/subtitle relations until a feature asks for
+  // them; this also keeps a question-only mock exam independent of media.
+  if (practiceOnly) {
+    const mapped = selectedRows.map((row) => {
+      const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
+      const source = sourceById.get(sourceId);
+      const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
+      return {
+        id: row.id,
+        year: row.year,
+        questionNumber: row.questionNumber,
+        stem: cleanStem(row.stem),
+        options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
+        answer: row.teacherAnswer || row.correctAnswer || row.simulatedAnswer,
+        answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
+        answerSource: row.answerSource,
+        subject: row.subject,
+        topic,
+      };
+    });
+    return Response.json({ items: mapped, topics: topics.map((name) => ({ name, count: rows.filter((row) => {
+      const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
+      const source = sourceById.get(sourceId);
+      return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name;
+    }).length })) });
+  }
+
+  const detailRows = questionIds.length
+    ? await db.select({
+        id: examQuestions.id,
+        teacherCompleteExplanation: examQuestions.teacherCompleteExplanation,
+        aiCompleteExplanation: examQuestions.aiCompleteExplanation,
+        simulatedCompleteExplanation: examQuestions.simulatedCompleteExplanation,
+        completeExplanation: examQuestions.completeExplanation,
+        explanation: examQuestions.explanation,
+      }).from(examQuestions).where(inArray(examQuestions.id, questionIds))
+    : [];
+  const detailByQuestion = new Map(detailRows.map((row) => [row.id, row]));
   const mediaRows = questionIds.length
     ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey }).from(listeningSolutions).where(inArray(listeningSolutions.questionId, questionIds))
     : [];
@@ -76,11 +113,11 @@ export async function GET(request: Request) {
   const mediaByQuestion = new Map<number, { id: number; audioStorageKey: string | null; cues: typeof cueRows }>();
   for (const media of mediaRows) if (media.questionId) mediaByQuestion.set(media.questionId, { id: media.id, audioStorageKey: media.audioStorageKey, cues: cueRows.filter((cue) => cue.listeningId === media.id).sort((left, right) => left.sequence - right.sequence) });
 
-  const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
   const mapped = selectedRows.map((row) => {
     const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
     const source = sourceById.get(sourceId);
     const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
+    const detail = detailByQuestion.get(row.id);
     return {
       id: row.id,
       year: row.year,
@@ -89,8 +126,8 @@ export async function GET(request: Request) {
       options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
       answer: row.teacherAnswer || row.correctAnswer || row.simulatedAnswer,
       answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
-      explanation: row.teacherCompleteExplanation || row.completeExplanation || row.aiCompleteExplanation || row.simulatedCompleteExplanation || row.explanation,
-      explanationLabel: row.teacherCompleteExplanation || row.completeExplanation ? "完整解析" : row.aiCompleteExplanation || row.simulatedCompleteExplanation ? "AI 完整解析（此為 AI 版本）" : "解析",
+      explanation: detail?.teacherCompleteExplanation || detail?.completeExplanation || detail?.aiCompleteExplanation || detail?.simulatedCompleteExplanation || detail?.explanation || "",
+      explanationLabel: detail?.teacherCompleteExplanation || detail?.completeExplanation ? "完整解析" : detail?.aiCompleteExplanation || detail?.simulatedCompleteExplanation ? "AI 完整解析（此為 AI 版本）" : "解析",
       answerSource: row.answerSource,
       subject: row.subject,
       topic,

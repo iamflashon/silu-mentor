@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import MedtechTabs from "../MedtechTabs";
 
-type Question = { id:number; year:string; questionNumber:string; stem:string; options:Record<string,string>; answer:string; answerLabel?:string; explanation:string; explanationLabel?:string; answerSource:string; subject:string };
+type Question = { id:number; year:string; questionNumber:string; stem:string; options:Record<string,string>; answer:string; answerLabel?:string; explanation?:string; explanationLabel?:string; answerSource:string; subject:string };
 const letters = ["A", "B", "C", "D"];
 async function readJson(response:Response){
   const text=await response.text();
@@ -19,7 +19,7 @@ export default function MedtechPractice() {
   const [route,setRoute]=useState({ready:false,topic:"",wrongOnly:false});
   useEffect(()=>{const params=new URLSearchParams(window.location.search);setRoute({ready:true,topic:params.get("topic")||"",wrongOnly:params.get("wrongOnly")==="1"})},[]);
   const {topic,wrongOnly}=route;
-  useEffect(()=>{if(!route.ready)return;setLoading(true);setError("");setRows([]);const query=new URLSearchParams({limit:"30"});if(topic)query.set("topic",topic);if(wrongOnly)query.set("wrongOnly","1");fetch(`/api/medtech/questions?${query}`).then(async response=>{const result=await readJson(response);if(!response.ok)throw new Error(result.error||"題庫讀取失敗");setRows(result.items??[]);if(!result.items?.length)setError(result.message||"目前沒有符合條件的醫檢師題目。");}).catch(reason=>setError(reason instanceof Error?reason.message:"題庫讀取失敗")).finally(()=>setLoading(false));},[route.ready,topic,wrongOnly]);
+  useEffect(()=>{if(!route.ready)return;setLoading(true);setError("");setRows([]);const query=new URLSearchParams({limit:"30",mode:"practice"});if(topic)query.set("topic",topic);if(wrongOnly)query.set("wrongOnly","1");fetch(`/api/medtech/questions?${query}`).then(async response=>{const result=await readJson(response);if(!response.ok)throw new Error(result.error||"題庫讀取失敗");setRows(result.items??[]);if(!result.items?.length)setError(result.message||"目前沒有符合條件的醫檢師題目。");}).catch(reason=>setError(reason instanceof Error?reason.message:"題庫讀取失敗")).finally(()=>setLoading(false));},[route.ready,topic,wrongOnly]);
   const q=rows[index]; const score=useMemo(()=>rows.filter(item=>answers[item.id]===item.answer).length,[answers,rows]); const answered=Object.keys(answers).length;
   const top=<><header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>臨床病毒學</small></div></a></header><MedtechTabs active={wrongOnly?"wrong":"random"}/></>;
   async function submitExam(){setSubmitted(true);setIndex(0);const payload=Object.entries(answers).map(([questionId,answer])=>({questionId:Number(questionId),answer}));if(payload.length)await fetch("/api/medtech/questions",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({answers:payload})}).catch(()=>undefined);}
