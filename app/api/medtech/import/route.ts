@@ -86,6 +86,18 @@ function parseOptions(text: string) {
   return options;
 }
 
+function parseAnswerKey(text: string) {
+  const answers = new Map<string, string>();
+  for (const match of text.matchAll(/(?:^|\s)(\d{1,3})\s*[.、:：]?\s*[（(]\s*([A-D])\s*[）)]/gu)) {
+    answers.set(match[1], match[2]);
+  }
+  return answers;
+}
+
+function isAnswerKeyLine(line: string) {
+  return /^\d{1,3}\s*[.、:：]?\s*[（(]\s*[A-D]\s*[）)]\s*$/u.test(line);
+}
+
 function parseQuestions(text: string): ParsedQuestion[] {
   // Word's automatic numbering is stored as a SEQ field.  The visible number
   // can therefore be glued to the field code instead of starting a paragraph
@@ -95,6 +107,7 @@ function parseQuestions(text: string): ParsedQuestion[] {
     /SEQ\s*序\s*\\\*\s*ARABIC(?:\s*\\[a-z]+\s*[+\-]?\d+)*\s*(\d{1,3}[.、])/giu,
     "\n$1",
   ).replace(/(?<!\d)(\d{1,3})[.、]\s*/gu, "\n$1. ").replace(/\s*([（(][A-D][）)])/gu, "\n$1 ");
+  const answerKey = parseAnswerKey(normalizedText);
   const lines = normalizedText.split(/\r?\n/u).map(clean).filter(Boolean);
   const results: ParsedQuestion[] = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -126,11 +139,11 @@ function parseQuestions(text: string): ParsedQuestion[] {
     const explanation: string[] = [];
     if (answerIndex >= 0 && lines[end] === "【解析】") end += 1;
     while (end < lines.length && explanation.length < 12) {
-      if (/^\d{1,3}[.、]\s*\S/u.test(lines[end]) || /^第\s*\d+\s*(?:章|節)/u.test(lines[end]) || /^=====/.test(lines[end])) break;
+      if (/^\d{1,3}[.、]\s*\S/u.test(lines[end]) || isAnswerKeyLine(lines[end]) || /^第\s*\d+\s*(?:章|節)/u.test(lines[end]) || /^=====/.test(lines[end])) break;
       explanation.push(lines[end]); end += 1;
     }
     const yearMatch = stem.match(/（(\d{2,3})[.．](?:2|7)月專技）/u);
-    results.push({ year: yearMatch?.[1] ?? "模擬", number: start[1], stem, options, answer, explanation: clean(explanation.join(" ")) });
+    results.push({ year: yearMatch?.[1] ?? "模擬", number: start[1], stem, options, answer: answer || answerKey.get(start[1]) || "", explanation: clean(explanation.join(" ")) });
     index = answerIndex >= 0 ? answerIndex : Math.max(index, endOfOptions - 1);
   }
   const unique = new Map<string, ParsedQuestion>();
