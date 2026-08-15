@@ -17,11 +17,21 @@ export async function GET(request: Request) {
     const [source] = Number.isInteger(sourceId) && sourceId > 0
       ? await db.select({ fileName: documents.fileName, subject: documents.subject }).from(documents).where(and(eq(documents.id, sourceId), eq(documents.examCategory, "medtech"))).limit(1)
       : [];
-    const isSimulation = /全真模擬|模擬試題/i.test(`${source?.fileName ?? ""} ${source?.subject ?? ""} ${item.examName} ${item.subject}`);
+    const sourceText = `${source?.fileName ?? ""} ${source?.subject ?? ""} ${item.sourceUrl} ${item.examName} ${item.subject}`;
+    const topic = /全真模擬|模擬試題/i.test(sourceText)
+      ? "全真模擬試題"
+      : /DNA\s*病毒/i.test(sourceText)
+        ? "DNA 病毒"
+        : /RNA\s*病毒/i.test(sourceText)
+          ? "RNA 病毒"
+          : /臨床病毒學.*總論|總論.*臨床病毒學/i.test(sourceText)
+            ? "臨床病毒學總論"
+            : "其他";
     return Response.json({ item: {
       ...item,
       options: JSON.parse(item.optionsJson || "{}"),
-      isSimulation,
+      topic,
+      isSimulation: topic === "全真模擬試題",
       aiAccuracy: item.simulatedAnswer && item.correctAnswer ? (item.simulatedAnswer === item.correctAnswer ? "correct" : "incorrect") : "pending",
     } });
   }
@@ -39,9 +49,14 @@ export async function GET(request: Request) {
     .where(eq(documents.examCategory, "medtech"));
   const sourceById = new Map(sourceDocuments.map((document) => [document.id, document]));
   const sourceFor = (sourceUrl: string) => sourceById.get(Number(sourceUrl.replace(/^document:/, "")));
-  const isSimulation = (question: { sourceUrl: string; subject: string; examName: string }) => {
+  const topicOf = (question: { sourceUrl: string; subject: string; examName: string }) => {
     const source = sourceFor(question.sourceUrl);
-    return /全真模擬|模擬試題/i.test(`${source?.fileName ?? ""} ${source?.subject ?? ""} ${question.examName} ${question.subject}`);
+    const sourceText = `${source?.fileName ?? ""} ${source?.subject ?? ""} ${question.sourceUrl} ${question.examName} ${question.subject}`;
+    if (/全真模擬|模擬試題/i.test(sourceText)) return "全真模擬試題";
+    if (/DNA\s*病毒/i.test(sourceText)) return "DNA 病毒";
+    if (/RNA\s*病毒/i.test(sourceText)) return "RNA 病毒";
+    if (/臨床病毒學.*總論|總論.*臨床病毒學/i.test(sourceText)) return "臨床病毒學總論";
+    return "其他";
   };
   let documentSources: string[] = [];
   if (Number.isInteger(documentId) && documentId > 0) {
@@ -106,14 +121,18 @@ export async function GET(request: Request) {
   const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0 ? asc(examQuestions.id) : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
   const facets = await db.select({ year: examQuestions.year, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech"));
   return Response.json({
-    items: items.map(item => ({
-      ...item,
-      options: JSON.parse(item.optionsJson || "{}"),
-      isSimulation: isSimulation(item),
-      aiAccuracy: item.simulatedAnswer && item.correctAnswer
-        ? (item.simulatedAnswer === item.correctAnswer ? "correct" : "incorrect")
-        : "pending",
-    })),
+    items: items.map(item => {
+      const topic = topicOf(item);
+      return {
+        ...item,
+        options: JSON.parse(item.optionsJson || "{}"),
+        topic,
+        isSimulation: topic === "全真模擬試題",
+        aiAccuracy: item.simulatedAnswer && item.correctAnswer
+          ? (item.simulatedAnswer === item.correctAnswer ? "correct" : "incorrect")
+          : "pending",
+      };
+    }),
     total: Number(countRow?.total ?? 0), draftTotal: Number(draftRow?.total ?? 0), page, limit,
     years: [...new Set(facets.map(item => item.year).filter(Boolean))].sort((a,b)=>b.localeCompare(a,"zh-Hant",{numeric:true})),
     subjects: [...new Set(facets.map(item => item.subject).filter(Boolean))].sort(),
