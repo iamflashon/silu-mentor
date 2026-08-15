@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
-import { plainPdfPageText, renderPdfPageHtml } from "../../../../../lib/pdf-html";
+import { extractPdfTableGrid, plainPdfPageText, renderPdfPageHtml } from "../../../../../lib/pdf-html";
 
 type SourceVariant = { kind?: string; storageKey?: string; fileName?: string; contentType?: string };
 
@@ -54,22 +54,39 @@ export async function GET(request: Request) {
   const object = await env.BUCKET?.get(storageKey);
   if (!object) return new Response("找不到 PDF 原稿", { status: 404 });
   try {
-    const { extractText, extractTextItems, getDocumentProxy } = await import("unpdf");
+    const { extractText, extractTextItems, getDocumentProxy, getResolvedPDFJS } = await import("unpdf");
     const bytes = new Uint8Array(await object.arrayBuffer());
     const pdf = await getDocumentProxy(bytes);
     let extracted: { text: string | string[]; totalPages: number };
     let structured: { items: Array<Array<{ str: string; x: number; y: number; width: number; height: number; fontSize: number }>>; totalPages: number };
+    let grids: Array<ReturnType<typeof extractPdfTableGrid>>;
     try {
-      [extracted, structured] = await Promise.all([
+      const pdfjs = await getResolvedPDFJS();
+      const ops = {
+        constructPath: pdfjs.OPS.constructPath,
+        rectangle: pdfjs.OPS.rectangle,
+        moveTo: pdfjs.OPS.moveTo,
+        lineTo: pdfjs.OPS.lineTo,
+        curveTo: pdfjs.OPS.curveTo,
+        curveTo2: pdfjs.OPS.curveTo2,
+        curveTo3: pdfjs.OPS.curveTo3,
+        closePath: pdfjs.OPS.closePath,
+      };
+      [extracted, structured, grids] = await Promise.all([
         extractText(pdf, { mergePages: false }),
         extractTextItems(pdf),
+        Promise.all(Array.from({ length: pdf.numPages }, async (_, index) => {
+          const page = await pdf.getPage(index + 1);
+          const operatorList = await page.getOperatorList();
+          return extractPdfTableGrid({ fnArray: Array.from(operatorList.fnArray), argsArray: operatorList.argsArray as unknown[][] }, ops);
+        })),
       ]);
     } finally {
       await pdf.loadingTask.destroy();
     }
     const pages = Array.isArray(extracted.text) ? extracted.text : [extracted.text];
     const structuredPages = Array.isArray(structured.items) ? structured.items : [];
-    const renderedPages = structuredPages.map((items, index) => renderPdfPageHtml(items, index + 1));
+    const renderedPages = structuredPages.map((items, index) => renderPdfPageHtml(items, index + 1, grids[index]));
     const tableCount = renderedPages.reduce((sum, page) => sum + page.tableCount, 0);
     const pageMarkup = renderedPages.length
       ? renderedPages.map((page) => page.html).join("\n")
