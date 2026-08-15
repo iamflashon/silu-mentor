@@ -162,7 +162,10 @@ export async function POST(request: Request) {
         const rightDistance = Math.abs(right[1] - expected);
         return leftDistance - rightDistance;
       });
-      const recovered = ranked.find(([source]) => aliases.has(source) || source.includes(String(document.id)) || source.includes(document.fileName))
+      const recovered = ranked.find(([source, count]) =>
+        (aliases.has(source) || source.includes(String(document.id)) || source.includes(document.fileName))
+        && Math.abs(count - expected) <= 2,
+      )
         ?? ranked.find(([, count]) => Math.abs(count - expected) <= 2);
       if (recovered) {
         await db.update(documents).set({ processingMessage: `已回復既有 ${recovered[1]} 題索引；原稿未重新拆解` }).where(eq(documents.id, documentId));

@@ -66,7 +66,10 @@ export async function GET(request: Request) {
         const rightDistance = expected > 0 ? Math.abs(right[1] - expected) : 0;
         return expected > 0 ? leftDistance - rightDistance : right[1] - left[1];
       });
-      const exact = ranked.find(([source]) => documentSources.includes(source) || source.includes(String(documentId)) || source.includes(document.fileName));
+      const exact = ranked.find(([source, count]) =>
+        (documentSources.includes(source) || source.includes(String(documentId)) || source.includes(document.fileName))
+        && (expected <= 0 || Math.abs(count - expected) <= 2),
+      );
       const recovered = exact
         ?? ranked.find(([, count]) => expected > 0 && Math.abs(count - expected) <= 2)
         ?? (expected <= 0 && ranked.length === 1 ? ranked[0] : null);
