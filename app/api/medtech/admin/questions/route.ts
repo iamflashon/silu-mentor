@@ -32,16 +32,50 @@ export async function GET(request: Request) {
       .limit(1);
     documentSources = [...new Set([`document:${documentId}`, document?.storageKey, document?.fileName].filter((value): value is string => Boolean(value)))];
   }
-  const filters = [
+  const baseFilters = [
     eq(examQuestions.examCategory, "medtech"),
     ...(query ? [or(like(examQuestions.stem, `%${query}%`), like(examQuestions.explanation, `%${query}%`), like(examQuestions.questionNumber, `%${query}%`))!] : []),
     ...(year ? [eq(examQuestions.year, year)] : []),
     ...(subject ? [eq(examQuestions.subject, subject)] : []),
     ...(status ? [eq(examQuestions.status, status)] : []),
-    ...(documentSources.length ? [or(...documentSources.map(source => eq(examQuestions.sourceUrl, source)))] : []),
   ];
-  const where = and(...filters);
-  const [countRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(where);
+  const sourceFilter = documentSources.length ? or(...documentSources.map(source => eq(examQuestions.sourceUrl, source))) : null;
+  let where = and(...baseFilters, ...(sourceFilter ? [sourceFilter] : []));
+  let [countRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(where);
+
+  // Older imports used the uploaded filename (or a generated storage key) as
+  // sourceUrl instead of `document:<id>`. If the exact aliases miss, recover
+  // the one unambiguous source group for this document's subject. This keeps
+  // an existing question set editable without reading/parsing the original
+  // PDF again, and avoids mixing subjects when several documents exist.
+  if (Number.isInteger(documentId) && documentId > 0 && documentSources.length && Number(countRow?.total ?? 0) === 0 && !subject) {
+    const [document] = await db.select({ subject: documents.subject, questionCount: documents.questionCount, fileName: documents.fileName })
+      .from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
+      .limit(1);
+    if (document?.subject) {
+      const subjectRows = await db.select({ sourceUrl: examQuestions.sourceUrl })
+        .from(examQuestions)
+        .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject)))
+        .limit(1200);
+      const counts = new Map<string, number>();
+      for (const row of subjectRows) counts.set(row.sourceUrl, (counts.get(row.sourceUrl) ?? 0) + 1);
+      const expected = Number(document.questionCount ?? 0);
+      const ranked = [...counts.entries()].sort((left, right) => {
+        const leftDistance = expected > 0 ? Math.abs(left[1] - expected) : 0;
+        const rightDistance = expected > 0 ? Math.abs(right[1] - expected) : 0;
+        return expected > 0 ? leftDistance - rightDistance : right[1] - left[1];
+      });
+      const exact = ranked.find(([source]) => documentSources.includes(source) || source.includes(String(documentId)) || source.includes(document.fileName));
+      const recovered = exact
+        ?? ranked.find(([, count]) => expected > 0 && Math.abs(count - expected) <= 2)
+        ?? (expected <= 0 && ranked.length === 1 ? ranked[0] : null);
+      if (recovered) {
+        where = and(...baseFilters, eq(examQuestions.sourceUrl, recovered[0]));
+        [countRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(where);
+      }
+    }
+  }
   const [draftRow] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(and(
     eq(examQuestions.examCategory, "medtech"),
     eq(examQuestions.examType, "mcq"),

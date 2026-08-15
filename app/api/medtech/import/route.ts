@@ -42,6 +42,34 @@ function questionsFromProcessingResult(value: string): ParsedQuestion[] {
   }).filter((row) => row.stem && ["A", "B", "C", "D"].every((key) => row.options[key]));
 }
 
+function questionCandidatesFromProcessingResult(value: string): ParsedQuestion[] {
+  if (value.length > 5_000_000) return [];
+  const parsed = storedDocumentAnalysis(value);
+  const rows = Array.isArray(parsed.questions) ? parsed.questions : [];
+  const field = (row: Record<string, unknown>, keys: string[], fallback = "") => {
+    for (const key of keys) {
+      const text = clean(String(row[key] ?? ""));
+      if (text) return text;
+    }
+    return fallback;
+  };
+  return rows.map((raw, index) => {
+    const row = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+    const rawOptions = row.options ?? row.choices ?? row.answers;
+    const options = rawOptions && typeof rawOptions === "object"
+      ? Object.fromEntries(Object.entries(rawOptions as Record<string, unknown>).map(([key, val]) => [key.replace(/[選項答案]/gu, "").toUpperCase(), clean(String(val ?? ""))]))
+      : {};
+    return {
+      year: field(row, ["year", "exam_year"], "模擬"),
+      number: field(row, ["number", "question_number", "questionNumber"], String(index + 1)),
+      stem: field(row, ["title", "stem", "question", "content", "text"]),
+      options,
+      answer: field(row, ["correct_answer", "correctAnswer", "answer"]).replace(/[()（）\s]/gu, "").slice(0, 1).toUpperCase(),
+      explanation: field(row, ["explanation", "teacher_answer", "teacherAnswer"]),
+    };
+  }).filter((row) => row.stem);
+}
+
 function clean(value: string) {
   return value.replace(/\s+/gu, " ").trim().replace(/(\d+(?:\.\d+)?)\s*(?:[oº°]\s*)?C(?=\s|冷|熱|保存|培養|$)/giu, "$1°C");
 }
@@ -116,10 +144,36 @@ export async function POST(request: Request) {
     const db = await getDb();
     const [document] = await db.select().from(documents).where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech"))).limit(1);
     if (!document) return Response.json({ error: "找不到醫檢師教材" }, { status: 404 });
+    // A previous import may have materialised the questions under a legacy
+    // filename/storage source. Recover that set before touching R2 or parsing
+    // the PDF; this is the important fast path for old documents whose card
+    // already reports a question count but whose workspace is empty.
+    const expected = Number(document.questionCount ?? 0);
+    if (expected > 0) {
+      const existingRows = await db.select({ sourceUrl: examQuestions.sourceUrl })
+        .from(examQuestions)
+        .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject)))
+        .limit(1600);
+      const counts = new Map<string, number>();
+      for (const row of existingRows) counts.set(row.sourceUrl, (counts.get(row.sourceUrl) ?? 0) + 1);
+      const aliases = new Set([`document:${document.id}`, document.storageKey, document.fileName]);
+      const ranked = [...counts.entries()].sort((left, right) => {
+        const leftDistance = Math.abs(left[1] - expected);
+        const rightDistance = Math.abs(right[1] - expected);
+        return leftDistance - rightDistance;
+      });
+      const recovered = ranked.find(([source]) => aliases.has(source) || source.includes(String(document.id)) || source.includes(document.fileName))
+        ?? ranked.find(([, count]) => Math.abs(count - expected) <= 2);
+      if (recovered) {
+        await db.update(documents).set({ processingMessage: `已回復既有 ${recovered[1]} 題索引；原稿未重新拆解` }).where(eq(documents.id, documentId));
+        return Response.json({ imported: 0, parsed: recovered[1], offset, nextOffset: recovered[1], done: true, failed: 0, failures: [], recovered: true, status: "draft", documentId, subject: document.subject });
+      }
+    }
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
     const indexedQuestions = questionsFromProcessingResult(document.processingResultJson);
+    const savedCandidates = indexedQuestions.length ? [] : questionCandidatesFromProcessingResult(document.processingResultJson);
     let localQuestions: ParsedQuestion[] = [];
     // When the normal document processor already stored the parsed questions,
     // materialising them into editable rows must not re-read the PDF.
@@ -130,11 +184,11 @@ export async function POST(request: Request) {
     // PDF/HTML even when questionCount is stale. Materialisation is paged to
     // stay under D1's bound-parameter limit, so each continuation request
     // needs the same parsed source list before inserting its next slice.
-    if (!indexedQuestions.length) {
+    if (!indexedQuestions.length && !savedCandidates.length) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
       localQuestions = parseQuestions(inspected.text);
     }
-    const questions = localQuestions.length > indexedQuestions.length ? localQuestions : indexedQuestions;
+    const questions = indexedQuestions.length ? indexedQuestions : savedCandidates.length ? savedCandidates : localQuestions;
     if (!questions.length) return Response.json({ error: "未拆出選項與答案完整的題目" }, { status: 422 });
     if (offset === 0 && !body.materializeOnly) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
@@ -166,9 +220,9 @@ export async function POST(request: Request) {
     }
     const nextOffset = Math.min(questions.length, offset + limit);
     if (nextOffset >= questions.length) {
-      await db.update(documents).set({ questionCount: questions.length, processingMessage: `已完整拆出 ${questions.length} 題，可進入文件工作區逐題核對` }).where(eq(documents.id, documentId));
+      await db.update(documents).set({ questionCount: questions.length, processingMessage: savedCandidates.length && !indexedQuestions.length ? `已從保存的文件索引載入 ${questions.length} 題；請在工作區核對選項與答案` : `已完整拆出 ${questions.length} 題，可進入文件工作區逐題核對` }).where(eq(documents.id, documentId));
     }
-    return Response.json({ imported, parsed: questions.length, offset, nextOffset, done: nextOffset >= questions.length, failed: failures.length, failures: failures.slice(0, 20), status: "draft", documentId, subject: document.subject });
+    return Response.json({ imported, parsed: questions.length, offset, nextOffset, done: nextOffset >= questions.length, failed: failures.length, failures: failures.slice(0, 20), partial: Boolean(savedCandidates.length && !indexedQuestions.length), status: "draft", documentId, subject: document.subject });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 300) : "醫檢題庫匯入失敗" }, { status: 500 });
   }
