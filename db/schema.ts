@@ -352,6 +352,12 @@ export const examQuestions = sqliteTable("exam_questions", {
   rubricJson: text("rubric_json").notNull().default("[]"),
   answerSource: text("answer_source").notNull().default(""),
   answerStatus: text("answer_status").notNull().default("missing"),
+  simulatedAnswer: text("simulated_answer").notNull().default(""),
+  simulatedExplanation: text("simulated_explanation").notNull().default(""),
+  simulatedCompleteExplanation: text("simulated_complete_explanation").notNull().default(""),
+  simulatedSource: text("simulated_source").notNull().default(""),
+  simulatedAnswerStatus: text("simulated_answer_status").notNull().default("missing"),
+  simulatedTeacherNote: text("simulated_teacher_note").notNull().default(""),
   sourceUrl: text("source_url").notNull().default(""),
   status: text("status").notNull().default("draft"),
   createdAt: integer("created_at", { mode: "timestamp" })

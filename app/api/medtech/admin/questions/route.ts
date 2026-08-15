@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
@@ -13,7 +13,17 @@ export async function GET(request: Request) {
     const db = await getDb();
     const [item] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, requestedId), eq(examQuestions.examCategory, "medtech"))).limit(1);
     if (!item) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
-    return Response.json({ item: { ...item, options: JSON.parse(item.optionsJson || "{}") } });
+    const sourceId = Number(item.sourceUrl.replace(/^document:/, ""));
+    const [source] = Number.isInteger(sourceId) && sourceId > 0
+      ? await db.select({ fileName: documents.fileName, subject: documents.subject }).from(documents).where(and(eq(documents.id, sourceId), eq(documents.examCategory, "medtech"))).limit(1)
+      : [];
+    const isSimulation = /全真模擬|模擬試題/i.test(`${source?.fileName ?? ""} ${source?.subject ?? ""} ${item.examName} ${item.subject}`);
+    return Response.json({ item: {
+      ...item,
+      options: JSON.parse(item.optionsJson || "{}"),
+      isSimulation,
+      aiAccuracy: item.simulatedAnswer && item.correctAnswer ? (item.simulatedAnswer === item.correctAnswer ? "correct" : "incorrect") : "pending",
+    } });
   }
   const documentId = Number(url.searchParams.get("documentId"));
   const sourceOrder = url.searchParams.get("order") === "source";
@@ -24,6 +34,15 @@ export async function GET(request: Request) {
   const subject = url.searchParams.get("subject")?.trim() ?? "";
   const status = url.searchParams.get("status")?.trim() ?? "";
   const db = await getDb();
+  const sourceDocuments = await db.select({ id: documents.id, fileName: documents.fileName, subject: documents.subject })
+    .from(documents)
+    .where(eq(documents.examCategory, "medtech"));
+  const sourceById = new Map(sourceDocuments.map((document) => [document.id, document]));
+  const sourceFor = (sourceUrl: string) => sourceById.get(Number(sourceUrl.replace(/^document:/, "")));
+  const isSimulation = (question: { sourceUrl: string; subject: string; examName: string }) => {
+    const source = sourceFor(question.sourceUrl);
+    return /全真模擬|模擬試題/i.test(`${source?.fileName ?? ""} ${source?.subject ?? ""} ${question.examName} ${question.subject}`);
+  };
   let documentSources: string[] = [];
   if (Number.isInteger(documentId) && documentId > 0) {
     const [document] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName })
@@ -34,7 +53,7 @@ export async function GET(request: Request) {
   }
   const baseFilters = [
     eq(examQuestions.examCategory, "medtech"),
-    ...(query ? [or(like(examQuestions.stem, `%${query}%`), like(examQuestions.explanation, `%${query}%`), like(examQuestions.completeExplanation, `%${query}%`), like(examQuestions.questionNumber, `%${query}%`))!] : []),
+    ...(query ? [or(like(examQuestions.stem, `%${query}%`), like(examQuestions.explanation, `%${query}%`), like(examQuestions.completeExplanation, `%${query}%`), like(examQuestions.simulatedExplanation, `%${query}%`), like(examQuestions.simulatedCompleteExplanation, `%${query}%`), like(examQuestions.questionNumber, `%${query}%`))!] : []),
     ...(year ? [eq(examQuestions.year, year)] : []),
     ...(subject ? [eq(examQuestions.subject, subject)] : []),
     ...(status ? [eq(examQuestions.status, status)] : []),
@@ -87,7 +106,14 @@ export async function GET(request: Request) {
   const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0 ? asc(examQuestions.id) : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
   const facets = await db.select({ year: examQuestions.year, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech"));
   return Response.json({
-    items: items.map(item => ({ ...item, options: JSON.parse(item.optionsJson || "{}") })),
+    items: items.map(item => ({
+      ...item,
+      options: JSON.parse(item.optionsJson || "{}"),
+      isSimulation: isSimulation(item),
+      aiAccuracy: item.simulatedAnswer && item.correctAnswer
+        ? (item.simulatedAnswer === item.correctAnswer ? "correct" : "incorrect")
+        : "pending",
+    })),
     total: Number(countRow?.total ?? 0), draftTotal: Number(draftRow?.total ?? 0), page, limit,
     years: [...new Set(facets.map(item => item.year).filter(Boolean))].sort((a,b)=>b.localeCompare(a,"zh-Hant",{numeric:true})),
     subjects: [...new Set(facets.map(item => item.subject).filter(Boolean))].sort(),
@@ -129,18 +155,30 @@ export async function PATCH(request: Request) {
   const id = Number(body.id);
   const db = await getDb();
   if (body.publishAllDrafts === true) {
+    const [draftCount] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(and(
+      eq(examQuestions.examCategory, "medtech"),
+      eq(examQuestions.examType, "mcq"),
+      eq(examQuestions.status, "draft"),
+    ));
     const rows = await db.update(examQuestions).set({ status: "published" }).where(and(
       eq(examQuestions.examCategory, "medtech"),
       eq(examQuestions.examType, "mcq"),
       eq(examQuestions.status, "draft"),
+      or(isNotNull(examQuestions.correctAnswer), ne(examQuestions.correctAnswer, "")),
     )).returning({ id: examQuestions.id });
-    return Response.json({ updated: rows.length, status: "published" });
+    return Response.json({ updated: rows.length, skippedUnanswered: Math.max(0, Number(draftCount?.total ?? 0) - rows.length), status: "published" });
   }
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
-  const allowed = ["year","subject","questionNumber","stem","correctAnswer","explanation","completeExplanation","answerSource","status"] as const;
+  const allowed = ["year","subject","questionNumber","stem","correctAnswer","explanation","completeExplanation","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
   const values: Record<string,string> = {};
-  for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
+  for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
+  const teacherAnswer = typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "";
+  const simulatedAnswer = typeof body.simulatedAnswer === "string" ? body.simulatedAnswer.trim().toUpperCase() : "";
+  if (/^[A-D]$/.test(teacherAnswer) && /^[A-D]$/.test(simulatedAnswer)) {
+    values.answerStatus = "teacher_confirmed";
+    values.simulatedAnswerStatus = teacherAnswer === simulatedAnswer ? "ai_correct" : "ai_incorrect";
+  }
   if (body.options && typeof body.options === "object") values.optionsJson = JSON.stringify(Object.fromEntries(Object.entries(body.options).map(([key,value])=>[key,sanitizeRichHtml(String(value))])));
   await db.update(examQuestions).set(values).where(eq(examQuestions.id, id));
   return Response.json({ updated: true });

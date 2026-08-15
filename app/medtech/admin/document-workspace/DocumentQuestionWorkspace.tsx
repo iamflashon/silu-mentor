@@ -3,7 +3,7 @@ import { useEffect,useRef,useState } from "react";
 import { strToU8, zipSync } from "fflate";
 import { RichQuestionEditor } from "../RichQuestionEditor";
 import "../question-bank.css";import "../question-workbench.css";import "./page.css";import "./library.css";
-type Question={id:number;year:string;subject:string;questionNumber:string;stem:string;options:Record<string,string>;correctAnswer:string|null;explanation:string;completeExplanation?:string;answerSource:string;status:string};
+type Question={id:number;year:string;subject:string;questionNumber:string;stem:string;options:Record<string,string>;correctAnswer:string|null;explanation:string;completeExplanation?:string;answerSource:string;status:string;isSimulation?:boolean;simulatedAnswer?:string;simulatedExplanation?:string;simulatedCompleteExplanation?:string;simulatedSource?:string;simulatedAnswerStatus?:string};
 type SourceVariant={kind:string;fileName:string;contentType?:string;sizeBytes?:number;storageKey?:string};
 type Doc={id:number;name:string;subject:string;type:string;processingStage:string;questionCount:number;sourceVariants?:SourceVariant[]};
 function richTextToPlain(value:string){

@@ -344,6 +344,13 @@
       "when": 1786784786392,
       "tag": "0048_thick_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1786788136454,
+      "tag": "0049_great_colonel_america",
+      "breakpoints": true
     }
   ]
 }
