@@ -32,7 +32,7 @@ export async function GET(request: Request) {
       options: JSON.parse(item.optionsJson || "{}"),
       topic,
       isSimulation: topic === "全真模擬試題",
-      aiAccuracy: item.simulatedAnswer && item.correctAnswer ? (item.simulatedAnswer === item.correctAnswer ? "correct" : "incorrect") : "pending",
+      aiAccuracy: item.simulatedAnswer && item.teacherAnswer ? (item.simulatedAnswer === item.teacherAnswer ? "correct" : "incorrect") : "pending",
     } });
   }
   const documentId = Number(url.searchParams.get("documentId"));
@@ -128,8 +128,8 @@ export async function GET(request: Request) {
         options: JSON.parse(item.optionsJson || "{}"),
         topic,
         isSimulation: topic === "全真模擬試題",
-        aiAccuracy: item.simulatedAnswer && item.correctAnswer
-          ? (item.simulatedAnswer === item.correctAnswer ? "correct" : "incorrect")
+        aiAccuracy: item.simulatedAnswer && item.teacherAnswer
+          ? (item.simulatedAnswer === item.teacherAnswer ? "correct" : "incorrect")
           : "pending",
       };
     }),
@@ -183,17 +183,31 @@ export async function PATCH(request: Request) {
       eq(examQuestions.examCategory, "medtech"),
       eq(examQuestions.examType, "mcq"),
       eq(examQuestions.status, "draft"),
-      or(isNotNull(examQuestions.correctAnswer), ne(examQuestions.correctAnswer, "")),
+      or(
+        and(isNotNull(examQuestions.teacherAnswer), ne(examQuestions.teacherAnswer, "")),
+        and(isNotNull(examQuestions.correctAnswer), ne(examQuestions.correctAnswer, "")),
+        and(eq(examQuestions.examName, "全真模擬試題"), isNotNull(examQuestions.simulatedAnswer), ne(examQuestions.simulatedAnswer, "")),
+      ),
     )).returning({ id: examQuestions.id });
     return Response.json({ updated: rows.length, skippedUnanswered: Math.max(0, Number(draftCount?.total ?? 0) - rows.length), status: "published" });
   }
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
-  const allowed = ["year","subject","questionNumber","stem","correctAnswer","explanation","completeExplanation","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
+  const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
   const values: Record<string,string> = {};
   for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
-  const teacherAnswer = typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "";
+  const teacherAnswer = typeof body.teacherAnswer === "string" ? body.teacherAnswer.trim().toUpperCase() : (typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "");
   const simulatedAnswer = typeof body.simulatedAnswer === "string" ? body.simulatedAnswer.trim().toUpperCase() : "";
+  if (typeof body.teacherCompleteExplanation === "string") {
+    const teacherCompleteExplanation = sanitizeRichHtml(String(body.teacherCompleteExplanation).trim());
+    values.teacherCompleteExplanation = teacherCompleteExplanation;
+    // Keep the legacy export/audio field synchronized with the teacher-confirmed version.
+    values.completeExplanation = teacherCompleteExplanation;
+  }
+  if (teacherAnswer) {
+    values.teacherAnswer = teacherAnswer;
+    values.correctAnswer = teacherAnswer;
+  }
   if (/^[A-D]$/.test(teacherAnswer) && /^[A-D]$/.test(simulatedAnswer)) {
     values.answerStatus = "teacher_confirmed";
     values.simulatedAnswerStatus = teacherAnswer === simulatedAnswer ? "ai_correct" : "ai_incorrect";

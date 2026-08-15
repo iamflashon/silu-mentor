@@ -351,6 +351,13 @@
       "when": 1786788136454,
       "tag": "0049_great_colonel_america",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1786791773769,
+      "tag": "0050_early_norrin_radd",
+      "breakpoints": true
     }
   ]
 }

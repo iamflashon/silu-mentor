@@ -37,6 +37,12 @@ export async function GET(request: Request) {
     stem: examQuestions.stem,
     optionsJson: examQuestions.optionsJson,
     correctAnswer: examQuestions.correctAnswer,
+    teacherAnswer: examQuestions.teacherAnswer,
+    simulatedAnswer: examQuestions.simulatedAnswer,
+    teacherCompleteExplanation: examQuestions.teacherCompleteExplanation,
+    aiCompleteExplanation: examQuestions.aiCompleteExplanation,
+    simulatedCompleteExplanation: examQuestions.simulatedCompleteExplanation,
+    completeExplanation: examQuestions.completeExplanation,
     explanation: examQuestions.explanation,
     answerSource: examQuestions.answerSource,
     subject: examQuestions.subject,
@@ -59,8 +65,10 @@ export async function GET(request: Request) {
       questionNumber: row.questionNumber,
       stem: cleanStem(row.stem),
       options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
-      answer: row.correctAnswer,
-      explanation: row.explanation,
+      answer: row.teacherAnswer || row.correctAnswer || row.simulatedAnswer,
+      answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
+      explanation: row.teacherCompleteExplanation || row.completeExplanation || row.aiCompleteExplanation || row.simulatedCompleteExplanation || row.explanation,
+      explanationLabel: row.teacherCompleteExplanation || row.completeExplanation ? "完整解析" : row.aiCompleteExplanation || row.simulatedCompleteExplanation ? "AI 完整解析（此為 AI 版本）" : "解析",
       answerSource: row.answerSource,
       subject: row.subject,
       topic,
@@ -86,8 +94,10 @@ export async function POST(request: Request) {
   let saved = 0;
   for (const item of answers) {
     const question = questions.find((row) => row.id === item.questionId);
-    if (!question?.correctAnswer) continue;
-    const correct = item.answer === question.correctAnswer;
+    if (!question) continue;
+    const activeAnswer = question.teacherAnswer || question.correctAnswer || question.simulatedAnswer || "";
+    if (!activeAnswer) continue;
+    const correct = item.answer === activeAnswer;
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId: item.questionId, selectedAnswer: item.answer, correct });
     await db.insert(studyRecords).values({ userKey: userKey(request), questionId: item.questionId, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師練題", correct, weakness: correct ? "" : (topicOf("", question.subject) ?? topics[0]), nextStep: correct ? "已掌握" : "加入錯題複習" });
     saved += 1;

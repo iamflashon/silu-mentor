@@ -22,6 +22,7 @@ export async function POST(request: Request) {
   const aiAccuracy = question.simulatedAnswer ? (question.simulatedAnswer === correctAnswer ? "ai_correct" : "ai_incorrect") : "pending_review";
   const [updated] = await db.update(examQuestions).set({
     correctAnswer,
+    teacherAnswer: correctAnswer,
     answerStatus: "teacher_confirmed",
     simulatedAnswerStatus: aiAccuracy,
     simulatedTeacherNote: sanitizeRichHtml(String(body.teacherNote ?? "").trim()),

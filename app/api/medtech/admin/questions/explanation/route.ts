@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const db = await getDb();
   const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!question) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
-  if (question.completeExplanation.trim() && !body.force) return Response.json({ item: question, skipped: true });
+  if ((question.aiCompleteExplanation.trim() || question.completeExplanation.trim()) && !body.force) return Response.json({ item: question, skipped: true });
   if (!question.correctAnswer) return Response.json({ error: "本題尚未設定正確答案，請先補上答案再產生解析" }, { status: 422 });
   const options = JSON.parse(question.optionsJson || "{}") as Record<string, string>;
   const model = await getOpenAIModel("gpt-5.6-luna");
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     method: "POST",
     body: JSON.stringify({
       model,
-      instructions: "你是台灣醫事檢驗師國考的資深老師。請依題目與四個選項，寫一段可直接放進『完整解析（老師／語音文本）』欄位、也可直接錄成語音的繁體中文完整解析。這是獨立的新欄位，絕對不要把內容回寫到題目原有的『解析（題目原稿簡要解析）』。只能依題目與已知正確答案說明，不得補造題目沒有的條件；不得把不確定內容寫成確定事實。解析要包含：先說正確答案與判斷重點、逐項說明 A 到 D 為何正確或錯誤、補充必要的醫學／檢驗原理、最後用一句話整理記憶重點。語氣自然、清楚、像老師講解；不要使用 Markdown 星號、表格或『AI 生成』字樣。若題目資訊不足，明確寫『依目前題幹可確認』並提醒老師核對。",
+      instructions: "你是台灣醫事檢驗師國考的資深老師。請依題目與四個選項，寫一段繁體中文的 AI 完整解析草稿，供老師審閱後再發布。不要把內容寫入題目原有的『解析（題目原稿簡要解析）』，也不要假裝這是老師已確認的版本。只能依題目與已知正確答案說明，不得補造題目沒有的條件；不得把不確定內容寫成確定事實。解析要包含：先說正確答案與判斷重點、逐項說明 A 到 D 為何正確或錯誤、補充必要的醫學／檢驗原理、最後用一句話整理記憶重點。語氣自然、清楚、像老師講解；不要使用 Markdown 星號、表格或『AI 生成』字樣。若題目資訊不足，明確寫『依目前題幹可確認』並提醒老師核對。",
       input: `科目：${question.subject}\n年份：${question.year}\n題號：${question.questionNumber}\n題幹：${plain(question.stem)}\n選項：${JSON.stringify(Object.fromEntries(Object.entries(options).map(([key, value]) => [key, plain(value)])))}\n正確答案：${question.correctAnswer}\n題目原有簡要解析（僅供參考，不要覆蓋）：${plain(question.explanation) || "無"}`,
       text: { format: { type: "json_schema", name: "medtech_complete_explanation", strict: true, schema: { type: "object", additionalProperties: false, properties: { completeExplanation: { type: "string" } }, required: ["completeExplanation"] } } },
       max_output_tokens: 1800,
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const completeExplanation = String(parsed.completeExplanation ?? "").trim();
   if (completeExplanation.length < 30) return Response.json({ error: "AI 沒有產生可用的完整解析，請稍後重試" }, { status: 502 });
   const [updated] = await db.update(examQuestions).set({
-    completeExplanation,
+    aiCompleteExplanation: completeExplanation,
     answerSource: question.answerSource || "AI 產生，待老師核對",
     answerStatus: question.answerStatus === "missing" ? "ai_generated" : question.answerStatus,
   }).where(eq(examQuestions.id, question.id)).returning();
