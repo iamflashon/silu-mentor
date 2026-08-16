@@ -28770,3 +28770,52 @@ a.is-action-pending {
 .medtech-voice-unlocked .listening-subtitle.has-text{font-weight:750}
 @media(max-width:620px){.medtech-voice-unlocked .listening-subtitle{font-size:15px;line-height:1.7}}
 .medtech-ai-quick button:disabled{opacity:.42;cursor:not-allowed;transform:none!important;box-shadow:none!important}.study-action-compare:disabled,.voice-explanation-button:disabled{background:#f0f5f4!important;color:#7a918e!important;border-color:#cbdcd8!important}.medtech-action-note{margin:0 0 14px;padding:9px 12px;border:1px dashed #b9d8d1;border-radius:9px;background:#f8fcfb;color:#64817c;font-size:11px;line-height:1.6}.medtech-paywall-credit{border-color:#176f67!important;background:#176f67!important;color:#fff!important}
+
+/* 醫檢師首頁行銷訊息：先說清楚學習價值，再說明點數規則。 */
+.medtech-home .medtech-hero-description{max-width:760px;margin:18px 0 0;color:#f5fffd;font-size:21px;font-weight:800;line-height:1.65;letter-spacing:.02em}
+.medtech-home .medtech-hero-offer{max-width:760px;margin-top:10px;color:#f7e8a7;font-size:16px;font-weight:800}
+.medtech-home .medtech-hero aside>b{font-size:43px;letter-spacing:-.04em}
+.medtech-home .medtech-hero aside>b em{font-size:24px;color:#f1e6aa}
+.medtech-home .medtech-hero aside dl{display:grid;gap:0}
+.medtech-home-message{width:min(940px,calc(100% - 40px));margin:62px auto 28px;text-align:center}
+.medtech-home-message>span,.medtech-home-values article>span,.medtech-home-flow span,.medtech-home-points span{color:#278078;font-size:11px;font-weight:900;letter-spacing:.14em}
+.medtech-home-message h2{margin:14px auto 10px;color:#0d514b;font-size:clamp(26px,3.4vw,40px);line-height:1.4;letter-spacing:-.045em}
+.medtech-home-message p{margin:0;color:#66817d;font-size:15px;line-height:1.8}
+.medtech-home-values{width:min(1180px,calc(100% - 40px));margin:28px auto 20px;display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+.medtech-home-values article{min-height:205px;padding:27px 25px;border:1px solid #d7e7e3;border-radius:16px;background:#fff;box-shadow:0 10px 28px rgba(31,104,96,.055)}
+.medtech-home-values article:nth-child(2){border-color:#d9c889;background:#fffdf6}
+.medtech-home-values h2{margin:15px 0 9px;color:#0d514b;font-size:22px;letter-spacing:-.03em}
+.medtech-home-values p{margin:0;color:#617c78;font-size:13px;line-height:1.8}
+.medtech-home-flow{width:min(1180px,calc(100% - 40px));margin:20px auto;padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:32px;border:1px solid #cfe2de;border-radius:16px;background:#eaf5f2}
+.medtech-home-flow h2{margin:7px 0 0;color:#145f58;font-size:20px}
+.medtech-home-flow-steps{display:flex;align-items:center;gap:12px;white-space:nowrap}
+.medtech-home-flow-steps b{padding:11px 14px;border-radius:9px;background:#fff;color:#176b64;font-size:13px}
+.medtech-home-flow-steps b:last-child{background:#176b64;color:#fff}
+.medtech-home-flow-steps i{color:#78a8a1;font-style:normal;font-weight:900}
+.medtech-home-points{width:min(1180px,calc(100% - 40px));margin:20px auto;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:25px 28px;border:1px solid #e4d49b;border-radius:16px;background:#fff9e9}
+.medtech-home-points h2{margin:7px 0 5px;color:#765d1e;font-size:23px}
+.medtech-home-points p{max-width:760px;margin:0;color:#756b4b;font-size:13px;line-height:1.8}
+.medtech-home-points a{flex:0 0 auto;padding:12px 16px;border-radius:9px;background:#c8a948;color:#fff;font-size:13px;font-weight:900}
+.medtech-home-close{width:min(1180px,calc(100% - 40px));margin:34px auto 70px;padding:28px 0 4px;border-top:1px solid #cfe1de;display:flex;align-items:baseline;justify-content:space-between;gap:24px}
+.medtech-home-close strong{color:#0d514b;font-size:27px;letter-spacing:.02em}
+.medtech-home-close span{color:#69817e;font-size:14px}
+@media(max-width:820px){
+  .medtech-home .medtech-hero-description{font-size:18px}
+  .medtech-home-values{grid-template-columns:1fr}
+  .medtech-home-values article{min-height:0}
+  .medtech-home-flow{align-items:flex-start;flex-direction:column}
+  .medtech-home-flow-steps{width:100%;justify-content:space-between;gap:6px}
+  .medtech-home-flow-steps b{padding:10px 9px;font-size:11px}
+  .medtech-home-points{align-items:flex-start;flex-direction:column}
+  .medtech-home-points a{width:100%;text-align:center}
+  .medtech-home-close{align-items:flex-start;flex-direction:column;gap:8px}
+}
+@media(max-width:560px){
+  .medtech-home-message,.medtech-home-values,.medtech-home-flow,.medtech-home-points,.medtech-home-close{width:calc(100% - 28px)}
+  .medtech-home-message{margin-top:44px}
+  .medtech-home-message h2{font-size:27px}
+  .medtech-home-flow{padding:20px}
+  .medtech-home-flow-steps i{font-size:11px}
+  .medtech-home-close{margin-bottom:45px}
+  .medtech-home-close strong{font-size:22px}
+}
