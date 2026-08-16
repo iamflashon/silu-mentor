@@ -320,6 +320,13 @@ export async function PATCH(request: Request) {
     )).returning({ id: examQuestions.id });
     const skippedUnreviewed = draftRows.filter((row) => row.reviewStatus !== "confirmed").length;
     const skippedUnanswered = draftRows.filter((row) => !/^[A-D]$/i.test(String(row.teacherAnswer || row.correctAnswer || "").trim())).length;
+    if (!rows.length && draftRows.length) {
+      const reasons = [
+        skippedUnreviewed ? `${skippedUnreviewed} 題尚未按「確認校對完成」` : "",
+        skippedUnanswered ? `${skippedUnanswered} 題尚未設定有效的老師答案` : "",
+      ].filter(Boolean).join("；");
+      return Response.json({ error: `尚未發布任何題目：${reasons || "請先完成答案與解析校對"}。`, updated: 0, skippedUnreviewed, skippedUnanswered, status: "draft" }, { status: 409 });
+    }
     return Response.json({ updated: rows.length, skippedUnreviewed, skippedUnanswered, skipped: Math.max(0, draftRows.length - rows.length), status: "published" });
   }
   const [existing] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);

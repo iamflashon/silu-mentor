@@ -52,6 +52,14 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     return () => editor.classList.remove("proofread-active");
   }, [proofreadOpen]);
 
+  useEffect(() => {
+    const openProofread = () => {
+      if (proofreadItem) setProofreadOpen(true);
+    };
+    window.addEventListener("medtech-open-proofread", openProofread);
+    return () => window.removeEventListener("medtech-open-proofread", openProofread);
+  }, [proofreadItem]);
+
   async function load() {
     const response = await fetch(`/api/medtech/admin/question-media?questionId=${questionId}`, { cache: "no-store" });
     const data = await response.json() as { media?: Media | null; error?: string };
@@ -249,6 +257,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     <div className="question-media-head">
       <div><h2>語音檔與字幕</h2><p>本題音檔、SRT 與題目 ID 綁定；播放時會在下方同步顯示字幕。</p></div>
       <div className="question-media-actions">
+        {!proofreadOpen && <button type="button" className="question-media-button proofread-button" disabled={!proofreadItem} onClick={() => setProofreadOpen(true)}>{proofreadItem ? "關閉富文編輯" : "讀取校對內容…"}</button>}
         <label className="question-media-button"><input ref={audioInput} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.webm" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "audio"); }} />{busy ? "處理中…" : media?.audioFileName ? "更換語音檔" : "上傳語音檔"}</label>
         <label className="question-media-button secondary"><input ref={subtitleInput} type="file" accept=".srt,application/x-subrip,text/plain" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "subtitle"); }} />上傳 SRT</label>
         <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>
