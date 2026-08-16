@@ -96,6 +96,7 @@ function parseOptions(text: string) {
 
 function parseAnswerKeyEntries(text: string) {
   const entries: Array<{ number: string; answer: string }> = [];
+  let pendingNumberCount = 0;
   for (const line of text.split(/\r?\n/u).map(clean)) {
     if (!line) continue;
     const matches = [...line.matchAll(/(?:^|[\s,，;；])([0-9]{1,3})\s*[.、:：]?\s*[（(]?\s*([A-D])\s*[）)]?(?=$|[\s,，;；])/gu)];
@@ -104,6 +105,27 @@ function parseAnswerKeyEntries(text: string) {
     // not mistaken for the answer key.
     if (matches.length >= 2 || (matches.length === 1 && (line.length <= 14 || /答案|解答|正確/u.test(line)))) {
       for (const match of matches) entries.push({ number: match[1], answer: match[2] });
+      pendingNumberCount = 0;
+      continue;
+    }
+    // PDF table extraction can put the answer-key numbers and letters on
+    // separate rows, for example:
+    //   1  2  3  4  5 ...
+    //   B  D  A  C  B ...
+    // Keep that layout as an ordered answer block as well.
+    const tokens = line.replace(/[.、:：（）()［］\[\],，;；]/gu, " ").split(/\s+/u).filter(Boolean);
+    const numberTokens = tokens.filter((token) => /^\d{1,3}$/u.test(token));
+    const letterTokens = tokens.filter((token) => /^[A-D]$/u.test(token.toUpperCase()));
+    if (tokens.length >= 4 && numberTokens.length === tokens.length) {
+      pendingNumberCount = numberTokens.length;
+      continue;
+    }
+    if (pendingNumberCount >= 4 && tokens.length >= 4 && letterTokens.length === tokens.length) {
+      const base = entries.length;
+      for (const [index, token] of letterTokens.entries()) {
+        entries.push({ number: String(base + index + 1), answer: token.toUpperCase() });
+      }
+      pendingNumberCount = 0;
     }
   }
   return entries;
