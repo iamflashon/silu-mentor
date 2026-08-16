@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { memberExamAccess, members } from "../../../../db/schema";
+import { memberExamAccess, members, medtechUsage } from "../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
 
 export async function GET(request: Request) {
@@ -8,7 +8,9 @@ export async function GET(request: Request) {
   const rows = await auth.db.select({ id: memberExamAccess.id, memberId: members.id, email: members.email, displayName: members.displayName, role: members.role, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, className: memberExamAccess.className, lastSeenAt: members.lastSeenAt, createdAt: memberExamAccess.createdAt })
     .from(memberExamAccess).innerJoin(members, eq(memberExamAccess.memberId, members.id))
     .where(eq(memberExamAccess.examCategory, "medtech")).orderBy(desc(memberExamAccess.createdAt));
-  return Response.json({ members: rows });
+  const usageRows = await auth.db.select({ userKey: medtechUsage.userKey, points: medtechUsage.aiCredits }).from(medtechUsage);
+  const pointsByEmail = new Map(usageRows.map((row) => [row.userKey, row.points]));
+  return Response.json({ members: rows.map((row) => ({ ...row, points: pointsByEmail.get(row.email) ?? null })) });
 }
 
 export async function POST(request: Request) {

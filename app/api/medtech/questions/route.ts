@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, studyRecords } from "../../../../db/schema";
+import { grantMedtechQuestionAccess, medtechUserKey } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
 
 const topics = ["臨床病毒學總論", "DNA 病毒", "RNA 病毒", "全真模擬試題"] as const;
@@ -12,7 +13,7 @@ function topicOf(sourceName = "", subject = ""): (typeof topics)[number] | null 
   if (/臨床病毒學.*總論|總論.*臨床病毒學/i.test(source)) return topics[0];
   return null;
 }
-function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
+function userKey(request: Request) { return medtechUserKey(request); }
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -62,9 +63,15 @@ export async function GET(request: Request) {
     const source = sourceById.get(sourceId);
     return !topic || topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === topic;
   });
-  const selectedRows = reviewOnly
+  let selectedRows = reviewOnly
     ? topicRows.filter((row) => reviewIds.includes(row.id)).slice(0, limit)
     : topicRows.sort(() => Math.random() - .5).slice(0, limit);
+  const access = await grantMedtechQuestionAccess(db, userKey(request), selectedRows.map((row) => row.id));
+  if (selectedRows.length && !access.allowedIds.length) {
+    return Response.json({ error: "點數不足；查看一題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", points: access.usage.aiCredits, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
+  }
+  const allowedIds = new Set(access.allowedIds);
+  selectedRows = selectedRows.filter((row) => allowedIds.has(row.id));
   const questionIds = selectedRows.map((row) => row.id);
   const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
 
@@ -89,7 +96,7 @@ export async function GET(request: Request) {
         topic,
       };
     });
-    return Response.json({ items: mapped, topics: topics.map((name) => ({ name, count: rows.filter((row) => {
+    return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited, topics: topics.map((name) => ({ name, count: rows.filter((row) => {
       const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
       const source = sourceById.get(sourceId);
       return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name;
@@ -129,7 +136,7 @@ export async function GET(request: Request) {
         hasFullExplanation: Boolean(fullExplanation.trim()),
       };
     });
-    return Response.json({ items: mapped });
+    return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited });
   }
   const mediaRows = questionIds.length
     ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey }).from(listeningSolutions).where(inArray(listeningSolutions.questionId, questionIds))
@@ -163,7 +170,7 @@ export async function GET(request: Request) {
       subtitles: (mediaByQuestion.get(row.id)?.cues ?? []).map((cue) => ({ id: cue.id, segmentId: null, startSeconds: cue.startSeconds, endSeconds: cue.endSeconds, text: cue.text, sequence: cue.sequence })),
     };
   });
-  return Response.json({ items: mapped, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const sourceId = Number(row.sourceUrl.replace(/^document:/, "")); const source = sourceById.get(sourceId); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });
+  return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const sourceId = Number(row.sourceUrl.replace(/^document:/, "")); const source = sourceById.get(sourceId); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });
 }
 
 export async function POST(request: Request) {

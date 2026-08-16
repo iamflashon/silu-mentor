@@ -70,6 +70,19 @@ export const medtechUsage = sqliteTable("medtech_usage", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
+export const medtechPointLedger = sqliteTable("medtech_point_ledger", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  delta: integer("delta").notNull(),
+  balanceAfter: integer("balance_after").notNull(),
+  action: text("action").notNull(),
+  description: text("description").notNull(),
+  questionId: integer("question_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("medtech_point_ledger_user_created_idx").on(table.userKey, table.createdAt),
+]);
+
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

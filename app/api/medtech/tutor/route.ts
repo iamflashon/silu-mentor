@@ -1,9 +1,9 @@
 import { eq, and } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { examQuestions, medtechAiExplanationCache, medtechUsage, usageLogs } from "../../../../db/schema";
+import { examQuestions, medtechAiExplanationCache, usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
-import { getOrCreateMedtechUsage, medtechUserKey } from "../../../../lib/medtech-usage";
+import { getOrCreateMedtechUsage, medtechUserKey, spendMedtechPoints } from "../../../../lib/medtech-usage";
 
 type Turn = { role: "student" | "mentor"; text: string };
 
@@ -73,10 +73,10 @@ export async function POST(request: Request) {
       await db.insert(usageLogs).values({ model, source: mode === "hint" ? "醫檢 AI 判斷提示（免費快取）" : mode === "compare" ? "醫檢 AI 比較選項（免費快取）" : "醫檢 AI 答題結果（免費快取）", inputTokens, outputTokens, cachedTokens, estimatedCostUsdMicros });
       return Response.json({ reply, source: mode === "hint" ? "判斷提示（免費，已快取）" : mode === "compare" ? "比較選項（免費，已快取）" : "答題結果（免費，已快取）", creditsRemaining: usageState.aiCredits, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: 0 } });
     }
-    const nextCredits = Math.max(0, usageState.aiCredits - 1);
-    await db.update(medtechUsage).set({ aiCredits: nextCredits, updatedAt: new Date() }).where(eq(medtechUsage.id, usageState.id));
+    const updatedUsage = await spendMedtechPoints(db, usageState, { action: "ai_followup", description: "AI 助教追問", questionId: question.id });
+    if (!updatedUsage) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
     await db.insert(usageLogs).values({ model, source: "醫檢 AI 學習", inputTokens, outputTokens, cachedTokens, estimatedCostUsdMicros });
-    return Response.json({ reply, source: question.explanation?.trim() ? "教材答案與原稿解析" : "教材答案＋AI 補充", creditsRemaining: nextCredits, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
+    return Response.json({ reply, source: question.explanation?.trim() ? "教材答案與原稿解析" : "教材答案＋AI 補充", creditsRemaining: updatedUsage.aiCredits, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "醫檢 AI 回答失敗" }, { status: 500 });
   }

@@ -47,8 +47,13 @@ export default function MedtechAiStudy() {
       const query = new URLSearchParams({ limit: "1" });
       if (nextTopic) query.set("topic", nextTopic);
       const response = await fetch(`/api/medtech/questions?${query}`);
-      const result = await response.json() as { items?: Question[]; error?: string };
+      const result = await response.json() as { items?: Question[]; error?: string; points?: number };
+      if (response.status === 402) {
+        setPaywall({ kind: "credits", title: "點數不足", text: result.error || "查看一題扣 1 點，請先購買點數。", url: "/medtech/upgrade?reason=points" });
+        throw new Error(result.error || "點數不足；請先購買點數。");
+      }
       if (!response.ok || !result.items?.[0]) throw new Error(result.error || "目前沒有可用題目");
+      if (typeof result.points === "number") setAiCredits(result.points);
       setQuestion(result.items[0]);
       setMessages([{ role: "mentor", text: "請直接點選 A、B、C 或 D 作答；也可以先索取提示。" }]);
     } catch (caught) {

@@ -400,6 +400,13 @@
       "when": 1786889686633,
       "tag": "0056_safe_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1786901363756,
+      "tag": "0057_tired_vin_gonzales",
+      "breakpoints": true
     }
   ]
 }

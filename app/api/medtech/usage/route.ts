@@ -1,12 +1,13 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { examQuestions, medtechUsage } from "../../../../db/schema";
-import { getOrCreateMedtechUsage, medtechUserKey, MEDTECH_AUDIO_TRIAL_LIMIT } from "../../../../lib/medtech-usage";
+import { examQuestions, medtechPointLedger } from "../../../../db/schema";
+import { consumeMedtechFeature, getOrCreateMedtechUsage, medtechUserKey, MEDTECH_AUDIO_TRIAL_LIMIT, spendMedtechPoints } from "../../../../lib/medtech-usage";
 
 export async function GET(request: Request) {
   const db = await getDb();
   const usage = await getOrCreateMedtechUsage(db, medtechUserKey(request));
-  return Response.json({ audioTrialLimit: MEDTECH_AUDIO_TRIAL_LIMIT, audioUsed: 0, audioRemaining: 0, aiCredits: usage.aiCredits });
+  const history = await db.select().from(medtechPointLedger).where(eq(medtechPointLedger.userKey, usage.userKey)).orderBy(desc(medtechPointLedger.createdAt)).limit(50);
+  return Response.json({ audioTrialLimit: MEDTECH_AUDIO_TRIAL_LIMIT, audioUsed: 0, audioRemaining: 0, aiCredits: usage.aiCredits, points: usage.aiCredits, history });
 }
 
 export async function POST(request: Request) {
@@ -19,16 +20,15 @@ export async function POST(request: Request) {
   if (action === "audioComplete") {
     const questionId = Number(body.questionId);
     if (!Number.isInteger(questionId) || questionId < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
-    if (usage.aiCredits <= 0) return Response.json({ error: "點數已用完；語音完整解析每次扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", creditCost: 1, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
-    const nextCredits = usage.aiCredits - 1;
-    await db.update(medtechUsage).set({ aiCredits: nextCredits, updatedAt: new Date() }).where(eq(medtechUsage.id, usage.id));
-    return Response.json({ allowed: true, access: "credit", aiCredits: nextCredits, creditCost: 1 });
+    const feature = await consumeMedtechFeature(db, usage, { action: "audio_complete", description: "康情老師語音完整解析", questionId, reuseWithinHours: 24 });
+    if (!feature) return Response.json({ error: "點數已用完；語音完整解析每次扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", creditCost: 1, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
+    return Response.json({ allowed: true, access: feature.charged ? "credit" : "24h_pass", aiCredits: feature.usage.aiCredits, creditCost: feature.charged ? 1 : 0 });
   }
   if (action === "aiCredit") {
     if (usage.aiCredits <= 0) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
-    const next = usage.aiCredits - 1;
-    await db.update(medtechUsage).set({ aiCredits: next, updatedAt: new Date() }).where(eq(medtechUsage.id, usage.id));
-    return Response.json({ allowed: true, aiCredits: next });
+    const updated = await spendMedtechPoints(db, usage, { action: "ai_followup", description: "AI 助教追問" });
+    if (!updated) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
+    return Response.json({ allowed: true, aiCredits: updated.aiCredits });
   }
   if (action === "completeExplanation") {
     const questionId = Number(body.questionId);
@@ -43,10 +43,9 @@ export async function POST(request: Request) {
     if (!question) return Response.json({ error: "找不到已發布的醫檢題目" }, { status: 404 });
     const fullExplanation = question.teacherCompleteExplanation || question.completeExplanation || question.aiCompleteExplanation || question.simulatedCompleteExplanation || "";
     if (!fullExplanation.trim()) return Response.json({ error: "本題尚未建立完整解析" }, { status: 404 });
-    if (usage.aiCredits <= 0) return Response.json({ error: "點數已用完；完整解析每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
-    const next = usage.aiCredits - 1;
-    await db.update(medtechUsage).set({ aiCredits: next, updatedAt: new Date() }).where(eq(medtechUsage.id, usage.id));
-    return Response.json({ allowed: true, fullExplanation, aiCredits: next });
+    const feature = await consumeMedtechFeature(db, usage, { action: "complete_explanation", description: "完整文字解析", questionId, reuseWithinHours: 24 });
+    if (!feature) return Response.json({ error: "點數已用完；完整解析每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
+    return Response.json({ allowed: true, fullExplanation, aiCredits: feature.usage.aiCredits, creditCost: feature.charged ? 1 : 0 });
   }
   return Response.json({ error: "不支援的用量操作" }, { status: 400 });
 }

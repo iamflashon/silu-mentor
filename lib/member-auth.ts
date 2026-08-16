@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { memberExamAccess, members } from "../db/schema";
+import { getOrCreateMedtechUsage } from "./medtech-usage";
 
 export type MemberRole = "teacher" | "student";
 
@@ -60,6 +61,7 @@ export async function requireMedtechMember(request: Request) {
     [access] = await auth.db.insert(memberExamAccess).values({ memberId: auth.member.id, examCategory: "medtech", status: "active", canAdmin: true, className: "管理員" }).returning();
   }
   if (!access || access.status !== "active") return { error: Response.json({ error: "此帳號尚未開通醫檢師類科" }, { status: 403 }) } as const;
+  await getOrCreateMedtechUsage(auth.db, auth.member.email);
   return { ...auth, access } as const;
 }
 
