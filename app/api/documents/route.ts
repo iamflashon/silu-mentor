@@ -43,6 +43,7 @@ export async function GET(request: Request) {
       contentType: documents.contentType,
       sizeBytes: documents.sizeBytes,
       examCategory: documents.examCategory,
+      bookTitle: documents.bookTitle,
       subject: documents.subject,
       documentType: documents.documentType,
       status: documents.status,
@@ -80,6 +81,7 @@ export async function GET(request: Request) {
         id: row.id,
         name: row.fileName,
         examCategory: row.examCategory,
+        bookTitle: row.bookTitle,
         subject: row.subject,
         type: row.documentType,
         sizeBytes: row.sizeBytes,
@@ -131,7 +133,10 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const file = form.get("file");
     const subject = String(form.get("subject") ?? "").trim();
-    const examCategory = String(form.get("examCategory") ?? "law").trim();
+    const requestedExamCategory = String(form.get("examCategory") ?? "law").trim();
+    const examCategory = ["law", "accounting", "medtech"].includes(requestedExamCategory) ? requestedExamCategory : "law";
+    const bookTitle = String(form.get("bookTitle") ?? "").replace(/\s+/gu, " ").trim().slice(0, 200)
+      || (examCategory === "medtech" ? "醫檢師國考題詳解（Ⅲ）臨床病毒學（下）" : "");
     const documentType = String(form.get("documentType") ?? "").trim();
 
     if (!(file instanceof File) || !isSupportedDocument(file.name, file.type)) {
@@ -151,7 +156,7 @@ export async function POST(request: Request) {
     const key = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName(file.name)}`;
     await bucket.put(key, file.stream(), {
       httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) },
-      customMetadata: { subject, documentType, originalName: file.name },
+      customMetadata: { subject, documentType, bookTitle, originalName: file.name },
     });
     const stored = await bucket.head(key);
     if (!stored || stored.size !== file.size || stored.size < 1) {
@@ -166,7 +171,8 @@ export async function POST(request: Request) {
         fileName: file.name,
         contentType: contentTypeForDocument(file.name, file.type),
         sizeBytes: file.size,
-        examCategory: ["law", "accounting", "medtech"].includes(examCategory) ? examCategory : "law",
+        examCategory,
+        bookTitle,
         subject,
         documentType,
         status: "uploaded",
@@ -217,7 +223,7 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean };
+    const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; bookTitle?: string };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id < 1 || typeof body.homepageSearchEnabled !== "boolean") {
       return Response.json({ error: "首頁搜尋設定不正確" }, { status: 400 });
@@ -225,6 +231,12 @@ export async function PATCH(request: Request) {
     const db = await getDb();
     const [document] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
     if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
+    if (typeof body.bookTitle === "string") {
+      const bookTitle = body.bookTitle.replace(/\s+/gu, " ").trim().slice(0, 200);
+      if (!bookTitle) return Response.json({ error: "請輸入書籍名稱" }, { status: 400 });
+      await db.update(documents).set({ bookTitle }).where(eq(documents.id, id));
+      return Response.json({ id, bookTitle });
+    }
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     if (body.homepageSearchEnabled && document.status !== "completed") {
       return Response.json({ error: "教材仍在處理，完成全文／向量索引後才能開放首頁搜尋", code: "INDEX_NOT_READY", repairable: false }, { status: 409 });

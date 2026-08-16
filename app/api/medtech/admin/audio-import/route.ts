@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { unzipSync } from "fflate";
 import { getDb } from "../../../../../db";
-import { examQuestions, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
+import { documents, examQuestions, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
 import { decodeSubtitle, parseSrtCues } from "../../../../../lib/srt";
 
@@ -8,6 +9,7 @@ const MAX_FILES = 160;
 const MAX_FILE_BYTES = 120 * 1024 * 1024;
 const MAX_SRT_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 600 * 1024 * 1024;
+const MAX_ZIP_BYTES = 360 * 1024 * 1024;
 
 function contentTypeFor(name: string, supplied: string) {
   if (supplied?.startsWith("audio/")) return supplied;
@@ -26,6 +28,51 @@ function isAudio(name: string, type: string) {
 
 function safeName(name: string) {
   return name.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-160) || "audio.mp3";
+}
+
+function zipBaseName(name: string) {
+  const normalized = name.replace(/\\/gu, "/").split("/").pop() ?? name;
+  return normalized.replace(/\.[^.]+$/u, "").trim().toLocaleLowerCase();
+}
+
+function zipMatchInfo(name: string) {
+  const base = zipBaseName(name);
+  const qid = name.match(/(?:^|[_-])q(?:uestion)?[_-]?(\d+)(?:[_-]|\.|$)/iu)?.[1] ?? "";
+  const sourceOrder = name.match(/^(?:0*)(\d{1,4})(?:[_-])/u)?.[1] ?? "";
+  const questionNumber = name.match(/(?:第|q\d+[_-])\s*0*(\d{1,3})題?/iu)?.[1] ?? "";
+  return { base, qid, sourceOrder, questionNumber };
+}
+
+function zipAudioEntries(bytes: Uint8Array) {
+  const entries = unzipSync(bytes);
+  const groups = new Map<string, {
+    base: string;
+    qid: string;
+    sourceOrder: string;
+    questionNumber: string;
+    audio?: { name: string; bytes: Uint8Array };
+    subtitle?: { name: string; bytes: Uint8Array };
+  }>();
+  let ignored = 0;
+  for (const [entryName, entryBytes] of Object.entries(entries)) {
+    if (!entryBytes.length || /(?:^|\/)__macosx(?:\/|$)/iu.test(entryName) || /(?:^|\/)\.[^/]+$/u.test(entryName)) {
+      ignored += 1;
+      continue;
+    }
+    const lower = entryName.toLocaleLowerCase();
+    const isAudioEntry = /\.(?:mp3|m4a|wav|ogg|aac|webm)$/iu.test(lower);
+    const isSubtitleEntry = /\.srt$/iu.test(lower);
+    if (!isAudioEntry && !isSubtitleEntry) {
+      ignored += 1;
+      continue;
+    }
+    const info = zipMatchInfo(entryName);
+    const current = groups.get(info.base) ?? { ...info };
+    if (isAudioEntry && !current.audio) current.audio = { name: entryName.replace(/\\/gu, "/").split("/").pop() ?? entryName, bytes: entryBytes };
+    if (isSubtitleEntry && !current.subtitle) current.subtitle = { name: entryName.replace(/\\/gu, "/").split("/").pop() ?? entryName, bytes: entryBytes };
+    groups.set(info.base, current);
+  }
+  return { groups: [...groups.values()], ignored };
 }
 
 function plain(value: string) {
@@ -102,6 +149,112 @@ export async function POST(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
   const form = await request.formData();
+  const zipFile = form.get("zip");
+  if (zipFile instanceof File) {
+    if (zipFile.size > MAX_ZIP_BYTES) return Response.json({ error: "語音包 ZIP 不可超過 360MB" }, { status: 413 });
+    const documentId = Number(form.get("documentId"));
+    if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "缺少文件編號，請從個別文件題庫上傳" }, { status: 400 });
+    const db = await getDb();
+    const [document] = await db.select().from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech"))).limit(1);
+    if (!document) return Response.json({ error: "找不到指定的醫檢文件" }, { status: 404 });
+    let parsedZip: ReturnType<typeof zipAudioEntries>;
+    try {
+      parsedZip = zipAudioEntries(new Uint8Array(await zipFile.arrayBuffer()));
+    } catch {
+      return Response.json({ error: "ZIP 無法讀取，請確認是未加密的標準 ZIP 檔" }, { status: 400 });
+    }
+    const aliases = [...new Set([`document:${document.id}`, document.storageKey, document.fileName])];
+    let questions = await db.select().from(examQuestions)
+      .where(and(eq(examQuestions.examCategory, "medtech"), inArray(examQuestions.sourceUrl, aliases)))
+      .orderBy(asc(examQuestions.sourceOrder), asc(examQuestions.id)).limit(1600);
+    if (!questions.length) {
+      questions = await db.select().from(examQuestions)
+        .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject)))
+        .orderBy(asc(examQuestions.sourceOrder), asc(examQuestions.id)).limit(1600);
+    }
+    if (!questions.length) return Response.json({ error: "這份文件尚未有可配對的題目，請先完成拆題" }, { status: 409 });
+    const { env } = await import("cloudflare:workers");
+    if (!env.BUCKET) return Response.json({ error: "音檔儲存空間尚未就緒" }, { status: 503 });
+    const questionById = new Map(questions.map((question) => [String(question.id), question]));
+    const questionByOrder = new Map(questions.filter((question) => Number(question.sourceOrder) > 0).map((question) => [String(question.sourceOrder), question]));
+    const questionByNumber = new Map<string, typeof questions[number][]>();
+    for (const question of questions) questionByNumber.set(question.questionNumber.trim(), [...(questionByNumber.get(question.questionNumber.trim()) ?? []), question]);
+    const matched = new Set<number>();
+    const unmatched: Array<{ name: string; reason: string }> = [];
+    const invalid: string[] = [];
+    const results: Array<{ questionId: number; questionNumber: string; audioFileName?: string; subtitleFileName?: string; listeningId: number; cues?: number }> = [];
+    const solutionByQuestion = new Map<number, typeof listeningSolutions.$inferSelect>();
+    async function ensureSolution(questionId: number) {
+      const existing = solutionByQuestion.get(questionId);
+      if (existing) return existing;
+      const question = questions.find((item) => item.id === questionId);
+      if (!question) throw new Error("找不到題目");
+      const [current] = await db.select().from(listeningSolutions).where(eq(listeningSolutions.questionId, questionId)).limit(1);
+      if (current) {
+        solutionByQuestion.set(questionId, current);
+        return current;
+      }
+      const [created] = await db.insert(listeningSolutions).values({
+        questionId: question.id,
+        title: (question.year || "未標示年份") + " " + question.subject + " 第" + (question.questionNumber || question.id) + "題",
+        year: question.year || "",
+        subject: question.subject || "醫事檢驗",
+        questionText: question.stem,
+        narrationScript: narrationText(question),
+        sourceUrl: "medtech:question:" + question.id,
+        status: "draft",
+      }).returning();
+      solutionByQuestion.set(questionId, created);
+      return created;
+    }
+    for (const group of parsedZip.groups) {
+      const question = (group.qid && questionById.get(group.qid))
+        ?? (group.sourceOrder && questionByOrder.get(String(Number(group.sourceOrder))))
+        ?? (group.questionNumber && questionByNumber.get(String(Number(group.questionNumber)))?.length === 1 ? questionByNumber.get(String(Number(group.questionNumber)))?.[0] : undefined);
+      if (!question) {
+        unmatched.push({ name: group.audio?.name ?? group.subtitle?.name ?? group.base, reason: "找不到相同 q題目ID／原稿順序／唯一題號" });
+        continue;
+      }
+      matched.add(question.id);
+      let solution = await ensureSolution(question.id);
+      let result = results.find((item) => item.questionId === question.id);
+      if (!result) {
+        result = { questionId: question.id, questionNumber: question.questionNumber, listeningId: solution.id };
+        results.push(result);
+      }
+      if (group.audio) {
+        if (group.audio.bytes.byteLength > MAX_FILE_BYTES) {
+          invalid.push(`${group.audio.name}：單段音檔超過 120MB`);
+        } else {
+          const contentType = contentTypeFor(group.audio.name, "");
+          const key = "medtech-listening/" + question.id + "/" + Date.now() + "-" + crypto.randomUUID() + "-" + safeName(group.audio.name);
+          await env.BUCKET.put(key, group.audio.bytes, { httpMetadata: { contentType } });
+          const [updated] = await db.update(listeningSolutions).set({ audioStorageKey: key, audioFileName: group.audio.name, questionText: question.stem, narrationScript: narrationText(question), updatedAt: new Date() }).where(eq(listeningSolutions.id, solution.id)).returning();
+          if (solution.audioStorageKey) await env.BUCKET.delete(solution.audioStorageKey).catch(() => undefined);
+          solution = updated;
+          solutionByQuestion.set(question.id, updated);
+          result.audioFileName = group.audio.name;
+        }
+      }
+      if (group.subtitle) {
+        if (group.subtitle.bytes.byteLength > MAX_SRT_BYTES) {
+          invalid.push(`${group.subtitle.name}：SRT 超過 5MB`);
+        } else {
+          const parsed = parseSrtCues(decodeSubtitle(group.subtitle.bytes.slice().buffer));
+          if (!parsed.length) {
+            invalid.push(`${group.subtitle.name}：找不到有效字幕時間碼`);
+          } else {
+            await db.delete(listeningSubtitleCues).where(eq(listeningSubtitleCues.listeningId, solution.id));
+            await db.insert(listeningSubtitleCues).values(parsed.map((cue, sequence) => ({ listeningId: solution.id, segmentId: null, startSeconds: cue.start, endSeconds: cue.end, text: cue.text, sequence })));
+            result.subtitleFileName = group.subtitle.name;
+            result.cues = parsed.length;
+          }
+        }
+      }
+    }
+    return Response.json({ imported: results.length, matched: matched.size, audioPairs: results.filter((item) => item.audioFileName).length, subtitlePairs: results.filter((item) => item.subtitleFileName).length, ignored: parsedZip.ignored, unmatched, invalid, results }, { status: 201 });
+  }
   const legacyAudioFiles = form.getAll("audio").filter((value): value is File => value instanceof File);
   const legacyQuestionIds = form.getAll("questionId").map((value) => Number(value));
   const audioFiles = legacyAudioFiles;

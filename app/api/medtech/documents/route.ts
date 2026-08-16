@@ -38,7 +38,7 @@ export async function PUT(request: Request) {
     if (!env.BUCKET) return Response.json({ error: "文件儲存空間尚未就緒" }, { status: 503 });
     const safeName = file.name.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
     const newKey = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-    await env.BUCKET.put(newKey, file.stream(), { httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) }, customMetadata: { subject: current.subject, documentType: current.documentType, originalName: file.name } });
+    await env.BUCKET.put(newKey, file.stream(), { httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) }, customMetadata: { subject: current.subject, documentType: current.documentType, bookTitle: current.bookTitle, originalName: file.name } });
     try {
       let parsedResult: Record<string, unknown> = {};
       try { parsedResult = JSON.parse(current.processingResultJson) as Record<string, unknown>; } catch { parsedResult = {}; }
@@ -66,7 +66,7 @@ export async function PUT(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; subject?: string };
+  const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; subject?: string; bookTitle?: string };
   const db = await getDb();
   const [row] = await db.select().from(documents).where(and(eq(documents.id, Number(body.id)), eq(documents.examCategory, "medtech"))).limit(1);
   if (!row) return Response.json({ error: "找不到醫檢師教材" }, { status: 404 });
@@ -76,6 +76,13 @@ export async function PATCH(request: Request) {
     await db.update(documents).set({ subject }).where(eq(documents.id, row.id));
     await db.update(examQuestions).set({ subject }).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${row.id}`)));
     return Response.json({ id: row.id, subject, questionsUpdated: row.questionCount });
+  }
+  if (typeof body.bookTitle === "string") {
+    const bookTitle = body.bookTitle.replace(/\s+/gu, " ").trim().slice(0, 200);
+    if (!bookTitle) return Response.json({ error: "請輸入書籍名稱" }, { status: 400 });
+    await db.update(documents).set({ bookTitle }).where(eq(documents.id, row.id));
+    await db.update(examQuestions).set({ answerSource: bookTitle }).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${row.id}`)));
+    return Response.json({ id: row.id, bookTitle });
   }
   return patchDocument(new Request(request.url, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
 }

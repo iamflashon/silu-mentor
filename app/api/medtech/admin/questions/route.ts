@@ -155,7 +155,7 @@ export async function POST(request: Request) {
   const sourceOrderValue = Number(body.sourceOrder);
   const sourceOrder = Number.isInteger(sourceOrderValue) && sourceOrderValue > 0 ? sourceOrderValue : null;
   const db = await getDb();
-  const [document] = await db.select({ id: documents.id, subject: documents.subject, fileName: documents.fileName })
+  const [document] = await db.select({ id: documents.id, subject: documents.subject, bookTitle: documents.bookTitle, fileName: documents.fileName })
     .from(documents)
     .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
     .limit(1);
@@ -178,7 +178,7 @@ export async function POST(request: Request) {
     correctAnswer: answer || null,
     teacherAnswer: answer,
     explanation: sanitizeRichHtml(String(body.explanation ?? "").trim()),
-    answerSource: answer ? "手動新增／原稿答案" : "手動新增／待補答案",
+    answerSource: document.bookTitle || (answer ? "待補來源" : "待補答案"),
     answerStatus: answer ? "teacher_confirmed" : "missing",
     sourceUrl,
     sourceOrder,

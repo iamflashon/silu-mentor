@@ -38,6 +38,7 @@ export const documents = sqliteTable("documents", {
   contentType: text("content_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   examCategory: text("exam_category").notNull().default("law"),
+  bookTitle: text("book_title").notNull().default(""),
   subject: text("subject").notNull(),
   documentType: text("document_type").notNull(),
   status: text("status").notNull().default("uploaded"),
