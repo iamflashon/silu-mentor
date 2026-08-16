@@ -50,6 +50,19 @@ function hasReviewableExplanation(question: { explanation?: string | null; aiCom
     .some((value) => String(value ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().length >= 15);
 }
 
+function hasTeacherAnswer(question: { teacherAnswer?: string | null; correctAnswer?: string | null }) {
+  return /^[A-D]$/i.test(String(question.teacherAnswer || question.correctAnswer || "").trim());
+}
+
+function hasPublishableAnswer(question: { teacherAnswer?: string | null; correctAnswer?: string | null; reviewStatus?: string | null; examName?: string | null; simulatedAnswer?: string | null }) {
+  // A teacher answer is already an explicit answer confirmation. AI text or
+  // AI-only answers still require the existing review flow before publishing.
+  if (hasTeacherAnswer(question)) return true;
+  return question.reviewStatus === "confirmed"
+    && /全真模擬試題/u.test(String(question.examName ?? ""))
+    && /^[A-D]$/i.test(String(question.simulatedAnswer ?? "").trim());
+}
+
 export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
@@ -344,33 +357,34 @@ export async function PATCH(request: Request) {
   }
   const id = Number(body.id);
   if (body.publishAllDrafts === true) {
-    const draftRows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, reviewStatus: examQuestions.reviewStatus })
+    const documentId = Number(body.documentId);
+    if (!Number.isInteger(documentId) || documentId < 1) {
+      return Response.json({ error: "請從文件卡片按「發布此文件」，一次發布單一文件。" }, { status: 400 });
+    }
+    const [document] = await db.select({ id: documents.id, storageKey: documents.storageKey, fileName: documents.fileName })
+      .from(documents)
+      .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
+      .limit(1);
+    if (!document) return Response.json({ error: "找不到指定的醫檢文件" }, { status: 404 });
+    const documentSources = [...new Set([`document:${document.id}`, document.storageKey, document.fileName].filter((value): value is string => Boolean(value)))];
+    const sourceFilter = or(...documentSources.map((source) => eq(examQuestions.sourceUrl, source)));
+    const draftRows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, reviewStatus: examQuestions.reviewStatus, examName: examQuestions.examName, simulatedAnswer: examQuestions.simulatedAnswer })
       .from(examQuestions).where(and(
       eq(examQuestions.examCategory, "medtech"),
       eq(examQuestions.examType, "mcq"),
       eq(examQuestions.status, "draft"),
+      sourceFilter,
     ));
-    const rows = await db.update(examQuestions).set({ status: "published" }).where(and(
-      eq(examQuestions.examCategory, "medtech"),
-      eq(examQuestions.examType, "mcq"),
-      eq(examQuestions.status, "draft"),
-      eq(examQuestions.reviewStatus, "confirmed"),
-      or(
-        and(isNotNull(examQuestions.teacherAnswer), ne(examQuestions.teacherAnswer, "")),
-        and(isNotNull(examQuestions.correctAnswer), ne(examQuestions.correctAnswer, "")),
-        and(eq(examQuestions.examName, "全真模擬試題"), isNotNull(examQuestions.simulatedAnswer), ne(examQuestions.simulatedAnswer, "")),
-      ),
-    )).returning({ id: examQuestions.id });
-    const skippedUnreviewed = draftRows.filter((row) => row.reviewStatus !== "confirmed").length;
-    const skippedUnanswered = draftRows.filter((row) => !/^[A-D]$/i.test(String(row.teacherAnswer || row.correctAnswer || "").trim())).length;
-    if (!rows.length && draftRows.length) {
-      const reasons = [
-        skippedUnreviewed ? `${skippedUnreviewed} 題尚未按「確認校對完成」` : "",
-        skippedUnanswered ? `${skippedUnanswered} 題尚未設定有效的老師答案（需為 A、B、C 或 D）` : "",
-      ].filter(Boolean).join("；");
-      return Response.json({ error: `尚未發布任何題目：${reasons || "請先完成答案與解析校對"}。`, updated: 0, skippedUnreviewed, skippedUnanswered, status: "draft" }, { status: 409 });
+    const publishableRows = draftRows.filter((row) => hasPublishableAnswer(row));
+    for (const row of publishableRows) {
+      await db.update(examQuestions).set({ status: "published" }).where(and(eq(examQuestions.id, row.id), eq(examQuestions.examCategory, "medtech")));
     }
-    return Response.json({ updated: rows.length, skippedUnreviewed, skippedUnanswered, skipped: Math.max(0, draftRows.length - rows.length), status: "published" });
+    const rows = publishableRows;
+    const skippedUnanswered = draftRows.filter((row) => !hasPublishableAnswer(row)).length;
+    if (!rows.length && draftRows.length) {
+      return Response.json({ error: `本文件尚未發布任何題目：${skippedUnanswered} 題尚未設定有效的老師答案（需為 A、B、C 或 D）。`, updated: 0, skippedUnanswered, status: "draft" }, { status: 409 });
+    }
+    return Response.json({ updated: rows.length, skippedUnanswered, skipped: Math.max(0, draftRows.length - rows.length), documentId, status: "published" });
   }
   const [existing] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
@@ -386,7 +400,7 @@ export async function PATCH(request: Request) {
     const [updated] = await db.update(examQuestions).set({ reviewStatus: "pending", reviewedAt: null, status: existing.status === "published" ? "disabled" : existing.status }).where(eq(examQuestions.id, id)).returning();
     return Response.json({ item: updated, reviewStatus: "pending", unpublished: existing.status === "published" });
   }
-  if (body.status === "published" && existing.reviewStatus !== "confirmed") {
+  if (body.status === "published" && existing.reviewStatus !== "confirmed" && !hasTeacherAnswer(existing)) {
     return Response.json({ error: "本題尚未完成校對，請先按「確認校對完成」後再發布。" }, { status: 409 });
   }
   const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;

@@ -158,7 +158,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       setReviewStatus(nextReviewStatus);
       setQuestionStatus(data.item?.status ?? (action === "cancelReview" && data.unpublished ? "disabled" : questionStatus));
       window.dispatchEvent(new CustomEvent("medtech-question-review-updated", { detail: { id: questionId, item: data.item } }));
-      setNotice(action === "confirmReview" ? "本題已確認校對完成；現在可以發布。" : data.unpublished ? "本題已取消校對並下架；重新校對後才能發布。" : "本題已取消校對，需重新確認後才能發布。");
+      setNotice(action === "confirmReview" ? "本題已確認校對完成；現在可以發布。" : data.unpublished && /^[A-D]$/.test(teacherAnswer) ? "本題已取消完整校對並下架；因老師答案仍已確認，可直接重新發布。" : data.unpublished ? "本題已取消校對並下架；重新校對後才能發布。" : "本題已取消校對，需重新確認後才能發布。");
     } catch {
       setNotice("校對狀態更新失敗，請稍後再試。");
     } finally {
@@ -240,6 +240,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     }
   }
 
+  const canPublishWithoutProofread = /^[A-D]$/.test(teacherAnswer);
   return <section className="question-media-panel">
     <div className="question-media-head">
       <div><h2>語音檔與字幕</h2><p>本題音檔、SRT 與題目 ID 綁定；播放時會在下方同步顯示字幕。</p></div>
@@ -251,9 +252,9 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       </div>
     </div>
     {proofreadOpen && proofreadItem && <QuestionProofreadDialog question={proofreadItem} onClose={() => setProofreadOpen(false)} />}
-    <div className={`question-review-panel ${reviewStatus === "confirmed" ? "confirmed" : "pending"}`}>
-      <div><b>{reviewStatus === "confirmed" ? "本題已校對" : "本題尚未校對"}</b><small>{questionStatus === "published" ? "目前已發布；取消校對會立即下架。" : "只有確認校對後，才能發布到學生端。"}</small></div>
-      <div className="question-review-actions"><button type="button" className={reviewStatus === "confirmed" ? "danger" : "primary"} disabled={orderBusy} onClick={() => void updateReview(reviewStatus === "confirmed" ? "cancelReview" : "confirmReview")}>{reviewStatus === "confirmed" ? questionStatus === "published" ? "取消校對並下架" : "取消校對" : "確認校對完成"}</button><button type="button" className="secondary" onClick={() => window.dispatchEvent(new Event("medtech-filter-answer-conflicts"))}>搜尋全部答案差異</button></div>
+    <div className={`question-review-panel ${reviewStatus === "confirmed" ? "confirmed" : canPublishWithoutProofread ? "answer-ready" : "pending"}`}>
+      <div><b>{reviewStatus === "confirmed" ? "本題已校對" : canPublishWithoutProofread ? "老師答案已確認" : "本題尚未校對"}</b><small>{questionStatus === "published" ? "目前已發布；取消校對會立即下架。" : canPublishWithoutProofread ? "已有有效老師答案，可免按校對直接發布；AI 答案與解析仍可另外產生。" : "沒有老師答案時，才需要先確認校對才能發布。"}</small></div>
+      <div className="question-review-actions">{reviewStatus === "confirmed" ? <button type="button" className="danger" disabled={orderBusy} onClick={() => void updateReview("cancelReview")}>{questionStatus === "published" ? "取消校對並下架" : "取消校對"}</button> : canPublishWithoutProofread ? <span className="question-review-ready">可直接發布</span> : <button type="button" className="primary" disabled={orderBusy} onClick={() => void updateReview("confirmReview")}>確認校對完成</button>}<button type="button" className="secondary" onClick={() => window.dispatchEvent(new Event("medtech-filter-answer-conflicts"))}>搜尋全部答案差異</button></div>
     </div>
     <AnswerConflictPanel questionId={questionId} questionNumber={questionNumber} teacherAnswer={teacherAnswer} aiAnswer={simulatedAnswer} note={simulatedTeacherNote} onUpdated={(item) => { const nextTeacherAnswer = String(item.teacherAnswer || item.correctAnswer || teacherAnswer).trim().toUpperCase(); const nextAiAnswer = String(item.simulatedAnswer || simulatedAnswer).trim().toUpperCase(); setTeacherAnswer(nextTeacherAnswer); setSimulatedAnswer(nextAiAnswer); setSimulatedTeacherNote(String(item.simulatedTeacherNote || "").trim()); setProofreadItem((current) => current ? { ...current, ...item } : current); window.dispatchEvent(new CustomEvent("medtech-question-review-updated", { detail: { id: questionId, item } })); }} />
     <div className="question-order-panel">

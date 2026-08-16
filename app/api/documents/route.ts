@@ -66,13 +66,16 @@ export async function GET(request: Request) {
       sourceUrl: examQuestions.sourceUrl,
       subject: examQuestions.subject,
       total: sql<number>`count(*)`,
+      draftTotal: sql<number>`coalesce(sum(case when ${examQuestions.status} = 'draft' then 1 else 0 end), 0)`,
     }).from(examQuestions).groupBy(examQuestions.sourceUrl, examQuestions.subject);
-    const actualQuestionCount = (row: typeof rows[number]) => {
+    const questionStats = (row: typeof rows[number]) => {
       const aliases = new Set([`document:${row.id}`, row.storageKey, row.fileName]);
       const exact = questionCounts.find((item) => aliases.has(item.sourceUrl));
-      if (exact) return Number(exact.total);
+      if (exact) return { total: Number(exact.total), draftTotal: Number(exact.draftTotal) };
       const sameSubject = questionCounts.filter((item) => item.subject === row.subject);
-      return sameSubject.length === 1 ? Number(sameSubject[0].total) : Number(row.questionCount ?? 0);
+      return sameSubject.length === 1
+        ? { total: Number(sameSubject[0].total), draftTotal: Number(sameSubject[0].draftTotal) }
+        : { total: Number(row.questionCount ?? 0), draftTotal: 0 };
     };
     const [documentStats] = await db.select({
       total: sql<number>`count(*)`,
@@ -87,6 +90,7 @@ export async function GET(request: Request) {
     return Response.json({ documents: rows.map((row) => {
       const result = storedDocumentAnalysis(row.processingResultJson);
       const counts = storedDocumentStats(row.processingResultJson, row.chapterCount, row.questionCount);
+      const questionStatsForDocument = questionStats(row);
       const chapters = Array.isArray(result.chapters) ? result.chapters.slice(0, 12) : [];
       const questions = Array.isArray(result.questions) ? result.questions.slice(0, 12) : [];
       return {
@@ -105,7 +109,8 @@ export async function GET(request: Request) {
         extractedChars: row.extractedChars,
         chapterCount: counts.chapterCount,
         topicCount: counts.topicCount,
-        questionCount: actualQuestionCount(row),
+        questionCount: questionStatsForDocument.total,
+        draftQuestionCount: questionStatsForDocument.draftTotal,
         indexedQuestionCount: Number(row.questionCount ?? counts.questionCount ?? 0),
         tags: (() => { try { return JSON.parse(row.tagsJson); } catch { return []; } })(),
         fullTextIndexed: row.fullTextIndexed,
