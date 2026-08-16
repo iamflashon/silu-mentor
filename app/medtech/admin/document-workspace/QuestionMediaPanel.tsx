@@ -88,7 +88,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     }
   }
 
-  async function swapQuestion(target: OrderedQuestion | null) {
+  async function swapQuestion(target: OrderedQuestion | null, direction: "up" | "down") {
     if (!target) return;
     const currentOrder = Number(sourceOrder);
     const targetOrder = Number(target.sourceOrder);
@@ -97,12 +97,18 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       return;
     }
     if (!window.confirm(`確定將第 ${questionNumber || questionId} 題與第 ${target.questionNumber || target.id} 題對調原稿順序嗎？`)) return;
+    const currentNextOrder = currentOrder === targetOrder
+      ? direction === "up" ? currentOrder : currentOrder + 1
+      : targetOrder;
+    const targetNextOrder = currentOrder === targetOrder
+      ? direction === "up" ? targetOrder + 1 : targetOrder
+      : currentOrder;
     setOrderBusy(true);
     setNotice("正在對調原稿順序…");
     try {
       const responses = await Promise.all([
-        fetch("/api/medtech/admin/questions", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: questionId, sourceOrder: targetOrder }) }),
-        fetch("/api/medtech/admin/questions", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: target.id, sourceOrder: currentOrder }) }),
+        fetch("/api/medtech/admin/questions", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: questionId, sourceOrder: currentNextOrder }) }),
+        fetch("/api/medtech/admin/questions", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: target.id, sourceOrder: targetNextOrder }) }),
       ]);
       if (responses.some((response) => !response.ok)) { setNotice("原稿順序對調失敗，請稍後再試。"); return; }
       window.location.reload();
@@ -169,8 +175,8 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       <div><b>原稿順序</b><small>目前清單依此欄位排列；題號可以和原稿順序不同。</small></div>
       <input type="number" min="1" value={sourceOrder} onChange={(event) => setSourceOrder(event.target.value ? Number(event.target.value) : "")} aria-label="原稿順序" />
       <button type="button" disabled={orderBusy} onClick={() => void saveOrder()}>儲存順序</button>
-      <button type="button" className="secondary" disabled={orderBusy || !previousQuestion} onClick={() => void swapQuestion(previousQuestion)}>↑ 與上一題對調</button>
-      <button type="button" className="secondary" disabled={orderBusy || !nextQuestion} onClick={() => void swapQuestion(nextQuestion)}>↓ 與下一題對調</button>
+      <button type="button" className="secondary" disabled={orderBusy || !previousQuestion} onClick={() => void swapQuestion(previousQuestion, "up")}>↑ 與上一題對調</button>
+      <button type="button" className="secondary" disabled={orderBusy || !nextQuestion} onClick={() => void swapQuestion(nextQuestion, "down")}>↓ 與下一題對調</button>
     </div>
     {notice && <p className="question-media-notice">{notice}</p>}
     {media?.audioUrl ? <div className="question-media-player">
