@@ -300,35 +300,47 @@ export async function PATCH(request: Request) {
   }
   const db = await getDb();
   if (body.bulkConfirmReview === true) {
-    let questionIds = Array.isArray(body.questionIds)
+    const requestedQuestionIds = Array.isArray(body.questionIds)
       ? [...new Set(body.questionIds.map((value: unknown) => Number(value)).filter((value: number) => Number.isInteger(value) && value > 0))]
       : [];
-    if (!questionIds.length) {
-      const documentId = Number(body.documentId);
-      if (Number.isInteger(documentId) && documentId > 0) {
+    try {
+      const rows: Array<{ id: number; teacherAnswer: string | null; correctAnswer: string | null }> = [];
+      if (requestedQuestionIds.length) {
+        for (const questionId of requestedQuestionIds) {
+          const [row] = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer })
+            .from(examQuestions)
+            .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.id, questionId)))
+            .limit(1);
+          if (row) rows.push(row);
+        }
+      } else {
+        const documentId = Number(body.documentId);
+        if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "缺少有效文件編號" }, { status: 400 });
         const [document] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName })
           .from(documents)
           .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
           .limit(1);
         if (!document) return Response.json({ error: "找不到指定的醫檢文件" }, { status: 404 });
         const aliases = [...new Set([`document:${documentId}`, document.storageKey, document.fileName].filter((value): value is string => Boolean(value)))];
-        const rows = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(
-          eq(examQuestions.examCategory, "medtech"),
-          or(...aliases.map((alias) => eq(examQuestions.sourceUrl, alias))),
-        ));
-        questionIds = rows.map((row) => row.id);
+        if (aliases.length) {
+          const matchingRows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer })
+            .from(examQuestions)
+            .where(and(eq(examQuestions.examCategory, "medtech"), or(...aliases.map((alias) => eq(examQuestions.sourceUrl, alias)))));
+          rows.push(...matchingRows);
+        }
       }
+      if (!rows.length) return Response.json({ error: "目前文件沒有可標記的題目" }, { status: 400 });
+      for (const row of rows) {
+        await db.update(examQuestions)
+          .set({ reviewStatus: "confirmed", reviewedAt: new Date() })
+          .where(and(eq(examQuestions.id, row.id), eq(examQuestions.examCategory, "medtech")));
+      }
+      const unanswered = rows.filter((row) => !/^[A-D]$/.test(String(row.teacherAnswer || row.correctAnswer || "").trim().toUpperCase())).length;
+      return Response.json({ updated: rows.length, unanswered, questionIds: rows.map((item) => item.id), reviewStatus: "confirmed" });
+    } catch (error) {
+      console.error("[medtech] bulk review confirmation failed", error);
+      return Response.json({ error: "批次校對狀態更新失敗，請稍後再試。" }, { status: 500 });
     }
-    if (!questionIds.length) return Response.json({ error: "目前文件沒有可標記的題目" }, { status: 400 });
-    const rows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer })
-      .from(examQuestions)
-      .where(and(eq(examQuestions.examCategory, "medtech"), inArray(examQuestions.id, questionIds)));
-    await db.update(examQuestions).set({ reviewStatus: "confirmed", reviewedAt: new Date() }).where(and(
-      eq(examQuestions.examCategory, "medtech"),
-      inArray(examQuestions.id, rows.map((item) => item.id)),
-    ));
-    const unanswered = rows.filter((row) => !/^[A-D]$/.test(String(row.teacherAnswer || row.correctAnswer || "").trim().toUpperCase())).length;
-    return Response.json({ updated: rows.length, unanswered, questionIds: rows.map((item) => item.id), reviewStatus: "confirmed" });
   }
   const id = Number(body.id);
   if (body.publishAllDrafts === true) {

@@ -109,6 +109,20 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     void loadOrder();
   }, [questionId]);
 
+  useEffect(() => {
+    const handleBulkReview = (event: Event) => {
+      const detail = (event as CustomEvent<{ ids?: number[]; unanswered?: number }>).detail;
+      if (!detail?.ids?.includes(questionId)) return;
+      setReviewStatus("confirmed");
+      setProofreadItem((item) => item ? { ...item, reviewStatus: "confirmed" } : item);
+      setNotice(detail.unanswered
+        ? `本題已批次校對完成；目前仍有 ${detail.unanswered} 題沒有 A～D 老師答案。`
+        : "本題已批次校對完成；目前可測試發布。");
+    };
+    window.addEventListener("medtech-bulk-review-updated", handleBulkReview);
+    return () => window.removeEventListener("medtech-bulk-review-updated", handleBulkReview);
+  }, [questionId]);
+
   async function saveOrder() {
     setOrderBusy(true);
     setNotice("正在儲存原稿順序…");

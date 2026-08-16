@@ -190,7 +190,12 @@ export function RepairMissingQuestionsButton({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ bulkConfirmReview: true, documentId }),
       });
-      const data = await response.json() as { updated?: number; unanswered?: number; error?: string };
+      const data = await response.json() as { updated?: number; unanswered?: number; questionIds?: number[]; error?: string };
+      if (response.ok) {
+        window.dispatchEvent(new CustomEvent("medtech-bulk-review-updated", {
+          detail: { ids: data.questionIds ?? [], unanswered: data.unanswered ?? 0 },
+        }));
+      }
       const blocked = data.unanswered ? `；仍有 ${data.unanswered} 題沒有 A、B、C、D 老師答案，發布會繼續阻擋` : "；目前可測試發布";
       await onDone(response.ok ? `已將 ${data.updated ?? 0} 題標記為已完成校對${blocked}。` : data.error || "批次校對狀態更新失敗。");
     } catch {
