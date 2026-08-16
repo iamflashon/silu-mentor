@@ -1,8 +1,49 @@
-import { and, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions, listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
+
+async function shiftSourceOrders(db: Awaited<ReturnType<typeof getDb>>, sourceUrl: string, minimumOrder: number, exceptId?: number) {
+  const rows = await db.select({ id: examQuestions.id, sourceOrder: examQuestions.sourceOrder })
+    .from(examQuestions)
+    .where(and(
+      eq(examQuestions.examCategory, "medtech"),
+      eq(examQuestions.sourceUrl, sourceUrl),
+      isNotNull(examQuestions.sourceOrder),
+      gte(examQuestions.sourceOrder, minimumOrder),
+      ...(exceptId ? [ne(examQuestions.id, exceptId)] : []),
+    ))
+    .orderBy(desc(examQuestions.sourceOrder));
+  for (const row of rows) {
+    const nextOrder = Number(row.sourceOrder) + 1;
+    await db.update(examQuestions).set({ sourceOrder: nextOrder }).where(eq(examQuestions.id, row.id));
+  }
+}
+
+async function repairDuplicateSourceOrders(db: Awaited<ReturnType<typeof getDb>>, sourceUrl: string) {
+  let repaired = 0;
+  for (let pass = 0; pass < 120; pass += 1) {
+    const rows = await db.select({ id: examQuestions.id, sourceOrder: examQuestions.sourceOrder, questionNumber: examQuestions.questionNumber })
+      .from(examQuestions)
+      .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, sourceUrl), isNotNull(examQuestions.sourceOrder)))
+      .orderBy(examQuestions.sourceOrder, examQuestions.id);
+    const groups = new Map<number, typeof rows>();
+    for (const row of rows) {
+      const order = Number(row.sourceOrder);
+      const group = groups.get(order) ?? [];
+      group.push(row);
+      groups.set(order, group);
+    }
+    const duplicate = [...groups.entries()].find(([, group]) => group.length > 1);
+    if (!duplicate) break;
+    const [order, group] = duplicate;
+    const keeper = group.find((row) => Number(row.questionNumber) === order) ?? group[0];
+    await shiftSourceOrders(db, sourceUrl, order, keeper.id);
+    repaired += group.length - 1;
+  }
+  return repaired;
+}
 
 export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
@@ -145,6 +186,13 @@ export async function POST(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as Record<string, unknown>;
+  if (body.repairSourceOrder === true) {
+    const sourceUrl = String(body.sourceUrl ?? "").trim();
+    if (!sourceUrl) return Response.json({ error: "缺少題目來源" }, { status: 400 });
+    const db = await getDb();
+    const repaired = await repairDuplicateSourceOrders(db, sourceUrl);
+    return Response.json({ repaired, sourceUrl });
+  }
   const documentId = Number(body.documentId);
   if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "缺少文件編號" }, { status: 400 });
   const questionNumber = String(body.questionNumber ?? "").trim();
@@ -169,8 +217,26 @@ export async function POST(request: Request) {
     .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, sourceUrl), eq(examQuestions.questionNumber, questionNumber), eq(examQuestions.stem, sanitizeRichHtml(stem))))
     .limit(1);
   if (duplicate) {
+    if (sourceOrder !== null) {
+      const sameOrder = await db.select({ id: examQuestions.id })
+        .from(examQuestions)
+        .where(and(
+          eq(examQuestions.examCategory, "medtech"),
+          eq(examQuestions.sourceUrl, sourceUrl),
+          eq(examQuestions.sourceOrder, sourceOrder),
+          ne(examQuestions.id, duplicate.id),
+        ))
+        .limit(1);
+      if (sameOrder.length) {
+        await shiftSourceOrders(db, sourceUrl, sourceOrder, duplicate.id);
+        await db.update(examQuestions).set({ sourceOrder }).where(eq(examQuestions.id, duplicate.id));
+        const [repaired] = await db.select().from(examQuestions).where(eq(examQuestions.id, duplicate.id)).limit(1);
+        return Response.json({ item: { ...repaired, options: JSON.parse(repaired.optionsJson || "{}") }, created: false, existing: true, orderRepaired: true });
+      }
+    }
     return Response.json({ item: { ...duplicate, options: JSON.parse(duplicate.optionsJson || "{}") }, created: false, existing: true });
   }
+  if (sourceOrder !== null) await shiftSourceOrders(db, sourceUrl, sourceOrder);
   const [created] = await db.insert(examQuestions).values({
     examCategory: "medtech",
     examType: "mcq",

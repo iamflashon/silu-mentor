@@ -23,6 +23,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
   const [notice, setNotice] = useState("");
   const audioInput = useRef<HTMLInputElement>(null);
   const subtitleInput = useRef<HTMLInputElement>(null);
+  const repairedDocumentId = useRef<number | null>(null);
 
   async function load() {
     const response = await fetch(`/api/medtech/admin/question-media?questionId=${questionId}`, { cache: "no-store" });
@@ -35,9 +36,21 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     const response = await fetch(`/api/medtech/admin/questions?id=${questionId}`, { cache: "no-store" });
     const data = await response.json() as { item?: { sourceUrl?: string; sourceOrder?: number | null }; error?: string };
     if (!response.ok || !data.item) return;
-    setSourceOrder(data.item.sourceOrder ?? "");
-    const documentId = Number(String(data.item.sourceUrl ?? "").replace(/^document:/, ""));
+    let item = data.item;
+    const documentId = Number(String(item.sourceUrl ?? "").replace(/^document:/, ""));
     if (!Number.isInteger(documentId) || documentId < 1) return;
+    if (repairedDocumentId.current !== documentId) {
+      repairedDocumentId.current = documentId;
+      await fetch("/api/medtech/admin/questions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repairSourceOrder: true, sourceUrl: item.sourceUrl }),
+      });
+      const refreshed = await fetch(`/api/medtech/admin/questions?id=${questionId}`, { cache: "no-store" });
+      const refreshedData = await refreshed.json() as { item?: { sourceUrl?: string; sourceOrder?: number | null } };
+      if (refreshedData.item) item = refreshedData.item;
+    }
+    setSourceOrder(item.sourceOrder ?? "");
     const firstResponse = await fetch(`/api/medtech/admin/questions?documentId=${documentId}&limit=100&page=1&order=source`, { cache: "no-store" });
     const firstData = await firstResponse.json() as { items?: OrderedQuestion[]; total?: number };
     const items = [...(firstData.items ?? [])];
