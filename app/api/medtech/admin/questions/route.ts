@@ -250,7 +250,7 @@ export async function PATCH(request: Request) {
   const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
   const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
-  const values: Record<string,string | null> = {};
+  const values: Record<string,string | number | null> = {};
   for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
   const hasTeacherAnswer = typeof body.teacherAnswer === "string";
   const teacherAnswer = hasTeacherAnswer ? String(body.teacherAnswer).trim().toUpperCase() : (typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "");
@@ -270,6 +270,10 @@ export async function PATCH(request: Request) {
     values.simulatedAnswerStatus = teacherAnswer === simulatedAnswer ? "ai_correct" : "ai_incorrect";
   }
   if (body.options && typeof body.options === "object") values.optionsJson = JSON.stringify(Object.fromEntries(Object.entries(body.options).map(([key,value])=>[key,sanitizeRichHtml(String(value))])));
+  if (body.sourceOrder !== undefined) {
+    const sourceOrder = Number(body.sourceOrder);
+    values.sourceOrder = Number.isInteger(sourceOrder) && sourceOrder > 0 ? sourceOrder : null;
+  }
   await db.update(examQuestions).set(values).where(eq(examQuestions.id, id));
   return Response.json({ updated: true });
 }
