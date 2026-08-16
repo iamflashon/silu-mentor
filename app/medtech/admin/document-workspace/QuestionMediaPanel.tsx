@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnswerConflictPanel } from "./AnswerConflictPanel";
 
 type Cue = { id: number; startSeconds: number; endSeconds: number; text: string; sequence: number };
 type Media = { solutionId: number; audioFileName: string | null; audioUrl: string; cues: Cue[] };
-type OrderedQuestion = { id: number; questionNumber: string; sourceOrder: number | null; reviewStatus?: "pending" | "confirmed"; status?: string };
+type OrderedQuestion = { id: number; questionNumber: string; sourceOrder: number | null; reviewStatus?: "pending" | "confirmed"; status?: string; teacherAnswer?: string; correctAnswer?: string | null; simulatedAnswer?: string; simulatedTeacherNote?: string };
 
 function formatTime(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
@@ -19,6 +20,9 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
   const [nextQuestion, setNextQuestion] = useState<OrderedQuestion | null>(null);
   const [reviewStatus, setReviewStatus] = useState<"pending" | "confirmed">("pending");
   const [questionStatus, setQuestionStatus] = useState("draft");
+  const [teacherAnswer, setTeacherAnswer] = useState("");
+  const [simulatedAnswer, setSimulatedAnswer] = useState("");
+  const [simulatedTeacherNote, setSimulatedTeacherNote] = useState("");
   const [activeCue, setActiveCue] = useState<Cue | null>(null);
   const [busy, setBusy] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
@@ -36,11 +40,14 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
 
   async function loadOrder() {
     const response = await fetch(`/api/medtech/admin/questions?id=${questionId}`, { cache: "no-store" });
-    const data = await response.json() as { item?: { sourceUrl?: string; sourceOrder?: number | null; reviewStatus?: "pending" | "confirmed"; status?: string }; error?: string };
+    const data = await response.json() as { item?: { sourceUrl?: string; sourceOrder?: number | null; reviewStatus?: "pending" | "confirmed"; status?: string; teacherAnswer?: string; correctAnswer?: string | null; simulatedAnswer?: string; simulatedTeacherNote?: string }; error?: string };
     if (!response.ok || !data.item) return;
     let item = data.item;
     setReviewStatus(item.reviewStatus === "confirmed" ? "confirmed" : "pending");
     setQuestionStatus(item.status ?? "draft");
+    setTeacherAnswer(String(item.teacherAnswer || item.correctAnswer || "").trim().toUpperCase());
+    setSimulatedAnswer(String(item.simulatedAnswer || "").trim().toUpperCase());
+    setSimulatedTeacherNote(String(item.simulatedTeacherNote || "").trim());
     const documentId = Number(String(item.sourceUrl ?? "").replace(/^document:/, ""));
     if (!Number.isInteger(documentId) || documentId < 1) return;
     if (repairedDocumentId.current !== documentId) {
@@ -88,6 +95,9 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     setActiveCue(null);
     setReviewStatus("pending");
     setQuestionStatus("draft");
+    setTeacherAnswer("");
+    setSimulatedAnswer("");
+    setSimulatedTeacherNote("");
     setNotice("");
     void load();
     void loadOrder();
@@ -223,6 +233,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       <div><b>{reviewStatus === "confirmed" ? "本題已校對" : "本題尚未校對"}</b><small>{questionStatus === "published" ? "目前已發布；取消校對會立即下架。" : "只有確認校對後，才能發布到學生端。"}</small></div>
       <button type="button" className={reviewStatus === "confirmed" ? "danger" : "primary"} disabled={orderBusy} onClick={() => void updateReview(reviewStatus === "confirmed" ? "cancelReview" : "confirmReview")}>{reviewStatus === "confirmed" ? questionStatus === "published" ? "取消校對並下架" : "取消校對" : "確認校對完成"}</button>
     </div>
+    <AnswerConflictPanel questionId={questionId} questionNumber={questionNumber} teacherAnswer={teacherAnswer} aiAnswer={simulatedAnswer} note={simulatedTeacherNote} onUpdated={(item) => { const nextTeacherAnswer = String(item.teacherAnswer || item.correctAnswer || teacherAnswer).trim().toUpperCase(); const nextAiAnswer = String(item.simulatedAnswer || simulatedAnswer).trim().toUpperCase(); setTeacherAnswer(nextTeacherAnswer); setSimulatedAnswer(nextAiAnswer); setSimulatedTeacherNote(String(item.simulatedTeacherNote || "").trim()); window.dispatchEvent(new CustomEvent("medtech-question-review-updated", { detail: { id: questionId, item } })); }} />
     <div className="question-order-panel">
       <div><b>原稿順序</b><small>目前清單依此欄位排列；題號可以和原稿順序不同。</small></div>
       <input type="number" min="1" value={sourceOrder} onChange={(event) => setSourceOrder(event.target.value ? Number(event.target.value) : "")} aria-label="原稿順序" />

@@ -39,13 +39,15 @@ export async function POST(request: Request) {
   }
 
   const options = JSON.parse(question.optionsJson || "{}") as Record<string, string>;
+  const teacherAnswer = String(question.teacherAnswer || question.correctAnswer || "").trim().toUpperCase();
+  const hasTeacherAnswer = /^[A-D]$/.test(teacherAnswer);
   const model = await getOpenAIModel("gpt-5.6-luna");
   const payload = await openAIJson("/responses", {
     method: "POST",
     body: JSON.stringify({
       model,
-      instructions: "你是台灣醫事檢驗師國考的獨立擬答模型。這是一題目前沒有公布標準答案的全真模擬題，請先像考生一樣獨立作答，再寫出可供老師核對的解析。絕對不要把推論說成官方答案，也不要捏造法規、研究、教材頁碼或外部來源。輸出的 simulatedAnswer 只能是 A、B、C、D 其中一個；simulatedExplanation 是簡短的模擬解析；simulatedCompleteExplanation 是口語、完整、可供老師修改與日後錄音的完整解析，應包含判斷關鍵與逐項說明 A 到 D；simulatedSource 固定說明依據與不確定性。所有文字使用繁體中文，不使用 Markdown 表格、星號或『AI 生成』字樣。",
-      input: `科目：${question.subject}\n年份：${question.year}\n題號：${question.questionNumber}\n題幹：${plain(question.stem)}\n選項：${JSON.stringify(Object.fromEntries(Object.entries(options).map(([key, value]) => [key, plain(value)])))}\n題目原有簡要解析（僅供參考，不能視為標準答案）：${plain(question.explanation) || "無"}`,
+      instructions: `你是台灣醫事檢驗師國考的獨立擬答模型。請先依醫學與檢驗原理獨立判斷答案，再寫出可供老師核對的解析。${hasTeacherAnswer ? `本題目前已有老師／既有答案「${teacherAnswer}」，只能作為比對對象，不得為了迎合它而改變你的獨立判斷；若不同，必須在 simulatedSource 明確寫出「AI 與老師答案不同，需人工確認」，並說明差異原因。` : "本題目前沒有老師答案，請保留待校對狀態。"}絕對不要把推論說成官方答案，也不要捏造法規、研究、教材頁碼或外部來源。輸出的 simulatedAnswer 只能是 A、B、C、D 其中一個；simulatedExplanation 是簡短的模擬解析；simulatedCompleteExplanation 是口語、完整、可供老師修改與日後錄音的完整解析，應包含判斷關鍵與逐項說明 A 到 D；simulatedSource 固定說明依據、不確定性，以及有答案衝突時的警告。所有文字使用繁體中文，不使用 Markdown 表格、星號或『AI 生成』字樣。`,
+      input: `科目：${question.subject}\n年份：${question.year}\n題號：${question.questionNumber}\n題幹：${plain(question.stem)}\n選項：${JSON.stringify(Object.fromEntries(Object.entries(options).map(([key, value]) => [key, plain(value)])))}\n老師／既有答案（僅供比對）：${hasTeacherAnswer ? teacherAnswer : "尚未設定"}\n題目原有簡要解析（僅供參考，不能視為標準答案）：${plain(question.explanation) || "無"}`,
       text: { format: { type: "json_schema", name: "medtech_simulated_answer", strict: true, schema: {
         type: "object",
         additionalProperties: false,
@@ -76,7 +78,7 @@ export async function POST(request: Request) {
     simulatedCompleteExplanation: sanitizeRichHtml(simulatedCompleteExplanation),
     aiCompleteExplanation: sanitizeRichHtml(simulatedCompleteExplanation),
     simulatedSource: sanitizeRichHtml(simulatedSource),
-    simulatedAnswerStatus: question.correctAnswer ? (simulatedAnswer === question.correctAnswer ? "ai_correct" : "ai_incorrect") : "pending_review",
+    simulatedAnswerStatus: hasTeacherAnswer ? (simulatedAnswer === teacherAnswer ? "ai_correct" : "conflict_pending") : "pending_review",
     reviewStatus: "pending",
     reviewedAt: null,
     ...(question.status === "published" ? { status: "disabled" } : {}),
@@ -91,5 +93,5 @@ export async function POST(request: Request) {
     fileSearchCalls: 0,
     estimatedCostUsdMicros: 0,
   }).catch(() => undefined);
-  return Response.json({ item: updated, generated: true, model, usage: { inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } });
+  return Response.json({ item: updated, generated: true, answerConflict: hasTeacherAnswer && simulatedAnswer !== teacherAnswer, model, usage: { inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } });
 }
