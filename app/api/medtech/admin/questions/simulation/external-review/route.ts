@@ -1,9 +1,18 @@
 import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../../../../../../../db";
 import { examQuestions, medtechQuestionEvidenceReviews, usageLogs } from "../../../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../../../lib/member-auth";
 import { getOpenAIKey, getOpenAIModel, openAIJson } from "../../../../../../../lib/openai";
 
 type Citation = { title: string; url: string };
+type EvidenceAttachment = {
+  id: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  storageKey?: string;
+  url?: string;
+};
 type EvidenceReview = {
   questionFound: "yes" | "no" | "unclear";
   answerAssessment: "teacher" | "ai" | "ambiguous" | "insufficient";
@@ -21,6 +30,7 @@ type EvidenceReview = {
   matchedPhrases: string[];
   limitations: string;
   manualEvidence?: string;
+  attachments: EvidenceAttachment[];
   citations: Citation[];
   searchedAt: string;
   model: string;
@@ -84,11 +94,47 @@ function parseStored(value: string) {
   try { return JSON.parse(value) as EvidenceReview; } catch { return null; }
 }
 
+function clientReview(review: EvidenceReview, questionId: number) {
+  return {
+    ...review,
+    attachments: (Array.isArray(review.attachments) ? review.attachments : []).map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      contentType: attachment.contentType,
+      sizeBytes: attachment.sizeBytes,
+      url: `/api/medtech/admin/questions/simulation/external-review/attachment?questionId=${questionId}&attachmentId=${encodeURIComponent(attachment.id)}`,
+    })),
+  };
+}
+
+function safeFileName(value: string) {
+  return String(value || "evidence-image").replace(/[^a-zA-Z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 90) || "evidence-image";
+}
+
 function urlsFromText(value: string) {
   return [...new Set(value.match(/https?:\/\/[^\s<>()\[\]"']+/giu) ?? [])].slice(0, 12).map((url) => ({
     title: "使用者貼上的外部來源",
     url: url.replace(/[.,;，。；、]+$/u, ""),
   }));
+}
+
+async function attachmentHistory(db: Awaited<ReturnType<typeof getDb>>, questionId: number) {
+  const rows = await db.select({ resultJson: medtechQuestionEvidenceReviews.resultJson })
+    .from(medtechQuestionEvidenceReviews)
+    .where(eq(medtechQuestionEvidenceReviews.questionId, questionId))
+    .orderBy(desc(medtechQuestionEvidenceReviews.createdAt))
+    .limit(50);
+  const byId = new Map<string, EvidenceAttachment>();
+  let latestManualEvidence = "";
+  for (const row of rows) {
+    const review = parseStored(row.resultJson);
+    if (!review) continue;
+    if (!latestManualEvidence && review.manualEvidence) latestManualEvidence = review.manualEvidence;
+    for (const attachment of Array.isArray(review.attachments) ? review.attachments : []) {
+      if (attachment.id && attachment.storageKey && !byId.has(attachment.id)) byId.set(attachment.id, attachment);
+    }
+  }
+  return { attachments: [...byId.values()].slice(0, 12), latestManualEvidence };
 }
 
 export async function GET(request: Request) {
@@ -100,13 +146,27 @@ export async function GET(request: Request) {
     .where(eq(medtechQuestionEvidenceReviews.questionId, id))
     .orderBy(desc(medtechQuestionEvidenceReviews.createdAt))
     .limit(1);
-  return Response.json({ review: rows[0] ? parseStored(rows[0].resultJson) : null });
+  const review = rows[0] ? parseStored(rows[0].resultJson) : null;
+  if (!review) return Response.json({ review: null });
+  const history = await attachmentHistory(auth.db, id);
+  return Response.json({ review: clientReview({ ...review, manualEvidence: review.manualEvidence || history.latestManualEvidence, attachments: history.attachments }, id) });
 }
 
 export async function POST(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { id?: number; mode?: "web" | "manual" | "save"; evidenceText?: string; review?: unknown };
+  type Body = { id?: number; mode?: "web" | "manual" | "save"; evidenceText?: string; review?: unknown; keepAttachmentIds?: string[] };
+  let body: Body;
+  let imageFiles: File[] = [];
+  if ((request.headers.get("content-type") || "").includes("multipart/form-data")) {
+    const form = await request.formData();
+    let keepAttachmentIds: string[] = [];
+    try { keepAttachmentIds = JSON.parse(String(form.get("keepAttachmentIds") || "[]")) as string[]; } catch { keepAttachmentIds = []; }
+    imageFiles = form.getAll("attachments").filter((item): item is File => typeof item !== "string" && typeof (item as File).stream === "function");
+    body = { id: Number(form.get("id")), mode: String(form.get("mode") || "manual") as Body["mode"], evidenceText: String(form.get("evidenceText") || ""), keepAttachmentIds };
+  } else {
+    body = await request.json() as Body;
+  }
   const id = Number(body.id);
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
   const [question] = await auth.db.select().from(examQuestions).where(and(
@@ -133,18 +193,41 @@ export async function POST(request: Request) {
 
   if (body.mode === "manual") {
     const manualEvidence = String(body.evidenceText ?? "").trim().slice(0, 20_000);
-    if (manualEvidence.length < 10) return Response.json({ error: "請先貼上至少一段外部搜尋結果或查核備註。" }, { status: 400 });
+    const history = await attachmentHistory(auth.db, id);
+    const keepIds = Array.isArray(body.keepAttachmentIds) ? new Set(body.keepAttachmentIds.map(String)) : new Set(history.attachments.map((attachment) => attachment.id));
+    const retainedAttachments = history.attachments.filter((attachment) => keepIds.has(attachment.id));
+    if (manualEvidence.length < 10 && retainedAttachments.length === 0 && imageFiles.length === 0) return Response.json({ error: "請先貼上查核文字，或新增至少一張圖片證據。" }, { status: 400 });
+    if (imageFiles.length > 12 || retainedAttachments.length + imageFiles.length > 12) return Response.json({ error: "同一題最多保存 12 張圖片證據。" }, { status: 413 });
+    const totalImageBytes = imageFiles.reduce((sum, file) => sum + file.size, 0);
+    if (imageFiles.some((file) => !file.type.startsWith("image/"))) return Response.json({ error: "人工查核證據目前只接受圖片檔。" }, { status: 415 });
+    if (imageFiles.some((file) => file.size < 1 || file.size > 8 * 1024 * 1024) || totalImageBytes > 48 * 1024 * 1024) return Response.json({ error: "每張圖片最多 8MB，這次新增圖片合計最多 48MB。" }, { status: 413 });
+
+    const newAttachments: EvidenceAttachment[] = [];
+    const { env } = await import("cloudflare:workers");
+    if (imageFiles.length && !env.BUCKET) return Response.json({ error: "圖片儲存空間尚未就緒。" }, { status: 503 });
+    try {
+      for (const file of imageFiles) {
+        const attachmentId = crypto.randomUUID();
+        const storageKey = `medtech/evidence/${id}/${attachmentId}-${safeFileName(file.name)}`;
+        await env.BUCKET.put(storageKey, file.stream(), { httpMetadata: { contentType: file.type }, customMetadata: { questionId: String(id), attachmentId } });
+        newAttachments.push({ id: attachmentId, name: file.name || "查核截圖", contentType: file.type, sizeBytes: file.size, storageKey });
+      }
+    } catch (error) {
+      for (const attachment of newAttachments) await env.BUCKET.delete(attachment.storageKey!).catch(() => undefined);
+      return Response.json({ error: error instanceof Error ? error.message : "圖片證據保存失敗。" }, { status: 502 });
+    }
     const review: EvidenceReview = {
       questionFound: "unclear",
       answerAssessment: "insufficient",
-      answerReason: "這是人工貼上的外部資料，系統沒有替你判定老師或 AI 哪個答案正確。",
+      answerReason: "這是人工貼上的外部資料與圖片證據，系統沒有替你判定老師或 AI 哪個答案正確。",
       leakageRisk: "insufficient",
       leakageReason: "僅保存查核資料，沒有足夠機制直接認定抄襲或外洩。請由老師比對題幹來源、出版時間與授權狀態。",
-      searchSummary: "已保存人工貼上的外部搜尋結果；未呼叫 AI，也未啟動付費外部搜尋。",
+      searchSummary: newAttachments.length ? `已保存人工貼上的外部搜尋結果與 ${newAttachments.length} 張圖片證據；未呼叫 AI，也未啟動付費外部搜尋。` : "已保存人工貼上的外部搜尋結果；未呼叫 AI，也未啟動付費外部搜尋。",
       candidateSources: [],
       matchedPhrases: [],
       limitations: "人工貼上內容需要老師自行核對；這筆紀錄不代表外部來源已經驗證。",
-      manualEvidence,
+      manualEvidence: manualEvidence || "（僅附圖片證據，尚未補充文字說明。）",
+      attachments: [...retainedAttachments, ...newAttachments],
       citations: urlsFromText(manualEvidence),
       searchedAt: new Date().toISOString(),
       model: "manual",
@@ -157,7 +240,7 @@ export async function POST(request: Request) {
       queryText: `題目 ${question.questionNumber}｜人工貼上外部查核資料`,
       resultJson: JSON.stringify(review),
     });
-    return Response.json({ review, questionId: id });
+    return Response.json({ review: clientReview(review, id), questionId: id });
   }
 
   const key = await getOpenAIKey();
@@ -258,6 +341,7 @@ export async function POST(request: Request) {
     candidateSources,
     matchedPhrases: (Array.isArray(parsed.matchedPhrases) ? parsed.matchedPhrases : []).map((item) => String(item).slice(0, 180)).filter(Boolean).slice(0, 5),
     limitations: String(parsed.limitations || "搜尋結果不等於抄襲認定；仍需由老師比對原始題源、出版時間與授權狀態。").slice(0, 1200),
+    attachments: [],
     citations,
     searchedAt: new Date().toISOString(),
     model,
@@ -271,5 +355,5 @@ export async function POST(request: Request) {
     fileSearchCalls: 0,
     estimatedCostUsdMicros,
   }).catch(() => undefined);
-  return Response.json({ review, questionId: id });
+  return Response.json({ review: clientReview(review, id), questionId: id });
 }

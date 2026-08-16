@@ -5,7 +5,7 @@ import { RichQuestionEditor } from "../RichQuestionEditor";
 import { QuestionMediaPanel } from "./QuestionMediaPanel";
 import { ManualQuestionDialog } from "./ManualQuestionDialog";
 import { RepairMissingQuestionsButton } from "./RepairMissingQuestionsButton";
-import "../question-bank.css";import "../question-workbench.css";import "./page.css";import "./library.css";
+import "../question-bank.css";import "../question-workbench.css";import "./page.css";import "./library.css";import "./evidence.css";
 type Question={id:number;year:string;subject:string;questionNumber:string;stem:string;options:Record<string,string>;correctAnswer:string|null;teacherAnswer?:string;explanation:string;aiCompleteExplanation?:string;teacherCompleteExplanation?:string;completeExplanation?:string;voiceScript?:string;narrationScript?:string;answerSource:string;status:string;reviewStatus?:"pending"|"confirmed";reviewedAt?:string|Date|null;isSimulation?:boolean;simulatedAnswer?:string;simulatedExplanation?:string;simulatedCompleteExplanation?:string;simulatedSource?:string;simulatedAnswerStatus?:string;simulatedTeacherNote?:string;sourceOrder?:number|null};
 type SourceVariant={kind:string;fileName:string;contentType?:string;sizeBytes?:number;storageKey?:string};
 type Doc={id:number;name:string;subject:string;type:string;processingStage:string;questionCount:number;indexedQuestionCount?:number;sourceVariants?:SourceVariant[]};
