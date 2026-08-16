@@ -380,6 +380,22 @@ export const examQuestions = sqliteTable("exam_questions", {
     .$defaultFn(() => new Date()),
 });
 
+export const medtechQuestionEvidenceReviews = sqliteTable("medtech_question_evidence_reviews", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  questionId: integer("question_id")
+    .notNull()
+    .references(() => examQuestions.id, { onDelete: "cascade" }),
+  reviewer: text("reviewer").notNull().default(""),
+  provider: text("provider").notNull().default("openai_web_search"),
+  queryText: text("query_text").notNull().default(""),
+  resultJson: text("result_json").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => [
+  index("medtech_question_evidence_reviews_question_idx").on(table.questionId, table.createdAt),
+]);
+
 export const medtechAiExplanationCache = sqliteTable("medtech_ai_explanation_cache", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   cacheKey: text("cache_key").notNull().unique(),
