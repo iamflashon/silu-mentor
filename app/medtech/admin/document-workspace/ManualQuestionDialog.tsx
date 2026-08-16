@@ -118,6 +118,7 @@ export function ManualQuestionDialog({
         setError(data.error || "新增題目失敗");
         return;
       }
+      window.dispatchEvent(new CustomEvent("medtech-question-created", { detail: { id: data.item.id } }));
       onCreated(data.item);
       setOpen(false);
       reset();

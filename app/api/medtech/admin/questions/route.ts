@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documents, examQuestions } from "../../../../../db/schema";
+import { documents, examQuestions, listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
@@ -118,7 +118,9 @@ export async function GET(request: Request) {
     eq(examQuestions.examType, "mcq"),
     eq(examQuestions.status, "draft"),
   ));
-  const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0 ? asc(examQuestions.sourceOrder) : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
+  const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0
+    ? sql`CASE WHEN ${examQuestions.sourceOrder} IS NULL THEN 1 ELSE 0 END, ${examQuestions.sourceOrder} ASC, ${examQuestions.id} ASC`
+    : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
   const facets = await db.select({ year: examQuestions.year, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech"));
   return Response.json({
     items: items.map(item => {
@@ -163,11 +165,12 @@ export async function POST(request: Request) {
     .limit(1);
   if (!document) return Response.json({ error: "找不到指定的醫檢文件" }, { status: 404 });
   const sourceUrl = `document:${document.id}`;
-  const [duplicate] = await db.select({ id: examQuestions.id })
-    .from(examQuestions)
+  const [duplicate] = await db.select().from(examQuestions)
     .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, sourceUrl), eq(examQuestions.questionNumber, questionNumber), eq(examQuestions.stem, sanitizeRichHtml(stem))))
     .limit(1);
-  if (duplicate) return Response.json({ error: "這題已存在，請改用編輯既有題目" }, { status: 409 });
+  if (duplicate) {
+    return Response.json({ item: { ...duplicate, options: JSON.parse(duplicate.optionsJson || "{}") }, created: false, existing: true });
+  }
   const [created] = await db.insert(examQuestions).values({
     examCategory: "medtech",
     examType: "mcq",
@@ -274,8 +277,46 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const { id } = await request.json() as { id?: number };
+  const { id: rawId } = await request.json() as { id?: number };
+  const id = Number(rawId);
+  if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少有效題目編號" }, { status: 400 });
   const db = await getDb();
-  await db.delete(examQuestions).where(and(eq(examQuestions.id, Number(id)), eq(examQuestions.examCategory, "medtech")));
-  return Response.json({ deleted: true });
+  const [question] = await db.select({ id: examQuestions.id, sourceUrl: examQuestions.sourceUrl })
+    .from(examQuestions)
+    .where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech")))
+    .limit(1);
+  if (!question) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
+
+  const solutions = await db.select({ id: listeningSolutions.id, audioStorageKey: listeningSolutions.audioStorageKey })
+    .from(listeningSolutions)
+    .where(eq(listeningSolutions.questionId, id));
+  const segments = solutions.length
+    ? await db.select({ storageKey: listeningAudioSegments.storageKey })
+      .from(listeningAudioSegments)
+      .where(inArray(listeningAudioSegments.listeningId, solutions.map((solution) => solution.id)))
+    : [];
+  try {
+    const { env } = await import("cloudflare:workers");
+    for (const solution of solutions) if (solution.audioStorageKey) await env.BUCKET.delete(solution.audioStorageKey).catch(() => undefined);
+    for (const segment of segments) await env.BUCKET.delete(segment.storageKey).catch(() => undefined);
+  } catch {
+    // The database delete should still succeed if object storage cleanup is unavailable.
+  }
+  for (const solution of solutions) {
+    await db.delete(listeningSubtitleCues).where(eq(listeningSubtitleCues.listeningId, solution.id));
+    await db.delete(listeningAudioSegments).where(eq(listeningAudioSegments.listeningId, solution.id));
+  }
+  await db.delete(listeningSolutions).where(eq(listeningSolutions.questionId, id));
+  await db.delete(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech")));
+
+  const documentId = Number(question.sourceUrl.replace(/^document:/, ""));
+  if (Number.isInteger(documentId) && documentId > 0) {
+    const [nextCount] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions)
+      .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${documentId}`)));
+    await db.update(documents).set({
+      questionCount: Number(nextCount?.total ?? 0),
+      processingMessage: `已刪除題目，目前共 ${Number(nextCount?.total ?? 0)} 題`,
+    }).where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")));
+  }
+  return Response.json({ deleted: true, id });
 }

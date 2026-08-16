@@ -53,12 +53,36 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     }
   }
 
+  async function deleteQuestion() {
+    if (!window.confirm(`確定刪除第 ${questionNumber || questionId} 題？題目內容、解析、語音檔與字幕都會刪除，且無法復原。`)) return;
+    setBusy(true);
+    setNotice("正在刪除本題…");
+    try {
+      const response = await fetch("/api/medtech/admin/questions", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: questionId }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) {
+        setNotice(data.error ?? "刪除失敗");
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setNotice("刪除失敗，請稍後再試。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return <section className="question-media-panel">
     <div className="question-media-head">
       <div><h2>語音檔與字幕</h2><p>本題音檔、SRT 與題目 ID 綁定；播放時會在下方同步顯示字幕。</p></div>
       <div className="question-media-actions">
         <label className="question-media-button"><input ref={audioInput} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.webm" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "audio"); }} />{busy ? "處理中…" : media?.audioFileName ? "更換語音檔" : "上傳語音檔"}</label>
         <label className="question-media-button secondary"><input ref={subtitleInput} type="file" accept=".srt,application/x-subrip,text/plain" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "subtitle"); }} />上傳 SRT</label>
+        <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>
       </div>
     </div>
     {notice && <p className="question-media-notice">{notice}</p>}
