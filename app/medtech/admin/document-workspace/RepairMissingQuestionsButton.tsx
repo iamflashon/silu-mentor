@@ -181,5 +181,24 @@ export function RepairMissingQuestionsButton({
     }
   }
 
-  return <><button type="button" className="repair-missing-button" disabled={disabled || busy} onClick={() => void repair()}>{busy ? "處理中…" : "校對原稿答案／補缺題"}</button><label className="workspace-zip-upload"><input ref={voiceZipInput} hidden type="file" accept=".zip" disabled={disabled || busy} onChange={event => { const file = event.target.files?.[0]; if (file) void uploadVoiceZip(file); }} />上傳語音包 ZIP</label></>;
+  async function bulkConfirmReview() {
+    if (!confirm(`確定將這份文件的全部題目標記為「已完成校對」嗎？這是測試發布用的批次操作，會略過逐題校對檢查。`)) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/medtech/admin/questions", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bulkConfirmReview: true, documentId }),
+      });
+      const data = await response.json() as { updated?: number; answersFilled?: number; error?: string };
+      const filled = data.answersFilled ? `，其中 ${data.answersFilled} 題暫以 AI 擬答作為測試答案` : "";
+      await onDone(response.ok ? `已將 ${data.updated ?? 0} 題標記為已完成校對${filled}；現在可以測試發布。` : data.error || "批次校對狀態更新失敗。");
+    } catch {
+      await onDone("批次校對狀態更新失敗，請稍後再試。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <><button type="button" className="repair-missing-button" disabled={disabled || busy} onClick={() => void repair()}>{busy ? "處理中…" : "校對原稿答案／補缺題"}</button><label className="workspace-zip-upload"><input ref={voiceZipInput} hidden type="file" accept=".zip" disabled={disabled || busy} onChange={event => { const file = event.target.files?.[0]; if (file) void uploadVoiceZip(file); }} />上傳語音包 ZIP</label><button type="button" className="ai-batch-button" disabled={disabled || busy} onClick={() => void bulkConfirmReview()}>{busy ? "批次校對中…" : "一鍵全部校對完成（測試）"}</button></>;
 }

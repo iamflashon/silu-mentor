@@ -298,8 +298,47 @@ export async function PATCH(request: Request) {
     }
     return Response.json({ replaced: true, matched, updated: matched, find: replaceFind, replaceWith: replacement });
   }
-  const id = Number(body.id);
   const db = await getDb();
+  if (body.bulkConfirmReview === true) {
+    let questionIds = Array.isArray(body.questionIds)
+      ? [...new Set(body.questionIds.map((value: unknown) => Number(value)).filter((value: number) => Number.isInteger(value) && value > 0))]
+      : [];
+    if (!questionIds.length) {
+      const documentId = Number(body.documentId);
+      if (Number.isInteger(documentId) && documentId > 0) {
+        const [document] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName })
+          .from(documents)
+          .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
+          .limit(1);
+        if (!document) return Response.json({ error: "找不到指定的醫檢文件" }, { status: 404 });
+        const aliases = [...new Set([`document:${documentId}`, document.storageKey, document.fileName].filter((value): value is string => Boolean(value)))];
+        const rows = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(
+          eq(examQuestions.examCategory, "medtech"),
+          or(...aliases.map((alias) => eq(examQuestions.sourceUrl, alias))),
+        ));
+        questionIds = rows.map((row) => row.id);
+      }
+    }
+    if (!questionIds.length) return Response.json({ error: "目前文件沒有可標記的題目" }, { status: 400 });
+    const rows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, simulatedAnswer: examQuestions.simulatedAnswer })
+      .from(examQuestions)
+      .where(and(eq(examQuestions.examCategory, "medtech"), inArray(examQuestions.id, questionIds)));
+    let answersFilled = 0;
+    for (const row of rows) {
+      const existingAnswer = String(row.teacherAnswer || row.correctAnswer || "").trim().toUpperCase();
+      const aiAnswer = String(row.simulatedAnswer || "").trim().toUpperCase();
+      const values: Record<string, string | Date> = { reviewStatus: "confirmed", reviewedAt: new Date() };
+      if (!/^[A-D]$/.test(existingAnswer) && /^[A-D]$/.test(aiAnswer)) {
+        values.teacherAnswer = aiAnswer;
+        values.correctAnswer = aiAnswer;
+        values.answerSource = "測試批次：沿用 AI 擬答";
+        answersFilled += 1;
+      }
+      await db.update(examQuestions).set(values).where(eq(examQuestions.id, row.id));
+    }
+    return Response.json({ updated: rows.length, answersFilled, questionIds: rows.map((item) => item.id), reviewStatus: "confirmed" });
+  }
+  const id = Number(body.id);
   if (body.publishAllDrafts === true) {
     const draftRows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, reviewStatus: examQuestions.reviewStatus })
       .from(examQuestions).where(and(
@@ -323,7 +362,7 @@ export async function PATCH(request: Request) {
     if (!rows.length && draftRows.length) {
       const reasons = [
         skippedUnreviewed ? `${skippedUnreviewed} 題尚未按「確認校對完成」` : "",
-        skippedUnanswered ? `${skippedUnanswered} 題尚未設定有效的老師答案` : "",
+        skippedUnanswered ? `${skippedUnanswered} 題尚未設定有效的老師答案（需為 A、B、C 或 D）` : "",
       ].filter(Boolean).join("；");
       return Response.json({ error: `尚未發布任何題目：${reasons || "請先完成答案與解析校對"}。`, updated: 0, skippedUnreviewed, skippedUnanswered, status: "draft" }, { status: 409 });
     }
