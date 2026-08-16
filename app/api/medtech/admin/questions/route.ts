@@ -54,12 +54,14 @@ function hasTeacherAnswer(question: { teacherAnswer?: string | null; correctAnsw
   return /^[A-D]$/i.test(String(question.teacherAnswer || question.correctAnswer || "").trim());
 }
 
-function hasPublishableAnswer(question: { teacherAnswer?: string | null; correctAnswer?: string | null; reviewStatus?: string | null; examName?: string | null; simulatedAnswer?: string | null }) {
-  // A teacher answer is already an explicit answer confirmation. AI text or
-  // AI-only answers still require the existing review flow before publishing.
+function hasPublishableAnswer(question: { teacherAnswer?: string | null; correctAnswer?: string | null; reviewStatus?: string | null; examName?: string | null; subject?: string | null; simulatedAnswer?: string | null }) {
+  // A teacher answer is already an explicit answer confirmation. For full
+  // simulation questions, a reviewed AI answer is also publishable even when
+  // the teacher-answer field is intentionally left blank.
   if (hasTeacherAnswer(question)) return true;
+  const sourceText = `${question.examName ?? ""} ${question.subject ?? ""}`;
   return question.reviewStatus === "confirmed"
-    && /全真模擬試題/u.test(String(question.examName ?? ""))
+    && /全真模擬|模擬試題/u.test(sourceText)
     && /^[A-D]$/i.test(String(question.simulatedAnswer ?? "").trim());
 }
 
@@ -368,7 +370,7 @@ export async function PATCH(request: Request) {
     if (!document) return Response.json({ error: "找不到指定的醫檢文件" }, { status: 404 });
     const documentSources = [...new Set([`document:${document.id}`, document.storageKey, document.fileName].filter((value): value is string => Boolean(value)))];
     const sourceFilter = or(...documentSources.map((source) => eq(examQuestions.sourceUrl, source)));
-    const draftRows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, reviewStatus: examQuestions.reviewStatus, examName: examQuestions.examName, simulatedAnswer: examQuestions.simulatedAnswer })
+    const draftRows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, reviewStatus: examQuestions.reviewStatus, examName: examQuestions.examName, subject: examQuestions.subject, simulatedAnswer: examQuestions.simulatedAnswer })
       .from(examQuestions).where(and(
       eq(examQuestions.examCategory, "medtech"),
       eq(examQuestions.examType, "mcq"),
