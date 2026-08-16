@@ -379,6 +379,13 @@
       "when": 1786848543611,
       "tag": "0053_white_hitman",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1786855232990,
+      "tag": "0054_third_scalphunter",
+      "breakpoints": true
     }
   ]
 }

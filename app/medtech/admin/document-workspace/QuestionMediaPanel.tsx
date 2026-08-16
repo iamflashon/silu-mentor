@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 type Cue = { id: number; startSeconds: number; endSeconds: number; text: string; sequence: number };
 type Media = { solutionId: number; audioFileName: string | null; audioUrl: string; cues: Cue[] };
-type OrderedQuestion = { id: number; questionNumber: string; sourceOrder: number | null };
+type OrderedQuestion = { id: number; questionNumber: string; sourceOrder: number | null; reviewStatus?: "pending" | "confirmed"; status?: string };
 
 function formatTime(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
@@ -17,6 +17,8 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
   const [sourceOrder, setSourceOrder] = useState<number | "">("");
   const [previousQuestion, setPreviousQuestion] = useState<OrderedQuestion | null>(null);
   const [nextQuestion, setNextQuestion] = useState<OrderedQuestion | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<"pending" | "confirmed">("pending");
+  const [questionStatus, setQuestionStatus] = useState("draft");
   const [activeCue, setActiveCue] = useState<Cue | null>(null);
   const [busy, setBusy] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
@@ -34,9 +36,11 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
 
   async function loadOrder() {
     const response = await fetch(`/api/medtech/admin/questions?id=${questionId}`, { cache: "no-store" });
-    const data = await response.json() as { item?: { sourceUrl?: string; sourceOrder?: number | null }; error?: string };
+    const data = await response.json() as { item?: { sourceUrl?: string; sourceOrder?: number | null; reviewStatus?: "pending" | "confirmed"; status?: string }; error?: string };
     if (!response.ok || !data.item) return;
     let item = data.item;
+    setReviewStatus(item.reviewStatus === "confirmed" ? "confirmed" : "pending");
+    setQuestionStatus(item.status ?? "draft");
     const documentId = Number(String(item.sourceUrl ?? "").replace(/^document:/, ""));
     if (!Number.isInteger(documentId) || documentId < 1) return;
     if (repairedDocumentId.current !== documentId) {
@@ -82,6 +86,8 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
   useEffect(() => {
     setMedia(null);
     setActiveCue(null);
+    setReviewStatus("pending");
+    setQuestionStatus("draft");
     setNotice("");
     void load();
     void loadOrder();
@@ -101,6 +107,30 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       window.location.reload();
     } catch {
       setNotice("原稿順序儲存失敗，請稍後再試。");
+    } finally {
+      setOrderBusy(false);
+    }
+  }
+
+  async function updateReview(action: "confirmReview" | "cancelReview") {
+    if (action === "confirmReview" && !window.confirm(`確定第 ${questionNumber || questionId} 題的答案與解析都已經校對完成嗎？`)) return;
+    setOrderBusy(true);
+    setNotice(action === "confirmReview" ? "正在確認校對狀態…" : "正在取消校對並關閉公開內容…");
+    try {
+      const response = await fetch("/api/medtech/admin/questions", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: questionId, [action]: true }),
+      });
+      const data = await response.json() as { item?: { reviewStatus?: "pending" | "confirmed"; status?: string }; error?: string; unpublished?: boolean };
+      if (!response.ok) { setNotice(data.error ?? "校對狀態更新失敗"); return; }
+      const nextReviewStatus = action === "confirmReview" ? "confirmed" : "pending";
+      setReviewStatus(nextReviewStatus);
+      setQuestionStatus(data.item?.status ?? (action === "cancelReview" && data.unpublished ? "disabled" : questionStatus));
+      window.dispatchEvent(new CustomEvent("medtech-question-review-updated", { detail: { id: questionId, item: data.item } }));
+      setNotice(action === "confirmReview" ? "本題已確認校對完成；現在可以發布。" : data.unpublished ? "本題已取消校對並下架；重新校對後才能發布。" : "本題已取消校對，需重新確認後才能發布。");
+    } catch {
+      setNotice("校對狀態更新失敗，請稍後再試。");
     } finally {
       setOrderBusy(false);
     }
@@ -188,6 +218,10 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
         <label className="question-media-button secondary"><input ref={subtitleInput} type="file" accept=".srt,application/x-subrip,text/plain" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "subtitle"); }} />上傳 SRT</label>
         <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>
       </div>
+    </div>
+    <div className={`question-review-panel ${reviewStatus === "confirmed" ? "confirmed" : "pending"}`}>
+      <div><b>{reviewStatus === "confirmed" ? "本題已校對" : "本題尚未校對"}</b><small>{questionStatus === "published" ? "目前已發布；取消校對會立即下架。" : "只有確認校對後，才能發布到學生端。"}</small></div>
+      <button type="button" className={reviewStatus === "confirmed" ? "danger" : "primary"} disabled={orderBusy} onClick={() => void updateReview(reviewStatus === "confirmed" ? "cancelReview" : "confirmReview")}>{reviewStatus === "confirmed" ? questionStatus === "published" ? "取消校對並下架" : "取消校對" : "確認校對完成"}</button>
     </div>
     <div className="question-order-panel">
       <div><b>原稿順序</b><small>目前清單依此欄位排列；題號可以和原稿順序不同。</small></div>

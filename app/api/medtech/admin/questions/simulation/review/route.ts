@@ -26,6 +26,9 @@ export async function POST(request: Request) {
     answerStatus: "teacher_confirmed",
     simulatedAnswerStatus: aiAccuracy,
     simulatedTeacherNote: sanitizeRichHtml(String(body.teacherNote ?? "").trim()),
+    reviewStatus: "pending",
+    reviewedAt: null,
+    ...(question.status === "published" ? { status: "disabled" } : {}),
   }).where(eq(examQuestions.id, id)).returning();
   return Response.json({ item: updated, aiAccuracy });
 }

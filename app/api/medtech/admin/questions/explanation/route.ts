@@ -55,6 +55,9 @@ export async function POST(request: Request) {
     ...(voiceScriptPrompt ? { voiceScript: completeExplanation } : { aiCompleteExplanation: completeExplanation }),
     answerSource: question.answerSource || (voiceScriptPrompt ? "AI 產生語音解析腳本，待老師核對" : "AI 產生，待老師核對"),
     answerStatus: question.answerStatus === "missing" ? "ai_generated" : question.answerStatus,
+    reviewStatus: "pending",
+    reviewedAt: null,
+    ...(question.status === "published" ? { status: "disabled" } : {}),
   }).where(eq(examQuestions.id, question.id)).returning();
   const usage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
   await db.insert(usageLogs).values({

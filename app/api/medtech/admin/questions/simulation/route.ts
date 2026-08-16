@@ -77,6 +77,9 @@ export async function POST(request: Request) {
     aiCompleteExplanation: sanitizeRichHtml(simulatedCompleteExplanation),
     simulatedSource: sanitizeRichHtml(simulatedSource),
     simulatedAnswerStatus: question.correctAnswer ? (simulatedAnswer === question.correctAnswer ? "ai_correct" : "ai_incorrect") : "pending_review",
+    reviewStatus: "pending",
+    reviewedAt: null,
+    ...(question.status === "published" ? { status: "disabled" } : {}),
   }).where(eq(examQuestions.id, question.id)).returning();
   const usage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
   await db.insert(usageLogs).values({

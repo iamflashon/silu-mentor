@@ -45,6 +45,11 @@ async function repairDuplicateSourceOrders(db: Awaited<ReturnType<typeof getDb>>
   return repaired;
 }
 
+function hasReviewableExplanation(question: { explanation?: string | null; aiCompleteExplanation?: string | null; simulatedCompleteExplanation?: string | null; teacherCompleteExplanation?: string | null; completeExplanation?: string | null }) {
+  return [question.teacherCompleteExplanation, question.completeExplanation, question.aiCompleteExplanation, question.simulatedCompleteExplanation, question.explanation]
+    .some((value) => String(value ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().length >= 15);
+}
+
 export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
@@ -296,7 +301,8 @@ export async function PATCH(request: Request) {
   const id = Number(body.id);
   const db = await getDb();
   if (body.publishAllDrafts === true) {
-    const [draftCount] = await db.select({ total: sql<number>`count(*)` }).from(examQuestions).where(and(
+    const draftRows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, reviewStatus: examQuestions.reviewStatus })
+      .from(examQuestions).where(and(
       eq(examQuestions.examCategory, "medtech"),
       eq(examQuestions.examType, "mcq"),
       eq(examQuestions.status, "draft"),
@@ -305,16 +311,34 @@ export async function PATCH(request: Request) {
       eq(examQuestions.examCategory, "medtech"),
       eq(examQuestions.examType, "mcq"),
       eq(examQuestions.status, "draft"),
+      eq(examQuestions.reviewStatus, "confirmed"),
       or(
         and(isNotNull(examQuestions.teacherAnswer), ne(examQuestions.teacherAnswer, "")),
         and(isNotNull(examQuestions.correctAnswer), ne(examQuestions.correctAnswer, "")),
         and(eq(examQuestions.examName, "全真模擬試題"), isNotNull(examQuestions.simulatedAnswer), ne(examQuestions.simulatedAnswer, "")),
       ),
     )).returning({ id: examQuestions.id });
-    return Response.json({ updated: rows.length, skippedUnanswered: Math.max(0, Number(draftCount?.total ?? 0) - rows.length), status: "published" });
+    const skippedUnreviewed = draftRows.filter((row) => row.reviewStatus !== "confirmed").length;
+    const skippedUnanswered = draftRows.filter((row) => !/^[A-D]$/i.test(String(row.teacherAnswer || row.correctAnswer || "").trim())).length;
+    return Response.json({ updated: rows.length, skippedUnreviewed, skippedUnanswered, skipped: Math.max(0, draftRows.length - rows.length), status: "published" });
   }
-  const [existing] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
+  const [existing] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, id), eq(examQuestions.examCategory, "medtech"))).limit(1);
   if (!existing) return Response.json({ error: "找不到醫檢題目" }, { status: 404 });
+
+  if (body.confirmReview === true) {
+    const answer = String(existing.teacherAnswer || existing.correctAnswer || "").trim().toUpperCase();
+    if (!/^[A-D]$/.test(answer)) return Response.json({ error: "請先設定右側老師答案，再確認校對。" }, { status: 422 });
+    if (!hasReviewableExplanation(existing)) return Response.json({ error: "請先確認至少有一段解析內容，再標記為已校對。" }, { status: 422 });
+    const [updated] = await db.update(examQuestions).set({ reviewStatus: "confirmed", reviewedAt: new Date() }).where(eq(examQuestions.id, id)).returning();
+    return Response.json({ item: updated, reviewStatus: "confirmed" });
+  }
+  if (body.cancelReview === true) {
+    const [updated] = await db.update(examQuestions).set({ reviewStatus: "pending", reviewedAt: null, status: existing.status === "published" ? "disabled" : existing.status }).where(eq(examQuestions.id, id)).returning();
+    return Response.json({ item: updated, reviewStatus: "pending", unpublished: existing.status === "published" });
+  }
+  if (body.status === "published" && existing.reviewStatus !== "confirmed") {
+    return Response.json({ error: "本題尚未完成校對，請先按「確認校對完成」後再發布。" }, { status: 409 });
+  }
   const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
   const values: Record<string,string | number | null> = {};
   for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
@@ -334,6 +358,12 @@ export async function PATCH(request: Request) {
   if (/^[A-D]$/.test(teacherAnswer) && /^[A-D]$/.test(simulatedAnswer)) {
     values.answerStatus = "teacher_confirmed";
     values.simulatedAnswerStatus = teacherAnswer === simulatedAnswer ? "ai_correct" : "ai_incorrect";
+  }
+  const contentKeys = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","options"];
+  if (contentKeys.some((key) => Object.prototype.hasOwnProperty.call(body, key))) {
+    values.reviewStatus = "pending";
+    values.reviewedAt = null;
+    if (existing.status === "published") values.status = "disabled";
   }
   if (body.options && typeof body.options === "object") values.optionsJson = JSON.stringify(Object.fromEntries(Object.entries(body.options).map(([key,value])=>[key,sanitizeRichHtml(String(value))])));
   if (body.sourceOrder !== undefined) {
