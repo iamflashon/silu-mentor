@@ -82,8 +82,17 @@ export function ManualQuestionDialog({
   }
 
   async function submit() {
-    if (!form.questionNumber.trim() || !form.stem.trim() || [form.A, form.B, form.C, form.D].some((value) => !value.trim())) {
-      setError("請填寫題號、題幹與 A～D 四個選項。");
+    const hasAnyContent = Boolean(form.stem.trim() || [form.A, form.B, form.C, form.D].some((value) => value.trim()));
+    if (!form.questionNumber.trim()) {
+      setError("請先填寫題號。");
+      return;
+    }
+    if (!hasAnyContent && !form.sourceOrder.trim()) {
+      setError("若要先建立空白題，請填寫原稿順序；之後可再回題目編輯補內容。");
+      return;
+    }
+    if (hasAnyContent && (!form.stem.trim() || [form.A, form.B, form.C, form.D].some((value) => !value.trim()))) {
+      setError("若已開始填內容，請補齊題幹與 A～D 四個選項；或清空內容後只先建立題號與順序。");
       return;
     }
     setSaving(true);
@@ -151,9 +160,9 @@ export function ManualQuestionDialog({
               <label>答案<select value={form.answer} onChange={(event) => setForm({ ...form, answer: event.target.value })}><option value="">尚未設定</option>{["A", "B", "C", "D"].map((key) => <option key={key}>{key}</option>)}</select></label>
               <label className="manual-question-wide-inline">簡要解析（選填）<textarea value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} rows={2} /></label>
             </div>
-            <p className="manual-question-hint">題號填該回合的題號；原稿順序填整份 PDF 的實際排列位置。這 3 題可分別填：第1回第34題→34；第3回第7題→87；第3回第14題→94。先新增題目後，仍可回到題目編輯完整解析與語音資料。</p>
+            <p className="manual-question-hint">可以只填「題號＋原稿順序」先建立空白草稿，之後再回題目編輯補題幹、選項、答案與解析。若要補回三回各40題：第1回第34題→題號34／順序34；第3回第7題→題號7／順序87；第3回第14題→題號14／順序94。</p>
             {error && <p className="manual-question-error">{error}</p>}
-            <footer><button type="button" onClick={() => setOpen(false)}>取消</button><button type="button" className="manual-question-save" disabled={saving} onClick={() => void submit()}>{saving ? "新增中…" : "新增並加入題庫"}</button></footer>
+            <footer><button type="button" onClick={() => setOpen(false)}>取消</button><button type="button" className="manual-question-save" disabled={saving} onClick={() => void submit()}>{saving ? "新增中…" : form.stem.trim() ? "新增並加入題庫" : "先建立題號與順序"}</button></footer>
           </section>
         </div>
       )}

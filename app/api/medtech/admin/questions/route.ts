@@ -149,7 +149,9 @@ export async function POST(request: Request) {
   const stem = String(body.stem ?? "").trim();
   const optionValues = body.options && typeof body.options === "object" ? body.options as Record<string, unknown> : {};
   const options = Object.fromEntries(["A", "B", "C", "D"].map((key) => [key, sanitizeRichHtml(String(optionValues[key] ?? "").trim())]));
-  if (!questionNumber || !stem || Object.values(options).some((value) => !value)) return Response.json({ error: "請填寫題號、題幹與 A～D 四個選項" }, { status: 400 });
+  if (!questionNumber) return Response.json({ error: "請先填寫題號" }, { status: 400 });
+  const hasAnyContent = Boolean(stem || Object.values(options).some((value) => value));
+  if (hasAnyContent && (!stem || Object.values(options).some((value) => !value))) return Response.json({ error: "若已開始填內容，請補齊題幹與 A～D 四個選項；或先建立空白草稿" }, { status: 400 });
   const answer = String(body.answer ?? "").trim().toUpperCase();
   if (answer && !/^[A-D]$/.test(answer)) return Response.json({ error: "答案只能是 A、B、C 或 D" }, { status: 400 });
   const sourceOrderValue = Number(body.sourceOrder);
