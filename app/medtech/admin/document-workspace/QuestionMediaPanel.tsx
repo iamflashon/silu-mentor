@@ -33,6 +33,24 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
   const audioInput = useRef<HTMLInputElement>(null);
   const subtitleInput = useRef<HTMLInputElement>(null);
   const repairedDocumentId = useRef<number | null>(null);
+  const editorScrollTop = useRef<number | null>(null);
+
+  useEffect(() => {
+    const editor = document.querySelector<HTMLElement>(".document-question-editor");
+    if (!editor) return;
+    if (proofreadOpen) {
+      editorScrollTop.current = editor.scrollTop;
+      editor.classList.add("proofread-active");
+      editor.scrollTop = 0;
+    } else {
+      editor.classList.remove("proofread-active");
+      if (editorScrollTop.current !== null) {
+        const previous = editorScrollTop.current;
+        window.requestAnimationFrame(() => { editor.scrollTop = previous; });
+      }
+    }
+    return () => editor.classList.remove("proofread-active");
+  }, [proofreadOpen]);
 
   async function load() {
     const response = await fetch(`/api/medtech/admin/question-media?questionId=${questionId}`, { cache: "no-store" });
@@ -227,7 +245,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     }
   }
 
-  return <section className="question-media-panel">
+  return <section className={`question-media-panel${proofreadOpen ? " proofread-host" : ""}`}>
     <div className="question-media-head">
       <div><h2>語音檔與字幕</h2><p>本題音檔、SRT 與題目 ID 綁定；播放時會在下方同步顯示字幕。</p></div>
       <div className="question-media-actions">
@@ -237,7 +255,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
         <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>
       </div>
     </div>
-    {proofreadOpen && proofreadItem && <QuestionProofreadDialog question={proofreadItem} onClose={() => setProofreadOpen(false)} />}
+    {proofreadOpen && proofreadItem && <QuestionProofreadDialog embedded question={proofreadItem} onClose={() => setProofreadOpen(false)} />}
     <div className={`question-review-panel ${reviewStatus === "confirmed" ? "confirmed" : "pending"}`}>
       <div><b>{reviewStatus === "confirmed" ? "本題已校對" : "本題尚未校對"}</b><small>{questionStatus === "published" ? "目前已發布；取消校對會立即下架。" : "只有確認校對後，才能發布到學生端。"}</small></div>
       <div className="question-review-actions"><button type="button" className={reviewStatus === "confirmed" ? "danger" : "primary"} disabled={orderBusy} onClick={() => void updateReview(reviewStatus === "confirmed" ? "cancelReview" : "confirmReview")}>{reviewStatus === "confirmed" ? questionStatus === "published" ? "取消校對並下架" : "取消校對" : "確認校對完成"}</button><button type="button" className="secondary" onClick={() => window.dispatchEvent(new Event("medtech-filter-answer-conflicts"))}>搜尋全部答案差異</button></div>

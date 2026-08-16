@@ -37,15 +37,15 @@ function ExplanationCard({ title, value, tone = "plain", empty }: { title: strin
   </section>;
 }
 
-export function QuestionProofreadDialog({ question, onClose }: { question: ProofreadQuestion; onClose: () => void }) {
+export function QuestionProofreadDialog({ question, onClose, embedded = false }: { question: ProofreadQuestion; onClose: () => void; embedded?: boolean }) {
   const teacherAnswer = content(question.teacherAnswer || question.correctAnswer).toUpperCase();
   const aiAnswer = content(question.simulatedAnswer).toUpperCase();
   const aiComplete = content(question.aiCompleteExplanation || question.simulatedCompleteExplanation);
   const teacherComplete = content(question.teacherCompleteExplanation || question.completeExplanation);
   const options = question.options ?? {};
 
-  return <div className="question-proofread-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="question-proofread-dialog" role="dialog" aria-modal="true" aria-label={`第 ${question.questionNumber || ""} 題單題校對`}>
+  return <div className={`question-proofread-backdrop${embedded ? " embedded" : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className={`question-proofread-dialog${embedded ? " embedded" : ""}`} role="dialog" aria-modal="true" aria-label={`第 ${question.questionNumber || ""} 題單題校對`}>
       <header className="question-proofread-header">
         <div>
           <span>PROOFREAD VIEW</span>
