@@ -18,6 +18,25 @@ type CreatedQuestion = {
   sourceOrder?: number | null;
 };
 
+function parsePastedQuestion(value: string) {
+  const text = value.replace(/\r/gu, "").trim();
+  const number = text.match(/^\s*(\d{1,3})\s*[.、)．]/u)?.[1] ?? "";
+  const markerPattern = /(?:\(([ABCD])\)|（([ABCD])）|(?:^|\n)\s*([ABCD])\s*[.．、:：)])\s*/gim;
+  const markers = [...text.matchAll(markerPattern)].slice(0, 4);
+  if (markers.length < 4) return { error: "找不到完整的 A～D 選項，請確認每個選項前有 (A)～(D) 或 A.～D.。" };
+  const options: Record<string, string> = {};
+  const first = markers[0];
+  const stem = text.slice(0, first.index ?? 0).replace(/^\s*\d{1,3}\s*[.、)．]\s*/u, "").trim();
+  markers.forEach((marker, index) => {
+    const key = marker[1] ?? marker[2] ?? marker[3] ?? "";
+    const start = (marker.index ?? 0) + marker[0].length;
+    const end = index < markers.length - 1 ? (markers[index + 1].index ?? text.length) : text.length;
+    options[key] = text.slice(start, end).trim();
+  });
+  if (!stem || ["A", "B", "C", "D"].some((key) => !options[key])) return { error: "題幹或選項內容是空的，請確認貼上的文字完整。" };
+  return { number, stem, options };
+}
+
 export function ManualQuestionDialog({
   documentId,
   subject,
@@ -32,6 +51,7 @@ export function ManualQuestionDialog({
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [pasteText, setPasteText] = useState("");
   const [form, setForm] = useState({
     year: "模擬",
     questionNumber: "",
@@ -47,6 +67,17 @@ export function ManualQuestionDialog({
 
   function reset() {
     setForm({ year: "模擬", questionNumber: "", sourceOrder: "", stem: "", A: "", B: "", C: "", D: "", answer: "", explanation: "" });
+    setPasteText("");
+    setError("");
+  }
+
+  function applyPastedQuestion() {
+    const parsed = parsePastedQuestion(pasteText);
+    if (parsed.error) {
+      setError(parsed.error);
+      return;
+    }
+    setForm((current) => ({ ...current, questionNumber: current.questionNumber || parsed.number, stem: parsed.stem ?? current.stem, A: parsed.options?.A ?? current.A, B: parsed.options?.B ?? current.B, C: parsed.options?.C ?? current.C, D: parsed.options?.D ?? current.D }));
     setError("");
   }
 
@@ -108,6 +139,10 @@ export function ManualQuestionDialog({
               <label>題號<input value={form.questionNumber} onChange={(event) => setForm({ ...form, questionNumber: event.target.value })} placeholder="例如 34" /></label>
               <label>原稿順序（選填）<input inputMode="numeric" value={form.sourceOrder} onChange={(event) => setForm({ ...form, sourceOrder: event.target.value })} placeholder="例如 34、87、94" /></label>
             </div>
+            <div className="manual-question-paste">
+              <label>快速貼上整題原文（可選）<textarea value={pasteText} onChange={(event) => setPasteText(event.target.value)} rows={5} placeholder="例如：34. 題幹文字\n(A) 選項一\n(B) 選項二\n(C) 選項三\n(D) 選項四" /></label>
+              <button type="button" onClick={applyPastedQuestion}>自動分出題幹與選項</button>
+            </div>
             <label className="manual-question-wide">題幹<textarea value={form.stem} onChange={(event) => setForm({ ...form, stem: event.target.value })} rows={3} /></label>
             <div className="manual-option-grid">
               {(["A", "B", "C", "D"] as const).map((key) => <label key={key}>選項 {key}<textarea value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} rows={2} /></label>)}
@@ -116,7 +151,7 @@ export function ManualQuestionDialog({
               <label>答案<select value={form.answer} onChange={(event) => setForm({ ...form, answer: event.target.value })}><option value="">尚未設定</option>{["A", "B", "C", "D"].map((key) => <option key={key}>{key}</option>)}</select></label>
               <label className="manual-question-wide-inline">簡要解析（選填）<textarea value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} rows={2} /></label>
             </div>
-            <p className="manual-question-hint">若要補回三回各40題：第1回第34題的原稿順序填34；第3回第7題填87；第3回第14題填94。</p>
+            <p className="manual-question-hint">題號填該回合的題號；原稿順序填整份 PDF 的實際排列位置。這 3 題可分別填：第1回第34題→34；第3回第7題→87；第3回第14題→94。先新增題目後，仍可回到題目編輯完整解析與語音資料。</p>
             {error && <p className="manual-question-error">{error}</p>}
             <footer><button type="button" onClick={() => setOpen(false)}>取消</button><button type="button" className="manual-question-save" disabled={saving} onClick={() => void submit()}>{saving ? "新增中…" : "新增並加入題庫"}</button></footer>
           </section>

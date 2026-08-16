@@ -10,10 +10,12 @@
 .manual-question-dialog label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #315c66; }
 .manual-question-dialog input, .manual-question-dialog select, .manual-question-dialog textarea { width: 100%; box-sizing: border-box; border: 1px solid #bdd9d6; border-radius: 9px; padding: 10px 12px; color: #164e63; background: #fbfefe; font: inherit; font-weight: 400; resize: vertical; }
 .manual-question-wide { display: block; margin-top: 14px; }
+.manual-question-paste { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 14px; padding: 12px; border: 1px dashed #bdd9d6; border-radius: 10px; background: #f7fcfb; }
+.manual-question-paste button { border: 1px solid #0f766e; border-radius: 9px; padding: 10px 14px; background: #fff; color: #0f766e; font-weight: 800; cursor: pointer; white-space: nowrap; }
 .manual-question-wide-inline { grid-column: span 2; }
 .manual-question-hint { margin-top: 14px !important; padding: 10px 12px; border-radius: 8px; background: #f1f8f7; }
 .manual-question-error { margin-top: 12px !important; color: #b42318 !important; }
 .manual-question-dialog footer { justify-content: flex-end; margin-top: 20px; }
 .manual-question-dialog footer button { border: 1px solid #bdd9d6; border-radius: 9px; padding: 10px 16px; background: #fff; color: #164e63; cursor: pointer; }
 .manual-question-dialog footer .manual-question-save { border-color: #0f766e; background: #0f766e; color: #fff; }
-@media (max-width: 700px) { .manual-question-grid, .manual-option-grid { grid-template-columns: 1fr; } .manual-question-wide-inline { grid-column: auto; } .manual-question-backdrop { padding: 10px; } .manual-question-dialog { padding: 16px; } }
+@media (max-width: 700px) { .manual-question-grid, .manual-option-grid { grid-template-columns: 1fr; } .manual-question-paste { grid-template-columns: 1fr; } .manual-question-wide-inline { grid-column: auto; } .manual-question-backdrop { padding: 10px; } .manual-question-dialog { padding: 16px; } }
