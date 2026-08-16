@@ -94,12 +94,19 @@ function parseOptions(text: string) {
   return options;
 }
 
-function parseAnswerKey(text: string) {
-  const answers = new Map<string, string>();
-  for (const match of text.matchAll(/(?:^|\s)(\d{1,3})\s*[.、:：]?\s*[（(]\s*([A-D])\s*[）)]/gu)) {
-    answers.set(match[1], match[2]);
+function parseAnswerKeyEntries(text: string) {
+  const entries: Array<{ number: string; answer: string }> = [];
+  for (const line of text.split(/\r?\n/u).map(clean)) {
+    if (!line) continue;
+    const matches = [...line.matchAll(/(?:^|[\s,，;；])([0-9]{1,3})\s*[.、:：]?\s*[（(]?\s*([A-D])\s*[）)]?(?=$|[\s,，;；])/gu)];
+    // Answer pages may be printed as `1. A 2. C …`, or one answer per line.
+    // Require an answer-shaped line so question text and option labels are
+    // not mistaken for the answer key.
+    if (matches.length >= 2 || (matches.length === 1 && (line.length <= 14 || /答案|解答|正確/u.test(line)))) {
+      for (const match of matches) entries.push({ number: match[1], answer: match[2] });
+    }
   }
-  return answers;
+  return entries;
 }
 
 function isAnswerKeyLine(line: string) {
@@ -118,7 +125,9 @@ function parseQuestions(text: string): ParsedQuestion[] {
   // question numbers. A question-number punctuation mark must be followed
   // by whitespace, an option marker, or the end of a line.
   ).replace(/(?<!\d)(\d{1,3})[.、](?=\s|[（(]|$)/gu, "\n$1. ").replace(/\s*([（(][A-D][）)])/gu, "\n$1 ");
-  const answerKey = parseAnswerKey(normalizedText);
+  const answerKeyEntries = parseAnswerKeyEntries(normalizedText);
+  const answerKeyByNumber = new Map<string, string>();
+  for (const entry of answerKeyEntries) answerKeyByNumber.set(entry.number, entry.answer);
   const lines = normalizedText.split(/\r?\n/u).map(clean).filter(Boolean);
   const results: ParsedQuestion[] = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -154,12 +163,21 @@ function parseQuestions(text: string): ParsedQuestion[] {
       explanation.push(lines[end]); end += 1;
     }
     const yearMatch = stem.match(/（(\d{2,3})[.．](?:2|7)月專技）/u);
-    results.push({ year: yearMatch?.[1] ?? "模擬", number: start[1], stem, options, answer: answer || answerKey.get(start[1]) || "", explanation: clean(explanation.join(" ")) });
+    results.push({ year: yearMatch?.[1] ?? "模擬", number: start[1], stem, options, answer: answer || answerKeyByNumber.get(start[1]) || "", explanation: clean(explanation.join(" ")) });
     index = answerIndex >= 0 ? answerIndex : Math.max(index, endOfOptions - 1);
   }
   const unique = new Map<string, ParsedQuestion>();
   for (const question of results) unique.set(`${question.year}|${question.stem}`, question);
-  return [...unique.values()];
+  const questions = [...unique.values()];
+  // Some full simulations repeat the answer numbering after every 40
+  // questions. In that layout a number-only map would keep only the last
+  // block, so use the answer-page order to fill the remaining questions.
+  if (answerKeyEntries.length >= questions.length) {
+    questions.forEach((question, index) => {
+      if (!question.answer) question.answer = answerKeyEntries[index]?.answer || "";
+    });
+  }
+  return questions;
 }
 
 export async function POST(request: Request) {
