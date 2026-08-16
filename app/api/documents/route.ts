@@ -62,6 +62,18 @@ export async function GET(request: Request) {
       processedAt: documents.processedAt,
       createdAt: documents.createdAt,
     }).from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
+    const questionCounts = await db.select({
+      sourceUrl: examQuestions.sourceUrl,
+      subject: examQuestions.subject,
+      total: sql<number>`count(*)`,
+    }).from(examQuestions).groupBy(examQuestions.sourceUrl, examQuestions.subject);
+    const actualQuestionCount = (row: typeof rows[number]) => {
+      const aliases = new Set([`document:${row.id}`, row.storageKey, row.fileName]);
+      const exact = questionCounts.find((item) => aliases.has(item.sourceUrl));
+      if (exact) return Number(exact.total);
+      const sameSubject = questionCounts.filter((item) => item.subject === row.subject);
+      return sameSubject.length === 1 ? Number(sameSubject[0].total) : Number(row.questionCount ?? 0);
+    };
     const [documentStats] = await db.select({
       total: sql<number>`count(*)`,
       ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
@@ -93,7 +105,8 @@ export async function GET(request: Request) {
         extractedChars: row.extractedChars,
         chapterCount: counts.chapterCount,
         topicCount: counts.topicCount,
-        questionCount: counts.questionCount,
+        questionCount: actualQuestionCount(row),
+        indexedQuestionCount: Number(row.questionCount ?? counts.questionCount ?? 0),
         tags: (() => { try { return JSON.parse(row.tagsJson); } catch { return []; } })(),
         fullTextIndexed: row.fullTextIndexed,
         vectorIndexed: row.vectorIndexed,

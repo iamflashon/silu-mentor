@@ -77,7 +77,7 @@ export async function GET(request: Request) {
       ...item,
       options: JSON.parse(item.optionsJson || "{}"),
       topic,
-      isSimulation: topic === "全真模擬試題",
+      isSimulation: item.examType === "mcq",
       aiAccuracy: item.simulatedAnswer && item.teacherAnswer ? (item.simulatedAnswer === item.teacherAnswer ? "correct" : "incorrect") : "pending",
     } });
   }
@@ -175,7 +175,7 @@ export async function GET(request: Request) {
         ...item,
         options: JSON.parse(item.optionsJson || "{}"),
         topic,
-        isSimulation: topic === "全真模擬試題",
+        isSimulation: item.examType === "mcq",
         aiAccuracy: item.simulatedAnswer && item.teacherAnswer
           ? (item.simulatedAnswer === item.teacherAnswer ? "correct" : "incorrect")
           : "pending",

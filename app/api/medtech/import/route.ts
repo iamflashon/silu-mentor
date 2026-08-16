@@ -106,7 +106,10 @@ function parseQuestions(text: string): ParsedQuestion[] {
   const normalizedText = text.replace(/\f/g, "\n").replace(
     /SEQ\s*序\s*\\\*\s*ARABIC(?:\s*\\[a-z]+\s*[+\-]?\d+)*\s*(\d{1,3}[.、])/giu,
     "\n$1",
-  ).replace(/(?<!\d)(\d{1,3})[.、]\s*/gu, "\n$1. ").replace(/\s*([（(][A-D][）)])/gu, "\n$1 ");
+  // Do not mistake dates such as `109.2月專技` or decimal values for
+  // question numbers. A question-number punctuation mark must be followed
+  // by whitespace, an option marker, or the end of a line.
+  ).replace(/(?<!\d)(\d{1,3})[.、](?=\s|[（(]|$)/gu, "\n$1. ").replace(/\s*([（(][A-D][）)])/gu, "\n$1 ");
   const answerKey = parseAnswerKey(normalizedText);
   const lines = normalizedText.split(/\r?\n/u).map(clean).filter(Boolean);
   const results: ParsedQuestion[] = [];
