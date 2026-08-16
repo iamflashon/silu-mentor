@@ -41,11 +41,16 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     if (!Number.isInteger(documentId) || documentId < 1) return;
     if (repairedDocumentId.current !== documentId) {
       repairedDocumentId.current = documentId;
-      await fetch("/api/medtech/admin/questions", {
+      const repairResponse = await fetch("/api/medtech/admin/questions", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repairSourceOrder: true, sourceUrl: item.sourceUrl }),
       });
+      const repairData = await repairResponse.json() as { repaired?: number };
+      if (repairResponse.ok && Number(repairData.repaired ?? 0) > 0) {
+        window.location.reload();
+        return;
+      }
       const refreshed = await fetch(`/api/medtech/admin/questions?id=${questionId}`, { cache: "no-store" });
       const refreshedData = await refreshed.json() as { item?: { sourceUrl?: string; sourceOrder?: number | null } };
       if (refreshedData.item) item = refreshedData.item;
