@@ -106,7 +106,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { id?: number; mode?: "web" | "manual"; evidenceText?: string };
+  const body = await request.json() as { id?: number; mode?: "web" | "manual" | "save"; evidenceText?: string; review?: unknown };
   const id = Number(body.id);
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
   const [question] = await auth.db.select().from(examQuestions).where(and(
@@ -115,6 +115,21 @@ export async function POST(request: Request) {
     eq(examQuestions.examType, "mcq"),
   )).limit(1);
   if (!question) return Response.json({ error: "找不到醫檢選擇題" }, { status: 404 });
+
+  if (body.mode === "save") {
+    if (!body.review || typeof body.review !== "object") return Response.json({ error: "缺少要保存的查核結果。" }, { status: 400 });
+    const resultJson = JSON.stringify(body.review);
+    if (resultJson.length > 100_000) return Response.json({ error: "查核結果過大，請縮短內容後再保存。" }, { status: 413 });
+    const reviewModel = String((body.review as { model?: unknown }).model ?? "");
+    await auth.db.insert(medtechQuestionEvidenceReviews).values({
+      questionId: id,
+      reviewer: auth.member.email,
+      provider: reviewModel === "manual" ? "manual_paste" : "openai_web_search",
+      queryText: `題目 ${question.questionNumber}｜保存外部查核結果`,
+      resultJson,
+    });
+    return Response.json({ review: body.review, questionId: id, saved: true });
+  }
 
   if (body.mode === "manual") {
     const manualEvidence = String(body.evidenceText ?? "").trim().slice(0, 20_000);
@@ -248,13 +263,6 @@ export async function POST(request: Request) {
     model,
     usage: { inputTokens: Number(usageObject.input_tokens ?? 0), outputTokens: Number(usageObject.output_tokens ?? 0), webSearchCalls: 1, estimatedCostUsdMicros },
   };
-  await auth.db.insert(medtechQuestionEvidenceReviews).values({
-    questionId: id,
-    reviewer: auth.member.email,
-    provider: "openai_web_search",
-    queryText,
-    resultJson: JSON.stringify(review),
-  });
   await auth.db.insert(usageLogs).values({
     model,
     source: `醫檢師外部證據／相似題查核｜題目 ${id}`,
