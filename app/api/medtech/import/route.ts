@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { inspectDocumentBytes } from "../../../../lib/document-processing";
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMedtechAdmin(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { documentId?: number; offset?: number; limit?: number; materializeOnly?: boolean; forceReparse?: boolean };
+    const body = await request.json() as { documentId?: number; offset?: number; limit?: number; materializeOnly?: boolean; forceReparse?: boolean; repairMissing?: boolean };
     const documentId = Number(body.documentId);
     const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
     const limit = Math.min(body.materializeOnly ? 25 : 150, Math.max(1, Math.floor(Number(body.limit) || 100)));
@@ -185,7 +185,7 @@ export async function POST(request: Request) {
         && Math.abs(count - expected) <= 2,
       )
         ?? ranked.find(([, count]) => Math.abs(count - expected) <= 2);
-      if (recovered && !body.forceReparse) {
+      if (recovered && !body.forceReparse && !body.repairMissing) {
         await db.update(documents).set({ processingMessage: `已回復既有 ${recovered[1]} 題索引；原稿未重新拆解` }).where(eq(documents.id, documentId));
         return Response.json({ imported: 0, parsed: recovered[1], offset, nextOffset: recovered[1], done: true, failed: 0, failures: [], recovered: true, status: "draft", documentId, subject: document.subject });
       }
@@ -193,7 +193,7 @@ export async function POST(request: Request) {
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
-    const indexedQuestions = body.forceReparse ? [] : questionsFromProcessingResult(document.processingResultJson);
+    const indexedQuestions = body.forceReparse || body.repairMissing ? [] : questionsFromProcessingResult(document.processingResultJson);
     const savedCandidates = indexedQuestions.length && indexedQuestions.length >= expected
       ? []
       : questionCandidatesFromProcessingResult(document.processingResultJson);
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
     // stay under D1's bound-parameter limit, so each continuation request
     // needs the same parsed source list before inserting its next slice.
     const storedCount = Math.max(indexedQuestions.length, savedCandidates.length);
-    const shouldReparseOriginal = Boolean(body.forceReparse) || (!indexedQuestions.length && !savedCandidates.length) || (Boolean(body.materializeOnly) && expected > 0 && storedCount < expected);
+    const shouldReparseOriginal = Boolean(body.forceReparse || body.repairMissing) || (!indexedQuestions.length && !savedCandidates.length) || (Boolean(body.materializeOnly) && expected > 0 && storedCount < expected);
     if (shouldReparseOriginal) {
       const inspected = await inspectDocumentBytes(document.fileName, await object.arrayBuffer());
       localQuestions = parseQuestions(inspected.text);
@@ -220,6 +220,67 @@ export async function POST(request: Request) {
       let stored: Record<string, unknown> = {};
       try { stored = JSON.parse(document.processingResultJson || "{}") as Record<string, unknown>; } catch { /* replace malformed legacy JSON */ }
       await db.update(documents).set({ processingResultJson: JSON.stringify({ ...stored, reparsedQuestions: localQuestions }) }).where(eq(documents.id, documentId));
+    }
+    if (body.repairMissing) {
+      if (!localQuestions.length) return Response.json({ error: "原稿未能拆出可補齊的題目，未變更既有題庫" }, { status: 422 });
+      const aliases = [...new Set([`document:${document.id}`, document.storageKey, document.fileName])];
+      const existing = await db.select().from(examQuestions)
+        .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), inArray(examQuestions.sourceUrl, aliases)))
+        .orderBy(asc(examQuestions.id))
+        .limit(1600);
+      const normalizeStem = (value: string) => String(value ?? "")
+        .replace(/<[^>]+>/gu, " ")
+        .replace(/&nbsp;|\s+/giu, "")
+        .replace(/[：:，,。？！?!、；;（）()【】\[\]「」『』]/gu, "")
+        .toLocaleLowerCase();
+      const parsedByStem = new Map(localQuestions.map((question, index) => [normalizeStem(question.stem), { question, index }]));
+      const parsedByNumber = new Map<string, number[]>();
+      localQuestions.forEach((question, index) => {
+        const key = String(question.number).trim();
+        parsedByNumber.set(key, [...(parsedByNumber.get(key) ?? []), index]);
+      });
+      const used = new Set<number>();
+      let updated = 0;
+      for (const row of existing) {
+        let match = parsedByStem.get(normalizeStem(row.stem));
+        if (!match) {
+          const fallbackIndex = (parsedByNumber.get(String(row.questionNumber).trim()) ?? []).find((index) => !used.has(index));
+          if (fallbackIndex !== undefined) match = { question: localQuestions[fallbackIndex], index: fallbackIndex };
+        }
+        if (!match || used.has(match.index)) continue;
+        used.add(match.index);
+        if (row.sourceOrder !== match.index + 1) {
+          await db.update(examQuestions).set({ sourceOrder: match.index + 1 }).where(eq(examQuestions.id, row.id));
+          updated += 1;
+        }
+      }
+      const missing = localQuestions
+        .map((question, index) => ({ question, index }))
+        .filter(({ index }) => !used.has(index));
+      let imported = 0;
+      for (const { question, index } of missing) {
+        await db.insert(examQuestions).values({
+          examCategory: "medtech",
+          examType: "mcq",
+          year: question.year,
+          examName: "醫事檢驗師專技高考",
+          subject: document.subject,
+          questionNumber: question.number,
+          stem: question.stem,
+          optionsJson: JSON.stringify(question.options),
+          correctAnswer: question.answer,
+          explanation: question.explanation,
+          answerSource: question.answer ? "教材原稿" : "待補答案",
+          answerStatus: question.answer ? "source_matched" : "missing",
+          sourceUrl: `document:${document.id}`,
+          sourceOrder: index + 1,
+          status: "draft",
+        });
+        imported += 1;
+      }
+      const finalCount = Math.max(Number(document.questionCount ?? 0), existing.length + imported, localQuestions.length);
+      await db.update(documents).set({ questionCount: finalCount, processingMessage: `已依原稿比對缺題：目前 ${finalCount} 題；新增 ${imported} 題` }).where(eq(documents.id, documentId));
+      return Response.json({ repaired: true, imported, updated, parsed: finalCount, sourceParsed: localQuestions.length, missing: missing.map(({ question, index }) => ({ sourceOrder: index + 1, number: question.number, stem: question.stem.slice(0, 160), answer: question.answer })), done: true, documentId, subject: document.subject, status: "draft" });
     }
     if (offset === 0 && !body.materializeOnly) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
@@ -235,7 +296,7 @@ export async function POST(request: Request) {
     }
     let imported = 0;
     const failures: Array<{ number: string; stem: string }> = [];
-    for (const question of questions.slice(offset, offset + limit)) {
+    for (const [index, question] of questions.slice(offset, offset + limit).entries()) {
       try {
         const key = `${question.number}|${question.stem}`;
         if (body.materializeOnly && existingKeys.has(key)) continue;
@@ -253,6 +314,7 @@ export async function POST(request: Request) {
         answerSource: question.answer ? "教材原稿" : "待補答案",
         answerStatus: question.answer ? "source_matched" : "missing",
         sourceUrl: `document:${document.id}`,
+          sourceOrder: offset + index + 1,
           status: "draft",
         });
         existingKeys.add(key);

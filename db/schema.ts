@@ -370,6 +370,7 @@ export const examQuestions = sqliteTable("exam_questions", {
   simulatedAnswerStatus: text("simulated_answer_status").notNull().default("missing"),
   simulatedTeacherNote: text("simulated_teacher_note").notNull().default(""),
   sourceUrl: text("source_url").notNull().default(""),
+  sourceOrder: integer("source_order"),
   status: text("status").notNull().default("draft"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()

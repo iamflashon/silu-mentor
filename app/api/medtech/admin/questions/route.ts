@@ -118,7 +118,7 @@ export async function GET(request: Request) {
     eq(examQuestions.examType, "mcq"),
     eq(examQuestions.status, "draft"),
   ));
-  const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0 ? asc(examQuestions.id) : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
+  const items = await db.select().from(examQuestions).where(where).orderBy(sourceOrder && Number.isInteger(documentId) && documentId > 0 ? asc(examQuestions.sourceOrder) : desc(examQuestions.id)).limit(limit).offset((page - 1) * limit);
   const facets = await db.select({ year: examQuestions.year, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech"));
   return Response.json({
     items: items.map(item => {
@@ -137,6 +137,57 @@ export async function GET(request: Request) {
     years: [...new Set(facets.map(item => item.year).filter(Boolean))].sort((a,b)=>b.localeCompare(a,"zh-Hant",{numeric:true})),
     subjects: [...new Set(facets.map(item => item.subject).filter(Boolean))].sort(),
   });
+}
+
+export async function POST(request: Request) {
+  const auth = await requireMedtechAdmin(request);
+  if ("error" in auth) return auth.error;
+  const body = await request.json() as Record<string, unknown>;
+  const documentId = Number(body.documentId);
+  if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "缺少文件編號" }, { status: 400 });
+  const questionNumber = String(body.questionNumber ?? "").trim();
+  const stem = String(body.stem ?? "").trim();
+  const optionValues = body.options && typeof body.options === "object" ? body.options as Record<string, unknown> : {};
+  const options = Object.fromEntries(["A", "B", "C", "D"].map((key) => [key, sanitizeRichHtml(String(optionValues[key] ?? "").trim())]));
+  if (!questionNumber || !stem || Object.values(options).some((value) => !value)) return Response.json({ error: "請填寫題號、題幹與 A～D 四個選項" }, { status: 400 });
+  const answer = String(body.answer ?? "").trim().toUpperCase();
+  if (answer && !/^[A-D]$/.test(answer)) return Response.json({ error: "答案只能是 A、B、C 或 D" }, { status: 400 });
+  const sourceOrderValue = Number(body.sourceOrder);
+  const sourceOrder = Number.isInteger(sourceOrderValue) && sourceOrderValue > 0 ? sourceOrderValue : null;
+  const db = await getDb();
+  const [document] = await db.select({ id: documents.id, subject: documents.subject, fileName: documents.fileName })
+    .from(documents)
+    .where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech")))
+    .limit(1);
+  if (!document) return Response.json({ error: "找不到指定的醫檢文件" }, { status: 404 });
+  const sourceUrl = `document:${document.id}`;
+  const [duplicate] = await db.select({ id: examQuestions.id })
+    .from(examQuestions)
+    .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, sourceUrl), eq(examQuestions.questionNumber, questionNumber), eq(examQuestions.stem, sanitizeRichHtml(stem))))
+    .limit(1);
+  if (duplicate) return Response.json({ error: "這題已存在，請改用編輯既有題目" }, { status: 409 });
+  const [created] = await db.insert(examQuestions).values({
+    examCategory: "medtech",
+    examType: "mcq",
+    year: String(body.year ?? "模擬").trim() || "模擬",
+    examName: "醫事檢驗師專技高考",
+    subject: document.subject,
+    questionNumber,
+    stem: sanitizeRichHtml(stem),
+    optionsJson: JSON.stringify(options),
+    correctAnswer: answer || null,
+    teacherAnswer: answer,
+    explanation: sanitizeRichHtml(String(body.explanation ?? "").trim()),
+    answerSource: answer ? "手動新增／原稿答案" : "手動新增／待補答案",
+    answerStatus: answer ? "teacher_confirmed" : "missing",
+    sourceUrl,
+    sourceOrder,
+    status: "draft",
+  }).returning();
+  const nextCount = await db.select({ total: sql<number>`count(*)` }).from(examQuestions)
+    .where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, sourceUrl)));
+  await db.update(documents).set({ questionCount: Number(nextCount[0]?.total ?? 0), processingMessage: `已手動新增題目，目前共 ${Number(nextCount[0]?.total ?? 0)} 題` }).where(eq(documents.id, document.id));
+  return Response.json({ item: { ...created, options }, created: true }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
