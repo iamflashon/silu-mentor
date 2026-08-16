@@ -3,60 +3,69 @@
 import { useEffect, useMemo, useState } from "react";
 import MedtechTabs from "../MedtechTabs";
 
-type Plan = {
+type PointOption = {
   id: string;
   name: string;
-  price: string;
+  amount: string;
   period: string;
   note: string;
   features: string[];
+  purchasable: boolean;
   recommended?: boolean;
 };
 
-const plans: Plan[] = [
-  { id: "free", name: "免費試玩", price: "NT$0", period: "先體驗再決定", note: "先熟悉題庫與學習流程", features: ["基本題目與作答", "免費語音完整解析 3 次", "AI 互動點數 30 點（測試贈送）"] },
-  { id: "credits", name: "AI 點數包", price: "NT$99", period: "一次購買／30 點", note: "適合只想補充 AI 互動的考生", features: ["AI 助教互動 30 點", "不改變題庫與試聽權益", "用完可再次購買"] },
-  { id: "month", name: "月方案", price: "NT$249", period: "每月", note: "適合考前短期衝刺", features: ["語音完整解析不限次數", "AI 追問與引導學習", "圖片、表格與醫學英文解析"] },
-  { id: "exam", name: "185 天方案", price: "NT$1,288", period: "一次付費／185 天", note: "對應一次醫檢師考試週期", recommended: true, features: ["全部醫檢師題庫與模考", "錯題複習與學會移除", "完整 AI 解析與個人化進度"] },
-  { id: "year", name: "年方案", price: "NT$1,490", period: "一次付費／365 天", note: "適合長期備考", features: ["185 天方案全部權益", "跨年度保存學習紀錄", "AI 點數用量與成本明細"] },
+const pointOptions: PointOption[] = [
+  { id: "welcome", name: "首次登入贈點", amount: "10 點", period: "登入後自動贈送", note: "先體驗題目、提示與引導學習流程", features: ["提示免費快取", "比較選項免費簡答", "語音完整解析每次扣 1 點"], purchasable: false },
+  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點", period: "一次購買／五折", note: "原本逐題需要 120 點，套票只扣 60 點", features: ["一組全真模擬試題全刷", "作答與錯題紀錄照常保存", "語音完整解析另扣 1 點"], purchasable: true, recommended: true },
+  { id: "points", name: "一般點數", amount: "1 點起", period: "一次購買／無訂閱", note: "依照實際使用量扣點，不綁月費或年費", features: ["全真模擬看一題扣 1 點", "語音完整解析一次扣 1 點", "AI 追問一個問題扣 1 點"], purchasable: true },
 ];
 
 export default function MedtechUpgradePage() {
-  const [selected, setSelected] = useState("exam");
+  const [selected, setSelected] = useState("mock120");
   const [reason, setReason] = useState("");
   const [state, setState] = useState<"idle" | "success" | "failed" | "cancelled" | "pending">("idle");
-  const plan = useMemo(() => plans.find((item) => item.id === selected) ?? plans[2], [selected]);
-  useEffect(() => { const value = new URLSearchParams(location.search).get("reason") || ""; setReason(value); if (value === "ai-credits") setSelected("credits"); }, []);
+  const option = useMemo(() => pointOptions.find((item) => item.id === selected) ?? pointOptions[1], [selected]);
+
+  useEffect(() => {
+    const value = new URLSearchParams(location.search).get("reason") || "";
+    setReason(value);
+    if (value === "audio-trial" || value === "ai-credits" || value === "points") setSelected("points");
+  }, []);
+
+  const needsPoints = reason === "points" || reason === "ai-credits" || reason === "audio-trial";
+  const bannerTitle = needsPoints ? "點數不足" : "點數制度";
+  const bannerText = needsPoints ? "提示與比較選項不扣點；語音完整解析與 AI 追問依使用次數扣點，請選擇要取得的點數。" : "以下按鈕只會模擬點數購買，不會產生真實訂單或扣款。";
 
   return <main className="medtech-upgrade-page">
     <header className="medtech-top" data-no-navigation-feedback>
-      <a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEMBERSHIP</small></div></a>
+      <a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>POINTS</small></div></a>
       <a className="medtech-member-link" href="/medtech/account">我的帳號</a>
     </header>
     <MedtechTabs active="random" />
     <section className="medtech-upgrade-head">
-      <span>醫檢師會員方案</span>
-      <h1>先免費試玩，再選擇你的解析方式。</h1>
-      <p>免費試玩提供 3 次語音完整解析與 30 點 AI 互動點數；點數用完後，可以購買點數包，或加入月費會員。</p>
+      <span>醫檢師點數商店</span>
+      <h1>不用訂閱，按照使用方式簡單扣點。</h1>
+      <p>學員首次登入贈送 10 點；全真模擬、康情老師語音完整解析與 AI 追問，各自依使用量扣點。</p>
     </section>
-    <div className="medtech-test-banner"><b>{reason === "ai-credits" ? "AI 點數不足" : reason === "audio-trial" ? "免費語音完整解析已用完" : "測試模式"}</b><span>{reason === "ai-credits" ? "你可以購買 AI 點數包，或改選月費會員。" : reason === "audio-trial" ? "前三次免費試聽已使用完畢；可扣 1 點解鎖單題，或加入會員不限次數使用。" : "以下按鈕只會模擬付款結果，不會產生真實訂單或扣款。"}</span></div>
-    <section className="medtech-upgrade-grid" aria-label="醫檢師方案">
-      <div className="medtech-plan-list">{plans.map((item) => <button type="button" key={item.id} className={`medtech-plan-card ${selected === item.id ? "selected" : ""}`} onClick={() => { setSelected(item.id); setState("idle"); }}>
-        {item.recommended && <span className="recommended">建議</span>}
-        <small>{item.name}</small><strong>{item.price}</strong><em>{item.period}</em><p>{item.note}</p>
+    <div className="medtech-test-banner"><b>{bannerTitle}</b><span>{bannerText}</span></div>
+    <section className="medtech-upgrade-grid" aria-label="醫檢師點數方案">
+      <div className="medtech-plan-list">{pointOptions.map((item) => <button type="button" key={item.id} className={`medtech-plan-card ${selected === item.id ? "selected" : ""}`} onClick={() => { setSelected(item.id); setState("idle"); }}>
+        {item.recommended && <span className="recommended">最划算</span>}
+        {!item.purchasable && <span className="recommended">登入即送</span>}
+        <small>{item.name}</small><strong>{item.amount}</strong><em>{item.period}</em><p>{item.note}</p>
         <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
       </button>)}</div>
       <aside className="medtech-order-card">
-        <span>訂單確認</span><h2>{plan.name}</h2><p>{plan.note}</p>
-        <dl><div><dt>方案費用</dt><dd>{plan.price}</dd></div><div><dt>有效期限</dt><dd>{plan.period}</dd></div><div><dt>自動續訂</dt><dd>目前未啟用</dd></div></dl>
-        <button type="button" className="primary" onClick={() => setState("pending")}>進入測試付款</button>
-        <small>正式上線前會改接金流業者通知；前端跳轉不會直接開通權限。</small>
-        {state === "pending" && <div className="medtech-simulate"><b>模擬付款結果</b><p>請選擇一個結果測試會員權限流程。</p><div><button type="button" onClick={() => setState("success")}>成功</button><button type="button" onClick={() => setState("failed")}>失敗</button><button type="button" onClick={() => setState("cancelled")}>取消</button></div></div>}
-        {state === "success" && <div className="medtech-payment-result success"><b>測試付款成功</b><span>示範：後端驗證通知後，才會開通 {plan.name}。</span></div>}
-        {state === "failed" && <div className="medtech-payment-result failed"><b>測試付款失敗</b><span>示範：保留訂單，不開通方案，可重新付款。</span></div>}
-        {state === "cancelled" && <div className="medtech-payment-result cancelled"><b>已取消測試付款</b><span>示範：回到方案頁，會員權限不變。</span></div>}
+        <span>點數明細</span><h2>{option.name}</h2><p>{option.note}</p>
+        <dl><div><dt>取得點數</dt><dd>{option.amount}</dd></div><div><dt>使用方式</dt><dd>依功能扣點</dd></div><div><dt>自動續訂</dt><dd>不適用</dd></div></dl>
+        <button type="button" className="primary" disabled={!option.purchasable} onClick={() => setState("pending")}>{option.purchasable ? "進入點數購買測試" : "首次登入自動贈送"}</button>
+        <small>正式上線後採一次付款取得點數；實際 NT$ 售價由後台點數商品設定。</small>
+        {state === "pending" && <div className="medtech-simulate"><b>模擬購買結果</b><p>請選擇一個結果測試點數入帳流程。</p><div><button type="button" onClick={() => setState("success")}>成功</button><button type="button" onClick={() => setState("failed")}>失敗</button><button type="button" onClick={() => setState("cancelled")}>取消</button></div></div>}
+        {state === "success" && <div className="medtech-payment-result success"><b>測試購買成功</b><span>示範：後端驗證付款通知後，才會把 {option.amount} 寫入帳號。</span></div>}
+        {state === "failed" && <div className="medtech-payment-result failed"><b>測試購買失敗</b><span>示範：保留訂單，不入帳，可重新購買。</span></div>}
+        {state === "cancelled" && <div className="medtech-payment-result cancelled"><b>已取消測試購買</b><span>示範：回到點數商店，帳號點數不變。</span></div>}
       </aside>
     </section>
-    <p className="medtech-upgrade-foot">正式金流規劃：優先評估綠界一次付款；定期定額、電子發票與退款流程完成驗證後再開放。</p>
+    <p className="medtech-upgrade-foot">點數規則：提示與比較選項免費；全真模擬看一題 1 點；語音完整解析一次 1 點；AI 追問一題 1 點。管理員加點與所有扣點都會留下紀錄。</p>
   </main>;
 }

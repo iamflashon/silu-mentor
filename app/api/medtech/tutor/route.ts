@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const initialReview = mode === "answer" || (messages.filter((item) => item.role === "student").length === 1 && Boolean(selectedAnswer));
     const usageState = await getOrCreateMedtechUsage(db, medtechUserKey(request));
     const cacheMode = mode === "hint" || mode === "compare" || initialReview;
-    if (!cacheMode && usageState.aiCredits <= 0) return Response.json({ error: "AI 互動點數已用完，請購買點數或訂閱方案。", code: "AI_CREDITS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=ai-credits" }, { status: 402 });
+    if (!cacheMode && usageState.aiCredits <= 0) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
     if (mode === "compare" && !selectedAnswer) return Response.json({ error: "請先選擇答案，再比較選項。" }, { status: 400 });
     const cacheKey = mode === "hint"
       ? `medtech:hint:${question.id}:${level}`

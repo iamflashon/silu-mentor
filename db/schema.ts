@@ -66,7 +66,7 @@ export const medtechUsage = sqliteTable("medtech_usage", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull().unique(),
   audioTrialQuestionIdsJson: text("audio_trial_question_ids_json").notNull().default("[]"),
-  aiCredits: integer("ai_credits").notNull().default(30),
+  aiCredits: integer("ai_credits").notNull().default(10),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 

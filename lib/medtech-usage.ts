@@ -2,8 +2,10 @@ import { eq } from "drizzle-orm";
 import type { getDb } from "../db";
 import { medtechUsage } from "../db/schema";
 
-export const MEDTECH_AUDIO_TRIAL_LIMIT = 3;
-export const MEDTECH_STARTING_AI_CREDITS = 30;
+// 醫檢師平台統一使用點數：首次登入贈 10 點，提示與比較選項走快取，
+// 語音完整解析與 AI 追問各自按次扣 1 點。保留舊欄位讀取僅為相容既有資料。
+export const MEDTECH_AUDIO_TRIAL_LIMIT = 0;
+export const MEDTECH_STARTING_AI_CREDITS = 10;
 
 export function medtechUserKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
@@ -12,11 +14,6 @@ export function medtechUserKey(request: Request) {
 export async function getOrCreateMedtechUsage(db: Awaited<ReturnType<typeof getDb>>, userKey: string) {
   const [existing] = await db.select().from(medtechUsage).where(eq(medtechUsage.userKey, userKey)).limit(1);
   if (existing) {
-    // Upgrade untouched test accounts created before the 30-point trial rule.
-    if (existing.aiCredits === 10 && audioTrialIds(existing).length === 0) {
-      const [upgraded] = await db.update(medtechUsage).set({ aiCredits: MEDTECH_STARTING_AI_CREDITS, updatedAt: new Date() }).where(eq(medtechUsage.id, existing.id)).returning();
-      return upgraded ?? existing;
-    }
     return existing;
   }
   const [created] = await db.insert(medtechUsage).values({ userKey, aiCredits: MEDTECH_STARTING_AI_CREDITS }).returning();

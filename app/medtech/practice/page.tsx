@@ -144,7 +144,7 @@ export default function MedtechPractice() {
       });
       const result = (await response.json()) as { fullExplanation?: string; error?: string };
       if (response.status === 402) {
-        setFullNotice(result.error || "AI 點數已用完，請購買點數或訂閱方案。");
+        setFullNotice(result.error || "點數已用完；完整解析每題扣 1 點，請先購買點數。");
         return;
       }
       if (!response.ok || !result.fullExplanation) throw new Error(result.error || "完整解析開啟失敗");
