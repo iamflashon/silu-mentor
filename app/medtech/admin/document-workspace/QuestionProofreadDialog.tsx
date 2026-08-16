@@ -52,7 +52,7 @@ export function QuestionProofreadDialog({ question, onClose, embedded = false }:
           <h2>第 {question.questionNumber || "未標示"} 題｜單題校對檢視</h2>
           <p>{question.year || "未標示年份"} · {question.subject || "未分類科目"}</p>
         </div>
-        <button type="button" className="question-proofread-close" onClick={onClose}>關閉，返回編輯</button>
+        <button type="button" className="question-proofread-close" onClick={onClose}>開啟富文編輯</button>
       </header>
 
       <div className="question-proofread-body">

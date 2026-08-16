@@ -25,7 +25,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
   const [simulatedAnswer, setSimulatedAnswer] = useState("");
   const [simulatedTeacherNote, setSimulatedTeacherNote] = useState("");
   const [proofreadItem, setProofreadItem] = useState<OrderedQuestion | null>(null);
-  const [proofreadOpen, setProofreadOpen] = useState(false);
+  const [proofreadOpen, setProofreadOpen] = useState(true);
   const [activeCue, setActiveCue] = useState<Cue | null>(null);
   const [busy, setBusy] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
@@ -122,7 +122,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     setSimulatedAnswer("");
     setSimulatedTeacherNote("");
     setProofreadItem(null);
-    setProofreadOpen(false);
+    setProofreadOpen(true);
     setNotice("");
     void load();
     void loadOrder();
@@ -249,7 +249,6 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     <div className="question-media-head">
       <div><h2>語音檔與字幕</h2><p>本題音檔、SRT 與題目 ID 綁定；播放時會在下方同步顯示字幕。</p></div>
       <div className="question-media-actions">
-        <button type="button" className="question-media-button proofread-button" disabled={!proofreadItem} onClick={() => setProofreadOpen(true)}>{proofreadItem ? "開啟單題校對" : "讀取校對內容…"}</button>
         <label className="question-media-button"><input ref={audioInput} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.webm" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "audio"); }} />{busy ? "處理中…" : media?.audioFileName ? "更換語音檔" : "上傳語音檔"}</label>
         <label className="question-media-button secondary"><input ref={subtitleInput} type="file" accept=".srt,application/x-subrip,text/plain" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "subtitle"); }} />上傳 SRT</label>
         <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>
