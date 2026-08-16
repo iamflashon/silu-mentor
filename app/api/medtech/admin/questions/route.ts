@@ -320,23 +320,15 @@ export async function PATCH(request: Request) {
       }
     }
     if (!questionIds.length) return Response.json({ error: "目前文件沒有可標記的題目" }, { status: 400 });
-    const rows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer, simulatedAnswer: examQuestions.simulatedAnswer })
+    const rows = await db.select({ id: examQuestions.id, teacherAnswer: examQuestions.teacherAnswer, correctAnswer: examQuestions.correctAnswer })
       .from(examQuestions)
       .where(and(eq(examQuestions.examCategory, "medtech"), inArray(examQuestions.id, questionIds)));
-    let answersFilled = 0;
-    for (const row of rows) {
-      const existingAnswer = String(row.teacherAnswer || row.correctAnswer || "").trim().toUpperCase();
-      const aiAnswer = String(row.simulatedAnswer || "").trim().toUpperCase();
-      const values: Record<string, string | Date> = { reviewStatus: "confirmed", reviewedAt: new Date() };
-      if (!/^[A-D]$/.test(existingAnswer) && /^[A-D]$/.test(aiAnswer)) {
-        values.teacherAnswer = aiAnswer;
-        values.correctAnswer = aiAnswer;
-        values.answerSource = "測試批次：沿用 AI 擬答";
-        answersFilled += 1;
-      }
-      await db.update(examQuestions).set(values).where(eq(examQuestions.id, row.id));
-    }
-    return Response.json({ updated: rows.length, answersFilled, questionIds: rows.map((item) => item.id), reviewStatus: "confirmed" });
+    await db.update(examQuestions).set({ reviewStatus: "confirmed", reviewedAt: new Date() }).where(and(
+      eq(examQuestions.examCategory, "medtech"),
+      inArray(examQuestions.id, rows.map((item) => item.id)),
+    ));
+    const unanswered = rows.filter((row) => !/^[A-D]$/.test(String(row.teacherAnswer || row.correctAnswer || "").trim().toUpperCase())).length;
+    return Response.json({ updated: rows.length, unanswered, questionIds: rows.map((item) => item.id), reviewStatus: "confirmed" });
   }
   const id = Number(body.id);
   if (body.publishAllDrafts === true) {

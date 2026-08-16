@@ -182,7 +182,7 @@ export function RepairMissingQuestionsButton({
   }
 
   async function bulkConfirmReview() {
-    if (!confirm(`確定將這份文件的全部題目標記為「已完成校對」嗎？這是測試發布用的批次操作，會略過逐題校對檢查。`)) return;
+    if (!confirm(`確定將這份文件的全部題目標記為「已完成校對」嗎？這是測試發布用的批次操作，不會自動補老師答案；沒有 A、B、C、D 老師答案的題目仍不能發布。`)) return;
     setBusy(true);
     try {
       const response = await fetch("/api/medtech/admin/questions", {
@@ -190,9 +190,9 @@ export function RepairMissingQuestionsButton({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ bulkConfirmReview: true, documentId }),
       });
-      const data = await response.json() as { updated?: number; answersFilled?: number; error?: string };
-      const filled = data.answersFilled ? `，其中 ${data.answersFilled} 題暫以 AI 擬答作為測試答案` : "";
-      await onDone(response.ok ? `已將 ${data.updated ?? 0} 題標記為已完成校對${filled}；現在可以測試發布。` : data.error || "批次校對狀態更新失敗。");
+      const data = await response.json() as { updated?: number; unanswered?: number; error?: string };
+      const blocked = data.unanswered ? `；仍有 ${data.unanswered} 題沒有 A、B、C、D 老師答案，發布會繼續阻擋` : "；目前可測試發布";
+      await onDone(response.ok ? `已將 ${data.updated ?? 0} 題標記為已完成校對${blocked}。` : data.error || "批次校對狀態更新失敗。");
     } catch {
       await onDone("批次校對狀態更新失敗，請稍後再試。");
     } finally {
