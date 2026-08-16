@@ -7,6 +7,14 @@ import { requireMedtechAdmin } from "../../../../lib/member-auth";
 
 type ParsedQuestion = { year: string; number: string; stem: string; options: Record<string, string>; answer: string; explanation: string };
 
+function answerLetter(value: unknown) {
+  const text = String(value ?? "").trim().toUpperCase();
+  const marked = text.match(/[（(]\s*([A-D])\s*[）)]/u);
+  if (marked?.[1]) return marked[1];
+  const plain = text.match(/(?:^|[\s:：.、])([A-D])(?=$|[\s])/u);
+  return plain?.[1] || "";
+}
+
 function questionsFromProcessingResult(value: string): ParsedQuestion[] {
   // A malformed/legacy result can contain an entire HTML export. Refuse to
   // parse an unbounded blob inside the Worker; the caller can explicitly run
@@ -41,7 +49,7 @@ function questionsFromProcessingResult(value: string): ParsedQuestion[] {
       number: clean(firstText(row, ["number", "question_number", "questionNumber"]) || String(index + 1)),
       stem: firstText(row, ["title", "stem", "question", "content", "text"]),
       options,
-      answer: clean(firstText(row, ["correct_answer", "correctAnswer", "answer"])).replace(/[()（）\s]/gu, "").slice(0, 1).toUpperCase(),
+      answer: answerLetter(firstText(row, ["correct_answer", "correctAnswer", "answer", "teacher_answer", "teacherAnswer"])),
       explanation: firstText(row, ["explanation", "teacher_answer", "teacherAnswer"]),
     };
   }).filter((row) => row.stem && ["A", "B", "C", "D"].every((key) => row.options[key]));
@@ -69,7 +77,7 @@ function questionCandidatesFromProcessingResult(value: string): ParsedQuestion[]
       number: field(row, ["number", "question_number", "questionNumber"], String(index + 1)),
       stem: field(row, ["title", "stem", "question", "content", "text"]),
       options,
-      answer: field(row, ["correct_answer", "correctAnswer", "answer"]).replace(/[()（）\s]/gu, "").slice(0, 1).toUpperCase(),
+      answer: answerLetter(field(row, ["correct_answer", "correctAnswer", "answer", "teacher_answer", "teacherAnswer"])),
       explanation: field(row, ["explanation", "teacher_answer", "teacherAnswer"]),
     };
   }).filter((row) => row.stem);
@@ -137,7 +145,7 @@ function parseQuestions(text: string): ParsedQuestion[] {
     const optionText = lines.slice(optionStart, endOfOptions).join(" ");
     const options = parseOptions(optionText);
     if (!["A", "B", "C", "D"].every((key) => options[key])) continue;
-    const answer = answerIndex >= 0 ? lines[answerIndex].match(/[（(]([A-D])[）)]/u)?.[1] ?? "" : "";
+    const answer = answerIndex >= 0 ? answerLetter(lines[answerIndex]) : "";
     let end = answerIndex >= 0 ? answerIndex + 1 : endOfOptions;
     const explanation: string[] = [];
     if (answerIndex >= 0 && lines[end] === "【解析】") end += 1;
@@ -244,6 +252,7 @@ export async function POST(request: Request) {
       });
       const used = new Set<number>();
       let updated = 0;
+      let answersUpdated = 0;
       for (const row of existing) {
         let match = parsedByStem.get(normalizeStem(row.stem));
         if (!match) {
@@ -255,6 +264,18 @@ export async function POST(request: Request) {
         if (row.sourceOrder !== match.index + 1) {
           await db.update(examQuestions).set({ sourceOrder: match.index + 1 }).where(eq(examQuestions.id, row.id));
           updated += 1;
+        }
+        const parsedAnswer = answerLetter(match.question.answer);
+        const existingTeacherAnswer = answerLetter(row.teacherAnswer);
+        const existingCorrectAnswer = answerLetter(row.correctAnswer);
+        if (parsedAnswer && !existingTeacherAnswer && !existingCorrectAnswer) {
+          await db.update(examQuestions).set({
+            teacherAnswer: parsedAnswer,
+            correctAnswer: parsedAnswer,
+            answerSource: document.bookTitle || "原稿答案",
+            answerStatus: "source_matched",
+          }).where(eq(examQuestions.id, row.id));
+          answersUpdated += 1;
         }
       }
       const missing = localQuestions
@@ -271,9 +292,10 @@ export async function POST(request: Request) {
           questionNumber: question.number,
           stem: question.stem,
           optionsJson: JSON.stringify(question.options),
-          correctAnswer: question.answer,
+          correctAnswer: question.answer || null,
           explanation: question.explanation,
-          answerSource: document.bookTitle || (question.answer ? "待補來源" : "待補答案"),
+          teacherAnswer: question.answer,
+          answerSource: document.bookTitle || (question.answer ? "原稿答案" : "待補答案"),
           answerStatus: question.answer ? "source_matched" : "missing",
           sourceUrl: `document:${document.id}`,
           sourceOrder: index + 1,
@@ -283,7 +305,7 @@ export async function POST(request: Request) {
       }
       const finalCount = Math.max(Number(document.questionCount ?? 0), existing.length + imported, localQuestions.length);
       await db.update(documents).set({ questionCount: finalCount, processingMessage: `已依原稿比對缺題：目前 ${finalCount} 題；新增 ${imported} 題` }).where(eq(documents.id, documentId));
-      return Response.json({ repaired: true, imported, updated, parsed: finalCount, sourceParsed: localQuestions.length, missing: missing.map(({ question, index }) => ({ sourceOrder: index + 1, number: question.number, stem: question.stem.slice(0, 160), answer: question.answer })), done: true, documentId, subject: document.subject, status: "draft" });
+      return Response.json({ repaired: true, imported, updated, answersUpdated, parsed: finalCount, sourceParsed: localQuestions.length, missing: missing.map(({ question, index }) => ({ sourceOrder: index + 1, number: question.number, stem: question.stem.slice(0, 160), answer: question.answer })), done: true, documentId, subject: document.subject, status: "draft" });
     }
     if (offset === 0 && !body.materializeOnly) await db.delete(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.subject, document.subject), eq(examQuestions.sourceUrl, `document:${document.id}`)));
     // D1 limits the number of bound values in one statement. Each question
@@ -312,9 +334,10 @@ export async function POST(request: Request) {
         questionNumber: question.number,
         stem: question.stem,
         optionsJson: JSON.stringify(question.options),
-        correctAnswer: question.answer,
+        correctAnswer: question.answer || null,
         explanation: question.explanation,
-        answerSource: document.bookTitle || (question.answer ? "待補來源" : "待補答案"),
+        teacherAnswer: question.answer,
+        answerSource: document.bookTitle || (question.answer ? "原稿答案" : "待補答案"),
         answerStatus: question.answer ? "source_matched" : "missing",
         sourceUrl: `document:${document.id}`,
           sourceOrder: offset + index + 1,
