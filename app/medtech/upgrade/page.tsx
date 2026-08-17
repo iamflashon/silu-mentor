@@ -16,9 +16,9 @@ type PointOption = {
 };
 
 const pointOptions: PointOption[] = [
-  { id: "welcome", name: "首次登入贈點", amount: "10 點", period: "登入後自動贈送", note: "先體驗題目、提示與引導學習流程", features: ["提示免費快取", "比較選項免費簡答", "語音完整解析每次扣 1 點"], purchasable: false },
-  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點", period: "一次購買／五折", note: "一次取得完整 120 題；題目包開通後 7 天內不限次數重做", features: ["120 題一次購足", "完整保存刷題統計與錯題分析", "語音完整解析另扣 1 點／24 小時"], purchasable: true, recommended: true },
-  { id: "points", name: "章節／隨機題目包", amount: "30 點／包", period: "30 題／7 天", note: "任選一包免費體驗一次；之後每一關可抽一次轉轉樂，最高五折，放棄後以 30 點解鎖", features: ["任選一包 30 題免費", "每關一次轉轉樂，最高五折", "語音解析 1 點／24 小時；AI 追問 1 點／題"], purchasable: true },
+  { id: "welcome", name: "首次登入贈點", amount: "10 點＝NT$10", period: "登入後自動贈送", note: "先體驗題目、提示與引導學習流程", features: ["提示免費快取", "比較選項免費簡答", "語音完整解析每次扣 1 點／NT$1"], purchasable: false },
+  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點＝NT$60", period: "一次購買／五折", note: "一次取得完整 120 題；題目包開通後 7 天內不限次數重做", features: ["120 題一次購足", "完整保存刷題統計與錯題分析", "語音完整解析另扣 1 點／NT$1／24 小時"], purchasable: true, recommended: true },
+  { id: "points", name: "章節／隨機題目包", amount: "30 點＝NT$30／包", period: "30 題／7 天", note: "任選一包免費體驗一次；之後每一關可抽一次轉轉樂，最高五折，放棄後以 30 點解鎖", features: ["任選一包 30 題免費", "每關一次轉轉樂，最高五折", "語音解析 1 點／NT$1／24 小時；AI 追問 1 點／NT$1／題"], purchasable: true },
 ];
 
 export default function MedtechUpgradePage() {
@@ -45,7 +45,7 @@ export default function MedtechUpgradePage() {
     <MedtechTabs />
     <section className="medtech-upgrade-head">
       <span>醫檢師點數商店</span>
-      <h1>不用訂閱，按照使用方式簡單扣點。</h1>
+      <h1>不用訂閱，1 點就是 NT$1，按照使用方式簡單扣點。</h1>
       <p>學員首次登入贈送 10 點；任選一包 30 題免費初體驗，完成上一關可抽一次限時轉轉樂，最高五折，之後再用點數解鎖，7 天內不限次數重做。</p>
     </section>
     <div className="medtech-test-banner"><b>{bannerTitle}</b><span>{bannerText}</span></div>
@@ -60,7 +60,7 @@ export default function MedtechUpgradePage() {
         <span>點數明細</span><h2>{option.name}</h2><p>{option.note}</p>
         <dl><div><dt>取得點數</dt><dd>{option.amount}</dd></div><div><dt>使用方式</dt><dd>依功能扣點</dd></div><div><dt>自動續訂</dt><dd>不適用</dd></div></dl>
         <button type="button" className="primary" disabled={!option.purchasable} onClick={() => setState("pending")}>{option.purchasable ? "進入點數購買測試" : "首次登入自動贈送"}</button>
-        <small>正式上線後採一次付款取得點數；實際 NT$ 售價由後台點數商品設定。</small>
+        <small>點數不兌現、不轉讓；購買時以 1 點＝NT$1 計算。</small>
         {state === "pending" && <div className="medtech-simulate"><b>模擬購買結果</b><p>請選擇一個結果測試點數入帳流程。</p><div><button type="button" onClick={() => setState("success")}>成功</button><button type="button" onClick={() => setState("failed")}>失敗</button><button type="button" onClick={() => setState("cancelled")}>取消</button></div></div>}
         {state === "success" && <div className="medtech-payment-result success"><b>測試購買成功</b><span>示範：後端驗證付款通知後，才會把 {option.amount} 寫入帳號。</span></div>}
         {state === "failed" && <div className="medtech-payment-result failed"><b>測試購買失敗</b><span>示範：保留訂單，不入帳，可重新購買。</span></div>}

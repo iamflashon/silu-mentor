@@ -40,7 +40,7 @@ export default function MedtechHeaderActions({ activePoints = false, accountLabe
   }, [refreshPoints]);
 
   return <div className="medtech-top-actions">
-    <span className="medtech-points-balance" aria-live="polite" title="每次扣點後會自動更新">
+    <span className="medtech-points-balance" aria-live="polite" title="1 點＝NT$1；每次扣點後會自動更新">
       <small>可用點數</small>
       <b>{loading ? "…" : points ?? "—"}{points !== null && !loading ? <em> 點</em> : null}</b>
     </span>

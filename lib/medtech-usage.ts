@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, like } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, like, ne } from "drizzle-orm";
 import type { getDb } from "../db";
 import { medtechPointLedger, medtechPracticeSessions, medtechUsage } from "../db/schema";
 
@@ -124,18 +124,50 @@ export async function createMedtechPackDiscountReward(
   return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST } satisfies MedtechPackDiscountReward;
 }
 
+export function normalizeMedtechUserKey(value: string) {
+  return value.trim().toLowerCase() || "default-owner";
+}
+
 export function medtechUserKey(request: Request) {
-  return request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() || "default-owner";
+  return normalizeMedtechUserKey(request.headers.get("oai-authenticated-user-email") || "");
 }
 
 export async function getOrCreateMedtechUsage(db: Awaited<ReturnType<typeof getDb>>, userKey: string) {
-  const [existing] = await db.select().from(medtechUsage).where(eq(medtechUsage.userKey, userKey)).limit(1);
+  const normalizedKey = normalizeMedtechUserKey(userKey);
+  const [exact] = await db.select().from(medtechUsage)
+    .where(eq(medtechUsage.userKey, normalizedKey))
+    .orderBy(desc(medtechUsage.updatedAt), desc(medtechUsage.id))
+    .limit(1);
+  // Older records may contain a casing or whitespace variant of the same
+  // email. Use the most recently updated matching balance so every page sees
+  // the same account balance while those legacy rows remain recoverable.
+  const existing = exact ?? (await db.select().from(medtechUsage))
+    .filter((row) => normalizeMedtechUserKey(row.userKey) === normalizedKey)
+    .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime() || right.id - left.id)[0];
   if (existing) {
+    // The ledger is the audit trail for every grant and spend. If the cached
+    // balance was reset or became stale, reconstruct it from the ledger before
+    // returning it so the admin page, account page and learning APIs agree.
+    const ledgerKeys = [...new Set([normalizedKey, existing.userKey])];
+    const ledgerRows = await db.select({ delta: medtechPointLedger.delta })
+      .from(medtechPointLedger)
+      .where(and(inArray(medtechPointLedger.userKey, ledgerKeys), ne(medtechPointLedger.delta, 0)));
+    const reconstructed = ledgerRows.reduce((total, row) => total + row.delta, 0);
+    if (Number.isFinite(reconstructed)) {
+      const repairedBalance = Math.max(0, Math.trunc(reconstructed));
+      if (repairedBalance !== existing.aiCredits) {
+        const [repaired] = await db.update(medtechUsage)
+          .set({ aiCredits: repairedBalance, updatedAt: new Date() })
+          .where(eq(medtechUsage.id, existing.id))
+          .returning();
+        return repaired ?? { ...existing, aiCredits: repairedBalance };
+      }
+    }
     return existing;
   }
-  const [created] = await db.insert(medtechUsage).values({ userKey, aiCredits: MEDTECH_STARTING_POINTS }).returning();
+  const [created] = await db.insert(medtechUsage).values({ userKey: normalizedKey, aiCredits: MEDTECH_STARTING_POINTS }).returning();
   await db.insert(medtechPointLedger).values({
-    userKey,
+    userKey: normalizedKey,
     delta: MEDTECH_STARTING_POINTS,
     balanceAfter: MEDTECH_STARTING_POINTS,
     action: "welcome_gift",
@@ -215,12 +247,13 @@ export async function addMedtechPoints(
   amount: number,
   description: string,
 ) {
-  const usage = await getOrCreateMedtechUsage(db, userKey);
+  const normalizedKey = normalizeMedtechUserKey(userKey);
+  const usage = await getOrCreateMedtechUsage(db, normalizedKey);
   const safeAmount = Math.max(1, Math.floor(amount));
   const nextCredits = usage.aiCredits + safeAmount;
   const [updated] = await db.update(medtechUsage).set({ aiCredits: nextCredits, updatedAt: new Date() }).where(eq(medtechUsage.id, usage.id)).returning();
   if (!updated) return null;
-  await db.insert(medtechPointLedger).values({ userKey, delta: safeAmount, balanceAfter: nextCredits, action: "admin_grant", description });
+  await db.insert(medtechPointLedger).values({ userKey: normalizedKey, delta: safeAmount, balanceAfter: nextCredits, action: "admin_grant", description });
   return updated;
 }
 

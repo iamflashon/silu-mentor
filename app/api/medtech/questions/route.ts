@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
 import { requireMedtechDevice } from "../../../../lib/member-auth";
-import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, medtechUserKey, MEDTECH_QUESTION_PACKAGE_SIZE } from "../../../../lib/medtech-usage";
+import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, MEDTECH_QUESTION_PACKAGE_SIZE } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
 import { storedDocumentAnalysis } from "../../../../lib/document-analysis";
 
@@ -56,8 +56,6 @@ function chapterByOrder(processingResultJson: string) {
   });
   return byOrder;
 }
-function userKey(request: Request) { return medtechUserKey(request); }
-
 function stableHash(value: string) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -90,7 +88,7 @@ export async function GET(request: Request) {
   const [reviewSession] = reviewOnly && reviewSessionId ? await db.select().from(medtechPracticeSessions).where(and(eq(medtechPracticeSessions.id, reviewSessionId), eq(medtechPracticeSessions.userKey, auth.userKey))).limit(1) : [];
   let wrongIds: number[] = [];
   if (wrongOnly) {
-    const attempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct }).from(examAttempts).where(eq(examAttempts.userKey, userKey(request))).orderBy(desc(examAttempts.id));
+    const attempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct }).from(examAttempts).where(eq(examAttempts.userKey, auth.userKey)).orderBy(desc(examAttempts.id));
     const latest = new Map<number, boolean | null>();
     for (const attempt of attempts) if (!latest.has(attempt.questionId)) latest.set(attempt.questionId, attempt.correct);
     wrongIds = [...latest].filter(([, correct]) => correct === false).map(([id]) => id);

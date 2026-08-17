@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { examQuestions, medtechAiExplanationCache, usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
-import { getOrCreateMedtechUsage, medtechUserKey, spendMedtechPoints } from "../../../../lib/medtech-usage";
+import { getOrCreateMedtechUsage, spendMedtechPoints } from "../../../../lib/medtech-usage";
 import { requireMedtechDevice } from "../../../../lib/member-auth";
 
 type Turn = { role: "student" | "mentor"; text: string };
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const selectedAnswer = String(body.selectedAnswer ?? latest.match(/^我選\s*([A-D])/iu)?.[1] ?? "").toUpperCase();
     const mode = body.mode ?? (selectedAnswer ? "answer" : "followup");
     const initialReview = mode === "answer" || (messages.filter((item) => item.role === "student").length === 1 && Boolean(selectedAnswer));
-    const usageState = await getOrCreateMedtechUsage(db, medtechUserKey(request));
+    const usageState = await getOrCreateMedtechUsage(db, auth.userKey);
     const cacheMode = mode === "hint" || mode === "compare" || initialReview;
     if (!cacheMode && usageState.aiCredits <= 0) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
     if (mode === "compare" && !selectedAnswer) return Response.json({ error: "請先選擇答案，再比較選項。" }, { status: 400 });
