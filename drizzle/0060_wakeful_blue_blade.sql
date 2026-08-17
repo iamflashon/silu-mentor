@@ -1,0 +1,1 @@
+ALTER TABLE `medtech_practice_sessions` ADD `pack_number` integer DEFAULT 1 NOT NULL;

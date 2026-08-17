@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import type { getDb } from "../db";
-import { medtechPointLedger, medtechUsage } from "../db/schema";
+import { medtechPointLedger, medtechPracticeSessions, medtechUsage } from "../db/schema";
 
 // 醫檢師平台統一使用點數：首次登入贈 10 點，提示與比較選項走快取，
 // 語音完整解析與 AI 追問各自按次扣 1 點。保留舊欄位讀取僅為相容既有資料。
@@ -9,6 +9,7 @@ export const MEDTECH_STARTING_POINTS = 10;
 export const MEDTECH_QUESTION_ACCESS_HOURS = 7 * 24;
 export const MEDTECH_AUDIO_ACCESS_HOURS = 24;
 export const MEDTECH_QUESTION_PACKAGE_COST = 30;
+export const MEDTECH_QUESTION_PACKAGE_SIZE = 30;
 export const MEDTECH_QUESTION_PACKAGE_HOURS = 7 * 24;
 export const MEDTECH_CHAPTER_PACKAGE_COST = MEDTECH_QUESTION_PACKAGE_COST;
 export const MEDTECH_CHAPTER_PACKAGE_HOURS = MEDTECH_QUESTION_PACKAGE_HOURS;
@@ -168,10 +169,16 @@ export async function grantMedtechQuestionPackageAccess(
   userKey: string,
   packageName: string,
   questionIds: number[],
+  options: { packageNumber?: number; allowCharge?: boolean } = {},
 ) {
-  const candidateIds = [...new Set(questionIds.filter((id) => Number.isInteger(id) && id > 0))].slice(0, 30);
+  const packageNumber = Math.max(1, Math.floor(options.packageNumber ?? 1));
+  const allowCharge = options.allowCharge ?? false;
+  const candidateIds = [...new Set(questionIds.filter((id) => Number.isInteger(id) && id > 0))].slice(0, MEDTECH_QUESTION_PACKAGE_SIZE);
   const usage = await getOrCreateMedtechUsage(db, userKey);
-  const description = `${packageName}題目包（7 天內可隨意刷）`;
+  const description = `${packageName}第 ${packageNumber} 包（7 天內可隨意刷）`;
+  const legacyDescription = `${packageName}題目包（7 天內可隨意刷）`;
+  const descriptions = packageNumber === 1 ? [description, legacyDescription] : [description];
+  const isBonusPack = candidateIds.length < MEDTECH_QUESTION_PACKAGE_SIZE;
   const cutoff = new Date(Date.now() - MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
   const [activePackage] = await db.select({
     action: medtechPointLedger.action,
@@ -183,7 +190,7 @@ export async function grantMedtechQuestionPackageAccess(
     .where(and(
       eq(medtechPointLedger.userKey, userKey),
       inArray(medtechPointLedger.action, ["question_pack", "question_pack_gift"]),
-      eq(medtechPointLedger.description, description),
+      inArray(medtechPointLedger.description, descriptions),
       gte(medtechPointLedger.createdAt, cutoff),
     ))
     .orderBy(desc(medtechPointLedger.createdAt))
@@ -207,23 +214,44 @@ export async function grantMedtechQuestionPackageAccess(
       gifted: activePackage.action === "question_pack_gift",
       packageCost: MEDTECH_QUESTION_PACKAGE_COST,
       availableUntil,
+      packageNumber,
+      isBonusPack,
     };
   }
   if (!candidateIds.length) {
-    return { usage, allowedIds: [], packageQuestionIds: [], limited: false, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null };
+    return { usage, allowedIds: [], packageQuestionIds: [], limited: false, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack };
   }
 
-  // 每個章節／模考包第一次進入提供一次免費初體驗；同一包到期後才需要購買。
-  const [previousGift] = await db.select({ id: medtechPointLedger.id })
+  // 闖關包依序開放：上一包必須完成，才可以解鎖下一包。
+  let previousCompleted = true;
+  if (packageNumber > 1) {
+    const [prior] = await db.select({ id: medtechPracticeSessions.id })
+      .from(medtechPracticeSessions)
+      .where(and(
+        eq(medtechPracticeSessions.userKey, userKey),
+        eq(medtechPracticeSessions.packageName, packageName),
+        eq(medtechPracticeSessions.packNumber, packageNumber - 1),
+        isNotNull(medtechPracticeSessions.completedAt),
+      ))
+      .limit(1);
+    previousCompleted = Boolean(prior);
+  }
+  if (!previousCompleted) {
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack, blockedByPrevious: true };
+  }
+
+  // 每章第一包免費；最後不足 30 題的尾包也免費，避免學生為零星題目支付整包點數。
+  const [previouslyOpened] = await db.select({ id: medtechPointLedger.id })
     .from(medtechPointLedger)
     .where(and(
       eq(medtechPointLedger.userKey, userKey),
-      eq(medtechPointLedger.action, "question_pack_gift"),
-      eq(medtechPointLedger.description, description),
+      inArray(medtechPointLedger.action, ["question_pack", "question_pack_gift"]),
+      inArray(medtechPointLedger.description, descriptions),
     ))
     .limit(1);
-  const packageSource = (gift: boolean) => `題目包：${packageName}；${gift ? "首次體驗贈送，不扣點" : `一次購足 ${MEDTECH_QUESTION_PACKAGE_COST} 點`}；7 天內隨意刷；固定題目：${candidateIds.join(",")}`;
-  if (!previousGift) {
+  const packageSource = (gift: boolean) => `題目包：${packageName}第 ${packageNumber} 包；${gift ? (isBonusPack ? "章節尾關免費" : "首次體驗贈送，不扣點") : `一次購足 ${MEDTECH_QUESTION_PACKAGE_COST} 點`}；7 天內隨意刷；固定題目：${candidateIds.join(",")}`;
+  const shouldGift = isBonusPack || (packageNumber === 1 && !previouslyOpened);
+  if (shouldGift) {
     const giftUntil = new Date(Date.now() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
     await db.insert(medtechPointLedger).values({
       userKey,
@@ -234,10 +262,13 @@ export async function grantMedtechQuestionPackageAccess(
       sourceDetail: packageSource(true),
       availableUntil: giftUntil,
     });
-    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: false, gifted: true, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: giftUntil };
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: false, gifted: true, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: giftUntil, packageNumber, isBonusPack };
   }
   if (usage.aiCredits < MEDTECH_QUESTION_PACKAGE_COST) {
-    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null };
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack };
+  }
+  if (!allowCharge) {
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack, needsUnlock: true };
   }
   const updated = await spendMedtechPoints(db, usage, {
     action: "question_pack",
@@ -246,9 +277,9 @@ export async function grantMedtechQuestionPackageAccess(
     retainHours: MEDTECH_QUESTION_PACKAGE_HOURS,
     amount: MEDTECH_QUESTION_PACKAGE_COST,
   });
-  if (!updated) return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null };
+  if (!updated) return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack };
   const paidUntil = new Date(Date.now() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
-  return { usage: updated, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: true, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: paidUntil };
+  return { usage: updated, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: true, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: paidUntil, packageNumber, isBonusPack };
 }
 
 export function audioTrialIds(row: { audioTrialQuestionIdsJson: string }) {

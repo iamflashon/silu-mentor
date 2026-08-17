@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
 import { requireMedtechMember } from "../../../../lib/member-auth";
-import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, medtechUserKey } from "../../../../lib/medtech-usage";
+import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, medtechUserKey, MEDTECH_QUESTION_PACKAGE_SIZE } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
 import { storedDocumentAnalysis } from "../../../../lib/document-analysis";
 
@@ -58,6 +58,21 @@ function chapterByOrder(processingResultJson: string) {
 }
 function userKey(request: Request) { return medtechUserKey(request); }
 
+function stableHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function stablePackageRows<T extends { id: number }>(rows: T[], packageName: string, packageNumber: number) {
+  return [...rows]
+    .sort((left, right) => stableHash(`${packageName}:${packageNumber}:${left.id}`) - stableHash(`${packageName}:${packageNumber}:${right.id}`) || left.id - right.id)
+    .slice((packageNumber - 1) * MEDTECH_QUESTION_PACKAGE_SIZE, packageNumber * MEDTECH_QUESTION_PACKAGE_SIZE);
+}
+
 export async function GET(request: Request) {
   const auth = await requireMedtechMember(request);
   if ("error" in auth) return auth.error;
@@ -67,6 +82,8 @@ export async function GET(request: Request) {
   const wrongOnly = url.searchParams.get("wrongOnly") === "1";
   const practiceOnly = url.searchParams.get("mode") === "practice";
   const reviewOnly = url.searchParams.get("mode") === "review";
+  const packageNumber = Math.max(1, Math.floor(Number(url.searchParams.get("pack")) || 1));
+  const unlockPackage = url.searchParams.get("unlock") === "1";
   const reviewIds = url.searchParams.get("ids")?.split(",").map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0).slice(0, 50) ?? [];
   const reviewSessionId = Number(url.searchParams.get("sessionId")) || 0;
   const db = auth.db;
@@ -106,20 +123,29 @@ export async function GET(request: Request) {
   // passing every question id to D1's `IN (...)` query exceeds its bound
   // parameter limit and makes the random-practice endpoint return an empty
   // response.
-  const topicRows = rows.filter((row) => {
+  const allTopicRows = rows.filter((row) => {
     const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
     const source = sourceById.get(sourceId);
     return !topic || topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === topic;
   });
+  // 章節刷題只取指定章節；隨機模考跨前三個知識章節，避免和「全真模擬試題」正式考卷重複。
+  const topicRows = topic ? allTopicRows : allTopicRows.filter((row) => {
+    const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
+    const sourceTopic = topicOf(sourceById.get(sourceId)?.fileName ?? "", sourceById.get(sourceId)?.subject ?? row.subject);
+    return sourceTopic !== topics[3];
+  });
+  const packageCount = Math.max(1, Math.ceil(topicRows.length / MEDTECH_QUESTION_PACKAGE_SIZE));
   let selectedRows = reviewOnly
     ? topicRows.filter((row) => (reviewSession ? parseIds(reviewSession.questionIdsJson).includes(row.id) : reviewIds.includes(row.id))).slice(0, limit)
+    : practiceOnly && !wrongOnly
+    ? stablePackageRows(topicRows, topic || "隨機模考", packageNumber)
     : topicRows.sort(() => Math.random() - .5).slice(0, limit);
   const packageMode = practiceOnly && !wrongOnly;
-  const packageName = topic || topics[3];
+  const packageName = topic || "隨機模考";
   const access = reviewSession
     ? { usage: await getOrCreateMedtechUsage(db, auth.userKey), allowedIds: selectedRows.map((row) => row.id), limited: false }
     : packageMode
-    ? await grantMedtechQuestionPackageAccess(db, auth.userKey, packageName, selectedRows.map((row) => row.id))
+    ? await grantMedtechQuestionPackageAccess(db, auth.userKey, packageName, selectedRows.map((row) => row.id), { packageNumber, allowCharge: unlockPackage })
     : await grantMedtechQuestionAccess(db, auth.userKey, selectedRows.map((row) => row.id));
   if (packageMode) {
     const rowById = new Map(topicRows.map((row) => [row.id, row]));
@@ -168,10 +194,11 @@ export async function GET(request: Request) {
         locked: packageMode && access.limited,
       };
     });
-    const [session] = mapped.length ? await db.insert(medtechPracticeSessions).values({
+    const [session] = mapped.length && "hasAccess" in access && access.hasAccess ? await db.insert(medtechPracticeSessions).values({
       userKey: auth.userKey,
       packageName: packageMode ? packageName : (wrongOnly ? "錯題複習" : "醫檢師練題"),
       packageType: packageMode ? (topic ? "chapter" : "random_mock") : "wrong_review",
+      packNumber: packageMode ? packageNumber : 1,
       questionIdsJson: JSON.stringify(mapped.map((item) => item.id)),
       startedAt: new Date(),
       totalQuestions: mapped.length,
@@ -183,9 +210,14 @@ export async function GET(request: Request) {
       cost: packageCost,
       questionCount: mapped.length,
       days: 7,
+      packageNumber,
+      packageCount,
+      isBonus: "isBonusPack" in access && access.isBonusPack,
       locked: access.limited,
       gifted: "gifted" in access && access.gifted,
       charged: "charged" in access && access.charged,
+      needsUnlock: "needsUnlock" in access && access.needsUnlock,
+      blockedByPrevious: "blockedByPrevious" in access && access.blockedByPrevious,
       availableUntil: packageAvailableUntil?.toISOString() ?? null,
     } : undefined, topics: topics.map((name) => ({ name, count: rows.filter((row) => {
       const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
@@ -304,13 +336,14 @@ export async function POST(request: Request) {
   if (Number.isInteger(sessionId) && sessionId > 0) {
     const [session] = await db.select().from(medtechPracticeSessions).where(and(eq(medtechPracticeSessions.id, sessionId), eq(medtechPracticeSessions.userKey, auth.userKey))).limit(1);
     if (session) {
-      const completedAt = new Date();
+      const completed = results.length >= session.totalQuestions;
+      const completedAt = completed ? new Date() : null;
       const incorrectIds = results.filter((item) => !item.correct).map((item) => item.questionId);
       const repeatedWrongIds = incorrectIds.filter((id) => previouslyWrong.has(id));
       const weaknessCounts = new Map<string, number>();
       for (const item of results) if (!item.correct && item.weakness) weaknessCounts.set(item.weakness, (weaknessCounts.get(item.weakness) ?? 0) + 1);
       const weaknesses = [...weaknessCounts.entries()].sort((left, right) => right[1] - left[1]).map(([label, count]) => ({ label, count }));
-      const durationSeconds = Math.max(0, Math.round((completedAt.getTime() - session.startedAt.getTime()) / 1000));
+      const durationSeconds = Math.max(0, Math.round(((completedAt ?? new Date()).getTime() - session.startedAt.getTime()) / 1000));
       await db.update(medtechPracticeSessions).set({
         completedAt,
         durationSeconds,
@@ -320,7 +353,7 @@ export async function POST(request: Request) {
         repeatedWrongQuestionIdsJson: JSON.stringify(repeatedWrongIds),
         weaknessesJson: JSON.stringify(weaknesses),
       }).where(eq(medtechPracticeSessions.id, session.id));
-      const nextStep = weaknesses.length ? `優先加強：${weaknesses.slice(0, 3).map((item) => item.label).join("、")}；再做錯題複習與老師語音解析` : "維持練習，挑戰下一包題目";
+      const nextStep = !completed ? "本關尚未完成，請回到本關補完全部題目後再解鎖下一關" : weaknesses.length ? `優先加強：${weaknesses.slice(0, 3).map((item) => item.label).join("、")}；再做錯題複習與老師語音解析` : "維持練習，挑戰下一包題目";
       await db.insert(studyRecords).values({
         userKey: auth.userKey,
         recordDate: taipeiDate(),
@@ -333,7 +366,7 @@ export async function POST(request: Request) {
         weakness: weaknesses.map((item) => `${item.label}（${item.count}題）`).join("；"),
         nextStep,
       });
-      return Response.json({ saved, session: { id: session.id, durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectQuestionIds: incorrectIds, repeatedWrongQuestionIds: repeatedWrongIds, weaknesses, nextStep } });
+      return Response.json({ saved, session: { id: session.id, completed, durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectQuestionIds: incorrectIds, repeatedWrongQuestionIds: repeatedWrongIds, weaknesses, nextStep } });
     }
   }
   return Response.json({ saved });

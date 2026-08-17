@@ -33,9 +33,14 @@ type ApiResult = {
     cost: number;
     questionCount: number;
     days: number;
+    packageNumber?: number;
+    packageCount?: number;
+    isBonus?: boolean;
     locked: boolean;
     gifted?: boolean;
     charged?: boolean;
+    needsUnlock?: boolean;
+    blockedByPrevious?: boolean;
     availableUntil?: string | null;
   };
 };
@@ -64,13 +69,14 @@ export default function MedtechPractice() {
   const [error, setError] = useState("");
   const [unlockingId, setUnlockingId] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [unlockingPackage, setUnlockingPackage] = useState(false);
   const [mastering, setMastering] = useState(false);
   const [fullNotice, setFullNotice] = useState("");
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [packageAccess, setPackageAccess] = useState<NonNullable<ApiResult["packageAccess"]> | null>(null);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [route, setRoute] = useState({ ready: false, topic: "", wrongOnly: false, focus: 0 });
+  const [route, setRoute] = useState({ ready: false, topic: "", wrongOnly: false, focus: 0, pack: 1 });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -79,10 +85,11 @@ export default function MedtechPractice() {
       topic: params.get("topic") || "",
       wrongOnly: params.get("wrongOnly") === "1",
       focus: Number(params.get("focus")) || 0,
+      pack: Math.max(1, Math.floor(Number(params.get("pack")) || 1)),
     });
   }, []);
 
-  const { topic, wrongOnly, focus } = route;
+  const { topic, wrongOnly, focus, pack } = route;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -94,10 +101,13 @@ export default function MedtechPractice() {
     setLoading(true);
     setError("");
     setRows([]);
+    setIndex(0);
+    setAnswers({});
+    setSubmitted(false);
     setSessionId(null);
     setPackageAccess(null);
     setPaywallOpen(false);
-    const query = new URLSearchParams({ limit: "30", mode: "practice" });
+    const query = new URLSearchParams({ limit: "30", mode: "practice", pack: String(pack) });
     if (topic) query.set("topic", topic);
     if (wrongOnly) query.set("wrongOnly", "1");
     fetch("/api/medtech/questions?" + query.toString())
@@ -115,10 +125,10 @@ export default function MedtechPractice() {
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "題庫讀取失敗"))
       .finally(() => setLoading(false));
-  }, [route.ready, topic, wrongOnly]);
+  }, [route.ready, topic, wrongOnly, pack, focus]);
 
   const q = rows[index];
-  const chapterName = wrongOnly ? "錯題複習" : q?.chapter || topic || q?.topic || "章節未標示";
+  const chapterName = wrongOnly ? "錯題複習" : topic || (packageAccess?.name === "隨機模考" ? "隨機模考" : q?.chapter || q?.topic || "章節未標示");
   const score = useMemo(() => rows.filter((item) => answers[item.id] === item.answer).length, [answers, rows]);
   const answered = Object.keys(answers).length;
   const packageExpiry = packageAccess?.availableUntil ? new Date(packageAccess.availableUntil).getTime() : null;
@@ -143,14 +153,45 @@ export default function MedtechPractice() {
         </a>
         <MedtechHeaderActions />
       </header>
-      <MedtechTabs active={wrongOnly ? "wrong" : "random"} />
+      <MedtechTabs active={wrongOnly ? "wrong" : topic ? "chapters" : "random"} />
     </>
   );
+
+  async function unlockPackage() {
+    if (unlockingPackage || wrongOnly) return;
+    setUnlockingPackage(true);
+    setError("");
+    try {
+      const query = new URLSearchParams({ limit: "30", mode: "practice", pack: String(pack), unlock: "1" });
+      if (topic) query.set("topic", topic);
+      const response = await fetch("/api/medtech/questions?" + query.toString(), { cache: "no-store" });
+      const result = await readJson(response);
+      setPackageAccess(result.packageAccess ?? null);
+      if (result.packageAccess?.blockedByPrevious) {
+        setPaywallOpen(false);
+        setError("請先完成上一關，下一關才會開放。");
+        return;
+      }
+      if (!response.ok || result.packageAccess?.locked) {
+        setPaywallOpen(true);
+        return;
+      }
+      setRows(result.items ?? []);
+      setSessionId(result.sessionId ?? null);
+      setIndex(0);
+      setAnswers({});
+      setSubmitted(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "題目包解鎖失敗");
+    } finally {
+      setUnlockingPackage(false);
+    }
+  }
 
   async function submitExam() {
     if (submitting) return;
     if (q?.locked) {
-      setPaywallOpen(true);
+      void unlockPackage();
       return;
     }
     setSubmitting(true);
@@ -378,7 +419,7 @@ export default function MedtechPractice() {
       {top}
       <section className="medtech-exam-head">
         <div>
-          <span>{wrongOnly ? "個人錯題庫 · " + rows.length + " 題待複習" : packageAccess?.locked ? "題目包已列出 · 解鎖後開始作答" : "題目包 · 30 題 · 7 天不限次數"}</span>
+          <span>{wrongOnly ? "個人錯題庫 · " + rows.length + " 題待複習" : `${packageAccess?.name || (topic || "隨機模考")} · 第 ${packageAccess?.packageNumber ?? pack} 關 · ${rows.length} 題`}</span>
           <h1>{chapterName}</h1>
           <p>
             第 {index + 1}／{rows.length} 題 · {q.year} 年專技
@@ -388,10 +429,10 @@ export default function MedtechPractice() {
       </section>
       {!wrongOnly && packageAccess && <section className={`medtech-package-status ${packageAccess.locked ? "locked" : "active"}`}>
         <div>
-          <b>{packageAccess.locked ? "30 題已準備好，先解鎖再作答" : packageAccess.gifted ? "本章首次體驗：免費贈送一包" : "題目包已開通"}</b>
-          <span>{packageAccess.locked ? `需要 ${packageAccess.cost} 點；開通後 ${packageAccess.days} 天內不限次數重做。` : packageRemaining !== null ? `剩餘 ${formatRemaining(packageRemaining)}；請把握時間完成練習。` : `${packageAccess.days} 天內不限次數重做。`}</span>
+          <b>{packageAccess.blockedByPrevious ? `第 ${packageAccess.packageNumber ?? pack} 關尚未開放` : packageAccess.locked ? `第 ${packageAccess.packageNumber ?? pack} 關已列出，解鎖後開始作答` : packageAccess.isBonus ? "章節尾關：免費開放" : packageAccess.gifted ? "本關首次體驗：免費贈送" : `第 ${packageAccess.packageNumber ?? pack} 關已開通`}</b>
+          <span>{packageAccess.blockedByPrevious ? "完成上一關後，下一關會自動開放。" : packageAccess.locked ? `需要 ${packageAccess.cost} 點；開通後 ${packageAccess.days} 天內不限次數重做。` : packageRemaining !== null ? `剩餘 ${formatRemaining(packageRemaining)}；請把握時間完成練習。` : `${packageAccess.days} 天內不限次數重做。`}</span>
         </div>
-        {packageAccess.locked && <button type="button" onClick={() => setPaywallOpen(true)}>前往解鎖</button>}
+        {packageAccess.locked && !packageAccess.blockedByPrevious && <button type="button" onClick={() => void unlockPackage()} disabled={unlockingPackage} aria-busy={unlockingPackage}>{unlockingPackage ? "解鎖中…" : `解鎖第 ${packageAccess.packageNumber ?? pack} 關`}</button>}
       </section>}
       <div className="medtech-exam-grid">
         <aside className="medtech-question-map">
@@ -458,7 +499,7 @@ export default function MedtechPractice() {
           </footer>
         </section>
       </div>
-      {paywallOpen && <div className="medtech-paywall-backdrop" role="presentation" onMouseDown={() => setPaywallOpen(false)}><section className="medtech-paywall" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><span>醫檢師題目包</span><h2>先體驗，再決定是否購買</h2><p>這 30 題已完整列出。首次體驗可免費作答；目前這一包需要 {packageAccess?.cost ?? 30} 點解鎖，開通後 7 天內不限次數重做，並會保存完成時間、答題時間、錯題與需要加強的觀念。</p><div><button type="button" onClick={() => setPaywallOpen(false)}>稍後再說</button><Link href="/medtech/upgrade?reason=question-pack">前往購買點數</Link></div></section></div>}
+      {paywallOpen && <div className="medtech-paywall-backdrop" role="presentation" onMouseDown={() => setPaywallOpen(false)}><section className="medtech-paywall" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><span>醫檢師題目包</span><h2>解鎖第 {packageAccess?.packageNumber ?? pack} 關</h2><p>這一關共 {packageAccess?.questionCount ?? 30} 題，需要 {packageAccess?.cost ?? 30} 點。解鎖後 7 天內不限次數重做，並會保存完成時間、答題時間、錯題與需要加強的觀念。</p><div><button type="button" onClick={() => setPaywallOpen(false)}>稍後再說</button><Link href="/medtech/upgrade?reason=question-pack">前往購買點數</Link></div></section></div>}
     </main>
   );
 }

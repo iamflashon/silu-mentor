@@ -1,7 +1,7 @@
 export default function MedtechTabs({active, showAccount = false}:{active?:"chapters"|"random"|"wrong"|"guided"|"notes"; showAccount?: boolean}){
   const tabs=[
     ["chapters","章節刷題","/medtech/chapters"],
-    ["random","隨機模考","/medtech/practice"],
+    ["random","隨機模考","/medtech/random"],
     ["wrong","錯題複習","/medtech/practice?wrongOnly=1"],
     ["guided","引導學習","/medtech/ai-study"],
     ["notes","我的筆記","/medtech/notes"],
