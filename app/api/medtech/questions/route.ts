@@ -208,6 +208,7 @@ export async function GET(request: Request) {
     return Response.json({ items: mapped, sessionId: session?.id ?? null, points: access.usage.aiCredits, accessLimited: access.limited, packageAccess: packageMode ? {
       name: packageName,
       cost: packageCost,
+      baseCost: "discountReward" in access && access.discountReward ? access.discountReward.baseCost : 30,
       questionCount: mapped.length,
       days: 7,
       packageNumber,
@@ -216,6 +217,7 @@ export async function GET(request: Request) {
       locked: access.limited,
       gifted: "gifted" in access && access.gifted,
       charged: "charged" in access && access.charged,
+      discountReward: "discountReward" in access ? access.discountReward : null,
       needsUnlock: "needsUnlock" in access && access.needsUnlock,
       blockedByPrevious: "blockedByPrevious" in access && access.blockedByPrevious,
       availableUntil: packageAvailableUntil?.toISOString() ?? null,

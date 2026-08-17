@@ -56,6 +56,7 @@ export default async function MedtechRandomPackages() {
     const questionTotal = Math.min(PACKAGE_SIZE, Math.max(0, questionCount - offset * PACKAGE_SIZE));
     const isBonus = questionTotal < PACKAGE_SIZE;
     const matches = ledgerRows.filter((row) => (row.action === "question_pack" || row.action === "question_pack_gift") && descriptions(packNumber).includes(row.description));
+    const hasDiscountChoice = ledgerRows.some((row) => (row.action === "question_pack_spin" || row.action === "question_pack_spin_abandoned") && row.description === `題目包轉轉樂：隨機模考第 ${packNumber} 包`);
     const latest = [...matches].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
     const availableUntil = latest ? latest.availableUntil ?? new Date(latest.createdAt.getTime() + PACKAGE_HOURS * 60 * 60 * 1000) : null;
     const active = Boolean(availableUntil && availableUntil.getTime() > now);
@@ -63,8 +64,8 @@ export default async function MedtechRandomPackages() {
     const previousCompleted = packNumber === 1 || sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber - 1 && row.completedAt);
     const hasHistory = Boolean(latest);
     const needsUnlock = !active && (freePackageUsed || packNumber > 1 || hasHistory);
-    const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !previousCompleted ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : "30 點解鎖";
-    const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !previousCompleted ? "尚未開放" : !freePackageUsed ? "免費開始" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
+    const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !previousCompleted ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : !hasDiscountChoice ? "可抽一次折扣" : "30 點解鎖";
+    const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !previousCompleted ? "尚未開放" : !freePackageUsed ? "免費開始" : !hasDiscountChoice ? "抽轉轉樂" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
     return { packNumber, questionTotal, isBonus, active, previousCompleted, needsUnlock, label, action, availableUntil };
   });
 

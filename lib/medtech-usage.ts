@@ -16,6 +16,114 @@ export const MEDTECH_CHAPTER_PACKAGE_HOURS = MEDTECH_QUESTION_PACKAGE_HOURS;
 // 保留舊名稱，讓既有頁面與資料相容；平台語意統一稱為「點數」。
 export const MEDTECH_STARTING_AI_CREDITS = MEDTECH_STARTING_POINTS;
 
+export const MEDTECH_PACK_DISCOUNT_OPTIONS = [
+  { percent: 50, label: "五折", cost: 15 },
+  { percent: 75, label: "七五折", cost: 23 },
+  { percent: 90, label: "九折", cost: 27 },
+  { percent: 100, label: "原價", cost: MEDTECH_QUESTION_PACKAGE_COST },
+] as const;
+
+export type MedtechPackDiscountReward = {
+  status: "available" | "revealed" | "abandoned" | "used";
+  label: string | null;
+  percent: number | null;
+  cost: number;
+  baseCost: number;
+};
+
+export function medtechPackDescription(packageName: string, packageNumber: number) {
+  return `${packageName}第 ${packageNumber} 包（7 天內可隨意刷）`;
+}
+
+function medtechPackDiscountDescription(packageName: string, packageNumber: number) {
+  return `題目包轉轉樂：${packageName}第 ${packageNumber} 包`;
+}
+
+function parseMedtechPackDiscount(sourceDetail: string | null) {
+  const match = sourceDetail?.match(/折扣：(\d+)折；優惠價 (\d+) 點/u);
+  if (!match) return null;
+  const percent = Number(match[1]);
+  const cost = Number(match[2]);
+  const option = MEDTECH_PACK_DISCOUNT_OPTIONS.find((item) => item.percent === percent && item.cost === cost);
+  return option ? { percent: option.percent, label: option.label, cost: option.cost } : null;
+}
+
+export async function getMedtechPackDiscountReward(
+  db: Awaited<ReturnType<typeof getDb>>,
+  userKey: string,
+  packageName: string,
+  packageNumber: number,
+): Promise<MedtechPackDiscountReward> {
+  const rewardDescription = medtechPackDiscountDescription(packageName, packageNumber);
+  const packageDescription = medtechPackDescription(packageName, packageNumber);
+  const [reward] = await db.select({ action: medtechPointLedger.action, sourceDetail: medtechPointLedger.sourceDetail, createdAt: medtechPointLedger.createdAt })
+    .from(medtechPointLedger)
+    .where(and(
+      eq(medtechPointLedger.userKey, userKey),
+      inArray(medtechPointLedger.action, ["question_pack_spin", "question_pack_spin_abandoned"]),
+      eq(medtechPointLedger.description, rewardDescription),
+    ))
+    .orderBy(desc(medtechPointLedger.createdAt))
+    .limit(1);
+  if (!reward) return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST };
+  if (reward.action === "question_pack_spin_abandoned") {
+    return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST };
+  }
+  const parsed = parseMedtechPackDiscount(reward.sourceDetail);
+  if (!parsed) return { status: "used", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST };
+  const [purchase] = await db.select({ id: medtechPointLedger.id })
+    .from(medtechPointLedger)
+    .where(and(
+      eq(medtechPointLedger.userKey, userKey),
+      eq(medtechPointLedger.action, "question_pack"),
+      eq(medtechPointLedger.description, packageDescription),
+      gte(medtechPointLedger.createdAt, reward.createdAt),
+    ))
+    .limit(1);
+  return {
+    status: purchase ? "used" : "revealed",
+    label: parsed.label,
+    percent: parsed.percent,
+    cost: parsed.cost,
+    baseCost: MEDTECH_QUESTION_PACKAGE_COST,
+  };
+}
+
+export async function createMedtechPackDiscountReward(
+  db: Awaited<ReturnType<typeof getDb>>,
+  userKey: string,
+  packageName: string,
+  packageNumber: number,
+  action: "spin" | "abandon",
+) {
+  const current = await getMedtechPackDiscountReward(db, userKey, packageName, packageNumber);
+  if (current.status !== "available") return current;
+  const usage = await getOrCreateMedtechUsage(db, userKey);
+  if (action === "abandon") {
+    await db.insert(medtechPointLedger).values({
+      userKey,
+      delta: 0,
+      balanceAfter: usage.aiCredits,
+      action: "question_pack_spin_abandoned",
+      description: medtechPackDiscountDescription(packageName, packageNumber),
+      sourceDetail: `狀態：放棄折扣，之後以原價 ${MEDTECH_QUESTION_PACKAGE_COST} 點購買；一次機會已用完。`,
+    });
+    return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST } satisfies MedtechPackDiscountReward;
+  }
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  const option = MEDTECH_PACK_DISCOUNT_OPTIONS[random[0] % MEDTECH_PACK_DISCOUNT_OPTIONS.length];
+  await db.insert(medtechPointLedger).values({
+    userKey,
+    delta: 0,
+    balanceAfter: usage.aiCredits,
+    action: "question_pack_spin",
+    description: medtechPackDiscountDescription(packageName, packageNumber),
+    sourceDetail: `結果：${option.label}；折扣：${option.percent}折；優惠價 ${option.cost} 點；每個題目包僅一次機會。`,
+  });
+  return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST } satisfies MedtechPackDiscountReward;
+}
+
 export function medtechUserKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() || "default-owner";
 }
@@ -175,7 +283,7 @@ export async function grantMedtechQuestionPackageAccess(
   const allowCharge = options.allowCharge ?? false;
   const candidateIds = [...new Set(questionIds.filter((id) => Number.isInteger(id) && id > 0))].slice(0, MEDTECH_QUESTION_PACKAGE_SIZE);
   const usage = await getOrCreateMedtechUsage(db, userKey);
-  const description = `${packageName}第 ${packageNumber} 包（7 天內可隨意刷）`;
+  const description = medtechPackDescription(packageName, packageNumber);
   const legacyDescription = `${packageName}題目包（7 天內可隨意刷）`;
   const descriptions = packageNumber === 1 ? [description, legacyDescription] : [description];
   const isBonusPack = candidateIds.length < MEDTECH_QUESTION_PACKAGE_SIZE;
@@ -213,6 +321,7 @@ export async function grantMedtechQuestionPackageAccess(
       charged: false,
       gifted: activePackage.action === "question_pack_gift",
       packageCost: MEDTECH_QUESTION_PACKAGE_COST,
+      discountReward: { status: "used", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST } satisfies MedtechPackDiscountReward,
       availableUntil,
       packageNumber,
       isBonusPack,
@@ -237,7 +346,7 @@ export async function grantMedtechQuestionPackageAccess(
     previousCompleted = Boolean(prior);
   }
   if (!previousCompleted) {
-    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack, blockedByPrevious: true };
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, discountReward: { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST } satisfies MedtechPackDiscountReward, availableUntil: null, packageNumber, isBonusPack, blockedByPrevious: true };
   }
 
   // 每個帳號只有一次免費題目包。學員可先選章節或隨機模考的一包，
@@ -250,7 +359,11 @@ export async function grantMedtechQuestionPackageAccess(
       like(medtechPointLedger.sourceDetail, "%首次體驗贈送%"),
     ))
     .limit(1);
-  const packageSource = (gift: boolean) => `題目包：${packageName}第 ${packageNumber} 包；${gift ? "首次體驗贈送，不扣點" : `一次購足 ${MEDTECH_QUESTION_PACKAGE_COST} 點`}；7 天內隨意刷；固定題目：${candidateIds.join(",")}`;
+  const discountReward = freePackageUsed
+    ? await getMedtechPackDiscountReward(db, userKey, packageName, packageNumber)
+    : null;
+  const packageCost = discountReward?.status === "revealed" ? discountReward.cost : MEDTECH_QUESTION_PACKAGE_COST;
+  const packageSource = (gift: boolean) => `題目包：${packageName}第 ${packageNumber} 包；${gift ? "首次體驗贈送，不扣點" : discountReward?.status === "revealed" ? `轉轉樂${discountReward.label}，優惠價 ${packageCost} 點（原價 ${MEDTECH_QUESTION_PACKAGE_COST} 點）` : `一次購足 ${MEDTECH_QUESTION_PACKAGE_COST} 點`}；7 天內隨意刷；固定題目：${candidateIds.join(",")}`;
   const shouldGift = !freePackageUsed;
   if (shouldGift) {
     const giftUntil = new Date(Date.now() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
@@ -263,24 +376,24 @@ export async function grantMedtechQuestionPackageAccess(
       sourceDetail: packageSource(true),
       availableUntil: giftUntil,
     });
-    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: false, gifted: true, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: giftUntil, packageNumber, isBonusPack };
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: false, gifted: true, packageCost: MEDTECH_QUESTION_PACKAGE_COST, discountReward: null, availableUntil: giftUntil, packageNumber, isBonusPack };
   }
-  if (usage.aiCredits < MEDTECH_QUESTION_PACKAGE_COST) {
-    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack };
+  if (usage.aiCredits < packageCost) {
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost, discountReward, availableUntil: null, packageNumber, isBonusPack };
   }
   if (!allowCharge) {
-    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack, needsUnlock: true };
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost, discountReward, availableUntil: null, packageNumber, isBonusPack, needsUnlock: true };
   }
   const updated = await spendMedtechPoints(db, usage, {
     action: "question_pack",
     description,
     sourceDetail: packageSource(false),
     retainHours: MEDTECH_QUESTION_PACKAGE_HOURS,
-    amount: MEDTECH_QUESTION_PACKAGE_COST,
+    amount: packageCost,
   });
-  if (!updated) return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack };
+  if (!updated) return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost, discountReward, availableUntil: null, packageNumber, isBonusPack };
   const paidUntil = new Date(Date.now() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
-  return { usage: updated, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: true, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: paidUntil, packageNumber, isBonusPack };
+  return { usage: updated, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: true, gifted: false, packageCost, discountReward: discountReward ? { ...discountReward, status: "used" as const } : null, availableUntil: paidUntil, packageNumber, isBonusPack };
 }
 
 export function audioTrialIds(row: { audioTrialQuestionIdsJson: string }) {

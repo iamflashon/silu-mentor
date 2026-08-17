@@ -69,6 +69,7 @@ export default async function MedtechChapters() {
       const questionTotal = Math.min(PACKAGE_SIZE, Math.max(0, questionCount - offset * PACKAGE_SIZE));
       const isBonus = questionTotal < PACKAGE_SIZE;
       const matches = ledgerRows.filter((row) => row.action === "question_pack" || row.action === "question_pack_gift").filter((row) => packageDescriptions(name, packNumber).includes(row.description));
+      const hasDiscountChoice = ledgerRows.some((row) => (row.action === "question_pack_spin" || row.action === "question_pack_spin_abandoned") && row.description === `題目包轉轉樂：${name}第 ${packNumber} 包`);
       const latest = [...matches].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
       const availableUntil = latest ? latest.availableUntil ?? new Date(latest.createdAt.getTime() + PACKAGE_HOURS * 60 * 60 * 1000) : null;
       const active = Boolean(availableUntil && availableUntil.getTime() > now);
@@ -77,8 +78,8 @@ export default async function MedtechChapters() {
       const hasHistory = Boolean(latest);
       const canStart = previousCompleted;
       const needsUnlock = !active && (freePackageUsed || packNumber > 1 || hasHistory);
-      const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !canStart ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : "30 點解鎖";
-      const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !canStart ? "尚未開放" : !freePackageUsed ? "免費開始" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
+      const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !canStart ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : !hasDiscountChoice ? "可抽一次折扣" : "30 點解鎖";
+      const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !canStart ? "尚未開放" : !freePackageUsed ? "免費開始" : !hasDiscountChoice ? "抽轉轉樂" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
       return { packNumber, questionTotal, isBonus, active, completed, canStart, needsUnlock, label, action, availableUntil };
     });
     return { name, description, index, questionCount, packs };
