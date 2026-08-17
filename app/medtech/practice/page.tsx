@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import MedtechTabs from "../MedtechTabs";
+import MedtechHeaderActions from "../MedtechHeaderActions";
 
 type Question = {
   id: number;
@@ -100,6 +101,7 @@ export default function MedtechPractice() {
             <small>臨床病毒學</small>
           </div>
         </a>
+        <MedtechHeaderActions />
       </header>
       <MedtechTabs active={wrongOnly ? "wrong" : "random"} />
     </>
