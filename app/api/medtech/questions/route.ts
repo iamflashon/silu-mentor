@@ -96,8 +96,10 @@ export async function GET(request: Request) {
     wrongIds = [...latest].filter(([, correct]) => correct === false).map(([id]) => id);
     if (!wrongIds.length) return Response.json({ items: [], message: "目前沒有待複習的錯題。" });
   }
-  const sourceDocuments = await db.select({ id: documents.id, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech"));
+  const sourceDocuments = await db.select({ id: documents.id, storageKey: documents.storageKey, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech"));
   const sourceById = new Map(sourceDocuments.map(document => [document.id, document]));
+  const sourceByAlias = new Map(sourceDocuments.flatMap((document) => [[`document:${document.id}`, document], [document.storageKey, document], [document.fileName, document]] as const));
+  const sourceFor = (row: { sourceUrl: string }) => sourceByAlias.get(row.sourceUrl) ?? sourceById.get(Number(row.sourceUrl.replace(/^document:/, "")));
   const rows = await db.select({
     id: examQuestions.id,
     year: examQuestions.year,
@@ -124,14 +126,13 @@ export async function GET(request: Request) {
   // parameter limit and makes the random-practice endpoint return an empty
   // response.
   const allTopicRows = rows.filter((row) => {
-    const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-    const source = sourceById.get(sourceId);
+    const source = sourceFor(row);
     return !topic || topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === topic;
   });
   // 章節刷題只取指定章節；隨機模考跨前三個知識章節，避免和「全真模擬試題」正式考卷重複。
   const topicRows = topic ? allTopicRows : allTopicRows.filter((row) => {
-    const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-    const sourceTopic = topicOf(sourceById.get(sourceId)?.fileName ?? "", sourceById.get(sourceId)?.subject ?? row.subject);
+    const source = sourceFor(row);
+    const sourceTopic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
     return sourceTopic !== topics[3];
   });
   const packageCount = Math.max(1, Math.ceil(topicRows.length / MEDTECH_QUESTION_PACKAGE_SIZE));
@@ -176,8 +177,7 @@ export async function GET(request: Request) {
   // them; this also keeps a question-only mock exam independent of media.
   if (practiceOnly) {
     const mapped = selectedRows.map((row) => {
-      const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-      const source = sourceById.get(sourceId);
+      const source = sourceFor(row);
       const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
       return {
         id: row.id,
@@ -220,8 +220,7 @@ export async function GET(request: Request) {
       blockedByPrevious: "blockedByPrevious" in access && access.blockedByPrevious,
       availableUntil: packageAvailableUntil?.toISOString() ?? null,
     } : undefined, topics: topics.map((name) => ({ name, count: rows.filter((row) => {
-      const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-      const source = sourceById.get(sourceId);
+      const source = sourceFor(row);
       return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name;
     }).length })) });
   }
@@ -239,8 +238,7 @@ export async function GET(request: Request) {
   const detailByQuestion = new Map(detailRows.map((row) => [row.id, row]));
   if (reviewOnly) {
     const mapped = selectedRows.map((row) => {
-      const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-      const source = sourceById.get(sourceId);
+      const source = sourceFor(row);
       const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
       const detail = detailByQuestion.get(row.id);
       const fullExplanation = detail?.teacherCompleteExplanation || detail?.completeExplanation || detail?.aiCompleteExplanation || detail?.simulatedCompleteExplanation || "";
@@ -273,8 +271,7 @@ export async function GET(request: Request) {
   for (const media of mediaRows) if (media.questionId) mediaByQuestion.set(media.questionId, { id: media.id, audioStorageKey: media.audioStorageKey, cues: cueRows.filter((cue) => cue.listeningId === media.id).sort((left, right) => left.sequence - right.sequence) });
 
   const mapped = selectedRows.map((row) => {
-    const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-    const source = sourceById.get(sourceId);
+    const source = sourceFor(row);
     const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
     const detail = detailByQuestion.get(row.id);
     return {
@@ -295,7 +292,7 @@ export async function GET(request: Request) {
       subtitles: (mediaByQuestion.get(row.id)?.cues ?? []).map((cue) => ({ id: cue.id, segmentId: null, startSeconds: cue.startSeconds, endSeconds: cue.endSeconds, text: cue.text, sequence: cue.sequence })),
     };
   });
-  return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const sourceId = Number(row.sourceUrl.replace(/^document:/, "")); const source = sourceById.get(sourceId); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });
+  return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const source = sourceFor(row); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });
 }
 
 export async function POST(request: Request) {

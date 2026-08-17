@@ -28793,6 +28793,7 @@ a.is-action-pending {
 /* 醫檢師首頁行銷訊息：先說清楚學習價值，再說明點數規則。 */
 .medtech-home .medtech-hero-description{max-width:760px;margin:18px 0 0;color:#f5fffd;font-size:21px;font-weight:800;line-height:1.65;letter-spacing:.02em}
 .medtech-home .medtech-hero-offer{max-width:760px;margin-top:10px;color:#f7e8a7;font-size:16px;font-weight:800}
+.medtech-home .medtech-hero-suboffer{max-width:760px;margin:5px 0 0;color:#d7eeea;font-size:13px;line-height:1.65}
 .medtech-home .medtech-hero aside>b{font-size:43px;letter-spacing:-.04em}
 .medtech-home .medtech-hero aside>b em{font-size:24px;color:#f1e6aa}
 .medtech-home .medtech-hero aside dl{display:grid;gap:0}
@@ -28846,6 +28847,7 @@ a.is-action-pending {
   .medtech-home .medtech-hero h1{width:auto;max-width:100%;margin:14px auto;font-size:clamp(32px,9vw,42px);line-height:1.25;letter-spacing:-.06em;white-space:normal;overflow-wrap:anywhere;word-break:keep-all}
   .medtech-home .medtech-hero-description{max-width:100%;margin-top:14px;font-size:17px;line-height:1.6;overflow-wrap:anywhere}
   .medtech-home .medtech-hero-offer{max-width:100%;margin-top:9px;font-size:14px;line-height:1.7;overflow-wrap:anywhere}
+  .medtech-home .medtech-hero-suboffer{max-width:100%;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
   .medtech-home .medtech-hero-actions{display:flex;flex-wrap:wrap;width:100%;justify-content:center;gap:10px;margin-top:22px}
   .medtech-home .medtech-hero-actions a{flex:1 1 calc(50% - 10px);min-width:0;padding:12px 9px;font-size:12px;line-height:1.4;white-space:normal}
   .medtech-home .medtech-hero-actions a:last-child{flex-basis:100%}
@@ -28860,6 +28862,7 @@ a.is-action-pending {
   .medtech-home .medtech-hero h1{font-size:32px}
   .medtech-home .medtech-hero-description{font-size:15px}
   .medtech-home .medtech-hero-offer{font-size:13px}
+  .medtech-home .medtech-hero-suboffer{font-size:11px}
   .medtech-home .medtech-hero-actions a{font-size:11px}
 }
 
@@ -28915,3 +28918,6 @@ button[aria-busy="true"]{cursor:wait!important;opacity:.78}
 @media(max-width:900px){.medtech-pack-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
 @media(max-width:900px){.medtech-random-pack-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:600px){.medtech-chapter-page>.medtech-pack-rule{align-items:flex-start;flex-direction:column;gap:4px}.medtech-pack-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.medtech-random-pack-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.medtech-chapter-card{padding:15px}.medtech-chapter-card>header h2{font-size:17px}.medtech-chapter-card>header p{font-size:11px}.medtech-chapter-page .medtech-pack-grid a,.medtech-random-pack-grid a{min-height:118px;padding:12px}.medtech-pack-grid a>b,.medtech-random-pack-grid a>b{font-size:19px}}
+.medtech-chapter-page{width:min(1080px,calc(100% - 32px));padding:38px 0 58px}.medtech-chapter-page>h1{font-size:32px}.medtech-chapter-page>.medtech-pack-rule{margin-top:16px;padding:10px 14px;font-size:11px}.medtech-chapter-page>.medtech-chapter-list{gap:12px;margin-top:16px}.medtech-chapter-card{padding:15px;border-radius:13px}.medtech-chapter-card>header h2{font-size:18px}.medtech-chapter-card>header p{font-size:11px}.medtech-pack-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:7px!important;margin-top:12px!important}.medtech-chapter-page .medtech-pack-grid a{position:relative;min-height:100px;padding:10px;border-radius:9px}.medtech-pack-grid a>b{margin:6px 0 1px;font-size:19px}.medtech-pack-grid a>small{min-height:25px;font-size:9px}.medtech-pack-grid a>strong{font-size:10px}.medtech-random-pack-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:7px;margin-top:16px}.medtech-random-pack-grid a{position:relative;min-height:110px;padding:11px;border-radius:9px}.medtech-random-pack-grid a>b{margin:6px 0 1px;font-size:20px}.medtech-random-pack-grid a>small{min-height:25px;font-size:9px}.medtech-random-pack-grid a>strong{font-size:10px}.medtech-pack-lock{position:absolute;top:8px;right:8px;font-style:normal;font-size:14px;line-height:1;filter:grayscale(.15)}
+@media(max-width:900px){.medtech-pack-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}.medtech-random-pack-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:600px){.medtech-chapter-page{width:calc(100% - 24px);padding-top:28px}.medtech-chapter-page>h1{font-size:27px}.medtech-pack-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.medtech-random-pack-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.medtech-chapter-card{padding:12px}.medtech-chapter-page .medtech-pack-grid a,.medtech-random-pack-grid a{min-height:100px;padding:10px}}

@@ -45,16 +45,18 @@ export default async function MedtechChapters() {
   }
 
   const [sourceRows, questionRows, ledgerRows, sessionRows] = await Promise.all([
-    auth.db.select({ id: documents.id, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech")),
+    auth.db.select({ id: documents.id, storageKey: documents.storageKey, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech")),
     auth.db.select({ id: examQuestions.id, subject: examQuestions.subject, sourceUrl: examQuestions.sourceUrl }).from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.examType, "mcq"), eq(examQuestions.status, "published"))),
     auth.db.select({ action: medtechPointLedger.action, description: medtechPointLedger.description, availableUntil: medtechPointLedger.availableUntil, createdAt: medtechPointLedger.createdAt }).from(medtechPointLedger).where(eq(medtechPointLedger.userKey, auth.userKey)),
     auth.db.select({ packageName: medtechPracticeSessions.packageName, packNumber: medtechPracticeSessions.packNumber, completedAt: medtechPracticeSessions.completedAt }).from(medtechPracticeSessions).where(eq(medtechPracticeSessions.userKey, auth.userKey)),
   ]);
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
+  const sourceByAlias = new Map(sourceRows.flatMap((row) => [[`document:${row.id}`, row], [row.storageKey, row], [row.fileName, row]] as const));
   const counts = new Map<string, number>(topics.map(([name]) => [name, 0]));
   for (const row of questionRows) {
     const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-    const name = topicOf(sourceById.get(sourceId)?.fileName ?? "", sourceById.get(sourceId)?.subject ?? row.subject);
+    const source = sourceByAlias.get(row.sourceUrl) ?? sourceById.get(sourceId);
+    const name = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
     if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   const now = Date.now();
@@ -73,12 +75,13 @@ export default async function MedtechChapters() {
       const previousCompleted = packNumber === 1 || sessionRows.some((row) => row.packageName === name && row.packNumber === packNumber - 1 && row.completedAt);
       const hasHistory = Boolean(latest);
       const canStart = previousCompleted;
+      const needsUnlock = !active && !isBonus && (packNumber > 1 || hasHistory);
       const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !canStart ? "完成上一關後開放" : isBonus ? (hasHistory ? "免費再刷" : "章節尾關 · 免費") : packNumber === 1 && !hasHistory ? "免費體驗" : "30 點解鎖";
       const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !canStart ? "尚未開放" : isBonus ? (hasHistory ? "免費再刷" : "免費開始") : packNumber === 1 && !hasHistory ? "免費開始" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
-      return { packNumber, questionTotal, isBonus, active, completed, canStart, label, action, availableUntil };
+      return { packNumber, questionTotal, isBonus, active, completed, canStart, needsUnlock, label, action, availableUntil };
     });
     return { name, description, index, questionCount, packs };
   });
 
-  return <main className="medtech-practice"><header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>章節刷題</small></div></a><MedtechHeaderActions /></header><MedtechTabs active="chapters"/><section className="medtech-chapter-page"><span>CHAPTER PRACTICE</span><h1>選擇本次練習章節</h1><p>每章拆成 30 題一關：第一關免費，完成後依序解鎖下一關。關內題目固定，開通後 7 天內不限次數重做；最後不足 30 題的尾關免費。</p><div className="medtech-pack-rule"><b>闖關規則</b><span>章節刷題不跨章節；隨機模考會跨章節抽題。每一關完成後，系統保存作答時間、答對率、錯題與需加強觀念。</span></div><div className="medtech-chapter-list">{cards.map((card) => <section className="medtech-chapter-card" key={card.name}><header><div><small>0{card.index + 1}</small><h2>{card.name}</h2><p>{card.description} · 共 {card.questionCount} 題</p></div><strong>{card.packs.length} 關</strong></header><div className="medtech-pack-grid">{card.packs.map((pack) => <a key={pack.packNumber} className={`${pack.active ? "active " : ""}${!pack.canStart ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`} href={pack.canStart ? `/medtech/practice?topic=${encodeURIComponent(card.name)}&pack=${pack.packNumber}` : "#"} aria-disabled={!pack.canStart}><span>第 {pack.packNumber} 關</span><b>{pack.questionTotal} 題</b><small>{pack.label}{pack.active && pack.availableUntil ? ` · ${remainingText(pack.availableUntil, now)}` : ""}</small><strong>{pack.action} {pack.canStart ? "→" : ""}</strong></a>)}</div></section>)}</div></section></main>;
+  return <main className="medtech-practice"><header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>章節刷題</small></div></a><MedtechHeaderActions /></header><MedtechTabs active="chapters"/><section className="medtech-chapter-page"><span>CHAPTER PRACTICE</span><h1>選擇本次練習章節</h1><p>每章拆成 30 題一關：第一關免費，完成後依序解鎖下一關。關內題目固定，開通後 7 天內不限次數重做；最後不足 30 題的尾關免費。</p><div className="medtech-pack-rule"><b>闖關規則</b><span>章節刷題不跨章節；隨機模考會跨章節抽題。每一關完成後，系統保存作答時間、答對率、錯題與需加強觀念。</span></div><div className="medtech-chapter-list">{cards.map((card) => <section className="medtech-chapter-card" key={card.name}><header><div><small>0{card.index + 1}</small><h2>{card.name}</h2><p>{card.description} · 共 {card.questionCount} 題</p></div><strong>{card.packs.length} 關</strong></header><div className="medtech-pack-grid">{card.packs.map((pack) => <a key={pack.packNumber} className={`${pack.active ? "active " : ""}${!pack.canStart || pack.needsUnlock ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`} href={pack.canStart ? `/medtech/practice?topic=${encodeURIComponent(card.name)}&pack=${pack.packNumber}` : "#"} aria-disabled={!pack.canStart}><span>第 {pack.packNumber} 關</span>{(!pack.canStart || pack.needsUnlock) && <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i>}<b>{pack.questionTotal} 題</b><small>{pack.label}{pack.active && pack.availableUntil ? ` · ${remainingText(pack.availableUntil, now)}` : ""}</small><strong>{pack.action} {pack.canStart ? "→" : ""}</strong></a>)}</div></section>)}</div></section></main>;
 }

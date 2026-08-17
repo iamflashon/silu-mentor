@@ -36,15 +36,17 @@ export default async function MedtechRandomPackages() {
   if ("error" in auth) return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師隨機模考</span><h1>登入後開始闖關</h1><p>登入後可以保存每一關的作答紀錄、完成時間與錯題分析。</p><a className="primary" href={chatGPTSignInPath("/medtech/random")}>登入醫檢師備考</a></section></main>;
 
   const [sourceRows, questionRows, ledgerRows, sessionRows] = await Promise.all([
-    auth.db.select({ id: documents.id, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech")),
+    auth.db.select({ id: documents.id, storageKey: documents.storageKey, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech")),
     auth.db.select({ subject: examQuestions.subject, sourceUrl: examQuestions.sourceUrl }).from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.examType, "mcq"), eq(examQuestions.status, "published"))),
     auth.db.select({ action: medtechPointLedger.action, description: medtechPointLedger.description, availableUntil: medtechPointLedger.availableUntil, createdAt: medtechPointLedger.createdAt }).from(medtechPointLedger).where(eq(medtechPointLedger.userKey, auth.userKey)),
     auth.db.select({ packageName: medtechPracticeSessions.packageName, packNumber: medtechPracticeSessions.packNumber, completedAt: medtechPracticeSessions.completedAt }).from(medtechPracticeSessions).where(eq(medtechPracticeSessions.userKey, auth.userKey)),
   ]);
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
+  const sourceByAlias = new Map(sourceRows.flatMap((row) => [[`document:${row.id}`, row], [row.storageKey, row], [row.fileName, row]] as const));
   const questionCount = questionRows.filter((row) => {
     const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
-    return chapterNames.has(topicOf(sourceById.get(sourceId)?.fileName ?? "", sourceById.get(sourceId)?.subject ?? row.subject));
+    const source = sourceByAlias.get(row.sourceUrl) ?? sourceById.get(sourceId);
+    return chapterNames.has(topicOf(source?.fileName ?? "", source?.subject ?? row.subject));
   }).length;
   const packageCount = Math.max(1, Math.ceil(questionCount / PACKAGE_SIZE));
   const now = Date.now();
@@ -59,10 +61,11 @@ export default async function MedtechRandomPackages() {
     const completed = sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber && row.completedAt);
     const previousCompleted = packNumber === 1 || sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber - 1 && row.completedAt);
     const hasHistory = Boolean(latest);
+    const needsUnlock = !active && !isBonus && (packNumber > 1 || hasHistory);
     const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !previousCompleted ? "完成上一關後開放" : isBonus ? (hasHistory ? "免費再刷" : "最後尾關 · 免費") : packNumber === 1 && !hasHistory ? "免費體驗" : "30 點解鎖";
     const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !previousCompleted ? "尚未開放" : isBonus ? (hasHistory ? "免費再刷" : "免費開始") : packNumber === 1 && !hasHistory ? "免費開始" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
-    return { packNumber, questionTotal, isBonus, active, previousCompleted, label, action, availableUntil };
+    return { packNumber, questionTotal, isBonus, active, previousCompleted, needsUnlock, label, action, availableUntil };
   });
 
-  return <main className="medtech-practice"><header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>隨機模考</small></div></a><MedtechHeaderActions /></header><MedtechTabs active="random"/><section className="medtech-chapter-page"><span>RANDOM MOCK</span><h1>跨章節隨機模考</h1><p>從臨床病毒學總論、DNA 病毒與 RNA 病毒題庫跨章節抽題。每 30 題是一關，關內題目固定，完成後依序解鎖下一關。</p><div className="medtech-pack-rule"><b>共 {questionCount} 題 · {packageCount} 關</b><span>每關開通後 7 天內不限次數重做；最後不足 30 題的尾關免費。這裡和章節刷題不同，題目會跨章節配置。</span></div><div className="medtech-random-pack-grid">{packs.map((pack) => <a key={pack.packNumber} className={`${pack.active ? "active " : ""}${!pack.previousCompleted ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`} href={pack.previousCompleted ? `/medtech/practice?pack=${pack.packNumber}` : "#"} aria-disabled={!pack.previousCompleted}><span>第 {pack.packNumber} 關</span><b>{pack.questionTotal} 題</b><small>{pack.label}{pack.active && pack.availableUntil ? ` · ${remainingText(pack.availableUntil, now)}` : ""}</small><strong>{pack.action} {pack.previousCompleted ? "→" : ""}</strong></a>)}</div></section></main>;
+  return <main className="medtech-practice"><header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>隨機模考</small></div></a><MedtechHeaderActions /></header><MedtechTabs active="random"/><section className="medtech-chapter-page"><span>RANDOM MOCK</span><h1>跨章節隨機模考</h1><p>從臨床病毒學總論、DNA 病毒與 RNA 病毒題庫跨章節抽題。每 30 題是一關，關內題目固定，完成後依序解鎖下一關。</p><div className="medtech-pack-rule"><b>共 {questionCount} 題 · {packageCount} 關</b><span>每關開通後 7 天內不限次數重做；最後不足 30 題的尾關免費。這裡和章節刷題不同，題目會跨章節配置。</span></div><div className="medtech-random-pack-grid">{packs.map((pack) => <a key={pack.packNumber} className={`${pack.active ? "active " : ""}${!pack.previousCompleted || pack.needsUnlock ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`} href={pack.previousCompleted ? `/medtech/practice?pack=${pack.packNumber}` : "#"} aria-disabled={!pack.previousCompleted}><span>第 {pack.packNumber} 關</span>{(!pack.previousCompleted || pack.needsUnlock) && <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i>}<b>{pack.questionTotal} 題</b><small>{pack.label}{pack.active && pack.availableUntil ? ` · ${remainingText(pack.availableUntil, now)}` : ""}</small><strong>{pack.action} {pack.previousCompleted ? "→" : ""}</strong></a>)}</div></section></main>;
 }
