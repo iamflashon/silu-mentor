@@ -37,22 +37,22 @@ function ExplanationCard({ title, value, tone = "plain", empty }: { title: strin
   </section>;
 }
 
-export function QuestionProofreadDialog({ question, onClose, embedded = false }: { question: ProofreadQuestion; onClose: () => void; embedded?: boolean }) {
+export function QuestionProofreadDialog({ question, onClose }: { question: ProofreadQuestion; onClose: () => void }) {
   const teacherAnswer = content(question.teacherAnswer || question.correctAnswer).toUpperCase();
   const aiAnswer = content(question.simulatedAnswer).toUpperCase();
   const aiComplete = content(question.aiCompleteExplanation || question.simulatedCompleteExplanation);
   const teacherComplete = content(question.teacherCompleteExplanation || question.completeExplanation);
   const options = question.options ?? {};
 
-  return <div className={`question-proofread-backdrop${embedded ? " embedded" : ""}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className={`question-proofread-dialog${embedded ? " embedded" : ""}`} role="dialog" aria-modal="true" aria-label={`第 ${question.questionNumber || ""} 題單題校對`}>
+  return <section className="question-proofread-inline" role="region" aria-label={`第 ${question.questionNumber || ""} 題單題校對`}>
+    <div className="question-proofread-dialog question-proofread-inline-dialog">
       <header className="question-proofread-header">
         <div>
           <span>PROOFREAD VIEW</span>
           <h2>第 {question.questionNumber || "未標示"} 題｜單題校對檢視</h2>
           <p>{question.year || "未標示年份"} · {question.subject || "未分類科目"}</p>
         </div>
-        <button type="button" className="question-proofread-close" onClick={onClose}>開啟富文編輯</button>
+        <button type="button" className="question-proofread-close" onClick={onClose}>關閉富文編輯</button>
       </header>
 
       <div className="question-proofread-body">
@@ -83,9 +83,9 @@ export function QuestionProofreadDialog({ question, onClose, embedded = false }:
 
         <div className={`question-proofread-status ${question.reviewStatus === "confirmed" ? "confirmed" : "pending"}`}>
           {question.reviewStatus === "confirmed" ? "本題已確認校對" : "本題尚未確認校對"}
-          <span>需要修改時，關閉本視窗即可回到下方富文字編輯區。</span>
+          <span>需要修改時，按「關閉富文編輯」即可回到本頁的富文字編輯區。</span>
         </div>
       </div>
-    </section>
-  </div>;
+    </div>
+  </section>;
 }
