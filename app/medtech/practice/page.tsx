@@ -779,6 +779,7 @@ export default function MedtechPractice() {
               <button
                 key={item.id}
                 className={(i === index ? "active " : "") + (answers[item.id] ? "answered " : "") + (flagged.includes(item.id) ? "flagged" : "")}
+                disabled={Boolean(q.locked)}
                 onClick={() => setIndex(i)}
               >
                 {i + 1}
@@ -786,7 +787,7 @@ export default function MedtechPractice() {
             ))}
           </div>
           <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；請點左側題號查看，解鎖後才能作答" : "實心＝已作答 · 圓點＝待確認"}</small>
-          {q.locked ? <div className="medtech-keyboard-help is-locked" aria-label="鎖定題目操作說明"><b>操作說明</b><span>可點左側題號換題</span><span>解鎖後啟用快捷鍵</span></div> : <div className="medtech-keyboard-help" aria-label="刷題快捷鍵"><b>快捷鍵</b><span>←／→ 換題</span><span>1＝A</span><span>2＝B</span><span>3＝C</span><span>4＝D</span><span>0＝標記</span></div>}
+          {q.locked ? <div className="medtech-keyboard-help is-locked" aria-label="鎖定題目操作說明"><b>操作說明</b><span>未解鎖前不能換題或作答，請先解鎖題目包。</span></div> : <div className="medtech-keyboard-help" aria-label="刷題快捷鍵"><b>快捷鍵</b><span>←／→ 換題</span><span>1＝A</span><span>2＝B</span><span>3＝C</span><span>4＝D</span><span>0＝標記</span></div>}
         </aside>
         <section className="medtech-question">
           <header>
@@ -803,6 +804,7 @@ export default function MedtechPractice() {
                     value.includes(q.id) ? value.filter((id) => id !== q.id) : [...value, q.id],
                   )
                 }
+                disabled={q.locked}
               >
                 {flagged.includes(q.id) ? "取消標記" : "標記待確認"}
               </button>
@@ -814,7 +816,8 @@ export default function MedtechPractice() {
               <button
                 className={answers[q.id] === letter ? "selected" : ""}
                 key={letter}
-                onClick={() => q.locked ? setPaywallOpen(true) : chooseAnswer(letter)}
+                disabled={q.locked}
+                onClick={() => chooseAnswer(letter)}
               >
                 <b>{letters[displayIndex]}</b>
                 <span>{q.options[letter]}</span>
@@ -822,11 +825,11 @@ export default function MedtechPractice() {
             ))}
           </div>
           <footer>
-            <button disabled={index === 0} onClick={() => setIndex(index - 1)}>
+            <button disabled={q.locked || index === 0} onClick={() => setIndex(index - 1)}>
               上一題
             </button>
             <span>{q.locked ? `本題屬於題目包；需要 ${packageAccess?.cost ?? 30} 點解鎖` : "答案在完成前不顯示"}</span>
-            <button disabled={index === rows.length - 1} onClick={() => setIndex(index + 1)}>
+            <button disabled={q.locked || index === rows.length - 1} onClick={() => setIndex(index + 1)}>
               下一題
             </button>
           </footer>

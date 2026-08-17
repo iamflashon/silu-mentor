@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 type Props = { packageName: string; packNumber: number; questionTotal: number; label: string; href: string };
@@ -26,8 +27,10 @@ function remainingRetryText(retryAt: string | null | undefined, now: number) {
 }
 
 export default function MedtechPackDiscount({ packageName, packNumber, questionTotal, label, href }: Props) {
+  const router = useRouter();
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
   const [reward, setReward] = useState<Reward | null>(null);
   const [used, setUsed] = useState(false);
   const [error, setError] = useState("");
@@ -97,6 +100,37 @@ export default function MedtechPackDiscount({ packageName, packNumber, questionT
 
   function closeChallenge() {
     if (!challengeBusy && !challengeLoading && (!challengeQuestions.length || challengeResult)) setChallengeOpen(false);
+  }
+
+  async function unlockInPlace() {
+    if (unlocking || busy) return;
+    setUnlocking(true);
+    setError("");
+    try {
+      const query = new URLSearchParams({
+        limit: String(questionTotal),
+        mode: "practice",
+        pack: String(packNumber),
+        unlock: "1",
+        questionOrder: "ordered",
+        optionOrder: "ordered",
+        topic: packageName,
+      });
+      const response = await fetch(`/api/medtech/questions?${query.toString()}`, { cache: "no-store" });
+      const result = await response.json() as { packageAccess?: { locked?: boolean; blockedByPrevious?: boolean }; error?: string };
+      if (!response.ok || result.packageAccess?.locked || result.packageAccess?.blockedByPrevious) {
+        throw new Error(result.error || (result.packageAccess?.blockedByPrevious ? "請先完成上一關，下一關才會開放。" : "點數不足，請先購買點數。"));
+      }
+      window.dispatchEvent(new Event("medtech-points-updated"));
+      setOpen(false);
+      setChallengeOpen(false);
+      router.push(href);
+      router.refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "題目包解鎖失敗，請稍後再試。 ");
+    } finally {
+      setUnlocking(false);
+    }
   }
 
   async function openChallenge() {
@@ -226,11 +260,11 @@ export default function MedtechPackDiscount({ packageName, packNumber, questionT
       <div className="medtech-pack-discount-topline"><span>第 {packNumber} 關</span><i aria-hidden="true">🎡</i></div>
       <b>{questionTotal} 題</b>
       <small>{label}</small>
-      {!loaded ? <span className="medtech-discount-loading"><span className="medtech-loading-spinner" /> 優惠方式讀取中…</span> : used ? <div className="medtech-discount-revealed"><strong>本關已使用過優惠</strong><a href={href}>30 點重新解鎖 →</a></div> : reward ? <div className="medtech-discount-revealed">
+      {!loaded ? <span className="medtech-discount-loading"><span className="medtech-loading-spinner" /> 優惠方式讀取中…</span> : used ? <div className="medtech-discount-revealed"><strong>本關已使用過優惠</strong><button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 解鎖中…</> : "30 點解鎖並開始練習 →"}</button></div> : reward ? <div className="medtech-discount-revealed">
         <strong>{isOriginal ? "這次抽到原價" : `🎉 抽到${reward.label || "優惠"}`}｜{reward.cost ?? 30} 點</strong>
         {isOriginal && retryText && <em>{retryText}</em>}
         {canChallengeAgain && <button type="button" className="medtech-discount-challenge" onClick={() => void openChallenge()}>🧠 再挑戰（剩 {reward.quizAttemptsRemaining} 次）</button>}
-        <a href={href}>前往解鎖 →</a>
+        <button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 解鎖中…</> : `用 ${reward.cost ?? 30} 點解鎖並開始練習 →`}</button>
       </div> : <div className="medtech-discount-actions"><button type="button" onClick={() => void openChallenge()} disabled={busy || challengeAttemptsRemaining <= 0} aria-busy={challengeLoading}>🧠 答題挑戰折扣</button><button type="button" className="secondary" onClick={openWheel} disabled={busy} aria-busy={busy}>🎡 打開轉轉樂</button></div>}
       {error && <em>{error}</em>}
     </div>
@@ -255,7 +289,7 @@ export default function MedtechPackDiscount({ packageName, packNumber, questionT
         {!reward ? <button type="button" className="medtech-spin-start" onClick={() => void spin()} disabled={busy} aria-busy={busy}>{busy ? <><span className="medtech-loading-spinner" /> 抽獎中…</> : "開始抽獎"}</button> : <div className={`medtech-spin-result${isOriginal ? " original" : ""}`}>
           <strong>{isOriginal ? "這次是原價" : `恭喜你抽到${reward.label}`}</strong>
           <span>{isOriginal ? `${retryText || "24 小時後可再抽一次"}；現在也能用 ${reward.cost ?? 30} 點解鎖。` : `本關只要 ${reward.cost ?? 30} 點即可解鎖。`}</span>
-          <a href={href}>前往解鎖 →</a>
+          <button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 解鎖中…</> : `用 ${reward.cost ?? 30} 點解鎖並開始練習 →`}</button>
         </div>}
         {error && <em className="medtech-spin-error">{error}</em>}
       </section>
@@ -266,7 +300,7 @@ export default function MedtechPackDiscount({ packageName, packNumber, questionT
         <span className="medtech-spin-kicker">DISCOUNT QUIZ</span>
         <h2 id="medtech-challenge-title">🧠 答題挑戰折扣</h2>
         <p>從上一關的 30 題中隨機抽出 10 題；每題限時 5 秒，逾時會記為未作答並自動進入下一題。不可暫停或回上一題；每個題目包最多 2 次挑戰，答對越多、平均作答越快，折扣越優惠，兩次取最佳結果。</p>
-        {challengeLoading ? <div className="medtech-challenge-loading"><span className="medtech-loading-spinner" /> 題目讀取中…</div> : challengeResult ? <div className="medtech-challenge-result"><strong>你答對 {challengeResult.score}／{challengeResult.total} 題</strong><span>平均作答 {challengeResult.averageSeconds.toFixed(1)} 秒；目前最佳折扣：{challengeResult.reward.label}（{challengeResult.reward.cost ?? 30} 點）{challengeResult.attemptsRemaining > 0 ? `；還可挑戰 ${challengeResult.attemptsRemaining} 次` : "。"}</span><a href={href}>前往解鎖 →</a></div> : challengeQuestions[challengeIndex] ? <div className="medtech-challenge-question"><div className="medtech-challenge-question-meta"><small>第 {challengeIndex + 1}／{challengeQuestions.length} 題</small><strong className={challengeSecondsLeft <= 2 ? "urgent" : ""}>⏱ {challengeSecondsLeft} 秒</strong></div><h3>{challengeQuestions[challengeIndex].stem}</h3><div className="medtech-challenge-options">{["A", "B", "C", "D"].map((letter) => <button type="button" key={letter} className={challengeAnswers[challengeQuestions[challengeIndex].id] === letter ? "selected" : ""} onClick={() => chooseChallengeAnswer(letter)}><b>{letter}</b><span>{challengeQuestions[challengeIndex].options[letter] || ""}</span></button>)}</div><button type="button" className="medtech-challenge-next" onClick={advanceChallenge} disabled={!challengeAnswers[challengeQuestions[challengeIndex].id] || challengeBusy}>{challengeBusy ? <><span className="medtech-loading-spinner" /> 計算折扣中…</> : challengeIndex >= challengeQuestions.length - 1 ? "送出挑戰" : "下一題 →"}</button></div> : <div className="medtech-challenge-error">{challengeError || "目前沒有可用的挑戰題目。"}</div>}
+        {challengeLoading ? <div className="medtech-challenge-loading"><span className="medtech-loading-spinner" /> 題目讀取中…</div> : challengeResult ? <div className="medtech-challenge-result"><strong>你答對 {challengeResult.score}／{challengeResult.total} 題</strong><span>平均作答 {challengeResult.averageSeconds.toFixed(1)} 秒；目前最佳折扣：{challengeResult.reward.label}（{challengeResult.reward.cost ?? 30} 點）{challengeResult.attemptsRemaining > 0 ? `；還可挑戰 ${challengeResult.attemptsRemaining} 次` : "。"}</span><button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 解鎖中…</> : `用 ${challengeResult.reward.cost ?? 30} 點解鎖並開始練習 →`}</button></div> : challengeQuestions[challengeIndex] ? <div className="medtech-challenge-question"><div className="medtech-challenge-question-meta"><small>第 {challengeIndex + 1}／{challengeQuestions.length} 題</small><strong className={challengeSecondsLeft <= 2 ? "urgent" : ""}>⏱ {challengeSecondsLeft} 秒</strong></div><h3>{challengeQuestions[challengeIndex].stem}</h3><div className="medtech-challenge-options">{["A", "B", "C", "D"].map((letter) => <button type="button" key={letter} className={challengeAnswers[challengeQuestions[challengeIndex].id] === letter ? "selected" : ""} onClick={() => chooseChallengeAnswer(letter)}><b>{letter}</b><span>{challengeQuestions[challengeIndex].options[letter] || ""}</span></button>)}</div><button type="button" className="medtech-challenge-next" onClick={() => advanceChallenge()} disabled={!challengeAnswers[challengeQuestions[challengeIndex].id] || challengeBusy}>{challengeBusy ? <><span className="medtech-loading-spinner" /> 計算折扣中…</> : challengeIndex >= challengeQuestions.length - 1 ? "送出挑戰" : "下一題 →"}</button></div> : <div className="medtech-challenge-error">{challengeError || "目前沒有可用的挑戰題目。"}</div>}
         {challengeError && !challengeLoading && !challengeQuestions[challengeIndex] && <em className="medtech-spin-error">{challengeError}</em>}
       </section>
     </div>}
