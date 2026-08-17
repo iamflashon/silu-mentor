@@ -1178,6 +1178,7 @@ export default function MainEntryGate() {
       <h1>iBrain AI 學習平台</h1>
       <p>本平台目前為內部測試階段，請使用指定的課程連結進入。</p>
       <small>如需使用權限，請洽平台管理人員。</small>
+      <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
     </section>
   </main>;
 }
