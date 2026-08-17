@@ -1,4 +1,5 @@
 import MedtechTabs from "../MedtechTabs";
+import MedtechHeaderActions from "../MedtechHeaderActions";
 
 const rules = [
   ["看一題", "1 點", "全真模擬試題，每看一題扣 1 點。"],
@@ -12,9 +13,9 @@ export default function MedtechPricingPage() {
   return <main className="medtech-pricing-page">
     <header className="medtech-top" data-no-navigation-feedback>
       <a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>POINTS GUIDE</small></div></a>
-      <a className="medtech-member-link" href="/medtech/account">我的帳號</a>
+      <MedtechHeaderActions activePoints />
     </header>
-    <MedtechTabs active="pricing" />
+    <MedtechTabs />
     <section className="medtech-pricing-head">
       <span>簡單點數制</span>
       <h1>不用訂閱，按照使用方式扣點。</h1>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import MedtechTabs from "../MedtechTabs";
+import MedtechHeaderActions from "../MedtechHeaderActions";
 
 type PointOption = {
   id: string;
@@ -39,9 +40,9 @@ export default function MedtechUpgradePage() {
   return <main className="medtech-upgrade-page">
     <header className="medtech-top" data-no-navigation-feedback>
       <a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>POINTS</small></div></a>
-      <a className="medtech-member-link" href="/medtech/account">我的帳號</a>
+      <MedtechHeaderActions activePoints />
     </header>
-    <MedtechTabs active="pricing" />
+    <MedtechTabs />
     <section className="medtech-upgrade-head">
       <span>醫檢師點數商店</span>
       <h1>不用訂閱，按照使用方式簡單扣點。</h1>
