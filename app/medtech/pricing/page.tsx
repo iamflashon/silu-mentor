@@ -2,16 +2,16 @@ import MedtechTabs from "../MedtechTabs";
 import MedtechHeaderActions from "../MedtechHeaderActions";
 
 const rules = [
-  ["看一題", "1 點", "全真模擬試題，每看一題扣 1 點。"],
-  ["康情老師語音完整解析", "1 點", "聽一次完整語音解析扣 1 點；同一題 24 小時內重看不重扣。"],
+  ["看一題", "1 點", "全真模擬試題看一題扣 1 點；同一題 7 天內可無限重做。"],
+  ["康情老師語音完整解析", "1 點", "解鎖一次扣 1 點；同一題 24 小時內可無限重聽，超過期限再扣 1 點。"],
   ["AI 助教追問", "1 點", "每提出一個新問題扣 1 點。"],
   ["框選名詞解析", "前 3 次免費", "免費體驗用完後，每次扣 1 點。"],
   ["學習筆記", "前 5 筆免費", "第 6 筆起新增每筆扣 1 點；查看與編輯既有筆記不扣點。"],
 ];
 const usageSteps = [
-  ["先看題目", "每題 1 點", "從章節刷題或隨機模考開始。"],
+  ["先看題目", "每題 1 點／7 天", "扣點後同一題 7 天內可無限重做與複習。"],
   ["先想再作答", "提示免費", "先按「給我提示」，選答案後才開放後續功能。"],
-  ["比較與聽解析", "各依使用扣點", "比較選項看簡答；康情老師語音完整解析每次 1 點。"],
+  ["比較與聽解析", "語音 1 點／24 小時", "比較選項看簡答；康情老師語音 24 小時內可重聽不重扣。"],
   ["補充與整理", "追問 1 點／題", "想問 AI 助教時每個問題 1 點；框選專有名詞可看白話解釋。"],
 ];
 
@@ -36,7 +36,7 @@ export default function MedtechPricingPage() {
     <section className="medtech-usage-guide" aria-label="平台使用流程">
       <div><span>整體使用流程</span><h2>一題就照這四步走</h2><p>先免費體驗學習方法，再依真正需要的深度功能使用點數。</p></div>
       <div className="medtech-usage-guide-grid">{usageSteps.map(([title, cost, description], index) => <article key={title}><b>0{index + 1}</b><h3>{title}</h3><strong>{cost}</strong><p>{description}</p></article>)}</div>
-      <p className="medtech-usage-guide-note"><b>框選專有名詞白話解釋：</b>在題幹、選項或解析中框選名詞，即可查看名詞類型、中文名稱、臨床用途與拆解重點；前 3 次免費體驗，之後每次扣 1 點。需要整理時，再加入我的筆記。</p>
+      <p className="medtech-usage-guide-note"><b>框選專有名詞白話解釋：</b>在題幹、選項或解析中框選名詞，即可查看名詞類型、中文名稱、臨床用途與拆解重點；前 3 次免費體驗，之後每次扣 1 點。需要整理時，再加入我的筆記。每筆扣點紀錄都會顯示功能來源、題目與餘額；有使用期限的功能也會顯示倒數。</p>
     </section>
     <p className="medtech-pricing-foot">不自動續訂、不綁月費；購買的點數一次入帳，所有贈點、加點與扣點都會留下使用紀錄。</p>
   </main>;

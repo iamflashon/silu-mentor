@@ -122,10 +122,11 @@ export async function POST(request: Request) {
         balanceAfter: usageState.aiCredits,
         action: "term_explain_free",
         description: `名詞解析免費體驗（第 ${MEDTECH_TERM_FREE_LIMIT - freeRemainingBefore + 1}/${MEDTECH_TERM_FREE_LIMIT} 次）`,
+        sourceDetail: `框選內容：${selectedText}`,
       });
       freeRemaining = freeRemainingBefore - 1;
     } else {
-      const charged = await spendMedtechPoints(auth.db, usageState, { action: "term_explain", description: "框選名詞白話解析" });
+      const charged = await spendMedtechPoints(auth.db, usageState, { action: "term_explain", description: "框選名詞白話解析", sourceDetail: `框選內容：${selectedText}` });
       if (!charged) return Response.json({ error: "點數已用完；再次名詞解析扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", creditCost: 1, freeRemaining: 0, pointsRemaining: usageState.aiCredits, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
       updatedUsage = charged;
       creditCost = 1;

@@ -19,7 +19,7 @@ export default async function MedtechHome() {
       <article><span>03 · 持續學</span><h2>AI 依老師邏輯引導</h2><p>提示與比較免費；想繼續追問，每題 1 點，點數與學習紀錄完整保存。</p></article>
     </section>
     <section className="medtech-home-flow"><div><span>一題的學習路徑</span><h2>先想、再答、再比較，最後聽懂完整解析</h2></div><div className="medtech-home-flow-steps"><b>提示</b><i>→</i><b>作答</b><i>→</i><b>比較</b><i>→</i><b>老師語音</b></div></section>
-    <section className="medtech-home-points"><div><span>點數制｜單純透明</span><h2>用多少，扣多少</h2><p>首次登入贈 10 點；看一題 1 點、語音解析 1 點、AI 追問 1 點。120 題全刷只要 60 點，五折優惠。</p></div><a href="/medtech/pricing">查看點數方式 →</a></section>
+    <section className="medtech-home-points"><div><span>點數制｜單純透明</span><h2>用多少，扣多少</h2><p>首次登入贈 10 點；看一題 1 點，同一題 7 天內可無限重做；語音解析 1 點，同一題 24 小時內可無限重聽；AI 追問 1 點。120 題全刷只要 60 點，五折優惠。</p></div><a href="/medtech/pricing">查看點數方式 →</a></section>
     <section className="medtech-home-close"><strong>名師內容 × AI 引導 × 學習資料</strong><span>免費題目是入口，深度解析才是價值。</span></section>
   </main>;
 }

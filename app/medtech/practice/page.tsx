@@ -153,7 +153,7 @@ export default function MedtechPractice() {
       });
       const result = (await response.json()) as { fullExplanation?: string; error?: string };
       if (response.status === 402) {
-        setFullNotice(result.error || "點數已用完；完整解析每題扣 1 點，請先購買點數。");
+        setFullNotice(result.error || "點數已用完；完整解析每題扣 1 點，開啟後 24 小時內可重看，請先購買點數。");
         return;
       }
       if (!response.ok || !result.fullExplanation) throw new Error(result.error || "完整解析開啟失敗");
@@ -301,7 +301,7 @@ export default function MedtechPractice() {
                   disabled={unlockingId === q.id}
                   onClick={() => void unlockFullExplanation(q.id)}
                 >
-                  {unlockingId === q.id ? "開啟中…" : "查看完整解析（扣 1 點）"}
+                  {unlockingId === q.id ? "開啟中…" : "查看完整解析（扣 1 點／24 小時）"}
                 </button>
               )}
               {q.fullExplanation && (

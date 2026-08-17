@@ -105,7 +105,7 @@ export async function GET(request: Request) {
     : topicRows.sort(() => Math.random() - .5).slice(0, limit);
   const access = await grantMedtechQuestionAccess(db, auth.userKey, selectedRows.map((row) => row.id));
   if (selectedRows.length && !access.allowedIds.length) {
-    return Response.json({ error: "點數不足；查看一題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", points: access.usage.aiCredits, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
+    return Response.json({ error: "點數不足；查看一題扣 1 點，同一題 7 天內可無限重做，請先購買點數。", code: "POINTS_EXHAUSTED", points: access.usage.aiCredits, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
   }
   const allowedIds = new Set(access.allowedIds);
   selectedRows = selectedRows.filter((row) => allowedIds.has(row.id));

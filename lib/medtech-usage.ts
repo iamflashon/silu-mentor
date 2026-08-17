@@ -6,6 +6,8 @@ import { medtechPointLedger, medtechUsage } from "../db/schema";
 // 語音完整解析與 AI 追問各自按次扣 1 點。保留舊欄位讀取僅為相容既有資料。
 export const MEDTECH_AUDIO_TRIAL_LIMIT = 0;
 export const MEDTECH_STARTING_POINTS = 10;
+export const MEDTECH_QUESTION_ACCESS_HOURS = 7 * 24;
+export const MEDTECH_AUDIO_ACCESS_HOURS = 24;
 // 保留舊名稱，讓既有頁面與資料相容；平台語意統一稱為「點數」。
 export const MEDTECH_STARTING_AI_CREDITS = MEDTECH_STARTING_POINTS;
 
@@ -32,7 +34,7 @@ export async function getOrCreateMedtechUsage(db: Awaited<ReturnType<typeof getD
 export async function spendMedtechPoints(
   db: Awaited<ReturnType<typeof getDb>>,
   usage: { id: number; userKey: string; aiCredits: number },
-  details: { action: string; description: string; questionId?: number; amount?: number },
+  details: { action: string; description: string; questionId?: number; sourceDetail?: string; retainHours?: number; amount?: number },
 ) {
   const amount = Math.max(1, Math.floor(details.amount ?? 1));
   if (usage.aiCredits < amount) return null;
@@ -49,6 +51,8 @@ export async function spendMedtechPoints(
     action: details.action,
     description: details.description,
     questionId: details.questionId,
+    sourceDetail: details.sourceDetail,
+    availableUntil: details.retainHours ? new Date(Date.now() + details.retainHours * 60 * 60 * 1000) : undefined,
   });
   return updated;
 }
@@ -56,9 +60,19 @@ export async function spendMedtechPoints(
 export async function consumeMedtechFeature(
   db: Awaited<ReturnType<typeof getDb>>,
   usage: { id: number; userKey: string; aiCredits: number },
-  details: { action: string; description: string; questionId?: number; reuseWithinHours?: number },
+  details: { action: string; description: string; questionId?: number; sourceDetail?: string; retainHours?: number; reuseWithinHours?: number },
 ) {
+  let previouslyUsed = false;
   if (details.questionId && details.reuseWithinHours) {
+    const [prior] = await db.select({ id: medtechPointLedger.id })
+      .from(medtechPointLedger)
+      .where(and(
+        eq(medtechPointLedger.userKey, usage.userKey),
+        eq(medtechPointLedger.action, details.action),
+        eq(medtechPointLedger.questionId, details.questionId),
+      ))
+      .limit(1);
+    previouslyUsed = Boolean(prior);
     const cutoff = new Date(Date.now() - details.reuseWithinHours * 60 * 60 * 1000);
     const [recent] = await db.select({ id: medtechPointLedger.id })
       .from(medtechPointLedger)
@@ -72,7 +86,13 @@ export async function consumeMedtechFeature(
       .limit(1);
     if (recent) return { usage, charged: false };
   }
-  const updated = await spendMedtechPoints(db, usage, details);
+  const updated = await spendMedtechPoints(db, usage, {
+    ...details,
+    retainHours: details.retainHours ?? details.reuseWithinHours,
+    sourceDetail: details.sourceDetail ?? (previouslyUsed
+      ? `${(details.retainHours ?? details.reuseWithinHours ?? 24) >= 168 ? "7 天" : "24 小時"}使用權已到期，重新解鎖`
+      : `首次使用，建立 ${(details.retainHours ?? details.reuseWithinHours ?? 24) >= 168 ? "7 天" : "24 小時"}使用權`),
+  });
   return updated ? { usage: updated, charged: true } : null;
 }
 
@@ -99,7 +119,15 @@ export async function grantMedtechQuestionAccess(
   const uniqueIds = [...new Set(questionIds.filter((id) => Number.isInteger(id) && id > 0))];
   const usage = await getOrCreateMedtechUsage(db, userKey);
   if (!uniqueIds.length) return { usage, allowedIds: [], limited: false };
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - MEDTECH_QUESTION_ACCESS_HOURS * 60 * 60 * 1000);
+  const previous = await db.select({ questionId: medtechPointLedger.questionId })
+    .from(medtechPointLedger)
+    .where(and(
+      eq(medtechPointLedger.userKey, userKey),
+      eq(medtechPointLedger.action, "question_view"),
+      inArray(medtechPointLedger.questionId, uniqueIds),
+    ))
+    .orderBy(desc(medtechPointLedger.createdAt));
   const recent = await db.select({ questionId: medtechPointLedger.questionId })
     .from(medtechPointLedger)
     .where(and(
@@ -110,12 +138,19 @@ export async function grantMedtechQuestionAccess(
     ))
     .orderBy(desc(medtechPointLedger.createdAt));
   const freeIds = new Set(recent.map((row) => row.questionId).filter((id): id is number => id !== null));
+  const previousIds = new Set(previous.map((row) => row.questionId).filter((id): id is number => id !== null));
   const newIds = uniqueIds.filter((id) => !freeIds.has(id));
   const chargeableIds = newIds.slice(0, Math.max(0, usage.aiCredits));
   let current = usage;
   const chargedIds: number[] = [];
   for (const questionId of chargeableIds) {
-    const updated = await spendMedtechPoints(db, current, { action: "question_view", description: "查看題目（24 小時內可重看）", questionId });
+    const updated = await spendMedtechPoints(db, current, {
+      action: "question_view",
+      description: "查看題目（7 天內可無限重做）",
+      questionId,
+      retainHours: MEDTECH_QUESTION_ACCESS_HOURS,
+      sourceDetail: previousIds.has(questionId) ? "7 天刷題權已到期，重新解鎖" : "首次查看，建立 7 天刷題權",
+    });
     if (!updated) break;
     current = updated;
     chargedIds.push(questionId);

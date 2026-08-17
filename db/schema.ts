@@ -78,6 +78,8 @@ export const medtechPointLedger = sqliteTable("medtech_point_ledger", {
   action: text("action").notNull(),
   description: text("description").notNull(),
   questionId: integer("question_id"),
+  sourceDetail: text("source_detail"),
+  availableUntil: integer("available_until", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 }, (table) => [
   index("medtech_point_ledger_user_created_idx").on(table.userKey, table.createdAt),

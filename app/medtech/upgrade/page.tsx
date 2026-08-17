@@ -17,8 +17,8 @@ type PointOption = {
 
 const pointOptions: PointOption[] = [
   { id: "welcome", name: "首次登入贈點", amount: "10 點", period: "登入後自動贈送", note: "先體驗題目、提示與引導學習流程", features: ["提示免費快取", "比較選項免費簡答", "語音完整解析每次扣 1 點"], purchasable: false },
-  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點", period: "一次購買／五折", note: "原本逐題需要 120 點，套票只扣 60 點", features: ["一組全真模擬試題全刷", "作答與錯題紀錄照常保存", "語音完整解析另扣 1 點"], purchasable: true, recommended: true },
-  { id: "points", name: "一般點數", amount: "1 點起", period: "一次購買／無訂閱", note: "依照實際使用量扣點，不綁月費或年費", features: ["全真模擬看一題扣 1 點", "語音完整解析一次扣 1 點", "AI 追問一個問題扣 1 點"], purchasable: true },
+  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點", period: "一次購買／五折", note: "原本逐題需要 120 點，套票只扣 60 點；每題解鎖後 7 天內可無限重做", features: ["一組全真模擬試題全刷", "每題 7 天內可無限重做", "語音完整解析另扣 1 點／24 小時"], purchasable: true, recommended: true },
+  { id: "points", name: "一般點數", amount: "1 點起", period: "一次購買／無訂閱", note: "依照實際使用量扣點，不綁月費或年費", features: ["看一題扣 1 點，7 天內可重做", "語音解析扣 1 點，24 小時內可重聽", "AI 追問一個問題扣 1 點"], purchasable: true },
 ];
 
 export default function MedtechUpgradePage() {
@@ -35,7 +35,7 @@ export default function MedtechUpgradePage() {
 
   const needsPoints = reason === "points" || reason === "ai-credits" || reason === "audio-trial";
   const bannerTitle = needsPoints ? "點數不足" : "點數制度";
-  const bannerText = needsPoints ? "提示與比較選項不扣點；語音完整解析與 AI 追問依使用次數扣點，請選擇要取得的點數。" : "以下按鈕只會模擬點數購買，不會產生真實訂單或扣款。";
+  const bannerText = needsPoints ? "提示與比較選項不扣點；看題 7 天內可重做，語音解析 24 小時內可重聽，AI 追問依新問題扣點。" : "以下按鈕只會模擬點數購買，不會產生真實訂單或扣款。";
 
   return <main className="medtech-upgrade-page">
     <header className="medtech-top" data-no-navigation-feedback>
@@ -67,6 +67,6 @@ export default function MedtechUpgradePage() {
         {state === "cancelled" && <div className="medtech-payment-result cancelled"><b>已取消測試購買</b><span>示範：回到點數商店，帳號點數不變。</span></div>}
       </aside>
     </section>
-    <p className="medtech-upgrade-foot">點數規則：提示與比較選項免費；全真模擬看一題 1 點；語音完整解析一次 1 點；AI 追問一題 1 點。管理員加點與所有扣點都會留下紀錄。</p>
+    <p className="medtech-upgrade-foot">點數規則：提示與比較選項免費；全真模擬看一題 1 點，同一題 7 天內可無限重做；語音完整解析一次 1 點，同一題 24 小時內可無限重聽；AI 追問一個新問題 1 點。管理員加點與所有扣點都會留下來源、時間與餘額紀錄。</p>
   </main>;
 }

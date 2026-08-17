@@ -73,7 +73,12 @@ export async function POST(request: Request) {
       await db.insert(usageLogs).values({ model, source: mode === "hint" ? "醫檢 AI 判斷提示（免費快取）" : mode === "compare" ? "醫檢 AI 比較選項（免費快取）" : "醫檢 AI 答題結果（免費快取）", inputTokens, outputTokens, cachedTokens, estimatedCostUsdMicros });
       return Response.json({ reply, source: mode === "hint" ? "判斷提示（免費，已快取）" : mode === "compare" ? "比較選項（免費，已快取）" : "答題結果（免費，已快取）", creditsRemaining: usageState.aiCredits, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: 0 } });
     }
-    const updatedUsage = await spendMedtechPoints(db, usageState, { action: "ai_followup", description: "AI 助教追問", questionId: question.id });
+    const updatedUsage = await spendMedtechPoints(db, usageState, {
+      action: "ai_followup",
+      description: "AI 助教追問",
+      questionId: question.id,
+      sourceDetail: "提出新的 AI 追問，扣 1 點",
+    });
     if (!updatedUsage) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
     await db.insert(usageLogs).values({ model, source: "醫檢 AI 學習", inputTokens, outputTokens, cachedTokens, estimatedCostUsdMicros });
     return Response.json({ reply, source: question.explanation?.trim() ? "教材答案與原稿解析" : "教材答案＋AI 補充", creditsRemaining: updatedUsage.aiCredits, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });

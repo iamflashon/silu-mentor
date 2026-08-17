@@ -2,7 +2,7 @@ import { and, eq, desc } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { examQuestions, medtechPointLedger } from "../../../../db/schema";
 import { requireMedtechMember } from "../../../../lib/member-auth";
-import { consumeMedtechFeature, getOrCreateMedtechUsage, medtechUserKey, MEDTECH_AUDIO_TRIAL_LIMIT, spendMedtechPoints } from "../../../../lib/medtech-usage";
+import { consumeMedtechFeature, getOrCreateMedtechUsage, medtechUserKey, MEDTECH_AUDIO_ACCESS_HOURS, MEDTECH_AUDIO_TRIAL_LIMIT, spendMedtechPoints } from "../../../../lib/medtech-usage";
 
 export async function GET(request: Request) {
   const auth = await requireMedtechMember(request);
@@ -25,13 +25,18 @@ export async function POST(request: Request) {
   if (action === "audioComplete") {
     const questionId = Number(body.questionId);
     if (!Number.isInteger(questionId) || questionId < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
-    const feature = await consumeMedtechFeature(db, usage, { action: "audio_complete", description: "康情老師語音完整解析", questionId, reuseWithinHours: 24 });
+    const feature = await consumeMedtechFeature(db, usage, { action: "audio_complete", description: "康情老師語音完整解析（24 小時使用權）", questionId, reuseWithinHours: MEDTECH_AUDIO_ACCESS_HOURS });
     if (!feature) return Response.json({ error: "點數已用完；語音完整解析每次扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", creditCost: 1, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
     return Response.json({ allowed: true, access: feature.charged ? "credit" : "24h_pass", aiCredits: feature.usage.aiCredits, creditCost: feature.charged ? 1 : 0 });
   }
   if (action === "aiCredit") {
     if (usage.aiCredits <= 0) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
-    const updated = await spendMedtechPoints(db, usage, { action: "ai_followup", description: "AI 助教追問" });
+    const updated = await spendMedtechPoints(db, usage, {
+      action: "ai_followup",
+      description: "AI 助教追問",
+      questionId: Number.isInteger(Number(body.questionId)) ? Number(body.questionId) : undefined,
+      sourceDetail: "提出新的 AI 追問，扣 1 點",
+    });
     if (!updated) return Response.json({ error: "點數已用完；AI 追問每題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
     return Response.json({ allowed: true, aiCredits: updated.aiCredits });
   }

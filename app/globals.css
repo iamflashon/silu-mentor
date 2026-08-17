@@ -28881,6 +28881,16 @@ a.is-action-pending {
 .medtech-point-history-list small,.medtech-point-history-list>article>span{color:#829a96;font-size:10px}
 .medtech-point-history-list strong{font-size:15px;white-space:nowrap}
 .medtech-point-history-list strong.plus{color:#24806f}.medtech-point-history-list strong.minus{color:#b26051}
+.medtech-point-history-list strong.neutral{color:#829a96}
+.medtech-point-ledger-detail{grid-column:1 / -1;margin-top:2px;border-top:1px dashed #d6e6e2;padding-top:7px}
+.medtech-point-ledger-detail summary{display:inline-block;color:#176b64;font-size:11px;font-weight:850;cursor:pointer}
+.medtech-point-ledger-detail p{margin:7px 0 0;color:#607d78;font-size:11px;line-height:1.65;overflow-wrap:anywhere}
+.medtech-point-ledger-detail p>b{color:#285d57}
+.medtech-point-source-stem{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.medtech-point-access{padding:7px 9px;border-radius:7px;font-weight:800}
+.medtech-point-access.active{background:#eaf7f2;color:#18715f!important}
+.medtech-point-access.expired{background:#fff4e7;color:#a25d25!important}
+.medtech-point-access.neutral-note{color:#829a96!important}
 .medtech-point-history>p{margin:0;padding:18px;border-radius:10px;background:#f5faf9;color:#78908c;text-align:center}
 .medtech-account-actions{margin:22px 0 4px}.medtech-point-pagination{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid #e0ece9}.medtech-point-pagination a{padding:8px 12px;border:1px solid #acd0ca;border-radius:8px;color:#176b64;font-size:11px;font-weight:850;text-decoration:none}.medtech-point-pagination a.disabled{pointer-events:none;opacity:.42}.medtech-point-pagination span{color:#6f8985;font-size:11px;font-weight:750}
 .medtech-admin-help{margin:-9px 0 16px;color:#718985;font-size:12px}
