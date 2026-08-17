@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnswerConflictPanel } from "./AnswerConflictPanel";
-import { QuestionProofreadDialog } from "./QuestionProofreadDialog";
 
 type Cue = { id: number; startSeconds: number; endSeconds: number; text: string; sequence: number };
 type Media = { solutionId: number; audioFileName: string | null; audioUrl: string; cues: Cue[] };
@@ -24,8 +23,6 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
   const [teacherAnswer, setTeacherAnswer] = useState("");
   const [simulatedAnswer, setSimulatedAnswer] = useState("");
   const [simulatedTeacherNote, setSimulatedTeacherNote] = useState("");
-  const [proofreadItem, setProofreadItem] = useState<OrderedQuestion | null>(null);
-  const [proofreadOpen, setProofreadOpen] = useState(false);
   const [activeCue, setActiveCue] = useState<Cue | null>(null);
   const [busy, setBusy] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
@@ -45,7 +42,6 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     const data = await response.json() as { item?: OrderedQuestion & { sourceUrl?: string }; error?: string };
     if (!response.ok || !data.item) return;
     let item = data.item;
-    setProofreadItem(item);
     setReviewStatus(item.reviewStatus === "confirmed" ? "confirmed" : "pending");
     setQuestionStatus(item.status ?? "draft");
     setTeacherAnswer(String(item.teacherAnswer || item.correctAnswer || "").trim().toUpperCase());
@@ -69,7 +65,6 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       const refreshedData = await refreshed.json() as { item?: OrderedQuestion & { sourceUrl?: string } };
       if (refreshedData.item) item = refreshedData.item;
     }
-    setProofreadItem(item);
     setSourceOrder(item.sourceOrder ?? "");
     const firstResponse = await fetch(`/api/medtech/admin/questions?documentId=${documentId}&limit=100&page=1&order=source`, { cache: "no-store" });
     const firstData = await firstResponse.json() as { items?: OrderedQuestion[]; total?: number };
@@ -102,8 +97,6 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     setTeacherAnswer("");
     setSimulatedAnswer("");
     setSimulatedTeacherNote("");
-    setProofreadItem(null);
-    setProofreadOpen(false);
     setNotice("");
     void load();
     void loadOrder();
@@ -114,7 +107,6 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       const detail = (event as CustomEvent<{ ids?: number[]; unanswered?: number }>).detail;
       if (!detail?.ids?.includes(questionId)) return;
       setReviewStatus("confirmed");
-      setProofreadItem((item) => item ? { ...item, reviewStatus: "confirmed" } : item);
       setNotice(detail.unanswered
         ? `本題已批次校對完成；目前仍有 ${detail.unanswered} 題沒有 A～D 老師答案。`
         : "本題已批次校對完成；目前可測試發布。");
@@ -245,18 +237,16 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     <div className="question-media-head">
       <div><h2>語音檔與字幕</h2><p>本題音檔、SRT 與題目 ID 綁定；播放時會在下方同步顯示字幕。</p></div>
       <div className="question-media-actions">
-        <button type="button" className="question-media-button proofread-button" disabled={!proofreadItem} aria-expanded={proofreadOpen} onClick={() => setProofreadOpen((open) => !open)}>{proofreadItem ? proofreadOpen ? "關閉富文編輯" : "開啟富文編輯" : "讀取校對內容…"}</button>
         <label className="question-media-button"><input ref={audioInput} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.webm" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "audio"); }} />{busy ? "處理中…" : media?.audioFileName ? "更換語音檔" : "上傳語音檔"}</label>
         <label className="question-media-button secondary"><input ref={subtitleInput} type="file" accept=".srt,application/x-subrip,text/plain" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "subtitle"); }} />上傳 SRT</label>
         <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>
       </div>
     </div>
-    {proofreadOpen && proofreadItem && <QuestionProofreadDialog question={proofreadItem} onClose={() => setProofreadOpen(false)} />}
     <div className={`question-review-panel ${reviewStatus === "confirmed" ? "confirmed" : canPublishWithoutProofread ? "answer-ready" : "pending"}`}>
       <div><b>{reviewStatus === "confirmed" ? "本題已校對" : canPublishWithoutProofread ? "老師答案已確認" : "本題尚未校對"}</b><small>{questionStatus === "published" ? "目前已發布；取消校對會立即下架。" : canPublishWithoutProofread ? "已有有效老師答案，可免按校對直接發布；AI 答案與解析仍可另外產生。" : "沒有老師答案時，才需要先確認校對才能發布。"}</small></div>
       <div className="question-review-actions">{reviewStatus === "confirmed" ? <button type="button" className="danger" disabled={orderBusy} onClick={() => void updateReview("cancelReview")}>{questionStatus === "published" ? "取消校對並下架" : "取消校對"}</button> : canPublishWithoutProofread ? <span className="question-review-ready">可直接發布</span> : <button type="button" className="primary" disabled={orderBusy} onClick={() => void updateReview("confirmReview")}>確認校對完成</button>}<button type="button" className="secondary" onClick={() => window.dispatchEvent(new Event("medtech-filter-answer-conflicts"))}>搜尋全部答案差異</button></div>
     </div>
-    <AnswerConflictPanel questionId={questionId} questionNumber={questionNumber} teacherAnswer={teacherAnswer} aiAnswer={simulatedAnswer} note={simulatedTeacherNote} onUpdated={(item) => { const nextTeacherAnswer = String(item.teacherAnswer || item.correctAnswer || teacherAnswer).trim().toUpperCase(); const nextAiAnswer = String(item.simulatedAnswer || simulatedAnswer).trim().toUpperCase(); setTeacherAnswer(nextTeacherAnswer); setSimulatedAnswer(nextAiAnswer); setSimulatedTeacherNote(String(item.simulatedTeacherNote || "").trim()); setProofreadItem((current) => current ? { ...current, ...item } : current); window.dispatchEvent(new CustomEvent("medtech-question-review-updated", { detail: { id: questionId, item } })); }} />
+    <AnswerConflictPanel questionId={questionId} questionNumber={questionNumber} teacherAnswer={teacherAnswer} aiAnswer={simulatedAnswer} note={simulatedTeacherNote} onUpdated={(item) => { const nextTeacherAnswer = String(item.teacherAnswer || item.correctAnswer || teacherAnswer).trim().toUpperCase(); const nextAiAnswer = String(item.simulatedAnswer || simulatedAnswer).trim().toUpperCase(); setTeacherAnswer(nextTeacherAnswer); setSimulatedAnswer(nextAiAnswer); setSimulatedTeacherNote(String(item.simulatedTeacherNote || "").trim()); window.dispatchEvent(new CustomEvent("medtech-question-review-updated", { detail: { id: questionId, item } })); }} />
     <div className="question-order-panel">
       <div><b>原稿順序</b><small>目前清單依此欄位排列；題號可以和原稿順序不同。</small></div>
       <input type="number" min="1" value={sourceOrder} onChange={(event) => setSourceOrder(event.target.value ? Number(event.target.value) : "")} aria-label="原稿順序" />

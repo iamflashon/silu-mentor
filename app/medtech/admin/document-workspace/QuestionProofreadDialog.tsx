@@ -52,7 +52,7 @@ export function QuestionProofreadDialog({ question, onClose }: { question: Proof
           <h2>第 {question.questionNumber || "未標示"} 題｜單題校對檢視</h2>
           <p>{question.year || "未標示年份"} · {question.subject || "未分類科目"}</p>
         </div>
-        <button type="button" className="question-proofread-close" onClick={onClose}>關閉富文編輯</button>
+        <button type="button" className="question-proofread-close" onClick={onClose}>開啟富文編輯</button>
       </header>
 
       <div className="question-proofread-body">
@@ -83,7 +83,7 @@ export function QuestionProofreadDialog({ question, onClose }: { question: Proof
 
         <div className={`question-proofread-status ${question.reviewStatus === "confirmed" ? "confirmed" : "pending"}`}>
           {question.reviewStatus === "confirmed" ? "本題已確認校對" : "本題尚未確認校對"}
-          <span>需要修改時，按「關閉富文編輯」即可回到本頁的富文字編輯區。</span>
+          <span>目前為對照檢視；按右上方「開啟富文編輯」後，才會顯示題幹與選項的編輯工具。</span>
         </div>
       </div>
     </div>
