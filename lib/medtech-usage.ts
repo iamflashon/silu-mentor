@@ -13,6 +13,8 @@ export const MEDTECH_QUESTION_PACKAGE_SIZE = 30;
 export const MEDTECH_QUESTION_PACKAGE_HOURS = 7 * 24;
 export const MEDTECH_CHAPTER_PACKAGE_COST = MEDTECH_QUESTION_PACKAGE_COST;
 export const MEDTECH_CHAPTER_PACKAGE_HOURS = MEDTECH_QUESTION_PACKAGE_HOURS;
+const MEDTECH_OWNER_USER_KEY = "iamflashon@gmail.com";
+const MEDTECH_SCREENSHOT_SERVICE_USER_KEY = "sites-screenshot-service-noreply@chatgpt.com";
 // 保留舊名稱，讓既有頁面與資料相容；平台語意統一稱為「點數」。
 export const MEDTECH_STARTING_AI_CREDITS = MEDTECH_STARTING_POINTS;
 
@@ -145,6 +147,51 @@ export async function getOrCreateMedtechUsage(db: Awaited<ReturnType<typeof getD
     .filter((row) => normalizeMedtechUserKey(row.userKey) === normalizedKey)
     .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime() || right.id - left.id)[0];
   if (existing) {
+    // A previous admin test was submitted through the platform screenshot
+    // service, which created a separate technical account and received the
+    // user's 610 points. Move that orphaned balance to the real owner once,
+    // preserving both sides in the ledger so the repair is auditable and
+    // idempotent.
+    if (normalizedKey === MEDTECH_OWNER_USER_KEY) {
+      const [serviceUsage] = await db.select().from(medtechUsage)
+        .where(eq(medtechUsage.userKey, MEDTECH_SCREENSHOT_SERVICE_USER_KEY))
+        .limit(1);
+      const serviceBalance = serviceUsage?.aiCredits ?? 0;
+      if (serviceUsage && serviceBalance > 0) {
+        const ownerNextCredits = existing.aiCredits + serviceBalance;
+        const [updatedService] = await db.update(medtechUsage)
+          .set({ aiCredits: 0, updatedAt: new Date() })
+          .where(and(eq(medtechUsage.id, serviceUsage.id), gte(medtechUsage.aiCredits, serviceBalance)))
+          .returning();
+        if (updatedService) {
+          const [updatedOwner] = await db.update(medtechUsage)
+            .set({ aiCredits: ownerNextCredits, updatedAt: new Date() })
+            .where(eq(medtechUsage.id, existing.id))
+            .returning();
+          if (updatedOwner) {
+            await db.insert(medtechPointLedger).values([
+              {
+                userKey: MEDTECH_SCREENSHOT_SERVICE_USER_KEY,
+                delta: -serviceBalance,
+                balanceAfter: 0,
+                action: "admin_transfer_out",
+                description: `系統帳號誤收點數，轉回 ${MEDTECH_OWNER_USER_KEY}`,
+                sourceDetail: "一次性資料修復：原管理員加點紀錄保留於本帳號明細。",
+              },
+              {
+                userKey: MEDTECH_OWNER_USER_KEY,
+                delta: serviceBalance,
+                balanceAfter: ownerNextCredits,
+                action: "admin_transfer_in",
+                description: "從系統截圖服務帳號轉回本人帳號",
+                sourceDetail: `轉入 ${serviceBalance} 點；原加點明細保留於系統帳號。`,
+              },
+            ]);
+            return updatedOwner;
+          }
+        }
+      }
+    }
     // The ledger is the audit trail for every grant and spend. If the cached
     // balance was reset or became stale, reconstruct it from the ledger before
     // returning it so the admin page, account page and learning APIs agree.
