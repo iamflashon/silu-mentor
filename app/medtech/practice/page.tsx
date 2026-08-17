@@ -790,7 +790,7 @@ export default function MedtechPractice() {
           </header>
           <h2>{q.stem}</h2>
           <div className="medtech-options">
-            {letters.map((letter) => (
+            {displayedOptionOrder(q.id).map((letter, displayIndex) => (
               <button
                 className={answers[q.id] === letter ? "selected" : ""}
                 key={letter}

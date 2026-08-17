@@ -36,6 +36,16 @@ function parseIds(value: string) {
   }
 }
 
+function parseOptions(value: string) {
+  try {
+    const parsed = JSON.parse(value || "{}") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).map(([letter, text]) => [letter, String(text ?? "")])) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
 type PracticeAnswerDetail = {
   questionId: number;
   order: number;
@@ -62,8 +72,27 @@ function parseAnswerDetails(value: string) {
   }
 }
 
-function sameIds(left: number[], right: number[]) {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
+function sameIdSet(left: number[], right: number[]) {
+  const normalize = (ids: number[]) => [...new Set(ids)].sort((a, b) => a - b);
+  const normalizedLeft = normalize(left);
+  const normalizedRight = normalize(right);
+  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((id, index) => id === normalizedRight[index]);
+}
+
+function shuffleRows<T extends { id: number }>(rows: T[]) {
+  const shuffled = [...rows];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[target]] = [shuffled[target], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function orderRowsByIds<T extends { id: number }>(rows: T[], orderedIds: number[]) {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const ordered = orderedIds.map((id) => byId.get(id)).filter((row): row is T => Boolean(row));
+  const included = new Set(ordered.map((row) => row.id));
+  return [...ordered, ...rows.filter((row) => !included.has(row.id))];
 }
 
 function chapterByOrder(processingResultJson: string) {
@@ -204,7 +233,7 @@ async function getQuestions(request: Request) {
   // columns or optional audio/subtitle relations until a feature asks for
   // them; this also keeps a question-only mock exam independent of media.
   if (practiceOnly) {
-    const mapped = selectedRows.map((row) => {
+    let mapped = selectedRows.map((row) => {
       const source = sourceFor(row);
       const topic = topicOf(source?.fileName ?? "", source?.subject ?? row.subject);
       return {
@@ -212,7 +241,7 @@ async function getQuestions(request: Request) {
         year: row.year,
         questionNumber: row.questionNumber,
         stem: cleanStem(row.stem),
-        options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
+        options: parseOptions(row.optionsJson),
         answer: row.teacherAnswer || row.correctAnswer || row.simulatedAnswer,
         answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
         answerSource: row.answerSource,
@@ -222,6 +251,10 @@ async function getQuestions(request: Request) {
         locked: packageMode && access.limited,
       };
     });
+    // Keep the package membership fixed, but present its questions in a new
+    // order for each new attempt so students cannot memorize the sequence.
+    // An existing in-progress session is restored below before it is returned.
+    if (packageMode && mapped.length > 1) mapped = shuffleRows(mapped);
     const packageCost = "packageCost" in access ? access.packageCost : 30;
     const packageAvailableUntil = "availableUntil" in access && access.availableUntil instanceof Date ? access.availableUntil : null;
     let session: typeof medtechPracticeSessions.$inferSelect | null = null;
@@ -236,9 +269,10 @@ async function getQuestions(request: Request) {
           eq(medtechPracticeSessions.packNumber, packageNumber),
           isNull(medtechPracticeSessions.completedAt),
         )).orderBy(desc(medtechPracticeSessions.startedAt)).limit(10);
-        const candidate = candidates.find((item) => sameIds(parseIds(item.questionIdsJson), mapped.map((row) => row.id)) && item.status !== "expired");
+        const candidate = candidates.find((item) => sameIdSet(parseIds(item.questionIdsJson), mapped.map((row) => row.id)) && item.status !== "expired");
         if (candidate) {
           session = candidate;
+          mapped = orderRowsByIds(mapped, parseIds(candidate.questionIdsJson));
         }
       }
       if (!session) {
@@ -309,7 +343,7 @@ async function getQuestions(request: Request) {
         year: row.year,
         questionNumber: row.questionNumber,
         stem: cleanStem(row.stem),
-        options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
+        options: parseOptions(row.optionsJson),
         answer: row.teacherAnswer || row.correctAnswer || row.simulatedAnswer,
         answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
         explanation: detail?.explanation || "",
@@ -355,7 +389,7 @@ async function getQuestions(request: Request) {
       year: row.year,
       questionNumber: row.questionNumber,
       stem: cleanStem(row.stem),
-      options: JSON.parse(row.optionsJson || "{}") as Record<string, string>,
+      options: parseOptions(row.optionsJson),
       answer: row.teacherAnswer || row.correctAnswer || row.simulatedAnswer,
       answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
       explanation: detail?.teacherCompleteExplanation || detail?.completeExplanation || detail?.aiCompleteExplanation || detail?.simulatedCompleteExplanation || detail?.explanation || "",
