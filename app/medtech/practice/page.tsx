@@ -105,6 +105,7 @@ export default function MedtechPractice() {
   const answersRef = useRef<Record<number, string>>({});
   const detailsRef = useRef<Record<number, ProgressDetail>>({});
   const questionTimesRef = useRef<Record<number, number>>({});
+  const optionOrderRef = useRef<Record<number, string[]>>({});
   const activeTimerRef = useRef<{ questionId: number; startedAt: number } | null>(null);
   const totalSecondsRef = useRef(0);
   const sessionStatusRef = useRef(sessionStatus);
@@ -136,6 +137,7 @@ export default function MedtechPractice() {
     applyAnswers({});
     detailsRef.current = {};
     questionTimesRef.current = {};
+    optionOrderRef.current = {};
     totalSecondsRef.current = 0;
     setQuestionSeconds(0);
     setTotalSeconds(0);
@@ -155,6 +157,8 @@ export default function MedtechPractice() {
         setRows(result.items ?? []);
         setSessionId(result.sessionId ?? null);
         setPackageAccess(result.packageAccess ?? null);
+        const orderSeed = result.sessionId ?? 17;
+        optionOrderRef.current = Object.fromEntries((result.items ?? []).map((item) => [item.id, createOptionOrder(item.id, orderSeed)]));
         const savedDetails = result.session?.answerDetails ?? [];
         const restoredAnswers: Record<number, string> = {};
         const restoredDetails: Record<number, ProgressDetail> = {};
@@ -253,6 +257,55 @@ export default function MedtechPractice() {
     setAnswers(next);
   }
 
+  function createOptionOrder(questionId: number, seed: number) {
+    const order = [...letters];
+    let value = Math.abs((questionId * 2654435761 + seed * 40503) | 0) || 1;
+    for (let current = order.length - 1; current > 0; current -= 1) {
+      value = (value * 1664525 + 1013904223) | 0;
+      const target = Math.abs(value) % (current + 1);
+      [order[current], order[target]] = [order[target], order[current]];
+    }
+    return order;
+  }
+
+  function displayedOptionOrder(questionId: number) {
+    return optionOrderRef.current[questionId] ?? letters;
+  }
+
+  function displayedLetter(questionId: number, originalLetter: string) {
+    const position = displayedOptionOrder(questionId).indexOf(originalLetter);
+    return position >= 0 ? letters[position] : originalLetter;
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || tagName === "input" || tagName === "textarea" || tagName === "select" || target?.isContentEditable || paywallOpen) return;
+      if (event.key === "ArrowLeft") {
+        if (index > 0) { event.preventDefault(); setIndex((current) => Math.max(0, current - 1)); }
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        if (index < rows.length - 1) { event.preventDefault(); setIndex((current) => Math.min(rows.length - 1, current + 1)); }
+        return;
+      }
+      if (!submitted && /^[1-4]$/.test(event.key) && q) {
+        event.preventDefault();
+        const letter = displayedOptionOrder(q.id)[Number(event.key) - 1];
+        if (q.locked) setPaywallOpen(true);
+        else chooseAnswer(letter);
+        return;
+      }
+      if (event.key.toLowerCase() === "m" && q) {
+        event.preventDefault();
+        setFlagged((value) => value.includes(q.id) ? value.filter((id) => id !== q.id) : [...value, q.id]);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [index, paywallOpen, q?.id, q?.locked, rows.length, submitted]);
+
   function resetProgressState() {
     activeTimerRef.current = null;
     detailsRef.current = {};
@@ -350,6 +403,8 @@ export default function MedtechPractice() {
       window.dispatchEvent(new Event("medtech-points-updated"));
       setRows(result.items ?? []);
       setSessionId(result.sessionId ?? null);
+      const orderSeed = result.sessionId ?? 17;
+      optionOrderRef.current = Object.fromEntries((result.items ?? []).map((item) => [item.id, createOptionOrder(item.id, orderSeed)]));
       setIndex(0);
       resetProgressState();
       setSubmitted(false);
@@ -589,16 +644,16 @@ export default function MedtechPractice() {
                 你的答案：<b>{userAnswer || "未作答"}</b>
               </span>
               <span>
-                {q.answerLabel || "答案"}：<b>{q.answer}</b>
+                {q.answerLabel || "答案"}：<b>{displayedLetter(q.id, q.answer)}</b>
               </span>
             </div>
             <div className="medtech-options medtech-review-options">
-              {letters.map((letter) => (
+              {displayedOptionOrder(q.id).map((letter, displayIndex) => (
                 <div
                   className={(letter === q.answer ? "correct " : "") + (letter === userAnswer && letter !== q.answer ? "wrong" : "")}
                   key={letter}
                 >
-                  <b>{letter}</b>
+                  <b>{letters[displayIndex]}</b>
                   <span>{q.options[letter]}</span>
                   {letter === q.answer && <em>{q.answerLabel || "正確答案"}</em>}
                   {letter === userAnswer && letter !== q.answer && <em>你的答案</em>}
@@ -607,7 +662,7 @@ export default function MedtechPractice() {
             </div>
             <section className="medtech-explanation">
               <span>簡要解析</span>
-              <p>{q.explanation?.trim() || "本題目前沒有可顯示的簡要解析。"}</p>
+              {q.explanation?.trim() ? <p>{q.explanation}</p> : submitting ? <p className="medtech-explanation-loading"><span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>正在載入簡答解析…</span></p> : <p>本題目前沒有可顯示的簡要解析。</p>}
               {q.hasFullExplanation && !q.fullExplanation && (
                 <button
                   className="medtech-full-explanation-button"
@@ -689,7 +744,7 @@ export default function MedtechPractice() {
               </button>
             ))}
           </div>
-          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；鎖定題目可點擊查看解鎖方式" : "實心＝已作答 · 圓點＝待確認"}</small>
+          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；鎖定題目可點擊查看解鎖方式" : "實心＝已作答 · 圓點＝待確認"}<br />鍵盤：← → 換題 · 1–4 作答 · M 標記</small>
         </aside>
         <section className="medtech-question">
           <header>
@@ -719,7 +774,7 @@ export default function MedtechPractice() {
                 key={letter}
                 onClick={() => q.locked ? setPaywallOpen(true) : chooseAnswer(letter)}
               >
-                <b>{letter}</b>
+                <b>{letters[displayIndex]}</b>
                 <span>{q.options[letter]}</span>
               </button>
             ))}
