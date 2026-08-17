@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, like } from "drizzle-orm";
 import type { getDb } from "../db";
 import { medtechPointLedger, medtechPracticeSessions, medtechUsage } from "../db/schema";
 
@@ -240,17 +240,18 @@ export async function grantMedtechQuestionPackageAccess(
     return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null, packageNumber, isBonusPack, blockedByPrevious: true };
   }
 
-  // 每章第一包免費；最後不足 30 題的尾包也免費，避免學生為零星題目支付整包點數。
-  const [previouslyOpened] = await db.select({ id: medtechPointLedger.id })
+  // 每個帳號只有一次免費題目包。學員可先選章節或隨機模考的一包，
+  // 免費資格使用後，其餘題目包（包含不足 30 題的尾包）都依 30 點解鎖。
+  const [freePackageUsed] = await db.select({ id: medtechPointLedger.id })
     .from(medtechPointLedger)
     .where(and(
       eq(medtechPointLedger.userKey, userKey),
-      inArray(medtechPointLedger.action, ["question_pack", "question_pack_gift"]),
-      inArray(medtechPointLedger.description, descriptions),
+      eq(medtechPointLedger.action, "question_pack_gift"),
+      like(medtechPointLedger.sourceDetail, "%首次體驗贈送%"),
     ))
     .limit(1);
-  const packageSource = (gift: boolean) => `題目包：${packageName}第 ${packageNumber} 包；${gift ? (isBonusPack ? "章節尾關免費" : "首次體驗贈送，不扣點") : `一次購足 ${MEDTECH_QUESTION_PACKAGE_COST} 點`}；7 天內隨意刷；固定題目：${candidateIds.join(",")}`;
-  const shouldGift = isBonusPack || (packageNumber === 1 && !previouslyOpened);
+  const packageSource = (gift: boolean) => `題目包：${packageName}第 ${packageNumber} 包；${gift ? "首次體驗贈送，不扣點" : `一次購足 ${MEDTECH_QUESTION_PACKAGE_COST} 點`}；7 天內隨意刷；固定題目：${candidateIds.join(",")}`;
+  const shouldGift = !freePackageUsed;
   if (shouldGift) {
     const giftUntil = new Date(Date.now() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
     await db.insert(medtechPointLedger).values({

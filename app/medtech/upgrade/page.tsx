@@ -18,7 +18,7 @@ type PointOption = {
 const pointOptions: PointOption[] = [
   { id: "welcome", name: "首次登入贈點", amount: "10 點", period: "登入後自動贈送", note: "先體驗題目、提示與引導學習流程", features: ["提示免費快取", "比較選項免費簡答", "語音完整解析每次扣 1 點"], purchasable: false },
   { id: "mock120", name: "全真模擬 120 題包", amount: "60 點", period: "一次購買／五折", note: "一次取得完整 120 題；題目包開通後 7 天內不限次數重做", features: ["120 題一次購足", "完整保存刷題統計與錯題分析", "語音完整解析另扣 1 點／24 小時"], purchasable: true, recommended: true },
-  { id: "points", name: "章節／隨機題目包", amount: "30 點／包", period: "30 題／7 天", note: "一次取得一包 30 題；開通後 7 天內不限次數重做", features: ["首次體驗每包免費贈送一包", "再次刷題再購買 30 點", "語音解析 1 點／24 小時；AI 追問 1 點／題"], purchasable: true },
+  { id: "points", name: "章節／隨機題目包", amount: "30 點／包", period: "30 題／7 天", note: "任選一包免費體驗一次；其他題目包 30 點解鎖，開通後 7 天內不限次數重做", features: ["任選一包 30 題免費", "使用後其他題目包再購買 30 點", "語音解析 1 點／24 小時；AI 追問 1 點／題"], purchasable: true },
 ];
 
 export default function MedtechUpgradePage() {

@@ -429,7 +429,7 @@ export default function MedtechPractice() {
       </section>
       {!wrongOnly && packageAccess && <section className={`medtech-package-status ${packageAccess.locked ? "locked" : "active"}`}>
         <div>
-          <b>{packageAccess.blockedByPrevious ? `第 ${packageAccess.packageNumber ?? pack} 關尚未開放` : packageAccess.locked ? `第 ${packageAccess.packageNumber ?? pack} 關已列出，解鎖後開始作答` : packageAccess.isBonus ? "章節尾關：免費開放" : packageAccess.gifted ? "本關首次體驗：免費贈送" : `第 ${packageAccess.packageNumber ?? pack} 關已開通`}</b>
+          <b>{packageAccess.blockedByPrevious ? `第 ${packageAccess.packageNumber ?? pack} 關尚未開放` : packageAccess.locked ? `第 ${packageAccess.packageNumber ?? pack} 關已列出，解鎖後開始作答` : packageAccess.gifted ? "本包首次體驗：免費贈送" : packageAccess.isBonus ? `尾包 ${packageAccess.questionCount} 題：已開通` : `第 ${packageAccess.packageNumber ?? pack} 關已開通`}</b>
           <span>{packageAccess.blockedByPrevious ? "完成上一關後，下一關會自動開放。" : packageAccess.locked ? `需要 ${packageAccess.cost} 點；開通後 ${packageAccess.days} 天內不限次數重做。` : packageRemaining !== null ? `剩餘 ${formatRemaining(packageRemaining)}；請把握時間完成練習。` : `${packageAccess.days} 天內不限次數重做。`}</span>
         </div>
         {packageAccess.locked && !packageAccess.blockedByPrevious && <button type="button" onClick={() => void unlockPackage()} disabled={unlockingPackage} aria-busy={unlockingPackage}>{unlockingPackage ? "解鎖中…" : `解鎖第 ${packageAccess.packageNumber ?? pack} 關`}</button>}
