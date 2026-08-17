@@ -126,7 +126,7 @@ export default async function MedtechPracticeHistory({ searchParams }: { searchP
     <header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>學習紀錄</small></div></a><MedtechHeaderActions /></header>
     <MedtechTabs active={topicValue ? "chapters" : "random"}/>
     <section className="medtech-history-shell">
-      <header className="medtech-history-heading"><div><span>STUDY HISTORY</span><h1>學習紀錄</h1><p>{dateLabel} · 每回練習的時間、狀態、錯題與逐題解析都集中在這裡。</p></div><div className="medtech-history-heading-actions"><a href="/medtech/chapters">章節題包</a><a href="/medtech/random">隨機模考</a></div></header>
+      <header className="medtech-history-heading"><div><span>STUDY HISTORY</span><h1>學習紀錄</h1><p>{dateLabel} · 每回練習的時間、狀態、錯題與逐題解析都集中在這裡。</p></div><div className="medtech-history-heading-actions"><a href="/medtech/chapters">章節題包</a></div></header>
       {!sessions.length ? <section className="medtech-history-empty"><b>目前還沒有這個題目包的作答紀錄。</b><span>完成一回練習後，這裡會留下開始時間、完成狀態與逐題檢討。</span></section> : <HistoryBulkActions sessionIds={sessions.map((session) => session.id)}><div className="medtech-history-list">
         {sessions.map((session) => {
           const details = detailsBySession.get(session.id) ?? [];
