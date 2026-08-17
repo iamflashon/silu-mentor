@@ -29041,3 +29041,24 @@ button[aria-busy="true"]{cursor:wait!important;opacity:.78}
 /* Keep the guided-study topic selector readable on mobile and desktop. */
 .medtech-ai-settings label:nth-of-type(2) select{min-height:50px;padding:0 14px;font-size:18px;line-height:1.4;font-weight:850}
 .medtech-ai-settings label:nth-of-type(2) select option{font-size:18px}
+
+/* 鎖定題目仍可點左側題號，但快捷鍵不應切換或作答；說明固定在欄內。 */
+.medtech-question-map{min-width:0;overflow:hidden}
+.medtech-question-map>small{display:block;max-width:100%;overflow-wrap:anywhere;word-break:break-word;line-height:1.55}
+.medtech-keyboard-help{box-sizing:border-box;width:100%;max-width:100%;min-width:0;overflow:hidden;align-items:flex-start;line-height:1.45}
+.medtech-keyboard-help b{flex:0 0 auto}
+.medtech-keyboard-help span{max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.medtech-keyboard-help.is-locked{background:#fffaf0;border-color:#e4c783;color:#80631d}
+.medtech-keyboard-help.is-locked b{color:#8a6923}
+
+/* 題目包卡片固定列高，避免第一列被操作按鈕撐高。 */
+.medtech-chapter-page .medtech-pack-grid{grid-auto-rows:128px;align-items:stretch}
+.medtech-chapter-page .medtech-pack-grid .medtech-pack-item{height:128px;min-height:128px}
+.medtech-chapter-page .medtech-pack-grid .medtech-pack-item>a:not(.medtech-pack-history-link),
+.medtech-chapter-page .medtech-pack-grid .medtech-pack-item>button{height:128px;min-height:128px}
+@media(max-width:600px){
+  .medtech-chapter-page .medtech-pack-grid{grid-auto-rows:100px}
+  .medtech-chapter-page .medtech-pack-grid .medtech-pack-item{height:100px;min-height:100px}
+  .medtech-chapter-page .medtech-pack-grid .medtech-pack-item>a:not(.medtech-pack-history-link),
+  .medtech-chapter-page .medtech-pack-grid .medtech-pack-item>button{height:100px;min-height:100px}
+}

@@ -312,6 +312,8 @@ export default function MedtechPractice() {
       const target = event.target as HTMLElement | null;
       const tagName = target?.tagName?.toLowerCase();
       if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey || tagName === "input" || tagName === "textarea" || tagName === "select" || target?.isContentEditable || paywallOpen) return;
+      // 題目包尚未解鎖時仍可點左側題號查看完整題目，但不啟用鍵盤換題或作答快捷鍵。
+      if (q?.locked) return;
       if (event.key === "ArrowLeft") {
         if (index > 0) { event.preventDefault(); setIndex((current) => Math.max(0, current - 1)); }
         return;
@@ -783,8 +785,8 @@ export default function MedtechPractice() {
               </button>
             ))}
           </div>
-          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；鎖定題目可點擊查看解鎖方式" : "實心＝已作答 · 圓點＝待確認"}</small>
-          <div className="medtech-keyboard-help" aria-label="刷題快捷鍵"><b>快捷鍵</b><span>←／→ 換題</span><span>1＝A</span><span>2＝B</span><span>3＝C</span><span>4＝D</span><span>0＝標記</span></div>
+          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；請點左側題號查看，解鎖後才能作答" : "實心＝已作答 · 圓點＝待確認"}</small>
+          {q.locked ? <div className="medtech-keyboard-help is-locked" aria-label="鎖定題目操作說明"><b>操作說明</b><span>可點左側題號換題</span><span>解鎖後啟用快捷鍵</span></div> : <div className="medtech-keyboard-help" aria-label="刷題快捷鍵"><b>快捷鍵</b><span>←／→ 換題</span><span>1＝A</span><span>2＝B</span><span>3＝C</span><span>4＝D</span><span>0＝標記</span></div>}
         </aside>
         <section className="medtech-question">
           <header>
