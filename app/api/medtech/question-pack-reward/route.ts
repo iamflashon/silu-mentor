@@ -49,7 +49,7 @@ function completedSession(row: { completedAt: Date | null; status: string }) {
   return Boolean(row.completedAt || row.status === "completed");
 }
 
-async function challengeQuestions(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, packageName: string, packageNumber: number) {
+async function challengeQuestions(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, packageName: string, packageNumber: number, requestedIds?: number[]) {
   const sourcePack = packageNumber > 1 ? packageNumber - 1 : packageNumber;
   const sessions = await auth.db.select({ questionIdsJson: medtechPracticeSessions.questionIdsJson, completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status })
     .from(medtechPracticeSessions)
@@ -60,13 +60,21 @@ async function challengeQuestions(auth: { db: Awaited<ReturnType<typeof import("
     ))
     .orderBy(desc(medtechPracticeSessions.startedAt));
   const session = sessions.find(completedSession);
-  const ids = session ? shuffle(parseQuestionIds(session.questionIdsJson)).slice(0, QUIZ_SIZE) : [];
+  const availableIds = session ? parseQuestionIds(session.questionIdsJson) : [];
+  const allowedIds = new Set(availableIds);
+  const requested = requestedIds?.filter((id) => allowedIds.has(id)).slice(0, QUIZ_SIZE) ?? [];
+  const ids = requested.length === QUIZ_SIZE ? requested : shuffle(availableIds).slice(0, QUIZ_SIZE);
   if (!ids.length) return [];
   const rows = await auth.db.select({ id: examQuestions.id, stem: examQuestions.stem, optionsJson: examQuestions.optionsJson })
     .from(examQuestions)
     .where(inArray(examQuestions.id, ids));
   const byId = new Map(rows.map((row) => [row.id, row]));
   return ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => Boolean(row)).map((row) => ({ id: row.id, stem: row.stem, options: parseOptions(row.optionsJson) }));
+}
+
+function canUseChallenge(reward: { status: string; percent?: number | null; quizAttemptsUsed?: number; quizAttemptsRemaining?: number }) {
+  const remaining = reward.quizAttemptsRemaining ?? 2;
+  return remaining > 0 && (reward.status === "available" || reward.percent === 100 || (reward.status === "revealed" && (reward.quizAttemptsUsed ?? 0) > 0));
 }
 
 async function canSpinForPackage(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, packageName: string, packageNumber: number) {
@@ -99,7 +107,9 @@ export async function GET(request: Request) {
   const packageNumber = readPackNumber(url.searchParams.get("pack"));
   if (url.searchParams.get("challenge") === "1") {
     if (!(await canSpinForPackage(auth, packageName, packageNumber))) return Response.json({ error: "完成上一關後，才可開始答題挑戰。" }, { status: 403 });
-    return Response.json({ packageName, packageNumber, questions: await challengeQuestions(auth, packageName, packageNumber) });
+    const reward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
+    if (!canUseChallenge(reward)) return Response.json({ error: "這個題目包的答題挑戰次數已用完，請使用目前折扣解鎖。" }, { status: 403 });
+    return Response.json({ packageName, packageNumber, attemptsUsed: reward.quizAttemptsUsed ?? 0, attemptsRemaining: reward.quizAttemptsRemaining ?? 2, questions: await challengeQuestions(auth, packageName, packageNumber) });
   }
   const reward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
   return Response.json({ packageName, packageNumber, reward });
@@ -108,7 +118,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
-  let body: { packageName?: unknown; pack?: unknown; action?: unknown; answers?: unknown } = {};
+  let body: { packageName?: unknown; pack?: unknown; action?: unknown; answers?: unknown; questionIds?: unknown; timings?: unknown } = {};
   try {
     body = await request.json() as typeof body;
   } catch {
@@ -119,9 +129,14 @@ export async function POST(request: Request) {
   const action = body.action === "abandon" ? "abandon" : body.action === "spin" ? "spin" : "";
   if (body.action === "quiz") {
     if (!(await canSpinForPackage(auth, packageName, packageNumber))) return Response.json({ error: "完成上一關後，才可開始答題挑戰。" }, { status: 403 });
-    const questions = await challengeQuestions(auth, packageName, packageNumber);
+    const currentReward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
+    if (!canUseChallenge(currentReward)) return Response.json({ error: "這個題目包的答題挑戰次數已用完，請使用目前折扣解鎖。" }, { status: 403 });
+    const requestedIds = Array.isArray(body.questionIds) ? body.questionIds.filter((id): id is number => Number.isInteger(id) && id > 0) : [];
+    const questions = await challengeQuestions(auth, packageName, packageNumber, requestedIds);
     const answers = Array.isArray(body.answers) ? body.answers : [];
     const answerMap = new Map(answers.filter((item): item is { questionId: number; answer: string } => Boolean(item && typeof item === "object" && Number.isInteger((item as { questionId?: unknown }).questionId) && /^[A-D]$/.test(String((item as { answer?: unknown }).answer ?? "")))).map((item) => [item.questionId, item.answer]));
+    const timings = Array.isArray(body.timings) ? body.timings : [];
+    const timingMap = new Map(timings.filter((item): item is { questionId: number; seconds: number } => Boolean(item && typeof item === "object" && Number.isInteger((item as { questionId?: unknown }).questionId) && Number.isFinite(Number((item as { seconds?: unknown }).seconds)))).map((item) => [item.questionId, Number(item.seconds)]));
     const ids = questions.map((question) => question.id);
     if (!ids.length) return Response.json({ error: "目前沒有可用的前一關題目，請先完成上一關並重新整理。" }, { status: 409 });
     const rows = await auth.db.select({ id: examQuestions.id, correctAnswer: examQuestions.correctAnswer, teacherAnswer: examQuestions.teacherAnswer, simulatedAnswer: examQuestions.simulatedAnswer })
@@ -129,8 +144,9 @@ export async function POST(request: Request) {
       .where(inArray(examQuestions.id, ids));
     const correctById = new Map(rows.map((row) => [row.id, row.teacherAnswer || row.correctAnswer || row.simulatedAnswer || ""]));
     const score = ids.reduce((total, id) => total + (answerMap.get(id) === correctById.get(id) ? 1 : 0), 0);
-    const reward = await createMedtechPackQuizReward(auth.db, auth.userKey, packageName, packageNumber, score, ids.length);
-    return Response.json({ packageName, packageNumber, score, total: ids.length, reward });
+    const averageSeconds = ids.length ? ids.reduce((total, id) => total + Math.max(0, Math.min(5, timingMap.get(id) ?? 5)), 0) / ids.length : 5;
+    const reward = await createMedtechPackQuizReward(auth.db, auth.userKey, packageName, packageNumber, score, ids.length, averageSeconds);
+    return Response.json({ packageName, packageNumber, score, total: ids.length, averageSeconds: Number(averageSeconds.toFixed(1)), attemptsUsed: reward.quizAttemptsUsed ?? 0, attemptsRemaining: reward.quizAttemptsRemaining ?? 0, reward });
   }
   if (!action) return Response.json({ error: "請選擇抽取折扣或放棄優惠。" }, { status: 400 });
   if (!(await canSpinForPackage(auth, packageName, packageNumber))) {

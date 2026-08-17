@@ -10,6 +10,7 @@ export const MEDTECH_QUESTION_ACCESS_HOURS = 7 * 24;
 export const MEDTECH_AUDIO_ACCESS_HOURS = 24;
 export const MEDTECH_QUESTION_PACKAGE_COST = 30;
 export const MEDTECH_QUESTION_PACKAGE_SIZE = 30;
+export const MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT = 2;
 export const MEDTECH_QUESTION_PACKAGE_HOURS = 7 * 24;
 export const MEDTECH_CHAPTER_PACKAGE_COST = MEDTECH_QUESTION_PACKAGE_COST;
 export const MEDTECH_CHAPTER_PACKAGE_HOURS = MEDTECH_QUESTION_PACKAGE_HOURS;
@@ -32,6 +33,8 @@ export type MedtechPackDiscountReward = {
   cost: number;
   baseCost: number;
   retryAt?: string | null;
+  quizAttemptsUsed?: number;
+  quizAttemptsRemaining?: number;
 };
 
 export function medtechPackDescription(packageName: string, packageNumber: number) {
@@ -59,7 +62,7 @@ export async function getMedtechPackDiscountReward(
 ): Promise<MedtechPackDiscountReward> {
   const rewardDescription = medtechPackDiscountDescription(packageName, packageNumber);
   const packageDescription = medtechPackDescription(packageName, packageNumber);
-  const [reward] = await db.select({ action: medtechPointLedger.action, sourceDetail: medtechPointLedger.sourceDetail, createdAt: medtechPointLedger.createdAt })
+  const rewardRows = await db.select({ action: medtechPointLedger.action, sourceDetail: medtechPointLedger.sourceDetail, createdAt: medtechPointLedger.createdAt })
     .from(medtechPointLedger)
     .where(and(
       eq(medtechPointLedger.userKey, userKey),
@@ -67,13 +70,22 @@ export async function getMedtechPackDiscountReward(
       eq(medtechPointLedger.description, rewardDescription),
     ))
     .orderBy(desc(medtechPointLedger.createdAt))
-    .limit(1);
-  if (!reward) return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null };
+    .limit(20);
+  const quizAttemptsUsed = rewardRows.filter((row) => row.action === "question_pack_quiz").length;
+  const quizAttemptsRemaining = Math.max(0, MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT - quizAttemptsUsed);
+  const attemptMeta = { quizAttemptsUsed, quizAttemptsRemaining };
+  const reward = rewardRows[0];
+  if (!reward) return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null, ...attemptMeta };
   if (reward.action === "question_pack_spin_abandoned") {
-    return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST };
+    return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, ...attemptMeta };
   }
-  const parsed = parseMedtechPackDiscount(reward.sourceDetail);
-  if (!parsed) return { status: "used", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST };
+  const parsedRewards = rewardRows
+    .filter((row) => row.action === "question_pack_spin" || row.action === "question_pack_quiz")
+    .map((row) => ({ row, parsed: parseMedtechPackDiscount(row.sourceDetail) }))
+    .filter((item): item is { row: (typeof rewardRows)[number]; parsed: NonNullable<ReturnType<typeof parseMedtechPackDiscount>> } => Boolean(item.parsed))
+    .sort((left, right) => left.parsed.cost - right.parsed.cost);
+  const best = parsedRewards[0];
+  if (!best) return { status: "used", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, ...attemptMeta };
   const [purchase] = await db.select({ id: medtechPointLedger.id })
     .from(medtechPointLedger)
     .where(and(
@@ -84,15 +96,15 @@ export async function getMedtechPackDiscountReward(
     ))
     .limit(1);
   if (purchase) {
-    return { status: "used", label: parsed.label, percent: parsed.percent, cost: parsed.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null };
+    return { status: "used", label: best.parsed.label, percent: best.parsed.percent, cost: best.parsed.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null, ...attemptMeta };
   }
-  const retryAt = parsed.percent === 100
-    ? new Date(reward.createdAt.getTime() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000)
+  const retryAt = best.parsed.percent === 100 && best.row.action === "question_pack_spin"
+    ? new Date(best.row.createdAt.getTime() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000)
     : null;
   if (retryAt && retryAt.getTime() <= Date.now()) {
-    return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null };
+    return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null, ...attemptMeta };
   }
-  return { status: "revealed", label: parsed.label, percent: parsed.percent, cost: parsed.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: retryAt?.toISOString() ?? null };
+  return { status: "revealed", label: best.parsed.label, percent: best.parsed.percent, cost: best.parsed.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: retryAt?.toISOString() ?? null, ...attemptMeta };
 }
 
 export async function createMedtechPackDiscountReward(
@@ -114,7 +126,7 @@ export async function createMedtechPackDiscountReward(
       description: medtechPackDiscountDescription(packageName, packageNumber),
       sourceDetail: `狀態：放棄折扣，之後以原價 ${MEDTECH_QUESTION_PACKAGE_COST} 點購買；一次機會已用完。`,
     });
-    return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST } satisfies MedtechPackDiscountReward;
+    return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, quizAttemptsUsed: current.quizAttemptsUsed ?? 0, quizAttemptsRemaining: current.quizAttemptsRemaining ?? MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT } satisfies MedtechPackDiscountReward;
   }
   const random = new Uint32Array(1);
   crypto.getRandomValues(random);
@@ -127,7 +139,7 @@ export async function createMedtechPackDiscountReward(
     description: medtechPackDiscountDescription(packageName, packageNumber),
     sourceDetail: `結果：${option.label}；折扣：${option.percent}折；優惠價 ${option.cost} 點；每個題目包僅一次機會。`,
   });
-  return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: option.percent === 100 ? new Date(Date.now() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000).toISOString() : null } satisfies MedtechPackDiscountReward;
+  return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: option.percent === 100 ? new Date(Date.now() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000).toISOString() : null, quizAttemptsUsed: current.quizAttemptsUsed ?? 0, quizAttemptsRemaining: current.quizAttemptsRemaining ?? MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT } satisfies MedtechPackDiscountReward;
 }
 
 export async function createMedtechPackQuizReward(
@@ -137,16 +149,25 @@ export async function createMedtechPackQuizReward(
   packageNumber: number,
   score: number,
   total: number,
+  averageSeconds: number,
 ) {
   const current = await getMedtechPackDiscountReward(db, userKey, packageName, packageNumber);
-  if (current.status !== "available" && !(current.status === "revealed" && current.percent === 100)) return current;
+  const canUseChallenge = current.quizAttemptsRemaining === undefined || current.quizAttemptsRemaining > 0;
+  const canImproveExistingChallenge = (current.quizAttemptsUsed ?? 0) > 0 && current.status === "revealed";
+  if (!canUseChallenge || (current.status !== "available" && !canImproveExistingChallenge && !(current.status === "revealed" && current.percent === 100))) return current;
   const usage = await getOrCreateMedtechUsage(db, userKey);
   const normalizedScore = Math.max(0, Math.min(total, Math.floor(score)));
   const normalizedTotal = Math.max(1, Math.floor(total));
+  const normalizedAverage = Number.isFinite(averageSeconds) ? Math.max(0, Math.min(5, averageSeconds)) : 5;
   const ratio = normalizedScore / normalizedTotal;
+  const speedBonus = normalizedAverage <= 3;
   const option = ratio >= 0.9
     ? MEDTECH_PACK_DISCOUNT_OPTIONS[0]
+    : ratio >= 0.7 && speedBonus
+    ? MEDTECH_PACK_DISCOUNT_OPTIONS[0]
     : ratio >= 0.7
+    ? MEDTECH_PACK_DISCOUNT_OPTIONS[1]
+    : ratio >= 0.5 && speedBonus
     ? MEDTECH_PACK_DISCOUNT_OPTIONS[1]
     : ratio >= 0.5
     ? MEDTECH_PACK_DISCOUNT_OPTIONS[2]
@@ -157,9 +178,9 @@ export async function createMedtechPackQuizReward(
     balanceAfter: usage.aiCredits,
     action: "question_pack_quiz",
     description: medtechPackDiscountDescription(packageName, packageNumber),
-    sourceDetail: `答題挑戰：${normalizedTotal} 題答對 ${normalizedScore} 題；結果：${option.label}；折扣：${option.percent}折；優惠價 ${option.cost} 點；每個題目包僅一次機會。`,
+    sourceDetail: `答題挑戰第 ${(current.quizAttemptsUsed ?? 0) + 1}/${MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT} 次：${normalizedTotal} 題答對 ${normalizedScore} 題；平均作答時間：${normalizedAverage.toFixed(1)} 秒；結果：${option.label}；折扣：${option.percent}折；優惠價 ${option.cost} 點；每個題目包最多兩次機會。`,
   });
-  return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: option.percent === 100 ? new Date(Date.now() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000).toISOString() : null } satisfies MedtechPackDiscountReward;
+  return await getMedtechPackDiscountReward(db, userKey, packageName, packageNumber);
 }
 
 export function normalizeMedtechUserKey(value: string) {
