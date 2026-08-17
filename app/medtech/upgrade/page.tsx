@@ -17,8 +17,8 @@ type PointOption = {
 
 const pointOptions: PointOption[] = [
   { id: "welcome", name: "首次登入贈點", amount: "10 點", period: "登入後自動贈送", note: "先體驗題目、提示與引導學習流程", features: ["提示免費快取", "比較選項免費簡答", "語音完整解析每次扣 1 點"], purchasable: false },
-  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點", period: "一次購買／五折", note: "原本逐題需要 120 點，套票只扣 60 點；每題解鎖後 7 天內可無限重做", features: ["一組全真模擬試題全刷", "每題 7 天內可無限重做", "語音完整解析另扣 1 點／24 小時"], purchasable: true, recommended: true },
-  { id: "points", name: "一般點數", amount: "1 點起", period: "一次購買／無訂閱", note: "依照實際使用量扣點，不綁月費或年費", features: ["看一題扣 1 點，7 天內可重做", "語音解析扣 1 點，24 小時內可重聽", "AI 追問一個問題扣 1 點"], purchasable: true },
+  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點", period: "一次購買／五折", note: "一次取得完整 120 題；題目包開通後 7 天內不限次數重做", features: ["120 題一次購足", "完整保存刷題統計與錯題分析", "語音完整解析另扣 1 點／24 小時"], purchasable: true, recommended: true },
+  { id: "points", name: "章節／隨機題目包", amount: "30 點／包", period: "30 題／7 天", note: "一次取得一包 30 題；開通後 7 天內不限次數重做", features: ["首次體驗每包免費贈送一包", "再次刷題再購買 30 點", "語音解析 1 點／24 小時；AI 追問 1 點／題"], purchasable: true },
 ];
 
 export default function MedtechUpgradePage() {
@@ -30,12 +30,12 @@ export default function MedtechUpgradePage() {
   useEffect(() => {
     const value = new URLSearchParams(location.search).get("reason") || "";
     setReason(value);
-    if (value === "audio-trial" || value === "ai-credits" || value === "points") setSelected("points");
+    if (value === "audio-trial" || value === "ai-credits" || value === "points" || value === "question-pack") setSelected("points");
   }, []);
 
   const needsPoints = reason === "points" || reason === "ai-credits" || reason === "audio-trial";
   const bannerTitle = needsPoints ? "點數不足" : "點數制度";
-  const bannerText = needsPoints ? "提示與比較選項不扣點；看題 7 天內可重做，語音解析 24 小時內可重聽，AI 追問依新問題扣點。" : "以下按鈕只會模擬點數購買，不會產生真實訂單或扣款。";
+  const bannerText = reason === "question-pack" ? "目前這一包需要 30 點；開通後 7 天內不限次數重做，完成統計與錯題分析都會保存。" : needsPoints ? "提示與比較選項不扣點；題目包 7 天內不限次數重做，語音解析 24 小時內可重聽，AI 追問依新問題扣點。" : "以下按鈕只會模擬點數購買，不會產生真實訂單或扣款。";
 
   return <main className="medtech-upgrade-page">
     <header className="medtech-top" data-no-navigation-feedback>
@@ -46,7 +46,7 @@ export default function MedtechUpgradePage() {
     <section className="medtech-upgrade-head">
       <span>醫檢師點數商店</span>
       <h1>不用訂閱，按照使用方式簡單扣點。</h1>
-      <p>學員首次登入贈送 10 點；全真模擬、康情老師語音完整解析與 AI 追問，各自依使用量扣點。</p>
+      <p>學員首次登入贈送 10 點；題目先免費初體驗，之後以 30 點購買一包 30 題，7 天內不限次數重做。</p>
     </section>
     <div className="medtech-test-banner"><b>{bannerTitle}</b><span>{bannerText}</span></div>
     <section className="medtech-upgrade-grid" aria-label="醫檢師點數方案">
@@ -67,6 +67,6 @@ export default function MedtechUpgradePage() {
         {state === "cancelled" && <div className="medtech-payment-result cancelled"><b>已取消測試購買</b><span>示範：回到點數商店，帳號點數不變。</span></div>}
       </aside>
     </section>
-    <p className="medtech-upgrade-foot">點數規則：提示與比較選項免費；全真模擬看一題 1 點，同一題 7 天內可無限重做；語音完整解析一次 1 點，同一題 24 小時內可無限重聽；AI 追問一個新問題 1 點。管理員加點與所有扣點都會留下來源、時間與餘額紀錄。</p>
+    <p className="medtech-upgrade-foot">點數規則：提示與比較選項免費；題目包 30 點／30 題／7 天不限次數；語音完整解析 1 點／24 小時；AI 追問一個新問題 1 點。所有刷題分析、贈點、加點與扣點都會留下紀錄。</p>
   </main>;
 }

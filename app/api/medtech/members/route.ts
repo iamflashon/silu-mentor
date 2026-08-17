@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { memberExamAccess, members, medtechUsage } from "../../../../db/schema";
+import { examQuestions, memberExamAccess, members, medtechPracticeSessions, medtechUsage } from "../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
 
 export async function GET(request: Request) {
@@ -10,7 +10,32 @@ export async function GET(request: Request) {
     .where(eq(memberExamAccess.examCategory, "medtech")).orderBy(desc(memberExamAccess.createdAt));
   const usageRows = await auth.db.select({ userKey: medtechUsage.userKey, points: medtechUsage.aiCredits }).from(medtechUsage);
   const pointsByEmail = new Map(usageRows.map((row) => [row.userKey, row.points]));
-  return Response.json({ members: rows.map((row) => ({ ...row, points: pointsByEmail.get(row.email) ?? null })) });
+  const sessions = await auth.db.select().from(medtechPracticeSessions).orderBy(desc(medtechPracticeSessions.startedAt));
+  const parseIds = (value: string) => { try { const parsed = JSON.parse(value || "[]") as unknown; return Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isInteger(id) && id > 0) : []; } catch { return []; } };
+  const summaryByUser = new Map<string, { sessions: number; completed: number; answered: number; correct: number; durationSeconds: number; wrong: Map<number, number>; lastStartedAt: Date | null }>();
+  for (const session of sessions) {
+    const summary = summaryByUser.get(session.userKey) ?? { sessions: 0, completed: 0, answered: 0, correct: 0, durationSeconds: 0, wrong: new Map<number, number>(), lastStartedAt: null };
+    summary.sessions += 1;
+    if (session.completedAt) {
+      summary.completed += 1;
+      summary.answered += session.answeredQuestions;
+      summary.correct += session.correctQuestions;
+      summary.durationSeconds += session.durationSeconds;
+      for (const id of parseIds(session.incorrectQuestionIdsJson)) summary.wrong.set(id, (summary.wrong.get(id) ?? 0) + 1);
+    }
+    if (!summary.lastStartedAt || session.startedAt > summary.lastStartedAt) summary.lastStartedAt = session.startedAt;
+    summaryByUser.set(session.userKey, summary);
+  }
+  const topQuestionIds = [...summaryByUser.values()].flatMap((summary) => [...summary.wrong.keys()]);
+  const topQuestions = topQuestionIds.length ? await auth.db.select({ id: examQuestions.id, year: examQuestions.year, questionNumber: examQuestions.questionNumber, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech")) : [];
+  const questionById = new Map(topQuestions.map((question) => [question.id, question]));
+  return Response.json({ members: rows.map((row) => {
+    const summary = summaryByUser.get(row.email);
+    const topWrong = summary ? [...summary.wrong.entries()].sort((left, right) => right[1] - left[1])[0] : undefined;
+    const topQuestion = topWrong ? questionById.get(topWrong[0]) : undefined;
+    const accuracy = summary?.answered ? Math.round((summary.correct / summary.answered) * 100) : 0;
+    return { ...row, points: pointsByEmail.get(row.email) ?? null, practiceStats: { sessions: summary?.sessions ?? 0, completed: summary?.completed ?? 0, answered: summary?.answered ?? 0, durationMinutes: Math.floor((summary?.durationSeconds ?? 0) / 60), accuracy, topWrong: topQuestion ? { ...topQuestion, count: topWrong?.[1] ?? 0 } : null, lastStartedAt: summary?.lastStartedAt?.toISOString() ?? null } };
+  }) });
 }
 
 export async function POST(request: Request) {

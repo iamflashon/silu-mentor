@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, studyRecords } from "../../../../db/schema";
+import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
 import { requireMedtechMember } from "../../../../lib/member-auth";
-import { grantMedtechQuestionAccess, medtechUserKey } from "../../../../lib/medtech-usage";
+import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, medtechUserKey } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
 import { storedDocumentAnalysis } from "../../../../lib/document-analysis";
 
@@ -25,6 +25,15 @@ function textField(row: Record<string, unknown>, keys: string[]) {
     if (value) return value;
   }
   return "";
+}
+
+function parseIds(value: string) {
+  try {
+    const parsed = JSON.parse(value || "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isInteger(id) && id > 0) : [];
+  } catch {
+    return [];
+  }
 }
 
 function chapterByOrder(processingResultJson: string) {
@@ -59,7 +68,9 @@ export async function GET(request: Request) {
   const practiceOnly = url.searchParams.get("mode") === "practice";
   const reviewOnly = url.searchParams.get("mode") === "review";
   const reviewIds = url.searchParams.get("ids")?.split(",").map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0).slice(0, 50) ?? [];
+  const reviewSessionId = Number(url.searchParams.get("sessionId")) || 0;
   const db = auth.db;
+  const [reviewSession] = reviewOnly && reviewSessionId ? await db.select().from(medtechPracticeSessions).where(and(eq(medtechPracticeSessions.id, reviewSessionId), eq(medtechPracticeSessions.userKey, auth.userKey))).limit(1) : [];
   let wrongIds: number[] = [];
   if (wrongOnly) {
     const attempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct }).from(examAttempts).where(eq(examAttempts.userKey, userKey(request))).orderBy(desc(examAttempts.id));
@@ -101,14 +112,26 @@ export async function GET(request: Request) {
     return !topic || topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === topic;
   });
   let selectedRows = reviewOnly
-    ? topicRows.filter((row) => reviewIds.includes(row.id)).slice(0, limit)
+    ? topicRows.filter((row) => (reviewSession ? parseIds(reviewSession.questionIdsJson).includes(row.id) : reviewIds.includes(row.id))).slice(0, limit)
     : topicRows.sort(() => Math.random() - .5).slice(0, limit);
-  const access = await grantMedtechQuestionAccess(db, auth.userKey, selectedRows.map((row) => row.id));
-  if (selectedRows.length && !access.allowedIds.length) {
-    return Response.json({ error: "點數不足；查看一題扣 1 點，同一題 7 天內可無限重做，請先購買點數。", code: "POINTS_EXHAUSTED", points: access.usage.aiCredits, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
+  const packageMode = practiceOnly && !wrongOnly;
+  const packageName = topic || topics[3];
+  const access = reviewSession
+    ? { usage: await getOrCreateMedtechUsage(db, auth.userKey), allowedIds: selectedRows.map((row) => row.id), limited: false }
+    : packageMode
+    ? await grantMedtechQuestionPackageAccess(db, auth.userKey, packageName, selectedRows.map((row) => row.id))
+    : await grantMedtechQuestionAccess(db, auth.userKey, selectedRows.map((row) => row.id));
+  if (packageMode) {
+    const rowById = new Map(topicRows.map((row) => [row.id, row]));
+    const packageIds: number[] = ("packageQuestionIds" in access ? access.packageQuestionIds : access.allowedIds) as number[];
+    selectedRows = packageIds.map((id) => rowById.get(id)).filter((row): row is (typeof topicRows)[number] => Boolean(row));
+  } else {
+    if (selectedRows.length && !access.allowedIds.length) {
+      return Response.json({ error: "點數不足；查看一題扣 1 點，同一題 7 天內可無限重做，請先購買點數。", code: "POINTS_EXHAUSTED", points: access.usage.aiCredits, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
+    }
+    const allowedIds = new Set(access.allowedIds);
+    selectedRows = selectedRows.filter((row) => allowedIds.has(row.id));
   }
-  const allowedIds = new Set(access.allowedIds);
-  selectedRows = selectedRows.filter((row) => allowedIds.has(row.id));
   const questionIds = selectedRows.map((row) => row.id);
   const selectedSourceIds = [...new Set(selectedRows.map((row) => Number(row.sourceUrl.replace(/^document:/, ""))).filter((id) => Number.isInteger(id) && id > 0))];
   const sourceAnalyses = selectedSourceIds.length
@@ -142,9 +165,29 @@ export async function GET(request: Request) {
         subject: row.subject,
         chapter: chapterOf(row, source),
         topic,
+        locked: packageMode && access.limited,
       };
     });
-    return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited, topics: topics.map((name) => ({ name, count: rows.filter((row) => {
+    const [session] = mapped.length ? await db.insert(medtechPracticeSessions).values({
+      userKey: auth.userKey,
+      packageName: packageMode ? packageName : (wrongOnly ? "錯題複習" : "醫檢師練題"),
+      packageType: packageMode ? (topic ? "chapter" : "random_mock") : "wrong_review",
+      questionIdsJson: JSON.stringify(mapped.map((item) => item.id)),
+      startedAt: new Date(),
+      totalQuestions: mapped.length,
+    }).returning({ id: medtechPracticeSessions.id }) : [];
+    const packageCost = "packageCost" in access ? access.packageCost : 30;
+    const packageAvailableUntil = "availableUntil" in access && access.availableUntil instanceof Date ? access.availableUntil : null;
+    return Response.json({ items: mapped, sessionId: session?.id ?? null, points: access.usage.aiCredits, accessLimited: access.limited, packageAccess: packageMode ? {
+      name: packageName,
+      cost: packageCost,
+      questionCount: mapped.length,
+      days: 7,
+      locked: access.limited,
+      gifted: "gifted" in access && access.gifted,
+      charged: "charged" in access && access.charged,
+      availableUntil: packageAvailableUntil?.toISOString() ?? null,
+    } : undefined, topics: topics.map((name) => ({ name, count: rows.filter((row) => {
       const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
       const source = sourceById.get(sourceId);
       return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name;
@@ -226,7 +269,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireMedtechMember(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { answers?: Array<{ questionId: number; answer: string }>; masteredQuestionId?: number };
+  const body = await request.json() as { answers?: Array<{ questionId: number; answer: string }>; masteredQuestionId?: number; sessionId?: number };
   if (Number.isInteger(body.masteredQuestionId)) {
     const db = auth.db;
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, Number(body.masteredQuestionId)), eq(examQuestions.examCategory, "medtech"))).limit(1);
@@ -239,6 +282,11 @@ export async function POST(request: Request) {
   if (!answers.length) return Response.json({ saved: 0 });
   const db = auth.db;
   const questions = await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), inArray(examQuestions.id, answers.map((item) => item.questionId))));
+  const previousAttempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct })
+    .from(examAttempts)
+    .where(and(eq(examAttempts.userKey, auth.userKey), inArray(examAttempts.questionId, answers.map((item) => item.questionId))));
+  const previouslyWrong = new Set(previousAttempts.filter((attempt) => attempt.correct === false).map((attempt) => attempt.questionId));
+  const results: Array<{ questionId: number; correct: boolean; weakness: string }> = [];
   let saved = 0;
   for (const item of answers) {
     const question = questions.find((row) => row.id === item.questionId);
@@ -246,9 +294,47 @@ export async function POST(request: Request) {
     const activeAnswer = question.teacherAnswer || question.correctAnswer || question.simulatedAnswer || "";
     if (!activeAnswer) continue;
     const correct = item.answer === activeAnswer;
+    const weakness = correct ? "" : (topicOf("", question.subject) ?? (question.subject || topics[0]));
     await db.insert(examAttempts).values({ userKey: auth.userKey, questionId: item.questionId, selectedAnswer: item.answer, correct });
-    await db.insert(studyRecords).values({ userKey: auth.userKey, questionId: item.questionId, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師練題", correct, weakness: correct ? "" : (topicOf("", question.subject) ?? topics[0]), nextStep: correct ? "已掌握" : "加入錯題複習" });
+    await db.insert(studyRecords).values({ userKey: auth.userKey, questionId: item.questionId, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師練題", correct, weakness, nextStep: correct ? "已掌握" : "加入錯題複習" });
+    results.push({ questionId: item.questionId, correct, weakness });
     saved += 1;
+  }
+  const sessionId = Number(body.sessionId);
+  if (Number.isInteger(sessionId) && sessionId > 0) {
+    const [session] = await db.select().from(medtechPracticeSessions).where(and(eq(medtechPracticeSessions.id, sessionId), eq(medtechPracticeSessions.userKey, auth.userKey))).limit(1);
+    if (session) {
+      const completedAt = new Date();
+      const incorrectIds = results.filter((item) => !item.correct).map((item) => item.questionId);
+      const repeatedWrongIds = incorrectIds.filter((id) => previouslyWrong.has(id));
+      const weaknessCounts = new Map<string, number>();
+      for (const item of results) if (!item.correct && item.weakness) weaknessCounts.set(item.weakness, (weaknessCounts.get(item.weakness) ?? 0) + 1);
+      const weaknesses = [...weaknessCounts.entries()].sort((left, right) => right[1] - left[1]).map(([label, count]) => ({ label, count }));
+      const durationSeconds = Math.max(0, Math.round((completedAt.getTime() - session.startedAt.getTime()) / 1000));
+      await db.update(medtechPracticeSessions).set({
+        completedAt,
+        durationSeconds,
+        answeredQuestions: results.length,
+        correctQuestions: results.filter((item) => item.correct).length,
+        incorrectQuestionIdsJson: JSON.stringify(incorrectIds),
+        repeatedWrongQuestionIdsJson: JSON.stringify(repeatedWrongIds),
+        weaknessesJson: JSON.stringify(weaknesses),
+      }).where(eq(medtechPracticeSessions.id, session.id));
+      const nextStep = weaknesses.length ? `優先加強：${weaknesses.slice(0, 3).map((item) => item.label).join("、")}；再做錯題複習與老師語音解析` : "維持練習，挑戰下一包題目";
+      await db.insert(studyRecords).values({
+        userKey: auth.userKey,
+        recordDate: taipeiDate(),
+        subject: "臨床病毒學",
+        title: `${session.packageName}｜刷題分析`,
+        activityType: "醫檢師刷題統計",
+        plannedMinutes: Math.ceil(durationSeconds / 60),
+        actualMinutes: Math.ceil(durationSeconds / 60),
+        reflection: JSON.stringify({ sessionId: session.id, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectIds, repeatedWrongIds }),
+        weakness: weaknesses.map((item) => `${item.label}（${item.count}題）`).join("；"),
+        nextStep,
+      });
+      return Response.json({ saved, session: { id: session.id, durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectQuestionIds: incorrectIds, repeatedWrongQuestionIds: repeatedWrongIds, weaknesses, nextStep } });
+    }
   }
   return Response.json({ saved });
 }

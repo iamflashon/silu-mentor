@@ -85,6 +85,26 @@ export const medtechPointLedger = sqliteTable("medtech_point_ledger", {
   index("medtech_point_ledger_user_created_idx").on(table.userKey, table.createdAt),
 ]);
 
+export const medtechPracticeSessions = sqliteTable("medtech_practice_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  packageName: text("package_name").notNull(),
+  packageType: text("package_type").notNull().default("chapter"),
+  questionIdsJson: text("question_ids_json").notNull().default("[]"),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+  totalQuestions: integer("total_questions").notNull().default(0),
+  answeredQuestions: integer("answered_questions").notNull().default(0),
+  correctQuestions: integer("correct_questions").notNull().default(0),
+  incorrectQuestionIdsJson: text("incorrect_question_ids_json").notNull().default("[]"),
+  repeatedWrongQuestionIdsJson: text("repeated_wrong_question_ids_json").notNull().default("[]"),
+  weaknessesJson: text("weaknesses_json").notNull().default("[]"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("medtech_practice_sessions_user_created_idx").on(table.userKey, table.createdAt),
+]);
+
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

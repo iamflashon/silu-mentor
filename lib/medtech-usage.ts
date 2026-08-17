@@ -8,6 +8,10 @@ export const MEDTECH_AUDIO_TRIAL_LIMIT = 0;
 export const MEDTECH_STARTING_POINTS = 10;
 export const MEDTECH_QUESTION_ACCESS_HOURS = 7 * 24;
 export const MEDTECH_AUDIO_ACCESS_HOURS = 24;
+export const MEDTECH_QUESTION_PACKAGE_COST = 30;
+export const MEDTECH_QUESTION_PACKAGE_HOURS = 7 * 24;
+export const MEDTECH_CHAPTER_PACKAGE_COST = MEDTECH_QUESTION_PACKAGE_COST;
+export const MEDTECH_CHAPTER_PACKAGE_HOURS = MEDTECH_QUESTION_PACKAGE_HOURS;
 // 保留舊名稱，讓既有頁面與資料相容；平台語意統一稱為「點數」。
 export const MEDTECH_STARTING_AI_CREDITS = MEDTECH_STARTING_POINTS;
 
@@ -157,6 +161,94 @@ export async function grantMedtechQuestionAccess(
   }
   const allowedIds = new Set([...freeIds, ...chargedIds]);
   return { usage: current, allowedIds: uniqueIds.filter((id) => allowedIds.has(id)), limited: allowedIds.size < uniqueIds.length };
+}
+
+export async function grantMedtechQuestionPackageAccess(
+  db: Awaited<ReturnType<typeof getDb>>,
+  userKey: string,
+  packageName: string,
+  questionIds: number[],
+) {
+  const candidateIds = [...new Set(questionIds.filter((id) => Number.isInteger(id) && id > 0))].slice(0, 30);
+  const usage = await getOrCreateMedtechUsage(db, userKey);
+  const description = `${packageName}題目包（7 天內可隨意刷）`;
+  const cutoff = new Date(Date.now() - MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
+  const [activePackage] = await db.select({
+    action: medtechPointLedger.action,
+    availableUntil: medtechPointLedger.availableUntil,
+    sourceDetail: medtechPointLedger.sourceDetail,
+    createdAt: medtechPointLedger.createdAt,
+  })
+    .from(medtechPointLedger)
+    .where(and(
+      eq(medtechPointLedger.userKey, userKey),
+      inArray(medtechPointLedger.action, ["question_pack", "question_pack_gift"]),
+      eq(medtechPointLedger.description, description),
+      gte(medtechPointLedger.createdAt, cutoff),
+    ))
+    .orderBy(desc(medtechPointLedger.createdAt))
+    .limit(1);
+
+  const packageIdsFromDetail = (sourceDetail: string | null) => {
+    const match = sourceDetail?.match(/固定題目：([\d, ]+)$/u);
+    if (!match) return [];
+    return [...new Set(match[1].split(",").map((value) => Number(value.trim())).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 30);
+  };
+  const activeIds = packageIdsFromDetail(activePackage?.sourceDetail ?? null);
+  const availableUntil = activePackage?.availableUntil ?? (activePackage ? new Date(activePackage.createdAt.getTime() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000) : null);
+  if (activePackage) {
+    return {
+      usage,
+      allowedIds: activeIds.length ? activeIds : candidateIds,
+      packageQuestionIds: activeIds.length ? activeIds : candidateIds,
+      limited: false,
+      hasAccess: true,
+      charged: false,
+      gifted: activePackage.action === "question_pack_gift",
+      packageCost: MEDTECH_QUESTION_PACKAGE_COST,
+      availableUntil,
+    };
+  }
+  if (!candidateIds.length) {
+    return { usage, allowedIds: [], packageQuestionIds: [], limited: false, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null };
+  }
+
+  // 每個章節／模考包第一次進入提供一次免費初體驗；同一包到期後才需要購買。
+  const [previousGift] = await db.select({ id: medtechPointLedger.id })
+    .from(medtechPointLedger)
+    .where(and(
+      eq(medtechPointLedger.userKey, userKey),
+      eq(medtechPointLedger.action, "question_pack_gift"),
+      eq(medtechPointLedger.description, description),
+    ))
+    .limit(1);
+  const packageSource = (gift: boolean) => `題目包：${packageName}；${gift ? "首次體驗贈送，不扣點" : `一次購足 ${MEDTECH_QUESTION_PACKAGE_COST} 點`}；7 天內隨意刷；固定題目：${candidateIds.join(",")}`;
+  if (!previousGift) {
+    const giftUntil = new Date(Date.now() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
+    await db.insert(medtechPointLedger).values({
+      userKey,
+      delta: 0,
+      balanceAfter: usage.aiCredits,
+      action: "question_pack_gift",
+      description,
+      sourceDetail: packageSource(true),
+      availableUntil: giftUntil,
+    });
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: false, gifted: true, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: giftUntil };
+  }
+  if (usage.aiCredits < MEDTECH_QUESTION_PACKAGE_COST) {
+    return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null };
+  }
+  const updated = await spendMedtechPoints(db, usage, {
+    action: "question_pack",
+    description,
+    sourceDetail: packageSource(false),
+    retainHours: MEDTECH_QUESTION_PACKAGE_HOURS,
+    amount: MEDTECH_QUESTION_PACKAGE_COST,
+  });
+  if (!updated) return { usage, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: true, hasAccess: false, charged: false, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: null };
+  const paidUntil = new Date(Date.now() + MEDTECH_QUESTION_PACKAGE_HOURS * 60 * 60 * 1000);
+  return { usage: updated, allowedIds: candidateIds, packageQuestionIds: candidateIds, limited: false, hasAccess: true, charged: true, gifted: false, packageCost: MEDTECH_QUESTION_PACKAGE_COST, availableUntil: paidUntil };
 }
 
 export function audioTrialIds(row: { audioTrialQuestionIdsJson: string }) {
