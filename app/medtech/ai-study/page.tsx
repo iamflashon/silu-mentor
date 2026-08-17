@@ -66,7 +66,9 @@ export default function MedtechAiStudy() {
       }
       if (!response.ok || !result.items?.[0]) throw new Error(result.error || "目前沒有可用題目");
       if (typeof result.points === "number") setAiCredits(result.points);
-      setQuestion({ ...result.items[0], audioUrl: result.items[0].audioUrl || "__voice_missing__" });
+      const questionItem = result.items[0];
+      const questionTopic = questionItem.topic || nextTopic;
+      setQuestion({ ...questionItem, audioUrl: questionTopic === "全真模擬試題" ? questionItem.audioUrl : undefined });
       setMessages([{ role: "mentor", text: "請直接點選 A、B、C 或 D 作答；也可以先索取提示。" }]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "題目讀取失敗");
