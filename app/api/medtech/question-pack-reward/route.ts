@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { medtechPracticeSessions } from "../../../../db/schema";
 import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { createMedtechPackDiscountReward, getMedtechPackDiscountReward } from "../../../../lib/medtech-usage";
@@ -16,28 +16,25 @@ function readPackNumber(input: unknown) {
 }
 
 async function canSpinForPackage(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, packageName: string, packageNumber: number) {
+  const isCompleted = (row: { completedAt: Date | null; status: string }) => Boolean(row.completedAt || row.status === "completed");
   if (packageNumber > 1) {
-    const [previous] = await auth.db.select({ id: medtechPracticeSessions.id })
+    const previousRows = await auth.db.select({ completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status })
       .from(medtechPracticeSessions)
       .where(and(
         eq(medtechPracticeSessions.userKey, auth.userKey),
         eq(medtechPracticeSessions.packageName, packageName),
         eq(medtechPracticeSessions.packNumber, packageNumber - 1),
-        isNotNull(medtechPracticeSessions.completedAt),
-      ))
-      .limit(1);
-    if (!previous) return false;
+      ));
+    if (!previousRows.some(isCompleted)) return false;
   }
-  const [completedPackage] = await auth.db.select({ id: medtechPracticeSessions.id })
+  const completedRows = await auth.db.select({ completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status })
     .from(medtechPracticeSessions)
     .where(and(
       eq(medtechPracticeSessions.userKey, auth.userKey),
       eq(medtechPracticeSessions.packageName, packageName),
       eq(medtechPracticeSessions.packNumber, packageNumber),
-      isNotNull(medtechPracticeSessions.completedAt),
-    ))
-    .limit(1);
-  return packageNumber > 1 || Boolean(completedPackage);
+    ));
+  return packageNumber > 1 || completedRows.some(isCompleted);
 }
 
 export async function GET(request: Request) {

@@ -41,7 +41,7 @@ export default async function MedtechRandomPackages() {
     auth.db.select({ id: documents.id, storageKey: documents.storageKey, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech")),
     auth.db.select({ subject: examQuestions.subject, sourceUrl: examQuestions.sourceUrl }).from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.examType, "mcq"), eq(examQuestions.status, "published"))),
     auth.db.select({ action: medtechPointLedger.action, description: medtechPointLedger.description, sourceDetail: medtechPointLedger.sourceDetail, availableUntil: medtechPointLedger.availableUntil, createdAt: medtechPointLedger.createdAt }).from(medtechPointLedger).where(eq(medtechPointLedger.userKey, auth.userKey)),
-    auth.db.select({ packageName: medtechPracticeSessions.packageName, packNumber: medtechPracticeSessions.packNumber, completedAt: medtechPracticeSessions.completedAt, answeredQuestions: medtechPracticeSessions.answeredQuestions }).from(medtechPracticeSessions).where(eq(medtechPracticeSessions.userKey, auth.userKey)),
+    auth.db.select({ packageName: medtechPracticeSessions.packageName, packNumber: medtechPracticeSessions.packNumber, completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status, answeredQuestions: medtechPracticeSessions.answeredQuestions }).from(medtechPracticeSessions).where(eq(medtechPracticeSessions.userKey, auth.userKey)),
   ]);
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
   const sourceByAlias = new Map(sourceRows.flatMap((row) => [[`document:${row.id}`, row], [row.storageKey, row], [row.fileName, row]] as const));
@@ -62,9 +62,10 @@ export default async function MedtechRandomPackages() {
     const latest = [...matches].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
     const availableUntil = latest ? latest.availableUntil ?? new Date(latest.createdAt.getTime() + PACKAGE_HOURS * 60 * 60 * 1000) : null;
     const active = Boolean(availableUntil && availableUntil.getTime() > now);
-    const completed = sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber && row.completedAt);
-    const previousCompleted = packNumber === 1 || sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber - 1 && row.completedAt);
-    const hasHistory = sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber && (row.completedAt || row.answeredQuestions > 0));
+    const isCompleted = (row: { completedAt: Date | null; status: string }) => Boolean(row.completedAt || row.status === "completed");
+    const completed = sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber && isCompleted(row));
+    const previousCompleted = packNumber === 1 || sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber - 1 && isCompleted(row));
+    const hasHistory = sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber && (isCompleted(row) || row.answeredQuestions > 0));
     const needsUnlock = !active && (freePackageUsed || packNumber > 1 || hasHistory);
     const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !previousCompleted ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : !hasDiscountChoice ? "可抽一次折扣" : "30 點解鎖";
     const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !previousCompleted ? "尚未開放" : !freePackageUsed ? "免費開始" : !hasDiscountChoice ? "🎡 抽轉轉樂" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
