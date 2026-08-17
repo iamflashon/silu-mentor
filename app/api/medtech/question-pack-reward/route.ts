@@ -15,7 +15,7 @@ function readPackNumber(input: unknown) {
   return Number.isFinite(value) ? Math.max(1, Math.min(99, value)) : 1;
 }
 
-const QUIZ_SIZE = 5;
+const QUIZ_SIZE = 10;
 
 function parseQuestionIds(value: string) {
   try {
@@ -36,6 +36,15 @@ function parseOptions(value: string) {
   }
 }
 
+function shuffle<T>(items: T[]) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
 function completedSession(row: { completedAt: Date | null; status: string }) {
   return Boolean(row.completedAt || row.status === "completed");
 }
@@ -51,7 +60,7 @@ async function challengeQuestions(auth: { db: Awaited<ReturnType<typeof import("
     ))
     .orderBy(desc(medtechPracticeSessions.startedAt));
   const session = sessions.find(completedSession);
-  const ids = session ? parseQuestionIds(session.questionIdsJson).slice(0, QUIZ_SIZE) : [];
+  const ids = session ? shuffle(parseQuestionIds(session.questionIdsJson)).slice(0, QUIZ_SIZE) : [];
   if (!ids.length) return [];
   const rows = await auth.db.select({ id: examQuestions.id, stem: examQuestions.stem, optionsJson: examQuestions.optionsJson })
     .from(examQuestions)

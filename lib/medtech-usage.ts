@@ -143,11 +143,12 @@ export async function createMedtechPackQuizReward(
   const usage = await getOrCreateMedtechUsage(db, userKey);
   const normalizedScore = Math.max(0, Math.min(total, Math.floor(score)));
   const normalizedTotal = Math.max(1, Math.floor(total));
-  const option = normalizedScore >= normalizedTotal
+  const ratio = normalizedScore / normalizedTotal;
+  const option = ratio >= 0.9
     ? MEDTECH_PACK_DISCOUNT_OPTIONS[0]
-    : normalizedScore >= normalizedTotal - 1
+    : ratio >= 0.7
     ? MEDTECH_PACK_DISCOUNT_OPTIONS[1]
-    : normalizedScore >= Math.ceil(normalizedTotal / 2)
+    : ratio >= 0.5
     ? MEDTECH_PACK_DISCOUNT_OPTIONS[2]
     : MEDTECH_PACK_DISCOUNT_OPTIONS[3];
   await db.insert(medtechPointLedger).values({
