@@ -15,6 +15,7 @@ type Question = {
   explanation?: string;
   answerSource: string;
   subject: string;
+  topic?: string;
   hasFullExplanation?: boolean;
   fullExplanation?: string;
 };
@@ -84,6 +85,7 @@ export default function MedtechPractice() {
   }, [route.ready, topic, wrongOnly]);
 
   const q = rows[index];
+  const chapterName = wrongOnly ? "錯題複習" : topic || q?.topic || "臨床病毒學（下）";
   const score = useMemo(() => rows.filter((item) => answers[item.id] === item.answer).length, [answers, rows]);
   const answered = Object.keys(answers).length;
 
@@ -334,7 +336,7 @@ export default function MedtechPractice() {
       <section className="medtech-exam-head">
         <div>
           <span>{wrongOnly ? "個人錯題庫 · " + rows.length + " 題待複習" : "正式題庫 · 隨機 30 題"}</span>
-          <h1>{wrongOnly ? "錯題複習" : "臨床病毒學（下）"}</h1>
+          <h1>{chapterName}</h1>
           <p>
             第 {index + 1}／{rows.length} 題 · {q.year} 年專技
           </p>

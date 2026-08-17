@@ -1,7 +1,11 @@
 import MedtechTabs from "./MedtechTabs";
 import { getChatGPTUser } from "../chatgpt-auth";
+import { headers } from "next/headers";
+import { requireMedtechMember } from "../../lib/member-auth";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
+  const requestHeaders = await headers();
+  await requireMedtechMember(new Request("https://medtech.local/medtech", { headers: requestHeaders }));
   const user = await getChatGPTUser();
   return <main className="medtech-home">
     <header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEDICAL TECHNOLOGIST</small></div></a><a className="medtech-member-link" href="/medtech/account">{user ? "我的帳號" : "會員登入"}</a><nav><a href="/medtech" className="active">首頁</a><a href="/medtech/practice">練國考題</a><a href="/platform">切換類科</a></nav></header>

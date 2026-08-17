@@ -1,20 +1,25 @@
 import { and, eq, desc } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { examQuestions, medtechPointLedger } from "../../../../db/schema";
+import { requireMedtechMember } from "../../../../lib/member-auth";
 import { consumeMedtechFeature, getOrCreateMedtechUsage, medtechUserKey, MEDTECH_AUDIO_TRIAL_LIMIT, spendMedtechPoints } from "../../../../lib/medtech-usage";
 
 export async function GET(request: Request) {
-  const db = await getDb();
-  const usage = await getOrCreateMedtechUsage(db, medtechUserKey(request));
+  const auth = await requireMedtechMember(request);
+  if ("error" in auth) return auth.error;
+  const db = auth.db;
+  const usage = await getOrCreateMedtechUsage(db, auth.userKey);
   const history = await db.select().from(medtechPointLedger).where(eq(medtechPointLedger.userKey, usage.userKey)).orderBy(desc(medtechPointLedger.createdAt)).limit(50);
   return Response.json({ audioTrialLimit: MEDTECH_AUDIO_TRIAL_LIMIT, audioUsed: 0, audioRemaining: 0, aiCredits: usage.aiCredits, points: usage.aiCredits, history });
 }
 
 export async function POST(request: Request) {
+  const auth = await requireMedtechMember(request);
+  if ("error" in auth) return auth.error;
   const body = await request.json() as { action?: string; questionId?: number; useCredit?: boolean };
   const action = String(body.action || "");
-  const db = await getDb();
-  const userKey = medtechUserKey(request);
+  const db = auth.db;
+  const userKey = auth.userKey || medtechUserKey(request);
   const usage = await getOrCreateMedtechUsage(db, userKey);
   if (action === "audioTrial") return Response.json({ error: "語音完整解析改為每次扣 1 點，請先購買點數。", code: "POINTS_REQUIRED", creditCost: 1, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
   if (action === "audioComplete") {

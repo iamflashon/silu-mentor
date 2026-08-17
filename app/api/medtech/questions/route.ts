@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { getDb } from "../../../../db";
 import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, studyRecords } from "../../../../db/schema";
+import { requireMedtechMember } from "../../../../lib/member-auth";
 import { grantMedtechQuestionAccess, medtechUserKey } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
 
@@ -16,6 +16,8 @@ function topicOf(sourceName = "", subject = ""): (typeof topics)[number] | null 
 function userKey(request: Request) { return medtechUserKey(request); }
 
 export async function GET(request: Request) {
+  const auth = await requireMedtechMember(request);
+  if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 30));
   const topic = url.searchParams.get("topic") || "";
@@ -23,7 +25,7 @@ export async function GET(request: Request) {
   const practiceOnly = url.searchParams.get("mode") === "practice";
   const reviewOnly = url.searchParams.get("mode") === "review";
   const reviewIds = url.searchParams.get("ids")?.split(",").map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0).slice(0, 50) ?? [];
-  const db = await getDb();
+  const db = auth.db;
   let wrongIds: number[] = [];
   if (wrongOnly) {
     const attempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct }).from(examAttempts).where(eq(examAttempts.userKey, userKey(request))).orderBy(desc(examAttempts.id));
@@ -66,7 +68,7 @@ export async function GET(request: Request) {
   let selectedRows = reviewOnly
     ? topicRows.filter((row) => reviewIds.includes(row.id)).slice(0, limit)
     : topicRows.sort(() => Math.random() - .5).slice(0, limit);
-  const access = await grantMedtechQuestionAccess(db, userKey(request), selectedRows.map((row) => row.id));
+  const access = await grantMedtechQuestionAccess(db, auth.userKey, selectedRows.map((row) => row.id));
   if (selectedRows.length && !access.allowedIds.length) {
     return Response.json({ error: "點數不足；查看一題扣 1 點，請先購買點數。", code: "POINTS_EXHAUSTED", points: access.usage.aiCredits, upgradeUrl: "/medtech/upgrade?reason=points" }, { status: 402 });
   }
@@ -174,18 +176,20 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireMedtechMember(request);
+  if ("error" in auth) return auth.error;
   const body = await request.json() as { answers?: Array<{ questionId: number; answer: string }>; masteredQuestionId?: number };
   if (Number.isInteger(body.masteredQuestionId)) {
-    const db = await getDb();
+    const db = auth.db;
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, Number(body.masteredQuestionId)), eq(examQuestions.examCategory, "medtech"))).limit(1);
     if (!question) return Response.json({ error: "找不到醫檢師題目" }, { status: 404 });
-    await db.insert(examAttempts).values({ userKey: userKey(request), questionId: question.id, selectedAnswer: null, correct: true, gradingJson: JSON.stringify({ action: "mastered" }) });
-    await db.insert(studyRecords).values({ userKey: userKey(request), questionId: question.id, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師錯題複習", correct: true, weakness: "", nextStep: "已手動標記學會" });
+    await db.insert(examAttempts).values({ userKey: auth.userKey, questionId: question.id, selectedAnswer: null, correct: true, gradingJson: JSON.stringify({ action: "mastered" }) });
+    await db.insert(studyRecords).values({ userKey: auth.userKey, questionId: question.id, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師錯題複習", correct: true, weakness: "", nextStep: "已手動標記學會" });
     return Response.json({ mastered: true, questionId: question.id });
   }
   const answers = (body.answers ?? []).filter((item) => Number.isInteger(item.questionId) && /^[A-D]$/.test(item.answer));
   if (!answers.length) return Response.json({ saved: 0 });
-  const db = await getDb();
+  const db = auth.db;
   const questions = await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), inArray(examQuestions.id, answers.map((item) => item.questionId))));
   let saved = 0;
   for (const item of answers) {
@@ -194,8 +198,8 @@ export async function POST(request: Request) {
     const activeAnswer = question.teacherAnswer || question.correctAnswer || question.simulatedAnswer || "";
     if (!activeAnswer) continue;
     const correct = item.answer === activeAnswer;
-    await db.insert(examAttempts).values({ userKey: userKey(request), questionId: item.questionId, selectedAnswer: item.answer, correct });
-    await db.insert(studyRecords).values({ userKey: userKey(request), questionId: item.questionId, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師練題", correct, weakness: correct ? "" : (topicOf("", question.subject) ?? topics[0]), nextStep: correct ? "已掌握" : "加入錯題複習" });
+    await db.insert(examAttempts).values({ userKey: auth.userKey, questionId: item.questionId, selectedAnswer: item.answer, correct });
+    await db.insert(studyRecords).values({ userKey: auth.userKey, questionId: item.questionId, recordDate: taipeiDate(), subject: "臨床病毒學", title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "醫檢師練題", correct, weakness: correct ? "" : (topicOf("", question.subject) ?? topics[0]), nextStep: correct ? "已掌握" : "加入錯題複習" });
     saved += 1;
   }
   return Response.json({ saved });

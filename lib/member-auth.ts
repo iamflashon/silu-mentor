@@ -57,8 +57,15 @@ export async function requireMedtechMember(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth;
   let [access] = await auth.db.select().from(memberExamAccess).where(and(eq(memberExamAccess.memberId, auth.member.id), eq(memberExamAccess.examCategory, "medtech"))).limit(1);
-  if (!access && auth.member.email === OWNER_EMAIL) {
-    [access] = await auth.db.insert(memberExamAccess).values({ memberId: auth.member.id, examCategory: "medtech", status: "active", canAdmin: true, className: "管理員" }).returning();
+  if (!access) {
+    await auth.db.insert(memberExamAccess).values({
+      memberId: auth.member.id,
+      examCategory: "medtech",
+      status: "active",
+      canAdmin: auth.member.email === OWNER_EMAIL,
+      className: auth.member.email === OWNER_EMAIL ? "管理員" : auth.member.className || "未分班",
+    }).onConflictDoNothing();
+    [access] = await auth.db.select().from(memberExamAccess).where(and(eq(memberExamAccess.memberId, auth.member.id), eq(memberExamAccess.examCategory, "medtech"))).limit(1);
   }
   if (!access || access.status !== "active") return { error: Response.json({ error: "此帳號尚未開通醫檢師類科" }, { status: 403 }) } as const;
   await getOrCreateMedtechUsage(auth.db, auth.member.email);
