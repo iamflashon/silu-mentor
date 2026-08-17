@@ -66,11 +66,13 @@ export default function MedtechAudioImport() {
 
   function matchBundle(bundle: { file: File; audio: File | null; subtitle: File | null }, seen: Set<number>): Mapping {
     const name = baseName(bundle.file.name);
-    const qId = name.match(/(?:^|[_\-\s])q(?:uestion)?[_\-\s]?(\d+)(?:$|[_\-\s])/iu)?.[1];
+    // A bare Q001 is the package sequence; q123 after an explicit prefix is an internal question ID.
+    const qId = name.match(/[_\-]q(?:uestion)?[_\-\s]?(\d+)(?:$|[_\-\s])/iu)?.[1];
+    const bareQNumber = name.match(/^q(?:uestion)?[_\-\s]?(\d+)(?:[_\-\s].*)?$/iu)?.[1];
     let candidates = qId ? questions.filter((item) => item.id === Number(qId)) : [];
     let reason = qId ? "q" + qId : "題號推測";
     if (!candidates.length) {
-      const number = name.match(/第\s*(\d+)\s*題/iu)?.[1] ?? name.match(/(?:^|[_\-\s])0*(\d{1,3})(?:$|[_\-\s])/u)?.[1];
+      const number = name.match(/第\s*(\d+)\s*題/iu)?.[1] ?? bareQNumber ?? name.match(/(?:^|[_\-\s])0*(\d{1,3})(?:$|[_\-\s])/u)?.[1];
       if (number) {
         const normalized = questionNumber(number);
         candidates = questions.filter((item) => questionNumber(item.questionNumber) === normalized);

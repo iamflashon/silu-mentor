@@ -186,6 +186,7 @@ export default function MedtechPractice() {
         setPaywallOpen(true);
         return;
       }
+      window.dispatchEvent(new Event("medtech-points-updated"));
       setRows(result.items ?? []);
       setSessionId(result.sessionId ?? null);
       setIndex(0);
@@ -270,7 +271,7 @@ export default function MedtechPractice() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "completeExplanation", questionId }),
       });
-      const result = (await response.json()) as { fullExplanation?: string; error?: string };
+      const result = (await response.json()) as { fullExplanation?: string; aiCredits?: number; error?: string };
       if (response.status === 402) {
         setFullNotice(result.error || "點數已用完；完整解析每題扣 1 點，開啟後 24 小時內可重看，請先購買點數。");
         return;
@@ -279,6 +280,7 @@ export default function MedtechPractice() {
       setRows((current) =>
         current.map((item) => (item.id === questionId ? { ...item, fullExplanation: result.fullExplanation } : item)),
       );
+      window.dispatchEvent(new Event("medtech-points-updated"));
     } catch (reason) {
       setFullNotice(reason instanceof Error ? reason.message : "完整解析開啟失敗");
     } finally {

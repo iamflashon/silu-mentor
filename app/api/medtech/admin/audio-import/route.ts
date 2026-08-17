@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, or } from "drizzle-orm";
 import { unzipSync } from "fflate";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
@@ -37,9 +37,13 @@ function zipBaseName(name: string) {
 
 function zipMatchInfo(name: string) {
   const base = zipBaseName(name);
-  const qid = name.match(/(?:^|[_-])q(?:uestion)?[_-]?(\d+)(?:[_-]|\.|$)/iu)?.[1] ?? "";
-  const sourceOrder = name.match(/^(?:0*)(\d{1,4})(?:[_-])/u)?.[1] ?? "";
-  const questionNumber = name.match(/(?:第|q\d+[_-])\s*0*(\d{1,3})題?/iu)?.[1] ?? "";
+  // A bare Q001 is the speaking-package sequence number, not the database qID.
+  // Internal IDs are supported when q123 appears after an explicit prefix,
+  // for example 001_q123_第1題.mp3.
+  const qid = base.match(/[_-]q(?:uestion)?[_-]?(\d+)(?:[_-]|\.|$)/iu)?.[1] ?? "";
+  const bareQNumber = base.match(/^q(?:uestion)?[_-]?(\d+)(?:[_-].*)?$/iu)?.[1] ?? "";
+  const sourceOrder = name.match(/^(?:0*)(\d{1,4})(?:[_-])/u)?.[1] ?? bareQNumber;
+  const questionNumber = name.match(/(?:第)\s*0*(\d{1,3})題?/iu)?.[1] ?? bareQNumber;
   return { base, qid, sourceOrder, questionNumber };
 }
 
@@ -108,19 +112,32 @@ export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
   const db = await getDb();
-  const questions = await db.select({
+  const fields = {
     id: examQuestions.id,
     year: examQuestions.year,
     subject: examQuestions.subject,
     questionNumber: examQuestions.questionNumber,
+    sourceOrder: examQuestions.sourceOrder,
     stem: examQuestions.stem,
     explanation: examQuestions.explanation,
     completeExplanation: examQuestions.completeExplanation,
     correctAnswer: examQuestions.correctAnswer,
-  }).from(examQuestions)
-    .where(eq(examQuestions.examCategory, "medtech"))
-    .orderBy(asc(examQuestions.subject), asc(examQuestions.year), asc(examQuestions.id))
-    .limit(5000);
+  };
+  const documentId = Number(new URL(request.url).searchParams.get("documentId"));
+  let questions;
+  if (Number.isInteger(documentId) && documentId > 0) {
+    const [document] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName, subject: documents.subject })
+      .from(documents).where(and(eq(documents.id, documentId), eq(documents.examCategory, "medtech"))).limit(1);
+    const aliases = document ? [...new Set([`document:${documentId}`, document.storageKey, document.fileName])] : [];
+    questions = document ? await db.select(fields).from(examQuestions)
+      .where(and(eq(examQuestions.examCategory, "medtech"), or(inArray(examQuestions.sourceUrl, aliases), eq(examQuestions.subject, document.subject))))
+      .orderBy(asc(examQuestions.sourceOrder), asc(examQuestions.id)).limit(1600) : [];
+  } else {
+    questions = await db.select(fields).from(examQuestions)
+      .where(eq(examQuestions.examCategory, "medtech"))
+      .orderBy(asc(examQuestions.subject), asc(examQuestions.year), asc(examQuestions.id))
+      .limit(5000);
+  }
   const ids = questions.map((question) => question.id);
   const solutions: Array<{
     id: number;

@@ -140,6 +140,7 @@ export default function GlobalSelectionTools() {
     const explanation = typeof (isAccounting ? data.reply : data.explanation) === "string" ? String(isAccounting ? data.reply : data.explanation).trim() : "";
     const looksLikeRawJson = explanation.startsWith("{") || explanation.includes('"analysis"') || explanation.includes('"explanation"');
     const valid = response.ok && explanation.length > 0 && !looksLikeRawJson;
+    if (isMedtech && valid) window.dispatchEvent(new Event("medtech-points-updated"));
     setLookup((latest) => latest ? { ...latest, mode: "explain", loading: false, explaining: false, explanation: valid ? explanation : "", analysis: valid && data.analysis && typeof data.analysis === "object" ? data.analysis : null, usage: valid ? data.usage ?? null : null, access: valid && data.access && typeof data.access === "object" ? data.access as MedtechExplainAccess : latest.access, error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。" } : latest);
   }
 

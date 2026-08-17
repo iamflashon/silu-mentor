@@ -54,7 +54,7 @@ export default function MedtechAiStudy() {
       }
       if (!response.ok || !result.items?.[0]) throw new Error(result.error || "目前沒有可用題目");
       if (typeof result.points === "number") setAiCredits(result.points);
-      setQuestion(result.items[0]);
+      setQuestion({ ...result.items[0], audioUrl: result.items[0].audioUrl || "__voice_missing__" });
       setMessages([{ role: "mentor", text: "請直接點選 A、B、C 或 D 作答；也可以先索取提示。" }]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "題目讀取失敗");
@@ -81,6 +81,7 @@ export default function MedtechAiStudy() {
       if (response.status === 402) { setPaywall({ kind: "credits", title: "點數已用完", text: result.error || "AI 追問每題扣 1 點，請先購買點數。", url: result.upgradeUrl || "/medtech/upgrade?reason=points" }); return; }
       if (!response.ok || !result.reply) throw new Error(result.error || "AI 回答失敗");
       setAiCredits(result.creditsRemaining ?? Math.max(0, aiCredits - 1));
+      window.dispatchEvent(new Event("medtech-points-updated"));
       setMessages((current) => [...current, { role: "mentor", text: plainText(result.reply!), source: result.source, usage: result.usage }]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "AI 回答失敗");
@@ -112,13 +113,14 @@ export default function MedtechAiStudy() {
 
   async function unlockVoice() {
     if (!question) return;
-    if (!question.audioUrl) { setError("這一題尚未上傳語音解析檔，請先選下一題試聽。"); return; }
+    if (!question.audioUrl || question.audioUrl === "__voice_missing__") { setError("這一題尚未綁定老師語音檔，請在後台重新匯入語音包後再試。"); return; }
     try {
       const response = await fetch("/api/medtech/usage", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "audioComplete", questionId: question.id }) });
       const result = await response.json() as { access?: "credit"; aiCredits?: number; error?: string; code?: string; upgradeUrl?: string };
       if (response.status === 402) { setPaywall({ kind: "credits", title: "點數不足", text: result.error || "語音完整解析每次扣 1 點，請先購買點數。", url: result.upgradeUrl || "/medtech/upgrade?reason=points" }); return; }
       if (!response.ok) throw new Error(result.error || "語音解析開啟失敗");
       setAiCredits(result.aiCredits ?? aiCredits);
+      window.dispatchEvent(new Event("medtech-points-updated"));
       setVoiceUnlocked(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "語音解析開啟失敗");

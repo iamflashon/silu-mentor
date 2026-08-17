@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
 import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, medtechUserKey, MEDTECH_QUESTION_PACKAGE_SIZE } from "../../../../lib/medtech-usage";
@@ -263,14 +263,26 @@ export async function GET(request: Request) {
     return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited });
   }
   const mediaRows = questionIds.length
-    ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey }).from(listeningSolutions).where(inArray(listeningSolutions.questionId, questionIds))
+    ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey, year: listeningSolutions.year, subject: listeningSolutions.subject, questionText: listeningSolutions.questionText }).from(listeningSolutions).where(isNotNull(listeningSolutions.audioStorageKey))
     : [];
   const mediaIds = mediaRows.map((row) => row.id);
   const cueRows = mediaIds.length
     ? await db.select({ id: listeningSubtitleCues.id, listeningId: listeningSubtitleCues.listeningId, startSeconds: listeningSubtitleCues.startSeconds, endSeconds: listeningSubtitleCues.endSeconds, text: listeningSubtitleCues.text, sequence: listeningSubtitleCues.sequence }).from(listeningSubtitleCues).where(inArray(listeningSubtitleCues.listeningId, mediaIds))
     : [];
   const mediaByQuestion = new Map<number, { id: number; audioStorageKey: string | null; cues: typeof cueRows }>();
-  for (const media of mediaRows) if (media.questionId) mediaByQuestion.set(media.questionId, { id: media.id, audioStorageKey: media.audioStorageKey, cues: cueRows.filter((cue) => cue.listeningId === media.id).sort((left, right) => left.sequence - right.sequence) });
+  const normalizeMediaText = (value: string) => value.replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ").trim();
+  for (const media of mediaRows) {
+    const cues = cueRows.filter((cue) => cue.listeningId === media.id).sort((left, right) => left.sequence - right.sequence);
+    if (media.questionId && questionIds.includes(media.questionId)) mediaByQuestion.set(media.questionId, { id: media.id, audioStorageKey: media.audioStorageKey, cues });
+  }
+  // Older imports may have a listening row without a reliable questionId.
+  // Match it back to the selected question using the stored exam text.
+  for (const row of selectedRows) {
+    if (mediaByQuestion.has(row.id)) continue;
+    const stem = normalizeMediaText(row.stem);
+    const match = mediaRows.find((media) => media.year === row.year && media.subject === row.subject && normalizeMediaText(media.questionText) === stem);
+    if (match) mediaByQuestion.set(row.id, { id: match.id, audioStorageKey: match.audioStorageKey, cues: cueRows.filter((cue) => cue.listeningId === match.id).sort((left, right) => left.sequence - right.sequence) });
+  }
 
   const mapped = selectedRows.map((row) => {
     const source = sourceFor(row);

@@ -1,10 +1,11 @@
 import { and, eq, desc } from "drizzle-orm";
 import { examQuestions, medtechPointLedger } from "../../../../db/schema";
-import { requireMedtechDevice } from "../../../../lib/member-auth";
+import { requireMedtechDevice, requireMedtechMember } from "../../../../lib/member-auth";
 import { consumeMedtechFeature, getOrCreateMedtechUsage, medtechUserKey, MEDTECH_AUDIO_ACCESS_HOURS, MEDTECH_AUDIO_TRIAL_LIMIT, spendMedtechPoints } from "../../../../lib/medtech-usage";
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechDevice(request);
+  // 餘額查詢不會消耗內容權限；即使裝置達到上限，也要能在導覽列看到目前點數。
+  const auth = await requireMedtechMember(request);
   if ("error" in auth) return auth.error;
   const db = auth.db;
   const usage = await getOrCreateMedtechUsage(db, auth.userKey);
