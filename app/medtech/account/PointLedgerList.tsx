@@ -52,7 +52,12 @@ export default function PointLedgerList({ history, questionSources }: { history:
 
   return <div className="medtech-point-history-list">{history.map((row) => {
     const source = row.questionId ? sourceMap.get(row.questionId) : undefined;
-    const expiry = row.availableUntil ? new Date(row.availableUntil).getTime() : null;
+    const inferredHours = row.action === "question_view"
+      ? row.description.includes("24 小時") ? 24 : 7 * 24
+      : row.action === "audio_complete" || row.action === "complete_explanation" ? 24 : null;
+    const inferredExpiry = inferredHours === null ? null : new Date(row.createdAt).getTime() + inferredHours * 60 * 60 * 1000;
+    const expiry = row.availableUntil ? new Date(row.availableUntil).getTime() : inferredExpiry;
+    const expiryIso = row.availableUntil ?? (inferredExpiry === null ? null : new Date(inferredExpiry).toISOString());
     const active = expiry !== null && expiry > now;
     const isCharge = row.delta < 0;
     const accessLabel = row.action === "question_view" ? "7 天" : "24 小時";
@@ -68,8 +73,8 @@ export default function PointLedgerList({ history, questionSources }: { history:
         {source && <p><b>題目來源：</b>{source.year} 年・第 {source.questionNumber} 題・{source.subject}</p>}
         {row.sourceDetail && <p><b>{isCharge ? "扣點原因：" : "紀錄說明："}</b>{row.sourceDetail}</p>}
         {source && <p className="medtech-point-source-stem"><b>題目：</b>{source.stem}</p>}
-        {isCharge && expiry !== null && <p className={active ? "medtech-point-access active" : "medtech-point-access expired"}>
-          {active ? `本次 ${accessLabel} 使用權剩餘 ${formatRemaining(expiry - now)}；期限至 ${formatTaipeiTime(row.availableUntil as string)}` : `本次 ${accessLabel} 使用權已到期；現在重新使用才會再次扣點。`}
+        {isCharge && expiry !== null && expiryIso && <p className={active ? "medtech-point-access active" : "medtech-point-access expired"}>
+          {active ? `本次 ${accessLabel} 使用權剩餘 ${formatRemaining(expiry - now)}；期限至 ${formatTaipeiTime(expiryIso)}` : `本次 ${accessLabel} 使用權已到期；現在重新使用才會再次扣點。`}
         </p>}
         {isCharge && expiry === null && <p className="medtech-point-access neutral-note">本次使用已扣點；若功能有使用期限，系統會在此顯示倒數。</p>}
       </details>
