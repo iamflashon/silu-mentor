@@ -61,7 +61,7 @@ export async function GET(request: Request) {
       .innerJoin(examQuestions, eq(guidedPracticeSessions.questionId, examQuestions.id))
       .where(eq(guidedPracticeSessions.userKey, userKey(request)))
       .orderBy(desc(guidedPracticeSessions.updatedAt))
-      .limit(10);
+      .limit(100);
 
     return Response.json({
       sessions: rows.map((row) => ({

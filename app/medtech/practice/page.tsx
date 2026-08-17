@@ -783,7 +783,8 @@ export default function MedtechPractice() {
               </button>
             ))}
           </div>
-          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；鎖定題目可點擊查看解鎖方式" : "實心＝已作答 · 圓點＝待確認"}<br />快捷鍵：← → 換題 · 1＝A · 2＝B · 3＝C · 4＝D · 0＝標記／取消標記</small>
+          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；鎖定題目可點擊查看解鎖方式" : "實心＝已作答 · 圓點＝待確認"}</small>
+          <div className="medtech-keyboard-help" aria-label="刷題快捷鍵"><b>快捷鍵</b><span>←／→ 換題</span><span>1＝A</span><span>2＝B</span><span>3＝C</span><span>4＝D</span><span>0＝標記</span></div>
         </aside>
         <section className="medtech-question">
           <header>

@@ -31,6 +31,7 @@ export type MedtechPackDiscountReward = {
   percent: number | null;
   cost: number;
   baseCost: number;
+  retryAt?: string | null;
 };
 
 export function medtechPackDescription(packageName: string, packageNumber: number) {
@@ -67,7 +68,7 @@ export async function getMedtechPackDiscountReward(
     ))
     .orderBy(desc(medtechPointLedger.createdAt))
     .limit(1);
-  if (!reward) return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST };
+  if (!reward) return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null };
   if (reward.action === "question_pack_spin_abandoned") {
     return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST };
   }
@@ -82,13 +83,16 @@ export async function getMedtechPackDiscountReward(
       gte(medtechPointLedger.createdAt, reward.createdAt),
     ))
     .limit(1);
-  return {
-    status: purchase ? "used" : "revealed",
-    label: parsed.label,
-    percent: parsed.percent,
-    cost: parsed.cost,
-    baseCost: MEDTECH_QUESTION_PACKAGE_COST,
-  };
+  if (purchase) {
+    return { status: "used", label: parsed.label, percent: parsed.percent, cost: parsed.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null };
+  }
+  const retryAt = parsed.percent === 100
+    ? new Date(reward.createdAt.getTime() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000)
+    : null;
+  if (retryAt && retryAt.getTime() <= Date.now()) {
+    return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null };
+  }
+  return { status: "revealed", label: parsed.label, percent: parsed.percent, cost: parsed.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: retryAt?.toISOString() ?? null };
 }
 
 export async function createMedtechPackDiscountReward(
@@ -123,7 +127,7 @@ export async function createMedtechPackDiscountReward(
     description: medtechPackDiscountDescription(packageName, packageNumber),
     sourceDetail: `結果：${option.label}；折扣：${option.percent}折；優惠價 ${option.cost} 點；每個題目包僅一次機會。`,
   });
-  return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST } satisfies MedtechPackDiscountReward;
+  return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: option.percent === 100 ? new Date(Date.now() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000).toISOString() : null } satisfies MedtechPackDiscountReward;
 }
 
 export function normalizeMedtechUserKey(value: string) {
