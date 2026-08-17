@@ -21,7 +21,8 @@ export default function NavigationFeedback() {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const target = event.target instanceof Element ? event.target : null;
       const action = target?.closest<HTMLElement>("button, a[href]");
-      if (!action || action.matches(":disabled, [aria-disabled='true']") || action.closest("[data-no-navigation-feedback]")) return;
+      const isMedtechNavigation = Boolean(action?.closest(".medtech-home, .medtech-practice, .medtech-ai-page, .medtech-notes-page, .medtech-pricing-page, .medtech-upgrade-page"));
+      if (!action || action.matches(":disabled, [aria-disabled='true']") || (action.closest("[data-no-navigation-feedback]") && !isMedtechNavigation)) return;
 
       action.classList.add("is-action-pending");
       window.setTimeout(() => action.classList.remove("is-action-pending"), QUICK_FEEDBACK_MS);
@@ -30,14 +31,13 @@ export default function NavigationFeedback() {
       const url = new URL(action.href, window.location.href);
       if (url.origin !== window.location.origin || url.href === window.location.href || action.target === "_blank" || action.hasAttribute("download")) return;
 
-      // Let the Link finish its own click handler before the full-screen
-      // feedback layer is rendered. A capture-phase state update can otherwise
-      // replace the clicked element before client navigation starts.
-      window.setTimeout(() => {
+      // Wait until the click event finishes bubbling, then show feedback
+      // immediately so the transition never feels like a dead tap.
+      queueMicrotask(() => {
         setNavigating(true);
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(clear, MAX_WAIT_MS);
-      }, 0);
+      });
     };
 
     document.addEventListener("click", handleClick, true);
