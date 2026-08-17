@@ -28821,8 +28821,8 @@ a.is-action-pending {
 .medtech-home-close{width:min(1180px,calc(100% - 40px));margin:34px auto 70px;padding:28px 0 4px;border-top:1px solid #cfe1de;display:flex;align-items:baseline;justify-content:space-between;gap:24px}
 .medtech-home-close strong{color:#0d514b;font-size:27px;letter-spacing:.02em}
 .medtech-home-close span{color:#69817e;font-size:14px}
-.medtech-practice-choice-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:20px;background:rgba(8,39,37,.52);backdrop-filter:blur(4px)}
-.medtech-practice-choice{width:min(620px,100%);padding:28px;border:1px solid #c8ded9;border-radius:20px;background:#fff;box-shadow:0 24px 70px rgba(8,54,49,.28);color:#173f3d}
+.medtech-practice-choice-backdrop{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;overflow-y:auto;padding:20px;background:rgba(8,39,37,.52);backdrop-filter:blur(4px)}
+.medtech-practice-choice{width:min(620px,100%);max-height:calc(100dvh - 40px);overflow-y:auto;padding:28px;border:1px solid #c8ded9;border-radius:20px;background:#fff;box-shadow:0 24px 70px rgba(8,54,49,.28);color:#173f3d}
 .medtech-practice-choice>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
 .medtech-practice-choice>header span{color:#278078;font-size:11px;font-weight:900;letter-spacing:.13em}
 .medtech-practice-choice h2{margin:7px 0 0;color:#0d514b;font-size:28px}
@@ -28853,7 +28853,8 @@ a.is-action-pending {
   .medtech-home-flow-steps i{font-size:11px}
   .medtech-home-close{margin-bottom:45px}
   .medtech-home-close strong{font-size:22px}
-  .medtech-practice-choice{padding:22px 18px}
+  .medtech-practice-choice-backdrop{align-items:start;padding:14px 12px}
+  .medtech-practice-choice{max-height:calc(100dvh - 28px);margin:auto 0;padding:22px 18px}
   .medtech-practice-choice-options{grid-template-columns:1fr}
 }
 

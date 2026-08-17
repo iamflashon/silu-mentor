@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 
 export default function MedtechPracticeEntry() {
   const [open, setOpen] = useState(false);
@@ -17,9 +18,8 @@ export default function MedtechPracticeEntry() {
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [open]);
 
-  return <>
-    <button type="button" className="medtech-free-practice-trigger" onClick={() => setOpen(true)}>開始免費練題（任選一包）</button>
-    {open && <div className="medtech-practice-choice-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setOpen(false); }}>
+  const choiceDialog = open ? createPortal(
+    <div className="medtech-practice-choice-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setOpen(false); }}>
       <section className="medtech-practice-choice" role="dialog" aria-modal="true" aria-labelledby="medtech-practice-choice-title">
         <header>
           <div><span>開始練題</span><h2 id="medtech-practice-choice-title">選擇練習方式</h2></div>
@@ -31,6 +31,12 @@ export default function MedtechPracticeEntry() {
           <Link href="/medtech/random" onClick={() => setOpen(false)}><b>隨機模考</b><span>跨章節抽題，直接挑戰每 30 題一關的模考</span><strong>進入隨機模考 →</strong></Link>
         </div>
       </section>
-    </div>}
+    </div>,
+    document.body,
+  ) : null;
+
+  return <>
+    <button type="button" className="medtech-free-practice-trigger" onClick={() => setOpen(true)}>開始免費練題（任選一包）</button>
+    {choiceDialog}
   </>;
 }
