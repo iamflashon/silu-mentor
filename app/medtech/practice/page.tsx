@@ -68,6 +68,28 @@ type SessionStatus = "in_progress" | "paused" | "awaiting_submit" | "completed" 
 
 const letters = ["A", "B", "C", "D"];
 
+function explanationSections(value: string) {
+  const text = value.trim();
+  const markerPattern = /(?:^|[\s（(])([A-D])\s*[、，,：:]\s*/gu;
+  const markers = [...text.matchAll(markerPattern)].filter((match) => match.index !== undefined);
+  const firstOption = markers.find((match) => match[1] === "A");
+  if (!firstOption || firstOption.index === undefined) return [{ label: "", text }];
+  const sections = [{ label: "", text: text.slice(0, firstOption.index).trim() }].filter((section) => section.text);
+  const optionMarkers = markers.filter((match) => match.index !== undefined && match.index >= firstOption.index! && letters.includes(match[1]));
+  for (const [position, marker] of optionMarkers.entries()) {
+    const start = marker.index! + marker[0].length;
+    const end = optionMarkers[position + 1]?.index ?? text.length;
+    const sectionText = text.slice(start, end).trim();
+    if (sectionText) sections.push({ label: marker[1], text: sectionText });
+  }
+  return sections.length > 1 ? sections : [{ label: "", text }];
+}
+
+function FormattedExplanation({ value }: { value: string }) {
+  const sections = explanationSections(value);
+  return <div className="medtech-explanation-copy">{sections.map((section, index) => section.label ? <div className="medtech-explanation-option" key={`${section.label}-${index}`}><b>{section.label}</b><p>{section.text}</p></div> : <p key={`intro-${index}`}>{section.text}</p>)}</div>;
+}
+
 async function readJson(response: Response) {
   const text = await response.text();
   if (!text.trim()) {
@@ -662,7 +684,7 @@ export default function MedtechPractice() {
             </div>
             <section className="medtech-explanation">
               <span>簡要解析</span>
-              {q.explanation?.trim() ? <p>{q.explanation}</p> : submitting ? <p className="medtech-explanation-loading"><span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>正在載入簡答解析…</span></p> : <p>本題目前沒有可顯示的簡要解析。</p>}
+              {q.explanation?.trim() ? <FormattedExplanation value={q.explanation} /> : submitting ? <p className="medtech-explanation-loading"><span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>正在載入簡答解析…</span></p> : <p>本題目前沒有可顯示的簡要解析。</p>}
               {q.hasFullExplanation && !q.fullExplanation && (
                 <button
                   className="medtech-full-explanation-button"
@@ -675,7 +697,7 @@ export default function MedtechPractice() {
               {q.fullExplanation && (
                 <div className="medtech-full-explanation">
                   <b>完整解析</b>
-                  <p>{q.fullExplanation}</p>
+                  <FormattedExplanation value={q.fullExplanation} />
                 </div>
               )}
               {fullNotice && (
