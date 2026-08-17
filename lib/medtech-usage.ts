@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, like, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, ne, or } from "drizzle-orm";
 import type { getDb } from "../db";
 import { medtechPointLedger, medtechPracticeSessions, medtechUsage } from "../db/schema";
 
@@ -380,6 +380,7 @@ export async function grantMedtechQuestionPackageAccess(
       inArray(medtechPointLedger.action, ["question_pack", "question_pack_gift"]),
       inArray(medtechPointLedger.description, descriptions),
       gte(medtechPointLedger.createdAt, cutoff),
+      or(gte(medtechPointLedger.availableUntil, new Date()), and(isNull(medtechPointLedger.availableUntil), gte(medtechPointLedger.createdAt, cutoff))),
     ))
     .orderBy(desc(medtechPointLedger.createdAt))
     .limit(1);

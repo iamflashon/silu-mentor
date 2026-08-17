@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or, gte } from "drizzle-orm";
 import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
 import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, MEDTECH_QUESTION_PACKAGE_SIZE } from "../../../../lib/medtech-usage";
@@ -34,6 +34,36 @@ function parseIds(value: string) {
   } catch {
     return [];
   }
+}
+
+type PracticeAnswerDetail = {
+  questionId: number;
+  order: number;
+  answer: string | null;
+  durationSeconds: number;
+  answeredAt: string | null;
+  correct?: boolean | null;
+};
+
+function parseAnswerDetails(value: string) {
+  try {
+    const parsed = JSON.parse(value || "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))).map((item, index): PracticeAnswerDetail | null => {
+      const questionId = Number(item.questionId);
+      if (!Number.isInteger(questionId) || questionId < 1) return null;
+      const answer = typeof item.answer === "string" && /^[A-D]$/.test(item.answer) ? item.answer : null;
+      const durationSeconds = Math.max(0, Math.min(604800, Math.floor(Number(item.durationSeconds) || 0)));
+      const correct = typeof item.correct === "boolean" ? item.correct : null;
+      return { questionId, order: Math.max(0, Math.floor(Number(item.order) || index)), answer, durationSeconds, answeredAt: typeof item.answeredAt === "string" ? item.answeredAt : null, correct };
+    }).filter((item): item is PracticeAnswerDetail => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+function sameIds(left: number[], right: number[]) {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
 function chapterByOrder(processingResultJson: string) {
@@ -192,18 +222,50 @@ async function getQuestions(request: Request) {
         locked: packageMode && access.limited,
       };
     });
-    const [session] = mapped.length && "hasAccess" in access && access.hasAccess ? await db.insert(medtechPracticeSessions).values({
-      userKey: auth.userKey,
-      packageName: packageMode ? packageName : (wrongOnly ? "錯題複習" : "醫檢師練題"),
-      packageType: packageMode ? (topic ? "chapter" : "random_mock") : "wrong_review",
-      packNumber: packageMode ? packageNumber : 1,
-      questionIdsJson: JSON.stringify(mapped.map((item) => item.id)),
-      startedAt: new Date(),
-      totalQuestions: mapped.length,
-    }).returning({ id: medtechPracticeSessions.id }) : [];
     const packageCost = "packageCost" in access ? access.packageCost : 30;
     const packageAvailableUntil = "availableUntil" in access && access.availableUntil instanceof Date ? access.availableUntil : null;
-    return Response.json({ items: mapped, sessionId: session?.id ?? null, points: access.usage.aiCredits, accessLimited: access.limited, packageAccess: packageMode ? {
+    let session: typeof medtechPracticeSessions.$inferSelect | null = null;
+    if (mapped.length && "hasAccess" in access && access.hasAccess) {
+      const sessionPackageName = packageMode ? packageName : (wrongOnly ? "錯題複習" : "醫檢師練題");
+      const sessionPackageType = packageMode ? (topic ? "chapter" : "random_mock") : "wrong_review";
+      const questionIdsJson = JSON.stringify(mapped.map((item) => item.id));
+      if (packageMode) {
+        const candidates = await db.select().from(medtechPracticeSessions).where(and(
+          eq(medtechPracticeSessions.userKey, auth.userKey),
+          eq(medtechPracticeSessions.packageName, sessionPackageName),
+          eq(medtechPracticeSessions.packNumber, packageNumber),
+          isNull(medtechPracticeSessions.completedAt),
+        )).orderBy(desc(medtechPracticeSessions.startedAt)).limit(10);
+        const candidate = candidates.find((item) => sameIds(parseIds(item.questionIdsJson), mapped.map((row) => row.id)) && item.status !== "expired");
+        if (candidate) {
+          session = candidate;
+        }
+      }
+      if (!session) {
+        session = (await db.insert(medtechPracticeSessions).values({
+          userKey: auth.userKey,
+          packageName: sessionPackageName,
+          packageType: sessionPackageType,
+          packNumber: packageMode ? packageNumber : 1,
+          questionIdsJson,
+          startedAt: new Date(),
+          lastActiveAt: new Date(),
+          totalQuestions: mapped.length,
+          status: "in_progress",
+        }).returning())[0] ?? null;
+      }
+    }
+    const sessionProgress = session ? {
+      id: session.id,
+      status: session.completedAt ? "completed" : session.status,
+      startedAt: session.startedAt.toISOString(),
+      lastActiveAt: session.lastActiveAt?.toISOString?.() ?? null,
+      lastQuestionIndex: session.lastQuestionIndex,
+      durationSeconds: session.durationSeconds,
+      answeredQuestions: session.answeredQuestions,
+      answerDetails: parseAnswerDetails(session.answerDetailsJson),
+    } : null;
+    return Response.json({ items: mapped, sessionId: session?.id ?? null, session: sessionProgress, points: access.usage.aiCredits, accessLimited: access.limited, packageAccess: packageMode ? {
       name: packageName,
       cost: packageCost,
       baseCost: "discountReward" in access && access.discountReward ? access.discountReward.baseCost : 30,
@@ -321,9 +383,50 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { answers?: Array<{ questionId: number; answer: string }>; masteredQuestionId?: number; sessionId?: number };
+  const body = await request.json() as {
+    action?: "save-progress" | "finalize";
+    answers?: Array<{ questionId: number; answer: string }>;
+    answerDetails?: Array<Partial<PracticeAnswerDetail>>;
+    masteredQuestionId?: number;
+    sessionId?: number;
+    status?: "in_progress" | "paused" | "awaiting_submit";
+    currentIndex?: number;
+    elapsedSeconds?: number;
+  };
+  const db = auth.db;
+  if (body.action === "save-progress") {
+    const sessionId = Number(body.sessionId);
+    if (!Number.isInteger(sessionId) || sessionId < 1) return Response.json({ error: "缺少作答紀錄" }, { status: 400 });
+    const [session] = await db.select().from(medtechPracticeSessions).where(and(eq(medtechPracticeSessions.id, sessionId), eq(medtechPracticeSessions.userKey, auth.userKey))).limit(1);
+    if (!session) return Response.json({ error: "找不到作答紀錄" }, { status: 404 });
+    if (session.completedAt || session.status === "completed") return Response.json({ saved: false, status: "completed" });
+    const questionIds = new Set(parseIds(session.questionIdsJson));
+    const details = (body.answerDetails ?? []).map((item, index): PracticeAnswerDetail | null => {
+      const questionId = Number(item.questionId);
+      if (!questionIds.has(questionId)) return null;
+      const answer = typeof item.answer === "string" && /^[A-D]$/.test(item.answer) ? item.answer : null;
+      return {
+        questionId,
+        order: Math.max(0, Math.floor(Number(item.order) || index)),
+        answer,
+        durationSeconds: Math.max(0, Math.min(604800, Math.floor(Number(item.durationSeconds) || 0))),
+        answeredAt: typeof item.answeredAt === "string" ? item.answeredAt : null,
+      };
+    }).filter((item): item is PracticeAnswerDetail => Boolean(item)).filter((item, index, rows) => rows.findIndex((row) => row.questionId === item.questionId) === index);
+    const status = body.status === "paused" || body.status === "awaiting_submit" ? body.status : "in_progress";
+    const elapsedSeconds = Math.max(0, Math.min(604800, Math.floor(Number(body.elapsedSeconds) || 0)));
+    const answeredQuestions = details.filter((item) => Boolean(item.answer)).length;
+    await db.update(medtechPracticeSessions).set({
+      status,
+      lastActiveAt: new Date(),
+      lastQuestionIndex: Math.max(0, Math.min(session.totalQuestions - 1, Math.floor(Number(body.currentIndex) || 0))),
+      answerDetailsJson: JSON.stringify(details),
+      durationSeconds: Math.max(session.durationSeconds, elapsedSeconds),
+      answeredQuestions,
+    }).where(eq(medtechPracticeSessions.id, session.id));
+    return Response.json({ saved: true, status, sessionId: session.id, answeredQuestions, durationSeconds: Math.max(session.durationSeconds, elapsedSeconds) });
+  }
   if (Number.isInteger(body.masteredQuestionId)) {
-    const db = auth.db;
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, Number(body.masteredQuestionId)), eq(examQuestions.examCategory, "medtech"))).limit(1);
     if (!question) return Response.json({ error: "找不到醫檢師題目" }, { status: 404 });
     await db.insert(examAttempts).values({ userKey: auth.userKey, questionId: question.id, selectedAnswer: null, correct: true, gradingJson: JSON.stringify({ action: "mastered" }) });
@@ -332,7 +435,6 @@ export async function POST(request: Request) {
   }
   const answers = (body.answers ?? []).filter((item) => Number.isInteger(item.questionId) && /^[A-D]$/.test(item.answer));
   if (!answers.length) return Response.json({ saved: 0 });
-  const db = auth.db;
   const questions = await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), inArray(examQuestions.id, answers.map((item) => item.questionId))));
   const previousAttempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct })
     .from(examAttempts)
@@ -356,6 +458,7 @@ export async function POST(request: Request) {
   if (Number.isInteger(sessionId) && sessionId > 0) {
     const [session] = await db.select().from(medtechPracticeSessions).where(and(eq(medtechPracticeSessions.id, sessionId), eq(medtechPracticeSessions.userKey, auth.userKey))).limit(1);
     if (session) {
+      if (session.completedAt || session.status === "completed") return Response.json({ saved, session: { id: session.id, completed: true, status: "completed", durationSeconds: session.durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: session.answeredQuestions, correctQuestions: session.correctQuestions } });
       const completed = results.length >= session.totalQuestions;
       const completedAt = completed ? new Date() : null;
       const incorrectIds = results.filter((item) => !item.correct).map((item) => item.questionId);
@@ -363,9 +466,26 @@ export async function POST(request: Request) {
       const weaknessCounts = new Map<string, number>();
       for (const item of results) if (!item.correct && item.weakness) weaknessCounts.set(item.weakness, (weaknessCounts.get(item.weakness) ?? 0) + 1);
       const weaknesses = [...weaknessCounts.entries()].sort((left, right) => right[1] - left[1]).map(([label, count]) => ({ label, count }));
-      const durationSeconds = Math.max(0, Math.round(((completedAt ?? new Date()).getTime() - session.startedAt.getTime()) / 1000));
+      const savedDetails = parseAnswerDetails(JSON.stringify(body.answerDetails ?? []));
+      const savedDetailsById = new Map(savedDetails.map((item) => [item.questionId, item]));
+      for (const [order, item] of results.entries()) {
+        const answer = answers.find((candidate) => candidate.questionId === item.questionId)?.answer ?? null;
+        const prior = savedDetailsById.get(item.questionId);
+        savedDetailsById.set(item.questionId, {
+          questionId: item.questionId,
+          order,
+          answer,
+          durationSeconds: prior?.durationSeconds ?? 0,
+          answeredAt: prior?.answeredAt ?? new Date().toISOString(),
+          correct: item.correct,
+        });
+      }
+      const durationSeconds = Math.max(0, Math.min(604800, Math.floor(Number(body.elapsedSeconds) || Math.round(((completedAt ?? new Date()).getTime() - session.startedAt.getTime()) / 1000))));
       await db.update(medtechPracticeSessions).set({
         completedAt,
+        status: completed ? "completed" : "awaiting_submit",
+        lastActiveAt: new Date(),
+        answerDetailsJson: JSON.stringify([...savedDetailsById.values()].sort((left, right) => left.order - right.order)),
         durationSeconds,
         answeredQuestions: results.length,
         correctQuestions: results.filter((item) => item.correct).length,
@@ -386,7 +506,7 @@ export async function POST(request: Request) {
         weakness: weaknesses.map((item) => `${item.label}（${item.count}題）`).join("；"),
         nextStep,
       });
-      return Response.json({ saved, session: { id: session.id, completed, durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectQuestionIds: incorrectIds, repeatedWrongQuestionIds: repeatedWrongIds, weaknesses, nextStep } });
+      return Response.json({ saved, session: { id: session.id, completed, status: completed ? "completed" : "awaiting_submit", durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectQuestionIds: incorrectIds, repeatedWrongQuestionIds: repeatedWrongIds, weaknesses, nextStep } });
     }
   }
   return Response.json({ saved });

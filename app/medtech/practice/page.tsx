@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import MedtechTabs from "../MedtechTabs";
 import MedtechHeaderActions from "../MedtechHeaderActions";
 
@@ -28,6 +28,16 @@ type ApiResult = {
   error?: string;
   message?: string;
   sessionId?: number | null;
+  session?: {
+    id: number;
+    status: "in_progress" | "paused" | "awaiting_submit" | "completed" | "expired";
+    startedAt: string;
+    lastActiveAt: string | null;
+    lastQuestionIndex: number;
+    durationSeconds: number;
+    answeredQuestions: number;
+    answerDetails: Array<{ questionId: number; order: number; answer: string | null; durationSeconds: number; answeredAt: string | null; correct?: boolean | null }>;
+  } | null;
   packageAccess?: {
     name: string;
     cost: number;
@@ -52,6 +62,9 @@ type ApiResult = {
     availableUntil?: string | null;
   };
 };
+
+type ProgressDetail = { questionId: number; order: number; answer: string | null; durationSeconds: number; answeredAt: string | null; correct?: boolean | null };
+type SessionStatus = "in_progress" | "paused" | "awaiting_submit" | "completed" | "expired";
 
 const letters = ["A", "B", "C", "D"];
 
@@ -83,9 +96,18 @@ export default function MedtechPractice() {
   const [fullNotice, setFullNotice] = useState("");
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [packageAccess, setPackageAccess] = useState<NonNullable<ApiResult["packageAccess"]> | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>("in_progress");
+  const [questionSeconds, setQuestionSeconds] = useState(0);
+  const [totalSeconds, setTotalSeconds] = useState(0);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [route, setRoute] = useState({ ready: false, topic: "", wrongOnly: false, focus: 0, pack: 1 });
+  const answersRef = useRef<Record<number, string>>({});
+  const detailsRef = useRef<Record<number, ProgressDetail>>({});
+  const questionTimesRef = useRef<Record<number, number>>({});
+  const activeTimerRef = useRef<{ questionId: number; startedAt: number } | null>(null);
+  const totalSecondsRef = useRef(0);
+  const sessionStatusRef = useRef(sessionStatus);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -111,7 +133,13 @@ export default function MedtechPractice() {
     setError("");
     setRows([]);
     setIndex(0);
-    setAnswers({});
+    applyAnswers({});
+    detailsRef.current = {};
+    questionTimesRef.current = {};
+    totalSecondsRef.current = 0;
+    setQuestionSeconds(0);
+    setTotalSeconds(0);
+    setSessionStatus("in_progress");
     setSubmitted(false);
     setSessionId(null);
     setPackageAccess(null);
@@ -127,9 +155,26 @@ export default function MedtechPractice() {
         setRows(result.items ?? []);
         setSessionId(result.sessionId ?? null);
         setPackageAccess(result.packageAccess ?? null);
+        const savedDetails = result.session?.answerDetails ?? [];
+        const restoredAnswers: Record<number, string> = {};
+        const restoredDetails: Record<number, ProgressDetail> = {};
+        for (const detail of savedDetails) {
+          const normalized = { ...detail, answer: detail.answer ?? null };
+          restoredDetails[detail.questionId] = normalized;
+          questionTimesRef.current[detail.questionId] = normalized.durationSeconds;
+          if (normalized.answer) restoredAnswers[detail.questionId] = normalized.answer;
+        }
+        detailsRef.current = restoredDetails;
+        answersRef.current = restoredAnswers;
+        applyAnswers(restoredAnswers);
+        totalSecondsRef.current = result.session?.durationSeconds ?? Object.values(questionTimesRef.current).reduce((sum, seconds) => sum + seconds, 0);
+        setTotalSeconds(totalSecondsRef.current);
+        setSessionStatus(result.session?.status ?? "in_progress");
         if (focus && result.items?.length) {
           const focusedIndex = result.items.findIndex((item) => item.id === focus);
           if (focusedIndex >= 0) setIndex(focusedIndex);
+        } else if (result.session && result.session.lastQuestionIndex >= 0 && result.session.lastQuestionIndex < (result.items?.length ?? 0)) {
+          setIndex(result.session.lastQuestionIndex);
         }
         if (!result.items?.length) setError(result.message || "目前沒有符合條件的醫檢師題目。");
       })
@@ -150,6 +195,122 @@ export default function MedtechPractice() {
     const minutes = totalMinutes % 60;
     return days > 0 ? `${days} 天 ${hours} 小時` : hours > 0 ? `${hours} 小時 ${minutes} 分` : `${minutes} 分鐘`;
   };
+
+  useEffect(() => { sessionStatusRef.current = sessionStatus; }, [sessionStatus]);
+
+  const formatDuration = (seconds: number) => {
+    const safe = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(safe / 3600);
+    const minutes = Math.floor((safe % 3600) / 60);
+    const rest = safe % 60;
+    return hours ? `${hours}小時 ${String(minutes).padStart(2, "0")}分` : `${String(minutes).padStart(2, "0")}分 ${String(rest).padStart(2, "0")}秒`;
+  };
+
+  function flushActiveTimer() {
+    const active = activeTimerRef.current;
+    if (!active) return;
+    const elapsed = Math.max(0, Math.floor((Date.now() - active.startedAt) / 1000));
+    if (elapsed > 0) {
+      questionTimesRef.current[active.questionId] = (questionTimesRef.current[active.questionId] ?? 0) + elapsed;
+      totalSecondsRef.current += elapsed;
+    }
+    activeTimerRef.current = null;
+    setQuestionSeconds(questionTimesRef.current[active.questionId] ?? 0);
+    setTotalSeconds(totalSecondsRef.current);
+    const order = rows.findIndex((item) => item.id === active.questionId);
+    const current = detailsRef.current[active.questionId];
+    detailsRef.current[active.questionId] = { questionId: active.questionId, order: order >= 0 ? order : current?.order ?? 0, answer: answersRef.current[active.questionId] ?? null, durationSeconds: questionTimesRef.current[active.questionId] ?? 0, answeredAt: current?.answeredAt ?? null, correct: current?.correct ?? null };
+  }
+
+  function startActiveTimer(questionId: number) {
+    if (!questionId || answersRef.current[questionId] || document.hidden || submitted || wrongOnly) return;
+    if (activeTimerRef.current?.questionId === questionId) return;
+    activeTimerRef.current = { questionId, startedAt: Date.now() };
+  }
+
+  function progressDetails() {
+    return Object.values(detailsRef.current).sort((left, right) => left.order - right.order);
+  }
+
+  async function saveProgress(status: "in_progress" | "paused" | "awaiting_submit" = sessionStatusRef.current as "in_progress" | "paused" | "awaiting_submit", flush = true) {
+    if (!sessionId || wrongOnly || submitted) return;
+    if (flush) flushActiveTimer();
+    const nextDetails = progressDetails();
+    sessionStatusRef.current = status;
+    setSessionStatus(status);
+    const request = fetch("/api/medtech/questions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ action: "save-progress", sessionId, status, currentIndex: index, elapsedSeconds: totalSecondsRef.current, answerDetails: nextDetails }),
+    });
+    void request.catch(() => undefined);
+    if (flush && q && !answersRef.current[q.id] && !document.hidden && !submitted) startActiveTimer(q.id);
+  }
+
+  function applyAnswers(next: Record<number, string>) {
+    answersRef.current = next;
+    setAnswers(next);
+  }
+
+  function resetProgressState() {
+    activeTimerRef.current = null;
+    detailsRef.current = {};
+    questionTimesRef.current = {};
+    totalSecondsRef.current = 0;
+    setQuestionSeconds(0);
+    setTotalSeconds(0);
+    sessionStatusRef.current = "in_progress";
+    setSessionStatus("in_progress");
+    applyAnswers({});
+  }
+
+  useEffect(() => {
+    if (!q || loading || submitted || wrongOnly || q.locked) {
+      activeTimerRef.current = null;
+      setQuestionSeconds(q ? questionTimesRef.current[q.id] ?? 0 : 0);
+      return;
+    }
+    setQuestionSeconds(questionTimesRef.current[q.id] ?? 0);
+    startActiveTimer(q.id);
+    const timer = window.setInterval(() => {
+      const active = activeTimerRef.current;
+      if (!active || active.questionId !== q.id) return;
+      const live = (questionTimesRef.current[q.id] ?? 0) + Math.max(0, Math.floor((Date.now() - active.startedAt) / 1000));
+      setQuestionSeconds(live);
+      setTotalSeconds(totalSecondsRef.current + Math.max(0, Math.floor((Date.now() - active.startedAt) / 1000)));
+    }, 1000);
+    return () => { window.clearInterval(timer); flushActiveTimer(); };
+  }, [q?.id, loading, submitted, wrongOnly]);
+
+  useEffect(() => {
+    if (!sessionId || wrongOnly || submitted) return;
+    const timer = window.setInterval(() => { void saveProgress(sessionStatusRef.current as "in_progress" | "paused" | "awaiting_submit"); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [sessionId, wrongOnly, submitted, index, q?.id]);
+
+  useEffect(() => {
+    if (!sessionId || wrongOnly) return;
+    const onVisibilityChange = () => {
+      if (document.hidden) void saveProgress(answered >= rows.length ? "awaiting_submit" : "paused");
+      else if (!submitted) {
+        const nextStatus: SessionStatus = answered >= rows.length ? "awaiting_submit" : "in_progress";
+        sessionStatusRef.current = nextStatus;
+        setSessionStatus(nextStatus);
+        if (q && !answersRef.current[q.id]) startActiveTimer(q.id);
+        void saveProgress(nextStatus, false);
+      }
+    };
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!submitted) {
+        void saveProgress(answered >= rows.length ? "awaiting_submit" : "paused");
+        if (answered < rows.length) { event.preventDefault(); event.returnValue = ""; }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => { document.removeEventListener("visibilitychange", onVisibilityChange); window.removeEventListener("beforeunload", onBeforeUnload); };
+  }, [sessionId, wrongOnly, submitted, q?.id, answered, rows.length]);
 
   const top = (
     <>
@@ -190,7 +351,7 @@ export default function MedtechPractice() {
       setRows(result.items ?? []);
       setSessionId(result.sessionId ?? null);
       setIndex(0);
-      setAnswers({});
+      resetProgressState();
       setSubmitted(false);
       setPaywallOpen(false);
     } catch (reason) {
@@ -229,12 +390,24 @@ export default function MedtechPractice() {
       void unlockPackage();
       return;
     }
+    const currentAnswers = answersRef.current;
+    const answeredNow = Object.keys(currentAnswers).length;
+    if (!wrongOnly && answeredNow < rows.length) {
+      const nextUnanswered = rows.findIndex((item) => !currentAnswers[item.id]);
+      setFullNotice(`尚有 ${rows.length - answeredNow} 題未作答，請完成全部題目後再交卷。`);
+      if (nextUnanswered >= 0) setIndex(nextUnanswered);
+      void saveProgress("in_progress");
+      return;
+    }
+    flushActiveTimer();
     setSubmitting(true);
     setSubmitted(true);
+    sessionStatusRef.current = "awaiting_submit";
+    setSessionStatus("awaiting_submit");
     setIndex(0);
     setFullNotice("");
     try {
-      const payload = Object.entries(answers).map(([questionId, answer]) => ({
+      const payload = Object.entries(currentAnswers).map(([questionId, answer]) => ({
         questionId: Number(questionId),
         answer,
       }));
@@ -242,7 +415,7 @@ export default function MedtechPractice() {
         await fetch("/api/medtech/questions", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ answers: payload, sessionId }),
+          body: JSON.stringify({ action: "finalize", answers: payload, answerDetails: progressDetails(), elapsedSeconds: totalSecondsRef.current, sessionId }),
         }).catch(() => undefined);
       }
       const ids = rows.map((item) => item.id).join(",");
@@ -256,9 +429,32 @@ export default function MedtechPractice() {
           }));
         }
       }
+      sessionStatusRef.current = "completed";
+      setSessionStatus("completed");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function chooseAnswer(letter: string) {
+    if (!q || q.locked || submitted) return;
+    flushActiveTimer();
+    const next = { ...answersRef.current, [q.id]: letter };
+    answersRef.current = next;
+    const order = rows.findIndex((item) => item.id === q.id);
+    detailsRef.current[q.id] = {
+      questionId: q.id,
+      order: order >= 0 ? order : index,
+      answer: letter,
+      durationSeconds: questionTimesRef.current[q.id] ?? 0,
+      answeredAt: new Date().toISOString(),
+      correct: letter === q.answer,
+    };
+    applyAnswers(next);
+    const nextStatus: SessionStatus = Object.keys(next).length >= rows.length ? "awaiting_submit" : "in_progress";
+    sessionStatusRef.current = nextStatus;
+    setSessionStatus(nextStatus);
+    void saveProgress(nextStatus, false);
   }
 
   async function unlockFullExplanation(questionId: number) {
@@ -348,7 +544,7 @@ export default function MedtechPractice() {
             onClick={() => {
               setSubmitted(false);
               setIndex(0);
-              setAnswers({});
+              resetProgressState();
               setFlagged([]);
               setFullNotice("");
             }}
@@ -458,7 +654,7 @@ export default function MedtechPractice() {
           <span>{wrongOnly ? "個人錯題庫 · " + rows.length + " 題待複習" : `${packageAccess?.name || (topic || "隨機模考")} · 第 ${packageAccess?.packageNumber ?? pack} 關 · ${rows.length} 題`}</span>
           <h1>{chapterName}</h1>
           <p>
-            第 {index + 1}／{rows.length} 題 · {q.year} 年專技
+            第 {index + 1}／{rows.length} 題 · {q.year} 年專技 · 本題 {formatDuration(questionSeconds)} · 本回累計 {formatDuration(totalSeconds)}
           </p>
         </div>
         <button onClick={() => void submitExam()} disabled={submitting} aria-busy={submitting}>{submitting ? <span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>批改中…</span> : wrongOnly ? "完成複習" : q.locked ? "解鎖題目包" : "交卷"}</button>
@@ -467,6 +663,7 @@ export default function MedtechPractice() {
         <div>
           <b>{packageAccess.blockedByPrevious ? `第 ${packageAccess.packageNumber ?? pack} 關尚未開放` : packageAccess.locked ? `第 ${packageAccess.packageNumber ?? pack} 關已列出，解鎖後開始作答` : packageAccess.gifted ? "本包首次體驗：免費贈送" : packageAccess.isBonus ? `尾包 ${packageAccess.questionCount} 題：已開通` : `第 ${packageAccess.packageNumber ?? pack} 關已開通`}</b>
           <span>{packageAccess.blockedByPrevious ? "完成上一關後，下一關會自動開放。" : packageAccess.locked ? `原價 ${packageAccess.baseCost ?? 30} 點；開通後 ${packageAccess.days} 天內不限次數重做。` : packageRemaining !== null ? `剩餘 ${formatRemaining(packageRemaining)}；請把握時間完成練習。` : `${packageAccess.days} 天內不限次數重做。`}</span>
+          {!packageAccess.locked && !wrongOnly && sessionStatus !== "completed" && <small className="medtech-session-reminder">{sessionStatus === "paused" ? "上次作答尚未完成，進度已保存；請完成本關後再交卷。" : sessionStatus === "awaiting_submit" ? "全部題目已作答，請按交卷完成本次紀錄。" : `本次已作答 ${answered}/${rows.length} 題；離開頁面會自動保存。`}</small>}
         </div>
         {packageAccess.locked && !packageAccess.blockedByPrevious && packageAccess.discountReward && packageAccess.discountReward.status !== "available" && <button type="button" onClick={() => void unlockPackage()} disabled={unlockingPackage} aria-busy={unlockingPackage}>{unlockingPackage ? "解鎖中…" : `用 ${packageAccess.cost} 點解鎖`}</button>}
         {packageAccess.locked && !packageAccess.blockedByPrevious && packageAccess.discountReward?.status === "available" && <div className="medtech-pack-discount-box"><div><b>🎡 轉轉樂｜這一關只有一次機會</b><span>最高五折；放棄後就回到原價 30 點。</span></div><div><button type="button" onClick={() => void choosePackDiscount("spin")} disabled={Boolean(discountAction)} aria-busy={discountAction === "spin"}>{discountAction === "spin" ? <span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>抽取中…</span> : "抽一次折扣"}</button><button type="button" className="secondary" onClick={() => void choosePackDiscount("abandon")} disabled={Boolean(discountAction)}>{discountAction === "abandon" ? "處理中…" : "放棄，原價購買"}</button></div></div>}
@@ -478,7 +675,7 @@ export default function MedtechPractice() {
           <header>
             <b>{wrongOnly ? "錯題題號" : "題號"}</b>
             <span>
-              {answered}／{rows.length} 已作答
+              {answered}／{rows.length} 已作答 · {formatDuration(totalSeconds)}
             </span>
           </header>
           <div>
@@ -520,7 +717,7 @@ export default function MedtechPractice() {
               <button
                 className={answers[q.id] === letter ? "selected" : ""}
                 key={letter}
-                onClick={() => q.locked ? setPaywallOpen(true) : setAnswers({ ...answers, [q.id]: letter })}
+                onClick={() => q.locked ? setPaywallOpen(true) : chooseAnswer(letter)}
               >
                 <b>{letter}</b>
                 <span>{q.options[letter]}</span>
