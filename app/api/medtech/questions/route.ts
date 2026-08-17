@@ -71,7 +71,7 @@ function stablePackageRows<T extends { id: number }>(rows: T[], packageName: str
     .slice((packageNumber - 1) * MEDTECH_QUESTION_PACKAGE_SIZE, packageNumber * MEDTECH_QUESTION_PACKAGE_SIZE);
 }
 
-export async function GET(request: Request) {
+async function getQuestions(request: Request) {
   const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
@@ -260,8 +260,10 @@ export async function GET(request: Request) {
     });
     return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited });
   }
+  // Only load media for the selected questions. Loading every audio row here
+  // makes the following subtitle query exceed D1's bound-parameter limit.
   const mediaRows = questionIds.length
-    ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey, year: listeningSolutions.year, subject: listeningSolutions.subject, questionText: listeningSolutions.questionText }).from(listeningSolutions).where(isNotNull(listeningSolutions.audioStorageKey))
+    ? await db.select({ id: listeningSolutions.id, questionId: listeningSolutions.questionId, audioStorageKey: listeningSolutions.audioStorageKey, year: listeningSolutions.year, subject: listeningSolutions.subject, questionText: listeningSolutions.questionText }).from(listeningSolutions).where(and(isNotNull(listeningSolutions.audioStorageKey), inArray(listeningSolutions.questionId, questionIds)))
     : [];
   const mediaIds = mediaRows.map((row) => row.id);
   const cueRows = mediaIds.length
@@ -305,6 +307,15 @@ export async function GET(request: Request) {
     };
   });
   return Response.json({ items: mapped, points: access.usage.aiCredits, accessLimited: access.limited, topics: topics.map((name) => ({ name, count: rows.filter((row) => { const source = sourceFor(row); return topicOf(source?.fileName ?? "", source?.subject ?? row.subject) === name; }).length })) });
+}
+
+export async function GET(request: Request) {
+  try {
+    return await getQuestions(request);
+  } catch (error) {
+    console.error("[medtech/questions] failed to load questions", error);
+    return Response.json({ error: "題目讀取失敗，請稍後再試。" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {

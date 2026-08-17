@@ -13,6 +13,16 @@ function plainText(value: string) {
   return value.replace(/^#{1,6}\s*/gm, "").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1").replace(/`([^`]+)`/g, "$1").replace(/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/gm, "").replace(/^\s*\|(.+)\|\s*$/gm, (_, row: string) => row.split("|").map((cell) => cell.trim()).filter(Boolean).join("　｜　")).replace(/^[*_]{3,}\s*$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+async function readResponseJson<T extends Record<string, unknown>>(response: Response) {
+  const text = await response.text();
+  if (!text.trim()) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return { error: "伺服器回應格式錯誤，請稍後再試。" } as T;
+  }
+}
+
 export default function MedtechAiStudy() {
   const [level, setLevel] = useState("入門");
   const [topic, setTopic] = useState("");
@@ -33,7 +43,7 @@ export default function MedtechAiStudy() {
   async function loadUsage() {
     const response = await fetch("/api/medtech/usage", { cache: "no-store" });
     if (!response.ok) return;
-    const result = await response.json() as { aiCredits?: number };
+    const result = await readResponseJson<{ aiCredits?: number }>(response);
     setAiCredits(result.aiCredits ?? 0);
   }
 
@@ -47,7 +57,7 @@ export default function MedtechAiStudy() {
       const query = new URLSearchParams({ limit: "1" });
       if (nextTopic) query.set("topic", nextTopic);
       const response = await fetch(`/api/medtech/questions?${query}`);
-      const result = await response.json() as { items?: Question[]; error?: string; points?: number };
+      const result = await readResponseJson<{ items?: Question[]; error?: string; points?: number }>(response);
       if (response.status === 402) {
         setPaywall({ kind: "credits", title: "點數不足", text: result.error || "查看一題扣 1 點，同一題 7 天內可無限重做，請先購買點數。", url: "/medtech/upgrade?reason=points" });
         throw new Error(result.error || "點數不足；請先購買點數。");
