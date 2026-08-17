@@ -48,6 +48,8 @@ export default function MedtechPractice() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [unlockingId, setUnlockingId] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [mastering, setMastering] = useState(false);
   const [fullNotice, setFullNotice] = useState("");
   const [route, setRoute] = useState({ ready: false, topic: "", wrongOnly: false });
 
@@ -101,34 +103,36 @@ export default function MedtechPractice() {
   );
 
   async function submitExam() {
+    if (submitting) return;
+    setSubmitting(true);
     setSubmitted(true);
     setIndex(0);
     setFullNotice("");
-    const payload = Object.entries(answers).map(([questionId, answer]) => ({
-      questionId: Number(questionId),
-      answer,
-    }));
-    if (payload.length) {
-      await fetch("/api/medtech/questions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ answers: payload }),
-      }).catch(() => undefined);
-    }
-    const ids = rows.map((item) => item.id).join(",");
-    if (!ids) return;
     try {
-      const response = await fetch("/api/medtech/questions?mode=review&ids=" + ids, { cache: "no-store" });
-      const result = await readJson(response);
-      if (!response.ok) return;
-      setRows((current) =>
-        current.map((item) => {
-          const detail = result.items?.find((next) => next.id === item.id);
-          return detail ? { ...item, ...detail } : item;
-        }),
-      );
-    } catch {
-      // The review screen can still show the question and answer without explanation text.
+      const payload = Object.entries(answers).map(([questionId, answer]) => ({
+        questionId: Number(questionId),
+        answer,
+      }));
+      if (payload.length) {
+        await fetch("/api/medtech/questions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ answers: payload }),
+        }).catch(() => undefined);
+      }
+      const ids = rows.map((item) => item.id).join(",");
+      if (ids) {
+        const response = await fetch("/api/medtech/questions?mode=review&ids=" + ids, { cache: "no-store" });
+        const result = await readJson(response);
+        if (response.ok) {
+          setRows((current) => current.map((item) => {
+            const detail = result.items?.find((next) => next.id === item.id);
+            return detail ? { ...item, ...detail } : item;
+          }));
+        }
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -159,26 +163,31 @@ export default function MedtechPractice() {
   }
 
   async function markMastered() {
-    if (!wrongOnly || !q) return;
-    const response = await fetch("/api/medtech/questions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ masteredQuestionId: q.id }),
-    });
-    if (!response.ok) {
-      setError("暫時無法移除這題，請稍後再試。");
-      return;
+    if (!wrongOnly || !q || mastering) return;
+    setMastering(true);
+    try {
+      const response = await fetch("/api/medtech/questions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ masteredQuestionId: q.id }),
+      });
+      if (!response.ok) {
+        setError("暫時無法移除這題，請稍後再試。");
+        return;
+      }
+      const remaining = rows.filter((item) => item.id !== q.id);
+      setRows(remaining);
+      setAnswers((value) => {
+        const next = { ...value };
+        delete next[q.id];
+        return next;
+      });
+      setFlagged((value) => value.filter((id) => id !== q.id));
+      setIndex((current) => Math.min(current, Math.max(0, remaining.length - 1)));
+      if (!remaining.length) setError("目前沒有待複習的錯題，你已完成這一輪複習。");
+    } finally {
+      setMastering(false);
     }
-    const remaining = rows.filter((item) => item.id !== q.id);
-    setRows(remaining);
-    setAnswers((value) => {
-      const next = { ...value };
-      delete next[q.id];
-      return next;
-    });
-    setFlagged((value) => value.filter((id) => id !== q.id));
-    setIndex((current) => Math.min(current, Math.max(0, remaining.length - 1)));
-    if (!remaining.length) setError("目前沒有待複習的錯題，你已完成這一輪複習。");
   }
 
   useEffect(() => {
@@ -211,7 +220,7 @@ export default function MedtechPractice() {
               {score}
               <small>／{rows.length}</small>
             </b>
-            <p>答對率 {Math.round((score / rows.length) * 100)}% · 已作答 {answered} 題</p>
+            <p>{submitting ? <span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>正在載入答案與解析…</span> : <>答對率 {Math.round((score / rows.length) * 100)}% · 已作答 {answered} 題</>}</p>
           </div>
           <button
             onClick={() => {
@@ -330,7 +339,7 @@ export default function MedtechPractice() {
             第 {index + 1}／{rows.length} 題 · {q.year} 年專技
           </p>
         </div>
-        <button onClick={() => setSubmitted(true)}>{wrongOnly ? "完成複習" : "交卷"}</button>
+        <button onClick={() => void submitExam()} disabled={submitting} aria-busy={submitting}>{submitting ? <span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>批改中…</span> : wrongOnly ? "完成複習" : "交卷"}</button>
       </section>
       <div className="medtech-exam-grid">
         <aside className="medtech-question-map">
@@ -358,8 +367,8 @@ export default function MedtechPractice() {
             <span>第 {index + 1} 題</span>
             <div className="medtech-question-actions">
               {wrongOnly && (
-                <button className="mastered" onClick={() => void markMastered()}>
-                  ✓ 我學會了
+                <button className="mastered" onClick={() => void markMastered()} disabled={mastering} aria-busy={mastering}>
+                  {mastering ? <span className="medtech-loading-label"><i className="medtech-loading-spinner" aria-hidden="true"/>處理中…</span> : "✓ 我學會了"}
                 </button>
               )}
               <button
