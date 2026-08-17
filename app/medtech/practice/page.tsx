@@ -15,6 +15,7 @@ type Question = {
   explanation?: string;
   answerSource: string;
   subject: string;
+  chapter?: string;
   topic?: string;
   hasFullExplanation?: boolean;
   fullExplanation?: string;
@@ -85,7 +86,7 @@ export default function MedtechPractice() {
   }, [route.ready, topic, wrongOnly]);
 
   const q = rows[index];
-  const chapterName = wrongOnly ? "錯題複習" : topic || q?.topic || "臨床病毒學（下）";
+  const chapterName = wrongOnly ? "錯題複習" : q?.chapter || topic || q?.topic || "章節未標示";
   const score = useMemo(() => rows.filter((item) => answers[item.id] === item.answer).length, [answers, rows]);
   const answered = Object.keys(answers).length;
 

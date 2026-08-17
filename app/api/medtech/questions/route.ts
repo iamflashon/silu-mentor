@@ -3,6 +3,7 @@ import { documents, examAttempts, examQuestions, listeningSolutions, listeningSu
 import { requireMedtechMember } from "../../../../lib/member-auth";
 import { grantMedtechQuestionAccess, medtechUserKey } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
+import { storedDocumentAnalysis } from "../../../../lib/document-analysis";
 
 const topics = ["臨床病毒學總論", "DNA 病毒", "RNA 病毒", "全真模擬試題"] as const;
 function topicOf(sourceName = "", subject = ""): (typeof topics)[number] | null {
@@ -12,6 +13,39 @@ function topicOf(sourceName = "", subject = ""): (typeof topics)[number] | null 
   if (/RNA\s*病毒/i.test(source)) return topics[2];
   if (/臨床病毒學.*總論|總論.*臨床病毒學/i.test(source)) return topics[0];
   return null;
+}
+
+function recordArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item))) : [];
+}
+
+function textField(row: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = String(row[key] ?? "").replace(/\s+/gu, " ").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function chapterByOrder(processingResultJson: string) {
+  const parsed = storedDocumentAnalysis(processingResultJson || "{}") as Record<string, unknown> & { questions?: unknown[] };
+  const facts = parsed.facts && typeof parsed.facts === "object" ? parsed.facts as Record<string, unknown> : {};
+  const candidates = [
+    recordArray(parsed.questions),
+    recordArray(facts.questionCandidates),
+    recordArray(parsed.reparsedQuestions),
+  ].map((rows) => ({ rows, chapters: rows.filter((row) => Boolean(textField(row, ["chapter", "section_path", "sectionPath", "section", "topic", "theme"]))).length }))
+    .sort((left, right) => right.chapters - left.chapters || right.rows.length - left.rows.length);
+  const best = candidates[0]?.rows ?? [];
+  const byOrder = new Map<number, string>();
+  best.forEach((row, index) => {
+    const chapter = textField(row, ["chapter", "section_path", "sectionPath", "section", "topic", "theme"]);
+    if (!chapter) return;
+    byOrder.set(index + 1, chapter);
+    const number = Number(textField(row, ["number", "question_number", "questionNumber"]));
+    if (Number.isInteger(number) && number > 0) byOrder.set(number, chapter);
+  });
+  return byOrder;
 }
 function userKey(request: Request) { return medtechUserKey(request); }
 
@@ -48,6 +82,7 @@ export async function GET(request: Request) {
     answerSource: examQuestions.answerSource,
     subject: examQuestions.subject,
     sourceUrl: examQuestions.sourceUrl,
+    sourceOrder: examQuestions.sourceOrder,
   }).from(examQuestions).where(and(
     eq(examQuestions.examCategory, "medtech"),
     eq(examQuestions.examType, "mcq"),
@@ -75,6 +110,16 @@ export async function GET(request: Request) {
   const allowedIds = new Set(access.allowedIds);
   selectedRows = selectedRows.filter((row) => allowedIds.has(row.id));
   const questionIds = selectedRows.map((row) => row.id);
+  const selectedSourceIds = [...new Set(selectedRows.map((row) => Number(row.sourceUrl.replace(/^document:/, ""))).filter((id) => Number.isInteger(id) && id > 0))];
+  const sourceAnalyses = selectedSourceIds.length
+    ? await db.select({ id: documents.id, processingResultJson: documents.processingResultJson }).from(documents).where(inArray(documents.id, selectedSourceIds))
+    : [];
+  const chapterBySourceId = new Map(sourceAnalyses.map((source) => [source.id, chapterByOrder(source.processingResultJson)]));
+  const chapterOf = (row: { sourceUrl: string; sourceOrder: number | null }, source: { fileName?: string; subject?: string } | undefined) => {
+    const sourceId = Number(row.sourceUrl.replace(/^document:/, ""));
+    const storedChapter = row.sourceOrder ? chapterBySourceId.get(sourceId)?.get(row.sourceOrder) : "";
+    return storedChapter || topicOf(source?.fileName ?? "", source?.subject ?? "") || "章節未標示";
+  };
   const cleanStem = (stem: string) => stem.replace(/（(\d{2,3}[.．](?:1|2|7)月專技)）\s*（\1）\s*$/u, "（$1）");
 
   // The exam-taking screen only needs question data. Do not load explanation
@@ -95,6 +140,7 @@ export async function GET(request: Request) {
         answerLabel: row.teacherAnswer || row.correctAnswer ? "正式答案" : "此為 AI 擬答",
         answerSource: row.answerSource,
         subject: row.subject,
+        chapter: chapterOf(row, source),
         topic,
       };
     });
@@ -134,6 +180,7 @@ export async function GET(request: Request) {
         explanation: detail?.explanation || "",
         answerSource: row.answerSource,
         subject: row.subject,
+        chapter: chapterOf(row, source),
         topic,
         hasFullExplanation: Boolean(fullExplanation.trim()),
       };
@@ -167,6 +214,7 @@ export async function GET(request: Request) {
       explanationLabel: detail?.teacherCompleteExplanation || detail?.completeExplanation ? "完整解析" : detail?.aiCompleteExplanation || detail?.simulatedCompleteExplanation ? "AI 完整解析（此為 AI 版本）" : "解析",
       answerSource: row.answerSource,
       subject: row.subject,
+      chapter: chapterOf(row, source),
       topic,
       audioUrl: mediaByQuestion.get(row.id)?.audioStorageKey ? `/api/listening/audio?id=${mediaByQuestion.get(row.id)!.id}` : "",
       subtitles: (mediaByQuestion.get(row.id)?.cues ?? []).map((cue) => ({ id: cue.id, segmentId: null, startSeconds: cue.startSeconds, endSeconds: cue.endSeconds, text: cue.text, sequence: cue.sequence })),
