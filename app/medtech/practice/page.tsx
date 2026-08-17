@@ -123,7 +123,7 @@ export default function MedtechPractice() {
   const [totalSeconds, setTotalSeconds] = useState(0);
   const [paywallOpen, setPaywallOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [route, setRoute] = useState({ ready: false, topic: "", wrongOnly: false, focus: 0, pack: 1 });
+  const [route, setRoute] = useState({ ready: false, topic: "", wrongOnly: false, focus: 0, pack: 1, questionOrder: "ordered", optionOrder: "ordered" });
   const answersRef = useRef<Record<number, string>>({});
   const detailsRef = useRef<Record<number, ProgressDetail>>({});
   const questionTimesRef = useRef<Record<number, number>>({});
@@ -131,6 +131,8 @@ export default function MedtechPractice() {
   const activeTimerRef = useRef<{ questionId: number; startedAt: number } | null>(null);
   const totalSecondsRef = useRef(0);
   const sessionStatusRef = useRef(sessionStatus);
+  const saveRequestRef = useRef<Promise<unknown> | null>(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -140,10 +142,12 @@ export default function MedtechPractice() {
       wrongOnly: params.get("wrongOnly") === "1",
       focus: Number(params.get("focus")) || 0,
       pack: Math.max(1, Math.floor(Number(params.get("pack")) || 1)),
+      questionOrder: params.get("questionOrder") === "random" ? "random" : "ordered",
+      optionOrder: params.get("optionOrder") === "random" ? "random" : "ordered",
     });
   }, []);
 
-  const { topic, wrongOnly, focus, pack } = route;
+  const { topic, wrongOnly, focus, pack, questionOrder, optionOrder } = route;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -180,7 +184,7 @@ export default function MedtechPractice() {
         setSessionId(result.sessionId ?? null);
         setPackageAccess(result.packageAccess ?? null);
         const orderSeed = result.sessionId ?? 17;
-        optionOrderRef.current = Object.fromEntries((result.items ?? []).map((item) => [item.id, createOptionOrder(item.id, orderSeed)]));
+        optionOrderRef.current = Object.fromEntries((result.items ?? []).map((item) => [item.id, optionOrder === "random" ? createOptionOrder(item.id, orderSeed) : [...letters]]));
         const savedDetails = result.session?.answerDetails ?? [];
         const restoredAnswers: Record<number, string> = {};
         const restoredDetails: Record<number, ProgressDetail> = {};
@@ -206,7 +210,7 @@ export default function MedtechPractice() {
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "題庫讀取失敗"))
       .finally(() => setLoading(false));
-  }, [route.ready, topic, wrongOnly, pack, focus]);
+  }, [route.ready, topic, wrongOnly, pack, focus, questionOrder, optionOrder]);
 
   const q = rows[index];
   const chapterName = wrongOnly ? "錯題複習" : topic || (packageAccess?.name === "隨機模考" ? "隨機模考" : q?.chapter || q?.topic || "章節未標示");
@@ -259,7 +263,7 @@ export default function MedtechPractice() {
   }
 
   async function saveProgress(status: "in_progress" | "paused" | "awaiting_submit" = sessionStatusRef.current as "in_progress" | "paused" | "awaiting_submit", flush = true) {
-    if (!sessionId || wrongOnly || submitted) return;
+    if (!sessionId || wrongOnly || submitted || submittingRef.current) return;
     if (flush) flushActiveTimer();
     const nextDetails = progressDetails();
     sessionStatusRef.current = status;
@@ -270,7 +274,11 @@ export default function MedtechPractice() {
       keepalive: true,
       body: JSON.stringify({ action: "save-progress", sessionId, status, currentIndex: index, elapsedSeconds: totalSecondsRef.current, answerDetails: nextDetails }),
     });
-    void request.catch(() => undefined);
+    const trackedRequest = request.catch(() => undefined);
+    saveRequestRef.current = trackedRequest;
+    void trackedRequest.finally(() => {
+      if (saveRequestRef.current === trackedRequest) saveRequestRef.current = null;
+    });
     if (flush && q && !answersRef.current[q.id] && !document.hidden && !submitted) startActiveTimer(q.id);
   }
 
@@ -312,14 +320,14 @@ export default function MedtechPractice() {
         if (index < rows.length - 1) { event.preventDefault(); setIndex((current) => Math.min(rows.length - 1, current + 1)); }
         return;
       }
-      if (!submitted && /^[1-4]$/.test(event.key) && q) {
+      if (!submitted && !submittingRef.current && /^[1-4]$/.test(event.key) && q) {
         event.preventDefault();
-        const letter = displayedOptionOrder(q.id)[Number(event.key) - 1];
+        const letter = letters[Number(event.key) - 1];
         if (q.locked) setPaywallOpen(true);
         else chooseAnswer(letter);
         return;
       }
-      if (event.key.toLowerCase() === "m" && q) {
+      if (event.key === "0" && !submittingRef.current && q) {
         event.preventDefault();
         setFlagged((value) => value.includes(q.id) ? value.filter((id) => id !== q.id) : [...value, q.id]);
       }
@@ -408,7 +416,7 @@ export default function MedtechPractice() {
     setUnlockingPackage(true);
     setError("");
     try {
-      const query = new URLSearchParams({ limit: "30", mode: "practice", pack: String(pack), unlock: "1" });
+      const query = new URLSearchParams({ limit: "30", mode: "practice", pack: String(pack), unlock: "1", questionOrder, optionOrder });
       if (topic) query.set("topic", topic);
       const response = await fetch("/api/medtech/questions?" + query.toString(), { cache: "no-store" });
       const result = await readJson(response);
@@ -426,7 +434,7 @@ export default function MedtechPractice() {
       setRows(result.items ?? []);
       setSessionId(result.sessionId ?? null);
       const orderSeed = result.sessionId ?? 17;
-      optionOrderRef.current = Object.fromEntries((result.items ?? []).map((item) => [item.id, createOptionOrder(item.id, orderSeed)]));
+      optionOrderRef.current = Object.fromEntries((result.items ?? []).map((item) => [item.id, optionOrder === "random" ? createOptionOrder(item.id, orderSeed) : [...letters]]));
       setIndex(0);
       resetProgressState();
       setSubmitted(false);
@@ -462,7 +470,7 @@ export default function MedtechPractice() {
   }
 
   async function submitExam() {
-    if (submitting) return;
+    if (submittingRef.current) return;
     if (q?.locked) {
       void unlockPackage();
       return;
@@ -476,45 +484,53 @@ export default function MedtechPractice() {
       void saveProgress("in_progress");
       return;
     }
-    flushActiveTimer();
+    submittingRef.current = true;
     setSubmitting(true);
-    setSubmitted(true);
     sessionStatusRef.current = "awaiting_submit";
     setSessionStatus("awaiting_submit");
-    setIndex(0);
     setFullNotice("");
     try {
+      if (saveRequestRef.current) await saveRequestRef.current;
+      flushActiveTimer();
       const payload = Object.entries(currentAnswers).map(([questionId, answer]) => ({
         questionId: Number(questionId),
         answer,
       }));
       if (payload.length) {
-        await fetch("/api/medtech/questions", {
+        const finalizeResponse = await fetch("/api/medtech/questions", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "finalize", answers: payload, answerDetails: progressDetails(), elapsedSeconds: totalSecondsRef.current, sessionId }),
-        }).catch(() => undefined);
+        });
+        const finalizeResult = await readJson(finalizeResponse);
+        if (!finalizeResponse.ok) throw new Error(finalizeResult.error || "交卷失敗，請稍後再試。");
       }
       const ids = rows.map((item) => item.id).join(",");
       if (ids) {
         const response = await fetch("/api/medtech/questions?mode=review&ids=" + ids + (sessionId ? `&sessionId=${sessionId}` : ""), { cache: "no-store" });
         const result = await readJson(response);
-        if (response.ok) {
-          setRows((current) => current.map((item) => {
-            const detail = result.items?.find((next) => next.id === item.id);
-            return detail ? { ...item, ...detail } : item;
-          }));
-        }
+        if (!response.ok) throw new Error(result.error || "答案與解析載入失敗，請稍後再試。");
+        setRows((current) => current.map((item) => {
+          const detail = result.items?.find((next) => next.id === item.id);
+          return detail ? { ...item, ...detail } : item;
+        }));
       }
       sessionStatusRef.current = "completed";
       setSessionStatus("completed");
+      setSubmitted(true);
+      setIndex(0);
+    } catch (reason) {
+      sessionStatusRef.current = "awaiting_submit";
+      setSessionStatus("awaiting_submit");
+      setFullNotice(reason instanceof Error ? reason.message : "交卷失敗，請稍後再試。請確認網路後再按一次交卷。");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
   function chooseAnswer(letter: string) {
-    if (!q || q.locked || submitted) return;
+    if (!q || q.locked || submitted || submittingRef.current) return;
     flushActiveTimer();
     const next = { ...answersRef.current, [q.id]: letter };
     answersRef.current = next;
@@ -747,6 +763,7 @@ export default function MedtechPractice() {
         {packageAccess.locked && !packageAccess.blockedByPrevious && packageAccess.discountReward?.status === "revealed" && <div className="medtech-pack-discount-box revealed"><div><b>🎉 抽到{packageAccess.discountReward.label}｜優惠價 {packageAccess.discountReward.cost} 點</b><span>這個折扣只適用本關一次；開通後 7 天內不限次數重做。</span></div></div>}
         {packageAccess.locked && !packageAccess.blockedByPrevious && packageAccess.discountReward?.status === "abandoned" && <div className="medtech-pack-discount-box abandoned"><div><b>已放棄本關折扣｜原價 30 點</b><span>轉轉樂每一關只有一次機會；現在可以直接用原價解鎖。</span></div></div>}
       </section>}
+      {fullNotice && <div className="medtech-submit-notice" role="alert" aria-live="polite">{fullNotice}</div>}
       <div className="medtech-exam-grid">
         <aside className="medtech-question-map">
           <header>
@@ -766,7 +783,7 @@ export default function MedtechPractice() {
               </button>
             ))}
           </div>
-          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；鎖定題目可點擊查看解鎖方式" : "實心＝已作答 · 圓點＝待確認"}<br />鍵盤：← → 換題 · 1–4 作答 · M 標記</small>
+          <small>{wrongOnly ? "答對或標記「我學會了」後移除" : packageAccess?.locked ? "題目完整列出；鎖定題目可點擊查看解鎖方式" : "實心＝已作答 · 圓點＝待確認"}<br />快捷鍵：← → 換題 · 1＝A · 2＝B · 3＝C · 4＝D · 0＝標記／取消標記</small>
         </aside>
         <section className="medtech-question">
           <header>

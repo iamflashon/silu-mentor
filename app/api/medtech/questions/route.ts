@@ -139,6 +139,7 @@ async function getQuestions(request: Request) {
   const wrongOnly = url.searchParams.get("wrongOnly") === "1";
   const practiceOnly = url.searchParams.get("mode") === "practice";
   const reviewOnly = url.searchParams.get("mode") === "review";
+  const questionOrder = url.searchParams.get("questionOrder") === "random" ? "random" : "ordered";
   const packageNumber = Math.max(1, Math.floor(Number(url.searchParams.get("pack")) || 1));
   const unlockPackage = url.searchParams.get("unlock") === "1";
   const reviewIds = url.searchParams.get("ids")?.split(",").map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0).slice(0, 50) ?? [];
@@ -251,10 +252,10 @@ async function getQuestions(request: Request) {
         locked: packageMode && access.limited,
       };
     });
-    // Keep the package membership fixed, but present its questions in a new
-    // order for each new attempt so students cannot memorize the sequence.
-    // An existing in-progress session is restored below before it is returned.
-    if (packageMode && mapped.length > 1) mapped = shuffleRows(mapped);
+    // Keep the package membership fixed. A new attempt can explicitly choose
+    // the original package order or a shuffled question order; an existing
+    // in-progress session is restored below before it is returned.
+    if (packageMode && questionOrder === "random" && mapped.length > 1) mapped = shuffleRows(mapped);
     const packageCost = "packageCost" in access ? access.packageCost : 30;
     const packageAvailableUntil = "availableUntil" in access && access.availableUntil instanceof Date ? access.availableUntil : null;
     let session: typeof medtechPracticeSessions.$inferSelect | null = null;

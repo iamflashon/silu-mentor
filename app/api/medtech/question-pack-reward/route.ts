@@ -1,5 +1,5 @@
-import { and, eq, isNotNull, like } from "drizzle-orm";
-import { medtechPointLedger, medtechPracticeSessions } from "../../../../db/schema";
+import { and, eq, isNotNull } from "drizzle-orm";
+import { medtechPracticeSessions } from "../../../../db/schema";
 import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { createMedtechPackDiscountReward, getMedtechPackDiscountReward } from "../../../../lib/medtech-usage";
 
@@ -28,15 +28,16 @@ async function canSpinForPackage(auth: { db: Awaited<ReturnType<typeof import(".
       .limit(1);
     if (!previous) return false;
   }
-  const [freePackageUsed] = await auth.db.select({ id: medtechPointLedger.id })
-    .from(medtechPointLedger)
+  const [completedPackage] = await auth.db.select({ id: medtechPracticeSessions.id })
+    .from(medtechPracticeSessions)
     .where(and(
-      eq(medtechPointLedger.userKey, auth.userKey),
-      eq(medtechPointLedger.action, "question_pack_gift"),
-      like(medtechPointLedger.sourceDetail, "%首次體驗贈送%"),
+      eq(medtechPracticeSessions.userKey, auth.userKey),
+      eq(medtechPracticeSessions.packageName, packageName),
+      eq(medtechPracticeSessions.packNumber, packageNumber),
+      isNotNull(medtechPracticeSessions.completedAt),
     ))
     .limit(1);
-  return Boolean(freePackageUsed);
+  return packageNumber > 1 || Boolean(completedPackage);
 }
 
 export async function GET(request: Request) {
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
   const action = body.action === "abandon" ? "abandon" : body.action === "spin" ? "spin" : "";
   if (!action) return Response.json({ error: "請選擇抽取折扣或放棄優惠。" }, { status: 400 });
   if (!(await canSpinForPackage(auth, packageName, packageNumber))) {
-    return Response.json({ error: "完成上一關並使用過首次免費題目包後，才可抽取這一關的折扣。" }, { status: 403 });
+    return Response.json({ error: "完成上一關後，才可抽取這一關的折扣。" }, { status: 403 });
   }
   const reward = await createMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber, action);
   return Response.json({ packageName, packageNumber, reward });
