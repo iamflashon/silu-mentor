@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { createPortal } from "react-dom";
 
 export default function MedtechPracticeEntry() {
@@ -27,8 +26,8 @@ export default function MedtechPracticeEntry() {
         </header>
         <p>依照今天的目標，選擇章節練習或跨章節隨機模考。</p>
         <div className="medtech-practice-choice-options">
-          <Link href="/medtech/chapters" onClick={() => setOpen(false)}><b>按章節刷題</b><span>依臨床病毒學總論、DNA 病毒、RNA 病毒逐章練習</span><strong>進入章節刷題 →</strong></Link>
-          <Link href="/medtech/random" onClick={() => setOpen(false)}><b>隨機模考</b><span>跨章節抽題，直接挑戰每 30 題一關的模考</span><strong>進入隨機模考 →</strong></Link>
+          <a href="/medtech/chapters" onClick={() => setOpen(false)}><b>按章節刷題</b><span>依臨床病毒學總論、DNA 病毒、RNA 病毒逐章練習</span><strong>進入章節刷題 →</strong></a>
+          <a href="/medtech/random" onClick={() => setOpen(false)}><b>隨機模考</b><span>跨章節抽題，直接挑戰每 30 題一關的模考</span><strong>進入隨機模考 →</strong></a>
         </div>
       </section>
     </div>,
