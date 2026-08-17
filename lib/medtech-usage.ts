@@ -63,7 +63,7 @@ export async function getMedtechPackDiscountReward(
     .from(medtechPointLedger)
     .where(and(
       eq(medtechPointLedger.userKey, userKey),
-      inArray(medtechPointLedger.action, ["question_pack_spin", "question_pack_spin_abandoned"]),
+      inArray(medtechPointLedger.action, ["question_pack_spin", "question_pack_spin_abandoned", "question_pack_quiz"]),
       eq(medtechPointLedger.description, rewardDescription),
     ))
     .orderBy(desc(medtechPointLedger.createdAt))
@@ -126,6 +126,37 @@ export async function createMedtechPackDiscountReward(
     action: "question_pack_spin",
     description: medtechPackDiscountDescription(packageName, packageNumber),
     sourceDetail: `結果：${option.label}；折扣：${option.percent}折；優惠價 ${option.cost} 點；每個題目包僅一次機會。`,
+  });
+  return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: option.percent === 100 ? new Date(Date.now() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000).toISOString() : null } satisfies MedtechPackDiscountReward;
+}
+
+export async function createMedtechPackQuizReward(
+  db: Awaited<ReturnType<typeof getDb>>,
+  userKey: string,
+  packageName: string,
+  packageNumber: number,
+  score: number,
+  total: number,
+) {
+  const current = await getMedtechPackDiscountReward(db, userKey, packageName, packageNumber);
+  if (current.status !== "available" && !(current.status === "revealed" && current.percent === 100)) return current;
+  const usage = await getOrCreateMedtechUsage(db, userKey);
+  const normalizedScore = Math.max(0, Math.min(total, Math.floor(score)));
+  const normalizedTotal = Math.max(1, Math.floor(total));
+  const option = normalizedScore >= normalizedTotal
+    ? MEDTECH_PACK_DISCOUNT_OPTIONS[0]
+    : normalizedScore >= normalizedTotal - 1
+    ? MEDTECH_PACK_DISCOUNT_OPTIONS[1]
+    : normalizedScore >= Math.ceil(normalizedTotal / 2)
+    ? MEDTECH_PACK_DISCOUNT_OPTIONS[2]
+    : MEDTECH_PACK_DISCOUNT_OPTIONS[3];
+  await db.insert(medtechPointLedger).values({
+    userKey,
+    delta: 0,
+    balanceAfter: usage.aiCredits,
+    action: "question_pack_quiz",
+    description: medtechPackDiscountDescription(packageName, packageNumber),
+    sourceDetail: `答題挑戰：${normalizedTotal} 題答對 ${normalizedScore} 題；結果：${option.label}；折扣：${option.percent}折；優惠價 ${option.cost} 點；每個題目包僅一次機會。`,
   });
   return { status: "revealed", label: option.label, percent: option.percent, cost: option.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: option.percent === 100 ? new Date(Date.now() + MEDTECH_AUDIO_ACCESS_HOURS * 60 * 60 * 1000).toISOString() : null } satisfies MedtechPackDiscountReward;
 }
