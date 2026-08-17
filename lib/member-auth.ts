@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { memberExamAccess, members } from "../db/schema";
 import { getOrCreateMedtechUsage } from "./medtech-usage";
+import { getMedtechDeviceStatus } from "./medtech-device-session";
 
 export type MemberRole = "teacher" | "student";
 
@@ -70,6 +71,24 @@ export async function requireMedtechMember(request: Request) {
   if (!access || access.status !== "active") return { error: Response.json({ error: "此帳號尚未開通醫檢師類科" }, { status: 403 }) } as const;
   await getOrCreateMedtechUsage(auth.db, auth.member.email);
   return { ...auth, access } as const;
+}
+
+export async function requireMedtechDevice(request: Request) {
+  const auth = await requireMedtechMember(request);
+  if ("error" in auth) return auth;
+  const device = await getMedtechDeviceStatus(auth.db, auth.userKey, request, new URL(request.url).pathname);
+  if (device.blocked) {
+    return {
+      error: Response.json({
+        error: "此帳號目前已在 2 台裝置使用。請先登出其中一台，或選擇由系統踢出一台，再繼續使用。",
+        code: "DEVICE_LIMIT",
+        maxDevices: device.maxDevices,
+        sessions: device.sessions.map((session) => ({ id: session.id, deviceLabel: session.deviceLabel, firstSeenAt: session.firstSeenAt, lastSeenAt: session.lastSeenAt })),
+        anomaly: device.anomaly,
+      }, { status: 409 }),
+    } as const;
+  }
+  return { ...auth, device } as const;
 }
 
 export async function requireMedtechAdmin(request: Request) {

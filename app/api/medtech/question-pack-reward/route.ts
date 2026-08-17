@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, like } from "drizzle-orm";
 import { medtechPointLedger, medtechPracticeSessions } from "../../../../db/schema";
-import { requireMedtechMember } from "../../../../lib/member-auth";
+import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { createMedtechPackDiscountReward, getMedtechPackDiscountReward } from "../../../../lib/medtech-usage";
 
 const allowedPackages = new Set(["臨床病毒學總論", "DNA 病毒", "RNA 病毒", "全真模擬試題", "隨機模考"]);
@@ -40,7 +40,7 @@ async function canSpinForPackage(auth: { db: Awaited<ReturnType<typeof import(".
 }
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechMember(request);
+  const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const packageName = readPackage(url.searchParams.get("packageName"));
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechMember(request);
+  const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
   let body: { packageName?: unknown; pack?: unknown; action?: unknown } = {};
   try {

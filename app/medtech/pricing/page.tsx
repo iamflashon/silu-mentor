@@ -25,12 +25,12 @@ export default function MedtechPricingPage() {
     <section className="medtech-pricing-head">
       <span>簡單點數制</span>
       <h1>不用訂閱，按照使用方式扣點。</h1>
-      <p>首次登入贈送 10 點；題目先提供初體驗，想再次刷題再購買題目包。</p>
+      <p>首次登入贈送 10 點；任選一包免費初體驗。完成上一關，下一關還能抽一次限時轉轉樂，最高五折，想再次刷題再購買題目包。</p>
     </section>
     <section className="medtech-pricing-card">
       <h2>點數怎麼算？</h2>
       <div className="medtech-pricing-rules">{rules.map(([name, cost, description]) => <article key={name}><div><b>{name}</b><strong>{cost}</strong></div><p>{description}</p></article>)}</div>
-      <div className="medtech-pricing-note"><b>全真模擬 120 題優惠</b><span>一次購買 60 點，五折刷完整組試題；題目包與語音解析、AI 追問的使用紀錄分開保存。</span></div>
+      <div className="medtech-pricing-note"><b>闖關優惠怎麼玩？</b><span>每包 30 題，開通後 7 天內不限次數重做；完成上一關可抽一次轉轉樂，最高五折。抽完或放棄後才用點數解鎖下一包。全真模擬 120 題另有一次購足 60 點方案。</span></div>
       <div className="medtech-pricing-actions"><a className="primary" href="/medtech/upgrade">查看／購買點數</a><a href="/medtech/account">查看我的點數與紀錄</a></div>
     </section>
     <section className="medtech-usage-guide" aria-label="平台使用流程">

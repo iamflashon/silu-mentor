@@ -46,7 +46,7 @@ export default function MedtechUpgradePage() {
     <section className="medtech-upgrade-head">
       <span>醫檢師點數商店</span>
       <h1>不用訂閱，按照使用方式簡單扣點。</h1>
-      <p>學員首次登入贈送 10 點；題目先免費初體驗，之後以 30 點購買一包 30 題，7 天內不限次數重做。</p>
+      <p>學員首次登入贈送 10 點；任選一包 30 題免費初體驗，完成上一關可抽一次限時轉轉樂，最高五折，之後再用點數解鎖，7 天內不限次數重做。</p>
     </section>
     <div className="medtech-test-banner"><b>{bannerTitle}</b><span>{bannerText}</span></div>
     <section className="medtech-upgrade-grid" aria-label="醫檢師點數方案">
@@ -67,6 +67,6 @@ export default function MedtechUpgradePage() {
         {state === "cancelled" && <div className="medtech-payment-result cancelled"><b>已取消測試購買</b><span>示範：回到點數商店，帳號點數不變。</span></div>}
       </aside>
     </section>
-    <p className="medtech-upgrade-foot">點數規則：提示與比較選項免費；題目包每關 30 題／7 天不限次數，完成上一關後可抽一次轉轉樂，最高五折；語音完整解析 1 點／24 小時；AI 追問一個新問題 1 點。所有刷題分析、贈點、加點、抽獎與扣點都會留下紀錄。</p>
+    <p className="medtech-upgrade-foot">點數規則：提示與比較選項免費；題目包每關 30 題／7 天不限次數，完成上一關後可抽一次限時轉轉樂，最高五折，放棄後恢復原價；語音完整解析 1 點／24 小時；AI 追問一個新問題 1 點。所有刷題分析、贈點、加點、抽獎與扣點都會留下紀錄。</p>
   </main>;
 }

@@ -1,11 +1,10 @@
 import { and, eq, desc } from "drizzle-orm";
-import { getDb } from "../../../../db";
 import { examQuestions, medtechPointLedger } from "../../../../db/schema";
-import { requireMedtechMember } from "../../../../lib/member-auth";
+import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { consumeMedtechFeature, getOrCreateMedtechUsage, medtechUserKey, MEDTECH_AUDIO_ACCESS_HOURS, MEDTECH_AUDIO_TRIAL_LIMIT, spendMedtechPoints } from "../../../../lib/medtech-usage";
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechMember(request);
+  const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
   const db = auth.db;
   const usage = await getOrCreateMedtechUsage(db, auth.userKey);
@@ -14,7 +13,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechMember(request);
+  const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as { action?: string; questionId?: number; useCredit?: boolean };
   const action = String(body.action || "");

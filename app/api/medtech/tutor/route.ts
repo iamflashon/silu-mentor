@@ -1,9 +1,9 @@
 import { eq, and } from "drizzle-orm";
-import { getDb } from "../../../../db";
 import { examQuestions, medtechAiExplanationCache, usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { getOrCreateMedtechUsage, medtechUserKey, spendMedtechPoints } from "../../../../lib/medtech-usage";
+import { requireMedtechDevice } from "../../../../lib/member-auth";
 
 type Turn = { role: "student" | "mentor"; text: string };
 
@@ -15,11 +15,13 @@ function outputText(payload: Record<string, unknown>) {
 
 export async function POST(request: Request) {
   try {
+    const auth = await requireMedtechDevice(request);
+    if ("error" in auth) return auth.error;
     const body = await request.json() as { questionId?: number; level?: string; messages?: Turn[]; mode?: "hint" | "compare" | "answer" | "followup"; selectedAnswer?: string };
     const messages = (body.messages ?? []).filter((item) => item && ["student", "mentor"].includes(item.role) && typeof item.text === "string").slice(-10);
     const latest = [...messages].reverse().find((item) => item.role === "student")?.text.trim();
     if (!latest) return Response.json({ error: "請先輸入想了解的問題。" }, { status: 400 });
-    const db = await getDb();
+    const db = auth.db;
     const questionId = Number(body.questionId);
     const [question] = Number.isInteger(questionId) ? await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.examCategory, "medtech"), eq(examQuestions.status, "published"))).limit(1) : [];
     if (!question) return Response.json({ error: "找不到這道醫檢師題目，請重新抽題。" }, { status: 404 });

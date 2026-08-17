@@ -17,6 +17,39 @@ export const members = sqliteTable("members", {
     .$defaultFn(() => new Date()),
 });
 
+export const medtechDeviceSessions = sqliteTable("medtech_device_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  deviceKey: text("device_key").notNull(),
+  deviceLabel: text("device_label").notNull().default("未知裝置"),
+  ipHash: text("ip_hash").notNull().default(""),
+  userAgentHash: text("user_agent_hash").notNull().default(""),
+  lastPath: text("last_path").notNull().default(""),
+  status: text("status").notNull().default("active"),
+  firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("medtech_device_sessions_user_device_unique").on(table.userKey, table.deviceKey),
+  index("medtech_device_sessions_user_status_idx").on(table.userKey, table.status),
+  index("medtech_device_sessions_last_seen_idx").on(table.lastSeenAt),
+]);
+
+export const medtechSecurityEvents = sqliteTable("medtech_security_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userKey: text("user_key").notNull(),
+  eventType: text("event_type").notNull(),
+  outcome: text("outcome").notNull(),
+  deviceKey: text("device_key").notNull().default(""),
+  deviceLabel: text("device_label").notNull().default("未知裝置"),
+  ipHash: text("ip_hash").notNull().default(""),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("medtech_security_events_user_created_idx").on(table.userKey, table.createdAt),
+  index("medtech_security_events_type_created_idx").on(table.eventType, table.createdAt),
+]);
+
 export const memberExamAccess = sqliteTable("member_exam_access", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),

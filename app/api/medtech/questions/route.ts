@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
-import { requireMedtechMember } from "../../../../lib/member-auth";
+import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, medtechUserKey, MEDTECH_QUESTION_PACKAGE_SIZE } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
 import { storedDocumentAnalysis } from "../../../../lib/document-analysis";
@@ -74,7 +74,7 @@ function stablePackageRows<T extends { id: number }>(rows: T[], packageName: str
 }
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechMember(request);
+  const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 30));
@@ -298,7 +298,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechMember(request);
+  const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as { answers?: Array<{ questionId: number; answer: string }>; masteredQuestionId?: number; sessionId?: number };
   if (Number.isInteger(body.masteredQuestionId)) {

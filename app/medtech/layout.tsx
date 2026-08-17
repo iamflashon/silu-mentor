@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import MedtechDeviceGuard from "./MedtechDeviceGuard";
 
 export const metadata: Metadata = {
   title: "醫檢師備考",
@@ -15,5 +16,5 @@ export const metadata: Metadata = {
 };
 
 export default function MedtechLayout({children}:{children:React.ReactNode}) {
-  return children;
+  return <>{children}<MedtechDeviceGuard /></>;
 }

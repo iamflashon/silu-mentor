@@ -3,7 +3,7 @@ import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { medtechPointLedger, usageLogs } from "../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { getOrCreateMedtechUsage, spendMedtechPoints } from "../../../../lib/medtech-usage";
-import { requireMedtechMember } from "../../../../lib/member-auth";
+import { requireMedtechDevice } from "../../../../lib/member-auth";
 
 const MEDTECH_TERM_FREE_LIMIT = 3;
 
@@ -71,7 +71,7 @@ function parseStructured(text: string): { explanation: string; analysis: Medtech
 
 export async function POST(request: Request) {
   try {
-    const auth = await requireMedtechMember(request);
+    const auth = await requireMedtechDevice(request);
     if ("error" in auth) return auth.error;
     const body = await request.json() as { selectedText?: string };
     const selectedText = String(body.selectedText ?? "").replace(/\s+/g, " ").trim().slice(0, 1200);
