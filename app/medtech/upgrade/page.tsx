@@ -41,7 +41,7 @@ export default function MedtechUpgradePage() {
       <a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>POINTS</small></div></a>
       <a className="medtech-member-link" href="/medtech/account">我的帳號</a>
     </header>
-    <MedtechTabs active="random" />
+    <MedtechTabs active="pricing" />
     <section className="medtech-upgrade-head">
       <span>醫檢師點數商店</span>
       <h1>不用訂閱，按照使用方式簡單扣點。</h1>

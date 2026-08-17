@@ -7,6 +7,7 @@ type LegalArticle = { title: string; articleNo: string; hierarchy?: string; cont
 type JudicialDecision = { id: number; court: string; year: string; caseType: string; caseNo: string; judgmentDate: string; title: string; fullText: string; excerpt: string };
 type ToolPosition = { left: number; top: number; placement: "above" | "below" };
 type ExplainUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
+type MedtechExplainAccess = { freeRemaining: number; creditCost: number; pointsRemaining: number };
 type LegalAnalysis = { kind?: string; officialName?: string; legalField?: string; nature?: string; reference?: string; points?: string[]; verification?: string; caveat?: string };
 type NoteDraft = { title: string; content: string; originalContent?: string; subject: string; tags: string; sourceLabel: string; usage?: ExplainUsage; reused?: boolean };
 const LAW_ALIASES: Record<string, string> = { 憲訴法: "憲法訴訟法", 憲法訴訟法: "憲法訴訟法", 民訴法: "民事訴訟法", 刑訴法: "刑事訴訟法", 行訴法: "行政訴訟法", 行程法: "行政程序法" };
@@ -27,9 +28,10 @@ export default function GlobalSelectionTools() {
   const [lawQuery, setLawQuery] = useState("");
   const [judicialQuery, setJudicialQuery] = useState<{ court: string; year: string; caseType: string; caseNo: string } | null>(null);
   const [position, setPosition] = useState<ToolPosition | null>(null);
-  const [lookup, setLookup] = useState<{ mode: "search" | "explain"; loading: boolean; article: LegalArticle | null; decision: JudicialDecision | null; error: string; explanation: string; analysis: LegalAnalysis | null; explaining: boolean; usage: ExplainUsage | null } | null>(null);
+  const [lookup, setLookup] = useState<{ mode: "search" | "explain"; loading: boolean; article: LegalArticle | null; decision: JudicialDecision | null; error: string; explanation: string; analysis: LegalAnalysis | null; explaining: boolean; usage: ExplainUsage | null; access?: MedtechExplainAccess } | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">("");
+  const [saveMessage, setSaveMessage] = useState("");
   const [organizeState, setOrganizeState] = useState<"" | "organizing" | "error">("");
   const rangeRef = useRef<Range | null>(null);
   const selectionBarRef = useRef<HTMLDivElement | null>(null);
@@ -128,7 +130,7 @@ export default function GlobalSelectionTools() {
     const explanation = typeof (isAccounting ? data.reply : data.explanation) === "string" ? String(isAccounting ? data.reply : data.explanation).trim() : "";
     const looksLikeRawJson = explanation.startsWith("{") || explanation.includes('"analysis"') || explanation.includes('"explanation"');
     const valid = response.ok && explanation.length > 0 && !looksLikeRawJson;
-    setLookup((latest) => latest ? { ...latest, mode: "explain", loading: false, explaining: false, explanation: valid ? explanation : "", analysis: valid && data.analysis && typeof data.analysis === "object" ? data.analysis : null, usage: valid ? data.usage ?? null : null, error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。" } : latest);
+    setLookup((latest) => latest ? { ...latest, mode: "explain", loading: false, explaining: false, explanation: valid ? explanation : "", analysis: valid && data.analysis && typeof data.analysis === "object" ? data.analysis : null, usage: valid ? data.usage ?? null : null, access: valid && data.access && typeof data.access === "object" ? data.access as MedtechExplainAccess : latest.access, error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。" } : latest);
   }
 
   function noteFromLookup(): NoteDraft {
@@ -153,12 +155,13 @@ export default function GlobalSelectionTools() {
 
   async function saveSelection(kind: "favorite" | "note", draft = noteFromLookup()) {
     setSaveState("saving");
+    setSaveMessage("");
     const original = draft.originalContent || draft.content;
     let hash = 2166136261;
     for (let index = 0; index < original.length; index++) hash = Math.imul(hash ^ original.charCodeAt(index), 16777619);
     const sourceId = `${isMedtech ? "medtech-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
     const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, sourceType: kind, sourceId }) });
-    if (!response.ok) { setSaveState("error"); return; }
+    if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; setSaveMessage(typeof data.error === "string" ? data.error : "目前無法保存，請稍後再試。"); setSaveState("error"); return; }
     setSaveState("saved"); setNoteDraft(null);
     window.setTimeout(() => setSaveState(""), 1800);
   }
@@ -186,7 +189,7 @@ export default function GlobalSelectionTools() {
       {editingSelection ? <input autoFocus aria-label="編輯框選文字" value={selectedText} onChange={(event) => applySelectedText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setEditingSelection(false); if (event.key === "Escape") dismiss(true); }} /> : <span>已框選：{selectedText}</span>}
       {isMedtech ? <>
         <button type="button" onClick={() => void saveMedtechSelection()} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saving" ? "儲存中…" : saveState === "saved" ? "已加入 ✓" : "加入筆記"}</button>
-        <button type="button" onClick={() => void explain()}>醫檢白話解析</button>
+        <button type="button" title="前 3 次免費，之後每次扣 1 點" onClick={() => void explain()}>醫檢白話解析（前 3 次免費）</button>
       </> : isAccounting ? <>
         <button type="button" className="selection-edit-button" onClick={() => setEditingSelection((current) => !current)}>{editingSelection ? "完成" : "編輯"}</button>
         <button type="button" onClick={() => void explain()}>中會白話說明</button>
@@ -212,6 +215,7 @@ export default function GlobalSelectionTools() {
             </div>}
             {lookup.analysis?.points?.length ? <div className="legal-analysis-points"><b>拆解重點</b><ul>{lookup.analysis.points.map((point, index) => <li key={index}>{point}</li>)}</ul></div> : null}
             <div className="law-plain-explanation"><b>{isMedtech ? "醫檢白話解析" : isAccounting ? "中會白話說明" : "白話解釋"}</b><p>{lookup.explanation}</p>{lookup.analysis?.caveat && <small>{lookup.analysis.caveat}</small>}</div>
+            {isMedtech && lookup.access && <div className="medtech-feature-access"><b>{lookup.access.creditCost > 0 ? "本次已扣 1 點" : "本次免費體驗"}</b><span>名詞解析免費剩餘 {lookup.access.freeRemaining} 次 · 目前點數 {lookup.access.pointsRemaining} 點</span></div>}
             {lookup.usage && <div className="law-usage-meta"><b>{lookup.usage.model.replace("gpt-5.6-", "")}｜{isMedtech ? "AI 醫檢白話解析" : "AI 法律辨識與白話解釋"}</b><span>輸入 {lookup.usage.inputTokens.toLocaleString()} · 輸出 {lookup.usage.outputTokens.toLocaleString()} · 合計 {(lookup.usage.inputTokens + lookup.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {lookup.usage.durationMs.toLocaleString()} ms · US$ {lookup.usage.estimatedCostUsd.toFixed(6)} · 約 NT$ {(lookup.usage.estimatedCostUsd * 32.5).toFixed(4)}</span></div>}
           </section>}
         </> : lookup.article ? <>
@@ -224,7 +228,7 @@ export default function GlobalSelectionTools() {
           {lookup.explanation && <section className="law-plain-explanation"><b>白話解釋</b><p>{lookup.explanation}</p><small>解釋以顯示的裁判內容為依據，不取代老師解析。</small>{lookup.usage && <div className="law-usage-meta"><b>{lookup.usage.model.replace("gpt-5.6-", "")}｜AI 白話解釋</b><span>輸入 {lookup.usage.inputTokens.toLocaleString()} · 輸出 {lookup.usage.outputTokens.toLocaleString()} · 合計 {(lookup.usage.inputTokens + lookup.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {lookup.usage.durationMs.toLocaleString()} ms · US$ {lookup.usage.estimatedCostUsd.toFixed(6)} · 約 NT$ {(lookup.usage.estimatedCostUsd * 32.5).toFixed(4)}</span></div>}</section>}
         </> : <div className="law-lookup-status error"><p>{lookup.error}</p>{judicialQuery && <small>{judicialQuery.court}｜{judicialQuery.year}年度｜{judicialQuery.caseType}字｜第{judicialQuery.caseNo}號</small>}<div className="official-search-fallback"><b>已整理並複製搜尋關鍵字</b><span>選擇官方網站後，可直接貼入搜尋欄。</span><div><button type="button" onClick={() => void openOfficialSearch("https://law.moj.gov.tw/")}>全國法規資料庫 ↗</button><button type="button" onClick={() => void openOfficialSearch("https://judgment.judicial.gov.tw/FJUD/default.aspx")}>司法院裁判書 ↗</button><button type="button" onClick={() => void openOfficialSearch("https://cons.judicial.gov.tw/judsearch.aspx?fid=46")}>憲法法庭 ↗</button></div></div></div>}
         {lookup.error && lookup.article && <p className="law-lookup-status error">{lookup.error}</p>}
-        {!lookup.loading && !lookup.error && <div className="selection-save-actions">{isMedtech ? <button type="button" className="primary" onClick={() => void saveSelection("note")} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saving" ? "儲存中…" : saveState === "saved" ? "已加入醫檢筆記 ✓" : "＋ 將解析加入醫檢筆記"}</button> : <><button type="button" onClick={() => void saveSelection("favorite")} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saved" ? "已收藏原文 ✓" : "☆ 快速收藏原文"}</button><button type="button" className="primary" onClick={() => void organizeNote()} disabled={organizeState === "organizing"}>{organizeState === "organizing" ? "AI 正在整理…" : "＋ AI 整理成筆記"}</button><a href="/notes">前往我的筆記 →</a></>}{saveState === "error" && <small>目前無法保存，請稍後再試。</small>}{organizeState === "error" && <small>AI 整理未完成，請再試一次。</small>}</div>}
+        {!lookup.loading && !lookup.error && <div className="selection-save-actions">{isMedtech ? <><button type="button" className="primary" onClick={() => void saveSelection("note")} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saving" ? "儲存中…" : saveState === "saved" ? "已加入醫檢筆記 ✓" : "＋ 將解析加入醫檢筆記"}</button><small>醫檢筆記前 5 筆免費，第 6 筆起每筆扣 1 點；查看與編輯不扣點。</small></> : <><button type="button" onClick={() => void saveSelection("favorite")} disabled={saveState === "saving" || saveState === "saved"}>{saveState === "saved" ? "已收藏原文 ✓" : "☆ 快速收藏原文"}</button><button type="button" className="primary" onClick={() => void organizeNote()} disabled={organizeState === "organizing"}>{organizeState === "organizing" ? "AI 正在整理…" : "＋ AI 整理成筆記"}</button><a href="/notes">前往我的筆記 →</a></>}{saveState === "error" && <small>{saveMessage || "目前無法保存，請稍後再試。"}</small>}{organizeState === "error" && <small>AI 整理未完成，請再試一次。</small>}</div>}
       </aside>
     </div>}
     {noteDraft && <div className="selection-note-backdrop" role="presentation" onMouseDown={() => setNoteDraft(null)}><form className="selection-note-editor" onSubmit={(event) => { event.preventDefault(); void saveSelection("note", noteDraft); }} onMouseDown={(event) => event.stopPropagation()}><header><div><span>AI 整理成筆記</span><h3>預覽與編輯</h3></div><button type="button" onClick={() => setNoteDraft(null)} aria-label="關閉">×</button></header><label>標題<input value={noteDraft.title} onChange={(event) => setNoteDraft({ ...noteDraft, title: event.target.value })} required /></label><div className="selection-note-fields"><label>科目<input value={noteDraft.subject} onChange={(event) => setNoteDraft({ ...noteDraft, subject: event.target.value })} /></label><label>標籤<input value={noteDraft.tags} onChange={(event) => setNoteDraft({ ...noteDraft, tags: event.target.value })} placeholder="重要、待複習" /></label></div><label>結構化筆記<textarea rows={13} value={noteDraft.content} onChange={(event) => setNoteDraft({ ...noteDraft, content: event.target.value })} required /></label><small>儲存後只建立一筆筆記；AI 整理與原始收藏會一起保留，可在筆記中切換查看。</small>{noteDraft.usage && <div className="note-organize-usage"><b>{noteDraft.reused ? "快取命中｜沿用先前 AI 整理" : `${noteDraft.usage.model.replace("gpt-5.6-", "")}｜AI 筆記整理`}</b><span>輸入 {noteDraft.usage.inputTokens.toLocaleString()} · 輸出 {noteDraft.usage.outputTokens.toLocaleString()} · 合計 {(noteDraft.usage.inputTokens + noteDraft.usage.outputTokens).toLocaleString()} tokens</span><span>耗時 {noteDraft.usage.durationMs.toLocaleString()} ms · US$ {noteDraft.usage.estimatedCostUsd.toFixed(6)} · 約 NT$ {(noteDraft.usage.estimatedCostUsd * 32.5).toFixed(4)}</span></div>}<footer><button type="button" onClick={() => setNoteDraft(null)}>取消</button><button type="submit" className="primary" disabled={saveState === "saving"}>{saveState === "saving" ? "儲存中…" : "儲存筆記（含原文）"}</button></footer></form></div>}

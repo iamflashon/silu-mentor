@@ -1,0 +1,31 @@
+import MedtechTabs from "../MedtechTabs";
+
+const rules = [
+  ["看一題", "1 點", "全真模擬試題，每看一題扣 1 點。"],
+  ["康情老師語音完整解析", "1 點", "聽一次完整語音解析扣 1 點；同一題 24 小時內重看不重扣。"],
+  ["AI 助教追問", "1 點", "每提出一個新問題扣 1 點。"],
+  ["框選名詞解析", "前 3 次免費", "免費體驗用完後，每次扣 1 點。"],
+  ["學習筆記", "前 5 筆免費", "第 6 筆起新增每筆扣 1 點；查看與編輯既有筆記不扣點。"],
+];
+
+export default function MedtechPricingPage() {
+  return <main className="medtech-pricing-page">
+    <header className="medtech-top" data-no-navigation-feedback>
+      <a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>POINTS GUIDE</small></div></a>
+      <a className="medtech-member-link" href="/medtech/account">我的帳號</a>
+    </header>
+    <MedtechTabs active="pricing" />
+    <section className="medtech-pricing-head">
+      <span>簡單點數制</span>
+      <h1>不用訂閱，按照使用方式扣點。</h1>
+      <p>首次登入贈送 10 點。提示與比較選項免費，真正需要深度解析時再使用點數。</p>
+    </section>
+    <section className="medtech-pricing-card">
+      <h2>點數怎麼算？</h2>
+      <div className="medtech-pricing-rules">{rules.map(([name, cost, description]) => <article key={name}><div><b>{name}</b><strong>{cost}</strong></div><p>{description}</p></article>)}</div>
+      <div className="medtech-pricing-note"><b>全真模擬 120 題優惠</b><span>一次購買 60 點，五折刷完整組試題；語音解析與 AI 追問仍依使用次數另外扣點。</span></div>
+      <div className="medtech-pricing-actions"><a className="primary" href="/medtech/upgrade">查看／購買點數</a><a href="/medtech/account">查看我的點數與紀錄</a></div>
+    </section>
+    <p className="medtech-pricing-foot">不自動續訂、不綁月費；購買的點數一次入帳，所有贈點、加點與扣點都會留下使用紀錄。</p>
+  </main>;
+}
