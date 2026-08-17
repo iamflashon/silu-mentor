@@ -29076,6 +29076,11 @@ button[aria-busy="true"]{cursor:wait!important;opacity:.78}
   overflow:hidden;
   text-overflow:ellipsis;
 }
+.medtech-keyboard-help:not(.is-locked) span:first-of-type{
+  grid-column:span 2;
+  overflow:visible;
+  text-overflow:clip;
+}
 .medtech-keyboard-help.is-locked{
   display:grid;
   grid-template-columns:auto minmax(0,1fr);
