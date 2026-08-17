@@ -29054,6 +29054,40 @@ button[aria-busy="true"]{cursor:wait!important;opacity:.78}
 .medtech-keyboard-help.is-locked span{padding:0;border:0;background:transparent;color:#80631d;line-height:1.55;white-space:normal}
 .medtech-question-map>div>button:disabled,.medtech-question .medtech-options button:disabled,.medtech-question-actions button:disabled,.medtech-question>footer button:disabled{cursor:not-allowed;opacity:.52}
 
+/* 快捷鍵說明固定成小型表格，避免側欄變窄時每個字被拆成直排。 */
+.medtech-keyboard-help:not(.is-locked){
+  display:grid;
+  grid-template-columns:auto repeat(3,minmax(0,1fr));
+  align-items:stretch;
+  gap:6px;
+}
+.medtech-keyboard-help:not(.is-locked) b{
+  display:flex;
+  align-items:center;
+  white-space:nowrap;
+}
+.medtech-keyboard-help:not(.is-locked) span{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-width:0;
+  padding:4px 5px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.medtech-keyboard-help.is-locked{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+}
+@media(max-width:760px){
+  .medtech-keyboard-help:not(.is-locked){
+    grid-template-columns:auto repeat(3,minmax(0,1fr));
+    gap:5px;
+  }
+  .medtech-keyboard-help:not(.is-locked) span{padding-inline:4px}
+}
+
 /* 題目包卡片固定列高，避免第一列被操作按鈕撐高。 */
 .medtech-chapter-page .medtech-pack-grid{grid-auto-rows:128px;align-items:stretch}
 .medtech-chapter-page .medtech-pack-grid .medtech-pack-item{height:128px;min-height:128px}
