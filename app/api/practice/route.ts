@@ -17,7 +17,10 @@ export async function GET(request: Request) {
     const excludeAnswered = url.searchParams.get("excludeAnswered") === "1";
     const wrongOnly = url.searchParams.get("wrongOnly") === "1";
     const db = await getDb();
-    const baseFilters = [eq(examQuestions.status, "published"), eq(examQuestions.examType, examType)];
+    // 司律練真題只能讀取司律題庫；不同類科共用 examQuestions 表，
+    // 因此不能只靠 examType 篩選，否則醫檢師／會計的一試題也會被抽到。
+    const lawCategory = eq(examQuestions.examCategory, "law");
+    const baseFilters = [lawCategory, eq(examQuestions.status, "published"), eq(examQuestions.examType, examType)];
     if (subject) baseFilters.push(eq(examQuestions.subject, subject));
     if (year) baseFilters.push(eq(examQuestions.year, year));
     if (law) baseFilters.push(sql`${examQuestions.stem} like ${`%${law}%`}`);
@@ -40,9 +43,9 @@ export async function GET(request: Request) {
     const where = and(...baseFilters);
     if (url.searchParams.get("facets") === "1") {
       const [years, subjects, stems] = await Promise.all([
-        db.selectDistinct({ value: examQuestions.year }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))).orderBy(sql`${examQuestions.year} desc`),
-        db.selectDistinct({ value: examQuestions.subject }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))).orderBy(examQuestions.subject),
-        db.select({ stem: examQuestions.stem }).from(examQuestions).where(and(eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))),
+        db.selectDistinct({ value: examQuestions.year }).from(examQuestions).where(and(lawCategory, eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))).orderBy(sql`${examQuestions.year} desc`),
+        db.selectDistinct({ value: examQuestions.subject }).from(examQuestions).where(and(lawCategory, eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))).orderBy(examQuestions.subject),
+        db.select({ stem: examQuestions.stem }).from(examQuestions).where(and(lawCategory, eq(examQuestions.status, "published"), eq(examQuestions.examType, examType))),
       ]);
       const counts = new Map<string, number>();
       for (const row of stems) {
@@ -70,8 +73,8 @@ export async function GET(request: Request) {
       ? candidates.find((candidate) => Boolean(normalizeMcqOptions(candidate.optionsJson)))
       : candidates[0];
     if (!question) {
-      const [published] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(eq(examQuestions.examType, examType), eq(examQuestions.status, "published")));
-      const [drafts] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(eq(examQuestions.examType, examType), eq(examQuestions.status, "draft")));
+      const [published] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(lawCategory, eq(examQuestions.examType, examType), eq(examQuestions.status, "published")));
+      const [drafts] = await db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(and(lawCategory, eq(examQuestions.examType, examType), eq(examQuestions.status, "draft")));
       const publishedCount = Number(published?.count ?? 0);
       const draftCount = Number(drafts?.count ?? 0);
       const message = examType === "mcq"
@@ -90,7 +93,7 @@ export async function POST(request: Request) {
     const questionId = Number(body.questionId); const answer = String(body.answer ?? "").toUpperCase();
     if (!Number.isInteger(questionId) || !/^[ABCD]$/.test(answer)) return Response.json({ error: "作答資料不正確" }, { status: 400 });
     const db = await getDb();
-    const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"))).limit(1);
+    const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.examCategory, "law"), eq(examQuestions.status, "published"))).limit(1);
     if (!question || question.examType !== "mcq" || !question.correctAnswer) return Response.json({ error: "找不到可作答的選擇題" }, { status: 404 });
     const correctAnswer = question.correctAnswer.toUpperCase(); const correct = answer === correctAnswer;
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId, selectedAnswer: answer, correct });

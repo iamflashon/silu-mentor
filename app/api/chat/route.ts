@@ -44,6 +44,14 @@ function automaticRoute(query: string, context: ChatContext, hasVerifiedAnswer: 
   return { provider: "luna" as const, reason: "本次屬一般教學、簡短問答或學習規劃，Luna 已足以完成並可控制成本。" };
 }
 
+const homeLegalScopeTerms = /法律|法條|法規|刑法|民法|憲法|行政法|民訴|刑訴|商法|司律|律師|司法官|申論|真題|爭點|法學|判決|裁判|罪|犯罪|責任|契約|債權|物權|繼承|婚姻|訴訟|訴願|國考|考試|讀書計畫|學習紀錄|平台|網站|功能|登入|帳號|題庫|教材|智能書/u;
+const clearlyNonLegalHomeQuery = /天氣|氣象|食譜|怎麼煮|料理|餐廳|旅遊|景點|機票|住宿|股票|基金|匯率|球賽|棒球|足球|電影|追劇|遊戲|歌詞|程式碼|寫程式|Python|JavaScript|Excel公式|健身|減肥|感情|戀愛|醫療診斷|症狀|藥物|疾病|手機推薦|電腦推薦|購物|商品推薦/u;
+
+function shouldRefuseHomeQuery(query: string) {
+  const compact = query.replace(/\s+/g, "");
+  return compact.length >= 2 && clearlyNonLegalHomeQuery.test(compact) && !homeLegalScopeTerms.test(compact);
+}
+
 function providerReply(
   provider: ChatProvider,
   replies: { luna: string; deepseek: string; zai: string; sonnet?: string },
@@ -353,7 +361,8 @@ const baseInstructions = `你是「司律備考」的 AI 學習教練，專門�
 24. 判斷心理幫助時，必須具體說明正犯是否知道該承諾或助力、該行為是否實際強化或維持犯意，以及實行時是否仍受其影響；未被使用的物理工具不得在欠缺上述事實時直接改稱心理幫助。
 25. 不得無對話證據指責學生「反覆迴避」「又問一次」或虛構提問次數。更正應針對法律概念與涵攝本身，保持臺灣法律補教老師的精確、平和語氣，不使用羞辱、審問、挑釁或中國大陸式辯論用語。
 26. 比較正犯、幫助犯與不罰時，應清楚交代使結論改變的事實節點與法律理由；「不可或缺」「離開現場」「著手時間」都只能作為判斷因素，不得未經涵攝直接等同犯罪支配、幫助因果或有效脫離。
-27. 回答正文不得輸出任何網址、網域名稱或 Markdown 連結。外網查證只在系統的「查證來源」欄顯示來源名稱，正文引用時只寫「依全國法規資料庫」或「依司法院資料」等可讀名稱。`;
+27. 回答正文不得輸出任何網址、網域名稱或 Markdown 連結。外網查證只在系統的「查證來源」欄顯示來源名稱，正文引用時只寫「依全國法規資料庫」或「依司法院資料」等可讀名稱。
+28. 司律首頁有明確服務範圍：法律學習、司律考試、真題／申論、讀書計畫、學習紀錄與本站功能操作。若學生詢問明顯無關的生活、天氣、旅遊、購物、娛樂、程式、一般醫療或其他非司律內容，請客氣、簡短地拒絕，不要回答該非法律問題，也不要為此搜尋外網。固定以類似「不好意思，我是司律備考的 AI 導師，主要協助法律學習與司律備考；這個問題和司律學習沒有直接關係，暫時無法協助。你可以改問法律概念、司律真題、申論、讀書計畫或平台操作。」回覆。若只是寒暄，可自然回應；若問題不明確，先以是否屬於司律學習判斷，不要過度拒絕。`;
 
 function sourceNameFromUrl(value: string) {
   const lower = value.toLowerCase();
@@ -863,6 +872,17 @@ export async function POST(request: Request) {
     if (context.type === "home") modelMode = "luna";
     // 重新規劃計畫的提示可能包含「一試刷題」等學習目標，不能被首頁
     // 的一試抽題分流提前攔截；有 planningConstraint 時必須進入計畫流程。
+    if (context.type === "home" && latestStudent && !body.planningConstraint && shouldRefuseHomeQuery(latestStudent.text)) {
+      const reply = "不好意思，我是司律備考的 AI 導師，主要協助法律學習與司律備考；這個問題和司律學習沒有直接關係，暫時無法協助。你可以改問法律概念、司律真題、申論、讀書計畫或平台操作。";
+      const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent.text, context);
+      const db = await getDb();
+      if (body.persistStudentMessage !== false && latestStudent.text.trim()) {
+        await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text.trim() });
+      }
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: reply, source: "服務範圍" });
+      await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      return Response.json({ reply, sessionId: session.id, citationStatus: "scope_refusal" });
+    }
     const mcqSubject = context.type === "home" && !body.planningConstraint && latestStudent ? requestedMcqSubject(latestStudent.text) : null;
     if (mcqSubject !== null) {
       const practiceQuestion = await findPublishedMcq(mcqSubject);
