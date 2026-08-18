@@ -494,7 +494,14 @@ export async function POST(request: Request) {
     const [session] = await db.select().from(medtechPracticeSessions).where(and(eq(medtechPracticeSessions.id, sessionId), eq(medtechPracticeSessions.userKey, auth.userKey))).limit(1);
     if (session) {
       if (session.completedAt || session.status === "completed") return Response.json({ saved, session: { id: session.id, completed: true, status: "completed", durationSeconds: session.durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: session.answeredQuestions, correctQuestions: session.correctQuestions } });
-      const completed = results.length >= session.totalQuestions;
+      // The browser sends the complete set of selected answers on交卷.  Do not
+      // use results.length here: a legacy question without a stored official
+      // answer is skipped from grading, but it is still a question the learner
+      // has answered and must not block the next pack's reward flow.
+      const sessionQuestionIds = new Set(parseIds(session.questionIdsJson));
+      const answeredIds = new Set(answers.filter((item) => sessionQuestionIds.has(item.questionId)).map((item) => item.questionId));
+      const answeredCount = answeredIds.size;
+      const completed = answeredCount >= session.totalQuestions;
       const completedAt = completed ? new Date() : null;
       const incorrectIds = results.filter((item) => !item.correct).map((item) => item.questionId);
       const repeatedWrongIds = incorrectIds.filter((id) => previouslyWrong.has(id));
@@ -522,7 +529,7 @@ export async function POST(request: Request) {
         lastActiveAt: new Date(),
         answerDetailsJson: JSON.stringify([...savedDetailsById.values()].sort((left, right) => left.order - right.order)),
         durationSeconds,
-        answeredQuestions: results.length,
+        answeredQuestions: answeredCount,
         correctQuestions: results.filter((item) => item.correct).length,
         incorrectQuestionIdsJson: JSON.stringify(incorrectIds),
         repeatedWrongQuestionIdsJson: JSON.stringify(repeatedWrongIds),
@@ -537,11 +544,11 @@ export async function POST(request: Request) {
         activityType: "醫檢師刷題統計",
         plannedMinutes: Math.ceil(durationSeconds / 60),
         actualMinutes: Math.ceil(durationSeconds / 60),
-        reflection: JSON.stringify({ sessionId: session.id, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectIds, repeatedWrongIds }),
+        reflection: JSON.stringify({ sessionId: session.id, totalQuestions: session.totalQuestions, answeredQuestions: answeredCount, correctQuestions: results.filter((item) => item.correct).length, incorrectIds, repeatedWrongIds }),
         weakness: weaknesses.map((item) => `${item.label}（${item.count}題）`).join("；"),
         nextStep,
       });
-      return Response.json({ saved, session: { id: session.id, completed, status: completed ? "completed" : "awaiting_submit", durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: results.length, correctQuestions: results.filter((item) => item.correct).length, incorrectQuestionIds: incorrectIds, repeatedWrongQuestionIds: repeatedWrongIds, weaknesses, nextStep } });
+      return Response.json({ saved, session: { id: session.id, completed, status: completed ? "completed" : "awaiting_submit", durationSeconds, totalQuestions: session.totalQuestions, answeredQuestions: answeredCount, correctQuestions: results.filter((item) => item.correct).length, incorrectQuestionIds: incorrectIds, repeatedWrongQuestionIds: repeatedWrongIds, weaknesses, nextStep } });
     }
   }
   return Response.json({ saved });

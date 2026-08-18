@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type Props = { href: string; packNumber: number; questionTotal: number; label: string };
+type Props = { href: string; packNumber: number; questionTotal: number; label: string; remaining?: string };
 
 const modes = [
   { key: "ordered", title: "1. 順序出題", description: "依照題目包原本的題號順序作答。", params: "questionOrder=ordered&optionOrder=ordered" },
@@ -10,7 +10,7 @@ const modes = [
   { key: "options", title: "3. 隨機選項", description: "題號依原本順序，A～D 選項重新排列。", params: "questionOrder=ordered&optionOrder=random" },
 ] as const;
 
-export default function MedtechRetakeOptions({ href, packNumber, questionTotal, label }: Props) {
+export default function MedtechRetakeOptions({ href, packNumber, questionTotal, label, remaining }: Props) {
   const [open, setOpen] = useState(false);
   const withMode = (params: string) => `${href}${href.includes("?") ? "&" : "?"}${params}`;
 
@@ -18,7 +18,7 @@ export default function MedtechRetakeOptions({ href, packNumber, questionTotal, 
     <button type="button" className="medtech-pack-retake-trigger" onClick={() => setOpen(true)} aria-haspopup="dialog">
       <span>第 {packNumber} 關</span>
       <b>{questionTotal} 題</b>
-      <small>{label}</small>
+      <small>{label}{remaining ? ` · ${remaining}` : ""}</small>
       <strong>再次挑戰 →</strong>
     </button>
     {open && <div className="medtech-retake-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>

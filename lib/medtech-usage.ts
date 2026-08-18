@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, like, ne, or } from "drizzle-orm";
 import type { getDb } from "../db";
 import { medtechPointLedger, medtechPracticeSessions, medtechUsage } from "../db/schema";
+import { taipeiDate } from "./taipei-time";
 
 // 醫檢師平台統一使用點數：首次登入贈 10 點，提示與比較選項走快取，
 // 語音完整解析與 AI 追問各自按次扣 1 點。保留舊欄位讀取僅為相容既有資料。
@@ -11,6 +12,9 @@ export const MEDTECH_AUDIO_ACCESS_HOURS = 24;
 export const MEDTECH_QUESTION_PACKAGE_COST = 30;
 export const MEDTECH_QUESTION_PACKAGE_SIZE = 30;
 export const MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT = 2;
+export const MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT = 30;
+export const MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS = 3 * 60;
+export const MEDTECH_ULTIMATE_CHALLENGE_COST = 3;
 export const MEDTECH_QUESTION_PACKAGE_HOURS = 7 * 24;
 export const MEDTECH_CHAPTER_PACKAGE_COST = MEDTECH_QUESTION_PACKAGE_COST;
 export const MEDTECH_CHAPTER_PACKAGE_HOURS = MEDTECH_QUESTION_PACKAGE_HOURS;
@@ -18,6 +22,8 @@ const MEDTECH_OWNER_USER_KEY = "iamflashon@gmail.com";
 const MEDTECH_SCREENSHOT_SERVICE_USER_KEY = "sites-screenshot-service-noreply@chatgpt.com";
 // 保留舊名稱，讓既有頁面與資料相容；平台語意統一稱為「點數」。
 export const MEDTECH_STARTING_AI_CREDITS = MEDTECH_STARTING_POINTS;
+
+export const MEDTECH_ULTIMATE_DISCOUNT = { percent: 10, label: "一折", cost: MEDTECH_ULTIMATE_CHALLENGE_COST } as const;
 
 export const MEDTECH_PACK_DISCOUNT_OPTIONS = [
   { percent: 50, label: "五折", cost: 15 },
@@ -50,7 +56,9 @@ function parseMedtechPackDiscount(sourceDetail: string | null) {
   if (!match) return null;
   const percent = Number(match[1]);
   const cost = Number(match[2]);
-  const option = MEDTECH_PACK_DISCOUNT_OPTIONS.find((item) => item.percent === percent && item.cost === cost);
+  const option = percent === MEDTECH_ULTIMATE_DISCOUNT.percent && cost === MEDTECH_ULTIMATE_DISCOUNT.cost
+    ? MEDTECH_ULTIMATE_DISCOUNT
+    : MEDTECH_PACK_DISCOUNT_OPTIONS.find((item) => item.percent === percent && item.cost === cost);
   return option ? { percent: option.percent, label: option.label, cost: option.cost } : null;
 }
 
@@ -66,7 +74,7 @@ export async function getMedtechPackDiscountReward(
     .from(medtechPointLedger)
     .where(and(
       eq(medtechPointLedger.userKey, userKey),
-      inArray(medtechPointLedger.action, ["question_pack_spin", "question_pack_spin_abandoned", "question_pack_quiz"]),
+      inArray(medtechPointLedger.action, ["question_pack_spin", "question_pack_spin_abandoned", "question_pack_quiz", "question_pack_ultimate"]),
       eq(medtechPointLedger.description, rewardDescription),
     ))
     .orderBy(desc(medtechPointLedger.createdAt))
@@ -74,13 +82,17 @@ export async function getMedtechPackDiscountReward(
   const quizAttemptsUsed = rewardRows.filter((row) => row.action === "question_pack_quiz").length;
   const quizAttemptsRemaining = Math.max(0, MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT - quizAttemptsUsed);
   const attemptMeta = { quizAttemptsUsed, quizAttemptsRemaining };
-  const reward = rewardRows[0];
+  // 一折終極挑戰只保留到台北時間當日 00:00；過期後重新回到可挑戰狀態，
+  // 不會把昨天的一折結果和今天的轉轉樂折扣疊在一起。
+  const todayStart = new Date(`${taipeiDate()}T00:00:00+08:00`);
+  const validRewardRows = rewardRows.filter((row) => row.action !== "question_pack_ultimate" || row.createdAt >= todayStart);
+  const reward = validRewardRows[0];
   if (!reward) return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null, ...attemptMeta };
   if (reward.action === "question_pack_spin_abandoned") {
     return { status: "abandoned", label: "原價", percent: 100, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, ...attemptMeta };
   }
-  const parsedRewards = rewardRows
-    .filter((row) => row.action === "question_pack_spin" || row.action === "question_pack_quiz")
+  const parsedRewards = validRewardRows
+    .filter((row) => row.action === "question_pack_spin" || row.action === "question_pack_quiz" || row.action === "question_pack_ultimate")
     .map((row) => ({ row, parsed: parseMedtechPackDiscount(row.sourceDetail) }))
     .filter((item): item is { row: (typeof rewardRows)[number]; parsed: NonNullable<ReturnType<typeof parseMedtechPackDiscount>> } => Boolean(item.parsed))
     .sort((left, right) => left.parsed.cost - right.parsed.cost);
@@ -105,6 +117,32 @@ export async function getMedtechPackDiscountReward(
     return { status: "available", label: null, percent: null, cost: MEDTECH_QUESTION_PACKAGE_COST, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: null, ...attemptMeta };
   }
   return { status: "revealed", label: best.parsed.label, percent: best.parsed.percent, cost: best.parsed.cost, baseCost: MEDTECH_QUESTION_PACKAGE_COST, retryAt: retryAt?.toISOString() ?? null, ...attemptMeta };
+}
+
+export async function createMedtechUltimateChallengeReward(
+  db: Awaited<ReturnType<typeof getDb>>,
+  userKey: string,
+  packageName: string,
+  packageNumber: number,
+  score: number,
+  total: number,
+  durationSeconds: number,
+) {
+  const current = await getMedtechPackDiscountReward(db, userKey, packageName, packageNumber);
+  if (current.status !== "available") return current;
+  const usage = await getOrCreateMedtechUsage(db, userKey);
+  const normalizedScore = Math.max(0, Math.min(total, Math.floor(score)));
+  const normalizedTotal = Math.max(1, Math.floor(total));
+  const normalizedDuration = Math.max(0, Math.min(MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS, Math.floor(durationSeconds)));
+  await db.insert(medtechPointLedger).values({
+    userKey,
+    delta: 0,
+    balanceAfter: usage.aiCredits,
+    action: "question_pack_ultimate",
+    description: medtechPackDiscountDescription(packageName, packageNumber),
+    sourceDetail: `1 折終極挑戰：${normalizedTotal} 題答對 ${normalizedScore} 題；作答時間 ${normalizedDuration} 秒；折扣：10折；優惠價 ${MEDTECH_ULTIMATE_CHALLENGE_COST} 點；每日限一次。`,
+  });
+  return await getMedtechPackDiscountReward(db, userKey, packageName, packageNumber);
 }
 
 export async function createMedtechPackDiscountReward(
