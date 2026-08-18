@@ -4062,6 +4062,15 @@ a {
   border-radius: 12px;
   background: #f5fbf8;
 }
+@media (min-width: 901px) {
+  /* 與桌機版訊息列同寬，並對齊頭像後方對話泡泡的左緣。 */
+  .daily-handoff {
+    width: min(84%, calc(100% - 46px));
+    margin-left: auto;
+    margin-right: auto;
+    transform: translateX(23px);
+  }
+}
 .daily-handoff > div:first-child {
   display: grid;
   gap: 2px;
@@ -26365,11 +26374,16 @@ a {
   font-size: 11px;
 }
 .student-summary-layout {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(285px, 0.36fr) minmax(0, 1fr);
   min-height: 520px;
 }
 .student-summary-list {
+  min-width: 0;
   background: #f8fbfb;
+  border-right: 1px solid #e1ecee;
+  max-height: 680px;
+  overflow-y: auto;
 }
 .student-summary-list-head {
   display: flex;
@@ -26818,6 +26832,10 @@ a {
   place-items: center;
   text-align: center;
 }
+.mobile-summary-hidden,
+.mobile-summary-active {
+  display: block;
+}
 @media (max-width: 760px) {
   .summary-preference-panel {
     grid-template-columns: 1fr;
@@ -26843,6 +26861,7 @@ a {
     width: 100%;
   }
   .student-summary-layout {
+    display: block;
     min-height: 0;
   }
   .student-summary-pane-tabs {
@@ -26863,6 +26882,10 @@ a {
     overflow: visible;
     border-right: 0;
     border-bottom: 1px solid #e1ecee;
+  }
+  .student-summary-list.mobile-summary-hidden,
+  .student-summary-detail.mobile-summary-hidden {
+    display: none;
   }
   .student-summary-detail {
     padding: 18px 16px;

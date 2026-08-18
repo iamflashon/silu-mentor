@@ -941,7 +941,19 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
         );
     });
     fetch("/api/summaries").then(async (response) => {
-      if (response.ok) setStudentSummaries(((await response.json()) as { summaries?: StudentSummary[] }).summaries ?? []);
+      if (!response.ok) return;
+      const summaries = ((await response.json()) as { summaries?: StudentSummary[] }).summaries ?? [];
+      setStudentSummaries(summaries);
+      const latest = summaries[0];
+      if (latest) {
+        setSelectedSummaryId(latest.id);
+        setSummaryDraft(latest.editedSummary || latest.summary);
+        setSummaryFavorite(latest.favorite);
+        setSummaryTitleDraft(latest.displayTitle || latest.name);
+        setSummaryTopic(latest.topic || "");
+        setSummaryCollectionTitle(latest.collectionTitle || latest.topic || latest.displayTitle || "");
+        setSummaryFontSize([16, 18, 20, 22, 24].includes(latest.fontSize ?? 20) ? latest.fontSize ?? 20 : 20);
+      }
     }).catch(() => undefined);
     fetch("/api/summaries/folders").then(async (response) => {
       if (response.ok) setSummaryFolders(((await response.json()) as { folders?: SummaryFolder[] }).folders ?? []);
@@ -3412,7 +3424,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
               <button type="button" role="tab" aria-selected={summaryPane === "summary"} className={summaryPane === "summary" ? "active" : ""} onClick={() => setSummaryPane("summary")}>摘要</button>
             </nav>
             <div className="student-summary-layout">
-              {summaryPane === "files" && <aside className="student-summary-list" role="tabpanel" aria-label="我的整理資料">
+              <aside className={`student-summary-list ${summaryPane === "files" ? "mobile-summary-active" : "mobile-summary-hidden"}`} role="tabpanel" aria-label="我的整理資料">
                 <div className="student-summary-list-head">
                   <div><strong>我的整理資料</strong><span>{studentSummaries.length} 份</span></div>
                   {studentSummaries.length > 0 && <label className="student-summary-select-all"><input type="checkbox" checked={studentSummaries.every((item) => selectedSummaryIds.has(item.id))} onChange={toggleAllSummaries} aria-label="全選摘要" />全選</label>}
@@ -3448,8 +3460,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                     })}
                   </details>
                 )) : <div className="student-summary-empty">尚未上傳資料。先上傳一份講義或照片，這裡會保存整理紀錄。</div>}
-              </aside>}
-              {summaryPane === "summary" && <section className="student-summary-detail" role="tabpanel" aria-live="polite">
+              </aside>
+              <section className={`student-summary-detail ${summaryPane === "summary" ? "mobile-summary-active" : "mobile-summary-hidden"}`} role="tabpanel" aria-live="polite">
                 {(() => {
                   const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
                   if (!item) return <div className="student-summary-empty large">請從左側點選一份整理資料，這裡才會顯示內容。</div>;
@@ -3463,7 +3475,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                     </> : <div className="student-summary-empty large">{item.error || item.processingMessage || "正在處理…"}</div>}
                   </>;
                 })()}
-              </section>}
+              </section>
             </div>
           </section>
         )}
