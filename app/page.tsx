@@ -300,34 +300,39 @@ export function LawHome() {
       setYesterday(data.yesterday ?? null);
       setGreeting(data.greeting ?? taipeiGreeting());
       const restored = data.messages ?? [];
+      const taskList = data.todayTasks ?? [];
+      const pendingToday = taskList.filter((task) => task.status !== "completed");
       if (restored.length) {
         setMessages(restored);
+        setDailyChoiceVisible(false);
         const restoredQuestion = [...restored].reverse().find((message) => message.practiceQuestion)?.practiceQuestion ?? null;
         setPracticeQuestion(restoredQuestion);
         if (restoredQuestion) {
           const questionIndex = restored.findIndex((message) => message.practiceQuestion?.id === restoredQuestion.id);
           setPracticeCoachMessages(restored.slice(questionIndex + 1).filter((message) => message.source === "真題練習").map((message) => ({ role: message.role, text: message.text })));
         }
-      }
-      else if (data.yesterday) {
+      } else if (pendingToday.length) {
+        const records = data.todayRecords ?? [];
+        const recordSummary = records.length ? `你今天已經學過：${records.slice(0, 3).map((record) => record.title).join("、")}。` : "";
+        setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}，${recordSummary}今天已經安排好 ${pendingToday.length} 項任務。我們從第一項「${pendingToday[0].title}」開始，好嗎？` }]);
+        setDailyChoiceVisible(false);
+      } else if (taskList.length) {
+        const records = data.todayRecords ?? [];
+        const recordSummary = records.length ? `你今天已經學過：${records.slice(0, 3).map((record) => record.title).join("、")}。` : "";
+        setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}，${recordSummary}今天的任務都完成了。要不要趁狀態正好，先預習明天的內容？` }]);
+        setDailyChoiceVisible(false);
+      } else if (data.yesterday) {
         const incomplete = data.yesterday.incompleteTasks.length;
         const yesterdayProgress = data.yesterday.totalTasks
           ? `昨天完成 ${data.yesterday.completedTasks}/${data.yesterday.totalTasks} 項任務${incomplete ? `，還有 ${incomplete} 項未完成` : ""}`
-          : data.yesterday.records.length
-            ? `昨天留下 ${data.yesterday.records.length} 筆學習紀錄`
-            : "昨天有一段學習對話紀錄";
+          : "昨天的學習內容已保存";
         setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}。${yesterdayProgress}。今天要怎麼開始，由你決定；我會依昨天的紀錄幫你接續。` }]);
         setDailyChoiceVisible(true);
-      }
-      else if ((data.todayTasks ?? []).length) {
-        const pending = (data.todayTasks ?? []).filter((task) => task.status !== "completed");
-      const records = data.todayRecords ?? [];
-        const recordSummary = records.length ? `你今天已經學過：${records.slice(0, 3).map((record) => record.title).join("、")}。` : "";
-        setMessages([{ role: "mentor", text: pending.length ? `${data.greeting ?? taipeiGreeting()}，${recordSummary}今天已經安排好 ${pending.length} 項任務。我們從第一項「${pending[0].title}」開始，好嗎？` : `${data.greeting ?? taipeiGreeting()}，${recordSummary}今天的任務都完成了。要不要趁狀態正好，先預習明天的內容？` }]);
       } else {
         const records = data.todayRecords ?? [];
         const recordSummary = records.length ? `你今天已經學過：${records.slice(0, 3).map((record) => record.title).join("、")}。` : "";
         setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}，${recordSummary}我是司律備考的 AI 教練。${records.length ? "我們接著把今天的學習往下推進。" : "今天還沒有安排任務，我可以先根據你的目標與可用時間，幫你建立第一份學習計畫。"}` }]);
+        setDailyChoiceVisible(false);
       }
     }).catch(() => {
       setMessages([{ role: "mentor", text: `${taipeiGreeting()}，我是司律備考的 AI 教練。今天想從哪一科開始？` }]);
