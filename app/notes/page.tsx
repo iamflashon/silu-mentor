@@ -23,7 +23,7 @@ export default function NotesPage() {
 
   async function loadNotes() {
     setLoading(true);
-    const response = await fetch("/api/notes");
+    const response = await fetch("/api/notes?category=law");
     if (response.ok) setNotes(((await response.json()) as { notes?: Note[] }).notes ?? []);
     setLoading(false);
   }
@@ -55,7 +55,7 @@ export default function NotesPage() {
     const ids = [...selectedIds];
     if (!ids.length || !window.confirm(`確定要刪除選取的 ${ids.length} 則筆記嗎？\n\n原始收藏、AI 整理內容與附件都會一併刪除，且無法復原。`)) return;
     setDeleting(true); setMessage("");
-    const response = await fetch("/api/notes", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+    const response = await fetch("/api/notes", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, category: "law" }) });
     const result = await response.json().catch(() => ({})) as { ids?: number[]; error?: string };
     setDeleting(false);
     if (!response.ok) { setMessage(result.error ?? "目前無法刪除，請稍後再試。"); return; }
@@ -68,7 +68,7 @@ export default function NotesPage() {
     if (!draft?.title.trim() || !draft.content.trim()) { setMessage("請填寫標題與筆記內容。"); return; }
     setSaving(true); setMessage("");
     const create = !draft.id;
-    const response = await fetch("/api/notes", { method: create ? "POST" : "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: draft.id, sourceType: draft.sourceType || "note", title: draft.title, content: draft.content, subject: draft.subject, tags: draft.tags, sourceLabel: draft.sourceLabel }) });
+    const response = await fetch("/api/notes", { method: create ? "POST" : "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: draft.id, category: "law", sourceType: draft.sourceType || "note", title: draft.title, content: draft.content, subject: draft.subject, tags: draft.tags, sourceLabel: draft.sourceLabel }) });
     setSaving(false);
     if (!response.ok) { setMessage("目前無法儲存，請稍後再試。"); return; }
     await loadNotes(); setDraft(null);
@@ -76,7 +76,7 @@ export default function NotesPage() {
 
   async function remove() {
     if (!draft?.id || !window.confirm("確定刪除這則筆記？刪除後無法復原。")) return;
-    const response = await fetch(`/api/notes?id=${draft.id}`, { method: "DELETE" });
+    const response = await fetch(`/api/notes?id=${draft.id}&category=law`, { method: "DELETE" });
     if (response.ok) { setNotes((items) => items.filter((item) => item.id !== draft.id)); setDraft(null); }
   }
 

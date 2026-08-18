@@ -171,7 +171,7 @@ export default function GlobalSelectionTools() {
     let hash = 2166136261;
     for (let index = 0; index < original.length; index++) hash = Math.imul(hash ^ original.charCodeAt(index), 16777619);
     const sourceId = `${isMedtech ? "medtech-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
-    const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, sourceType: kind, sourceId }) });
+    const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, category: isMedtech ? "medtech" : isAccounting ? "accounting" : "law", sourceType: kind, sourceId }) });
     if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; setSaveMessage(typeof data.error === "string" ? data.error : "目前無法保存，請稍後再試。"); setSaveState("error"); return; }
     setSaveState("saved"); setNoteDraft(null);
     window.setTimeout(() => setSaveState(""), 1800);

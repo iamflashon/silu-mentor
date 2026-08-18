@@ -889,7 +889,7 @@ export function LawHome() {
   }, [historyLoaded]);
 
   async function saveMessageNote(message: Message, index: number) {
-    const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceType: "conversation", sourceId: sessionId ? `${sessionId}-${index}` : String(index), title: cleanMessageText(message.text).slice(0, 32), content: cleanMessageText(message.text), subject: todayTasks.find((task) => task.status !== "completed")?.subject ?? "綜合", tags: "AI對話", sourceLabel: visibleSourceNames(message.sources).join("、") }) });
+    const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category: "law", sourceType: "conversation", sourceId: sessionId ? `${sessionId}-${index}` : String(index), title: cleanMessageText(message.text).slice(0, 32), content: cleanMessageText(message.text), subject: todayTasks.find((task) => task.status !== "completed")?.subject ?? "綜合", tags: "AI對話", sourceLabel: visibleSourceNames(message.sources).join("、") }) });
     if (response.ok) { setSavedMessage(index); window.setTimeout(() => setSavedMessage(null), 1600); }
   }
 

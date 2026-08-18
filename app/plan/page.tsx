@@ -934,7 +934,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
           ).conversations ?? [],
         );
     });
-    fetch("/api/notes").then(async (response) => {
+    fetch("/api/notes?category=law").then(async (response) => {
       if (response.ok)
         setNotes(
           ((await response.json()) as { notes?: SavedNote[] }).notes ?? [],
@@ -1331,6 +1331,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: [{ role: "student", text: prompt }],
+          // 這是後端專用的規劃指令，不要把完整 prompt 寫入首頁對話紀錄。
+          persistStudentMessage: false,
           planningConstraint:
             resetPlanDraft.mode === "single"
               ? {
@@ -2741,7 +2743,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
     const response = await fetch("/api/notes", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(noteDraft),
+      body: JSON.stringify({ ...noteDraft, category: "law" }),
     });
     if (!response.ok) return;
     setNotes((current) =>
@@ -2964,6 +2966,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
         content: "",
         subject: "綜合",
         sourceType: "manual",
+        category: "law",
       }),
     });
     if (!response.ok) return;
@@ -2975,7 +2978,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   async function removeNote() {
     if (!noteDraft || !window.confirm(`確定刪除「${noteDraft.title}」？`))
       return;
-    const response = await fetch(`/api/notes?id=${noteDraft.id}`, {
+    const response = await fetch(`/api/notes?id=${noteDraft.id}&category=law`, {
       method: "DELETE",
     });
     if (response.ok) {
@@ -3160,6 +3163,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        category: "law",
         sourceType: "my-course-screenshot",
         sourceId: `my-course:${selectedMyCourse.id}:${episodeKey}`,
         title: `${selectedMyCourse.title}｜${episodeTitle}`,
@@ -3178,7 +3182,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       setMyCourseNoteMessage(result.error ?? "截圖筆記保存失敗");
       return;
     }
-    const notesResponse = await fetch("/api/notes");
+    const notesResponse = await fetch("/api/notes?category=law");
     if (notesResponse.ok) setNotes(((await notesResponse.json()) as { notes?: SavedNote[] }).notes ?? []);
     setMyCourseNoteMessage("已保存到筆記收藏；下次可從筆記繼續複習。");
   }
@@ -3243,6 +3247,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        category: "law",
         sourceType: "public-course-screenshot",
         sourceId: `public-course:${selectedPublicCourse.id}:${episodeKey}`,
         title: `${selectedPublicCourse.title}｜${episodeTitle}`,
@@ -3261,7 +3266,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
       setPublicCourseNoteMessage(result.error ?? "截圖筆記保存失敗");
       return;
     }
-    const notesResponse = await fetch("/api/notes");
+    const notesResponse = await fetch("/api/notes?category=law");
     if (notesResponse.ok) setNotes(((await notesResponse.json()) as { notes?: SavedNote[] }).notes ?? []);
     setPublicCourseNoteMessage("已保存；筆記會留在這一集影片下方，也可到筆記收藏查看。");
   }

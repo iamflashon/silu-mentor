@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, like, not, or } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { noteAttachments, savedNotes } from "../../../db/schema";
 import { getOrCreateMedtechUsage, spendMedtechPoints } from "../../../lib/medtech-usage";
@@ -8,16 +8,36 @@ const MEDTECH_NOTE_FREE_LIMIT = 5;
 
 function userKey(request: Request) { return request.headers.get("oai-authenticated-user-email") ?? "default-owner"; }
 
+type NoteCategory = "law" | "medtech" | "accounting" | "data-structure";
+
+function noteCategory(value: string | null | undefined): NoteCategory {
+  return value === "medtech" || value === "accounting" || value === "data-structure" ? value : "law";
+}
+
+function categoryFilter(category: NoteCategory) {
+  if (category === "medtech") return or(like(savedNotes.sourceId, "medtech-selection-%"), like(savedNotes.subject, "醫檢師%"), like(savedNotes.tags, "%醫檢師%"));
+  if (category === "accounting") return or(eq(savedNotes.subject, "中級會計學"), eq(savedNotes.subject, "中級會計"), like(savedNotes.tags, "%中級會計%"), like(savedNotes.tags, "%中會%"), like(savedNotes.sourceId, "accounting-%"));
+  if (category === "data-structure") return or(eq(savedNotes.subject, "資料結構"), like(savedNotes.tags, "%資料結構%"), like(savedNotes.sourceId, "data-structure-%"));
+  return and(
+    not(or(like(savedNotes.subject, "醫檢師%"), like(savedNotes.tags, "%醫檢師%"))),
+    or(isNull(savedNotes.sourceId), not(like(savedNotes.sourceId, "medtech-%"))),
+    not(or(eq(savedNotes.subject, "中級會計學"), eq(savedNotes.subject, "中級會計"), like(savedNotes.tags, "%中級會計%"), like(savedNotes.tags, "%中會%"))),
+    or(isNull(savedNotes.sourceId), not(like(savedNotes.sourceId, "accounting-%"))),
+    not(or(eq(savedNotes.subject, "資料結構"), like(savedNotes.tags, "%資料結構%"))),
+    or(isNull(savedNotes.sourceId), not(like(savedNotes.sourceId, "data-structure-%"))),
+  );
+}
+
 export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const query = params.get("q")?.trim() ?? "";
-    const category = params.get("category")?.trim() ?? "";
+    const category = noteCategory(params.get("category")?.trim());
     const db = await getDb();
     const owner = eq(savedNotes.userKey, userKey(request));
-    const categoryFilter = category === "medtech" ? or(like(savedNotes.sourceId, "medtech-selection-%"), like(savedNotes.subject, "醫檢師%"), like(savedNotes.tags, "%醫檢師%")) : category === "data-structure" ? or(eq(savedNotes.subject,"資料結構"),like(savedNotes.tags,"%資料結構%"),like(savedNotes.sourceId,"data-structure-%")) : category === "accounting" ? or(eq(savedNotes.subject,"中級會計學"),like(savedNotes.tags,"%中級會計%"),like(savedNotes.sourceId,"accounting-%")) : undefined;
+    const scopedCategory = categoryFilter(category);
     const queryFilter = query ? or(like(savedNotes.title, `%${query}%`), like(savedNotes.content, `%${query}%`), like(savedNotes.tags, `%${query}%`)) : undefined;
-    const where = categoryFilter && queryFilter ? and(owner, categoryFilter, queryFilter) : categoryFilter ? and(owner, categoryFilter) : queryFilter ? and(owner, queryFilter) : owner;
+    const where = queryFilter ? and(owner, scopedCategory, queryFilter) : and(owner, scopedCategory);
     const [{ total }] = await db.select({ total: count() }).from(savedNotes).where(where);
     const notes = await db.select().from(savedNotes).where(where).orderBy(desc(savedNotes.updatedAt)).limit(100);
     const attachments = notes.length
@@ -99,9 +119,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const body = await request.json() as { id?: number; title?: string; content?: string; subject?: string; tags?: string }; const id = Number(body.id);
+    const body = await request.json() as { id?: number; title?: string; content?: string; subject?: string; tags?: string; category?: string }; const id = Number(body.id);
     if (!Number.isInteger(id)) return Response.json({ error: "筆記資料不完整" }, { status: 400 });
-    const db = await getDb(); await db.update(savedNotes).set({ title: body.title?.trim() || "我的筆記", content: (body.content ?? "").trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", updatedAt: new Date() }).where(and(eq(savedNotes.id, id), eq(savedNotes.userKey, userKey(request))));
+    const db = await getDb(); await db.update(savedNotes).set({ title: body.title?.trim() || "我的筆記", content: (body.content ?? "").trim(), subject: body.subject?.trim() || "綜合", tags: body.tags?.trim() || "", updatedAt: new Date() }).where(and(eq(savedNotes.id, id), eq(savedNotes.userKey, userKey(request)), categoryFilter(noteCategory(body.category))));
     return Response.json({ id });
   } catch { return Response.json({ error: "無法更新筆記" }, { status: 500 }); }
 }
@@ -110,16 +130,18 @@ export async function DELETE(request: Request) {
   try {
     const url = new URL(request.url);
     let ids: number[] = [];
+    let requestedCategory = noteCategory(url.searchParams.get("category"));
     const singleId = Number(url.searchParams.get("id"));
     if (Number.isInteger(singleId) && singleId > 0) ids = [singleId];
     else {
-      const body = await request.json().catch(() => ({})) as { ids?: unknown[] };
+      const body = await request.json().catch(() => ({})) as { ids?: unknown[]; category?: string };
       ids = [...new Set((body.ids ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+      requestedCategory = noteCategory(body.category);
     }
     if (!ids.length) return Response.json({ error: "請先選擇要刪除的筆記" }, { status: 400 });
     if (ids.length > 100) return Response.json({ error: "一次最多刪除 100 則筆記" }, { status: 400 });
     const owner = userKey(request); const db = await getDb();
-    const owned = await db.select({ id: savedNotes.id }).from(savedNotes).where(and(eq(savedNotes.userKey, owner), inArray(savedNotes.id, ids)));
+    const owned = await db.select({ id: savedNotes.id }).from(savedNotes).where(and(eq(savedNotes.userKey, owner), inArray(savedNotes.id, ids), categoryFilter(requestedCategory)));
     const ownedIds = owned.map((note) => note.id);
     if (!ownedIds.length) return Response.json({ error: "找不到可刪除的筆記" }, { status: 404 });
     const attachments = await db.select({ storageKey: noteAttachments.storageKey }).from(noteAttachments).where(and(inArray(noteAttachments.noteId, ownedIds), eq(noteAttachments.userKey, owner)));

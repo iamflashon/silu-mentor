@@ -82,7 +82,7 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
   const [sessionId, setSessionId] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/notes").then(async (response) => {
+    fetch("/api/notes?category=law").then(async (response) => {
       if (!response.ok) return;
       const result = await response.json() as { notes?: SavedNote[] };
       setNotes(result.notes ?? []);
@@ -158,11 +158,11 @@ export function LegalSearch({ onResultCount }: { onResultCount?: (count: number)
     const block = `【${noteTarget.title}${noteTarget.articleNo ? ` ${noteTarget.articleNo}` : ""}】\n${noteTarget.content || noteTarget.excerpt}\n官方來源：${noteTarget.sourceUrl || "未提供"}`;
     let response: Response;
     if (noteId === "new") {
-      response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: noteTitle.trim() || "法規筆記", content: block, subject: noteTarget.category || "綜合", sourceType: "legal", sourceId: String(noteTarget.documentId), sourceLabel: "全國法規資料庫" }) });
+      response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category: "law", title: noteTitle.trim() || "法規筆記", content: block, subject: noteTarget.category || "綜合", sourceType: "legal", sourceId: String(noteTarget.documentId), sourceLabel: "全國法規資料庫" }) });
     } else {
       const note = notes.find((item) => item.id === noteId);
       if (!note) return;
-      response = await fetch("/api/notes", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...note, content: note.content.trim() ? `${note.content.trim()}\n\n${block}` : block }) });
+      response = await fetch("/api/notes", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...note, category: "law", content: note.content.trim() ? `${note.content.trim()}\n\n${block}` : block }) });
     }
     const result = await response.json() as { note?: SavedNote; error?: string };
     if (!response.ok) { setNoteMessage(result.error ?? "加入筆記失敗"); return; }

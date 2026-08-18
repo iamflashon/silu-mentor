@@ -1477,18 +1477,20 @@ export async function POST(request: Request) {
           })),
         };
       }
-      await db.insert(chatMessages).values({
-        sessionId: session.id,
-        role: "mentor",
-        text: reply,
-        source: fromFiles ? "教材" : "AI 補充",
-        citationsJson: sources.length ? JSON.stringify(sources) : null,
-        citationStatus,
-        comparisonJson: comparison ? JSON.stringify(comparison) : null,
-        model: primaryModel,
-        estimatedCostUsdMicros: Math.round(primaryEstimatedCostUsd * 1_000_000),
-      });
-      await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply.replace(/\s+/g, " ").slice(0, 500), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      if (body.persistStudentMessage !== false) {
+        await db.insert(chatMessages).values({
+          sessionId: session.id,
+          role: "mentor",
+          text: reply,
+          source: fromFiles ? "教材" : "AI 補充",
+          citationsJson: sources.length ? JSON.stringify(sources) : null,
+          citationStatus,
+          comparisonJson: comparison ? JSON.stringify(comparison) : null,
+          model: primaryModel,
+          estimatedCostUsdMicros: Math.round(primaryEstimatedCostUsd * 1_000_000),
+        });
+        await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply.replace(/\s+/g, " ").slice(0, 500), progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      }
       if (context.type === "book") {
         bookLearningRecord = await syncBookLearningRecord({
           db,
@@ -1498,7 +1500,7 @@ export async function POST(request: Request) {
           segmentTitle: context.segmentTitle,
         });
       }
-      if (context.type === "home" && latestStudent && latestStudent.text.trim().length >= 6) {
+      if (context.type === "home" && body.persistStudentMessage !== false && latestStudent && latestStudent.text.trim().length >= 6) {
         const learningMinutes = Math.min(30, Math.max(5, Math.ceil(latestStudent.text.trim().length / 80) * 5));
         await db.insert(studyRecords).values({
           userKey: request.headers.get("oai-authenticated-user-email") ?? "default-owner",
