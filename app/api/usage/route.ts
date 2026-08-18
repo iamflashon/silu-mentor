@@ -5,6 +5,10 @@ import { appSettings, chatComparisonRatings, chatComparisonResponses, chatCompar
 export async function GET() {
   try {
     const db = await getDb();
+    // 司律後台的模型與成本頁只呈現司律／共用平台用量。
+    // 醫檢功能共用 usage_logs，但其成本由醫檢自己的點數與使用紀錄管理，
+    // 因此在此頁排除所有以「醫檢」標記的來源，不刪除原始紀錄。
+    const lawUsageWhere = sql`not (${usageLogs.source} like '醫檢%')`;
     const [totals] = await db.select({
       requests: sql<number>`count(*)`,
       inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}), 0)`,
@@ -12,8 +16,8 @@ export async function GET() {
       outputTokens: sql<number>`coalesce(sum(${usageLogs.outputTokens}), 0)`,
       fileSearchCalls: sql<number>`coalesce(sum(${usageLogs.fileSearchCalls}), 0)`,
       costMicros: sql<number>`coalesce(sum(${usageLogs.estimatedCostUsdMicros}), 0)`,
-    }).from(usageLogs);
-    const recent = await db.select().from(usageLogs).orderBy(desc(usageLogs.createdAt)).limit(30);
+    }).from(usageLogs).where(lawUsageWhere);
+    const recent = await db.select().from(usageLogs).where(lawUsageWhere).orderBy(desc(usageLogs.createdAt)).limit(30);
     // 模型比較是較晚加入的選用功能。舊環境尚未建立比較資料表時，
     // 不應連帶讓既有成本統計與顯示設定整頁失效。
     const comparisons = await db.select().from(chatComparisons).orderBy(desc(chatComparisons.createdAt)).limit(30).catch(() => []);

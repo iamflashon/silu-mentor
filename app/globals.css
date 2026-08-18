@@ -28461,6 +28461,7 @@ a {
 .selection-note-editor header>button,.standalone-note-editor header>button{border:0;background:transparent;color:#52717e;font-size:25px;cursor:pointer}
 .selection-note-editor label,.standalone-note-editor label{display:grid;gap:6px;margin-top:12px;color:#456775;font-size:12px;font-weight:800}
 .selection-note-editor input,.selection-note-editor textarea,.standalone-note-editor input,.standalone-note-editor textarea{width:100%;padding:11px 12px;border:1px solid #cfdee2;border-radius:10px;color:#173f53;font:inherit;line-height:1.65;outline:0}
+.selection-note-editor textarea{font-size:14px;line-height:1.7}
 .selection-note-fields,.standalone-note-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .selection-note-editor>small{display:block;margin-top:10px;color:#78909a}
 .note-organize-usage{display:grid;gap:3px;margin-top:12px;padding:10px 12px;border-radius:9px;background:#eef7f5;color:#52717e;font-size:11px}.note-organize-usage b{color:#176b70}.note-organize-usage span{display:block}

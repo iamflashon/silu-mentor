@@ -1,4 +1,4 @@
-import Link from "next/link";
+const LAW_HOME = "https://silu-mentor.iamflashon.chatgpt.site/law";
 
 const features = [
   { icon: "01", title: "今日學習計畫", label: "知道今天先做什麼", text: "首頁會依你的進度安排今日任務。完成後留下學習接續點，下一次回來可以接著學，不必重新摸索。" },
@@ -11,17 +11,17 @@ const features = [
 
 export default function GuidePage() {
   return (
-    <main className="guide-page">
+    <main className="guide-page" data-no-navigation-feedback>
       <header className="guide-header">
-        <Link href="/law" className="guide-brand"><span>律</span><div><b>司律備考</b><small>AI STUDY GUIDE</small></div></Link>
-        <Link href="/law" className="guide-back">← 回首頁</Link>
+        <a href={LAW_HOME} className="guide-brand"><span>律</span><div><b>司律備考</b><small>AI STUDY GUIDE</small></div></a>
+        <a href={LAW_HOME} className="guide-back">← 回首頁</a>
       </header>
 
       <section className="guide-hero">
         <span className="guide-kicker">START HERE</span>
         <h1>第一次使用，先看這裡</h1>
         <p>這不是只會回答問題的聊天機器人，而是一個會記住你的進度、協助你拆題，並把重要內容留下來的司律學習平台。</p>
-        <div className="guide-hero-actions"><Link href="/law" className="guide-primary">回到首頁開始</Link><a href="#selection" className="guide-secondary">先看框選功能</a></div>
+        <div className="guide-hero-actions"><a href={LAW_HOME} className="guide-primary">回到首頁開始</a><a href="#selection" className="guide-secondary">先看框選功能</a></div>
       </section>
 
       <section className="guide-section" aria-labelledby="guide-features-title">
@@ -43,7 +43,7 @@ export default function GuidePage() {
         <div className="guide-flow"><div><b>1</b><strong>先看今日任務</strong><span>知道今天的重點</span></div><i>→</i><div><b>2</b><strong>練一題真題</strong><span>先說出自己的理由</span></div><i>→</i><div><b>3</b><strong>框選不懂的地方</strong><span>查法條或請 AI 解釋</span></div><i>→</i><div><b>4</b><strong>整理成筆記</strong><span>留下下次接續點</span></div></div>
       </section>
 
-      <footer className="guide-footer"><p>先從一個問題開始就好。平台會保存你的學習紀錄，陪你逐步完成司律備考。</p><Link href="/law">開始今天的學習 →</Link></footer>
+      <footer className="guide-footer"><p>先從一個問題開始就好。平台會保存你的學習紀錄，陪你逐步完成司律備考。</p><a href={LAW_HOME}>開始今天的學習 →</a></footer>
     </main>
   );
 }
