@@ -3189,11 +3189,11 @@ export default function AdminPage() {
   return (
     <main className="admin-shell">
       <header className="topbar">
-        <a href="/" className="brand">
+        <a href="/law" className="brand">
           <span className="brand-mark">律</span>
           <span>司律備考</span>
         </a>
-        <a href="/" className="back-link">
+        <a href="/law" className="back-link">
           返回對話首頁 →
         </a>
       </header>

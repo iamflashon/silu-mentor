@@ -958,7 +958,7 @@ export function LawHome() {
   return (
     <main className="coach-shell">
       <header className="topbar">
-        <div className="brand-zone"><a href="/" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
+        <div className="brand-zone"><a href="/law" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
           <a href="/practice" className="admin-link">練真題</a>
           <a href="/essay" className="admin-link">寫申論</a>
@@ -968,8 +968,8 @@ export function LawHome() {
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
           {currentMember ? <div className={`member-menu-wrap ${memberMenuOpen ? "is-open" : ""}`}>
             <button type="button" className="member-chip" title={currentMember.email} aria-haspopup="menu" aria-expanded={memberMenuOpen} onClick={() => setMemberMenuOpen((open) => !open)}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>帳號</small><i aria-hidden="true">⌄</i></button>
-            {memberMenuOpen && <><button type="button" className="member-menu-backdrop" aria-label="關閉帳號選單" onClick={() => setMemberMenuOpen(false)} /><div className="member-menu" role="menu"><div><strong>{currentMember.displayName}</strong><small>{currentMember.email}</small></div><a href="/account" role="menuitem">會員設定</a><a href="/signout-with-chatgpt?return_to=/" role="menuitem" className="member-menu-signout">登出</a></div></>}
-          </div> : <a href="/signin-with-chatgpt?return_to=/" className="member-signin">登入我的學習平台</a>}
+            {memberMenuOpen && <><button type="button" className="member-menu-backdrop" aria-label="關閉帳號選單" onClick={() => setMemberMenuOpen(false)} /><div className="member-menu" role="menu"><div><strong>{currentMember.displayName}</strong><small>{currentMember.email}</small></div><a href="/account" role="menuitem">會員設定</a><a href="/signout-with-chatgpt?return_to=/law" role="menuitem" className="member-menu-signout">登出</a></div></>}
+          </div> : <a href="/signin-with-chatgpt?return_to=/law" className="member-signin">登入我的學習平台</a>}
         </div>
       </header>
       <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "今日任務完成後，記得留下學習接續點", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>◆</b> : null}</span>)}</span></div></div>

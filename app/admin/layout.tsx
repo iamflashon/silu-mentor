@@ -31,7 +31,7 @@ export default async function AdminLayout({
           <p style={{ margin: "0 0 8px", color: "#536176", lineHeight: 1.7 }}>目前登入帳號：{email}</p>
           <p style={{ margin: "0 0 24px", color: "#536176", lineHeight: 1.7 }}>只有已啟用「管理權限」且帳號為使用中的會員可以進入。若需要權限，請由現有管理員在「學員管理」中設定。</p>
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            <Link href="/" style={{ padding: "11px 18px", borderRadius: "10px", color: "white", background: "#2d66b3", textDecoration: "none", fontWeight: 700 }}>回到學習平台</Link>
+            <Link href="/law" style={{ padding: "11px 18px", borderRadius: "10px", color: "white", background: "#2d66b3", textDecoration: "none", fontWeight: 700 }}>回到學習平台</Link>
             <a href={chatGPTSignOutPath("/admin")} style={{ padding: "11px 18px", border: "1px solid #cdd7e5", borderRadius: "10px", color: "#34445d", textDecoration: "none", fontWeight: 700 }}>切換登入帳號</a>
           </div>
         </section>
@@ -44,8 +44,8 @@ export default async function AdminLayout({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "9px 18px", color: "#dce9fb", background: "#172f52", fontSize: "13px" }}>
         <span>管理員已驗證｜{member.displayName || member.email}</span>
         <span style={{ display: "flex", gap: "14px" }}>
-          <Link href="/" style={{ color: "#fff", textDecoration: "none" }}>返回學生平台</Link>
-          <a href={chatGPTSignOutPath("/")} style={{ color: "#fff", textDecoration: "none" }}>登出</a>
+          <Link href="/law" style={{ color: "#fff", textDecoration: "none" }}>返回學生平台</Link>
+          <a href={chatGPTSignOutPath("/law")} style={{ color: "#fff", textDecoration: "none" }}>登出</a>
         </span>
       </div>
       {children}

@@ -3257,11 +3257,11 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   return (
     <main className={standalone ? "essay-standalone-page standalone-learning-page" : "plan-shell"}>
       <header className={standalone ? "essay-standalone-header" : "topbar"}>
-        <a href="/" className="brand">
+        <a href="/law" className="brand">
           <span className={standalone ? "" : "brand-mark"}>{standalone ? "司" : "律"}</span>
           {standalone ? <b>司律備考</b> : <span>司律備考</span>}
         </a>
-        {standalone ? <nav aria-label="獨立學習頁導覽"><a href="/" aria-label="回到司律備考首頁">← 回首頁</a></nav> : <div className="top-actions"><a href="/" className="back-link">返回對話</a><a href="/admin" className="admin-link">管理後台</a></div>}
+        {standalone ? <nav aria-label="獨立學習頁導覽"><a href="/law" aria-label="回到司律備考首頁">← 回首頁</a></nav> : <div className="top-actions"><a href="/law" className="back-link">返回對話</a><a href="/admin" className="admin-link">管理後台</a></div>}
       </header>
       <div className="plan-main">
         {standalone && activeTab === "calendar" && <div className="standalone-calendar-heading">

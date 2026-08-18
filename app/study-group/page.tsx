@@ -605,14 +605,14 @@ export default function StudyGroup() {
   return (
     <main className="study-group-shell">
       <header className="study-group-top">
-        <Link href="/" className="study-group-brand">
+        <Link href="/law" className="study-group-brand">
           <span>律</span>
           <b>司律備考</b>
         </Link>
         <div>
           <span>AI 讀書會</span>
           <Link href="/plan">今日學習目標</Link>
-          <Link href="/">回作戰中心</Link>
+          <Link href="/law">回作戰中心</Link>
         </div>
       </header>
       <section className="study-group-heading">
