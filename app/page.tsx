@@ -969,7 +969,7 @@ export function LawHome() {
           <a href="/essay" className="admin-link">寫申論</a>
           <a href="/issues" className="admin-link">找爭點</a>
           <a href="/summaries" className="admin-link">整摘要</a>
-          <a href="/guide" className="admin-link">使用說明</a>
+          <a href="/law/guide" className="admin-link">使用說明</a>
           {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
           {currentMember ? <div className={`member-menu-wrap ${memberMenuOpen ? "is-open" : ""}`}>
@@ -984,7 +984,7 @@ export function LawHome() {
         <a href="/essay">寫申論</a>
         <a href="/issues">找爭點</a>
         <a href="/summaries">整摘要</a>
-        <a href="/guide">使用說明</a>
+        <a href="/law/guide">使用說明</a>
       </nav>
 
       <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button></div></section></div>
