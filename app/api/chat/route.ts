@@ -1178,6 +1178,7 @@ export async function POST(request: Request) {
           })),
           ...(allowFileSearch ? { include: ["file_search_call.results"] } : {}),
           tools,
+          ...(planningConstraint ? { tool_choice: { type: "function", name: "save_study_plan" } } : {}),
         }),
       });
 
@@ -1196,6 +1197,7 @@ export async function POST(request: Request) {
     const deleteCall = readDeleteCall(payload);
     let planSaved = false;
     let replacedTasks = 0;
+    let planError = "";
     if (planCall) {
       try {
         const result = await savePlan(planCall, planningConstraint);
@@ -1205,8 +1207,12 @@ export async function POST(request: Request) {
           reply = `${reply ? `${reply}\n\n` : ""}我已經把接下來 ${result.savedTasks} 項任務寫入你的讀書計畫。你可以打開行事曆查看，也可以隨時告訴我調整。`;
         }
       } catch (error) {
-        reply = error instanceof Error ? error.message : "AI 規劃內容未通過科目檢查，沒有寫入行事曆。";
+        planError = error instanceof Error ? error.message : "AI 規劃內容未通過科目檢查，沒有寫入行事曆。";
+        reply = planError;
       }
+    } else if (planningConstraint) {
+      planError = openAiError || deepSeekError || zaiError || "AI 沒有回傳可寫入行事曆的計畫內容，原行程已保留。";
+      reply = planError;
     }
     let tasksDeleted = 0;
     if (deleteCall) {
@@ -1511,6 +1517,7 @@ export async function POST(request: Request) {
       usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, webSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedWeb ? 1 : 0, modelTokenCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? modelTokenCostUsd : primaryEstimatedCostUsd, fileSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? fileSearchCostUsd : 0, webSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? webSearchCostUsd : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
       planSaved,
       replacedTasks,
+      error: planError || undefined,
       tasksDeleted,
       sources,
       citationStatus,
