@@ -19,9 +19,9 @@ function isEditable(node: Node | null) {
   return Boolean(element?.closest("input, textarea, select, [contenteditable='true'], [role='textbox'], .monaco-editor, .cm-editor"));
 }
 
-function medtechSelectionRoot(node: Node | null) {
+function selectionRoot(node: Node | null) {
   const element = node instanceof Element ? node : node?.parentElement;
-  return element?.closest(".medtech-ai-question, .medtech-ai-chat, .medtech-question") ?? null;
+  return element?.closest("[data-selection-scope], .message-bubble, .daily-chat-message, .course-chat-message, .essay-chat-bubble, .practice-inline-question, .practice-question-panel, .mock-question, .student-issue-question, .student-issue-analysis, .problem-question-stem, .standalone-note-list article, .medtech-ai-question, .medtech-ai-chat, .medtech-question") ?? null;
 }
 
 export default function GlobalSelectionTools() {
@@ -83,11 +83,9 @@ export default function GlobalSelectionTools() {
     const capture = () => {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || !selection.rangeCount || isEditable(selection.anchorNode) || isEditable(selection.focusNode)) return;
-      if (isMedtech) {
-        const anchorRoot = medtechSelectionRoot(selection.anchorNode);
-        const focusRoot = medtechSelectionRoot(selection.focusNode);
-        if (!anchorRoot || anchorRoot !== focusRoot) return;
-      }
+      const anchorRoot = selectionRoot(selection.anchorNode);
+      const focusRoot = selectionRoot(selection.focusNode);
+      if (!anchorRoot || anchorRoot !== focusRoot) return;
       const text = selection.toString().replace(/\s+/g, " ").trim().slice(0, 1200);
       if (text.length < 2) { setPosition(null); return; }
       const range = selection.getRangeAt(0).cloneRange();
