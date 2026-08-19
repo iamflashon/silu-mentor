@@ -42,6 +42,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Normalize Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_token="$(printf '%s' "${CLOUDFLARE_API_TOKEN}" | tr -d '\r\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+          account_id="$(printf '%s' "${CLOUDFLARE_ACCOUNT_ID}" | tr -d '\r\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+          if [[ -z "${api_token}" || -z "${account_id}" ]]; then
+            echo "::error::Cloudflare credentials are missing."
+            exit 1
+          fi
+          echo "::add-mask::${api_token}"
+          echo "CLOUDFLARE_API_TOKEN=${api_token}" >> "${GITHUB_ENV}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
       - name: Check Wrangler authentication
         run: npm exec -- wrangler whoami
 
