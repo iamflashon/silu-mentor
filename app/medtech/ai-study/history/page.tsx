@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import MedtechHeaderActions from "../../MedtechHeaderActions";
 import MedtechTabs from "../../MedtechTabs";
 import { guidedPracticeSessions } from "../../../../db/schema";
-import { chatGPTSignInPath } from "../../../chatgpt-auth";
+import { memberLoginPath } from "../../../../lib/member-login-path";
 import { requireMedtechMember } from "../../../../lib/member-auth";
 
 type GuidedMessage = { role?: string; text?: string; source?: string; usage?: { model?: string; inputTokens?: number; outputTokens?: number; durationMs?: number; estimatedCostUsd?: number } };
@@ -35,7 +35,7 @@ export default async function MedtechAiStudyHistory() {
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(new Request("https://medtech.local/medtech/ai-study/history", { headers: requestHeaders }));
   if ("error" in auth) {
-    return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師引導學習紀錄</span><h1>登入後查看學習過程</h1><p>登入後可保存每一道題的提示、作答、比較選項、老師語音與 AI 追問過程。</p><a className="primary" href={chatGPTSignInPath("/medtech/ai-study/history")}>登入醫檢師備考</a></section></main>;
+    return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師引導學習紀錄</span><h1>登入後查看學習過程</h1><p>登入後可保存每一道題的提示、作答、比較選項、老師語音與 AI 追問過程。</p><a className="primary" href={memberLoginPath("/medtech/ai-study/history")}>登入會員帳號</a></section></main>;
   }
 
   const rows = await auth.db.select({ questionId: guidedPracticeSessions.questionId, mode: guidedPracticeSessions.mode, status: guidedPracticeSessions.status, stateJson: guidedPracticeSessions.stateJson, createdAt: guidedPracticeSessions.createdAt, updatedAt: guidedPracticeSessions.updatedAt }).from(guidedPracticeSessions).where(eq(guidedPracticeSessions.userKey, auth.userKey)).orderBy(desc(guidedPracticeSessions.updatedAt)).limit(100);

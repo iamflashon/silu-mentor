@@ -4,12 +4,12 @@ import { headers } from "next/headers";
 import { requireMedtechMember } from "../../lib/member-auth";
 import MedtechHeaderActions from "./MedtechHeaderActions";
 import MedtechPracticeEntry from "./MedtechPracticeEntry";
-import { chatGPTSignInPath } from "../chatgpt-auth";
+import { memberLoginPath } from "../../lib/member-login-path";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
     const requestHeaders = await headers();
   const auth = await requireMedtechMember(new Request("https://medtech.local/medtech", { headers: requestHeaders }));
-  if ("error" in auth) return <main className="medtech-member-page"><header><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEDICAL TECHNOLOGIST</small></div></a></header><section className="medtech-member-card login"><span>醫檢師備考平台</span><h1>登入後開始學習</h1><p>登入後才能進入章節刷題、隨機模考、錯題複習與 AI 引導學習，系統也會替你保存點數與學習紀錄。</p><a className="primary" href={chatGPTSignInPath("/medtech")}>登入醫檢師備考</a></section></main>;
+  if ("error" in auth) return <main className="medtech-member-page"><header><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEDICAL TECHNOLOGIST</small></div></a></header><section className="medtech-member-card login"><span>醫檢師備考平台</span><h1>登入後開始學習</h1><p>登入後才能進入章節刷題、隨機模考、錯題複習與 AI 引導學習，系統也會替你保存點數與學習紀錄。</p><a className="primary" href={memberLoginPath("/medtech")}>登入會員帳號</a></section></main>;
   const user = await getChatGPTUser();
   return <main className="medtech-home">
     <header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEDICAL TECHNOLOGIST</small></div></a><MedtechHeaderActions accountLabel={user ? "我的帳號" : "會員登入"}/><nav><a href="/medtech" className="active">首頁</a><a href="/medtech/random">隨機模考</a><a href="/platform">切換類科</a></nav></header>

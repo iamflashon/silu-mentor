@@ -1,27 +1,18 @@
 import Link from "next/link";
-import { eq } from "drizzle-orm";
-import { getDb } from "../../db";
-import { members } from "../../db/schema";
-import {
-  chatGPTSignOutPath,
-  requireChatGPTUser,
-} from "../chatgpt-auth";
+import { headers } from "next/headers";
+import { requireAdmin } from "../../lib/member-auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const user = await requireChatGPTUser("/admin");
-  const email = user.email.trim().toLowerCase();
-  const db = await getDb();
-  const [member] = await db
-    .select()
-    .from(members)
-    .where(eq(members.email, email))
-    .limit(1);
+  const auth = await requireAdmin(new Request("https://admin.local/admin", { headers: await headers() }));
+  if ("error" in auth) return <main className="main-entry-gate"><section className="admin-login-card"><span>ADMINISTRATOR ACCESS</span><div className="main-entry-logo" aria-hidden="true">智</div><h1>管理員登入</h1><p>管理後台需要管理員帳號驗證。</p><a className="main-entry-medtech" href="/admin-login?return_to=%2Fadmin">登入管理員帳號</a><a className="admin-login-back" href="/">回入口頁</a></section></main>;
+  const { member } = auth;
+  const email = member.email;
 
-  if (!member || member.status !== "active" || !member.canAdmin) {
+  if (member.status !== "active" || !member.canAdmin) {
     return (
       <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: "32px", background: "#f4f7fb" }}>
         <section style={{ width: "min(520px, 100%)", padding: "36px", border: "1px solid #d9e2ee", borderRadius: "20px", background: "white", boxShadow: "0 18px 45px rgba(35, 55, 80, .10)" }}>
@@ -32,7 +23,7 @@ export default async function AdminLayout({
           <p style={{ margin: "0 0 24px", color: "#536176", lineHeight: 1.7 }}>只有已啟用「管理權限」且帳號為使用中的會員可以進入。若需要權限，請由現有管理員在「學員管理」中設定。</p>
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
             <Link href="/law" style={{ padding: "11px 18px", borderRadius: "10px", color: "white", background: "#2d66b3", textDecoration: "none", fontWeight: 700 }}>回到學習平台</Link>
-            <a href={chatGPTSignOutPath("/admin")} style={{ padding: "11px 18px", border: "1px solid #cdd7e5", borderRadius: "10px", color: "#34445d", textDecoration: "none", fontWeight: 700 }}>切換登入帳號</a>
+            <a href="/admin-login?return_to=%2Fadmin" style={{ padding: "11px 18px", border: "1px solid #cdd7e5", borderRadius: "10px", color: "#34445d", textDecoration: "none", fontWeight: 700 }}>切換登入帳號</a>
           </div>
         </section>
       </main>
@@ -45,7 +36,7 @@ export default async function AdminLayout({
         <span>管理員已驗證｜{member.displayName || member.email}</span>
         <span style={{ display: "flex", gap: "14px" }}>
           <Link href="/law" style={{ color: "#fff", textDecoration: "none" }}>返回學生平台</Link>
-          <a href={chatGPTSignOutPath("/law")} style={{ color: "#fff", textDecoration: "none" }}>登出</a>
+          <form action="/api/admin-entry/logout" method="post" style={{ margin: 0 }}><button type="submit" style={{ padding: 0, border: 0, background: "none", color: "#fff", font: "inherit", cursor: "pointer" }}>登出</button></form>
         </span>
       </div>
       {children}

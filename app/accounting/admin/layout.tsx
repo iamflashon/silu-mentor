@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { chatGPTSignInPath } from "../../chatgpt-auth";
 import { requireAccountingAdmin } from "../../../lib/member-auth";
 import "../../medtech/admin/question-bank.css";
 import "../../medtech/admin/question-workbench.css";
@@ -22,7 +21,7 @@ export const metadata: Metadata = {
 
 export default async function AccountingAdminLayout({ children }: { children: React.ReactNode }) {
   const auth = await requireAccountingAdmin(new Request("https://admin.local/accounting/admin", { headers: await headers() }));
-  if ("error" in auth) return <main className="medtech-member-page"><section className="medtech-member-card login"><span>ACCOUNTING ADMIN</span><h1>中級會計管理後台</h1><p>只有已開通中級會計管理權限的帳號可以進入。</p><a className="primary" href={chatGPTSignInPath("/accounting/admin")}>登入管理帳號</a><a href="/accounting">回中會首頁</a></section></main>;
+  if ("error" in auth) return <main className="medtech-member-page"><section className="medtech-member-card login"><span>ACCOUNTING ADMIN</span><h1>中級會計管理後台</h1><p>只有已開通中級會計管理權限的帳號可以進入。</p><a className="primary" href="/admin-login?return_to=%2Faccounting%2Fadmin">登入管理帳號</a><a href="/accounting">回中會首頁</a></section></main>;
   return <>
     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", padding: "8px 24px", background: "#fffaf0", borderBottom: "1px solid #e3bd58" }}>
       <a href="/accounting/admin/document-workspace" style={{ color: "#174b43", fontWeight: 700, textDecoration: "none" }}>文件拆解工作區</a>

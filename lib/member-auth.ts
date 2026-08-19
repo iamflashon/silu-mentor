@@ -4,6 +4,7 @@ import { memberExamAccess, members } from "../db/schema";
 import { getOrCreateMedtechUsage } from "./medtech-usage";
 import { getMedtechDeviceStatus } from "./medtech-device-session";
 import { ADMIN_ENTRY_OWNER_EMAIL, isAdminEntryAuthenticated } from "./admin-entry-auth";
+import { getMemberSession } from "./member-session-auth";
 
 export type MemberRole = "teacher" | "student";
 
@@ -20,10 +21,17 @@ export function authenticatedEmail(request: Request) {
 }
 
 export async function requireMember(request: Request) {
-  const email = authenticatedEmail(request) || (await isAdminEntryAuthenticated(request) ? ADMIN_ENTRY_OWNER_EMAIL : "");
+  const trustedMemberId = Number(request.headers.get("x-silu-member-id"));
+  const session = await getMemberSession(request);
+  const email = session?.email || authenticatedEmail(request) || (await isAdminEntryAuthenticated(request) ? ADMIN_ENTRY_OWNER_EMAIL : "");
   if (!email) return { error: Response.json({ error: "請先登入自己的學習帳號" }, { status: 401 }) } as const;
   const db = await getDb();
-  let [member] = await db.select().from(members).where(eq(members.email, email)).limit(1);
+  let [member] = Number.isSafeInteger(trustedMemberId) && trustedMemberId > 0
+    ? await db.select().from(members).where(eq(members.id, trustedMemberId)).limit(1)
+    : session
+      ? await db.select().from(members).where(eq(members.id, session.memberId)).limit(1)
+      : await db.select().from(members).where(eq(members.email, email)).limit(1);
+  if (member && member.email.trim().toLowerCase() !== email) return { error: Response.json({ error: "登入工作階段無效，請重新登入" }, { status: 401 }) } as const;
   if (!member) {
     [member] = await db.insert(members).values({
       email,
@@ -94,7 +102,7 @@ export async function requireMedtechDevice(request: Request) {
 
 export async function requireMedtechAdmin(request: Request) {
   const auth = await requireMedtechMember(request);
-  if ("error" in auth) return auth;
+  if (!("access" in auth)) return auth;
   if (!auth.access.canAdmin) return { error: Response.json({ error: "需要醫檢師管理權限" }, { status: 403 }) } as const;
   return auth;
 }
@@ -112,7 +120,7 @@ export async function requireAccountingMember(request: Request) {
 
 export async function requireAccountingAdmin(request: Request) {
   const auth = await requireAccountingMember(request);
-  if ("error" in auth) return auth;
+  if (!("access" in auth)) return auth;
   if (!auth.access.canAdmin) return { error: Response.json({ error: "需要中級會計管理權限" }, { status: 403 }) } as const;
   return auth;
 }

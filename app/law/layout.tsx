@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { isAdminEntryAuthenticated } from "../../lib/admin-entry-auth";
+import { requireMember } from "../../lib/member-auth";
 
 export const metadata: Metadata = {
   title: "司律備考",
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 
 export default async function LawLayout({children}:{children:React.ReactNode}) {
   const requestHeaders = await headers();
-  const request = new Request("https://silu-mentor.invalid/law", { headers: requestHeaders });
-  if (!(await isAdminEntryAuthenticated(request))) redirect("/admin-login?return_to=%2Flaw");
+  const auth = await requireMember(new Request("https://silu-mentor.invalid/law", { headers: requestHeaders }));
+  if ("error" in auth) redirect("/member-login?return_to=%2Flaw");
   return children;
 }

@@ -8,6 +8,12 @@ import {
   isAdminSessionCookie,
   safeReturnTo,
 } from "../lib/admin-entry-auth";
+import {
+  clearMemberSessionCookie,
+  createMemberSessionCookie,
+  getMemberSession,
+  verifyMemberPassword,
+} from "../lib/member-session-auth";
 
 interface Env {
   ASSETS: Fetcher;
@@ -18,6 +24,7 @@ interface Env {
   ENTRY_ADMIN_EMAIL?: string;
   ENTRY_ADMIN_PASSWORD?: string;
   ENTRY_SESSION_SECRET?: string;
+  MEMBER_SESSION_SECRET?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -25,6 +32,51 @@ interface Env {
       };
     };
   };
+}
+
+type MemberRow = {
+  id: number;
+  email: string;
+  display_name: string;
+  role: string;
+  can_admin: number;
+  status: string;
+  class_name: string;
+  password_hash: string;
+};
+
+function publicMember(member: MemberRow) {
+  return { id: member.id, email: member.email, displayName: member.display_name, role: member.role, canAdmin: Boolean(member.can_admin), status: member.status, className: member.class_name };
+}
+
+async function handleMemberRequest(request: Request, env: Env) {
+  const pathname = new URL(request.url).pathname;
+  if (pathname === "/api/member/login" && request.method === "POST") {
+    let body: { email?: unknown; password?: unknown; returnTo?: unknown } = {};
+    try { body = await request.json(); } catch { /* handled as an invalid login below */ }
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!email || !password) return Response.json({ error: "請輸入會員帳號與密碼。" }, { status: 400, headers: { "cache-control": "no-store" } });
+    const member = await env.DB.prepare("SELECT id, email, display_name, role, can_admin, status, class_name, password_hash FROM members WHERE email = ? LIMIT 1").bind(email).first<MemberRow>();
+    if (!member || member.status !== "active" || !member.password_hash || !(await verifyMemberPassword(password, member.password_hash))) {
+      return Response.json({ error: "會員帳號或密碼錯誤，或帳號目前已停用。" }, { status: 401, headers: { "cache-control": "no-store" } });
+    }
+    const cookie = await createMemberSessionCookie({ memberId: member.id, email: member.email }, env);
+    if (!cookie) return Response.json({ error: "會員登入服務尚未完成設定。" }, { status: 503, headers: { "cache-control": "no-store" } });
+    await env.DB.prepare("UPDATE members SET last_seen_at = ?, updated_at = ? WHERE id = ?").bind(Date.now(), Date.now(), member.id).run();
+    return Response.json({ ok: true, returnTo: safeReturnTo(body.returnTo) }, { headers: { "cache-control": "no-store", "set-cookie": cookie } });
+  }
+  if (pathname === "/api/member/session" && request.method === "GET") {
+    const session = await getMemberSession(request, env);
+    if (!session) return Response.json({ authenticated: false, member: null }, { headers: { "cache-control": "no-store" } });
+    const member = await env.DB.prepare("SELECT id, email, display_name, role, can_admin, status, class_name, password_hash FROM members WHERE id = ? LIMIT 1").bind(session.memberId).first<MemberRow>();
+    const authenticated = Boolean(member && member.status === "active" && member.email.trim().toLowerCase() === session.email);
+    return Response.json({ authenticated, member: authenticated && member ? publicMember(member) : null }, { headers: { "cache-control": "no-store" } });
+  }
+  if (pathname === "/api/member/logout" && request.method === "POST") {
+    return Response.json({ ok: true }, { headers: { "cache-control": "no-store", "set-cookie": clearMemberSessionCookie() } });
+  }
+  return null;
 }
 
 async function handleAdminEntryRequest(request: Request, env: Env) {
@@ -57,7 +109,13 @@ async function handleAdminEntryRequest(request: Request, env: Env) {
 async function addAdminEntryContext(request: Request, env: Env) {
   const headers = new Headers(request.headers);
   headers.delete("x-silu-admin-entry");
+  headers.delete("x-silu-member-id");
   if (await isAdminSessionCookie(request, env.ENTRY_SESSION_SECRET)) headers.set("x-silu-admin-entry", "1");
+  const session = await getMemberSession(request, env);
+  if (session) {
+    const member = await env.DB.prepare("SELECT id, email, status FROM members WHERE id = ? LIMIT 1").bind(session.memberId).first<{ id: number; email: string; status: string }>();
+    if (member && member.status === "active" && member.email.trim().toLowerCase() === session.email) headers.set("x-silu-member-id", String(member.id));
+  }
   return new Request(request, { headers });
 }
 
@@ -89,6 +147,8 @@ const worker = {
 
     const adminEntryResponse = await handleAdminEntryRequest(request, env);
     if (adminEntryResponse) return adminEntryResponse;
+    const memberResponse = await handleMemberRequest(request, env);
+    if (memberResponse) return memberResponse;
     return handler.fetch(await addAdminEntryContext(request, env), env, ctx);
   },
 

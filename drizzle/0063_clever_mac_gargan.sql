@@ -1,0 +1,1 @@
+ALTER TABLE `members` ADD `password_hash` text DEFAULT '' NOT NULL;

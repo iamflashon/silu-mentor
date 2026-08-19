@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { isAdminEntryAuthenticated } from "../../lib/admin-entry-auth";
+import { requireMember } from "../../lib/member-auth";
 import MedtechDeviceGuard from "./MedtechDeviceGuard";
 
 export const metadata: Metadata = {
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 
 export default async function MedtechLayout({children}:{children:React.ReactNode}) {
   const requestHeaders = await headers();
-  const request = new Request("https://silu-mentor.invalid/medtech", { headers: requestHeaders });
-  if (!(await isAdminEntryAuthenticated(request))) redirect("/admin-login?return_to=%2Fmedtech");
+  const auth = await requireMember(new Request("https://silu-mentor.invalid/medtech", { headers: requestHeaders }));
+  if ("error" in auth) redirect("/member-login?return_to=%2Fmedtech");
   return <>{children}<MedtechDeviceGuard /></>;
 }
