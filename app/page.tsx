@@ -1178,14 +1178,45 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
+  const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
+  const [accessLoaded, setAccessLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/account", { cache: "no-store" })
+      .then(async (response) => response.ok ? (await response.json()).member as CurrentMember : null)
+      .then((member) => {
+        setCurrentMember(member);
+        setAccessLoaded(true);
+      })
+      .catch(() => setAccessLoaded(true));
+  }, []);
+
+  const canEnterPlatform = currentMember?.canAdmin === true;
+  const accessMessage = !accessLoaded
+    ? "正在確認管理員登入狀態…"
+    : canEnterPlatform
+      ? `管理員 ${currentMember?.displayName ?? "帳號"} 已驗證，可以進入平台。`
+      : currentMember
+        ? "目前帳號不是管理員，這兩個入口暫不開放。"
+        : "請先登入管理員帳號，才能啟用平台入口。";
+
   return <main className="main-entry-gate">
     <section>
       <span>iBRAIN AI LEARNING</span>
-      <div aria-hidden="true">智</div>
+      <div className="main-entry-logo" aria-hidden="true">智</div>
       <h1>iBrain AI 學習平台</h1>
-      <p>本平台目前為內部測試階段，請使用指定的課程連結進入。</p>
-      <small>如需使用權限，請洽平台管理人員。</small>
-      <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
+      <p>本平台目前為內部測試階段，平台入口僅限管理員登入後使用。</p>
+      <small>{accessMessage}</small>
+      <div className="main-entry-actions">
+        {canEnterPlatform ? <>
+          <a className="main-entry-law" href="/law">進入司律備考</a>
+          <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
+        </> : <>
+          <button className="main-entry-law is-locked" type="button" disabled>進入司律備考</button>
+          <button className="main-entry-medtech is-locked" type="button" disabled>進入醫檢師平台</button>
+        </>}
+      </div>
+      {!accessLoaded || canEnterPlatform ? null : <a className="main-entry-signin" href="/signin-with-chatgpt?return_to=/">登入管理員帳號</a>}
     </section>
   </main>;
 }
