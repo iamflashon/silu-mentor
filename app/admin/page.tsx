@@ -443,7 +443,7 @@ export default function AdminPage() {
   const [externalSelectedItemId, setExternalSelectedItemId] = useState<number | null>(null);
   const [externalTestLoading, setExternalTestLoading] = useState(false);
   const [externalTestResult, setExternalTestResult] = useState<ExternalRetrievalTest | null>(null);
-  const [newMember, setNewMember] = useState({ displayName: "", email: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
+  const [newMember, setNewMember] = useState({ displayName: "", email: "", password: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
 
   useEffect(() => {
     if (activeTab !== "ai-feedback") return;
@@ -3159,7 +3159,7 @@ export default function AdminPage() {
       .finally(() => setMembersLoading(false));
   }, [activeTab]);
 
-  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">>) {
+  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { password?: string }) {
     setMemberNotice("儲存中…");
     const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     const data = await response.json();
@@ -3177,7 +3177,7 @@ export default function AdminPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "新增學員失敗");
       setMembers((rows) => [data.member, ...rows]);
-      setNewMember({ displayName: "", email: "", className: "", role: "student", status: "active" });
+      setNewMember({ displayName: "", email: "", password: "", className: "", role: "student", status: "active" });
       setMemberNotice(`已新增學員：${data.member.displayName}`);
     } catch (error) {
       setMemberNotice(error instanceof Error ? error.message : "新增學員失敗");
@@ -3352,6 +3352,7 @@ export default function AdminPage() {
               <div className="member-create-fields">
                 <label><span>姓名</span><input required value={newMember.displayName} onChange={(event) => setNewMember((current) => ({ ...current, displayName: event.target.value }))} placeholder="例如：王小明" /></label>
                 <label><span>Email</span><input required type="email" value={newMember.email} onChange={(event) => setNewMember((current) => ({ ...current, email: event.target.value }))} placeholder="student@example.com" /></label>
+                <label><span>初始密碼（至少 8 碼）</span><input required minLength={8} type="password" autoComplete="new-password" value={newMember.password} onChange={(event) => setNewMember((current) => ({ ...current, password: event.target.value }))} placeholder="提供給會員登入" /></label>
                 <label><span>班級</span><input value={newMember.className} onChange={(event) => setNewMember((current) => ({ ...current, className: event.target.value }))} placeholder="例如：司律二試 A 班" /></label>
                 <label><span>學習身分</span><select value={newMember.role} onChange={(event) => setNewMember((current) => ({ ...current, role: event.target.value as MemberRow["role"] }))}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
                 <label><span>帳號狀態</span><select value={newMember.status} onChange={(event) => setNewMember((current) => ({ ...current, status: event.target.value as MemberRow["status"] }))}><option value="active">使用中</option><option value="disabled">暫不開放</option></select></label>
@@ -3366,6 +3367,7 @@ export default function AdminPage() {
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
                 <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
                 <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未登入"}</strong></div>
+                <button type="button" className="member-reset-password" onClick={() => { const password = window.prompt(`設定 ${member.displayName || member.email} 的新密碼（至少 8 碼）`); if (password) void updateMember(member.id, { password }); }}>重設密碼</button>
               </article>)}
               {!members.length && <p className="usage-empty">尚無會員。學生首次登入後會自動出現在這裡。</p>}
             </div>}

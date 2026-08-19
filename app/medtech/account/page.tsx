@@ -1,12 +1,14 @@
 import { headers } from "next/headers";
 import { and, count, desc, eq, inArray, lt, sum } from "drizzle-orm";
-import { chatGPTSignInPath, chatGPTSignOutPath } from "../../chatgpt-auth";
+import { memberLoginPath } from "../../../lib/member-login-path";
 import { examQuestions, medtechPointLedger, medtechPracticeSessions } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
 import { getOrCreateMedtechUsage } from "../../../lib/medtech-usage";
 import PointLedgerList from "./PointLedgerList";
 
 export const dynamic = "force-dynamic";
+
+const chatGPTSignOutPath = (returnTo = "/") => `/api/member/logout?return_to=${encodeURIComponent(returnTo)}`;
 
 type AccountPageProps = {
   searchParams?: Promise<{ page?: string | string[] }>;
@@ -15,7 +17,7 @@ type AccountPageProps = {
 export default async function MedtechAccountPage({ searchParams }: AccountPageProps) {
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(new Request("https://account.local/medtech/account", { headers: requestHeaders }));
-  if ("error" in auth) return <main className="medtech-member-page"><header><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEMBER ACCESS</small></div></a></header><section className="medtech-member-card login"><span>醫檢師會員專區</span><h1>登入你的學習帳號</h1><p>登入後可保存作答紀錄、錯題、筆記與引導學習內容。若帳號尚未開通，請聯絡醫檢師管理員。</p><a className="primary" href={chatGPTSignInPath("/medtech/account")}>登入醫檢師備考</a><a href="/medtech">先回首頁</a></section></main>;
+  if ("error" in auth) return <main className="medtech-member-page"><header><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEMBER ACCESS</small></div></a></header><section className="medtech-member-card login"><span>醫檢師會員專區</span><h1>登入你的學習帳號</h1><p>登入後可保存作答紀錄、錯題、筆記與引導學習內容。若帳號尚未開通，請聯絡醫檢師管理員。</p><a className="primary" href={memberLoginPath("/medtech/account")}>登入會員帳號</a><a href="/medtech">先回首頁</a></section></main>;
   if (!("access" in auth)) return <main className="medtech-member-page"><section className="medtech-member-card login"><h1>會員資料載入中</h1><p>請重新整理頁面。</p></section></main>;
   const { member, access } = auth;
   const usage = await getOrCreateMedtechUsage(auth.db, member.email);

@@ -4,7 +4,7 @@ import MedtechTabs from "../MedtechTabs";
 import MedtechHeaderActions from "../MedtechHeaderActions";
 import MedtechRetakeOptions from "../MedtechRetakeOptions";
 import MedtechPackDiscount from "../MedtechPackDiscount";
-import { chatGPTSignInPath } from "../../chatgpt-auth";
+import { memberLoginPath } from "../../../lib/member-login-path";
 import { documents, examQuestions, medtechPointLedger, medtechPracticeSessions } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
 
@@ -35,7 +35,7 @@ function remainingText(until: Date | null, now: number) {
 export default async function MedtechRandomPackages() {
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(new Request("https://medtech.local/medtech/random", { headers: requestHeaders }));
-  if ("error" in auth) return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師隨機模考</span><h1>登入後開始闖關</h1><p>登入後可以保存每一關的作答紀錄、完成時間與錯題分析。</p><a className="primary" href={chatGPTSignInPath("/medtech/random")}>登入醫檢師備考</a></section></main>;
+  if ("error" in auth) return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師隨機模考</span><h1>登入後開始闖關</h1><p>登入後可以保存每一關的作答紀錄、完成時間與錯題分析。</p><a className="primary" href={memberLoginPath("/medtech/random")}>登入會員帳號</a></section></main>;
 
   const [sourceRows, questionRows, ledgerRows, sessionRows] = await Promise.all([
     auth.db.select({ id: documents.id, storageKey: documents.storageKey, fileName: documents.fileName, subject: documents.subject }).from(documents).where(eq(documents.examCategory, "medtech")),

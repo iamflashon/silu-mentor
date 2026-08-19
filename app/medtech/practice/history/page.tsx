@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import MedtechTabs from "../../MedtechTabs";
 import MedtechHeaderActions from "../../MedtechHeaderActions";
-import { chatGPTSignInPath } from "../../../chatgpt-auth";
+import { memberLoginPath } from "../../../../lib/member-login-path";
 import { examQuestions, medtechPracticeSessions } from "../../../../db/schema";
 import { requireMedtechMember } from "../../../../lib/member-auth";
 import HistoryBulkActions from "./HistoryBulkActions";
@@ -86,7 +86,7 @@ export default async function MedtechPracticeHistory({ searchParams }: { searchP
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(new Request("https://medtech.local/medtech/practice/history", { headers: requestHeaders }));
   if ("error" in auth) {
-    return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師學習紀錄</span><h1>登入後查看刷題紀錄</h1><p>登入後可以查看每回練習的日期、完成狀態、作答時間、錯題與逐題解析。</p><a className="primary" href={chatGPTSignInPath("/medtech/practice/history")}>登入醫檢師備考</a></section></main>;
+    return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師學習紀錄</span><h1>登入後查看刷題紀錄</h1><p>登入後可以查看每回練習的日期、完成狀態、作答時間、錯題與逐題解析。</p><a className="primary" href={memberLoginPath("/medtech/practice/history")}>登入會員帳號</a></section></main>;
   }
 
   const params = (await searchParams) ?? {};

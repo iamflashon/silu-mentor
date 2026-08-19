@@ -974,8 +974,8 @@ export function LawHome() {
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
           {currentMember ? <div className={`member-menu-wrap ${memberMenuOpen ? "is-open" : ""}`}>
             <button type="button" className="member-chip" title={currentMember.email} aria-haspopup="menu" aria-expanded={memberMenuOpen} onClick={() => setMemberMenuOpen((open) => !open)}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>帳號</small><i aria-hidden="true">⌄</i></button>
-            {memberMenuOpen && <><button type="button" className="member-menu-backdrop" aria-label="關閉帳號選單" onClick={() => setMemberMenuOpen(false)} /><div className="member-menu" role="menu"><div><strong>{currentMember.displayName}</strong><small>{currentMember.email}</small></div><a href="/account" role="menuitem">會員設定</a><a href="/signout-with-chatgpt?return_to=/law" role="menuitem" className="member-menu-signout">登出</a></div></>}
-          </div> : <a href="/signin-with-chatgpt?return_to=/law" className="member-signin">登入我的學習平台</a>}
+            {memberMenuOpen && <><button type="button" className="member-menu-backdrop" aria-label="關閉帳號選單" onClick={() => setMemberMenuOpen(false)} /><div className="member-menu" role="menu"><div><strong>{currentMember.displayName}</strong><small>{currentMember.email}</small></div><a href="/account" role="menuitem">會員設定</a><a href="/api/member/logout?return_to=%2Flaw" role="menuitem" className="member-menu-signout">登出</a></div></>}
+          </div> : <a href="/member-login?return_to=%2Flaw" className="member-signin">登入我的學習平台</a>}
         </div>
       </header>
       <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "今日任務完成後，記得留下學習接續點", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>◆</b> : null}</span>)}</span></div></div>
@@ -1178,45 +1178,18 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
-  const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
-  const [accessLoaded, setAccessLoaded] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/account", { cache: "no-store" })
-      .then(async (response) => response.ok ? (await response.json()).member as CurrentMember : null)
-      .then((member) => {
-        setCurrentMember(member);
-        setAccessLoaded(true);
-      })
-      .catch(() => setAccessLoaded(true));
-  }, []);
-
-  const canEnterPlatform = currentMember?.canAdmin === true;
-  const accessMessage = !accessLoaded
-    ? "正在確認管理員登入狀態…"
-    : canEnterPlatform
-      ? `管理員 ${currentMember?.displayName ?? "帳號"} 已驗證，可以進入平台。`
-      : currentMember
-        ? "目前帳號不是管理員，這兩個入口暫不開放。"
-        : "請先登入管理員帳號，才能啟用平台入口。";
-
   return <main className="main-entry-gate">
     <section>
       <span>iBRAIN AI LEARNING</span>
       <div className="main-entry-logo" aria-hidden="true">智</div>
       <h1>iBrain AI 學習平台</h1>
-      <p>本平台目前為內部測試階段，平台入口僅限管理員登入後使用。</p>
-      <small>{accessMessage}</small>
+      <p>首頁公開瀏覽；選擇學習平台後，系統會要求會員登入才能開始使用功能。</p>
+      <small>會員帳號由管理員建立；管理員請由後台入口登入。</small>
       <div className="main-entry-actions">
-        {canEnterPlatform ? <>
-          <a className="main-entry-law" href="/law">進入司律備考</a>
-          <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
-        </> : <>
-          <button className="main-entry-law is-locked" type="button" disabled>進入司律備考</button>
-          <button className="main-entry-medtech is-locked" type="button" disabled>進入醫檢師平台</button>
-        </>}
+        <a className="main-entry-law" href="/law">進入司律備考</a>
+        <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
       </div>
-      {!accessLoaded || canEnterPlatform ? null : <a className="main-entry-signin" href="/signin-with-chatgpt?return_to=/">登入管理員帳號</a>}
+      <a className="main-entry-signin" href="/admin-login?return_to=/admin">管理員登入</a>
     </section>
   </main>;
 }

@@ -5,7 +5,7 @@ import MedtechHeaderActions from "../MedtechHeaderActions";
 import MedtechRetakeOptions from "../MedtechRetakeOptions";
 import MedtechPackDiscount from "../MedtechPackDiscount";
 import MedtechUltimateChallenge from "../MedtechUltimateChallenge";
-import { chatGPTSignInPath } from "../../chatgpt-auth";
+import { memberLoginPath } from "../../../lib/member-login-path";
 import { documents, examQuestions, medtechPointLedger, medtechPracticeSessions } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
 import { taipeiDate } from "../../../lib/taipei-time";
@@ -45,7 +45,7 @@ export default async function MedtechChapters() {
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(new Request("https://medtech.local/medtech/chapters", { headers: requestHeaders }));
   if ("error" in auth) {
-    return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師章節刷題</span><h1>登入後開始闖關</h1><p>登入後可以保存每一關的作答紀錄、完成時間與錯題分析。</p><a className="primary" href={chatGPTSignInPath("/medtech/chapters")}>登入醫檢師備考</a></section></main>;
+    return <main className="medtech-member-page"><section className="medtech-member-card login"><span>醫檢師章節刷題</span><h1>登入後開始闖關</h1><p>登入後可以保存每一關的作答紀錄、完成時間與錯題分析。</p><a className="primary" href={memberLoginPath("/medtech/chapters")}>登入會員帳號</a></section></main>;
   }
 
   const [sourceRows, questionRows, ledgerRows, sessionRows] = await Promise.all([
