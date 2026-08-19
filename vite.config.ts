@@ -1,42 +1,9 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
-
-const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
-  "4287afc6-3404-4086-b961-0fe035841493";
-
-const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
-
-const localBindingConfig = {
-  main: "./worker/index.ts",
-  compatibility_flags: ["nodejs_compat"],
-  // Cloudflare Cron uses UTC. 16:30–21:55 UTC is 00:30–05:55 in Taiwan.
-  // The five-minute cadence lets a failed batch resume while the official API
-  // is still open, without requiring an administrator to keep the page open.
-  triggers: { crons: ["30-59/5 16 * * *", "*/5 17-21 * * *"] },
-  d1_databases: d1
-    ? [
-        {
-          binding: d1,
-          database_name: "silu-mentor-db",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
-        },
-      ]
-    : [],
-  r2_buckets: r2
-    ? [
-        {
-          binding: r2,
-          bucket_name: "silu-mentor-r2",
-        },
-      ]
-    : [],
-  images: { binding: "IMAGES" },
-};
 
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
@@ -62,7 +29,6 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: localBindingConfig,
       }),
     ],
   };
