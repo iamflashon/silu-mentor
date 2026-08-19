@@ -1,0 +1,69 @@
+name: Cloudflare dev Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "先選 preview，確認成功後再選 deploy"
+        required: true
+        type: choice
+        options:
+          - preview
+          - deploy
+        default: preview
+
+concurrency:
+  group: cloudflare-dev-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout cloudflare-setup
+        uses: actions/checkout@v4
+        with:
+          ref: cloudflare-setup
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Wrangler authentication
+        run: npm exec -- wrangler whoami
+
+      - name: Build Worker artifact
+        run: npm exec -- vinext build
+
+      - name: Preview deployment
+        if: ${{ inputs.operation == 'preview' }}
+        run: npm exec -- wrangler deploy --dry-run --config ./dist/server/wrangler.json
+
+      - name: Verify target D1 is initialized
+        if: ${{ inputs.operation == 'deploy' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "SELECT name FROM sqlite_master WHERE type='table' AND name='members';" --json)"
+          echo "$result"
+          if ! echo "$result" | jq -e '.. | objects | select(.name? == "members")' >/dev/null; then
+            echo "::error::silu-mentor-db is still empty or has no members table. Import the source database before deploying."
+            exit 1
+          fi
+
+      - name: Deploy to workers.dev
+        if: ${{ inputs.operation == 'deploy' }}
+        run: npm exec -- wrangler deploy --config ./dist/server/wrangler.json
