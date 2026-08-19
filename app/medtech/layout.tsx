@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import MedtechDeviceGuard from "./MedtechDeviceGuard";
-import AdminEntryRequired from "../admin-login/AdminEntryRequired";
+import { redirect } from "next/navigation";
 import { isAdminEntryAuthenticated } from "../../lib/admin-entry-auth";
+import MedtechDeviceGuard from "./MedtechDeviceGuard";
 
 export const metadata: Metadata = {
   title: "醫檢師備考",
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 
 export default async function MedtechLayout({children}:{children:React.ReactNode}) {
   const requestHeaders = await headers();
-  const allowed = await isAdminEntryAuthenticated(new Request("https://medtech.local/medtech", { headers: requestHeaders }));
-  if (!allowed) return <AdminEntryRequired returnTo="/medtech" />;
+  const request = new Request("https://silu-mentor.invalid/medtech", { headers: requestHeaders });
+  if (!(await isAdminEntryAuthenticated(request))) redirect("/admin-login?return_to=%2Fmedtech");
   return <>{children}<MedtechDeviceGuard /></>;
 }

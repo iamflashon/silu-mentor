@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import AdminEntryRequired from "../admin-login/AdminEntryRequired";
+import { redirect } from "next/navigation";
 import { isAdminEntryAuthenticated } from "../../lib/admin-entry-auth";
 
 export const metadata: Metadata = {
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 
 export default async function LawLayout({children}:{children:React.ReactNode}) {
   const requestHeaders = await headers();
-  const allowed = await isAdminEntryAuthenticated(new Request("https://law.local/law", { headers: requestHeaders }));
-  if (!allowed) return <AdminEntryRequired returnTo="/law" />;
+  const request = new Request("https://silu-mentor.invalid/law", { headers: requestHeaders });
+  if (!(await isAdminEntryAuthenticated(request))) redirect("/admin-login?return_to=%2Flaw");
   return children;
 }

@@ -1,1222 +1,53 @@
-"use client";
-
-import Link from "next/link";
-import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ListeningPlayer, ListeningFeed } from "./listening-player";
-import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
-import { formatTwd } from "../lib/currency";
-import { coreExamPoints, type CoreExamPoint } from "../lib/core-exam-points";
-import "./entry-gate.css";
-
-type ComparisonResponse = {
-  id: number;
-  label: string;
-  model: string;
-  text: string;
-  source: "æ•™æ" | "AI è£œå……";
-  sources: string[];
-  error?: string | null;
-  usage: { inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsd: number; durationMs: number };
-  stopReason?: string | null;
-};
-type ModelComparison = { id: number; sourceStatus: string; responses: ComparisonResponse[] };
-type EvaluationUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
-type TeachingLevel = "general" | "beginner" | "intermediate" | "advanced" | "super";
-const teachingLevelLabels: Record<TeachingLevel, string> = {
-  general: "è‡ªç”±æå•",
-  beginner: "æ³•å¾‹å°ç™½",
-  intermediate: "åŸºç¤è€ƒç”Ÿ",
-  advanced: "é€²éšè€ƒç”Ÿ",
-  super: "é ‚å°–å­¸éœ¸",
-};
-type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
-type TeachingEvidence = { status: "verified" | "applied_inference" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string; matchedTerms?: string[]; basis?: "teacher_solution" | "chapter" };
-type ChallengeThread = { targetLabel: string; targetExcerpt: string; challengeText: string; challengeUsage: ReplyUsage; replyText: string; replyUsage: ReplyUsage; version: number; applied: boolean };
-type Message = { role: "mentor" | "student"; text: string; source?: string | null; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread; practiceQuestion?: PracticeQuestion | null };
-type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
-type AnswerAction = "plain" | "detailed" | "follow-up";
-type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; webSearchCalls?: number; modelTokenCostUsd?: number; fileSearchCostUsd?: number; webSearchCostUsd?: number; estimatedCostUsd: number; durationMs: number };
-type ChatModelMode = "auto" | "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52" | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
-const aiSettingsStorageKey = "silu-ai-settings-pinned";
-const conversationContinuationThreshold = 40;
-const chatModelModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
-function isTeachingLevel(value: unknown): value is TeachingLevel { return value === "general" || value === "beginner" || value === "intermediate" || value === "advanced" || value === "super"; }
-function isChatModelMode(value: unknown): value is ChatModelMode { return typeof value === "string" && chatModelModes.includes(value as ChatModelMode); }
-type TodayTask = { id: number; taskDate: string; subject: string; title: string; durationMinutes: number; details: string; status: string };
-type DashboardData = { targetLabel: string; monthsRemaining: number; officialDatePending: boolean; todayProgress: { completed: number; total: number; delayed?: number; records?: number; correct?: number; answered?: number }; record: { completedTasks: number; completedMinutes: number; totalTasks: number }; priorities: Array<{ topic: string; count: number; reason: string }>; memo: string; encouragement: string };
-type TodayRecord = { subject: string; title: string; activityType: string; actualMinutes: number; nextStep: string };
-type YesterdayContext = { date: string; sessionId: number | null; messageCount: number; lastStudent: string; lastMentor: string; completedTasks: number; totalTasks: number; incompleteTasks: Array<{ id: number; subject: string; title: string; durationMinutes: number; details: string }>; records: Array<{ subject: string; title: string; activityType: string; actualMinutes: number; correct: boolean | null; weakness: string; nextStep: string }> };
-type CropPoint = { x: number; y: number };
-type ImageDraft = { url: string; name: string; points: CropPoint[]; rotation: number; enhance: boolean };
-type CropHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
-type PracticeQuestion = { id: number; examType: "mcq" | "essay"; year: string; examName?: string; subject: string; questionNumber: string; stem: string; options: Record<string, string> | null };
-type MagazineArticle = { id: number; title: string; summary: string; issue: string; sourceUrl: string; reviewStatus: string; sequence: number };
-type HomeFeed = { book: { id: number; title: string; creator: string; hasCover?: number } | null; course: { id: number; title: string; creator: string; sourceUrl: string } | null; magazine: { id: number; title: string; sourceUrl: string; description?: string; articles?: MagazineArticle[] } | null; listening: ListeningFeed | null; focusMusicUrl?: string; recommended: Array<{ id: number; resourceId: number; title: string; summary: string; startSeconds: number; importance: number }>; ticker: Array<{ id: string; text: string; url: string; enabled: boolean }>; examCountdowns: Array<{ id: string; label: string; date: string; enabled: boolean }>; learningCenterEnabled?: boolean };
-type LegalLesson = { documentId: number; title: string; articleNo: string; hierarchy: string; content: string };
-type DictionaryResult = { term: string; content: string; sourceUrl: string; sourceLabel: string; sourceType?: "judicial" | "legispedia"; sourceNote?: string };
-type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
-type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
-type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string; className?: string };
-
-const trustPrincipleStudentTest = "æˆ‘ç†è§£ä¿¡è³´åŸå‰‡æ˜¯ï¼Œé§•é§›äººå¯ä»¥ç›¸ä¿¡è¡Œäººæœƒéµå®ˆäº¤é€šè¦å‰‡ã€‚å¯æ˜¯å¦‚æœè¡Œäººåªæ˜¯ç«™åœ¨è·¯é‚Šç­‰ç´…ç¶ ç‡ˆï¼Œé§•é§›äººæ‡‰è©²å¯ä»¥ä¿¡è³´ä»–ä¸æœƒçªç„¶è¡å‡ºä¾†ï¼›ä½†å¦‚æœè¡Œäººå·²ç¶“æœ‰æ˜é¡¯è¦é•è¦çš„æ¨£å­ï¼Œä¾‹å¦‚ä¸€ç›´å¾€è»Šé“é è¿‘ï¼Œé§•é§›äººå°±ä¸èƒ½å†ä¸»å¼µä¿¡è³´åŸå‰‡ã€‚é‚£æœ¬é¡Œä¸­ï¼Œè¦æ€éº¼åˆ¤æ–·é€™å€‹è¡Œäººçš„å‹•ä½œå·²ç¶“é”åˆ°ã€Œé¡¯ç„¶å³å°‡é•è¦ã€çš„ç¨‹åº¦ï¼Ÿå¦‚æœæˆ‘ä¸»å¼µé§•é§›äººä»å¯ç›¸ä¿¡è¡Œäººä¸æœƒè¡å‡ºä¾†ï¼Œé€™æ¨£çš„è«–è­‰æœ‰æ©Ÿæœƒæˆç«‹å—ï¼Ÿ";
-function sourceNameFromLink(label: string, url = "") {
-  const value = `${label} ${url}`.toLowerCase();
-  if (value.includes("law.moj.gov.tw")) return "å…¨åœ‹æ³•è¦è³‡æ–™åº«";
-  if (value.includes("judicial.gov.tw")) return "å¸æ³•é™¢";
-  if (value.includes("moex.gov.tw")) return "è€ƒé¸éƒ¨";
-  const cleanLabel = label.trim();
-  return /^(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+(?:\/\S*)?$/i.test(cleanLabel) ? "å¤–ç¶²æŸ¥è­‰ä¾†æº" : cleanLabel;
-}
-function hideExternalUrls(text: string) {
-  return text
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi, (_match, label: string, url: string) => sourceNameFromLink(label, url))
-    .replace(/https?:\/\/[^\s)\]}>]+/gi, "")
-    .replace(/\(\s*\)/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/[ \t]{2,}/g, " ");
-}
-function cleanMessageText(text: string) { return hideExternalUrls(text).replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
-function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/å°šæœªåŒ¯å…¥|å°šæœªæº–å‚™|æš«æ™‚ç„¡æ³•|æ²’æœ‰é€£ä¸Š|API|éŒ¯èª¤|è«‹ç¨å¾Œ|ç®¡ç†è€…/.test(clean)) return false; return /æ³•æ¢|çˆ­é»|è¦ä»¶|æ¶µæ”|è§£é¡Œ|åˆ¤æ–·|åŸå‰‡|ä¾‹å¤–|å­¸èªª|å¯¦å‹™|æ•™æ|åˆ‘æ³•|æ°‘æ³•|è¨´è¨Ÿæ³•|æ†²æ³•|è¡Œæ”¿æ³•/.test(clean); }
-function pairedStudentPrompt(messages: Message[], teacherIndex: number) {
-  return [...messages.slice(0, teacherIndex)].reverse().find((message) => message.role === "student" && message.text.trim())?.text ?? "";
-}
-function youtubeId(value: string) { try { const url = new URL(value); const id = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || (url.pathname.match(/\/embed\/([^/]+)/)?.[1] ?? ""); return id.split(/[?&]/)[0]; } catch { return ""; } }
-function youtubeEmbedUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/embed/${id}?rel=0&controls=1&modestbranding=1&playsinline=1&enablejsapi=1` : ""; }
-function youtubeWatchUrl(value: string) { const id = youtubeId(value); return /^[A-Za-z0-9_-]{6,}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : ""; }
-function requestYoutubePlay(root: Element | null) { const iframe = root?.querySelector<HTMLIFrameElement>("iframe"); iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), "https://www.youtube.com"); }
-function dateLabel(value: string) { return value ? value.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$1å¹´$2æœˆ$3æ—¥") : "ä»Šå¤©"; }
-function comparisonSourceLabel(status: string) {
-  if (status === "verified") return "æ•™æåŸæ–‡å·²ç›´æ¥æ”¯æŒ";
-  if (status === "applied_inference") return "æ•™ææä¾›åˆ¤æº–ï¼ŒAI å®Œæˆæ¶µæ”";
-  if (status === "full_text_search") return "æ‰¾åˆ°ç›¸é—œæ•™æï¼Œä½†ä¸è¶³ä»¥æ ¸å°æœ¬æ¬¡å…§å®¹";
-  return "æœ¬æ¬¡æœªå–å¾—å¯æ ¸å°æ•™æå¼•ç”¨";
-}
-function citationStatusLabel(status?: string) {
-  if (status === "verified") return "å¼•ç”¨ç‹€æ…‹ï¼šåŸæ–‡ç›´æ¥æ”¯æŒ";
-  if (status === "applied_inference") return "å¼•ç”¨ç‹€æ…‹ï¼šæ•™æåˆ¤æº–ï¼‹AI æ¶µæ”";
-  if (status === "full_text_search") return "";
-  if (status === "web_search") return "å¤–ç¶²æŸ¥è­‰ï¼šå·²åˆ—å‡ºæœ¬æ¬¡æŸ¥è­‰ä¾†æºåç¨±";
-  return "å¼•ç”¨ç‹€æ…‹ï¼šæœªå–å¾—å¯æ ¸å°æ•™æ";
-}
-function sourceDisplayName(source: string) {
-  return source
-    .replace(/ï½œhttps?:\/\/\S+$/i, "")
-    .replace(/https?:\/\/\S+/gi, "")
-    .trim();
-}
-function visibleSourceNames(sources?: string[]) {
-  return [...new Set((sources ?? []).map(sourceDisplayName).filter(Boolean))];
-}
-function TeachingEvidenceDetails({ evidence }: { evidence?: TeachingEvidence | null }) {
-  if (!evidence) return null;
-  const pages = evidence.pageStart ? `ç¬¬ ${evidence.pageStart}${evidence.pageEnd && evidence.pageEnd !== evidence.pageStart ? `â€“${evidence.pageEnd}` : ""} é ` : "é ç¢¼å°šæœªæ ¸å°";
-  const isTeacherSolution = evidence.basis === "teacher_solution";
-  const label = isTeacherSolution ? "ğŸŸ¢ å·²é–å®šæœ¬é¡Œè€å¸«è§£æï¼æ“¬ç­”" : evidence.status === "verified" ? "ğŸŸ¢ æ•™æåŸæ–‡ç›´æ¥æ”¯æŒæœ¬æ¬¡æ•™å­¸å…§å®¹" : evidence.status === "applied_inference" ? "ğŸ”µ æ•™ææä¾›åˆ¤æº–ï¼ŒAI ä¾åŸæ–‡æ¶µæ”" : evidence.status === "full_text_search" ? (evidence.retrieval === "full_text_search" ? "ğŸŸ¡ åƒ…å‘½ä¸­å…¨æ–‡ç´¢å¼•ï¼Œå°šä¸è¶³ä»¥æ ¸å°æœ¬æ¬¡å…§å®¹" : "ğŸŸ¡ æ‰¾åˆ°ç›¸é—œæ•™æï¼Œä½†ä¸è¶³ä»¥æ ¸å°æœ¬æ¬¡å…§å®¹") : "âšª æœªå–å¾—æ•™æåŸæ–‡";
-  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>{isTeacherSolution ? "æŸ¥çœ‹è€å¸«å®Œæ•´åŸæ–‡" : "å±•é–‹é©—è­‰è­‰æ“š"}</span></summary><div><dl><div><dt>æ›¸ç±ï¼æª”æ¡ˆ</dt><dd>{evidence.resourceTitle || evidence.fileName || "æœªæä¾›"}</dd></div><div><dt>å¯¦éš›ä½ç½®</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("ï½œ")}</dd></div><div><dt>è³‡æ–™èº«åˆ†</dt><dd>{isTeacherSolution ? "åŒä¸€é¡Œçš„è€å¸«çˆ­é»è§£æï¼æ“¬ç­”" : evidence.retrieval === "chapter_segment" ? "ç« ç¯€å…§æ–‡æ¯”å°" : evidence.retrieval === "stored_analysis" ? "æ•™æè§£æçµæœæ¯”å°" : evidence.retrieval === "full_text_search" ? "å…¨æ–‡ç´¢å¼•æœå°‹" : "æœªä½¿ç”¨æ•™æ"}</dd></div><div><dt>æ ¸å°ç‹€æ…‹</dt><dd>{evidence.message}</dd></div></dl>{!isTeacherSolution && evidence.matchedTerms?.length ? <p className="evidence-keywords"><b>å‘½ä¸­é—œéµï¼š</b>{evidence.matchedTerms.join("ã€")}</p> : null}{evidence.excerpt ? <><b className="evidence-section-label">{isTeacherSolution ? "è€å¸«è§£æï¼æ“¬ç­”å®Œæ•´åŸæ–‡" : "æ•™æåŸæ–‡"}</b><blockquote>{evidence.excerpt}</blockquote><small>{isTeacherSolution ? "ä¸Šæ–¹ç²¾ç°¡æ•´ç†ä»¥æ­¤åŸæ–‡ç‚ºæº–ï¼›AI é¡å¤–è£œå……æœƒå¦æ¨™ç¤ºç‚ºã€ŒAI å»¶ä¼¸æª¢æŸ¥ã€ã€‚" : "ç« ç¯€é ç¢¼æ˜¯æœ¬æ•™æ PDF çš„ä½ç½®ï¼›åŸæ–‡è¨»è…³ä¸­çš„å…¶ä»–é ç¢¼å±¬å¼•ç”¨æ›¸ç›®é ç¢¼ã€‚"}</small></> : null}{evidence.status === "applied_inference" ? <p className="evidence-application"><b>AI æ¶µæ”ï¼š</b>åŸæ–‡è² è²¬æä¾›æŠ½è±¡åˆ¤æº–ï¼›æœ¬æ¬¡å›ç­”ä¸­çš„å…·é«”ç½ªåæˆ–äº‹å¯¦åˆ¤æ–·ç”± AI ä¾è©²åˆ¤æº–å®Œæˆã€‚</p> : null}{!isTeacherSolution ? <small>ç¶ è‰²ï¼æ•™æç›´æ¥æ”¯æŒå›ç­”æˆ–ä¾åŸæ–‡å‡ºé¡Œï¼›è—è‰²ï¼æ•™ææä¾›åˆ¤æº–ã€AI æ­£å¸¸æ¶µæ”ï¼›é»ƒè‰²ï¼åªæœ‰ç›¸é—œå…§å®¹ï¼Œä»ä¸è¶³ä»¥æ”¯æŒå›ç­”ã€‚</small> : null}</div></details>;
-}
-function answerParagraphs(text: string) {
-  const clean = cleanMessageText(text).trim();
-  return clean.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
-}
-function modelLabel(model: string) {
-  return /claude/i.test(model) ? "Claude Sonnet" : /deepseek/i.test(model) ? "DeepSeek V4-Pro" : /glm-5\.2/i.test(model) ? "GLM-5.2ï¼ˆä»˜è²»æ¸¬è©¦ï¼‰" : /glm/i.test(model) ? "GLM-4.7-Flashï¼ˆå…è²»æ¸¬è©¦ï¼‰" : /terra/i.test(model) ? "Terra è³ªç–‘è€…" : /sol/i.test(model) ? "Sol å­¸éœ¸" : "Luna åŠ©æ•™";
-}
-function MentorAnswerText({ text, label, model, prompt, onAnswerAction, disabled, showLearningActions = false }: { text: string; label: string; model: string; prompt: string; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; disabled?: boolean; showLearningActions?: boolean }) {
-  const paragraphs = answerParagraphs(text);
-  const actionSelection = { label, model, text, prompt, excerpts: paragraphs };
-  return <>
-    <div className="mentor-answer-text">
-      {paragraphs.map((paragraph) => <div className="mentor-answer-paragraph" key={paragraph}><p>{paragraph}</p></div>)}
-    </div>
-    {!disabled && showLearningActions && <div className="answer-learning-actions">
-      <button type="button" onClick={() => onAnswerAction("plain", actionSelection)}>ç™½è©±è§£é‡‹</button>
-      <button type="button" onClick={() => onAnswerAction("detailed", actionSelection)}>è©³è§£è§£æ</button>
-      <button type="button" className="answer-follow-up-button" onClick={() => onAnswerAction("follow-up", actionSelection)}>å»¶ä¼¸è¿½å•</button>
-    </div>}
-  </>;
-}
-function PracticeQuestionBubble({ question, answer, onAnswer, onEssayStart }: { question: PracticeQuestion; answer: { selected: string } | null; onAnswer: (key: string) => void; onEssayStart: () => void }) {
-  return <section className="practice-inline-question" aria-label="å°è©±ä¸­çš„çœŸé¡Œ">
-    <div className="practice-meta"><span>{question.examType === "mcq" ? "ä¸€è©¦é¸æ“‡é¡Œ" : "äºŒè©¦ç”³è«–é¡Œ"}</span><strong>{question.year}å¹´ï½œ{question.examName || "é¡ç§‘å¾…è¾¨è­˜"}ï½œ{question.subject}ï½œç¬¬ {question.questionNumber} é¡Œ</strong></div>
-    <p className="practice-stem">{question.stem}</p>
-    {question.examType === "mcq" && question.options ? <div className="option-grid single-column-options">{["A", "B", "C", "D"].filter((key) => question.options?.[key]).map((key) => <button className={answer?.selected === key ? "selected" : ""} disabled={Boolean(answer)} onClick={() => onAnswer(key)} key={key}><b>{key}</b><span>{question.options?.[key]}</span></button>)}</div> : <button className="essay-start" onClick={onEssayStart}>é–‹å§‹å­¸å¯©é¡Œ</button>}
-  </section>;
-}
-function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedKeys, onRate, onToggleFollowUp, onAnswerAction, thinking }: { comparison: ModelComparison; messageIndex: number; pairedPrompt: string; selectedKeys: string[]; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void>; onToggleFollowUp: (selection: FollowUpSelection) => void; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; thinking?: boolean }) {
-  const [scores, setScores] = useState<Record<number, number>>({});
-  const [saved, setSaved] = useState<number | null>(null);
-  return <section className="model-comparison-card" aria-label="AI æ¨¡å‹æ¸¬è©¦æ¯”è¼ƒ">
-    <header><div><b>AI æ¨¡å‹æ¸¬è©¦æ¯”è¼ƒ</b><span>{comparisonSourceLabel(comparison.sourceStatus)}</span></div><small>æ¯å€‹æ¨¡å‹ä½¿ç”¨åŒä¸€å€‹å•é¡Œï¼›å›è¦†ã€Tokenã€è€—æ™‚èˆ‡ä¼°ç®—æˆæœ¬éƒ½æœƒä¿å­˜ã€‚</small></header>
-    <div className="model-comparison-grid">
-      {comparison.responses.map((response) => <article className={`model-comparison-response ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`} key={response.id}>
-        <div className="model-comparison-response-head"><strong>{response.label}</strong><small>{response.model}</small></div>
-        {response.error ? <p className="model-comparison-error">{response.error}</p> : <MentorAnswerText text={response.text} label={response.label} model={response.model} prompt={pairedPrompt} onAnswerAction={onAnswerAction} disabled={thinking} />}
-        {response.stopReason === "max_tokens" && <small className="model-comparison-truncated">âš  Claude å›ç­”é”åˆ°è¼¸å‡ºä¸Šé™ï¼Œé€™æ¬¡å…§å®¹å¯èƒ½ä¸å®Œæ•´</small>}
-        {visibleSourceNames(response.sources).length > 0 && <small className="model-comparison-sources">æŸ¥è­‰ä¾†æºï¼š{visibleSourceNames(response.sources).join("ã€")}</small>}
-        <div className="model-comparison-meta"><span>{response.usage.inputTokens + response.usage.outputTokens} tokens Â· {response.usage.durationMs.toLocaleString()} ms</span><span>US$ {response.usage.estimatedCostUsd.toFixed(5)} Â· NT$ {(response.usage.estimatedCostUsd * 32.5).toFixed(3)}</span></div>
-        {!response.error && <label className={`follow-up-check ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`)} onChange={() => onToggleFollowUp({ key: `teacher:${messageIndex}:${response.id}:${response.label}`, label: response.label, model: response.model, text: response.text, prompt: pairedPrompt })} /><span>å›è¦†æ­¤è¨Šæ¯</span></label>}
-        {!response.error && <div className="model-comparison-actions"><label>æ¸¬è©¦è©•åˆ†<select value={scores[response.id] ?? 0} onChange={(event) => setScores((current) => ({ ...current, [response.id]: Number(event.target.value) }))}><option value={0}>è«‹è©•åˆ†</option>{[1, 2, 3, 4, 5].map((score) => <option value={score} key={score}>{score} åˆ†</option>)}</select></label><button type="button" disabled={!scores[response.id] || saved === response.id} onClick={async () => { await onRate(response.id, "rated", scores[response.id]); setSaved(response.id); }}>é€å‡ºè©•åˆ†</button><button type="button" className="comparison-preferred" onClick={async () => { await onRate(response.id, "preferred", 5); setSaved(response.id); }}>é¸é€™å€‹æ¯”è¼ƒå¥½</button></div>}
-        {saved === response.id && <small className="model-comparison-saved">å·²è¨˜éŒ„æ¸¬è©¦å›é¥‹</small>}
-      </article>)}
-    </div>
-  </section>;
-}
-export function LawHome() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [solReviewingIndex, setSolReviewingIndex] = useState<number | null>(null);
-  const [solReviewedIndexes, setSolReviewedIndexes] = useState<number[]>([]);
-  const [sessionId, setSessionId] = useState<number | null>(null);
-  const [todayTasks, setTodayTasks] = useState<TodayTask[]>([]);
-  const [selectedTodayTaskId, setSelectedTodayTaskId] = useState<number | null>(null);
-  const [yesterday, setYesterday] = useState<YesterdayContext | null>(null);
-  const [dailyChoiceVisible, setDailyChoiceVisible] = useState(false);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [today, setToday] = useState(() => taipeiDate());
-  const [homeExamPoint, setHomeExamPoint] = useState<CoreExamPoint>(() => coreExamPoints[0]);
-  const [greeting, setGreeting] = useState(() => taipeiGreeting());
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [railSide, setRailSide] = useState<"left" | "right">("right");
-  const [railCollapsed, setRailCollapsed] = useState(true);
-  const [mobileRailOpen, setMobileRailOpen] = useState(false);
-  const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
-  const [input, setInput] = useState("");
-  const [thinking, setThinking] = useState(false);
-  const [source, setSource] = useState<"æ•™æ" | "AI è£œå……" | null>(null);
-  const [showCosts, setShowCosts] = useState(false);
-  const [showEvidence, setShowEvidence] = useState(false);
-  const [lastUsage, setLastUsage] = useState<ReplyUsage | null>(null);
-  const [modelMode, setModelMode] = useState<ChatModelMode>("luna");
-  const [settingsPinned, setSettingsPinned] = useState(false);
-  const [settingsCollapsed, setSettingsCollapsed] = useState(true);
-  const [generatingStudentReply, setGeneratingStudentReply] = useState(false);
-  const [teachingRounds, setTeachingRounds] = useState<TeachingRound[]>([]);
-  const [, setTeachingUsage] = useState<EvaluationUsage[]>([]);
-  const [selectedFollowUps, setSelectedFollowUps] = useState<FollowUpSelection[]>([]);
-  const [evaluatingLevel, setEvaluatingLevel] = useState<TeachingLevel | null>(null);
-  const [pendingTeachingLevel, setPendingTeachingLevel] = useState<TeachingLevel | null>(null);
-  const messageListRef = useRef<HTMLDivElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
-  const cropFrameDragRef = useRef<{ pointerId: number; startX: number; startY: number; points: CropPoint[] } | null>(null);
-  const composerInputRef = useRef<HTMLTextAreaElement>(null);
-  const [imageDraft, setImageDraft] = useState<ImageDraft | null>(null);
-  const [editingImage, setEditingImage] = useState(false);
-  const [practiceQuestion, setPracticeQuestion] = useState<PracticeQuestion | null>(null);
-  const [practiceLoading, setPracticeLoading] = useState(false);
-  const [practiceAnswer, setPracticeAnswer] = useState<{ selected: string; correct: boolean; correctAnswer: string } | null>(null);
-  const [practiceCoachMessages, setPracticeCoachMessages] = useState<PracticeCoachMessage[]>([]);
-  const [practiceCoaching, setPracticeCoaching] = useState(false);
-  const [practiceCompleted, setPracticeCompleted] = useState(false);
-  const [practiceReadyToComplete, setPracticeReadyToComplete] = useState(false);
-  const [practiceDiscussion, setPracticeDiscussion] = useState(false);
-  const [savedMessage, setSavedMessage] = useState<number | null>(null);
-  const [homeFeed, setHomeFeed] = useState<HomeFeed | null>(null);
-  const [legalLesson, setLegalLesson] = useState<LegalLesson | null>(null);
-  const [dictionaryTerm, setDictionaryTerm] = useState("");
-  const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
-  const [dictionaryFeatured, setDictionaryFeatured] = useState<DictionaryResult | null>(null);
-  const [dictionaryFeaturedLoading, setDictionaryFeaturedLoading] = useState(false);
-  const [dictionaryNotice, setDictionaryNotice] = useState("");
-  const [dictionaryLoading, setDictionaryLoading] = useState(false);
-  const [musicActivated, setMusicActivated] = useState(false);
-  const [musicPlaying, setMusicPlaying] = useState(false);
-  const [selectedMagazineArticleId, setSelectedMagazineArticleId] = useState<number | null>(null);
-  const [feedbackMessage, setFeedbackMessage] = useState<number | null>(null);
-  const [feedbackTarget, setFeedbackTarget] = useState<{ message: Message; index: number } | null>(null);
-  const [feedbackRating, setFeedbackRating] = useState(0);
-  const [feedbackTypes, setFeedbackTypes] = useState<string[]>([]);
-  const [feedbackNote, setFeedbackNote] = useState("");
-  const [feedbackSaving, setFeedbackSaving] = useState(false);
-  const [terraChallenging, setTerraChallenging] = useState(false);
-  const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
-  const [memberMenuOpen, setMemberMenuOpen] = useState(false);
-  const handoffHandled = useRef(false);
-  useEffect(() => {
-    fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
-  }, []);
-  const nextExam = useMemo(() => {
-    const todayValue = Date.parse(`${today}T00:00:00Z`);
-    return (homeFeed?.examCountdowns ?? []).map((exam) => ({ ...exam, days: Math.ceil((Date.parse(`${exam.date}T00:00:00Z`) - todayValue) / 86_400_000) })).filter((exam) => exam.days >= 0).sort((a, b) => a.days - b.days)[0] ?? null;
-  }, [homeFeed?.examCountdowns, today]);
-  const magazineArticles = homeFeed?.magazine?.articles ?? [];
-  const selectedMagazineArticle = magazineArticles.find((article) => article.id === selectedMagazineArticleId) ?? magazineArticles[0] ?? null;
-  // The follow-up buttons must use the last completed teacher turn on screen,
-  // not whichever model toggle is currently selected. A user may switch from
-  // Luna to Sonnet (or from dual to single) after the answer was already shown.
-  const latestTeacherIndex = [...messages].map((message, index) => ({ message, index })).reverse().find(({ message }) =>
-    message.role === "mentor" && (message.text.trim() || message.comparison?.responses.some((response) => !response.error && response.text.trim())),
-  )?.index ?? -1;
-  const latestTeacherTurn = latestTeacherIndex >= 0 ? messages[latestTeacherIndex] : null;
-  const latestTeacherMessage = latestTeacherTurn && !latestTeacherTurn.comparison ? latestTeacherTurn : null;
-  const latestTeacherPrompt = latestTeacherIndex >= 0 ? pairedStudentPrompt(messages, latestTeacherIndex) : "";
-  const actualLatestComparison = latestTeacherTurn?.comparison ?? null;
-  const latestTeacherModel = latestTeacherMessage?.model ?? lastUsage?.model ?? "gpt-5.6-luna";
-  const latestTeacherLabel = modelLabel(latestTeacherModel);
-  const latestComparison = actualLatestComparison ?? (latestTeacherMessage ? { id: -1, sourceStatus: "unavailable", responses: [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI è£œå……" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] } satisfies ModelComparison : null);
-  const latestTeacherResponses: ComparisonResponse[] = latestComparison?.responses.filter((response) => !response.error && response.text.trim())
-    ?? (latestTeacherMessage ? [{ id: -1, label: latestTeacherLabel, model: latestTeacherModel, text: latestTeacherMessage.text, source: "AI è£œå……" as const, sources: latestTeacherMessage.sources ?? [], usage: { inputTokens: lastUsage?.inputTokens ?? 0, cachedTokens: lastUsage?.cachedTokens ?? 0, outputTokens: lastUsage?.outputTokens ?? 0, estimatedCostUsd: lastUsage?.estimatedCostUsd ?? 0, durationMs: 0 } }] : []);
-  // This is intentionally independent of modelMode. It represents the actual
-  // answer(s) immediately above the composer, which is what "è¶…ç´šå­¸éœ¸æ¸¬è©¦"
-  // promises to challenge.
-  const canGenerateStudentReply = Boolean(latestTeacherPrompt && latestTeacherResponses.length > 0);
-  const evaluatingTeaching = Boolean(evaluatingLevel);
-  const selectedFollowUpKeys = selectedFollowUps.map((selection) => selection.key);
-
-  useEffect(() => {
-    const refreshTaipeiClock = () => {
-      setToday(taipeiDate());
-      setGreeting(taipeiGreeting());
-    };
-    refreshTaipeiClock();
-    const timer = window.setInterval(refreshTaipeiClock, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    setHomeExamPoint(coreExamPoints[Math.floor(Math.random() * coreExamPoints.length)] ?? coreExamPoints[0]);
-  }, []);
-
-  useEffect(() => {
-    const messageList = messageListRef.current;
-    if (!messageList) return;
-    messageList.scrollTo({ top: messageList.scrollHeight, behavior: "smooth" });
-  }, [messages, thinking]);
-
-  useEffect(() => {
-    const textarea = composerInputRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = input ? `${Math.min(textarea.scrollHeight, 220)}px` : "36px";
-  }, [input]);
-
-  useEffect(() => {
-    fetch("/api/chat/history").then(async (response) => {
-      if (!response.ok) throw new Error("history unavailable");
-      const data = await response.json() as { sessionId?: number | null; messages?: Message[]; today?: string; todayTasks?: TodayTask[]; greeting?: string; todayRecords?: TodayRecord[]; yesterday?: YesterdayContext | null };
-      setSessionId(data.sessionId ?? null);
-      setToday(data.today ?? taipeiDate());
-      setTodayTasks(data.todayTasks ?? []);
-      setYesterday(data.yesterday ?? null);
-      setGreeting(data.greeting ?? taipeiGreeting());
-      const restored = data.messages ?? [];
-      const taskList = data.todayTasks ?? [];
-      const pendingToday = taskList.filter((task) => task.status !== "completed");
-      if (restored.length) {
-        setMessages(restored);
-        setDailyChoiceVisible(false);
-        const restoredQuestion = [...restored].reverse().find((message) => message.practiceQuestion)?.practiceQuestion ?? null;
-        setPracticeQuestion(restoredQuestion);
-        if (restoredQuestion) {
-          const questionIndex = restored.findIndex((message) => message.practiceQuestion?.id === restoredQuestion.id);
-          setPracticeCoachMessages(restored.slice(questionIndex + 1).filter((message) => message.source === "çœŸé¡Œç·´ç¿’").map((message) => ({ role: message.role, text: message.text })));
-        }
-      } else if (pendingToday.length) {
-        const records = data.todayRecords ?? [];
-        const recordSummary = records.length ? `ä½ ä»Šå¤©å·²ç¶“å­¸éï¼š${records.slice(0, 3).map((record) => record.title).join("ã€")}ã€‚` : "";
-        setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}ï¼Œ${recordSummary}ä»Šå¤©å·²ç¶“å®‰æ’å¥½ ${pendingToday.length} é …ä»»å‹™ã€‚æˆ‘å€‘å¾ç¬¬ä¸€é …ã€Œ${pendingToday[0].title}ã€é–‹å§‹ï¼Œå¥½å—ï¼Ÿ` }]);
-        setDailyChoiceVisible(false);
-      } else if (taskList.length) {
-        const records = data.todayRecords ?? [];
-        const recordSummary = records.length ? `ä½ ä»Šå¤©å·²ç¶“å­¸éï¼š${records.slice(0, 3).map((record) => record.title).join("ã€")}ã€‚` : "";
-        setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}ï¼Œ${recordSummary}ä»Šå¤©çš„ä»»å‹™éƒ½å®Œæˆäº†ã€‚è¦ä¸è¦è¶ç‹€æ…‹æ­£å¥½ï¼Œå…ˆé ç¿’æ˜å¤©çš„å…§å®¹ï¼Ÿ` }]);
-        setDailyChoiceVisible(false);
-      } else if (data.yesterday) {
-        const incomplete = data.yesterday.incompleteTasks.length;
-        const yesterdayProgress = data.yesterday.totalTasks
-          ? `æ˜¨å¤©å®Œæˆ ${data.yesterday.completedTasks}/${data.yesterday.totalTasks} é …ä»»å‹™${incomplete ? `ï¼Œé‚„æœ‰ ${incomplete} é …æœªå®Œæˆ` : ""}`
-          : "æ˜¨å¤©çš„å­¸ç¿’å…§å®¹å·²ä¿å­˜";
-        setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}ã€‚${yesterdayProgress}ã€‚ä»Šå¤©è¦æ€éº¼é–‹å§‹ï¼Œç”±ä½ æ±ºå®šï¼›æˆ‘æœƒä¾æ˜¨å¤©çš„ç´€éŒ„å¹«ä½ æ¥çºŒã€‚` }]);
-        setDailyChoiceVisible(true);
-      } else {
-        const records = data.todayRecords ?? [];
-        const recordSummary = records.length ? `ä½ ä»Šå¤©å·²ç¶“å­¸éï¼š${records.slice(0, 3).map((record) => record.title).join("ã€")}ã€‚` : "";
-        setMessages([{ role: "mentor", text: `${data.greeting ?? taipeiGreeting()}ï¼Œ${recordSummary}æˆ‘æ˜¯å¸å¾‹å‚™è€ƒçš„ AI æ•™ç·´ã€‚${records.length ? "æˆ‘å€‘æ¥è‘—æŠŠä»Šå¤©çš„å­¸ç¿’å¾€ä¸‹æ¨é€²ã€‚" : "ä»Šå¤©é‚„æ²’æœ‰å®‰æ’ä»»å‹™ï¼Œæˆ‘å¯ä»¥å…ˆæ ¹æ“šä½ çš„ç›®æ¨™èˆ‡å¯ç”¨æ™‚é–“ï¼Œå¹«ä½ å»ºç«‹ç¬¬ä¸€ä»½å­¸ç¿’è¨ˆç•«ã€‚"}` }]);
-        setDailyChoiceVisible(false);
-      }
-    }).catch(() => {
-      setMessages([{ role: "mentor", text: `${taipeiGreeting()}ï¼Œæˆ‘æ˜¯å¸å¾‹å‚™è€ƒçš„ AI æ•™ç·´ã€‚ä»Šå¤©æƒ³å¾å“ªä¸€ç§‘é–‹å§‹ï¼Ÿ` }]);
-    }).finally(() => setHistoryLoaded(true));
-  }, []);
-
-  useEffect(() => {
-    const pending = todayTasks.filter((task) => task.status !== "completed");
-    if (!pending.length) {
-      setSelectedTodayTaskId(null);
-      return;
-    }
-    setSelectedTodayTaskId((current) => pending.some((task) => task.id === current) ? current : pending[0].id);
-  }, [todayTasks]);
-
-  useEffect(() => { fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed(await response.json() as HomeFeed); }).catch(() => undefined); }, []);
-  useEffect(() => { if (magazineArticles.length && !magazineArticles.some((article) => article.id === selectedMagazineArticleId)) setSelectedMagazineArticleId(magazineArticles[0].id); }, [magazineArticles, selectedMagazineArticleId]);
-  useEffect(() => { fetch("/api/legal-learning").then(async (response) => { if (response.ok) setLegalLesson(((await response.json()) as { article?: LegalLesson | null }).article ?? null); }).catch(() => undefined); }, []);
-  useEffect(() => { fetch("/api/legal-dictionary?random=1").then(async (response) => { if (response.ok) setDictionaryFeatured(await response.json() as DictionaryResult); }).catch(() => undefined); }, []);
-  useEffect(() => {
-    fetch("/api/dashboard").then(async (response) => {
-      if (!response.ok) return;
-      const data = await response.json() as DashboardData;
-      setDashboard(data);
-    }).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/usage").then(async (response) => {
-      if (!response.ok) return;
-      const data = await response.json() as { showCosts?: boolean; showEvidence?: boolean };
-      setShowCosts(Boolean(data.showCosts));
-      setShowEvidence(Boolean(data.showEvidence));
-    }).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem("silu-command-rail-side");
-    if (saved === "left" || saved === "right") setRailSide(saved);
-    setRailCollapsed(true);
-    setMobileRailOpen(false);
-    setSettingsCollapsed(window.localStorage.getItem("silu-ai-settings-collapsed") !== "false");
-    const pinned = window.localStorage.getItem(aiSettingsStorageKey);
-    let localPreferences: { pinned: boolean; teachingLevel: TeachingLevel; modelMode: ChatModelMode; collapsed: boolean } | null = null;
-    if (pinned) {
-      try {
-        const parsed = JSON.parse(pinned) as { pinned?: unknown; teachingLevel?: unknown; modelMode?: unknown };
-        if (isTeachingLevel(parsed.teachingLevel) && isChatModelMode(parsed.modelMode)) {
-          const restoredModelMode: ChatModelMode = "luna";
-          setSettingsPinned(parsed.pinned !== false);
-          setPendingTeachingLevel(parsed.teachingLevel === "general" ? null : parsed.teachingLevel);
-          setModelMode(restoredModelMode);
-          localPreferences = { pinned: parsed.pinned !== false, teachingLevel: parsed.teachingLevel, modelMode: restoredModelMode, collapsed: window.localStorage.getItem("silu-ai-settings-collapsed") !== "false" };
-          if (restoredModelMode !== parsed.modelMode) {
-            window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({ ...parsed, modelMode: restoredModelMode }));
-          }
-        } else {
-          window.localStorage.removeItem(aiSettingsStorageKey);
-        }
-      } catch {
-        window.localStorage.removeItem(aiSettingsStorageKey);
-      }
-    }
-    fetch("/api/chat/preferences").then(async (response) => {
-      if (!response.ok) return;
-      const data = await response.json() as { exists?: boolean; preferences?: { pinned?: unknown; teachingLevel?: unknown; modelMode?: unknown; collapsed?: unknown } };
-      if (!data.exists && localPreferences) {
-        void fetch("/api/chat/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(localPreferences) });
-        return;
-      }
-      const saved = data.preferences;
-      if (!saved || !isTeachingLevel(saved.teachingLevel) || !isChatModelMode(saved.modelMode)) return;
-      const restoredModelMode: ChatModelMode = "luna";
-      setSettingsPinned(saved.pinned === true);
-      setPendingTeachingLevel(saved.teachingLevel === "general" ? null : saved.teachingLevel);
-      setModelMode(restoredModelMode);
-      setSettingsCollapsed(saved.collapsed !== false);
-      window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify({ pinned: saved.pinned === true, teachingLevel: saved.teachingLevel, modelMode: restoredModelMode }));
-      window.localStorage.setItem("silu-ai-settings-collapsed", String(saved.collapsed !== false));
-    }).catch(() => undefined);
-  }, []);
-
-  function saveAiSettings(level: TeachingLevel, nextModelMode: ChatModelMode, pinned: boolean, collapsed: boolean) {
-    const preferences = { pinned, teachingLevel: level, modelMode: nextModelMode, collapsed };
-    window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify(preferences));
-    window.localStorage.setItem("silu-ai-settings-collapsed", String(collapsed));
-    void fetch("/api/chat/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(preferences) }).catch(() => undefined);
-  }
-
-  function toggleSettingsPinned(next: boolean) {
-    setSettingsPinned(next);
-    saveAiSettings(pendingTeachingLevel ?? "general", modelMode, next, settingsCollapsed);
-  }
-
-  function persistAiSettings(level: TeachingLevel, nextModelMode: ChatModelMode = modelMode) {
-    saveAiSettings(level, nextModelMode, settingsPinned, settingsCollapsed);
-  }
-
-  function toggleRailSide() {
-    const next = railSide === "right" ? "left" : "right";
-    setRailSide(next);
-    window.localStorage.setItem("silu-command-rail-side", next);
-  }
-
-  function toggleRailCollapsed() {
-    setRailCollapsed((current) => {
-      const next = !current;
-      window.localStorage.setItem("silu-command-rail-collapsed", String(next));
-      return next;
-    });
-  }
-
-  function toggleMusic(event: MouseEvent<HTMLButtonElement>) {
-    const root = event.currentTarget.closest(".rail-music-card");
-    setMusicActivated(true);
-    if (musicPlaying) {
-      const iframe = root?.querySelector<HTMLIFrameElement>("iframe");
-      iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "stopVideo", args: [] }), "https://www.youtube.com");
-      setMusicPlaying(false);
-    } else {
-      requestYoutubePlay(root);
-      setMusicPlaying(true);
-    }
-  }
-
-  async function startPractice(examType: "mcq" | "essay") {
-    setPracticeLoading(true); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeQuestion(null);
-    try {
-      const response = await fetch(`/api/practice?type=${examType}`); const result = await response.json() as { question?: PracticeQuestion | null; message?: string };
-      if (result.question) {
-        setPracticeQuestion(result.question);
-        setMessages((current) => [...current, { role: "mentor", text: "è«‹ç›´æ¥åœ¨é€™è£¡ä½œç­”ï¼›é¸æ“‡å¾Œæˆ‘æœƒå…ˆå•ä½ çš„ç†ç”±ï¼Œä¸æœƒå…ˆå…¬å¸ƒç­”æ¡ˆã€‚", source: "çœŸé¡Œåº«", practiceQuestion: result.question }]);
-      }
-      else { setPracticeQuestion(null); setMessages((current) => [...current, { role: "mentor", text: result.message ?? "çœŸé¡Œåº«å°šæœªæº–å‚™å®Œæˆã€‚ç®¡ç†è€…åŒ¯å…¥ä¸¦ç¢ºèªé¡Œç›®å¾Œï¼Œæˆ‘å°±èƒ½å¾é€™è£¡é–‹å§‹å¸¶ä½ ç·´ç¿’ã€‚" }]); }
-    } finally { setPracticeLoading(false); }
-  }
-
-  function askMagazineArticle(article: MagazineArticle) {
-    void send(`è«‹å¸¶æˆ‘å­¸ç¿’æœˆæ—¦æ³•å­¸æ•™å®¤çš„æ–‡ç« ã€Œ${article.title}ã€ã€‚\næ‘˜è¦ï¼š${article.summary || "å°šæœªå®Œæˆæ‘˜è¦ã€‚"}\næ ¸å¿ƒçˆ­é»ï¼š${article.issue || "å°šæœªæ“·å–åˆ°æ ¸å¿ƒçˆ­é»ï¼Œè«‹å…ˆå¾æ–‡ç« æ¨™é¡Œè¾¨èªä¸¦æ¸…æ¥šæ¨™ç¤ºæ¨æ¸¬ã€‚"}\nè«‹ä»¥é€™å€‹çˆ­é»ç‚ºæ ¸å¿ƒï¼Œå…ˆèªªæ˜åˆ¤æ–·åˆ†å²”ï¼Œå†å•æˆ‘ä¸€å€‹å¯ä»¥ç›´æ¥å›ç­”çš„å°å•é¡Œã€‚`);
-  }
-
-  function teachLegalLesson() {
-    if (!legalLesson) return;
-    void send(`è«‹å¸¶æˆ‘å­¸ç¿’é€™æ¢æ³•æ¢ï¼š\n${legalLesson.title} ${legalLesson.articleNo}\n${legalLesson.content}\nè«‹å…ˆç”¨ä¸€å¥è©±èªªæ˜è€ƒé»ï¼Œå†ç”¨ä¸€å€‹ç”Ÿæ´»åŒ–æˆ–å¸å¾‹é¡Œå‹æƒ…å¢ƒå•æˆ‘ï¼›ä¸è¦ä¸€é–‹å§‹å°±çµ¦å®Œæ•´ç­”æ¡ˆã€‚`);
-  }
-
-  function swapHomeExamPoint() {
-    setHomeExamPoint((current) => {
-      if (coreExamPoints.length < 2) return current;
-      const candidates = coreExamPoints.filter((point) => point.title !== current.title || point.subject !== current.subject);
-      return candidates[Math.floor(Math.random() * candidates.length)] ?? current;
-    });
-  }
-
-  function learnHomeExamPoint() {
-    void send(`è«‹å¸¶æˆ‘å­¸ç¿’å¸å¾‹ç†±è€ƒé»ã€Œ${homeExamPoint.subject}ï½œ${homeExamPoint.title}ã€ã€‚å…ˆç”¨ä¸€å¥è©±èªªæ˜é€™å€‹è€ƒé»åœ¨äºŒè©¦ç”³è«–ä¸­çš„åˆ¤æ–·åˆ†å²”ï¼Œå†å•æˆ‘ä¸€å€‹å¯ä»¥ç›´æ¥å›ç­”çš„å°å•é¡Œï¼›ä¸è¦ä¸€é–‹å§‹å°±å…¬å¸ƒå®Œæ•´ç­”æ¡ˆã€‚`);
-  }
-
-  async function loadRandomLegalLesson() {
-    const response = await fetch("/api/legal-learning?random=1");
-    if (!response.ok) return;
-    const result = await response.json() as { article?: LegalLesson | null };
-    if (result.article) setLegalLesson(result.article);
-  }
-
-  async function searchDictionary(event: FormEvent) {
-    event.preventDefault();
-    const term = dictionaryTerm.trim();
-    if (!term) return;
-    setDictionaryLoading(true);
-    setDictionaryNotice("");
-    setDictionaryResult(null);
-    const response = await fetch(`/api/legal-dictionary?q=${encodeURIComponent(term)}`);
-    const result = await response.json() as DictionaryResult & { error?: string; canExplainWithAi?: boolean };
-    if (response.ok) setDictionaryResult(result);
-    else setDictionaryNotice(`${result.error ?? "ç›®å‰æŸ¥ä¸åˆ°é€™å€‹åè©"}${result.canExplainWithAi ? " é»ä¸‹æ–¹ã€ŒAI è§£é‡‹ã€å³å¯æ¥çºŒã€‚" : ""}`);
-    setDictionaryLoading(false);
-  }
-
-  async function loadRandomDictionary() {
-    setDictionaryFeaturedLoading(true);
-    try {
-      const response = await fetch("/api/legal-dictionary?random=1");
-      if (response.ok) setDictionaryFeatured(await response.json() as DictionaryResult);
-    } finally {
-      setDictionaryFeaturedLoading(false);
-    }
-  }
-
-  function teachDictionaryTerm() {
-    if (!dictionaryResult) return;
-    void send(`è«‹ç”¨å¸å¾‹è€ƒç”Ÿèƒ½ç†è§£çš„æ–¹å¼æ•™æˆ‘æ³•å¾‹åè©ã€Œ${dictionaryResult.term}ã€ã€‚\n${dictionaryResult.sourceLabel}å…§å®¹ï¼š\n${dictionaryResult.content}\nè«‹å…ˆèªªæ˜ç™½è©±æ„æ€ï¼Œå†è£œå……å®ƒå¸¸å‡ºç¾åœ¨å“ªä¸€ç§‘ã€å®¹æ˜“å’Œä»€éº¼æ¦‚å¿µæ··æ·†ï¼Œæœ€å¾Œå•æˆ‘ä¸€å€‹åˆ¤æ–·é¡Œã€‚è‹¥è³‡æ–™ä¾†æºå·²åœæ­¢æ›´æ–°ï¼Œè«‹æé†’æˆ‘æ ¸å°ç¾è¡Œæ³•ä»¤ã€‚`);
-  }
-
-  function teachUnknownDictionaryTerm() {
-    const term = dictionaryTerm.trim();
-    if (!term) return;
-    void send(`ç›®å‰å¸æ³•é™¢è£åˆ¤æ›¸ç”¨èªè¾­å…¸èˆ‡æ³•å¾‹ç™¾ç§‘éƒ½æ²’æœ‰æ‰¾åˆ°ã€Œ${term}ã€çš„è©æ¢ã€‚è«‹ä¸è¦å‡è£æœ‰å¤–éƒ¨ä¾†æºï¼Œæ”¹ä»¥ä¸­è¯æ°‘åœ‹æ³•å¾‹å­¸ç¿’è„ˆçµ¡ï¼Œæ¸…æ¥šæ¨™ç¤ºã€ŒAI æ•´ç†ã€ï¼Œç”¨ç™½è©±èªªæ˜é€™å€‹åè©å¯èƒ½çš„æ³•å¾‹æ„ç¾©ï¼›è‹¥æœ‰ä¸ç¢ºå®šä¹‹è™•è«‹æ˜ç¢ºèªªæ˜ï¼Œä¸¦æé†’æˆ‘æ ¸å°æ³•æ¢èˆ‡åˆ¤æ±ºåŸæ–‡ã€‚æœ€å¾Œå•æˆ‘ä¸€å€‹ç°¡çŸ­åˆ¤æ–·é¡Œã€‚`);
-  }
-
-  function teachFeaturedDictionaryTerm() {
-    if (!dictionaryFeatured) return;
-    void send(`è«‹ç”¨å¸å¾‹è€ƒç”Ÿèƒ½ç†è§£çš„æ–¹å¼æ•™æˆ‘æ³•å¾‹åè©ã€Œ${dictionaryFeatured.term}ã€ã€‚\nå¸æ³•é™¢è£åˆ¤æ›¸ç”¨èªè¾­å…¸å…§å®¹ï¼š\n${dictionaryFeatured.content}\nè«‹å…ˆèªªæ˜ç™½è©±æ„æ€ï¼Œå†è£œå……å®ƒå¸¸å‡ºç¾åœ¨å“ªä¸€ç§‘ã€å®¹æ˜“å’Œä»€éº¼æ¦‚å¿µæ··æ·†ï¼Œæœ€å¾Œå•æˆ‘ä¸€å€‹åˆ¤æ–·é¡Œã€‚`);
-  }
-
-  async function askPracticeCoach(text: string, modeOverride?: "answer_reason" | "discussion" | "complete_confirm") {
-    if (!practiceQuestion || practiceCoaching || !text.trim()) return;
-    const studentMessage = { role: "student" as const, text: text.trim() };
-    const messagesForRequest = [...practiceCoachMessages, studentMessage];
-    setPracticeCoachMessages(messagesForRequest);
-    setMessages((current) => [...current, { ...studentMessage, source: "çœŸé¡Œç·´ç¿’" }]);
-    setInput("");
-    setPracticeCoaching(true);
-    try {
-      const dialogueMode = modeOverride ?? (practiceDiscussion ? "discussion" : "answer_reason");
-      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode }) });
-      const result = await response.json() as { reply?: string; error?: string; completed?: boolean };
-      const mentorMessage = { role: "mentor" as const, text: result.reply ?? result.error ?? "æ•™ç·´æš«æ™‚ç„¡æ³•æ¥çºŒï¼Œè«‹ç¨å¾Œå†è©¦ã€‚" };
-      setPracticeCoachMessages((current) => [...current, mentorMessage]);
-      setMessages((current) => [...current, { ...mentorMessage, source: "çœŸé¡Œç·´ç¿’" }]);
-      if (dialogueMode === "complete_confirm" && result.completed) {
-        setPracticeCompleted(true);
-        setPracticeReadyToComplete(false);
-      } else if (result.completed) {
-        setPracticeReadyToComplete(true);
-        setPracticeCompleted(false);
-      } else {
-        setPracticeReadyToComplete(false);
-      }
-      if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: [studentMessage, mentorMessage] }) });
-      if (/æœ¬é¡Œå¼•å°çµæŸ|æœ¬æ¬¡å°è©±å·²çµæŸ/.test(mentorMessage.text)) setPracticeQuestion(null);
-    } finally {
-      setPracticeCoaching(false);
-    }
-  }
-
-  function beginEssayCoach() {
-    setPracticeCoachMessages([{ role: "mentor", text: "å…ˆä¸è¦æ€¥è‘—å¯«å®Œæ•´ç­”æ¡ˆã€‚è«‹å…ˆèªªå‡ºæœ¬é¡Œçš„äººç‰©ã€è¡Œç‚ºã€æ™‚é–“ï¼Œä»¥åŠä½ çœ‹åˆ°çš„ç¬¬ä¸€å€‹æ³•å¾‹çˆ­é»ã€‚" }]);
-  }
-
-  async function answerMcq(answer: string) {
-    if (!practiceQuestion || practiceAnswer) return;
-    const response = await fetch("/api/practice", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, answer }) });
-    const result = await response.json() as { correct?: boolean; correctAnswer?: string; guidance?: string; error?: string };
-    if (!response.ok || typeof result.correct !== "boolean" || !result.correctAnswer) return;
-    setPracticeAnswer({ selected: answer, correct: result.correct, correctAnswer: result.correctAnswer });
-    setPracticeCompleted(false);
-    setPracticeReadyToComplete(false);
-    setPracticeDiscussion(false);
-    const turns: PracticeCoachMessage[] = [
-      { role: "student", text: `æˆ‘é¸ ${answer}` },
-      { role: "mentor", text: `å¥½ï¼Œå…ˆä¸å…¬å¸ƒç­”æ¡ˆã€‚ä½ ç‚ºä»€éº¼é¸ ${answer}ï¼Ÿè«‹èªªå‡ºä½ åˆ¤æ–·æ™‚æŠ“åˆ°çš„æ³•å¾‹åŸå‰‡æˆ–é—œéµæ–‡å­—ã€‚` },
-    ];
-    setPracticeCoachMessages(turns);
-    setMessages((current) => [...current, ...turns.map((turn) => ({ ...turn, source: "çœŸé¡Œç·´ç¿’" }))]);
-    if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: turns }) });
-  }
-
-  function chooseQuestionImage(file: File | undefined) {
-    if (!file || !file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => { setImageDraft({ url: String(reader.result), name: file.name, rotation: 0, enhance: false, points: [{ x: 6, y: 6 }, { x: 94, y: 6 }, { x: 94, y: 94 }, { x: 6, y: 94 }] }); setEditingImage(true); };
-    reader.readAsDataURL(file);
-  }
-
-  function cropBounds(points: CropPoint[]) {
-    return { left: Math.min(...points.map((point) => point.x)), right: Math.max(...points.map((point) => point.x)), top: Math.min(...points.map((point) => point.y)), bottom: Math.max(...points.map((point) => point.y)) };
-  }
-
-  function moveCropHandle(handle: CropHandle, clientX: number, clientY: number) {
-    const rect = editorRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = Math.max(0, Math.min(100, (clientX - rect.left) / rect.width * 100));
-    const y = Math.max(0, Math.min(100, (clientY - rect.top) / rect.height * 100));
-    setImageDraft((current) => {
-      if (!current) return current;
-      const bounds = cropBounds(current.points); const minimum = 8;
-      let { left, right, top, bottom } = bounds;
-      if (handle.includes("w")) left = Math.min(x, right - minimum);
-      if (handle.includes("e")) right = Math.max(x, left + minimum);
-      if (handle.includes("n")) top = Math.min(y, bottom - minimum);
-      if (handle.includes("s")) bottom = Math.max(y, top + minimum);
-      return { ...current, points: [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }] };
-    });
-  }
-
-  function moveCropFrame(clientX: number, clientY: number) {
-    const rect = editorRef.current?.getBoundingClientRect(); const drag = cropFrameDragRef.current;
-    if (!rect || !drag) return;
-    const dx = (clientX - drag.startX) / rect.width * 100; const dy = (clientY - drag.startY) / rect.height * 100;
-    const bounds = cropBounds(drag.points);
-    const safeDx = Math.max(-bounds.left, Math.min(100 - bounds.right, dx));
-    const safeDy = Math.max(-bounds.top, Math.min(100 - bounds.bottom, dy));
-    setImageDraft((current) => current ? { ...current, points: drag.points.map((point) => ({ x: point.x + safeDx, y: point.y + safeDy })) } : current);
-  }
-
-  async function prepareQuestionImage(draft: ImageDraft) {
-    const source = await new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = draft.url; });
-    const xs = draft.points.map((point) => point.x / 100 * source.naturalWidth);
-    const ys = draft.points.map((point) => point.y / 100 * source.naturalHeight);
-    const minX = Math.max(0, Math.min(...xs)); const maxX = Math.min(source.naturalWidth, Math.max(...xs));
-    const minY = Math.max(0, Math.min(...ys)); const maxY = Math.min(source.naturalHeight, Math.max(...ys));
-    const cropWidth = Math.max(1, maxX - minX); const cropHeight = Math.max(1, maxY - minY);
-    const scale = Math.min(1, 1600 / Math.max(cropWidth, cropHeight));
-    const cropped = document.createElement("canvas"); cropped.width = Math.round(cropWidth * scale); cropped.height = Math.round(cropHeight * scale);
-    const context = cropped.getContext("2d")!; context.fillStyle = "white"; context.fillRect(0, 0, cropped.width, cropped.height); context.save(); context.beginPath();
-    draft.points.forEach((point, index) => { const x = (point.x / 100 * source.naturalWidth - minX) * scale; const y = (point.y / 100 * source.naturalHeight - minY) * scale; index ? context.lineTo(x, y) : context.moveTo(x, y); });
-    context.closePath(); context.clip(); context.filter = draft.enhance ? "contrast(1.28) brightness(1.06) saturate(.82)" : "none"; context.drawImage(source, -minX * scale, -minY * scale, source.naturalWidth * scale, source.naturalHeight * scale); context.restore();
-    const turns = ((draft.rotation % 360) + 360) % 360; if (!turns) return cropped.toDataURL("image/jpeg", .78);
-    const rotated = document.createElement("canvas"); const swap = turns === 90 || turns === 270; rotated.width = swap ? cropped.height : cropped.width; rotated.height = swap ? cropped.width : cropped.height;
-    const rotatedContext = rotated.getContext("2d")!; rotatedContext.fillStyle = "white"; rotatedContext.fillRect(0, 0, rotated.width, rotated.height); rotatedContext.translate(rotated.width / 2, rotated.height / 2); rotatedContext.rotate(turns * Math.PI / 180); rotatedContext.drawImage(cropped, -cropped.width / 2, -cropped.height / 2);
-    return rotated.toDataURL("image/jpeg", .78);
-  }
-
-  async function send(text: string, overrideMode?: ChatModelMode, options?: { hideStudentMessage?: boolean }) {
-    composerInputRef.current?.blur();
-    const value = text.trim();
-    if ((!value && !imageDraft) || thinking) return;
-    const sentTeachingLevel = pendingTeachingLevel;
-    const question = value || "è«‹å…ˆè¾¨è­˜é€™å¼µåœ–ç‰‡ä¸­çš„é¡Œç›®ï¼Œå¸¶æˆ‘ä¸€æ­¥ä¸€æ­¥å¯©é¡Œã€‚";
-    const attachedImage = imageDraft ? await prepareQuestionImage(imageDraft) : undefined;
-    let activeSessionId = sessionId;
-    let activeMessages = messages;
-    if (!options?.hideStudentMessage && sessionId && messages.length >= conversationContinuationThreshold) {
-      try {
-        const continuationResponse = await fetch("/api/chat/new-session", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sessionId, continueConversation: true }),
-        });
-        const continuation = await continuationResponse.json() as { sessionId?: number; greeting?: string; carryoverSummary?: string; error?: string };
-        if (!continuationResponse.ok || !continuation.sessionId) throw new Error(continuation.error ?? "ç›®å‰ç„¡æ³•å»ºç«‹å°è©±çºŒç¯‡");
-        activeSessionId = continuation.sessionId;
-        const continuationMessage: Message = { role: "mentor", text: continuation.greeting ?? "å·²ä¿å­˜åŸå°è©±ï¼Œå¾é€™è£¡ç¹¼çºŒã€‚" };
-        activeMessages = [continuationMessage];
-        setSessionId(continuation.sessionId);
-        setMessages(activeMessages);
-      } catch (error) {
-        setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "ç›®å‰ç„¡æ³•å»ºç«‹å°è©±çºŒç¯‡ï¼ŒåŸç´€éŒ„ä»ç„¶ä¿ç•™ã€‚" }]);
-        return;
-      }
-    }
-    const requestMessages: Message[] = [...activeMessages, { role: "student", text: imageDraft ? `ğŸ“· ${question}` : question }];
-    const nextMessages = options?.hideStudentMessage ? messages : requestMessages;
-    setMessages(nextMessages);
-    if (!sentTeachingLevel) setTeachingRounds([]);
-    if (!sentTeachingLevel) setTeachingUsage([]);
-    setSelectedFollowUps([]);
-    if (!options?.hideStudentMessage) {
-      setInput("");
-      setDailyChoiceVisible(false);
-      setImageDraft(null);
-      setEditingImage(false);
-      setSettingsCollapsed(true);
-      window.localStorage.setItem("silu-ai-settings-collapsed", "true");
-    }
-    setThinking(true);
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage }),
-      });
-      const result = await response.json() as { reply?: string; source?: "æ•™æ" | "AI è£œå……"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null; practiceQuestion?: PracticeQuestion | null };
-      if (!response.ok || !result.reply) throw new Error(result.error ?? "å°è©±æš«æ™‚ç„¡æ³•ä½¿ç”¨");
-      setMessages((current) => [...current, { role: "mentor", text: result.reply!, model: result.usage?.model, usage: result.usage, sources: result.sources ?? [], citationStatus: result.citationStatus, teachingEvidence: result.teachingEvidence, comparison: result.comparison ?? undefined, practiceQuestion: result.practiceQuestion ?? undefined, source: result.practiceQuestion ? "çœŸé¡Œåº«" : result.source }]);
-      if (result.practiceQuestion) {
-        setPracticeQuestion(result.practiceQuestion);
-        setPracticeAnswer(null);
-        setPracticeCoachMessages([]);
-        setSource(null);
-      } else {
-        setSource(result.source ?? "AI è£œå……");
-      }
-      setLastUsage(result.usage ?? null);
-      if (sentTeachingLevel) {
-        const lunaResponse = result.comparison?.responses.find((item) => item.label === "Luna") ?? null;
-        const claudeResponse = result.comparison?.responses.find((item) => item.label === "Claude Sonnet") ?? null;
-        const primaryLabel = modelLabel(result.usage?.model ?? "");
-        const teacherA = {
-          label: primaryLabel,
-          model: lunaResponse?.model ?? result.usage?.model ?? "gpt-5.6-luna",
-          text: result.reply!,
-          usage: lunaResponse?.usage ?? { model: result.usage?.model ?? "gpt-5.6-luna", inputTokens: result.usage?.inputTokens ?? 0, cachedTokens: result.usage?.cachedTokens ?? 0, outputTokens: result.usage?.outputTokens ?? 0, estimatedCostUsd: result.usage?.estimatedCostUsd ?? 0, durationMs: 0 },
-          stopReason: lunaResponse?.stopReason ?? null,
-        };
-        const teacherB = claudeResponse ? { label: "Claude Sonnet", model: claudeResponse.model, text: claudeResponse.text, usage: claudeResponse.usage, stopReason: claudeResponse.stopReason ?? null } : undefined;
-        setTeachingRounds((current) => [...current.filter((item) => item.level !== sentTeachingLevel), { level: sentTeachingLevel, label: teachingLevelLabels[sentTeachingLevel], reply: question, teacherA, teacherB }]);
-        setTeachingUsage((current) => [...current, ...(result.comparison?.responses ?? []).map((item) => ({ model: item.model, inputTokens: item.usage.inputTokens, cachedTokens: item.usage.cachedTokens, outputTokens: item.usage.outputTokens, durationMs: item.usage.durationMs, estimatedCostUsd: item.usage.estimatedCostUsd }))]);
-      }
-      if (result.sessionId) setSessionId(result.sessionId);
-    } catch (error) {
-      setMessages((current) => [...current, {
-        role: "mentor",
-        text: error instanceof Error && error.message ? error.message : "å°è©±æš«æ™‚ç„¡æ³•ä½¿ç”¨ï¼›è«‹ç¨å¾Œå†è©¦ã€‚",
-      }]);
-    } finally {
-      setThinking(false);
-    }
-  }
-
-  function runAnswerAction(action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) {
-    if (thinking) return;
-    const excerpt = selection.excerpts.join("\n\n").slice(0, 9000);
-    const subject = action === "plain" ? "ç™½è©±è§£é‡‹" : action === "detailed" ? "è©³è§£è§£æ" : "å»¶ä¼¸è¿½å•";
-    const instruction = action === "plain"
-      ? "è«‹æŠŠé€™æ®µå›ç­”æ”¹ç”¨æ³•å¾‹åˆå­¸è€…ä¹Ÿèƒ½ç†è§£çš„ç™½è©±èªªæ˜ã€‚å…ˆèªªæ ¸å¿ƒæ„æ€ï¼Œå†ç”¨ä¸€å€‹ç”Ÿæ´»åŒ–ä½†æ³•å¾‹ä¸Šä¸å¤±çœŸçš„ä¾‹å­ï¼›ä¸è¦çœç•¥é‡è¦æ³•å¾‹æ¢ä»¶ã€‚"
-      : action === "detailed"
-        ? "è«‹é‡å°é€™æ®µå›ç­”åšè©³è§£è§£æã€‚é€å±¤èªªæ˜çˆ­é»ã€è¦ç¯„ä¾æ“šã€è¦ä»¶ã€æ¶µæ”ã€çµè«–ï¼Œä»¥åŠé€™æ®µå›ç­”å®¹æ˜“è¢«èª¤è§£æˆ–æ¼å¯«çš„åœ°æ–¹ï¼›è‹¥æ¶‰åŠæ•™ææˆ–æ³•æ¢ï¼Œè«‹åªåœ¨ç¢ºå¯¦æœ‰ä¾æ“šæ™‚å¼•ç”¨ã€‚"
-        : "è«‹é‡å°é€™æ®µå›ç­”æå‡ºä¸€å€‹èƒ½ç¹¼çºŒæ¨é€²ç†è§£çš„è¿½å•ï¼Œå…ˆä¸è¦ç›´æ¥å…¬å¸ƒå®Œæ•´ç­”æ¡ˆï¼›å•é¡Œè¦è®“å­¸ç”Ÿå¯ä»¥ç›´æ¥å›ç­”ã€‚";
-    void send(`è«‹é‡å°è€å¸«${selection.label ? `ï¼ˆ${selection.label}ï¼‰` : ""}å›ç­”ä¸­çš„ä»¥ä¸‹å…§å®¹ï¼Œé€²è¡Œã€Œ${subject}ã€ã€‚\n\nã€é¸å–å…§å®¹ã€‘\n${excerpt}\n\nã€è™•ç†è¦æ±‚ã€‘\n${instruction}`);
-  }
-
-  async function rateComparison(responseId: number, feedbackType: "preferred" | "rated", score: number) {
-    await fetch("/api/chat/feedback", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ comparisonResponseId: responseId, feedbackType, score }),
-    });
-  }
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (practiceQuestion && practiceCoachMessages.length > 0) void askPracticeCoach(input);
-    else void send(input);
-  }
-
-  async function startNewTopic() {
-    if (thinking || generatingStudentReply || evaluatingTeaching) return;
-    try {
-      const response = await fetch("/api/chat/new-session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
-      const result = await response.json() as { sessionId?: number; greeting?: string; error?: string };
-      if (!response.ok || !result.sessionId) throw new Error(result.error ?? "ç›®å‰ç„¡æ³•é–‹å•Ÿæ–°ä¸»é¡Œ");
-    setSessionId(result.sessionId);
-    setMessages([{ role: "mentor", text: result.greeting ?? "æ–°ä¸»é¡Œå·²ç¶“æº–å‚™å¥½äº†ã€‚é€™æ¬¡è¦å¾å“ªä¸€å€‹å•é¡Œé–‹å§‹ï¼Ÿ" }]);
-    setInput("");
-    setSource(null);
-    setLastUsage(null);
-    setPracticeQuestion(null);
-    setPracticeLoading(false);
-    setPracticeAnswer(null);
-    setPracticeCoachMessages([]);
-    setPracticeCoaching(false);
-    setPracticeCompleted(false);
-    setPracticeReadyToComplete(false);
-    setPracticeDiscussion(false);
-    setTeachingRounds([]);
-      setTeachingUsage([]);
-      setSelectedFollowUps([]);
-      setImageDraft(null);
-      setEditingImage(false);
-      window.setTimeout(() => composerInputRef.current?.focus(), 0);
-    } catch (error) {
-      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "ç›®å‰ç„¡æ³•é–‹å•Ÿæ–°ä¸»é¡Œï¼ŒåŸå°è©±ä»ç„¶ä¿ç•™ã€‚" }]);
-    }
-  }
-
-  function insertStudentTestPrompt() {
-    if (thinking || generatingStudentReply) return;
-    setInput(trustPrincipleStudentTest);
-    window.setTimeout(() => composerInputRef.current?.focus(), 0);
-  }
-
-  function teachingStarterPrompt(level: Exclude<TeachingLevel, "general">) {
-    const prefix: Record<Exclude<TeachingLevel, "general">, string> = {
-      beginner: "æˆ‘æ˜¯æ³•å¾‹å°ç™½ï¼Œè«‹æŠŠæˆ‘ç•¶æˆç¬¬ä¸€æ¬¡æ¥è§¸é€™å€‹çˆ­é»çš„å­¸ç”Ÿï¼Œ",
-      intermediate: "æˆ‘æ˜¯åŸºç¤è€ƒç”Ÿï¼Œæˆ‘çŸ¥é“ä¸€äº›åŸºæœ¬æ¦‚å¿µä½†å¸¸å¸¸ä¸æœƒæ¶µæ”ï¼Œ",
-      advanced: "æˆ‘æ˜¯é€²éšè€ƒç”Ÿï¼Œæƒ³æª¢é©—å­¸èªªèˆ‡å¯¦å‹™åˆ†æ­§ï¼Œ",
-      super: "æˆ‘æ˜¯é ‚å°–å­¸éœ¸ï¼Œæƒ³åšé«˜é›£åº¦çš„é«”ç³»èˆ‡åä¾‹æ¸¬è©¦ï¼Œ",
-    };
-    return `${prefix[level]}è«‹ç”¨ä¿¡è³´åŸå‰‡èˆ‰ä¸€å€‹å¸å¾‹è€ƒè©¦æœƒè€ƒçš„æƒ…å¢ƒï¼Œå…ˆä¸è¦ç›´æ¥å…¬å¸ƒå®Œæ•´ç­”æ¡ˆï¼Œè«‹å…ˆå•æˆ‘ä¸€å€‹å¯ä»¥å›ç­”çš„å•é¡Œã€‚`;
-  }
-
-  function toggleFollowUpSelection(selection: FollowUpSelection) {
-    setSelectedFollowUps((current) => current.some((item) => item.key === selection.key) ? [] : [selection]);
-  }
-
-  async function generateStudentFollowUp(level?: TeachingLevel) {
-    if (thinking || generatingStudentReply) return;
-    // React click handlers receive a SyntheticEvent as their first argument.
-    // Keep UI events out of the JSON request even if this function is passed
-    // directly to a handler by mistake.
-    const requestedLevel: TeachingLevel | undefined =
-      level === "beginner" || level === "intermediate" || level === "advanced" || level === "super" ? level : undefined;
-    if (!canGenerateStudentReply) {
-      if (requestedLevel) {
-        setPendingTeachingLevel(requestedLevel);
-        setInput(teachingStarterPrompt(requestedLevel));
-        window.setTimeout(() => composerInputRef.current?.focus(), 0);
-      } else {
-        insertStudentTestPrompt();
-      }
-      return;
-    }
-    const followUpResponses = selectedFollowUps.length > 0 ? selectedFollowUps : latestTeacherResponses.map((item) => ({ key: `latest:${item.id}:${item.label}`, label: item.label, model: item.model, text: item.text, prompt: latestTeacherPrompt }));
-    const followUpPrompt = followUpResponses.map((item) => item.prompt).filter(Boolean).filter((prompt, index, all) => all.indexOf(prompt) === index).join("\n\n") || latestTeacherPrompt;
-    setGeneratingStudentReply(true);
-    setEvaluatingLevel(level ?? null);
-    try {
-      const response = await fetch("/api/chat/student-follow-up", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          prompt: followUpPrompt,
-          level: requestedLevel,
-          subject: practiceQuestion?.subject,
-          question: practiceQuestion
-            ? `${practiceQuestion.stem}\n${practiceQuestion.options ? Object.entries(practiceQuestion.options).map(([key, value]) => `${key}. ${value}`).join("\n") : ""}`.trim()
-            : undefined,
-          responses: followUpResponses.map((item) => ({ label: item.label, model: item.model, text: item.excerpt ? `è€å¸«å›ç­”ä¸­è¢«å‹¾é¸çš„æ®µè½ï¼š\n${item.excerpt}` : item.text })),
-        }),
-      });
-      const result = await response.json() as { reply?: string; error?: string };
-      if (!response.ok || !result.reply) throw new Error(result.error ?? "ç›®å‰ç„¡æ³•ç”¢ç”ŸåŒå­¸æ¥çºŒå›è¦†");
-      setPendingTeachingLevel(requestedLevel ?? null);
-      setInput(result.reply);
-      window.setTimeout(() => composerInputRef.current?.focus(), 0);
-    } catch (error) {
-      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "ç›®å‰ç„¡æ³•ç”¢ç”ŸåŒå­¸æ¥çºŒå›è¦†ã€‚" }]);
-    } finally {
-      setGeneratingStudentReply(false);
-      setEvaluatingLevel(null);
-    }
-  }
-
-  // ç¨‹åº¦æŒ‰éˆ•æ²¿ç”¨ã€Œä¾è€å¸«å›è¦†ç”ŸæˆåŒå­¸å›è¦†ã€çš„äº’å‹•ï¼šåªæŠŠå­¸ç”Ÿè¨Šæ¯æ”¾é€²è¼¸å…¥æ¡†ï¼Œ
-  // ä¸åœ¨ä¸‹æ–¹ç›´æ¥ç”¢ç”Ÿæ•™å¸«è§£æï¼›é€å‡ºæ™‚æ‰ç”±ç›®å‰é¸å®šçš„æ¨¡å‹å›ç­”ã€‚
-  async function runTeachingLevel(level: TeachingLevel) {
-    await generateStudentFollowUp(level);
-  }
-
-  function selectTeachingLevel(value: string) {
-    const level = value as TeachingLevel;
-    if (level === "general") {
-      setPendingTeachingLevel(null);
-      persistAiSettings("general");
-      return;
-    }
-    setPendingTeachingLevel(level);
-    persistAiSettings(level);
-  }
-
-  useEffect(() => {
-    if (!historyLoaded || handoffHandled.current) return;
-    const prompt = new URLSearchParams(window.location.search).get("prompt")?.trim();
-    if (!prompt) return;
-    handoffHandled.current = true;
-    window.history.replaceState({}, "", "/");
-    void send(prompt);
-  }, [historyLoaded]);
-
-  async function saveMessageNote(message: Message, index: number) {
-    const response = await fetch("/api/notes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ category: "law", sourceType: "conversation", sourceId: sessionId ? `${sessionId}-${index}` : String(index), title: cleanMessageText(message.text).slice(0, 32), content: cleanMessageText(message.text), subject: todayTasks.find((task) => task.status !== "completed")?.subject ?? "ç¶œåˆ", tags: "AIå°è©±", sourceLabel: visibleSourceNames(message.sources).join("ã€") }) });
-    if (response.ok) { setSavedMessage(index); window.setTimeout(() => setSavedMessage(null), 1600); }
-  }
-
-  async function sendFeedback(message: Message, index: number, feedbackType: "helpful" | "incorrect" | "not_learning" | "unclear", askSol = false) {
-    if (!askSol && !feedbackTarget && (feedbackType === "incorrect" || feedbackType === "unclear")) {
-      setFeedbackTarget({ message, index });
-      setFeedbackTypes(feedbackType === "unclear" ? ["hard_to_understand"] : []);
-      return;
-    }
-    setFeedbackSaving(true);
-    const originalPrompt = pairedStudentPrompt(messages, index);
-    const response = await fetch("/api/chat/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messageIndex: index, feedbackType, messageText: cleanMessageText(message.text), rating: feedbackRating, errorTypes: feedbackTypes, studentNote: feedbackNote, model: message.model ?? "gpt-5.6-luna", originalPrompt, solRequested: askSol }) });
-    setFeedbackSaving(false);
-    if (!response.ok) return;
-    setFeedbackMessage(index); setFeedbackTarget(null); setFeedbackRating(0); setFeedbackTypes([]); setFeedbackNote("");
-    window.setTimeout(() => setFeedbackMessage(null), 1600);
-    if (askSol) void send(`ä½ æ˜¯ Sol å­¸éœ¸ï¼Œè«‹ç¨ç«‹è¦†æ ¸ Luna åŠ©æ•™çš„å›ç­”ã€‚ä»¥åŸå§‹é¡Œç›®ç‚ºæœ€é«˜ä¾æ“šï¼Œé€é …æŒ‡å‡ºæ‡‰ä¿ç•™ã€ä¿®æ­£ã€åˆªé™¤åŠè£œå……ä¹‹è™•ï¼›è‹¥é¡Œç¤ºäº‹å¯¦ä¸è¶³ï¼Œæ¡æ¢ä»¶å¼çµè«–ï¼Œä¸å¾—è‡ªè¡Œè£œå……äº‹å¯¦ã€‚\n\nã€å­¸ç”ŸåŸå•é¡Œã€‘\n${originalPrompt}\n\nã€Luna åŠ©æ•™å›ç­”ã€‘\n${cleanMessageText(message.text)}\n\nã€å­¸ç”ŸæŒ‡å‡ºçš„å•é¡Œã€‘\n${feedbackNote || "è«‹å…¨é¢æª¢æŸ¥"}\n\næœ€å¾Œè«‹ç›´æ¥çµ¦å‡ºä¿®æ­£å¾Œç‰ˆæœ¬ã€‚`, "sol", { hideStudentMessage: true });
-  }
-
-  async function requestSolReview(message: Message, index: number) {
-    if (thinking || solReviewingIndex !== null || solReviewedIndexes.includes(index)) return;
-    const originalPrompt = pairedStudentPrompt(messages, index);
-    setSolReviewingIndex(index);
-    try {
-      await send(`ä½ æ˜¯ Sol å­¸éœ¸ï¼Œè«‹ç¨ç«‹è¦†æ ¸ Luna åŠ©æ•™çš„å›ç­”ã€‚è‹¥æœ¬é¡Œæœ‰è€å¸«è§£æï¼æ“¬ç­”ï¼Œå¿…é ˆä»¥è€å¸«åŸæ–‡æ ¡æº–ç¬¬ä¸€å±¤æ¨™é¡Œã€è¡Œç‚ºäººé †åºã€ç½ªåé †åºèˆ‡çµè«–ã€‚é€é …æ¨™ç¤ºæ‡‰ä¿ç•™ã€ä¿®æ­£åŠè£œå……ä¹‹è™•ï¼›ä¸åŒå­¸èªªåªèƒ½åˆ—ç‚ºè£œå……çˆ­è­°ï¼Œä¸å¾—æ‚„æ‚„å–ä»£è€å¸«æ¡èªªï¼Œä¹Ÿä¸å¾—è£œé€ é¡Œç›®äº‹å¯¦ã€‚\n\nã€å­¸ç”ŸåŸå•é¡Œã€‘\n${originalPrompt || "è«‹ä¾ç›®å‰å°è©±ä¸­çš„åŸå§‹é¡Œç›®è¦†æ ¸"}\n\nã€Luna åŠ©æ•™å›ç­”ã€‘\n${cleanMessageText(message.text)}\n\næœ€å¾Œè«‹ä¾è€å¸«åŸæœ¬é †åºç›´æ¥çµ¦å‡ºä¿®æ­£ç‰ˆã€‚`, "sol", { hideStudentMessage: true });
-      setSolReviewedIndexes((current) => current.includes(index) ? current : [...current, index]);
-    } finally {
-      setSolReviewingIndex(null);
-    }
-  }
-
-  async function challengeSelectedMessageWithTerra() {
-    if (thinking || terraChallenging || selectedFollowUps.length !== 1) return;
-    const target = selectedFollowUps[0];
-    if (!/(?:luna|sol)/i.test(target.model)) return;
-    setTerraChallenging(true);
-    try {
-      const response = await fetch("/api/chat/message-challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, prompt: target.prompt, targetText: target.text, targetModel: target.model }) });
-      const result = await response.json() as { targetLabel?: string; targetExcerpt?: string; challenge?: { text: string; usage: ReplyUsage }; reply?: { text: string; usage: ReplyUsage }; error?: string };
-      if (!response.ok || !result.challenge || !result.reply) throw new Error(result.error ?? "Terra æš«æ™‚ç„¡æ³•å®Œæˆè³ªç–‘ã€‚");
-      const targetIndex = Number(target.key.match(/^teacher:(\d+)$/)?.[1] ?? -1);
-      setMessages((current) => current.map((message, index) => index === targetIndex ? { ...message, challengeThread: {
-        targetLabel: result.targetLabel ?? target.label,
-        targetExcerpt: result.targetExcerpt ?? cleanMessageText(target.text).slice(0, 260),
-        challengeText: result.challenge!.text,
-        challengeUsage: result.challenge!.usage,
-        replyText: result.reply!.text,
-        replyUsage: result.reply!.usage,
-        version: (message.challengeThread?.version ?? 1) + 1,
-        applied: false,
-      } } : message));
-      setSelectedFollowUps([]);
-      setSource("AI è£œå……");
-      setLastUsage(result.reply.usage);
-    } catch (error) {
-      setMessages((current) => [...current, { role: "mentor", text: error instanceof Error ? error.message : "Terra æš«æ™‚ç„¡æ³•å®Œæˆè³ªç–‘ã€‚" }]);
-    } finally {
-      setTerraChallenging(false);
-    }
-  }
-
-  function applyChallengeRevision(index: number) {
-    setMessages((current) => current.map((message, messageIndex) => messageIndex === index && message.challengeThread ? {
-      ...message,
-      text: message.challengeThread.replyText,
-      usage: message.challengeThread.replyUsage,
-      challengeThread: { ...message.challengeThread, applied: true },
-    } : message));
-  }
-
-  return (
-    <main className="coach-shell">
-      <header className="topbar">
-        <div className="brand-zone"><a href="/law" className="brand" aria-label="å¸å¾‹å‚™è€ƒé¦–é "><span className="brand-mark">å¾‹</span><span>å¸å¾‹å‚™è€ƒ</span></a>{nextExam ? <div className="exam-countdown" aria-label={`è·é›¢${nextExam.label}é‚„æœ‰${nextExam.days}å¤©`}><span>è·é›¢ {nextExam.label}</span><strong>{nextExam.days === 0 ? "å°±æ˜¯ä»Šå¤©" : `${nextExam.days} å¤©`}</strong></div> : null}</div>
-        <div className="top-actions">
-          <a href="/practice" className="admin-link">ç·´çœŸé¡Œ</a>
-          <a href="/essay" className="admin-link">å¯«ç”³è«–</a>
-          <a href="/issues" className="admin-link">æ‰¾çˆ­é»</a>
-          <a href="/summaries" className="admin-link">æ•´æ‘˜è¦</a>
-          <a href="/law/guide" className="admin-link">ä½¿ç”¨èªªæ˜</a>
-          {currentMember?.canAdmin && <a href="/admin" className="admin-link">ç®¡ç†å¾Œå°</a>}
-          <a href="/notes" className="top-note-link" aria-label="é–‹å•Ÿæˆ‘çš„ç­†è¨˜å€"><span aria-hidden="true">âœ</span><b>ç­†è¨˜</b></a>
-          {currentMember ? <div className={`member-menu-wrap ${memberMenuOpen ? "is-open" : ""}`}>
-            <button type="button" className="member-chip" title={currentMember.email} aria-haspopup="menu" aria-expanded={memberMenuOpen} onClick={() => setMemberMenuOpen((open) => !open)}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>å¸³è™Ÿ</small><i aria-hidden="true">âŒ„</i></button>
-            {memberMenuOpen && <><button type="button" className="member-menu-backdrop" aria-label="é—œé–‰å¸³è™Ÿé¸å–®" onClick={() => setMemberMenuOpen(false)} /><div className="member-menu" role="menu"><div><strong>{currentMember.displayName}</strong><small>{currentMember.email}</small></div><a href="/account" role="menuitem">æœƒå“¡è¨­å®š</a><a href="/signout-with-chatgpt?return_to=/law" role="menuitem" className="member-menu-signout">ç™»å‡º</a></div></>}
-          </div> : <a href="/signin-with-chatgpt?return_to=/law" className="member-signin">ç™»å…¥æˆ‘çš„å­¸ç¿’å¹³å°</a>}
-        </div>
-      </header>
-      <div className="study-ticker" aria-label="å¸å¾‹ä½œæˆ°å¿«è¨Š"><strong>ä½œæˆ°å¿«è¨Š</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "ä»Šæ—¥ä»»å‹™å®Œæˆå¾Œï¼Œè¨˜å¾—ç•™ä¸‹å­¸ç¿’æ¥çºŒé»", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>â—†</b> : null}</span>)}</span></div></div>
-      <nav className="mobile-primary-tabs" aria-label="ä¸»è¦å­¸ç¿’åŠŸèƒ½">
-        <a href="/practice">ç·´çœŸé¡Œ</a>
-        <a href="/essay">å¯«ç”³è«–</a>
-        <a href="/issues">æ‰¾çˆ­é»</a>
-        <a href="/summaries">æ•´æ‘˜è¦</a>
-        <a href="/law/guide">ä½¿ç”¨èªªæ˜</a>
-      </nav>
-
-      <div className="home-date-line" aria-label={`${greeting}ï¼Œä»Šå¤©æ—¥æœŸ`}><span>ä»Šå¤©ï½œ{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>æ³•æ¢å­¸ç¿’</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>æ›æ³•æ¢</button></div> : <span className="daily-law-pending"><b>æ³•æ¢å­¸ç¿’</b><span>å…¨åœ‹æ³•è¦åŒ¯å…¥å¾Œï¼Œé»æ“Šéš¨æ©Ÿå­¸ç¿’</span></span>}<section className="practice-inline-launch" aria-label="ç·´çœŸé¡Œ"><strong>ç·´çœŸé¡Œ</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>ä¸€è©¦é¸æ“‡é¡Œ</button></div></section></div>
-
-      {practiceQuestion && <button
-        type="button"
-        className={`mobile-rail-toggle mobile-rail-toggle-practice rail-${railSide}`}
-        onClick={() => setMobileRailOpen(true)}
-        aria-expanded={mobileRailOpen}
-        aria-controls="command-rail"
-      >
-        <span aria-hidden="true">å·¥å…·</span>
-        <b>å­¸ç¿’å·¥å…·</b>
-      </button>}
-      {mobileRailOpen && <button type="button" className="mobile-rail-backdrop" aria-label="é—œé–‰ä½œæˆ°è³‡è¨Šå´æ¬„" onClick={() => setMobileRailOpen(false)} />}
-
-      <div className={`command-layout rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""} ${mobileRailOpen ? "mobile-rail-open" : ""}`}>
-      <section className="conversation" aria-live="polite">
-        <div className="conversation-heading">
-          <p>AI å¸å¾‹ä½œæˆ°ä¸­å¿ƒ</p>
-          <h1>ä»Šå¤©ï¼Œç…§è¨ˆç•«å‰é€²ã€‚</h1>
-          <div className="home-exam-point" aria-label="ä»Šæ—¥ç†±è€ƒé»æ¨è–¦">
-            <span>ä»Šæ—¥ç†±è€ƒé»</span>
-            <button type="button" className="home-exam-point-title" onClick={learnHomeExamPoint}><b>{homeExamPoint.subject}</b>{homeExamPoint.title}</button>
-            <button type="button" className="home-exam-point-swap" onClick={swapHomeExamPoint}>æ›ä¸€å€‹</button>
-          </div>
-          <div className="home-calendar-entry">
-            <span>æˆ‘æœƒè®€å–ä½ çš„è¨ˆç•«ã€é€²åº¦èˆ‡æ•™æï¼Œæ¥è‘—ä¸Šæ¬¡çš„åœ°æ–¹å¸¶ä½ å­¸ã€‚</span>
-            <a href="/calendar" aria-label="é–‹å•Ÿæˆ‘çš„è¡Œäº‹æ›†">è¡Œäº‹æ›†</a>
-          </div>
-          <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
-            {railCollapsed ? "å±•é–‹å­¸ç¿’å·¥å…·" : "æ”¶åˆå´æ¬„"}
-          </button>
-        </div>
-        {todayTasks.length > 0 && <details className="today-plan-card">
-          <summary><div><b>ä»Šæ—¥ä»»å‹™</b><span>{todayTasks.filter((task) => task.status === "completed").length}/{todayTasks.length} å®Œæˆ Â· {todayTasks.find((task) => task.id === selectedTodayTaskId)?.title ?? "ä»Šæ—¥ä»»å‹™å·²å®Œæˆ"}</span></div><em aria-hidden="true"><span className="today-plan-expand-label">å±•é–‹ä»»å‹™âŒ„</span><span className="today-plan-collapse-label">æ”¶åˆä»»å‹™âŒƒ</span></em></summary>
-          <div className="today-plan-head"><div><p>ä»Šæ—¥å­¸ç¿’è¨ˆç•«</p><strong>{today || "ä»Šå¤©"}</strong></div><a href="/calendar">æŸ¥çœ‹è¡Œäº‹æ›† â†’</a></div>
-          <p className="today-task-choice-hint">å‹¾é¸ä½ æƒ³å…ˆå­¸çš„é …ç›®</p>
-          <div className="today-task-list">{todayTasks.map((task) => {
-            const completed = task.status === "completed";
-            const selected = !completed && task.id === selectedTodayTaskId;
-            return <button type="button" className={`today-task ${completed ? "done" : ""} ${selected ? "selected" : ""}`} aria-pressed={selected} disabled={completed} onClick={() => setSelectedTodayTaskId(task.id)} key={task.id}><span aria-hidden="true">{completed || selected ? "âœ“" : ""}</span><div><strong>{task.subject} Â· {task.title}</strong><small>{task.durationMinutes} åˆ†é˜{task.details ? ` Â· ${task.details}` : ""}</small></div>{selected && <em>å…ˆå­¸é€™é …</em>}</button>;
-          })}</div>
-          {todayTasks.some((task) => task.status !== "completed") && <button className="today-task-start" disabled={!selectedTodayTaskId || thinking} onClick={() => { const task = todayTasks.find((item) => item.id === selectedTodayTaskId); if (task) void send(`è«‹ç›´æ¥å¸¶æˆ‘é–‹å§‹ä»Šå¤©é¸å®šçš„ä»»å‹™ï¼š${task.subject}ãƒ»${task.title}ã€‚ä»»å‹™å…§å®¹ï¼š${task.details || "ä¾ä»Šæ—¥è¨ˆç•«é–‹å§‹æ•™å­¸"}`); }}>{thinking ? "æ•™ç·´æº–å‚™ä¸­â€¦" : "é–‹å§‹æ‰€é¸ä»»å‹™"}</button>}
-        </details>}
-
-        <div className="message-list" ref={messageListRef}>
-          {!historyLoaded && <div className="message-row mentor"><span className="mentor-avatar">å¾‹</span><div className="message-bubble typing"><i /><i /><i /></div></div>}
-          {messages.map((message, index) => (
-            <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
-              {message.role === "mentor" && <span className="mentor-avatar">å¾‹</span>}
-              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} onAnswerAction={runAnswerAction} disabled={thinking} showLearningActions={false} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>è¼¸å…¥ {message.usage.inputTokens.toLocaleString()} Â· è¼¸å‡º {message.usage.outputTokens.toLocaleString()} Â· åˆè¨ˆ {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>Token æˆæœ¬ US$ {(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd).toFixed(5)} Â· ç´„ NT$ {formatTwd(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd)}</span>{message.usage.webSearchCalls ? <span>å¤–ç¶²æŸ¥è­‰ {message.usage.webSearchCalls} æ¬¡ Â· æœå°‹æˆæœ¬ US$ {(message.usage.webSearchCostUsd ?? 0).toFixed(5)} Â· ç´„ NT$ {formatTwd(message.usage.webSearchCostUsd ?? 0)}</span> : null}<span>æœ¬æ¬¡åˆè¨ˆ US$ {message.usage.estimatedCostUsd.toFixed(5)} Â· ç´„ NT$ {formatTwd(message.usage.estimatedCostUsd)} Â· è€—æ™‚ {message.usage.durationMs.toLocaleString()} ms</span></small> : null}{message.role === "mentor" && visibleSourceNames(message.sources).length ? <small className="message-sources">{message.citationStatus === "web_search" ? "æŸ¥è­‰ä¾†æº" : "æ•™æä¾†æº"}ï¼š{visibleSourceNames(message.sources).join("ã€")}{citationStatusLabel(message.citationStatus) ? ` Â· ${citationStatusLabel(message.citationStatus)}` : ""}</small> : message.role === "mentor" && message.citationStatus && citationStatusLabel(message.citationStatus) ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{!message.comparison && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}`, label: modelLabel(message.model ?? "gpt-5.6-luna"), model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>å›è¦†æ­¤è¨Šæ¯</span></label>}{isLearningNote(message.text) && <button type="button" className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "å·²æ”¶è— âœ“" : "æ”¶è—ç­†è¨˜"}</button>}{/luna/i.test(message.model ?? "luna") && <button type="button" className="ask-sol-button" disabled={thinking || solReviewingIndex !== null || solReviewedIndexes.includes(index)} onClick={() => void requestSolReview(message, index)}>{solReviewingIndex === index ? "Sol è¦†æ ¸ä¸­â€¦" : solReviewedIndexes.includes(index) ? "Sol å·²è¦†æ ¸ âœ“" : "âœ¦ è«‹ Sol å­¸éœ¸è¦†æ ¸"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "å·²é€è€å¸« âœ“" : /sol/i.test(message.model ?? "") ? "å›é¥‹ä¸¦è«‹è€å¸«ç¢ºèª" : "å›é¥‹"}</summary><div><button type="button" onClick={() => sendFeedback(message, index, "helpful")}>æœ‰å¹«åŠ©</button><button type="button" onClick={() => sendFeedback(message, index, "incorrect")}>å…§å®¹æœ‰èª¤</button><button type="button" onClick={() => sendFeedback(message, index, "unclear")}>ä¸å¤ æ¸…æ¥š</button><button type="button" onClick={() => sendFeedback(message, index, "not_learning")}>éå­¸ç¿’å…§å®¹</button></div></details></div>}</div>
-              {message.role === "mentor" && message.practiceQuestion && <PracticeQuestionBubble question={message.practiceQuestion} answer={practiceAnswer} onAnswer={(key) => void answerMcq(key)} onEssayStart={beginEssayCoach} />}
-              {message.role === "mentor" && message.challengeThread && <section className="message-challenge-thread" aria-label={`Terra å° ${message.challengeThread.targetLabel} çš„å±€éƒ¨è³ªç–‘`}>
-                <header><span>å±€éƒ¨è³ªç–‘ä¸²</span><b>è³ªç–‘å°è±¡ï¼š{message.challengeThread.targetLabel} åŸè©•è«–</b><small>ç¬¬ {message.challengeThread.version - 1} ç‰ˆ â†’ ç¬¬ {message.challengeThread.version} ç‰ˆ</small></header>
-                <blockquote><b>è¢«è³ªç–‘æ®µè½</b><p>{message.challengeThread.targetExcerpt}</p></blockquote>
-                <article className="terra"><b>Terra è³ªç–‘ï¼åæ§½</b><p>{message.challengeThread.challengeText}</p><small>{message.challengeThread.challengeUsage.inputTokens + message.challengeThread.challengeUsage.outputTokens} tokens Â· ç´„ NT$ {formatTwd(message.challengeThread.challengeUsage.estimatedCostUsd)}</small></article>
-                <article className="model-reply"><b>{message.challengeThread.targetLabel} å›æ‡‰ä¸¦ä¿®æ­£</b><p>{message.challengeThread.replyText}</p><small>{message.challengeThread.replyUsage.inputTokens + message.challengeThread.replyUsage.outputTokens} tokens Â· ç´„ NT$ {formatTwd(message.challengeThread.replyUsage.estimatedCostUsd)}</small></article>
-                <footer><button type="button" disabled={message.challengeThread.applied} onClick={() => applyChallengeRevision(index)}>{message.challengeThread.applied ? "å·²å¥—ç”¨è‡³åŸè©•è«– âœ“" : `å¥—ç”¨è‡³ ${message.challengeThread.targetLabel} åŸè©•è«–`}</button><span>æœªæŒ‰å¥—ç”¨å‰ï¼ŒåŸè©•è«–ä¸æœƒè¢«æ”¹å‹•ã€‚</span></footer>
-              </section>}
-              {message.role === "mentor" && showEvidence && <TeachingEvidenceDetails evidence={message.teachingEvidence} />}
-            </div>
-          ))}
-          {practiceQuestion && practiceReadyToComplete && !practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-understanding-actions" aria-label="è§£æå¾Œç”±å­¸ç”Ÿæ±ºå®šæ˜¯å¦å®Œæˆ">
-            <div><b>é€™é¡Œè¦å…ˆæ”¶å°¾å—ï¼Ÿ</b><span>ä½ ä»å¯ç¹¼çºŒè¿½å•ï¼›åªæœ‰ä½ ç¢ºèªç†è§£å¾Œï¼Œç³»çµ±æ‰æœƒå®Œæˆæœ¬é¡Œã€‚</span></div>
-            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("æˆ‘æ‡‚äº†ï¼Œè«‹å¹«æˆ‘å®Œæˆæœ¬é¡Œã€‚", "complete_confirm"); }}>æˆ‘æ‡‚äº†ï¼Œå®Œæˆæœ¬é¡Œ</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); void askPracticeCoach("è«‹å†ç”¨ç™½è©±è§£é‡‹é€™é¡Œæœ€é—œéµçš„åˆ¤æ–·ã€‚", "discussion"); }}>å†ç™½è©±è§£é‡‹</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); void askPracticeCoach("è«‹æ¯”è¼ƒæˆ‘é¸çš„é¸é …èˆ‡æ­£ç¢ºé¸é …ï¼Œèªªæ˜å…©è€…å·®åœ¨å“ªè£¡ã€‚", "discussion"); }}>æ¯”è¼ƒå…©å€‹é¸é …</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>æˆ‘é‚„æƒ³å•</button></div>
-          </section>}
-          {practiceQuestion && practiceDiscussion && !practiceReadyToComplete && !practiceCompleted && !practiceCoaching && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-discussion-actions" aria-label="æœ¬é¡ŒæŒçºŒè¨è«–ä¸­çš„é¸æ“‡">
-            <div><b>é‚„åœ¨è¨è«–é€™ä¸€é¡Œ</b><span>å¯ä»¥ç¹¼çºŒè¼¸å…¥å•é¡Œï¼›ç†è§£å¾Œå†ç”±ä½ è¦ªè‡ªå®Œæˆã€‚</span></div>
-            <div><button type="button" onClick={() => void askPracticeCoach("æˆ‘æ‡‚äº†ï¼Œè«‹å¹«æˆ‘å®Œæˆæœ¬é¡Œã€‚", "complete_confirm")}>æˆ‘æ‡‚äº†ï¼Œå®Œæˆæœ¬é¡Œ</button><button type="button" className="secondary" onClick={() => requestAnimationFrame(() => composerInputRef.current?.focus())}>ç¹¼çºŒæå•</button></div>
-          </section>}
-          {practiceQuestion && practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions" aria-label="æœ¬é¡Œå®Œæˆå¾Œçš„é¸æ“‡">
-            <div><b>æœ¬é¡Œå®Œæˆ</b><span>ç”±ä½ æ±ºå®šä¸‹ä¸€æ­¥ï¼ŒAI ä¸æœƒè‡ªå‹•å»¶ä¼¸æ–°çˆ­é»ã€‚</span></div>
-            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>ä¸‹ä¸€é¡Œ</button><button type="button" className="secondary" onClick={() => { setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>ç¹¼çºŒè¨è«–æœ¬é¡Œ</button></div>
-          </section>}
-          {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="æ˜¨æ—¥å­¸ç¿’æ¥çºŒé¸æ“‡">
-            <div><b>ä»Šå¤©è¦æ€éº¼æ¥çºŒï¼Ÿ</b><span>{yesterday.incompleteTasks.length ? `æ˜¨å¤©é‚„æœ‰ ${yesterday.incompleteTasks.length} é …æœªå®Œæˆ` : "æ˜¨å¤©çš„å­¸ç¿’ç´€éŒ„å·²ä¿å­˜"}</span></div>
-            <div className="daily-handoff-actions">
-              <button type="button" onClick={() => void send("æˆ‘æƒ³ç¹¼çºŒæ˜¨å¤©çš„é€²åº¦ï¼Œè«‹å…ˆå‘Šè¨´æˆ‘æ˜¨å¤©å®Œæˆåˆ°å“ªè£¡ï¼Œå†å¾æœªå®Œæˆçš„ä»»å‹™æˆ–æœ€å¾Œæ¥çºŒé»é–‹å§‹ã€‚")}>ç¹¼çºŒæ˜¨å¤©é€²åº¦</button>
-              <button type="button" onClick={() => void send("æˆ‘ä»Šå¤©æƒ³é–‹å§‹æ–°çš„å–®å…ƒï¼Œè«‹ä¾ç…§ä»Šå¤©çš„ä»»å‹™ç›´æ¥å¸¶æˆ‘é–‹å§‹ã€‚")}>é–‹å§‹ä»Šå¤©æ–°å–®å…ƒ</button>
-              <button type="button" onClick={() => void send("è«‹è€ƒè€ƒæˆ‘æ˜¨å¤©çš„å­¸ç¿’æˆæ•ˆï¼Œå…ˆå‡ºä¸€å€‹æˆ‘å¯ä»¥ç›´æ¥å›ç­”çš„å°å•é¡Œï¼Œä¸è¦å…ˆå…¬å¸ƒç­”æ¡ˆã€‚")}>è€ƒè€ƒæ˜¨å¤©æˆæ•ˆ</button>
-            </div>
-          </section>}
-          {thinking && (
-            <div className="message-row mentor">
-              <span className="mentor-avatar">å¾‹</span>
-              <div className="message-bubble typing"><i /><i /><i /></div>
-            </div>
-          )}
-          <div ref={endRef} />
-        </div>
-
-        {feedbackTarget && <div className="feedback-dialog-backdrop" onMouseDown={() => !feedbackSaving && setFeedbackTarget(null)}><section className="feedback-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="feedback-dialog-close" onClick={() => setFeedbackTarget(null)} aria-label="é—œé–‰">Ã—</button><span>å”åŠ©è€å¸«ä¸€èµ·æŠŠç­”æ¡ˆä¿®å¾—æ›´å¥½</span><h2>é€™å‰‡ AI åŠ©æ•™å›ç­”éŒ¯åœ¨å“ªè£¡ï¼Ÿ</h2><label className="feedback-stars">è©•åˆ†<div>{[1,2,3,4,5].map((score) => <button type="button" className={score <= feedbackRating ? "selected" : ""} onClick={() => setFeedbackRating(score)} key={score}>â˜…</button>)}</div></label><fieldset><legend>å¯è¤‡é¸éŒ¯èª¤é¡å‹</legend>{[["missing_issue","æ¼æ‰é‡è¦çˆ­é»"],["wrong_law","æ³•æ¢æˆ–ç½ªåéŒ¯èª¤"],["wrong_application","æ¶µæ”ä¸ç¬¦åˆé¡Œç›®äº‹å¯¦"],["unclear_conclusion","çµè«–ä¸æ˜ç¢º"],["conflicts_source","èˆ‡æ•™æï¼è€å¸«æ“¬ç­”ä¸ä¸€è‡´"],["hard_to_understand","èªªæ˜å¤ªé›£æˆ–ä¸å¤ æ¸…æ¥š"],["other","å…¶ä»–éŒ¯èª¤"]].map(([value,label]) => <label key={value}><input type="checkbox" checked={feedbackTypes.includes(value)} onChange={() => setFeedbackTypes((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])} />{label}</label>)}</fieldset><label className="feedback-note">è£œå……èªªæ˜<textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} rows={4} placeholder="è«‹å‘Šè¨´æˆ‘å€‘ AI åŠ©æ•™éŒ¯åœ¨å“ªè£¡ï¼Œæˆ–è²¼ä¸Šä½ èªç‚ºæ­£ç¢ºçš„ç†ç”±ã€‚" /></label><div className="feedback-dialog-actions"><button disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, feedbackTypes.includes("hard_to_understand") && feedbackTypes.length === 1 ? "unclear" : "incorrect")}>åªé€çµ¦è€å¸«ç¢ºèª</button>{/luna/i.test(feedbackTarget.message.model ?? "luna") && <button className="ask-sol-button" disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, "incorrect", true)}>âœ¦ è«‹ Sol å­¸éœ¸ç«‹å³è©•æ–·</button>}</div><small>é€å‡ºå¾Œé€²å…¥å¾…æª¢æŸ¥ï¼›Sol è¦†æ ¸ä¸èƒ½å–ä»£è€å¸«çš„æœ€çµ‚ç¢ºèªã€‚</small></section></div>}
-
-        {!practiceQuestion && source && <div className="answer-source">æœ¬æ¬¡å›ç­”ï¼š{source === "æ•™æ" ? "ä¾å¹³å°æ•™ææ•´ç†" : "å¹³å°æ•™ææœªå‘½ä¸­ï¼Œä½¿ç”¨ AI ä¸€èˆ¬çŸ¥è­˜è£œå……"}{showCosts && lastUsage ? <span className="frontend-cost"> Â· {lastUsage.model.replace("gpt-5.6-", "")} Â· {lastUsage.inputTokens + lastUsage.outputTokens} tokens Â· US$ {lastUsage.estimatedCostUsd.toFixed(5)} Â· ç´„ NT$ {formatTwd(lastUsage.estimatedCostUsd)}</span> : null}</div>}
-
-      </section>
-
-      <aside className="command-rail" id="command-rail" aria-label="ä½œæˆ°è³‡è¨Šå´æ¬„">
-        <div className="mobile-rail-head">
-          <strong>å­¸ç¿’å·¥å…·</strong>
-          <div>
-            <button type="button" onClick={toggleRailSide}>â‡† ç§»åˆ°{railSide === "right" ? "å·¦å´" : "å³å´"}</button>
-            <button type="button" onClick={() => setMobileRailOpen(false)} aria-label="é—œé–‰ä½œæˆ°è³‡è¨Šå´æ¬„">é—œé–‰</button>
-          </div>
-        </div>
-        <nav className="mobile-rail-tabs" aria-label="åˆ‡æ›å­¸ç¿’å·¥å…·">
-          {([
-            ["dictionary", "æ³•å…¸"],
-            ["listening", "è½è§£é¡Œ"],
-            ["magazine", "è®€æ³•æ•™"],
-            ["music", "éŸ³æ¨‚"],
-          ] as Array<[MobileRailTool, string]>).map(([tool, label]) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mobileRailTool === tool}
-              className={mobileRailTool === tool ? "active" : ""}
-              onClick={() => setMobileRailTool(tool)}
-              key={tool}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-        <button className="rail-switch" onClick={toggleRailSide} aria-label={`å°‡ä½œæˆ°è³‡è¨Šç§»åˆ°${railSide === "right" ? "å·¦" : "å³"}å´`}>â‡† ç§»åˆ°{railSide === "right" ? "å·¦é‚Š" : "å³é‚Š"}</button>
-        <section className={`top-dictionary-card rail-dictionary-card mobile-rail-panel ${mobileRailTool === "dictionary" ? "mobile-active" : ""}`} aria-label="æ³•å¾‹è¾­å…¸">
-          <div className="top-dictionary-intro"><div className="rail-title"><strong>æ³•å¾‹è¾­å…¸</strong><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">å¸æ³•é™¢ä¾†æº â†—</a></div><p>æŸ¥ä¸€å€‹æ³•å¾‹åè©ï¼Œæˆ–è®“ AI éš¨æ©ŸæŠ½ä¸€å€‹å¸å¾‹å¸¸è¦‹ç”¨èªã€‚</p></div>
-          {dictionaryFeatured && <div className="top-dictionary-featured"><div><span>AI ä»Šæ—¥éš¨æ©Ÿ</span><strong>{dictionaryFeatured.term}</strong></div><p>{dictionaryFeatured.content}</p><div><button type="button" onClick={teachFeaturedDictionaryTerm}>è®“ AI æ•™æˆ‘</button><button type="button" onClick={() => void loadRandomDictionary()} disabled={dictionaryFeaturedLoading}>{dictionaryFeaturedLoading ? "æ›é¡Œä¸­â€¦" : "æ›ä¸€å€‹"}</button></div></div>}
-          <div className="top-dictionary-search"><form onSubmit={searchDictionary}><input value={dictionaryTerm} onChange={(event) => setDictionaryTerm(event.target.value)} placeholder="ä¾‹å¦‚ï¼šæ¯”ä¾‹åŸå‰‡ã€æŠ—å‘Šã€ç³»çˆ­" aria-label="è¼¸å…¥æ³•å¾‹åè©" /><button disabled={dictionaryLoading}>{dictionaryLoading ? "æŸ¥è©¢ä¸­â€¦" : "æŸ¥è¾­å…¸"}</button></form>{dictionaryNotice && <small className="dictionary-notice">{dictionaryNotice}</small>}{dictionaryResult && <div className="dictionary-result"><div className="dictionary-result-heading"><strong>{dictionaryResult.term}</strong><span>{dictionaryResult.sourceLabel}</span></div><p>{dictionaryResult.content}</p>{dictionaryResult.sourceNote && <small className="dictionary-source-note">{dictionaryResult.sourceNote}</small>}<div className="dictionary-result-actions"><a href={dictionaryResult.sourceUrl} target="_blank" rel="noreferrer" aria-label={`æŸ¥çœ‹${dictionaryResult.term}å®Œæ•´è©æ¢`}>çœ‹å…¨æ–‡</a><button type="button" onClick={teachDictionaryTerm}>ç™½è©±è§£æ</button></div></div>}{dictionaryNotice && !dictionaryResult && dictionaryTerm.trim() && <div className="dictionary-result dictionary-ai-fallback"><div className="dictionary-result-heading"><strong>{dictionaryTerm.trim()}</strong><span>AI æ•´ç†</span></div><p>å¤–éƒ¨è©å…¸ç›®å‰æ²’æœ‰å¯å¼•ç”¨çš„è©æ¢ï¼›å¯ä»¥è«‹ AI ä¾å¸å¾‹è€ƒè©¦è„ˆçµ¡å…ˆåšç™½è©±èªªæ˜ã€‚</p><div className="dictionary-result-actions"><a href="https://terms.judicial.gov.tw/" target="_blank" rel="noreferrer">å¸æ³•é™¢è©å…¸</a><button type="button" onClick={teachUnknownDictionaryTerm}>AI è§£é‡‹</button></div></div>}</div>
-        </section>
-        <article className={`home-editorial-card rail-editorial-card mobile-rail-panel ${mobileRailTool === "listening" ? "mobile-active" : ""}`}><div className="column-kicker">LISTENING SOLUTION</div><div className="home-editorial-head"><div><h2>è½è§£é¡Œå°ˆå€</h2><span>{homeFeed?.listening ? `${homeFeed.listening.year} Â· ${homeFeed.listening.subject}` : "æŠŠè§£é¡Œè®Šæˆå¯ä»¥åè¦†è½çš„å­¸ç¿’æ®µè½"}</span></div><i>{homeFeed?.listening ? "â–¶" : "è½"}</i></div>{homeFeed?.listening ? <><p>å…ˆè½è€å¸«æŠ“çˆ­é»ï¼Œå†å›å­¸ç¿’å°ˆå€æ¥çºŒä»Šå¤©çš„é¡Œç›®ã€‚</p><ListeningPlayer item={homeFeed.listening} compact /></> : <p className="column-empty">å¾Œå°å°šæœªç™¼å¸ƒå¯æ’­æ”¾çš„è½è§£é¡ŒéŸ³æª”ã€‚</p>}</article>
-        <article className={`home-editorial-card rail-editorial-card rail-magazine-card mobile-rail-panel ${mobileRailTool === "magazine" ? "mobile-active" : ""}`}><div className="column-kicker">LAW CLASSROOM</div><div className="home-editorial-head"><div><h2>è®€æ³•æ•™</h2><span>åˆ‡æ›æ–‡ç« ï¼Œå†æŒ‰ã€Œçˆ­é»è§£æã€å­¸ç¿’æ ¸å¿ƒçˆ­é»</span></div><i>æ³•</i></div>{homeFeed?.magazine ? <><strong>{homeFeed.magazine.title}</strong>{magazineArticles.length > 1 ? <div className="magazine-tabs" role="tablist" aria-label="æ³•å­¸æ•™å®¤æ–‡ç« åˆ‡æ›">{magazineArticles.map((article, index) => <button type="button" role="tab" aria-selected={selectedMagazineArticle?.id === article.id} className={selectedMagazineArticle?.id === article.id ? "active" : ""} onClick={() => setSelectedMagazineArticleId(article.id)} key={article.id}>{index + 1}</button>)}</div> : null}{selectedMagazineArticle ? <div className="magazine-article-panel" role="tabpanel"><div className="magazine-article-copy"><h3>{selectedMagazineArticle.title}</h3>{selectedMagazineArticle.summary && <p className="magazine-article-summary"><b>æ‘˜è¦</b>{selectedMagazineArticle.summary}</p>}</div><div className="magazine-article-actions"><button type="button" onClick={() => askMagazineArticle(selectedMagazineArticle)}>çˆ­é»è§£æ</button>{selectedMagazineArticle.sourceUrl ? <a href={selectedMagazineArticle.sourceUrl} target="_blank" rel="noreferrer">æŸ¥çœ‹é€™ç¯‡è©¦è®€ PDF â†—</a> : null}</div></div> : <p className="column-empty">æœ¬æœŸæ–‡ç« æ­£åœ¨æ•´ç†ä¸­ã€‚</p>}<a href={homeFeed.magazine.sourceUrl} target="_blank" rel="noreferrer">æŸ¥çœ‹æœ¬æœŸæ³•å­¸æ•™å®¤ä¾†æº â†’</a></> : <p className="column-empty">å¾Œå°åŒ¯å…¥ä¸¦ç™¼å¸ƒæ³•å­¸æ•™å®¤è©¦è®€å…§å®¹å¾Œï¼Œæœ€æ–°å°ˆå€æœƒå‡ºç¾åœ¨é€™è£¡ã€‚</p>}</article>
-        <article className={`home-editorial-card rail-editorial-card rail-music-card mobile-rail-panel ${mobileRailTool === "music" ? "mobile-active" : ""}`}><div className="column-kicker">FOCUS MUSIC</div><div className="home-editorial-head"><div><h2>è®€æ›¸éŸ³æ¨‚</h2><span>{musicPlaying ? "æ’­æ”¾ä¸­ Â· å†æŒ‰ä¸€æ¬¡åœæ­¢" : "éœ€è¦æ™‚å†é–‹å•Ÿ Â· è«‹é»æ“Šæ’­æ”¾éŸ³æ¨‚"}</span></div><button type="button" className="music-play-button" onClick={toggleMusic} aria-label={musicPlaying ? "åœæ­¢è®€æ›¸éŸ³æ¨‚" : "é»æ“Šæ’­æ”¾è®€æ›¸éŸ³æ¨‚"}><span>{musicPlaying ? "â– " : "â–¶"}</span><b>{musicPlaying ? "åœæ­¢éŸ³æ¨‚" : "æ’­æ”¾éŸ³æ¨‚"}</b></button></div>{youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "") ? <><iframe className={`music-iframe ${musicActivated ? "is-active" : ""}`} title="å¸å¾‹å‚™è€ƒè®€æ›¸éŸ³æ¨‚" src={youtubeEmbedUrl(homeFeed?.focusMusicUrl ?? "")} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen loading="eager" /><a className="music-open-link" href={youtubeWatchUrl(homeFeed?.focusMusicUrl ?? "")} target="_blank" rel="noreferrer">ç„¡æ³•æ’­æ”¾æ™‚ï¼Œåœ¨ YouTube é–‹å•Ÿ â†—</a></> : <p className="column-empty">ç®¡ç†å¾Œå°è¨­å®šè®€æ›¸éŸ³æ¨‚å¾Œï¼Œæœƒåœ¨é€™è£¡æä¾›æ’­æ”¾ã€‚</p>}</article>
-      </aside>
-      </div>
-
-      <div className={`composer-wrap rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""}`}>
-        <button
-          type="button"
-          className={`mobile-rail-toggle rail-${railSide}`}
-          onClick={() => setMobileRailOpen(true)}
-          aria-expanded={mobileRailOpen}
-          aria-controls="command-rail"
-        >
-          <span aria-hidden="true">å·¥å…·</span>
-          <b>å­¸ç¿’å·¥å…·</b>
-        </button>
-          {currentMember?.canAdmin && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI å­¸ç¿’è¨­å®š">
-          <div className="model-mode-heading"><strong>AI å­¸ç¿’è¨­å®š</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} Â· Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="é‡å°ä¸Šä¸€å‰‡ AI å›è¦†ç¹¼çºŒè¿½å•">{evaluatingLevel ? "ç”¢ç”Ÿä¸­â€¦" : "ç¹¼çºŒè¿½å•"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "å±•é–‹è¨­å®š" : "æ”¶åˆè¨­å®š"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>å¦é–‹ä¸»é¡Œ</button></div>
-          {!settingsCollapsed && <>
-          <div className="model-mode-fields">
-            <label><span>å­¸ç”Ÿ</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
-              <option value="general">{teachingLevelLabels.general}</option><option value="beginner">{teachingLevelLabels.beginner}</option><option value="intermediate">{teachingLevelLabels.intermediate}</option><option value="advanced">{teachingLevelLabels.advanced}</option><option value="super">{teachingLevelLabels.super}</option>
-            </select></label>
-            <label><span>å›ç­”</span><select value="luna" disabled><option value="luna">Luna</option></select></label>
-          </div>
-          <div className={`model-settings-pin-row ${settingsPinned ? "is-pinned" : ""}`}>
-            <label className="model-settings-pin"><input type="checkbox" checked={settingsPinned} onChange={(event) => toggleSettingsPinned(event.target.checked)} disabled={thinking || generatingStudentReply || evaluatingTeaching} /><span>è¨˜ä½å­¸ç”Ÿè§’è‰²</span></label>
-            <small>Luna ç‚ºé¦–é å›ºå®šæ¨¡å‹ï¼›æ­¤è¨­å®šåªè¨˜ä½å­¸ç”Ÿè§’è‰²ã€‚</small>
-          </div>
-          </>}
-        </section>}
-        {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="å†æ¬¡ç·¨è¼¯åœ–ç‰‡"><img src={imageDraft.url} alt="å¾…é€å‡ºçš„é¡Œç›®åœ–ç‰‡" /></button><span>{imageDraft.name}<small>å·²æº–å‚™ï¼Œé»åœ–ç‰‡å¯å†èª¿æ•´</small></span><button onClick={() => setImageDraft(null)} aria-label="ç§»é™¤åœ–ç‰‡">Ã—</button></div>}
-        <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `è²¼ä¸Šçš„é¡Œç›®-${Date.now()}.png`, { type: image.type })); } }}>
-          <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
-          <button className="attach-image" type="button" aria-label="ä¸Šå‚³æˆ–è²¼ä¸Šåœ–ç‰‡å•å•é¡Œ" title="ä¸Šå‚³åœ–ç‰‡ï¼Œä¹Ÿå¯ç›´æ¥æŒ‰ Ctrl+V è²¼ä¸Š" onClick={() => imageInputRef.current?.click()}>ï¼‹</button>
-          <textarea
-            ref={composerInputRef}
-            aria-label="è¼¸å…¥ä½ æƒ³å­¸ç¿’çš„å…§å®¹"
-            placeholder={practiceQuestion && practiceDiscussion ? "é‡å°æœ¬é¡Œè‡ªç”±è¿½å•ï¼›AI æœƒç›´æ¥å›ç­”ï¼Œä¸æœƒå†åå•" : practiceQuestion && practiceCoachMessages.length > 0 ? "å›ç­”æ•™ç·´çš„å•é¡Œï¼›ä¸çŸ¥é“ä¹Ÿå¯ä»¥èªªå¡åœ¨å“ªè£¡" : "å‘Šè¨´æˆ‘ä½ æƒ³å­¸ä»€éº¼ï¼Œæˆ–ç›´æ¥è²¼ä¸Šä¸€é“é¡Œç›®â€¦â€¦"}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                if (practiceQuestion && practiceCoachMessages.length > 0) void askPracticeCoach(input);
-                else void send(input);
-              }
-            }}
-            rows={1}
-          />
-          <button className="send-button" type="submit" aria-label="é€å‡º" disabled={(!input.trim() && !imageDraft) || thinking}>â†‘</button>
-        </form>
-        <p>{practiceQuestion ? "çœŸé¡Œä½œç­”ã€ç†ç”±èˆ‡æ•™ç·´å›é¥‹éƒ½ä¿å­˜åœ¨é€™ä¸€ä¸²å°è©±" : "æ•™æå„ªå…ˆæª¢ç´¢ Â· æ‰¾ä¸åˆ°æ™‚ç”± AI è£œå……ä¸¦æ¸…æ¥šæ¨™ç¤º"}</p>
-      </div>
-
-      {imageDraft && editingImage && <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="ç·¨è¼¯é¡Œç›®åœ–ç‰‡"><section className="image-editor"><div className="image-editor-head"><div><strong>èª¿æ•´é¡Œç›®åœ–ç‰‡</strong><span>æ‹–æ›³æ–¹æ¡†å››è§’æˆ–å››é‚Šèª¿æ•´ç¯„åœï¼›æ‹–æ›³æ¡†å…§å¯æ•´é«”ç§»å‹•</span></div><button onClick={() => setImageDraft(null)} aria-label="é—œé–‰">Ã—</button></div><div className={`crop-stage ${imageDraft.enhance ? "enhanced" : ""}`} ref={editorRef}><img src={imageDraft.url} alt="åœ–ç‰‡è£åˆ‡é è¦½" className={Math.abs(imageDraft.rotation / 90) % 2 === 1 ? "quarter-turn" : ""} style={{ "--image-rotation": `${imageDraft.rotation}deg` } as React.CSSProperties} />{(() => { const bounds = cropBounds(imageDraft.points); const handles: Array<{ name: CropHandle; x: number; y: number }> = [{ name: "nw", x: bounds.left, y: bounds.top }, { name: "n", x: (bounds.left + bounds.right) / 2, y: bounds.top }, { name: "ne", x: bounds.right, y: bounds.top }, { name: "e", x: bounds.right, y: (bounds.top + bounds.bottom) / 2 }, { name: "se", x: bounds.right, y: bounds.bottom }, { name: "s", x: (bounds.left + bounds.right) / 2, y: bounds.bottom }, { name: "sw", x: bounds.left, y: bounds.bottom }, { name: "w", x: bounds.left, y: (bounds.top + bounds.bottom) / 2 }]; return <><div className="crop-frame" style={{ left: `${bounds.left}%`, top: `${bounds.top}%`, width: `${bounds.right - bounds.left}%`, height: `${bounds.bottom - bounds.top}%` }} onPointerDown={(event) => { cropFrameDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, points: imageDraft.points.map((point) => ({ ...point })) }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropFrame(event.clientX, event.clientY); }} onPointerUp={() => { cropFrameDragRef.current = null; }}><span>ä¿ç•™ç¯„åœ</span></div>{handles.map((handle) => <button key={handle.name} className={`crop-handle crop-handle-${handle.name}`} style={{ left: `${handle.x}%`, top: `${handle.y}%` }} aria-label={`èª¿æ•´è£åˆ‡æ¡† ${handle.name}`} onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropHandle(handle.name, event.clientX, event.clientY); }} />)}</>; })()}</div><div className="image-tools"><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation - 90 } : current)}>â†¶ å·¦è½‰</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation + 90 } : current)}>â†· å³è½‰</button><button className={imageDraft.enhance ? "active" : ""} onClick={() => setImageDraft((current) => current ? { ...current, enhance: !current.enhance } : current)}>âœ¦ åŠ å¼·åœ–ç‰‡</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: 0, enhance: false, points: [{ x: 6, y: 6 }, { x: 94, y: 6 }, { x: 94, y: 94 }, { x: 6, y: 94 }] } : current)}>é‡è¨­</button></div><div className="image-editor-actions"><button className="secondary" onClick={() => setImageDraft(null)}>å–æ¶ˆ</button><button onClick={() => setEditingImage(false)}>ä½¿ç”¨é€™å¼µåœ–ç‰‡</button></div><p>ç·šæ¡†å…§ç‚ºå¯¦éš›ä¿ç•™ç¯„åœï¼›é€å‡ºæ™‚è‡ªå‹•ç¸®è‡³æœ€é•·é‚Š 1600pxï¼Œä¸¦å£“ç¸®ç‚º JPEGã€‚</p></section></div>}
-    </main>
-  );
-}
-
-export default function MainEntryGate() {
-  const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
-  const [accessLoaded, setAccessLoaded] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/admin-entry/session", { cache: "no-store" })
-      .then(async (response) => response.ok ? (await response.json()) as { authenticated?: boolean; member?: CurrentMember | null } : { authenticated: false })
-      .then((result) => {
-        setCurrentMember(result.authenticated ? result.member ?? { displayName: "ç®¡ç†å“¡", email: "admin", role: "teacher", canAdmin: true, status: "active" } : null);
-        setAccessLoaded(true);
-      })
-      .catch(() => setAccessLoaded(true));
-  }, []);
-
-  const canEnterPlatform = currentMember?.canAdmin === true;
-  const accessMessage = !accessLoaded
-    ? "æ­£åœ¨ç¢ºèªç®¡ç†å“¡ç™»å…¥ç‹€æ…‹â€¦"
-    : canEnterPlatform
-      ? `ç®¡ç†å“¡ ${currentMember?.displayName ?? "å¸³è™Ÿ"} å·²é©—è­‰ï¼Œå¯ä»¥é€²å…¥å¹³å°ã€‚`
-      : currentMember
-        ? "ç›®å‰å¸³è™Ÿä¸æ˜¯ç®¡ç†å“¡ï¼Œé€™å…©å€‹å…¥å£æš«ä¸é–‹æ”¾ã€‚"
-        : "è«‹å…ˆç™»å…¥ç®¡ç†å“¡å¸³è™Ÿï¼Œæ‰èƒ½å•Ÿç”¨å¹³å°å…¥å£ã€‚";
-
-  return <main className="main-entry-gate">
-    <section>
-      <span>iBRAIN AI LEARNING</span>
-      <div className="main-entry-logo" aria-hidden="true">æ™º</div>
-      <h1>iBrain AI å­¸ç¿’å¹³å°</h1>
-      <p>æœ¬å¹³å°ç›®å‰ç‚ºå…§éƒ¨æ¸¬è©¦éšæ®µï¼Œå¹³å°å…¥å£åƒ…é™ç®¡ç†å“¡ç™»å…¥å¾Œä½¿ç”¨ã€‚</p>
-      <small>{accessMessage}</small>
-      <div className="main-entry-actions">
-        {canEnterPlatform ? <>
-          <a className="main-entry-law" href="/law">é€²å…¥å¸å¾‹å‚™è€ƒ</a>
-          <a className="main-entry-medtech" href="/medtech">é€²å…¥é†«æª¢å¸«å¹³å°</a>
-        </> : <>
-          <button className="main-entry-law is-locked" type="button" disabled>é€²å…¥å¸å¾‹å‚™è€ƒ</button>
-          <button className="main-entry-medtech is-locked" type="button" disabled>é€²å…¥é†«æª¢å¸«å¹³å°</button>
-        </>}
-      </div>
-      {!accessLoaded || canEnterPlatform ? null : <a className="main-entry-signin" href="/admin-login?return_to=/">ç™»å…¥ç®¡ç†å“¡å¸³è™Ÿ</a>}
-    </section>
-  </main>;
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíß½·õ:-jZ.¶›­–)Ş³R'W6R6Æ–VçB#° ¦–×÷'BÆ–æ²g&öÒ&æW‡BöÆ–æ²#°¦–×÷'B²f÷&ÔWfVçBÂÖ÷W6TWfVçBÂW6TVffV7BÂW6TÖVÖòÂW6U&VbÂW6U7FFRÒg&öÒ'&V7B#°¦–×÷'B²Æ—7FVæ–æuÆ–W"ÂÆ—7FVæ–ætfVVBÒg&öÒ"âöÆ—7FVæ–ær×Æ–W"#°¦–×÷'B²F—V”FFRÂF—V”w&VWF–ærÒg&öÒ"ââöÆ–"÷F—V’×F–ÖR#°¦–×÷'B²f÷&ÖEGvBÒg&öÒ"ââöÆ–"ö7W'&Væ7’#°¦–×÷'B²6÷&TW†Õö–çG2ÂG—R6÷&TW†Õö–çBÒg&öÒ"ââöÆ–"ö6÷&RÖW†Ò×ö–çG2#°¦–×÷'B"âöVçG'’ÖvFRæ772#° §G—R6ö×&—6öå&W7öç6RÒ°¢–C¢çVÖ&W#°¢Æ&VÃ¢7G&–æs°¢ÖöFVÃ¢7G&–æs°¢FW‡C¢7G&–æs°¢6÷W&6S¢.iYiÙ"Â$’Š9ÎXXR#°¢6÷W&6W3¢7G&–æuµÓ°¢W'&÷#ó¢7G&–ærÂçVÆÃ°¢W6vS¢²–çWEFö¶Vç3¢çVÖ&W#²66†VEFö¶Vç3¢çVÖ&W#²÷WGWEFö¶Vç3¢çVÖ&W#²W7F–ÖFVD6÷7EW6C¢çVÖ&W#²GW&F–öä×3¢çVÖ&W"Ó°¢7F÷&V6öãó¢7G&–ærÂçVÆÃ°§Ó°§G—RÖöFVÄ6ö×&—6öâÒ²–C¢çVÖ&W#²6÷W&6U7FGW3¢7G&–æs²&W7öç6W3¢6ö×&—6öå&W7öç6UµÒÓ°§G—RWfÇVF–öåW6vRÒ²ÖöFVÃ¢7G&–æs²–çWEFö¶Vç3¢çVÖ&W#²66†VEFö¶Vç3¢çVÖ&W#²÷WGWEFö¶Vç3¢çVÖ&W#²GW&F–öä×3¢çVÖ&W#²W7F–ÖFVD6÷7EW6C¢çVÖ&W"Ó°§G—RFV6†–ætÆWfVÂÒ&vVæW&Â"Â&&Vv–ææW""Â&–çFW&ÖVF–FR"Â&Gfæ6VB"Â'7WW"#°¦6öç7BFV6†–ætÆWfVÄÆ&VÇ3¢&V6÷&CÅFV6†–ætÆWfVÂÂ7G&–æsâÒ°¢vVæW&Ã¢.ˆz®yKhùYXò"À¢&Vv–ææW#¢.k9^[è¾[şy›Ò"À¢–çFW&ÖVF–FS¢.Yû®zHîˆ>yIò"À¢Gfæ6VC¢.˜.™¨îˆ>yIò"À¢7WW#¢.š.[	nZÛ™Ë‚"À§Ó°§G—RFV6†–æu&÷VæBÒ²ÆWfVÃ¢FV6†–ætÆWfVÃ²Æ&VÃ¢7G&–æs²&WÇ“¢7G&–æs²FV6†W$¢²Æ&VÃó¢7G&–æs²ÖöFVÃ¢7G&–æs²FW‡C¢7G&–æs²W6vS¢WfÇVF–öåW6vS²7F÷&V6öã¢7G&–ærÂçVÆÂÓ²FV6†W$#ó¢²Æ&VÃó¢7G&–æs²ÖöFVÃ¢7G&–æs²FW‡C¢7G&–æs²W6vS¢WfÇVF–öåW6vS²7F÷&V6öã¢7G&–ærÂçVÆÂÒÓ°§G—RFV6†–ætWf–FVæ6RÒ²7FGW3¢'fW&–f–VB"Â&Æ–VEö–æfW&Væ6R"Â&gVÆÅ÷FW‡E÷6V&6‚"Â'Væf–Æ&ÆR#²&WG&–WfÃ¢7G&–æs²&W6÷W&6UF—FÆS¢7G&–æs²6VvÖVçEF—FÆS¢7G&–æs²ÆW76öäÆ&VÃ¢7G&–æs²vU7F'C¢çVÖ&W"ÂçVÆÃ²vTVæC¢çVÖ&W"ÂçVÆÃ²f–ÆTæÖS¢7G&–æs²W†6W'C¢7G&–æs²ÖW76vS¢7G&–æs²ÖF6†VEFW&×3ó¢7G&–æuµÓ²&6—3ó¢'FV6†W%÷6öÇWF–öâ"Â&6†FW""Ó°§G—R6†ÆÆVævUF‡&VBÒ²F&vWDÆ&VÃ¢7G&–æs²F&vWDW†6W'C¢7G&–æs²6†ÆÆVævUFW‡C¢7G&–æs²6†ÆÆVævUW6vS¢&WÇ•W6vS²&WÇ•FW‡C¢7G&–æs²&WÇ•W6vS¢&WÇ•W6vS²fW'6–öã¢çVÖ&W#²Æ–VC¢&ööÆVâÓ°§G—RÖW76vRÒ²&öÆS¢&ÖVçF÷""Â'7GVFVçB#²FW‡C¢7G&–æs²6÷W&6Só¢7G&–ærÂçVÆÃ²6÷W&6W3ó¢7G&–æuµÓ²6—FF–öå7FGW3ó¢7G&–æs²FV6†–ætWf–FVæ6Só¢FV6†–ætWf–FVæ6RÂçVÆÃ²ÖöFVÃó¢7G&–æs²W6vSó¢&WÇ•W6vS²6ö×&—6öãó¢ÖöFVÄ6ö×&—6öã²6†ÆÆVævUF‡&VCó¢6†ÆÆVævUF‡&VC²&7F–6UVW7F–öãó¢&7F–6UVW7F–öâÂçVÆÂÓ°§G—RföÆÆ÷uW6VÆV7F–öâÒ²¶W“¢7G&–æs²Æ&VÃ¢7G&–æs²ÖöFVÃ¢7G&–æs²FW‡C¢7G&–æs²&ö×C¢7G&–æs²W†6W'Có¢7G&–ærÓ°§G—Rç7vW$7F–öâÒ'Æ–â"Â&FWF–ÆVB"Â&föÆÆ÷r×W#°§G—R&WÇ•W6vRÒ²ÖöFVÃ¢7G&–æs²–çWEFö¶Vç3¢çVÖ&W#²66†VEFö¶Vç3¢çVÖ&W#²÷WGWEFö¶Vç3¢çVÖ&W#²f–ÆU6V&6„6ÆÇ3¢çVÖ&W#²vV%6V&6„6ÆÇ3ó¢çVÖ&W#²ÖöFVÅFö¶Vä6÷7EW6Có¢çVÖ&W#²f–ÆU6V&6„6÷7EW6Có¢çVÖ&W#²vV%6V&6„6÷7EW6Có¢çVÖ&W#²W7F–ÖFVD6÷7EW6C¢çVÖ&W#²GW&F–öä×3¢çVÖ&W"Ó°§G—R6†DÖöFVÄÖöFRÒ&WFò"Â&ÇVæ"Â'6öÂ"Â'6öææWB"Â&FVW6VV²"Â&vÆÒ"Â&vÆÓS""Â&6ö×&RÖÇVæ×6öææWB"Â&6ö×&RÖÇVæÖvÆÓS""Â&6ö×&RÖÇVæÖFVW6VV²"Â&6ö×&R×6öææWBÖFVW6VV²"Â&6ö×&RÖÇVæ×6öææWBÖFVW6VV²#°¦6öç7B•6WGF–æw57F÷&vT¶W’Ò'6–ÇRÖ’×6WGF–æw2×–ææVB#°¦6öç7B6öçfW'6F–öä6öçF–çVF–öåF‡&W6†öÆBÒC°¦6öç7B6†DÖöFVÄÖöFW3¢6†DÖöFVÄÖöFUµÒÒ²&WFò"Â&ÇVæ"Â'6öÂ"Â'6öææWB"Â&FVW6VV²"Â&vÆÒ"Â&vÆÓS""Â&6ö×&RÖÇVæ×6öææWB"Â&6ö×&RÖÇVæÖvÆÓS""Â&6ö×&RÖÇVæÖFVW6VV²"Â&6ö×&R×6öææWBÖFVW6VV²"Â&6ö×&RÖÇVæ×6öææWBÖFVW6VV²%Ó°¦gVæ7F–öâ—5FV6†–ætÆWfVÂ‡fÇVS¢Væ¶æ÷vâ“¢fÇVR—2FV6†–ætÆWfVÂ²&WGW&âfÇVRÓÓÒ&vVæW&Â"ÇÂfÇVRÓÓÒ&&Vv–ææW""ÇÂfÇVRÓÓÒ&–çFW&ÖVF–FR"ÇÂfÇVRÓÓÒ&Gfæ6VB"ÇÂfÇVRÓÓÒ'7WW"#²Ğ¦gVæ7F–öâ—46†DÖöFVÄÖöFR‡fÇVS¢Væ¶æ÷vâ“¢fÇVR—26†DÖöFVÄÖöFR²&WGW&âG—VöbfÇVRÓÓÒ'7G&–ær"bb6†DÖöFVÄÖöFW2æ–æ6ÇVFW2‡fÇVR26†DÖöFVÄÖöFR“²Ğ§G—RFöF•F6²Ò²–C¢çVÖ&W#²F6´FFS¢7G&–æs²7V&¦V7C¢7G&–æs²F—FÆS¢7G&–æs²GW&F–öäÖ–çWFW3¢çVÖ&W#²FWF–Ç3¢7G&–æs²7FGW3¢7G&–ærÓ°§G—RF6†&ö&DFFÒ²F&vWDÆ&VÃ¢7G&–æs²ÖöçF‡5&VÖ–æ–æs¢çVÖ&W#²öff–6–ÄFFUVæF–æs¢&ööÆVã²FöF•&öw&W73¢²6ö×ÆWFVC¢çVÖ&W#²F÷FÃ¢çVÖ&W#²FVÆ–VCó¢çVÖ&W#²&V6÷&G3ó¢çVÖ&W#²6÷'&V7Có¢çVÖ&W#²ç7vW&VCó¢çVÖ&W"Ó²&V6÷&C¢²6ö×ÆWFVEF6·3¢çVÖ&W#²6ö×ÆWFVDÖ–çWFW3¢çVÖ&W#²F÷FÅF6·3¢çVÖ&W"Ó²&–÷&—F–W3¢'&“Ç²F÷–3¢7G&–æs²6÷VçC¢çVÖ&W#²&V6öã¢7G&–ærÓã²ÖVÖó¢7G&–æs²Væ6÷W&vVÖVçC¢7G&–ærÓ°§G—RFöF•&V6÷&BÒ²7V&¦V7C¢7G&–æs²F—FÆS¢7G&–æs²7F—f—G•G—S¢7G&–æs²7GVÄÖ–çWFW3¢çVÖ&W#²æW‡E7FW¢7G&–ærÓ°§G—R–W7FW&F”6öçFW‡BÒ²FFS¢7G&–æs²6W76–öä–C¢çVÖ&W"ÂçVÆÃ²ÖW76vT6÷VçC¢çVÖ&W#²Æ7E7GVFVçC¢7G&–æs²Æ7DÖVçF÷#¢7G&–æs²6ö×ÆWFVEF6·3¢çVÖ&W#²F÷FÅF6·3¢çVÖ&W#²–æ6ö×ÆWFUF6·3¢'&“Ç²–C¢çVÖ&W#²7V&¦V7C¢7G&–æs²F—FÆS¢7G&–æs²GW&F–öäÖ–çWFW3¢çVÖ&W#²FWF–Ç3¢7G&–ærÓã²&V6÷&G3¢'&“Ç²7V&¦V7C¢7G&–æs²F—FÆS¢7G&–æs²7F—f—G•G—S¢7G&–æs²7GVÄÖ–çWFW3¢çVÖ&W#²6÷'&V7C¢&ööÆVâÂçVÆÃ²vV¶æW73¢7G&–æs²æW‡E7FW¢7G&–ærÓâÓ°§G—R7&÷ö–çBÒ²ƒ¢çVÖ&W#²“¢çVÖ&W"Ó°§G—R–ÖvTG&gBÒ²W&Ã¢7G&–æs²æÖS¢7G&–æs²ö–çG3¢7&÷ö–çEµÓ²&÷FF–öã¢çVÖ&W#²Væ†æ6S¢&ööÆVâÓ°§G—R7&÷†æFÆRÒ&çr"Â&â"Â&æR"Â&R"Â'6R"Â'2"Â'7r"Â'r#°§G—R&7F–6UVW7F–öâÒ²–C¢çVÖ&W#²W†ÕG—S¢&Ö7"Â&W76’#²–V#¢7G&–æs²W†ÔæÖSó¢7G&–æs²7V&¦V7C¢7G&–æs²VW7F–öäçVÖ&W#¢7G&–æs²7FVÓ¢7G&–æs²÷F–öç3¢&V6÷&CÇ7G&–ærÂ7G&–æsâÂçVÆÂÓ°§G—RÖv¦–æT'F–6ÆRÒ²–C¢çVÖ&W#²F—FÆS¢7G&–æs²7VÖÖ'“¢7G&–æs²—77VS¢7G&–æs²6÷W&6UW&Ã¢7G&–æs²&Wf–Wu7FGW3¢7G&–æs²6WVVæ6S¢çVÖ&W"Ó°§G—R†öÖTfVVBÒ²&öö³¢²–C¢çVÖ&W#²F—FÆS¢7G&–æs²7&VF÷#¢7G&–æs²†46÷fW#ó¢çVÖ&W"ÒÂçVÆÃ²6÷W'6S¢²–C¢çVÖ&W#²F—FÆS¢7G&–æs²7&VF÷#¢7G&–æs²6÷W&6UW&Ã¢7G&–ærÒÂçVÆÃ²Öv¦–æS¢²–C¢çVÖ&W#²F—FÆS¢7G&–æs²6÷W&6UW&Ã¢7G&–æs²FW67&—F–öãó¢7G&–æs²'F–6ÆW3ó¢Öv¦–æT'F–6ÆUµÒÒÂçVÆÃ²Æ—7FVæ–æs¢Æ—7FVæ–ætfVVBÂçVÆÃ²fö7W4×W6–5W&Ãó¢7G&–æs²&V6öÖÖVæFVC¢'&“Ç²–C¢çVÖ&W#²&W6÷W&6T–C¢çVÖ&W#²F—FÆS¢7G&–æs²7VÖÖ'“¢7G&–æs²7F'E6V6öæG3¢çVÖ&W#²–×÷'Fæ6S¢çVÖ&W"Óã²F–6¶W#¢'&“Ç²–C¢7G&–æs²FW‡C¢7G&–æs²W&Ã¢7G&–æs²Væ&ÆVC¢&ööÆVâÓã²W†Ô6÷VçFF÷vç3¢'&“Ç²–C¢7G&–æs²Æ&VÃ¢7G&–æs²FFS¢7G&–æs²Væ&ÆVC¢&ööÆVâÓã²ÆV&æ–æt6VçFW$Væ&ÆVCó¢&ööÆVâÓ°§G—RÆVvÄÆW76öâÒ²Fö7VÖVçD–C¢çVÖ&W#²F—FÆS¢7G&–æs²'F–6ÆTæó¢7G&–æs²†–W&&6‡“¢7G&–æs²6öçFVçC¢7G&–ærÓ°§G—RF–7F–öæ'•&W7VÇBÒ²FW&Ó¢7G&–æs²6öçFVçC¢7G&–æs²6÷W&6UW&Ã¢7G&–æs²6÷W&6TÆ&VÃ¢7G&–æs²6÷W&6UG—Só¢&§VF–6–Â"Â&ÆVv—7VF–#²6÷W&6Tæ÷FSó¢7G&–ærÓ°§G—R&7F–6T6ö6„ÖW76vRÒ²&öÆS¢&ÖVçF÷""Â'7GVFVçB#²FW‡C¢7G&–ærÓ°§G—RÖö&–ÆU&–ÅFööÂÒ&F–7F–öæ'’"Â&Æ—7FVæ–ær"Â&Öv¦–æR"Â&×W6–2#°§G—R7W'&VçDÖVÖ&W"Ò²F—7Æ”æÖS¢7G&–æs²VÖ–Ã¢7G&–æs²&öÆS¢'FV6†W""Â'7GVFVçB#²6äFÖ–ã¢&ööÆVã²7FGW3¢7G&–æs²6Æ74æÖSó¢7G&–ærÓ° ¦6öç7BG'W7E&–æ6—ÆU7GVFVçEFW7BÒ.h‰ynŠz>Kú‹;NXéşX˜~iŠşûÈÎšy^šy¾K«®XúşKº^y»KúŠÎK«®iÈ>˜^ZèKªN˜	®ŠhşX˜~8.XúşiŠşZh.iéÎŠÎK«®Xú®iŠşz¹YÊ‹zş˜(®zØ{H^{jxxûÈÎšy^šy¾K«®hxŠ›.XúşKº^Kú‹;NK¹nKˆŞiÈ>z¨xKnŠŞX{®KènûÉ¾KØnZh.iéÎŠÎK«®[{.{i>iÈiˆîšşŠh˜^Šhşy¨NjŠ>ZÙûÈÎKè¾Zh.Kˆy»N[è‹¸®˜>™Ú‹ùûÈÎšy^šy¾K«®[KˆŞˆ;ŞXhŞK‹¾[Ë^Kú‹;NXéşX˜~8.˜*>iÊÎšÎKŠŞûÈÎŠhhî›«ÎXŠNik~˜	X¾ŠÎK«®y¨NX¹^KÙÎ[{.{i>˜NX‹8ÎšşxKnXÛ>[~˜^Šhş8Şy¨Nzˆ¾[ªnûÉşZh.iéÎh‰K‹¾[Ë^šy^šy¾K«®K¸ŞXúşy»KúŠÎK«®KˆŞiÈ>ŠŞX{®KènûÈÎ˜	jŠ>y¨NŠ¹nŠØiÈj™şiÈ>h‰z¸¾YxîûÉò#°¦gVæ7F–öâ6÷W&6TæÖTg&öÔÆ–æ²†Æ&VÃ¢7G&–ærÂW&ÂÒ""’°¢6öç7BfÇVRÒG¶Æ&VÇÒG·W&ÇÖçFôÆ÷vW$66R‚“°¢–b‡fÇVRæ–æ6ÇVFW2‚&ÆræÖö¢æv÷bçGr"’’&WGW&â.XZYÈ¾k9^Šhş‹8~ii[ª²#°¢–b‡fÇVRæ–æ6ÇVFW2‚&§VF–6–Âæv÷bçGr"’’&WGW&â.Xûk9^™š"#°¢–b‡fÇVRæ–æ6ÇVFW2‚&ÖöW‚æv÷bçGr"’’&WGW&â.ˆ>˜˜:‚#°¢6öç7B6ÆVäÆ&VÂÒÆ&VÂçG&–Ò‚“°¢&WGW&âõâƒó¦‡GG3ó¥ÂõÂò“òƒó§wwuÂâ“õ¶×£Ó’âÕÒ²ƒó¥ÂõÅ2¢“òBö’çFW7B†6ÆVäÆ&VÂ’ò.ZIn{k.iú^ŠØKènk©"¢6ÆVäÆ&VÃ°§Ğ¦gVæ7F–öâ†–FTW‡FW&æÅW&Ç2‡FW‡C¢7G&–ær’°¢&WGW&âFW‡@¢ç&WÆ6R‚õÅ²…µåÅÕÒ²•ÅÕÂ‚†‡GG3ó¥ÂõÂõµâ•Ç5Ò²•Â’öv’Â…öÖF6‚ÂÆ&VÃ¢7G&–ærÂW&Ã¢7G&–ær’Óâ6÷W&6TæÖTg&öÔÆ–æ²†Æ&VÂÂW&Â’¢ç&WÆ6R‚ö‡GG3ó¥ÂõÂõµåÇ2•Å×ÓåÒ²öv’Â""¢ç&WÆ6R‚õÂ…Ç2¥Â’örÂ""¢ç&WÆ6R‚õ²ÇEÒµÆâörÂ%Æâ"¢ç&WÆ6R‚õ²ÇE×³"ÇÒörÂ""“°§Ğ¦gVæ7F–öâ6ÆVäÖW76vUFW‡B‡FW‡C¢7G&–ær’²&WGW&â†–FTW‡FW&æÅW&Ç2‡FW‡B’ç&WÆ6R‚õÂ¥Â¢‚â£ò•Â¥Â¢öw2Â"C"’ç&WÆ6R‚õõò‚â£ò•õòöw2Â"C"’ç&WÆ6R‚õâ7³ÃgÕÇ2²övÒÂ""’ç&WÆ6R‚ö…µæÒ²–örÂ"C"“²Ğ¦gVæ7F–öâ—4ÆV&æ–ætæ÷FR‡FW‡C¢7G&–ær’²6öç7B6ÆVâÒ6ÆVäÖW76vUFW‡B‡FW‡B“²–b†6ÆVâæÆVæwF‚Âƒ’&WGW&âfÇ6S²–b‚ş[	®iÊ®XÊşXZWÎ[	®iÊ®k©nX)—Îiª¾i˜.xJk9WÎk).iÈ˜
+>Kˆ§Ä—Î˜ÊşŠªGÎŠ¸¾zˆŞ[èÇÎzêynˆRòçFW7B†6ÆVâ’’&WGW&âfÇ6S²&WGW&âşk9^j)×ÎxŠŞ›¹çÎŠhK»gÎkk^iI×ÎŠz>šÇÎXŠNikwÎXéşX˜wÎKè¾ZIgÎZÛŠª§ÎZúnX¹—ÎiYiÙÎX‰k9WÎk	k9WÎŠ‹NŠ‰şk9WÎhk.k9WÎŠÎiKşk9RòçFW7B†6ÆVâ“²Ğ¦gVæ7F–öâ—&VE7GVFVçE&ö×B†ÖW76vW3¢ÖW76vUµÒÂFV6†W$–æFWƒ¢çVÖ&W"’°¢&WGW&â²ââæÖW76vW2ç6Æ–6RƒÂFV6†W$–æFW‚•Òç&WfW'6R‚’æf–æB‚†ÖW76vR’ÓâÖW76vRç&öÆRÓÓÒ'7GVFVçB"bbÖW76vRçFW‡BçG&–Ò‚’“òçFW‡Bóò"#°§Ğ¦gVæ7F–öâ–÷WGV&T–B‡fÇVS¢7G&–ær’²G'’²6öç7BW&ÂÒæWrU$Â‡fÇVR“²6öç7B–BÒW&Âæ†÷7FæÖRÓÓÒ'–÷WGRæ&R"òW&ÂçF†æÖRç6Æ–6Rƒ’¢W&Âç6V&6…&×2ævWB‚'b"’ÇÂ‡W&ÂçF†æÖRæÖF6‚‚õÂöVÖ&VEÂò…µâõÒ²’ò“òå³Òóò""“²&WGW&â–Bç7Æ—B‚õ³òeÒò•³Ó²Ò6F6‚²&WGW&â"#²ÒĞ¦gVæ7F–öâ–÷WGV&TVÖ&VEW&Â‡fÇVS¢7G&–ær’²6öç7B–BÒ–÷WGV&T–B‡fÇVR“²&WGW&âõå´Õ¦×£Ó•òÕ×³bÇÒBòçFW7B†–B’ò‡GG3¢ò÷wwrç–÷WGV&Ræ6öÒöVÖ&VBòG¶–GÓ÷&VÃÓf6öçG&öÇ3ÓfÖöFW7F'&æF–æsÓgÆ—6–æÆ–æSÓfVæ&ÆV§6“Ó¢"#²Ğ¦gVæ7F–öâ–÷WGV&UvF6…W&Â‡fÇVS¢7G&–ær’²6öç7B–BÒ–÷WGV&T–B‡fÇVR“²&WGW&âõå´Õ¦×£Ó•òÕ×³bÇÒBòçFW7B†–B’ò‡GG3¢ò÷wwrç–÷WGV&Ræ6öÒ÷vF6ƒ÷cÒG¶–GÖ¢"#²Ğ¦gVæ7F–öâ&WVW7E–÷WGV&UÆ’‡&ö÷C¢VÆVÖVçBÂçVÆÂ’²6öç7B–g&ÖRÒ&ö÷CòçVW'•6VÆV7F÷#Ä…DÔÄ”g&ÖTVÆVÖVçCâ‚&–g&ÖR"“²–g&ÖSòæ6öçFVçEv–æF÷sòç÷7DÖW76vR„¥4ôâç7G&–æv–g’‡²WfVçC¢&6öÖÖæB"ÂgVæ3¢'Æ•f–FVò"Â&w3¢µÒÒ’Â&‡GG3¢ò÷wwrç–÷WGV&Ræ6öÒ"“²Ğ¦gVæ7F–öâFFTÆ&VÂ‡fÇVS¢7G&–ær’²&WGW&âfÇVRòfÇVRç&WÆ6R‚õâ…ÆG³GÒ’Ò…ÆG³'Ò’Ò…ÆG³'Ò’BòÂ"C[›BC.iÈ‚C>izR"’¢.K¸®ZJ’#²Ğ¦gVæ7F–öâ6ö×&—6öå6÷W&6TÆ&VÂ‡7FGW3¢7G&–ær’°¢–b‡7FGW2ÓÓÒ'fW&–f–VB"’&WGW&â.iYiÙXéşih~[{.y»Nhê^iJşhÈ#°¢–b‡7FGW2ÓÓÒ&Æ–VEö–æfW&Væ6R"’&WGW&â.iYiÙhùKé¾XŠNk©nûÈÄ’ZèÎh‰kk^iIÒ#°¢–b‡7FGW2ÓÓÒ&gVÆÅ÷FW‡E÷6V&6‚"’&WGW&â.h›îX‹y»™yÎiYiÙûÈÎKØnKˆŞ‹k>Kº^j[ŞiÊÎjÊXZ~Zë’#°¢&WGW&â.iÊÎjÊiÊ®Xùn[é~Xúşj[ŞiYiÙ[É^yJ‚#°§Ğ¦gVæ7F–öâ6—FF–öå7FGW4Æ&VÂ‡7FGW3ó¢7G&–ær’°¢–b‡7FGW2ÓÓÒ'fW&–f–VB"’&WGW&â.[É^yJx¸hX¾ûÉ®Xéşih~y»Nhê^iJşhÈ#°¢–b‡7FGW2ÓÓÒ&Æ–VEö–æfW&Væ6R"’&WGW&â.[É^yJx¸hX¾ûÉ®iYiÙXŠNk©nûÈ´’kk^iIÒ#°¢–b‡7FGW2ÓÓÒ&gVÆÅ÷FW‡E÷6V&6‚"’&WGW&â"#°¢–b‡7FGW2ÓÓÒ'vV%÷6V&6‚"’&WGW&â.ZIn{k.iú^ŠØûÉ®[{.X‰~X{®iÊÎjÊiú^ŠØKènk©YŞz‹#°¢&WGW&â.[É^yJx¸hX¾ûÉ®iÊ®Xùn[é~Xúşj[ŞiYiÙ#°§Ğ¦gVæ7F–öâ6÷W&6TF—7Æ”æÖR‡6÷W&6S¢7G&–ær’°¢&WGW&â6÷W&6P¢ç&WÆ6R‚şûÙÆ‡GG3ó¥ÂõÂõÅ2²Bö’Â""¢ç&WÆ6R‚ö‡GG3ó¥ÂõÂõÅ2²öv’Â""¢çG&–Ò‚“°§Ğ¦gVæ7F–öâf—6–&ÆU6÷W&6TæÖW2‡6÷W&6W3ó¢7G&–æuµÒ’°¢&WGW&â²ââææWr6WB‚‡6÷W&6W2óòµÒ’æÖ‡6÷W&6TF—7Æ”æÖR’æf–ÇFW"„&ööÆVâ’•Ó°§Ğ¦gVæ7F–öâFV6†–ætWf–FVæ6TFWF–Ç2‡²Wf–FVæ6RÓ¢²Wf–FVæ6Só¢FV6†–ætWf–FVæ6RÂçVÆÂÒ’°¢–b‚Wf–FVæ6R’&WGW&âçVÆÃ°¢6öç7BvW2ÒWf–FVæ6RçvU7F'BòzÊÂG¶Wf–FVæ6RçvU7F'GÒG¶Wf–FVæ6RçvTVæBbbWf–FVæ6RçvTVæBÓÒWf–FVæ6RçvU7F'Bò(	2G¶Wf–FVæ6RçvTVæGÖ¢"'Òš¢.šz+Î[	®iÊ®j[Ò#°¢6öç7B—5FV6†W%6öÇWF–öâÒWf–FVæ6Ræ&6—2ÓÓÒ'FV6†W%÷6öÇWF–öâ#°¢6öç7BÆ&VÂÒ—5FV6†W%6öÇWF–öâò/	ùú"[{.˜énZé®iÊÎšÎˆ[Š¾Šz>iéûÈşi:ÎzÙB"¢Wf–FVæ6Rç7FGW2ÓÓÒ'fW&–f–VB"ò/	ùú"iYiÙXéşih~y»Nhê^iJşhÈiÊÎjÊiYZÛXZ~Zë’"¢Wf–FVæ6Rç7FGW2ÓÓÒ&Æ–VEö–æfW&Væ6R"ò/	ùKRiYiÙhùKé¾XŠNk©nûÈÄ’KéŞXéşih~kk^iIÒ"¢Wf–FVæ6Rç7FGW2ÓÓÒ&gVÆÅ÷FW‡E÷6V&6‚"ò†Wf–FVæ6Rç&WG&–WfÂÓÓÒ&gVÆÅ÷FW‡E÷6V&6‚"ò/	ùúX8^YŞKŠŞXZih~{J.[É^ûÈÎ[	®KˆŞ‹k>Kº^j[ŞiÊÎjÊXZ~Zë’"¢/	ùúh›îX‹y»™yÎiYiÙûÈÎKØnKˆŞ‹k>Kº^j[ŞiÊÎjÊXZ~Zë’"’¢.)ª¢iÊ®Xùn[é~iYiÙXéşihr#°¢&WGW&âÆFWF–Ç26Æ74æÖS×¶FV6†–ærÖWf–FVæ6RG¶Wf–FVæ6Rç7FGW7ÖÓãÇ7VÖÖ'“ç¶Æ&VÇÓÇ7ãç¶—5FV6†W%6öÇWF–öâò.iú^yÈ¾ˆ[Š¾ZèÎi[NXéşihr"¢.[^™h¾š™~ŠØŠØi9¢'ÓÂ÷7ããÂ÷7VÖÖ'“ãÆF—cãÆFÃãÆF—cãÆGCîi»{ŞûÈşj©NjƒÂöGCãÆFCç¶Wf–FVæ6Rç&W6÷W&6UF—FÆRÇÂWf–FVæ6Ræf–ÆTæÖRÇÂ.iÊ®hùKé²'ÓÂöFCãÂöF—cãÆF—cãÆGCîZún™©¾KØŞ{ÚãÂöGCãÆFCçµ¶Wf–FVæ6Rç6VvÖVçEF—FÆRÂWf–FVæ6RæÆW76öäÆ&VÂÂvW5Òæf–ÇFW"„&ööÆVâ’æ¦ö–â‚.ûÙÂ"—ÓÂöFCãÂöF—cãÆF—cãÆGCî‹8~ii‹ª¾XˆcÂöGCãÆFCç¶—5FV6†W%6öÇWF–öâò.YÎKˆšÎy¨Nˆ[Š¾xŠŞ›¹îŠz>iéûÈşi:ÎzÙB"¢Wf–FVæ6Rç&WG&–WfÂÓÓÒ&6†FW%÷6VvÖVçB"ò.zºzøXZ~ih~jùN[Ò"¢Wf–FVæ6Rç&WG&–WfÂÓÓÒ'7F÷&VEöæÇ—6—2"ò.iYiÙŠz>ié{YiéÎjùN[Ò"¢Wf–FVæ6Rç&WG&–WfÂÓÓÒ&gVÆÅ÷FW‡E÷6V&6‚"ò.XZih~{J.[É^i	Î[²"¢.iÊ®KÛşyJiYiÙ'ÓÂöFCãÂöF—cãÆF—cãÆGCîj[Şx¸hX³ÂöGCãÆFCç¶Wf–FVæ6RæÖW76vWÓÂöFCãÂöF—cãÂöFÃç²—5FV6†W%6öÇWF–öâbbWf–FVæ6RæÖF6†VEFW&×3òæÆVæwF‚òÇ6Æ74æÖSÒ&Wf–FVæ6RÖ¶W—v÷&G2#ãÆ#îYŞKŠŞ™yÎ˜Û^ûÉ£Âö#ç¶Wf–FVæ6RæÖF6†VEFW&×2æ¦ö–â‚.8"—ÓÂ÷â¢çVÆÇ×¶Wf–FVæ6RæW†6W'BòÃãÆ"6Æ74æÖSÒ&Wf–FVæ6R×6V7F–öâÖÆ&VÂ#ç¶—5FV6†W%6öÇWF–öâò.ˆ[Š¾Šz>iéûÈşi:ÎzÙNZèÎi[NXéşihr"¢.iYiÙXéşihr'ÓÂö#ãÆ&Æö6·V÷FSç¶Wf–FVæ6RæW†6W'GÓÂö&Æö6·V÷FSãÇ6ÖÆÃç¶—5FV6†W%6öÇWF–öâò.Kˆ®ik{+î{
+i[NynKº^jÚNXéşih~x+®k©nûÉ´’šŞZInŠ9ÎXX^iÈ>Xúnj‰zK®x+®8Ä’[»nKËjª.iú^8Ş8""¢.zºzøšz+ÎiŠşiÊÎiYiÙDby¨NKØŞ{ÚîûÉ¾Xéşih~Š‹¾ˆ[>KŠŞy¨NX[nK¹nšz+Î[Î[É^yJi»yºîšz+Î8"'ÓÂ÷6ÖÆÃãÂóâ¢çVÆÇ×¶Wf–FVæ6Rç7FGW2ÓÓÒ&Æ–VEö–æfW&Væ6R"òÇ6Æ74æÖSÒ&Wf–FVæ6RÖÆ–6F–öâ#ãÆ#ä’kk^iIŞûÉ£Âö#îXéşih~‹*‹*ÎhùKé¾h«Ş‹XŠNk©nûÉ¾iÊÎjÊY¹îzÙNKŠŞy¨NX[~š¹N{Ú®YŞh‰nK¨¾ZúnXŠNik~yK’KéŞŠ›.XŠNk©nZèÎh‰8#Â÷â¢çVÆÇ×²—5FV6†W%6öÇWF–öâòÇ6ÖÆÃî{jˆ›.ûÉŞiYiÙy»Nhê^iJşhÈY¹îzÙNh‰nKéŞXéşih~X{®šÎûÉ¾‰xŞˆ›.ûÉŞiYiÙhùKé¾XŠNk©n8’jÚ>[‹kk^iIŞûÉ¾›¸>ˆ›.ûÉŞXú®iÈy»™yÎXZ~ZëûÈÎK¸ŞKˆŞ‹k>Kº^iJşhÈY¹îzÙN8#Â÷6ÖÆÃâ¢çVÆÇÓÂöF—cãÂöFWF–Ç3ã°§Ğ¦gVæ7F–öâç7vW%&w&‡2‡FW‡C¢7G&–ær’°¢6öç7B6ÆVâÒ6ÆVäÖW76vUFW‡B‡FW‡B’çG&–Ò‚“°¢&WGW&â6ÆVâç7Æ—B‚õÆåÇ2¥Æâò’æÖ‚‡'B’Óâ'BçG&–Ò‚’’æf–ÇFW"„&ööÆVâ“°§Ğ¦gVæ7F–öâÖöFVÄÆ&VÂ†ÖöFVÃ¢7G&–ær’°¢&WGW&âö6ÆVFRö’çFW7B†ÖöFVÂ’ò$6ÆVFR6öææWB"¢öFVW6VV²ö’çFW7B†ÖöFVÂ’ò$FVW6VV²cBÕ&ò"¢övÆÒÓUÂã"ö’çFW7B†ÖöFVÂ’ò$tÄÒÓRã.ûÈK¹‹+¾kŠÎŠšnûÈ’"¢övÆÒö’çFW7B†ÖöFVÂ’ò$tÄÒÓBãrÔfÆ6ûÈXXŞ‹+¾kŠÎŠšnûÈ’"¢÷FW'&ö’çFW7B†ÖöFVÂ’ò%FW'&‹:®yiˆR"¢÷6öÂö’çFW7B†ÖöFVÂ’ò%6öÂZÛ™Ë‚"¢$ÇVæXªiY’#°§Ğ¦gVæ7F–öâÖVçF÷$ç7vW%FW‡B‡²FW‡BÂÆ&VÂÂÖöFVÂÂ&ö×BÂöäç7vW$7F–öâÂF—6&ÆVBÂ6†÷tÆV&æ–æt7F–öç2ÒfÇ6RÓ¢²FW‡C¢7G&–æs²Æ&VÃ¢7G&–æs²ÖöFVÃ¢7G&–æs²&ö×C¢7G&–æs²öäç7vW$7F–öã¢†7F–öã¢ç7vW$7F–öâÂ6VÆV7F–öã¢²Æ&VÃ¢7G&–æs²ÖöFVÃ¢7G&–æs²FW‡C¢7G&–æs²&ö×C¢7G&–æs²W†6W'G3¢7G&–æuµÒÒ’Óâfö–C²F—6&ÆVCó¢&ööÆVã²6†÷tÆV&æ–æt7F–öç3ó¢&ööÆVâÒ’°¢6öç7B&w&‡2Òç7vW%&w&‡2‡FW‡B“°¢6öç7B7F–öå6VÆV7F–öâÒ²Æ&VÂÂÖöFVÂÂFW‡BÂ&ö×BÂW†6W'G3¢&w&‡2Ó°¢&WGW&âÃà¢ÆF—b6Æ74æÖSÒ&ÖVçF÷"Öç7vW"×FW‡B#à¢·&w&‡2æÖ‚‡&w&‚’ÓâÆF—b6Æ74æÖSÒ&ÖVçF÷"Öç7vW"×&w&‚"¶W“×·&w&‡ÓãÇç·&w&‡ÓÂ÷ãÂöF—câ—Ğ¢ÂöF—cà¢²F—6&ÆVBbb6†÷tÆV&æ–æt7F–öç2bbÆF—b6Æ74æÖSÒ&ç7vW"ÖÆV&æ–ærÖ7F–öç2#à¢Æ'WGFöâG—SÒ&'WGFöâ"öä6Æ–6³×²‚’Óâöäç7vW$7F–öâ‚'Æ–â"Â7F–öå6VÆV7F–öâ—Óîy›ŞŠ›Šz>˜x³Âö'WGFöãà¢Æ'WGFöâG—SÒ&'WGFöâ"öä6Æ–6³×²‚’Óâöäç7vW$7F–öâ‚&FWF–ÆVB"Â7F–öå6VÆV7F–öâ—ÓîŠ›>Šz>Šz>iéÂö'WGFöãà¢Æ'WGFöâG—SÒ&'WGFöâ"6Æ74æÖSÒ&ç7vW"ÖföÆÆ÷r×WÖ'WGFöâ"öä6Æ–6³×²‚’Óâöäç7vW$7F–öâ‚&föÆÆ÷r×W"Â7F–öå6VÆV7F–öâ—Óî[»nKË‹ûŞYXóÂö'WGFöãà¢ÂöF—cçĞ¢Âóã°§Ğ¦gVæ7F–öâ&7F–6UVW7F–öä'V&&ÆR‡²VW7F–öâÂç7vW"Âöäç7vW"ÂöäW76•7F'BÓ¢²VW7F–öã¢&7F–6UVW7F–öã²ç7vW#¢²6VÆV7FVC¢7G&–ærÒÂçVÆÃ²öäç7vW#¢†¶W“¢7G&–ær’Óâfö–C²öäW76•7F'C¢‚’Óâfö–BÒ’°¢&WGW&âÇ6V7F–öâ6Æ74æÖSÒ'&7F–6RÖ–æÆ–æR×VW7F–öâ"&–ÖÆ&VÃÒ.[ŞŠ›KŠŞy¨NyÉşšÂ#à¢ÆF—b6Æ74æÖSÒ'&7F–6RÖÖWF#ãÇ7ãç·VW7F–öâæW†ÕG—RÓÓÒ&Ö7"ò.KˆŠšn˜i8~šÂ"¢.K¨ÎŠšnyK>Š¹nšÂ'ÓÂ÷7ããÇ7G&öæsç·VW7F–öâç–V'Ş[›NûÙÇ·VW7F–öâæW†ÔæÖRÇÂ.šîzy[è^‹êŠÙ‚'ŞûÙÇ·VW7F–öâç7V&¦V7GŞûÙÎzÊÂ·VW7F–öâçVW7F–öäçVÖ&W'ÒšÃÂ÷7G&öæsãÂöF—cà¢Ç6Æ74æÖSÒ'&7F–6R×7FVÒ#ç·VW7F–öâç7FV×ÓÂ÷à¢·VW7F–öâæW†ÕG—RÓÓÒ&Ö7"bbVW7F–öâæ÷F–öç2òÆF—b6Æ74æÖSÒ&÷F–öâÖw&–B6–ævÆRÖ6öÇVÖâÖ÷F–öç2#çµ²$"Â$""Â$2"Â$B%Òæf–ÇFW"‚†¶W’’ÓâVW7F–öâæ÷F–öç3òå¶¶W•Ò’æÖ‚†¶W’’ÓâÆ'WGFöâ6Æ74æÖS×¶ç7vW#òç6VÆV7FVBÓÓÒ¶W’ò'6VÆV7FVB"¢"'ÒF—6&ÆVC×´&ööÆVâ†ç7vW"—Òöä6Æ–6³×²‚’Óâöäç7vW"†¶W’—Ò¶W“×¶¶W—ÓãÆ#ç¶¶W—ÓÂö#ãÇ7ãç·VW7F–öâæ÷F–öç3òå¶¶W•×ÓÂ÷7ããÂö'WGFöãâ—ÓÂöF—câ¢Æ'WGFöâ6Æ74æÖSÒ&W76’×7F'B"öä6Æ–6³×¶öäW76•7F'GÓî™h¾Zx¾ZÛZúšÃÂö'WGFöãçĞ¢Â÷6V7F–öãã°§Ğ¦gVæ7F–öâÖöFVÄ6ö×&—6öä6&B‡²6ö×&—6öâÂÖW76vT–æFW‚Â—&VE&ö×BÂ6VÆV7FVD¶W—2Âöå&FRÂöåFövvÆTföÆÆ÷uWÂöäç7vW$7F–öâÂF†–æ¶–ærÓ¢²6ö×&—6öã¢ÖöFVÄ6ö×&—6öã²ÖW76vT–æFWƒ¢çVÖ&W#²—&VE&ö×C¢7G&–æs²6VÆV7FVD¶W—3¢7G&–æuµÓ²öå&FS¢‡&W7öç6T–C¢çVÖ&W"ÂfVVF&6µG—S¢'&VfW'&VB"Â'&FVB"Â66÷&S¢çVÖ&W"’Óâ&öÖ—6SÇfö–Cã²öåFövvÆTföÆÆ÷uW¢‡6VÆV7F–öã¢föÆÆ÷uW6VÆV7F–öâ’Óâfö–C²öäç7vW$7F–öã¢†7F–öã¢ç7vW$7F–öâÂ6VÆV7F–öã¢²Æ&VÃ¢7G&–æs²ÖöFVÃ¢7G&–æs²FW‡C¢7G&–æs²&ö×C¢7G&–æs²W†6W'G3¢7G&–æuµÒÒ’Óâfö–C²F†–æ¶–æsó¢&ööÆVâÒ’°¢6öç7B·66÷&W2Â6WE66÷&W5ÒÒW6U7FFSÅ&V6÷&CÆçVÖ&W"ÂçVÖ&W#ãâ‡·Ò“°¢6öç7B·6fVBÂ6WE6fVEÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢&WGW&âÇ6V7F–öâ6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâÖ6&B"&–ÖÆ&VÃÒ$’jŠYè¾kŠÎŠšnjùN‹È2#à¢Æ†VFW#ãÆF—cãÆ#ä’jŠYè¾kŠÎŠšnjùN‹È3Âö#ãÇ7ãç¶6ö×&—6öå6÷W&6TÆ&VÂ†6ö×&—6öâç6÷W&6U7FGW2—ÓÂ÷7ããÂöF—cãÇ6ÖÆÃîjøşX¾jŠYè¾KÛşyJYÎKˆX¾YXşšÎûÉ¾Y¹îŠhn8Fö¶Vî8ˆ	~i˜.ˆˆ~KËzé~h‰iÊÎ˜;ŞiÈ>KùŞZÙ8#Â÷6ÖÆÃãÂö†VFW#à¢ÆF—b6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâÖw&–B#à¢¶6ö×&—6öâç&W7öç6W2æÖ‚‡&W7öç6R’ÓâÆ'F–6ÆR6Æ74æÖS×¶ÖöFVÂÖ6ö×&—6öâ×&W7öç6RG·6VÆV7FVD¶W—2æ–æ6ÇVFW2†FV6†W#¢G¶ÖW76vT–æFW‡Ó¢G·&W7öç6Ræ–GÓ¢G·&W7öç6RæÆ&VÇÖ’ò&föÆÆ÷r×W×6VÆV7FVB"¢"'ÖÒ¶W“×·&W7öç6Ræ–GÓà¢ÆF—b6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâ×&W7öç6RÖ†VB#ãÇ7G&öæsç·&W7öç6RæÆ&VÇÓÂ÷7G&öæsãÇ6ÖÆÃç·&W7öç6RæÖöFVÇÓÂ÷6ÖÆÃãÂöF—cà¢·&W7öç6RæW'&÷"òÇ6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâÖW'&÷"#ç·&W7öç6RæW'&÷'ÓÂ÷â¢ÄÖVçF÷$ç7vW%FW‡BFW‡C×·&W7öç6RçFW‡GÒÆ&VÃ×·&W7öç6RæÆ&VÇÒÖöFVÃ×·&W7öç6RæÖöFVÇÒ&ö×C×·—&VE&ö×GÒöäç7vW$7F–öã×¶öäç7vW$7F–öçÒF—6&ÆVC×·F†–æ¶–æwÒóçĞ¢·&W7öç6Rç7F÷&V6öâÓÓÒ&Ö…÷Fö¶Vç2"bbÇ6ÖÆÂ6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâ×G'Væ6FVB#î)ª6ÆVFRY¹îzÙN˜NX‹‹ËX{®Kˆ®™™ûÈÎ˜	jÊXZ~ZëXúşˆ;ŞKˆŞZèÎi[CÂ÷6ÖÆÃçĞ¢·f—6–&ÆU6÷W&6TæÖW2‡&W7öç6Rç6÷W&6W2’æÆVæwF‚âbbÇ6ÖÆÂ6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâ×6÷W&6W2#îiú^ŠØKènk©ûÉ§·f—6–&ÆU6÷W&6TæÖW2‡&W7öç6Rç6÷W&6W2’æ¦ö–â‚.8"—ÓÂ÷6ÖÆÃçĞ¢ÆF—b6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâÖÖWF#ãÇ7ãç·&W7öç6RçW6vRæ–çWEFö¶Vç2²&W7öç6RçW6vRæ÷WGWEFö¶Vç7ÒFö¶Vç2+r·&W7öç6RçW6vRæGW&F–öä×2çFôÆö6ÆU7G&–ær‚—Ò×3Â÷7ããÇ7ãåU2B·&W7öç6RçW6vRæW7F–ÖFVD6÷7EW6BçFôf—†VBƒR—Ò+råBB²‡&W7öç6RçW6vRæW7F–ÖFVD6÷7EW6B¢3"ãR’çFôf—†VBƒ2—ÓÂ÷7ããÂöF—cà¢²&W7öç6RæW'&÷"bbÆÆ&VÂ6Æ74æÖS×¶föÆÆ÷r×WÖ6†V6²G·6VÆV7FVD¶W—2æ–æ6ÇVFW2†FV6†W#¢G¶ÖW76vT–æFW‡Ó¢G·&W7öç6Ræ–GÓ¢G·&W7öç6RæÆ&VÇÖ’ò&föÆÆ÷r×W×6VÆV7FVB"¢"'ÖÓãÆ–çWBG—SÒ&6†V6¶&÷‚"6†V6¶VC×·6VÆV7FVD¶W—2æ–æ6ÇVFW2†FV6†W#¢G¶ÖW76vT–æFW‡Ó¢G·&W7öç6Ræ–GÓ¢G·&W7öç6RæÆ&VÇÖ—Òöä6†ævS×²‚’ÓâöåFövvÆTföÆÆ÷uW‡²¶W“¢FV6†W#¢G¶ÖW76vT–æFW‡Ó¢G·&W7öç6Ræ–GÓ¢G·&W7öç6RæÆ&VÇÖÂÆ&VÃ¢&W7öç6RæÆ&VÂÂÖöFVÃ¢&W7öç6RæÖöFVÂÂFW‡C¢&W7öç6RçFW‡BÂ&ö×C¢—&VE&ö×BÒ—ÒóãÇ7ãîY¹îŠhnjÚNŠˆ®hóÂ÷7ããÂöÆ&VÃçĞ¢²&W7öç6RæW'&÷"bbÆF—b6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâÖ7F–öç2#ãÆÆ&VÃîkŠÎŠšnŠ™^XˆcÇ6VÆV7BfÇVS×·66÷&W5·&W7öç6Ræ–EÒóòÒöä6†ævS×²†WfVçB’Óâ6WE66÷&W2‚†7W'&VçB’Óâ‡²ââæ7W'&VçBÂ·&W7öç6Ræ–EÓ¢çVÖ&W"†WfVçBçF&vWBçfÇVR’Ò’—ÓãÆ÷F–öâfÇVS×³ÓîŠ¸¾Š™^XˆcÂö÷F–öãçµ³Â"Â2ÂBÂUÒæÖ‚‡66÷&R’ÓâÆ÷F–öâfÇVS×·66÷&WÒ¶W“×·66÷&WÓç·66÷&WÒXˆcÂö÷F–öãâ—ÓÂ÷6VÆV7CãÂöÆ&VÃãÆ'WGFöâG—SÒ&'WGFöâ"F—6&ÆVC×²66÷&W5·&W7öç6Ræ–EÒÇÂ6fVBÓÓÒ&W7öç6Ræ–GÒöä6Æ–6³×¶7–æ2‚’Óâ²v—Böå&FR‡&W7öç6Ræ–BÂ'&FVB"Â66÷&W5·&W7öç6Ræ–EÒ“²6WE6fVB‡&W7öç6Ræ–B“²×Óî˜X{®Š™^XˆcÂö'WGFöããÆ'WGFöâG—SÒ&'WGFöâ"6Æ74æÖSÒ&6ö×&—6öâ×&VfW'&VB"öä6Æ–6³×¶7–æ2‚’Óâ²v—Böå&FR‡&W7öç6Ræ–BÂ'&VfW'&VB"ÂR“²6WE6fVB‡&W7öç6Ræ–B“²×Óî˜˜	X¾jùN‹È>Z[ÓÂö'WGFöããÂöF—cçĞ¢·6fVBÓÓÒ&W7öç6Ræ–BbbÇ6ÖÆÂ6Æ74æÖSÒ&ÖöFVÂÖ6ö×&—6öâ×6fVB#î[{.Š‰˜ÈNkŠÎŠšnY¹îšX³Â÷6ÖÆÃçĞ¢Âö'F–6ÆSâ—Ğ¢ÂöF—cà¢Â÷6V7F–öãã°§Ğ¦W‡÷'BgVæ7F–öâÆt†öÖR‚’°¢6öç7B¶ÖW76vW2Â6WDÖW76vW5ÒÒW6U7FFSÄÖW76vUµÓâ…µÒ“°¢6öç7B·6öÅ&Wf–Wv–æt–æFW‚Â6WE6öÅ&Wf–Wv–æt–æFW…ÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B·6öÅ&Wf–WvVD–æFW†W2Â6WE6öÅ&Wf–WvVD–æFW†W5ÒÒW6U7FFSÆçVÖ&W%µÓâ…µÒ“°¢6öç7B·6W76–öä–BÂ6WE6W76–öä–EÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B·FöF•F6·2Â6WEFöF•F6·5ÒÒW6U7FFSÅFöF•F6µµÓâ…µÒ“°¢6öç7B·6VÆV7FVEFöF•F6´–BÂ6WE6VÆV7FVEFöF•F6´–EÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B·–W7FW&F’Â6WE–W7FW&F•ÒÒW6U7FFSÅ–W7FW&F”6öçFW‡BÂçVÆÃâ†çVÆÂ“°¢6öç7B¶F–Ç”6†ö–6Uf—6–&ÆRÂ6WDF–Ç”6†ö–6Uf—6–&ÆUÒÒW6U7FFR†fÇ6R“°¢6öç7B¶†—7F÷'”ÆöFVBÂ6WD†—7F÷'”ÆöFVEÒÒW6U7FFR†fÇ6R“°¢6öç7B·FöF’Â6WEFöF•ÒÒW6U7FFR‚‚’ÓâF—V”FFR‚’“°¢6öç7B¶†öÖTW†Õö–çBÂ6WD†öÖTW†Õö–çEÒÒW6U7FFSÄ6÷&TW†Õö–çCâ‚‚’Óâ6÷&TW†Õö–çG5³Ò“°¢6öç7B¶w&VWF–ærÂ6WDw&VWF–æuÒÒW6U7FFR‚‚’ÓâF—V”w&VWF–ær‚’“°¢6öç7B¶F6†&ö&BÂ6WDF6†&ö&EÒÒW6U7FFSÄF6†&ö&DFFÂçVÆÃâ†çVÆÂ“°¢6öç7B·&–Å6–FRÂ6WE&–Å6–FUÒÒW6U7FFSÂ&ÆVgB"Â'&–v‡B#â‚'&–v‡B"“°¢6öç7B·&–Ä6öÆÆ6VBÂ6WE&–Ä6öÆÆ6VEÒÒW6U7FFR‡G'VR“°¢6öç7B¶Öö&–ÆU&–Ä÷VâÂ6WDÖö&–ÆU&–Ä÷VåÒÒW6U7FFR†fÇ6R“°¢6öç7B¶Öö&–ÆU&–ÅFööÂÂ6WDÖö&–ÆU&–ÅFööÅÒÒW6U7FFSÄÖö&–ÆU&–ÅFööÃâ‚&F–7F–öæ'’"“°¢6öç7B¶–çWBÂ6WD–çWEÒÒW6U7FFR‚""“°¢6öç7B·F†–æ¶–ærÂ6WEF†–æ¶–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B·6÷W&6RÂ6WE6÷W&6UÒÒW6U7FFSÂ.iYiÙ"Â$’Š9ÎXXR"ÂçVÆÃâ†çVÆÂ“°¢6öç7B·6†÷t6÷7G2Â6WE6†÷t6÷7G5ÒÒW6U7FFR†fÇ6R“°¢6öç7B·6†÷tWf–FVæ6RÂ6WE6†÷tWf–FVæ6UÒÒW6U7FFR†fÇ6R“°¢6öç7B¶Æ7EW6vRÂ6WDÆ7EW6vUÒÒW6U7FFSÅ&WÇ•W6vRÂçVÆÃâ†çVÆÂ“°¢6öç7B¶ÖöFVÄÖöFRÂ6WDÖöFVÄÖöFUÒÒW6U7FFSÄ6†DÖöFVÄÖöFSâ‚&ÇVæ"“°¢6öç7B·6WGF–æw5–ææVBÂ6WE6WGF–æw5–ææVEÒÒW6U7FFR†fÇ6R“°¢6öç7B·6WGF–æw46öÆÆ6VBÂ6WE6WGF–æw46öÆÆ6VEÒÒW6U7FFR‡G'VR“°¢6öç7B¶vVæW&F–æu7GVFVçE&WÇ’Â6WDvVæW&F–æu7GVFVçE&WÇ•ÒÒW6U7FFR†fÇ6R“°¢6öç7B·FV6†–æu&÷VæG2Â6WEFV6†–æu&÷VæG5ÒÒW6U7FFSÅFV6†–æu&÷VæEµÓâ…µÒ“°¢6öç7B²Â6WEFV6†–æuW6vUÒÒW6U7FFSÄWfÇVF–öåW6vUµÓâ…µÒ“°¢6öç7B·6VÆV7FVDföÆÆ÷uW2Â6WE6VÆV7FVDföÆÆ÷uW5ÒÒW6U7FFSÄföÆÆ÷uW6VÆV7F–öåµÓâ…µÒ“°¢6öç7B¶WfÇVF–ætÆWfVÂÂ6WDWfÇVF–ætÆWfVÅÒÒW6U7FFSÅFV6†–ætÆWfVÂÂçVÆÃâ†çVÆÂ“°¢6öç7B·VæF–æuFV6†–ætÆWfVÂÂ6WEVæF–æuFV6†–ætÆWfVÅÒÒW6U7FFSÅFV6†–ætÆWfVÂÂçVÆÃâ†çVÆÂ“°¢6öç7BÖW76vTÆ—7E&VbÒW6U&VcÄ…DÔÄF—dVÆVÖVçCâ†çVÆÂ“°¢6öç7BVæE&VbÒW6U&VcÄ…DÔÄF—dVÆVÖVçCâ†çVÆÂ“°¢6öç7B–ÖvT–çWE&VbÒW6U&VcÄ…DÔÄ–çWDVÆVÖVçCâ†çVÆÂ“°¢6öç7BVF—F÷%&VbÒW6U&VcÄ…DÔÄF—dVÆVÖVçCâ†çVÆÂ“°¢6öç7B7&÷g&ÖTG&u&VbÒW6U&VcÇ²ö–çFW$–C¢çVÖ&W#²7F'Eƒ¢çVÖ&W#²7F'E“¢çVÖ&W#²ö–çG3¢7&÷ö–çEµÒÒÂçVÆÃâ†çVÆÂ“°¢6öç7B6ö×÷6W$–çWE&VbÒW6U&VcÄ…DÔÅFW‡D&VVÆVÖVçCâ†çVÆÂ“°¢6öç7B¶–ÖvTG&gBÂ6WD–ÖvTG&gEÒÒW6U7FFSÄ–ÖvTG&gBÂçVÆÃâ†çVÆÂ“°¢6öç7B¶VF—F–æt–ÖvRÂ6WDVF—F–æt–ÖvUÒÒW6U7FFR†fÇ6R“°¢6öç7B·&7F–6UVW7F–öâÂ6WE&7F–6UVW7F–öåÒÒW6U7FFSÅ&7F–6UVW7F–öâÂçVÆÃâ†çVÆÂ“°¢6öç7B·&7F–6TÆöF–ærÂ6WE&7F–6TÆöF–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B·&7F–6Tç7vW"Â6WE&7F–6Tç7vW%ÒÒW6U7FFSÇ²6VÆV7FVC¢7G&–æs²6÷'&V7C¢&ööÆVã²6÷'&V7Dç7vW#¢7G&–ærÒÂçVÆÃâ†çVÆÂ“°¢6öç7B·&7F–6T6ö6„ÖW76vW2Â6WE&7F–6T6ö6„ÖW76vW5ÒÒW6U7FFSÅ&7F–6T6ö6„ÖW76vUµÓâ…µÒ“°¢6öç7B·&7F–6T6ö6†–ærÂ6WE&7F–6T6ö6†–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B·&7F–6T6ö×ÆWFVBÂ6WE&7F–6T6ö×ÆWFVEÒÒW6U7FFR†fÇ6R“°¢6öç7B·&7F–6U&VG•Fô6ö×ÆWFRÂ6WE&7F–6U&VG•Fô6ö×ÆWFUÒÒW6U7FFR†fÇ6R“°¢6öç7B·&7F–6TF—67W76–öâÂ6WE&7F–6TF—67W76–öåÒÒW6U7FFR†fÇ6R“°¢6öç7B·6fVDÖW76vRÂ6WE6fVDÖW76vUÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B¶†öÖTfVVBÂ6WD†öÖTfVVEÒÒW6U7FFSÄ†öÖTfVVBÂçVÆÃâ†çVÆÂ“°¢6öç7B¶ÆVvÄÆW76öâÂ6WDÆVvÄÆW76öåÒÒW6U7FFSÄÆVvÄÆW76öâÂçVÆÃâ†çVÆÂ“°¢6öç7B¶F–7F–öæ'•FW&ÒÂ6WDF–7F–öæ'•FW&ÕÒÒW6U7FFR‚""“°¢6öç7B¶F–7F–öæ'•&W7VÇBÂ6WDF–7F–öæ'•&W7VÇEÒÒW6U7FFSÄF–7F–öæ'•&W7VÇBÂçVÆÃâ†çVÆÂ“°¢6öç7B¶F–7F–öæ'”fVGW&VBÂ6WDF–7F–öæ'”fVGW&VEÒÒW6U7FFSÄF–7F–öæ'•&W7VÇBÂçVÆÃâ†çVÆÂ“°¢6öç7B¶F–7F–öæ'”fVGW&VDÆöF–ærÂ6WDF–7F–öæ'”fVGW&VDÆöF–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B¶F–7F–öæ'”æ÷F–6RÂ6WDF–7F–öæ'”æ÷F–6UÒÒW6U7FFR‚""“°¢6öç7B¶F–7F–öæ'”ÆöF–ærÂ6WDF–7F–öæ'”ÆöF–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B¶×W6–47F—fFVBÂ6WD×W6–47F—fFVEÒÒW6U7FFR†fÇ6R“°¢6öç7B¶×W6–5Æ––ærÂ6WD×W6–5Æ––æuÒÒW6U7FFR†fÇ6R“°¢6öç7B·6VÆV7FVDÖv¦–æT'F–6ÆT–BÂ6WE6VÆV7FVDÖv¦–æT'F–6ÆT–EÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B¶fVVF&6´ÖW76vRÂ6WDfVVF&6´ÖW76vUÒÒW6U7FFSÆçVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B¶fVVF&6µF&vWBÂ6WDfVVF&6µF&vWEÒÒW6U7FFSÇ²ÖW76vS¢ÖW76vS²–æFWƒ¢çVÖ&W"ÒÂçVÆÃâ†çVÆÂ“°¢6öç7B¶fVVF&6µ&F–ærÂ6WDfVVF&6µ&F–æuÒÒW6U7FFRƒ“°¢6öç7B¶fVVF&6µG—W2Â6WDfVVF&6µG—W5ÒÒW6U7FFSÇ7G&–æuµÓâ…µÒ“°¢6öç7B¶fVVF&6´æ÷FRÂ6WDfVVF&6´æ÷FUÒÒW6U7FFR‚""“°¢6öç7B¶fVVF&6µ6f–ærÂ6WDfVVF&6µ6f–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B·FW'&6†ÆÆVæv–ærÂ6WEFW'&6†ÆÆVæv–æuÒÒW6U7FFR†fÇ6R“°¢6öç7B¶7W'&VçDÖVÖ&W"Â6WD7W'&VçDÖVÖ&W%ÒÒW6U7FFSÄ7W'&VçDÖVÖ&W"ÂçVÆÃâ†çVÆÂ“°¢6öç7B¶ÖVÖ&W$ÖVçT÷VâÂ6WDÖVÖ&W$ÖVçT÷VåÒÒW6U7FFR†fÇ6R“°¢6öç7B†æFöfd†æFÆVBÒW6U&Vb†fÇ6R“°¢W6TVffV7B‚‚’Óâ°¢fWF6‚‚"ö’ö66÷VçB"’çF†Vâ†7–æ2‡&W7öç6R’Óâ&W7öç6Ræö²ò†v—B&W7öç6Ræ§6öâ‚’’æÖVÖ&W"¢çVÆÂ’çF†Vâ‡6WD7W'&VçDÖVÖ&W"’æ6F6‚‚‚’Óâ6WD7W'&VçDÖVÖ&W"†çVÆÂ’“°¢ÒÂµÒ“°¢6öç7BæW‡DW†ÒÒW6TÖVÖò‚‚’Óâ°¢6öç7BFöF•fÇVRÒFFRç'6R†G·FöF—ÕC££¦“°¢&WGW&â††öÖTfVVCòæW†Ô6÷VçFF÷vç2óòµÒ’æÖ‚†W†Ò’Óâ‡²ââæW†ÒÂF—3¢ÖF‚æ6V–Â‚„FFRç'6R†G¶W†ÒæFFWÕC££¦’ÒFöF•fÇVR’òƒeóCó’Ò’’æf–ÇFW"‚†W†Ò’ÓâW†ÒæF—2ãÒ’ç6÷'B‚†Â"’ÓâæF—2Ò"æF—2•³ÒóòçVÆÃ°¢ÒÂ¶†öÖTfVVCòæW†Ô6÷VçFF÷vç2ÂFöF•Ò“°¢6öç7BÖv¦–æT'F–6ÆW2Ò†öÖTfVVCòæÖv¦–æSòæ'F–6ÆW2óòµÓ°¢6öç7B6VÆV7FVDÖv¦–æT'F–6ÆRÒÖv¦–æT'F–6ÆW2æf–æB‚†'F–6ÆR’Óâ'F–6ÆRæ–BÓÓÒ6VÆV7FVDÖv¦–æT'F–6ÆT–B’óòÖv¦–æT'F–6ÆW5³ÒóòçVÆÃ°¢òòF†RföÆÆ÷r×W'WGFöç2×W7BW6RF†RÆ7B6ö×ÆWFVBFV6†W"GW&âöâ67&VVâÀ¢òòæ÷Bv†–6†WfW"ÖöFVÂFövvÆR—27W'&VçFÇ’6VÆV7FVBâW6W"Ö’7v—F6‚g&öĞ¢òòÇVæFò6öææWB†÷"g&öÒGVÂFò6–ævÆR’gFW"F†Rç7vW"v2Ç&VG’6†÷vâà¢6öç7BÆFW7EFV6†W$–æFW‚Ò²ââæÖW76vW5ÒæÖ‚†ÖW76vRÂ–æFW‚’Óâ‡²ÖW76vRÂ–æFW‚Ò’’ç&WfW'6R‚’æf–æB‚‡²ÖW76vRÒ’Óà¢ÖW76vRç&öÆRÓÓÒ&ÖVçF÷""bb†ÖW76vRçFW‡BçG&–Ò‚’ÇÂÖW76vRæ6ö×&—6öãòç&W7öç6W2ç6öÖR‚‡&W7öç6R’Óâ&W7öç6RæW'&÷"bb&W7öç6RçFW‡BçG&–Ò‚’’’À¢“òæ–æFW‚óòÓ°¢6öç7BÆFW7EFV6†W%GW&âÒÆFW7EFV6†W$–æFW‚ãÒòÖW76vW5¶ÆFW7EFV6†W$–æFW…Ò¢çVÆÃ°¢6öç7BÆFW7EFV6†W$ÖW76vRÒÆFW7EFV6†W%GW&âbbÆFW7EFV6†W%GW&âæ6ö×&—6öâòÆFW7EFV6†W%GW&â¢çVÆÃ°¢6öç7BÆFW7EFV6†W%&ö×BÒÆFW7EFV6†W$–æFW‚ãÒò—&VE7GVFVçE&ö×B†ÖW76vW2ÂÆFW7EFV6†W$–æFW‚’¢"#°¢6öç7B7GVÄÆFW7D6ö×&—6öâÒÆFW7EFV6†W%GW&ãòæ6ö×&—6öâóòçVÆÃ°¢6öç7BÆFW7EFV6†W$ÖöFVÂÒÆFW7EFV6†W$ÖW76vSòæÖöFVÂóòÆ7EW6vSòæÖöFVÂóò&wBÓRãbÖÇVæ#°¢6öç7BÆFW7EFV6†W$Æ&VÂÒÖöFVÄÆ&VÂ†ÆFW7EFV6†W$ÖöFVÂ“°¢6öç7BÆFW7D6ö×&—6öâÒ7GVÄÆFW7D6ö×&—6öâóò†ÆFW7EFV6†W$ÖW76vRò²–C¢ÓÂ6÷W&6U7FGW3¢'Væf–Æ&ÆR"Â&W7öç6W3¢·²–C¢ÓÂÆ&VÃ¢ÆFW7EFV6†W$Æ&VÂÂÖöFVÃ¢ÆFW7EFV6†W$ÖöFVÂÂFW‡C¢ÆFW7EFV6†W$ÖW76vRçFW‡BÂ6÷W&6S¢$’Š9ÎXXR"26öç7BÂ6÷W&6W3¢ÆFW7EFV6†W$ÖW76vRç6÷W&6W2óòµÒÂW6vS¢²–çWEFö¶Vç3¢Æ7EW6vSòæ–çWEFö¶Vç2óòÂ66†VEFö¶Vç3¢Æ7EW6vSòæ66†VEFö¶Vç2óòÂ÷WGWEFö¶Vç3¢Æ7EW6vSòæ÷WGWEFö¶Vç2óòÂW7F–ÖFVD6÷7EW6C¢Æ7EW6vSòæW7F–ÖFVD6÷7EW6BóòÂGW&F–öä×3¢ÒÕÒÒ6F—6f–W2ÖöFVÄ6ö×&—6öâ¢çVÆÂ“°¢6öç7BÆFW7EFV6†W%&W7öç6W3¢6ö×&—6öå&W7öç6UµÒÒÆFW7D6ö×&—6öãòç&W7öç6W2æf–ÇFW"‚‡&W7öç6R’Óâ&W7öç6RæW'&÷"bb&W7öç6RçFW‡BçG&–Ò‚’¢óò†ÆFW7EFV6†W$ÖW76vRò·²–C¢ÓÂÆ&VÃ¢ÆFW7EFV6†W$Æ&VÂÂÖöFVÃ¢ÆFW7EFV6†W$ÖöFVÂÂFW‡C¢ÆFW7EFV6†W$ÖW76vRçFW‡BÂ6÷W&6S¢$’Š9ÎXXR"26öç7BÂ6÷W&6W3¢ÆFW7EFV6†W$ÖW76vRç6÷W&6W2óòµÒÂW6vS¢²–çWEFö¶Vç3¢Æ7EW6vSòæ–çWEFö¶Vç2óòÂ66†VEFö¶Vç3¢Æ7EW6vSòæ66†VEFö¶Vç2óòÂ÷WGWEFö¶Vç3¢Æ7EW6vSòæ÷WGWEFö¶Vç2óòÂW7F–ÖFVD6÷7EW6C¢Æ7EW6vSòæW7F–ÖFVD6÷7EW6BóòÂGW&F–öä×3¢ÒÕÒ¢µÒ“°¢òòF†—2—2–çFVçF–öæÆÇ’–æFWVæFVçBöbÖöFVÄÖöFRâ—B&W&W6VçG2F†R7GVÀ¢òòç7vW"‡2’–ÖÖVF–FVÇ’&÷fRF†R6ö×÷6W"Âv†–6‚—2v†B.‹h^{I®ZÛ™ËkŠÎŠšb ¢òò&öÖ—6W2Fò6†ÆÆVævRà¢6öç7B6ävVæW&FU7GVFVçE&WÇ’Ò&ööÆVâ†ÆFW7EFV6†W%&ö×BbbÆFW7EFV6†W%&W7öç6W2æÆVæwF‚â“°¢6öç7BWfÇVF–æuFV6†–ærÒ&ööÆVâ†WfÇVF–ætÆWfVÂ“°¢6öç7B6VÆV7FVDföÆÆ÷uW¶W—2Ò6VÆV7FVDföÆÆ÷uW2æÖ‚‡6VÆV7F–öâ’Óâ6VÆV7F–öâæ¶W’“° ¢W6TVffV7B‚‚’Óâ°¢6öç7B&Vg&W6…F—V”6Æö6²Ò‚’Óâ°¢6WEFöF’‡F—V”FFR‚’“°¢6WDw&VWF–ær‡F—V”w&VWF–ær‚’“°¢Ó°¢&Vg&W6…F—V”6Æö6²‚“°¢6öç7BF–ÖW"Òv–æF÷rç6WD–çFW'fÂ‡&Vg&W6…F—V”6Æö6²Âcó“°¢&WGW&â‚’Óâv–æF÷ræ6ÆV$–çFW'fÂ‡F–ÖW"“°¢ÒÂµÒ“° ¢W6TVffV7B‚‚’Óâ°¢6WD†öÖTW†Õö–çB†6÷&TW†Õö–çG5´ÖF‚æfÆö÷"„ÖF‚ç&æFöÒ‚’¢6÷&TW†Õö–çG2æÆVæwF‚•Òóò6÷&TW†Õö–çG5³Ò“°¢ÒÂµÒ“° ¢W6TVffV7B‚‚’Óâ°¢6öç7BÖW76vTÆ—7BÒÖW76vTÆ—7E&Vbæ7W'&VçC°¢–b‚ÖW76vTÆ—7B’&WGW&ã°¢ÖW76vTÆ—7Bç67&öÆÅFò‡²F÷¢ÖW76vTÆ—7Bç67&öÆÄ†V–v‡BÂ&V†f–÷#¢'6Öö÷F‚"Ò“°¢ÒÂ¶ÖW76vW2ÂF†–æ¶–æuÒ“° ¢W6TVffV7B‚‚’Óâ°¢6öç7BFW‡F&VÒ6ö×÷6W$–çWE&Vbæ7W'&VçC°¢–b‚FW‡F&V’&WGW&ã°¢FW‡F&Vç7G–ÆRæ†V–v‡BÒ&WFò#°¢FW‡F&Vç7G–ÆRæ†V–v‡BÒ–çWBòG´ÖF‚æÖ–â‡FW‡F&Vç67&öÆÄ†V–v‡BÂ##—×†¢#3g‚#°¢ÒÂ¶–çWEÒ“° ¢W6TVffV7B‚‚’Óâ°¢fWF6‚‚"ö’ö6†Bö†—7F÷'’"’çF†Vâ†7–æ2‡&W7öç6R’Óâ°¢–b‚&W7öç6Ræö²’F‡&÷ræWrW'&÷"‚&†—7F÷'’Væf–Æ&ÆR"“°¢6öç7BFFÒv—B&W7öç6Ræ§6öâ‚’2²6W76–öä–Có¢çVÖ&W"ÂçVÆÃ²ÖW76vW3ó¢ÖW76vUµÓ²FöF“ó¢7G&–æs²FöF•F6·3ó¢FöF•F6µµÓ²w&VWF–æsó¢7G&–æs²FöF•&V6÷&G3ó¢FöF•&V6÷&EµÓ²–W7FW&F“ó¢–W7FW&F”6öçFW‡BÂçVÆÂÓ°¢6WE6W76–öä–B†FFç6W76–öä–BóòçVÆÂ“°¢6WEFöF’†FFçFöF’óòF—V”FFR‚’“°¢6WEFöF•F6·2†FFçFöF•F6·2óòµÒ“°¢6WE–W7FW&F’†FFç–W7FW&F’óòçVÆÂ“°¢6WDw&VWF–ær†FFæw&VWF–æróòF—V”w&VWF–ær‚’“°¢6öç7B&W7F÷&VBÒFFæÖW76vW2óòµÓ°¢6öç7BF6´Æ—7BÒFFçFöF•F6·2óòµÓ°¢6öç7BVæF–æuFöF’ÒF6´Æ—7Bæf–ÇFW"‚‡F6²’ÓâF6²ç7FGW2ÓÒ&6ö×ÆWFVB"“°¢–b‡&W7F÷&VBæÆVæwF‚’°¢6WDÖW76vW2‡&W7F÷&VB“°¢6WDF–Ç”6†ö–6Uf—6–&ÆR†fÇ6R“°¢6öç7B&W7F÷&VEVW7F–öâÒ²ââç&W7F÷&VEÒç&WfW'6R‚’æf–æB‚†ÖW76vR’ÓâÖW76vRç&7F–6UVW7F–öâ“òç&7F–6UVW7F–öâóòçVÆÃ°¢6WE&7F–6UVW7F–öâ‡&W7F÷&VEVW7F–öâ“°¢–b‡&W7F÷&VEVW7F–öâ’°¢6öç7BVW7F–öä–æFW‚Ò&W7F÷&VBæf–æD–æFW‚‚†ÖW76vR’ÓâÖW76vRç&7F–6UVW7F–öãòæ–BÓÓÒ&W7F÷&VEVW7F–öâæ–B“°¢6WE&7F–6T6ö6„ÖW76vW2‡&W7F÷&VBç6Æ–6R‡VW7F–öä–æFW‚²’æf–ÇFW"‚†ÖW76vR’ÓâÖW76vRç6÷W&6RÓÓÒ.yÉşšÎ{{N{ù""’æÖ‚†ÖW76vR’Óâ‡²&öÆS¢ÖW76vRç&öÆRÂFW‡C¢ÖW76vRçFW‡BÒ’’“°¢Ğ¢ÒVÇ6R–b‡VæF–æuFöF’æÆVæwF‚’°¢6öç7B&V6÷&G2ÒFFçFöF•&V6÷&G2óòµÓ°¢6öç7B&V6÷&E7VÖÖ'’Ò&V6÷&G2æÆVæwF‚òKÚK¸®ZJ[{.{i>ZÛ˜îûÉ¢G·&V6÷&G2ç6Æ–6RƒÂ2’æÖ‚‡&V6÷&B’Óâ&V6÷&BçF—FÆR’æ¦ö–â‚.8"—Ş8&¢"#°¢6WDÖW76vW2…·²&öÆS¢&ÖVçF÷""ÂFW‡C¢G¶FFæw&VWF–æróòF—V”w&VWF–ær‚—ŞûÈÂG·&V6÷&E7VÖÖ'—ŞK¸®ZJ[{.{i>Zèhé.Z[ÒG·VæF–æuFöF’æÆVæwF‡Òš^K»¾X¹8.h‰X	[éîzÊÎKˆš^8ÂG·VæF–æuFöF•³ÒçF—FÆWŞ8Ş™h¾Zx¾ûÈÎZ[ŞYxîûÉöÕÒ“°¢6WDF–Ç”6†ö–6Uf—6–&ÆR†fÇ6R“°¢ÒVÇ6R–b‡F6´Æ—7BæÆVæwF‚’°¢6öç7B&V6÷&G2ÒFFçFöF•&V6÷&G2óòµÓ°¢6öç7B&V6÷&E7VÖÖ'’Ò&V6÷&G2æÆVæwF‚òKÚK¸®ZJ[{.{i>ZÛ˜îûÉ¢G·&V6÷&G2ç6Æ–6RƒÂ2’æÖ‚‡&V6÷&B’Óâ&V6÷&BçF—FÆR’æ¦ö–â‚.8"—Ş8&¢"#°¢6WDÖW76vW2…·²&öÆS¢&ÖVçF÷""ÂFW‡C¢G¶FFæw&VWF–æróòF—V”w&VWF–ær‚—ŞûÈÂG·&V6÷&E7VÖÖ'—ŞK¸®ZJy¨NK»¾X¹˜;ŞZèÎh‰K¨n8.ŠhKˆŞŠh‹hx¸hX¾jÚ>Z[ŞûÈÎXXš	{ù.iˆîZJy¨NXZ~ZëûÉöÕÒ“°¢6WDF–Ç”6†ö–6Uf—6–&ÆR†fÇ6R“°¢ÒVÇ6R–b†FFç–W7FW&F’’°¢6öç7B–æ6ö×ÆWFRÒFFç–W7FW&F’æ–æ6ö×ÆWFUF6·2æÆVæwFƒ°¢6öç7B–W7FW&F•&öw&W72ÒFFç–W7FW&F’çF÷FÅF6·0¢òiŠZJZèÎh‰G¶FFç–W7FW&F’æ6ö×ÆWFVEF6·7ÒòG¶FFç–W7FW&F’çF÷FÅF6·7Òš^K»¾X¹’G¶–æ6ö×ÆWFRòûÈÎ˜(NiÈ’G¶–æ6ö×ÆWFWÒš^iÊ®ZèÎh‰¢"'Ö ¢¢.iŠZJy¨NZÛ{ù.XZ~Zë[{.KùŞZÙ‚#°¢6WDÖW76vW2…·²&öÆS¢&ÖVçF÷""ÂFW‡C¢G¶FFæw&VWF–æróòF—V”w&VWF–ær‚—Ş8"G·–W7FW&F•&öw&W77Ş8.K¸®ZJŠhhî›«Î™h¾Zx¾ûÈÎyKKÚk®Zé®ûÉ¾h‰iÈ>KéŞiŠZJy¨N{H˜ÈN[š¾KÚhê^{¨Î8&ÕÒ“°¢6WDF–Ç”6†ö–6Uf—6–&ÆR‡G'VR“°¢ÒVÇ6R°¢6öç7B&V6÷&G2ÒFFçFöF•&V6÷&G2óòµÓ°¢6öç7B&V6÷&E7VÖÖ'’Ò&V6÷&G2æÆVæwF‚òKÚK¸®ZJ[{.{i>ZÛ˜îûÉ¢G·&V6÷&G2ç6Æ–6RƒÂ2’æÖ‚‡&V6÷&B’Óâ&V6÷&BçF—FÆR’æ¦ö–â‚.8"—Ş8&¢"#°¢6WDÖW76vW2…·²&öÆS¢&ÖVçF÷""ÂFW‡C¢G¶FFæw&VWF–æróòF—V”w&VWF–ær‚—ŞûÈÂG·&V6÷&E7VÖÖ'—Şh‰iŠşXû[è¾X)ˆ>y¨B’iY{{N8"G·&V6÷&G2æÆVæwF‚ò.h‰X	hê^‰~h¨®K¸®ZJy¨NZÛ{ù.[èKˆ¾hê˜.8""¢.K¸®ZJ˜(Nk).iÈZèhé.K»¾X¹ûÈÎh‰XúşKº^XXji9®KÚy¨Nyºîj‰ˆˆ~XúşyJi˜.™i>ûÈÎ[š¾KÚ[»®z¸¾zÊÎKˆK»ŞZÛ{ù.ŠˆyZ¾8"'ÖÕÒ“°¢6WDF–Ç”6†ö–6Uf—6–&ÆR†fÇ6R“°¢Ğ¢Ò’æ6F6‚‚‚’Óâ°¢6WDÖW76vW2…·²&öÆS¢&ÖVçF÷""ÂFW‡C¢G·F—V”w&VWF–ær‚—ŞûÈÎh‰iŠşXû[è¾X)ˆ>y¨B’iY{{N8.K¸®ZJh;>[éîY:®Kˆzy™h¾Zx¾ûÉöÕÒ“°¢Ò’æf–æÆÇ’‚‚’Óâ6WD†—7F÷'”ÆöFVB‡G'VR’“°¢ÒÂµÒ“° ¢W6TVffV7B‚‚’Óâ°¢6öç7BVæF–ærÒFöF•F6·2æf–ÇFW"‚‡F6²’ÓâF6²ç7FGW2ÓÒ&6ö×ÆWFVB"“°¢–b‚VæF–æræÆVæwF‚’°¢6WE6VÆV7FVEFöF•F6´–B†çVÆÂ“°¢&WGW&ã°¢Ğ¢6WE6VÆV7FVEFöF•F6´–B‚†7W'&VçB’ÓâVæF–ærç6öÖR‚‡F6²’ÓâF6²æ–BÓÓÒ7W'&VçB’ò7W'&VçB¢VæF–æu³Òæ–B“°¢ÒÂ·FöF•F6·5Ò“° ¢W6TVffV7B‚‚’Óâ²fWF6‚‚"ö’ö†öÖRÖfVVB"’çF†Vâ†7–æ2‡&W7öç6R’Óâ²–b‡&W7öç6Ræö²’6WD†öÖTfVVB†v—B&W7öç6Ræ§6öâ‚’2†öÖTfVVB“²Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“²ÒÂµÒ“°¢W6TVffV7B‚‚’Óâ²–b†Öv¦–æT'F–6ÆW2æÆVæwF‚bbÖv¦–æT'F–6ÆW2ç6öÖR‚†'F–6ÆR’Óâ'F–6ÆRæ–BÓÓÒ6VÆV7FVDÖv¦–æT'F–6ÆT–B’’6WE6VÆV7FVDÖv¦–æT'F–6ÆT–B†Öv¦–æT'F–6ÆW5³Òæ–B“²ÒÂ¶Öv¦–æT'F–6ÆW2Â6VÆV7FVDÖv¦–æT'F–6ÆT–EÒ“°¢W6TVffV7B‚‚’Óâ²fWF6‚‚"ö’öÆVvÂÖÆV&æ–ær"’çF†Vâ†7–æ2‡&W7öç6R’Óâ²–b‡&W7öç6Ræö²’6WDÆVvÄÆW76öâ‚‚†v—B&W7öç6Ræ§6öâ‚’’2²'F–6ÆSó¢ÆVvÄÆW76öâÂçVÆÂÒ’æ'F–6ÆRóòçVÆÂ“²Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“²ÒÂµÒ“°¢W6TVffV7B‚‚’Óâ²fWF6‚‚"ö’öÆVvÂÖF–7F–öæ'“÷&æFöÓÓ"’çF†Vâ†7–æ2‡&W7öç6R’Óâ²–b‡&W7öç6Ræö²’6WDF–7F–öæ'”fVGW&VB†v—B&W7öç6Ræ§6öâ‚’2F–7F–öæ'•&W7VÇB“²Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“²ÒÂµÒ“°¢W6TVffV7B‚‚’Óâ°¢fWF6‚‚"ö’öF6†&ö&B"’çF†Vâ†7–æ2‡&W7öç6R’Óâ°¢–b‚&W7öç6Ræö²’&WGW&ã°¢6öç7BFFÒv—B&W7öç6Ræ§6öâ‚’2F6†&ö&DFF°¢6WDF6†&ö&B†FF“°¢Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“°¢ÒÂµÒ“° ¢W6TVffV7B‚‚’Óâ°¢fWF6‚‚"ö’÷W6vR"’çF†Vâ†7–æ2‡&W7öç6R’Óâ°¢–b‚&W7öç6Ræö²’&WGW&ã°¢6öç7BFFÒv—B&W7öç6Ræ§6öâ‚’2²6†÷t6÷7G3ó¢&ööÆVã²6†÷tWf–FVæ6Só¢&ööÆVâÓ°¢6WE6†÷t6÷7G2„&ööÆVâ†FFç6†÷t6÷7G2’“°¢6WE6†÷tWf–FVæ6R„&ööÆVâ†FFç6†÷tWf–FVæ6R’“°¢Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“°¢ÒÂµÒ“° ¢W6TVffV7B‚‚’Óâ°¢6öç7B6fVBÒv–æF÷ræÆö6Å7F÷&vRævWD—FVÒ‚'6–ÇRÖ6öÖÖæB×&–Â×6–FR"“°¢–b‡6fVBÓÓÒ&ÆVgB"ÇÂ6fVBÓÓÒ'&–v‡B"’6WE&–Å6–FR‡6fVB“°¢6WE&–Ä6öÆÆ6VB‡G'VR“°¢6WDÖö&–ÆU&–Ä÷Vâ†fÇ6R“°¢6WE6WGF–æw46öÆÆ6VB‡v–æF÷ræÆö6Å7F÷&vRævWD—FVÒ‚'6–ÇRÖ’×6WGF–æw2Ö6öÆÆ6VB"’ÓÒ&fÇ6R"“°¢6öç7B–ææVBÒv–æF÷ræÆö6Å7F÷&vRævWD—FVÒ†•6WGF–æw57F÷&vT¶W’“°¢ÆWBÆö6Å&VfW&Væ6W3¢²–ææVC¢&ööÆVã²FV6†–ætÆWfVÃ¢FV6†–ætÆWfVÃ²ÖöFVÄÖöFS¢6†DÖöFVÄÖöFS²6öÆÆ6VC¢&ööÆVâÒÂçVÆÂÒçVÆÃ°¢–b‡–ææVB’°¢G'’°¢6öç7B'6VBÒ¥4ôâç'6R‡–ææVB’2²–ææVCó¢Væ¶æ÷vã²FV6†–ætÆWfVÃó¢Væ¶æ÷vã²ÖöFVÄÖöFSó¢Væ¶æ÷vâÓ°¢–b†—5FV6†–ætÆWfVÂ‡'6VBçFV6†–ætÆWfVÂ’bb—46†DÖöFVÄÖöFR‡'6VBæÖöFVÄÖöFR’’°¢6öç7B&W7F÷&VDÖöFVÄÖöFS¢6†DÖöFVÄÖöFRÒ&ÇVæ#°¢6WE6WGF–æw5–ææVB‡'6VBç–ææVBÓÒfÇ6R“°¢6WEVæF–æuFV6†–ætÆWfVÂ‡'6VBçFV6†–ætÆWfVÂÓÓÒ&vVæW&Â"òçVÆÂ¢'6VBçFV6†–ætÆWfVÂ“°¢6WDÖöFVÄÖöFR‡&W7F÷&VDÖöFVÄÖöFR“°¢Æö6Å&VfW&Væ6W2Ò²–ææVC¢'6VBç–ææVBÓÒfÇ6RÂFV6†–ætÆWfVÃ¢'6VBçFV6†–ætÆWfVÂÂÖöFVÄÖöFS¢&W7F÷&VDÖöFVÄÖöFRÂ6öÆÆ6VC¢v–æF÷ræÆö6Å7F÷&vRævWD—FVÒ‚'6–ÇRÖ’×6WGF–æw2Ö6öÆÆ6VB"’ÓÒ&fÇ6R"Ó°¢–b‡&W7F÷&VDÖöFVÄÖöFRÓÒ'6VBæÖöFVÄÖöFR’°¢v–æF÷ræÆö6Å7F÷&vRç6WD—FVÒ†•6WGF–æw57F÷&vT¶W’Â¥4ôâç7G&–æv–g’‡²ââç'6VBÂÖöFVÄÖöFS¢&W7F÷&VDÖöFVÄÖöFRÒ’“°¢Ğ¢ÒVÇ6R°¢v–æF÷ræÆö6Å7F÷&vRç&VÖ÷fT—FVÒ†•6WGF–æw57F÷&vT¶W’“°¢Ğ¢Ò6F6‚°¢v–æF÷ræÆö6Å7F÷&vRç&VÖ÷fT—FVÒ†•6WGF–æw57F÷&vT¶W’“°¢Ğ¢Ğ¢fWF6‚‚"ö’ö6†B÷&VfW&Væ6W2"’çF†Vâ†7–æ2‡&W7öç6R’Óâ°¢–b‚&W7öç6Ræö²’&WGW&ã°¢6öç7BFFÒv—B&W7öç6Ræ§6öâ‚’2²W†—7G3ó¢&ööÆVã²&VfW&Væ6W3ó¢²–ææVCó¢Væ¶æ÷vã²FV6†–ætÆWfVÃó¢Væ¶æ÷vã²ÖöFVÄÖöFSó¢Væ¶æ÷vã²6öÆÆ6VCó¢Væ¶æ÷vâÒÓ°¢–b‚FFæW†—7G2bbÆö6Å&VfW&Væ6W2’°¢fö–BfWF6‚‚"ö’ö6†B÷&VfW&Væ6W2"Â²ÖWF†öC¢%UB"Â†VFW'3¢²&6öçFVçB×G—R#¢&Æ–6F–öâö§6öâ"ÒÂ&öG“¢¥4ôâç7G&–æv–g’†Æö6Å&VfW&Væ6W2’Ò“°¢&WGW&ã°¢Ğ¢6öç7B6fVBÒFFç&VfW&Væ6W3°¢–b‚6fVBÇÂ—5FV6†–ætÆWfVÂ‡6fVBçFV6†–ætÆWfVÂ’ÇÂ—46†DÖöFVÄÖöFR‡6fVBæÖöFVÄÖöFR’’&WGW&ã°¢6öç7B&W7F÷&VDÖöFVÄÖöFS¢6†DÖöFVÄÖöFRÒ&ÇVæ#°¢6WE6WGF–æw5–ææVB‡6fVBç–ææVBÓÓÒG'VR“°¢6WEVæF–æuFV6†–ætÆWfVÂ‡6fVBçFV6†–ætÆWfVÂÓÓÒ&vVæW&Â"òçVÆÂ¢6fVBçFV6†–ætÆWfVÂ“°¢6WDÖöFVÄÖöFR‡&W7F÷&VDÖöFVÄÖöFR“°¢6WE6WGF–æw46öÆÆ6VB‡6fVBæ6öÆÆ6VBÓÒfÇ6R“°¢v–æF÷ræÆö6Å7F÷&vRç6WD—FVÒ†•6WGF–æw57F÷&vT¶W’Â¥4ôâç7G&–æv–g’‡²–ææVC¢6fVBç–ææVBÓÓÒG'VRÂFV6†–ætÆWfVÃ¢6fVBçFV6†–ætÆWfVÂÂÖöFVÄÖöFS¢&W7F÷&VDÖöFVÄÖöFRÒ’“°¢v–æF÷ræÆö6Å7F÷&vRç6WD—FVÒ‚'6–ÇRÖ’×6WGF–æw2Ö6öÆÆ6VB"Â7G&–ær‡6fVBæ6öÆÆ6VBÓÒfÇ6R’“°¢Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“°¢ÒÂµÒ“° ¢gVæ7F–öâ6fT•6WGF–æw2†ÆWfVÃ¢FV6†–ætÆWfVÂÂæW‡DÖöFVÄÖöFS¢6†DÖöFVÄÖöFRÂ–ææVC¢&ööÆVâÂ6öÆÆ6VC¢&ööÆVâ’°¢6öç7B&VfW&Væ6W2Ò²–ææVBÂFV6†–ætÆWfVÃ¢ÆWfVÂÂÖöFVÄÖöFS¢æW‡DÖöFVÄÖöFRÂ6öÆÆ6VBÓ°¢v–æF÷ræÆö6Å7F÷&vRç6WD—FVÒ†•6WGF–æw57F÷&vT¶W’Â¥4ôâç7G&–æv–g’‡&VfW&Væ6W2’“°¢v–æF÷ræÆö6Å7F÷&vRç6WD—FVÒ‚'6–ÇRÖ’×6WGF–æw2Ö6öÆÆ6VB"Â7G&–ær†6öÆÆ6VB’“°¢fö–BfWF6‚‚"ö’ö6†B÷&VfW&Væ6W2"Â²ÖWF†öC¢%UB"Â†VFW'3¢²&6öçFVçB×G—R#¢&Æ–6F–öâö§6öâ"ÒÂ&öG“¢¥4ôâç7G&–æv–g’‡&VfW&Væ6W2’Ò’æ6F6‚‚‚’ÓâVæFVf–æVB“°¢Ğ ¢gVæ7F–öâFövvÆU6WGF–æw5–ææVB†æW‡C¢&ööÆVâ’°¢6WE6WGF–æw5–ææVB†æW‡B“°¢6fT•6WGF–æw2‡VæF–æuFV6†–ætÆWfVÂóò&vVæW&Â"ÂÖöFVÄÖöFRÂæW‡BÂ6WGF–æw46öÆÆ6VB“°¢Ğ ¢gVæ7F–öâW'6—7D•6WGF–æw2†ÆWfVÃ¢FV6†–ætÆWfVÂÂæW‡DÖöFVÄÖöFS¢6†DÖöFVÄÖöFRÒÖöFVÄÖöFR’°¢6fT•6WGF–æw2†ÆWfVÂÂæW‡DÖöFVÄÖöFRÂ6WGF–æw5–ææVBÂ6WGF–æw46öÆÆ6VB“°¢Ğ ¢gVæ7F–öâFövvÆU&–Å6–FR‚’°¢6öç7BæW‡BÒ&–Å6–FRÓÓÒ'&–v‡B"ò&ÆVgB"¢'&–v‡B#°¢6WE&–Å6–FR†æW‡B“°¢v–æF÷ræÆö6Å7F÷&vRç6WD—FVÒ‚'6–ÇRÖ6öÖÖæB×&–Â×6–FR"ÂæW‡B“°¢Ğ ¢gVæ7F–öâFövvÆU&–Ä6öÆÆ6VB‚’°¢6WE&–Ä6öÆÆ6VB‚†7W'&VçB’Óâ°¢6öç7BæW‡BÒ7W'&VçC°¢v–æF÷ræÆö6Å7F÷&vRç6WD—FVÒ‚'6–ÇRÖ6öÖÖæB×&–ÂÖ6öÆÆ6VB"Â7G&–ær†æW‡B’“°¢&WGW&âæW‡C°¢Ò“°¢Ğ ¢gVæ7F–öâFövvÆT×W6–2†WfVçC¢Ö÷W6TWfVçCÄ…DÔÄ'WGFöäVÆVÖVçCâ’°¢6öç7B&ö÷BÒWfVçBæ7W'&VçEF&vWBæ6Æ÷6W7B‚"ç&–ÂÖ×W6–2Ö6&B"“°¢6WD×W6–47F—fFVB‡G'VR“°¢–b†×W6–5Æ––ær’°¢6öç7B–g&ÖRÒ&ö÷CòçVW'•6VÆV7F÷#Ä…DÔÄ”g&ÖTVÆVÖVçCâ‚&–g&ÖR"“°¢–g&ÖSòæ6öçFVçEv–æF÷sòç÷7DÖW76vR„¥4ôâç7G&–æv–g’‡²WfVçC¢&6öÖÖæB"ÂgVæ3¢'7F÷f–FVò"Â&w3¢µÒÒ’Â&‡GG3¢ò÷wwrç–÷WGV&Ræ6öÒ"“°¢6WD×W6–5Æ––ær†fÇ6R“°¢ÒVÇ6R°¢&WVW7E–÷WGV&UÆ’‡&ö÷B“°¢6WD×W6–5Æ––ær‡G'VR“°¢Ğ¢Ğ ¢7–æ2gVæ7F–öâ7F'E&7F–6R†W†ÕG—S¢&Ö7"Â&W76’"’°¢6WE&7F–6TÆöF–ær‡G'VR“²6WE&7F–6Tç7vW"†çVÆÂ“²6WE&7F–6T6ö6„ÖW76vW2…µÒ“²6WE&7F–6UVW7F–öâ†çVÆÂ“°¢G'’°¢6öç7B&W7öç6RÒv—BfWF6‚†ö’÷&7F–6S÷G—SÒG¶W†ÕG—WÖ“²6öç7B&W7VÇBÒv—B&W7öç6Ræ§6öâ‚’2²VW7F–öãó¢&7F–6UVW7F–öâÂçVÆÃ²ÖW76vSó¢7G&–ærÓ°¢–b‡&W7VÇBçVW7F–öâ’°¢6WE&7F–6UVW7F–öâ‡&W7VÇBçVW7F–öâ“°¢6WDÖW76vW2‚†7W'&VçB’Óâ²ââæ7W'&VçBÂ²&öÆS¢&ÖVçF÷""ÂFW‡C¢.Š¸¾y»Nhê^YÊ˜	Š:KÙÎzÙNûÉ¾˜i8~[èÎh‰iÈ>XXYXşKÚy¨NynyKûÈÎKˆŞiÈ>XXXZÎ[ˆ>zÙNj8""Â6÷W&6S¢.yÉşšÎ[ª²"Â&7F–6UVW7F–öã¢&W7VÇBçVW7F–öâÕÒ“°¢Ğ¢VÇ6R²6WE&7F–6UVW7F–öâ†çVÆÂ“²6WDÖW76vW2‚†7W'&VçB’Óâ²ââæ7W'&VçBÂ²&öÆS¢&ÖVçF÷""ÂFW‡C¢&W7VÇBæÖW76vRóò.yÉşšÎ[ª¾[	®iÊ®k©nX)ZèÎh‰8.zêynˆ^XÊşXZ^KŠnz+®Š¨ŞšÎyºî[èÎûÈÎh‰[ˆ;Ş[éî˜	Š:™h¾Zx¾[‹nKÚ{{N{ù.8""ÕÒ“²Ğ¢Òf–æÆÇ’²6WE&7F–6TÆöF–ær†fÇ6R“²Ğ¢Ğ ¢gVæ7F–öâ6´Öv¦–æT'F–6ÆR†'F–6ÆS¢Öv¦–æT'F–6ÆR’°¢fö–B6VæB†Š¸¾[‹nh‰ZÛ{ù.iÈiznk9^ZÛiYZêNy¨Nih~zº8ÂG¶'F–6ÆRçF—FÆWŞ8Ş8%ÆîiŠhûÉ¢G¶'F–6ÆRç7VÖÖ'’ÇÂ.[	®iÊ®ZèÎh‰iŠh8"'ÕÆîj[ø>xŠŞ›¹îûÉ¢G¶'F–6ÆRæ—77VRÇÂ.[	®iÊ®i;~XùnX‹j[ø>xŠŞ›¹îûÈÎŠ¸¾XX[éîih~zºj‰šÎ‹êŠ¨ŞKŠnkˆ^jY®j‰zK®hêkŠÎ8"'ÕÆîŠ¸¾Kº^˜	X¾xŠŞ›¹îx+®j[ø>ûÈÎXXŠª®iˆîXŠNik~Xˆn[)NûÈÎXhŞYXşh‰KˆX¾XúşKº^y»Nhê^Y¹îzÙNy¨N[şYXşšÎ8&“°¢Ğ ¢gVæ7F–öâFV6„ÆVvÄÆW76öâ‚’°¢–b‚ÆVvÄÆW76öâ’&WGW&ã°¢fö–B6VæB†Š¸¾[‹nh‰ZÛ{ù.˜	j)Şk9^j)ŞûÉ¥ÆâG¶ÆVvÄÆW76öâçF—FÆWÒG¶ÆVvÄÆW76öâæ'F–6ÆTæ÷ÕÆâG¶ÆVvÄÆW76öâæ6öçFVçGÕÆîŠ¸¾XXyJKˆXú^Š›Šª®iˆîˆ>›¹îûÈÎXhŞyJKˆX¾yIşkK¾XÉnh‰nXû[è¾šÎYè¾h8^Z(>YXşh‰ûÉ¾KˆŞŠhKˆ™h¾Zx¾[{ZnZèÎi[NzÙNj8&“°¢Ğ ¢gVæ7F–öâ7v†öÖTW†Õö–çB‚’°¢6WD†öÖTW†Õö–çB‚†7W'&VçB’Óâ°¢–b†6÷&TW†Õö–çG2æÆVæwF‚Â"’&WGW&â7W'&VçC°¢6öç7B6æF–FFW2Ò6÷&TW†Õö–çG2æf–ÇFW"‚‡ö–çB’Óâö–çBçF—FÆRÓÒ7W'&VçBçF—FÆRÇÂö–çBç7V&¦V7BÓÒ7W'&VçBç7V&¦V7B“°¢&WGW&â6æF–FFW5´ÖF‚æfÆö÷"„ÖF‚ç&æFöÒ‚’¢6æF–FFW2æÆVæwF‚•Òóò7W'&VçC°¢Ò“°¢Ğ ¢gVæ7F–öâÆV&ä†öÖTW†Õö–çB‚’°¢fö–B6VæB†Š¸¾[‹nh‰ZÛ{ù.Xû[è¾xkˆ>›¹î8ÂG¶†öÖTW†Õö–çBç7V&¦V7GŞûÙÂG¶†öÖTW†Õö–çBçF—FÆWŞ8Ş8.XXyJKˆXú^Š›Šª®iˆî˜	X¾ˆ>›¹îYÊK¨ÎŠšnyK>Š¹nKŠŞy¨NXŠNik~Xˆn[)NûÈÎXhŞYXşh‰KˆX¾XúşKº^y»Nhê^Y¹îzÙNy¨N[şYXşšÎûÉ¾KˆŞŠhKˆ™h¾Zx¾[XZÎ[ˆ>ZèÎi[NzÙNj8&“°¢Ğ ¢7–æ2gVæ7F–öâÆöE&æFöÔÆVvÄÆW76öâ‚’°¢6öç7B&W7öç6RÒv—BfWF6‚‚"ö’öÆVvÂÖÆV&æ–æs÷&æFöÓÓ"“°¢–b‚&W7öç6Ræö²’&WGW&ã°¢6öç7B&W7VÇBÒv—B&W7öç6Ræ§6öâ‚’2²'F–6ÆSó¢ÆVvÄÆW76öâÂçVÆÂÓ°¢–b‡&W7VÇBæ'F–6ÆR’6WDÆVvÄÆW76öâ‡&W7VÇBæ'F–6ÆR“°¢Ğ ¢7–æ2gVæ7F–öâ6V&6„F–7F–öæ'’†WfVçC¢f÷&ÔWfVçB’°¢WfVçBç&WfVçDFVfVÇB‚“°¢6öç7BFW&ÒÒF–7F–öæ'•FW&ÒçG&–Ò‚“°¢–b‚FW&Ò’&WGW&ã°¢6WDF–7F–öæ'”ÆöF–ær‡G'VR“°¢6WDF–7F–öæ'”æ÷F–6R‚""“°¢6WDF–7F–öæ'•&W7VÇB†çVÆÂ“°¢6öç7B&W7öç6RÒv—BfWF6‚†ö’öÆVvÂÖF–7F–öæ'“÷ÒG¶Væ6öFUU$”6ö×öæVçB‡FW&Ò—Ö“°¢6öç7B&W7VÇBÒv—B&W7öç6Ræ§6öâ‚’2F–7F–öæ'•&W7VÇBb²W'&÷#ó¢7G&–æs²6äW‡Æ–åv—F„“ó¢&ööÆVâÓ°¢–b‡&W7öç6Ræö²’6WDF–7F–öæ'•&W7VÇB‡&W7VÇB“°¢VÇ6R6WDF–7F–öæ'”æ÷F–6R†G·&W7VÇBæW'&÷"óò.yºîX˜Şiú^KˆŞX‹˜	X¾YŞŠ™â'ÒG·&W7VÇBæ6äW‡Æ–åv—F„’ò"›¹îKˆ¾ik8Ä’Šz>˜x¾8ŞXÛ>Xúşhê^{¨Î8""¢"'Ö“°¢6WDF–7F–öæ'”ÆöF–ær†fÇ6R“°¢Ğ ¢7–æ2gVæ7F–öâÆöE&æFöÔF–7F–öæ'’‚’°¢6WDF–7F–öæ'”fVGW&VDÆöF–ær‡G'VR“°¢G'’°¢6öç7B&W7öç6RÒv—BfWF6‚‚"ö’öÆVvÂÖF–7F–öæ'“÷&æFöÓÓ"“°¢–b‡&W7öç6Ræö²’6WDF–7F–öæ'”fVGW&VB†v—B&W7öç6Ræ§6öâ‚’2F–7F–öæ'•&W7VÇB“°¢Òf–æÆÇ’°¢6WDF–7F–öæ'”fVGW&VDÆöF–ær†fÇ6R“°¢Ğ¢Ğ ¢gVæ7F–öâFV6„F–7F–öæ'•FW&Ò‚’°¢–b‚F–7F–öæ'•&W7VÇB’&WGW&ã°¢fö–B6VæB†Š¸¾yJXû[è¾ˆ>yIşˆ;ŞynŠz>y¨Nik[ÈşiYh‰k9^[è¾YŞŠ™î8ÂG¶F–7F–öæ'•&W7VÇBçFW&×Ş8Ş8%ÆâG¶F–7F–öæ'•&W7VÇBç6÷W&6TÆ&VÇŞXZ~ZëûÉ¥ÆâG¶F–7F–öæ'•&W7VÇBæ6öçFVçGÕÆîŠ¸¾XXŠª®iˆîy›ŞŠ›hHşh	ŞûÈÎXhŞŠ9ÎXX^Zè>[‹X{®xûîYÊY:®Kˆzy8Zëi‰>Y(ÎK¸›«Îjh.[û^k{~kxnûÈÎiÈ[èÎYXşh‰KˆX¾XŠNik~šÎ8.ˆº^‹8~iiKènk©[{.XÎjÚ.i»NikûÈÎŠ¸¾hù˜i.h‰j[ŞxûîŠÎk9^KºN8&“°¢Ğ ¢gVæ7F–öâFV6…Væ¶æ÷väF–7F–öæ'•FW&Ò‚’°¢6öç7BFW&ÒÒF–7F–öæ'•FW&ÒçG&–Ò‚“°¢–b‚FW&Ò’&WGW&ã°¢fö–B6VæB†yºîX˜ŞXûk9^™š.Š8XŠNi»yJŠ©î‹êŞX[ˆˆ~k9^[è¾y›îzy˜;Şk).iÈh›îX‹8ÂG·FW&×Ş8Şy¨NŠ™îj)Ş8.Š¸¾KˆŞŠhX~Š9ŞiÈZIn˜:Kènk©ûÈÎiKKº^KŠŞˆúşk	YÈ¾k9^[è¾ZÛ{ù.ˆH{ZûÈÎkˆ^jY®j‰zK®8Ä’i[Nyn8ŞûÈÎyJy›ŞŠ›Šª®iˆî˜	X¾YŞŠ™îXúşˆ;Şy¨Nk9^[è¾hHş{êûÉ¾ˆº^iÈKˆŞz+®Zé®K˜¾‰™^Š¸¾iˆîz+®Šª®iˆîûÈÎKŠnhù˜i.h‰j[Şk9^j)Şˆˆ~XŠNk®Xéşih~8.iÈ[èÎYXşh‰KˆX¾{
+yúŞXŠNik~šÎ8&“°¢Ğ ¢gVæ7F–öâFV6„fVGW&VDF–7F–öæ'•FW&Ò‚’°¢–b‚F–7F–öæ'”fVGW&VB’&WGW&ã°¢fö–B6VæB†Š¸¾yJXû[è¾ˆ>yIşˆ;ŞynŠz>y¨Nik[ÈşiYh‰k9^[è¾YŞŠ™î8ÂG¶F–7F–öæ'”fVGW&VBçFW&×Ş8Ş8%ÆîXûk9^™š.Š8XŠNi»yJŠ©î‹êŞX[XZ~ZëûÉ¥ÆâG¶F–7F–öæ'”fVGW&VBæ6öçFVçGÕÆîŠ¸¾XXŠª®iˆîy›ŞŠ›hHşh	ŞûÈÎXhŞŠ9ÎXX^Zè>[‹X{®xûîYÊY:®Kˆzy8Zëi‰>Y(ÎK¸›«Îjh.[û^k{~kxnûÈÎiÈ[èÎYXşh‰KˆX¾XŠNik~šÎ8&“°¢Ğ ¢7–æ2gVæ7F–öâ6µ&7F–6T6ö6‚‡FW‡C¢7G&–ærÂÖöFT÷fW'&–FSó¢&ç7vW%÷&V6öâ"Â&F—67W76–öâ"Â&6ö×ÆWFUö6öæf—&Ò"’°¢–b‚&7F–6UVW7F–öâÇÂ&7F–6T6ö6†–ærÇÂFW‡BçG&–Ò‚’’&WGW&ã°¢6öç7B7GVFVçDÖW76vRÒ²&öÆS¢'7GVFVçB"26öç7BÂFW‡C¢FW‡BçG&–Ò‚’Ó°¢6öç7BÖW76vW4f÷%&WVW7BÒ²ââç&7F–6T6ö6„ÖW76vW2Â7GVFVçDÖW76vUÓ°¢6WE&7F–6T6ö6„ÖW76vW2†ÖW76vW4f÷%&WVW7B“°¢6WDÖW76vW2‚†7W'&VçB’Óâ²ââæ7W'&VçBÂ²ââç7GVFVçDÖW76vRÂ6÷W&6S¢.yÉşšÎ{{N{ù""ÕÒ“°¢6WD–çWB‚""“°¢6WE&7F–6T6ö6†–ær‡G'VR“°¢G'’°¢6öç7BNößÛh‘éì¶»§q«^t€‘íÍ•ÍÍ¥½¹%‘ô´‘í¥¹‘•áõ€€èMÑÉ¥¹œ¡¥¹‘•à¤°Ñ¥Ñ±”è±•…¹5•ÍÍ…•Q•áĞ¡µ•ÍÍ…”¹Ñ•áĞ¤¹Í±¥” À°€ÌÈ¤°½¹Ñ•¹Ğè±•…¹5•ÍÍ…•Q•áĞ¡µ•ÍÍ…”¹Ñ•áĞ¤°ÍÕ‰©•ĞèÑ½‘…åQ…Í­Ì¹™¥¹ ¡Ñ…Í¬¤€ôøÑ…Í¬¹ÍÑ…ÑÕÌ€„ôô€‰½µÁ±•Ñ•ˆ¤ü¹ÍÕ‰©•Ğ€üü€‹Ús–B ˆ°Ñ…Ìè€‰'–Â7¢¦Äˆ°Í½ÕÉ•1…‰•°èÙ¥Í¥‰±•M½ÕÉ•9…µ•Ì¡µ•ÍÍ…”¹Í½ÕÉ•Ì¤¹©½¥¸ ‹ˆ¤ô¤ô¤ì(€€€¥˜€¡É•ÍÁ½¹Í”¹½¬¤ìÍ•ÑM…Ù•‘5•ÍÍ…”¡¥¹‘•à¤ìİ¥¹‘½Ü¹Í•ÑQ¥µ•½ÕĞ  ¤€ôøÍ•ÑM…Ù•‘5•ÍÍ…”¡¹Õ±°¤°€ÄØÀÀ¤ìô(€ô((€…Íå¹Œ™Õ¹Ñ¥½¸Í•¹‘••‘‰…¬¡µ•ÍÍ…”è5•ÍÍ…”°¥¹‘•àè¹Õµ‰•È°™••‘‰…­QåÁ”è€‰¡•±Á™Õ°ˆğ€‰¥¹½ÉÉ•Ğˆğ€‰¹½Ñ}±•…É¹¥¹œˆğ€‰Õ¹±•…Èˆ°…Í­M½°€ô™…±Í”¤ì(€€€¥˜€ ……Í­M½°€˜˜€…™••‘‰…­Q…É•Ğ€˜˜€¡™••‘‰…­QåÁ”€ôôô€‰¥¹½ÉÉ•Ğˆñğ™••‘‰…­QåÁ”€ôôô€‰Õ¹±•…Èˆ¤¤ì(€€€€€Í•Ñ••‘‰…­Q…É•Ğ¡ìµ•ÍÍ…”°¥¹‘•àô¤ì(€€€€€Í•Ñ••‘‰…­QåÁ•Ì¡™••‘‰…­QåÁ”€ôôô€‰Õ¹±•…Èˆ€ül‰¡…É‘}Ñ½}Õ¹‘•ÉÍÑ…¹‰t€èmt¤ì(€€€€€É•ÑÕÉ¸ì(€€€ô(€€€Í•Ñ••‘‰…­M…Ù¥¹œ¡ÑÉÕ”¤ì(€€€½¹ÍĞ½É¥¥¹…±AÉ½µÁĞ€ôÁ…¥É•‘MÑÕ‘•¹ÑAÉ½µÁĞ¡µ•ÍÍ…•Ì°¥¹‘•à¤ì(€€€½¹ÍĞÉ•ÍÁ½¹Í”€ô…İ…¥Ğ™•Ñ  ˆ½…Á¤½¡…Ğ½™••‘‰…¬ˆ°ìµ•Ñ¡½è€‰A=MPˆ°¡•…‘•ÉÌèì€‰½¹Ñ•¹ĞµÑåÁ”ˆè€‰…ÁÁ±¥…Ñ¥½¸½©Í½¸ˆô°‰½‘äè)M=8¹ÍÑÉ¥¹¥™ä¡ìÍ•ÍÍ¥½¹%°µ•ÍÍ…•%¹‘•àè¥¹‘•à°™••‘‰…­QåÁ”°µ•ÍÍ…•Q•áĞè±•…¹5•ÍÍ…•Q•áĞ¡µ•ÍÍ…”¹Ñ•áĞ¤°É…Ñ¥¹œè™••‘‰…­I…Ñ¥¹œ°•ÉÉ½ÉQåÁ•Ìè™••‘‰…­QåÁ•Ì°ÍÑÕ‘•¹Ñ9½Ñ”è™••‘‰…­9½Ñ”°µ½‘•°èµ•ÍÍ…”¹µ½‘•°€üü€‰ÁĞ´Ô¸Øµ±Õ¹„ˆ°½É¥¥¹…±AÉ½µÁĞ°Í½±I•ÅÕ•ÍÑ•è…Í­M½°ô¤ô¤ì(€€€Í•Ñ••‘‰…­M…Ù¥¹œ¡™…±Í”¤ì(€€€¥˜€ …É•ÍÁ½¹Í”¹½¬¤É•ÑÕÉ¸ì(€€€Í•Ñ••‘‰…­5•ÍÍ…”¡¥¹‘•à¤ìÍ•Ñ••‘‰…­Q…É•Ğ¡¹Õ±°¤ìÍ•Ñ••‘‰…­I…Ñ¥¹œ À¤ìÍ•Ñ••‘‰…­QåÁ•Ì¡mt¤ìÍ•Ñ••‘‰…­9½Ñ” ˆˆ¤ì(€€€İ¥¹‘½Ü¹Í•ÑQ¥µ•½ÕĞ  ¤€ôøÍ•Ñ••‘‰…­5•ÍÍ…”¡¹Õ±°¤°€ÄØÀÀ¤ì(€€€¥˜€¡…Í­M½°¤Ù½¥Í•¹¡ƒ’öƒšb¼M½°ƒ–¶ã¦rã¾ò3¢®/6£®/¢šš‚à1Õ¹„ƒ–*§šVgj–n{¶S’î—–:–/¦†3n»
+ëšr¦®c’úwšNk¾ò3¦C¦‚š2–ëš'’şwVg’ş»š¶–"«¦f“–>+¢s–’æ/¢fW¾òo¢.—¦†3’ë’ê/–¾›’â7¢ÚÏ¾ò3š:‡šŠw’îÛ–ò?ÖC¢®[¾ò3’â7–ú_¢«¢†3¢s–’ê/–¾›	q¹q»C–¶ãR–:–V?¦†3Eq¸‘í½É¥¥¹…±AÉ½µÁÑõq¹q»A1Õ¹„ƒ–*§šVg–n{¶SEq¸‘í±•…¹5•ÍÍ…•Q•áĞ¡µ•ÍÍ…”¹Ñ•áĞ¥õq¹q»C–¶ãRš2–ëj–V?¦†3Eq¸‘í™••‘‰…­9½Ñ”ñğ€‹¢®/–£¦v‹šª‹š~”‰õq¹q»šr–ú3¢®/nÓš:—Ö›–ë’ş»š¶–ú3&#šr³	€°€‰Í½°ˆ°ì¡¥‘•MÑÕ‘•¹Ñ5•ÍÍ…”èÑÉÕ”ô¤ì(€ô((€…Íå¹Œ™Õ¹Ñ¥½¸É•ÅÕ•ÍÑM½±I•Ù¥•Ü¡µ•ÍÍ…”è5•ÍÍ…”°¥¹‘•àè¹Õµ‰•È¤ì(€€€¥˜€¡Ñ¡¥¹­¥¹œñğÍ½±I•Ù¥•İ¥¹%¹‘•à€„ôô¹Õ±°ñğÍ½±I•Ù¥•İ•‘%¹‘•á•Ì¹¥¹±Õ‘•Ì¡¥¹‘•à¤¤É•ÑÕÉ¸ì(€€€½¹ÍĞ½É¥¥¹…±AÉ½µÁĞ€ôÁ…¥É•‘MÑÕ‘•¹ÑAÉ½µÁĞ¡µ•ÍÍ…•Ì°¥¹‘•à¤ì(€€€Í•ÑM½±I•Ù¥•İ¥¹%¹‘•à¡¥¹‘•à¤ì(€€€ÑÉäì(€€€€€…İ…¥ĞÍ•¹¡ƒ’öƒšb¼M½°ƒ–¶ã¦rã¾ò3¢®/6£®/¢šš‚à1Õ¹„ƒ–*§šVgj–n{¶S¢.—šr³¦†3šr'¢–â¯¢šzC¾ò?šN³¶S¾ò3–ş¦‚#’î—¢–â¯–:šZš‚‡šê[²³’â–Æ“š¢g¦†3¢†3
+ë’êë¦‚–ê?ö«–B7¦‚–ê?¢"ÖC¢®[¦C¦‚š¢g’ëš'’şwVg’ş»š¶–>+¢s–’æ/¢fW¾òo’â7–B3–¶ã¢ª«–>«¢÷–"_
+ë¢s–"·¢¶Ã¾ò3’â7–ú_š
+š
+–>[’î¢–â¯š:‡¢ª«¾ò3’æ’â7–ú_¢s¦ƒ¦†3n»’ê/–¾›	q¹q»C–¶ãR–:–V?¦†3Eq¸‘í½É¥¥¹…±AÉ½µÁĞñğ€‹¢®/’úwn»–&7–Â7¢¦Ç’â·j–:–/¦†3n»¢šš‚à‰õq¹q»A1Õ¹„ƒ–*§šVg–n{¶SEq¸‘í±•…¹5•ÍÍ…•Q•áĞ¡µ•ÍÍ…”¹Ñ•áĞ¥õq¹q»šr–ú3¢®/’úw¢–â¯–:šr³¦‚–ê?nÓš:—Ö›–ë’ş»š¶&#	€°€‰Í½°ˆ°ì¡¥‘•MÑÕ‘•¹Ñ5•ÍÍ…”èÑÉÕ”ô¤ì(€€€€€Í•ÑM½±I•Ù¥•İ•‘%¹‘•á•Ì ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ¹¥¹±Õ‘•Ì¡¥¹‘•à¤€üÕÉÉ•¹Ğ€èl¸¸¹ÕÉÉ•¹Ğ°¥¹‘•át¤ì(€€€ô™¥¹…±±äì(€€€€€Í•ÑM½±I•Ù¥•İ¥¹%¹‘•à¡¹Õ±°¤ì(€€€ô(€ô((€…Íå¹Œ™Õ¹Ñ¥½¸¡…±±•¹•M•±•Ñ•‘5•ÍÍ…•]¥Ñ¡Q•ÉÉ„ ¤ì(€€€¥˜€¡Ñ¡¥¹­¥¹œñğÑ•ÉÉ…¡…±±•¹¥¹œñğÍ•±•Ñ•‘½±±½İUÁÌ¹±•¹Ñ €„ôô€Ä¤É•ÑÕÉ¸ì(€€€½¹ÍĞÑ…É•Ğ€ôÍ•±•Ñ•‘½±±½İUÁÍlÁtì(€€€¥˜€ „¼ üé±Õ¹…ñÍ½°¤½¤¹Ñ•ÍĞ¡Ñ…É•Ğ¹µ½‘•°¤¤É•ÑÕÉ¸ì(€€€Í•ÑQ•ÉÉ…¡…±±•¹¥¹œ¡ÑÉÕ”¤ì(€€€ÑÉäì(€€€€€½¹ÍĞÉ•ÍÁ½¹Í”€ô…İ…¥Ğ™•Ñ  ˆ½…Á¤½¡…Ğ½µ•ÍÍ…”µ¡…±±•¹”ˆ°ìµ•Ñ¡½è€‰A=MPˆ°¡•…‘•ÉÌèì€‰½¹Ñ•¹ĞµÑåÁ”ˆè€‰…ÁÁ±¥…Ñ¥½¸½©Í½¸ˆô°‰½‘äè)M=8¹ÍÑÉ¥¹¥™ä¡ìÍ•ÍÍ¥½¹%°ÁÉ½µÁĞèÑ…É•Ğ¹ÁÉ½µÁĞ°Ñ…É•ÑQ•áĞèÑ…É•Ğ¹Ñ•áĞ°Ñ…É•Ñ5½‘•°èÑ…É•Ğ¹µ½‘•°ô¤ô¤ì(€€€€€½¹ÍĞÉ•ÍÕ±Ğ€ô…İ…¥ĞÉ•ÍÁ½¹Í”¹©Í½¸ ¤…ÌìÑ…É•Ñ1…‰•°üèÍÑÉ¥¹œìÑ…É•Ñá•ÉÁĞüèÍÑÉ¥¹œì¡…±±•¹”üèìÑ•áĞèÍÑÉ¥¹œìÕÍ…”èI•Á±åUÍ…”ôìÉ•Á±äüèìÑ•áĞèÍÑÉ¥¹œìÕÍ…”èI•Á±åUÍ…”ôì•ÉÉ½ÈüèÍÑÉ¥¹œôì(€€€€€¥˜€ …É•ÍÁ½¹Í”¹½¬ñğ€…É•ÍÕ±Ğ¹¡…±±•¹”ñğ€…É•ÍÕ±Ğ¹É•Á±ä¤Ñ¡É½Ü¹•ÜÉÉ½È¡É•ÍÕ±Ğ¹•ÉÉ½È€üü€‰Q•ÉÉ„ƒšj¯šf‡šÎW–º3š"C¢Î«ZGˆ¤ì(€€€€€½¹ÍĞÑ…É•Ñ%¹‘•à€ô9Õµ‰•È¡Ñ…É•Ğ¹­•ä¹µ…Ñ  ½yÑ•…¡•Èè¡q¬¤¼¤ü¹lÅt€üü€´Ä¤ì(€€€€€Í•Ñ5•ÍÍ…•Ì ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ¹µ…À ¡µ•ÍÍ…”°¥¹‘•à¤€ôø¥¹‘•à€ôôôÑ…É•Ñ%¹‘•à€üì€¸¸¹µ•ÍÍ…”°¡…±±•¹•Q¡É•…èì(€€€€€€€Ñ…É•Ñ1…‰•°èÉ•ÍÕ±Ğ¹Ñ…É•Ñ1…‰•°€üüÑ…É•Ğ¹±…‰•°°(€€€€€€€Ñ…É•Ñá•ÉÁĞèÉ•ÍÕ±Ğ¹Ñ…É•Ñá•ÉÁĞ€üü±•…¹5•ÍÍ…•Q•áĞ¡Ñ…É•Ğ¹Ñ•áĞ¤¹Í±¥” À°€ÈØÀ¤°(€€€€€€€¡…±±•¹•Q•áĞèÉ•ÍÕ±Ğ¹¡…±±•¹”„¹Ñ•áĞ°(€€€€€€€¡…±±•¹•UÍ…”èÉ•ÍÕ±Ğ¹¡…±±•¹”„¹ÕÍ…”°(€€€€€€€É•Á±åQ•áĞèÉ•ÍÕ±Ğ¹É•Á±ä„¹Ñ•áĞ°(€€€€€€€É•Á±åUÍ…”èÉ•ÍÕ±Ğ¹É•Á±ä„¹ÕÍ…”°(€€€€€€€Ù•ÉÍ¥½¸è€¡µ•ÍÍ…”¹¡…±±•¹•Q¡É•…ü¹Ù•ÉÍ¥½¸€üü€Ä¤€¬€Ä°(€€€€€€€…ÁÁ±¥•è™…±Í”°(€€€€€ôô€èµ•ÍÍ…”¤¤ì(€€€€€Í•ÑM•±•Ñ•‘½±±½İUÁÌ¡mt¤ì(€€€€€Í•ÑM½ÕÉ” ‰$ƒ¢s–ˆ¤ì(€€€€€Í•Ñ1…ÍÑUÍ…”¡É•ÍÕ±Ğ¹É•Á±ä¹ÕÍ…”¤ì(€€€ô…Ñ €¡•ÉÉ½È¤ì(€€€€€Í•Ñ5•ÍÍ…•Ì ¡ÕÉÉ•¹Ğ¤€ôøl¸¸¹ÕÉÉ•¹Ğ°ìÉ½±”è€‰µ•¹Ñ½Èˆ°Ñ•áĞè•ÉÉ½È¥¹ÍÑ…¹•½˜ÉÉ½È€ü•ÉÉ½È¹µ•ÍÍ…”€è€‰Q•ÉÉ„ƒšj¯šf‡šÎW–º3š"C¢Î«ZGˆõt¤ì(€€€ô™¥¹…±±äì(€€€€€Í•ÑQ•ÉÉ…¡…±±•¹¥¹œ¡™…±Í”¤ì(€€€ô(€ô((€™Õ¹Ñ¥½¸…ÁÁ±å¡…±±•¹•I•Ù¥Í¥½¸¡¥¹‘•àè¹Õµ‰•È¤ì(€€€Í•Ñ5•ÍÍ…•Ì ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ¹µ…À ¡µ•ÍÍ…”°µ•ÍÍ…•%¹‘•à¤€ôøµ•ÍÍ…•%¹‘•à€ôôô¥¹‘•à€˜˜µ•ÍÍ…”¹¡…±±•¹•Q¡É•…€üì(€€€€€€¸¸¹µ•ÍÍ…”°(€€€€€Ñ•áĞèµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹É•Á±åQ•áĞ°(€€€€€ÕÍ…”èµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹É•Á±åUÍ…”°(€€€€€¡…±±•¹•Q¡É•…èì€¸¸¹µ•ÍÍ…”¹¡…±±•¹•Q¡É•…°…ÁÁ±¥•èÑÉÕ”ô°(€€€ô€èµ•ÍÍ…”¤¤ì(€ô((€É•ÑÕÉ¸€ (€€€€ñµ…¥¸±…ÍÍ9…µ”ô‰½… µÍ¡•±°ˆø(€€€€€€ñ¡•…‘•È±…ÍÍ9…µ”ô‰Ñ½Á‰…Èˆø(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰‰É…¹µé½¹”ˆøñ„¡É•˜ôˆ½±…Üˆ±…ÍÍ9…µ”ô‰‰É…¹ˆ…É¥„µ±…‰•°ô‹–>ã–ú/–
+g¢¦š[¦‚ˆøñÍÁ…¸±…ÍÍ9…µ”ô‰‰É…¹µµ…É¬ˆû–ú,ğ½ÍÁ…¸øñÍÁ…¸û–>ã–ú/–
+g¢ğ½ÍÁ…¸øğ½„ùí¹•áÑá…´€ü€ñ‘¥Ø±…ÍÍ9…µ”ô‰•á…´µ½Õ¹Ñ‘½İ¸ˆ…É¥„µ±…‰•°õíƒ¢Şw¦nˆ‘í¹•áÑá…´¹±…‰•±÷¦
+šr$‘í¹•áÑá…´¹‘…åÍ÷–’¥ôøñÍÁ…¸û¢Şw¦nˆí¹•áÑá…´¹±…‰•±ôğ½ÍÁ…¸øñÍÑÉ½¹œùí¹•áÑá…´¹‘…åÌ€ôôô€À€ü€‹–ÂÇšb¿’î+–’¤ˆ€è€‘í¹•áÑá…´¹‘…åÍôƒ–’¥ôğ½ÍÑÉ½¹œøğ½‘¥Øø€è¹Õ±±ôğ½‘¥Øø(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ½Àµ…Ñ¥½¹Ìˆø(€€€€€€€€€€ñ„¡É•˜ôˆ½ÁÉ…Ñ¥”ˆ±…ÍÍ9…µ”ô‰…‘µ¥¸µ±¥¹¬ˆûŞÓr¦†0ğ½„ø(€€€€€€€€€€ñ„¡É•˜ôˆ½•ÍÍ…äˆ±…ÍÍ9…µ”ô‰…‘µ¥¸µ±¥¹¬ˆû–¾¯RÏ¢®Xğ½„ø(€€€€€€€€€€ñ„¡É•˜ôˆ½¥ÍÍÕ•Ìˆ±…ÍÍ9…µ”ô‰…‘µ¥¸µ±¥¹¬ˆûš&û"·¦îxğ½„ø(€€€€€€€€€€ñ„¡É•˜ôˆ½ÍÕµµ…É¥•Ìˆ±…ÍÍ9…µ”ô‰…‘µ¥¸µ±¥¹¬ˆûšVÓšFc¢šğ½„ø(€€€€€€€€€€ñ„¡É•˜ôˆ½±…Ü½Õ¥‘”ˆ±…ÍÍ9…µ”ô‰…‘µ¥¸µ±¥¹¬ˆû’öÿR£¢ª«šb8ğ½„ø(€€€€€€€€€íÕÉÉ•¹Ñ5•µ‰•Èü¹…¹‘µ¥¸€˜˜€ñ„¡É•˜ôˆ½…‘µ¥¸ˆ±…ÍÍ9…µ”ô‰…‘µ¥¸µ±¥¹¬ˆûº‡B–ú3–>Àğ½„ùô(€€€€€€€€€€ñ„¡É•˜ôˆ½¹½Ñ•Ìˆ±…ÍÍ9…µ”ô‰Ñ½Àµ¹½Ñ”µ±¥¹¬ˆ…É¥„µ±…‰•°ô‹¦Z/–Vš"Gj¶¢¢c–6 ˆøñÍÁ…¸…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆûŠr8ğ½ÍÁ…¸øñˆû¶¢¢`ğ½ˆøğ½„ø(€€€€€€€€€íÕÉÉ•¹Ñ5•µ‰•È€ü€ñ‘¥Ø±…ÍÍ9…µ”õíµ•µ‰•Èµµ•¹ÔµİÉ…À€‘íµ•µ‰•É5•¹Õ=Á•¸€ü€‰¥Ìµ½Á•¸ˆ€è€ˆ‰õôø(€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰µ•µ‰•Èµ¡¥ÀˆÑ¥Ñ±”õíÕÉÉ•¹Ñ5•µ‰•È¹•µ…¥±ô…É¥„µ¡…ÍÁ½ÁÕÀô‰µ•¹Ôˆ…É¥„µ•áÁ…¹‘•õíµ•µ‰•É5•¹Õ=Á•¹ô½¹±¥¬õì ¤€ôøÍ•Ñ5•µ‰•É5•¹Õ=Á•¸ ¡½Á•¸¤€ôø€…½Á•¸¥ôøñÍÁ…¸ùíÕÉÉ•¹Ñ5•µ‰•È¹‘¥ÍÁ±…å9…µ”¹Í±¥” À°€Ä¥ôğ½ÍÁ…¸øñˆùíÕÉÉ•¹Ñ5•µ‰•È¹‘¥ÍÁ±…å9…µ•ôğ½ˆøñÍµ…±°û–âÏ¢f|ğ½Íµ…±°øñ¤…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆûŠ2ğ½¤øğ½‰ÕÑÑ½¸ø(€€€€€€€€€€€íµ•µ‰•É5•¹Õ=Á•¸€˜˜€ğøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰µ•µ‰•Èµµ•¹Ôµ‰…­‘É½Àˆ…É¥„µ±…‰•°ô‹¦^s¦Z'–âÏ¢f¦ã–Z¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ5•µ‰•É5•¹Õ=Á•¸¡™…±Í”¥ô€¼øñ‘¥Ø±…ÍÍ9…µ”ô‰µ•µ‰•Èµµ•¹ÔˆÉ½±”ô‰µ•¹Ôˆøñ‘¥ØøñÍÑÉ½¹œùíÕÉÉ•¹Ñ5•µ‰•È¹‘¥ÍÁ±…å9…µ•ôğ½ÍÑÉ½¹œøñÍµ…±°ùíÕÉÉ•¹Ñ5•µ‰•È¹•µ…¥±ôğ½Íµ…±°øğ½‘¥Øøñ„¡É•˜ôˆ½…½Õ¹ĞˆÉ½±”ô‰µ•¹Õ¥Ñ•´ˆûšr–N‡¢¢·–ºhğ½„øñ„¡É•˜ôˆ½Í¥¹½ÕĞµİ¥Ñ µ¡…ÑÁĞıÉ•ÑÕÉ¹}Ñ¼ô½±…ÜˆÉ½±”ô‰µ•¹Õ¥Ñ•´ˆ±…ÍÍ9…µ”ô‰µ•µ‰•Èµµ•¹ÔµÍ¥¹½ÕĞˆûfï–èğ½„øğ½‘¥Øøğ¼ùô(€€€€€€€€€€ğ½‘¥Øø€è€ñ„¡É•˜ôˆ½Í¥¹¥¸µİ¥Ñ µ¡…ÑÁĞıÉ•ÑÕÉ¹}Ñ¼ô½±…Üˆ±…ÍÍ9…µ”ô‰µ•µ‰•ÈµÍ¥¹¥¸ˆûfï–—š"Gj–¶ãşK–æÏ–>Àğ½„ùô(€€€€€€€€ğ½‘¥Øø(€€€€€€ğ½¡•…‘•Èø(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰ÍÑÕ‘äµÑ¥­•Èˆ…É¥„µ±…‰•°ô‹–>ã–ú/’ösš"Ã–ş¯¢¢(ˆøñÍÑÉ½¹œû’ösš"Ã–ş¯¢¢(ğ½ÍÑÉ½¹œøñ‘¥ØøñÍÁ…¸ùì¡¡½µ•••ü¹Ñ¥­•Èü¹±•¹Ñ €ü¡½µ•••¹Ñ¥­•È€èmì¥è€‰‘•™…Õ±Ğˆ°Ñ•áĞè€‹’î+š^—’îï–.g–º3š"C–ú3¾ò3¢¢c–ú_Vg’â/–¶ãşKš:—ê3¦îxˆ°ÕÉ°è€ˆˆ°•¹…‰±•èÑÉÕ”õt¤¹µ…À ¡¥Ñ•´°¥¹‘•à¤€ôø€ñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ¥­•Èµ¥Ñ•´ˆ­•äõí¥Ñ•´¹¥‘ôùí¥Ñ•´¹ÕÉ°€ü€ñ„¡É•˜õí¥Ñ•´¹ÕÉ±ôÑ…É•Ğô‰}‰±…¹¬ˆÉ•°ô‰¹½É•™•ÉÉ•Èˆùí¥Ñ•´¹Ñ•áÑôğ½„ø€è¥Ñ•´¹Ñ•áÑõí¥¹‘•à€ğ€¡¡½µ•••ü¹Ñ¥­•Èü¹±•¹Ñ ñğ€Ä¤€´€Ä€ü€ñˆûŠ^ğ½ˆø€è¹Õ±±ôğ½ÍÁ…¸ø¥ôğ½ÍÁ…¸øğ½‘¥Øøğ½‘¥Øø(€€€€€€ñ¹…Ø±…ÍÍ9…µ”ô‰µ½‰¥±”µÁÉ¥µ…ÉäµÑ…‰Ìˆ…É¥„µ±…‰•°ô‹’âï¢š–¶ãşK–*¢ôˆø(€€€€€€€€ñ„¡É•˜ôˆ½ÁÉ…Ñ¥”ˆûŞÓr¦†0ğ½„ø(€€€€€€€€ñ„¡É•˜ôˆ½•ÍÍ…äˆû–¾¯RÏ¢®Xğ½„ø(€€€€€€€€ñ„¡É•˜ôˆ½¥ÍÍÕ•Ìˆûš&û"·¦îxğ½„ø(€€€€€€€€ñ„¡É•˜ôˆ½ÍÕµµ…É¥•ÌˆûšVÓšFc¢šğ½„ø(€€€€€€€€ñ„¡É•˜ôˆ½±…Ü½Õ¥‘”ˆû’öÿR£¢ª«šb8ğ½„ø(€€€€€€ğ½¹…Øø((€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰¡½µ”µ‘…Ñ”µ±¥¹”ˆ…É¥„µ±…‰•°õí€‘íÉ••Ñ¥¹÷¾ò3’î+–’§š^—šr}ôøñÍÁ…¸û’î+–’§¾öqí‘…Ñ•1…‰•°¡Ñ½‘…ä¥ôğ½ÍÁ…¸ùí±•…±1•ÍÍ½¸€ü€ñ‘¥Ø±…ÍÍ9…µ”ô‰‘…¥±äµ±…Üµ…Ñ¥½¹Ìˆøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰‘…¥±äµ±…Üµ‰ÕÑÑ½¸ˆ½¹±¥¬õíÑ•…¡1•…±1•ÍÍ½¹ôøñˆûšÎWšŠw–¶ãşHğ½ˆøñÍÁ…¸ùí±•…±1•ÍÍ½¸¹Ñ¥Ñ±•ôí±•…±1•ÍÍ½¸¹…ÉÑ¥±•9½ôğ½ÍÁ…¸øğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰‘…¥±äµ±…ÜµÍİ…Àˆ½¹±¥¬õì ¤€ôøÙ½¥±½…‘I…¹‘½µ1•…±1•ÍÍ½¸ ¥ôûš>ošÎWšŠtğ½‰ÕÑÑ½¸øğ½‘¥Øø€è€ñÍÁ…¸±…ÍÍ9…µ”ô‰‘…¥±äµ±…ÜµÁ•¹‘¥¹œˆøñˆûšÎWšŠw–¶ãşHğ½ˆøñÍÁ…¸û–£–r/šÎW¢š?–2¿–—–ú3¾ò3¦î{šN+¦j£š¦–¶ãşHğ½ÍÁ…¸øğ½ÍÁ…¸ùôñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰ÁÉ…Ñ¥”µ¥¹±¥¹”µ±…Õ¹ ˆ…É¥„µ±…‰•°ô‹ŞÓr¦†0ˆøñÍÑÉ½¹œûŞÓr¦†0ğ½ÍÑÉ½¹œøñ‘¥Øøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍÑ…ÉÑAÉ…Ñ¥” ‰µÄˆ¥ô‘¥Í…‰±•õíÁÉ…Ñ¥•1½…‘¥¹ôû’â¢¦›¦ãšN¦†0ğ½‰ÕÑÑ½¸øğ½‘¥Øøğ½Í•Ñ¥½¸øğ½‘¥Øø((€€€€€íÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜€ñ‰ÕÑÑ½¸(€€€€€€€ÑåÁ”ô‰‰ÕÑÑ½¸ˆ(€€€€€€€±…ÍÍ9…µ”õíµ½‰¥±”µÉ…¥°µÑ½±”µ½‰¥±”µÉ…¥°µÑ½±”µÁÉ…Ñ¥”É…¥°´‘íÉ…¥±M¥‘•õô(€€€€€€€½¹±¥¬õì ¤€ôøÍ•Ñ5½‰¥±•I…¥±=Á•¸¡ÑÉÕ”¥ô(€€€€€€€…É¥„µ•áÁ…¹‘•õíµ½‰¥±•I…¥±=Á•¹ô(€€€€€€€…É¥„µ½¹ÑÉ½±Ìô‰½µµ…¹µÉ…¥°ˆ(€€€€€€ø(€€€€€€€€ñÍÁ…¸…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆû–Ş—–Üğ½ÍÁ…¸ø(€€€€€€€€ñˆû–¶ãşK–Ş—–Üğ½ˆø(€€€€€€ğ½‰ÕÑÑ½¸ùô(€€€€€íµ½‰¥±•I…¥±=Á•¸€˜˜€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰µ½‰¥±”µÉ…¥°µ‰…­‘É½Àˆ…É¥„µ±…‰•°ô‹¦^s¦Z'’ösš"Ã¢Î¢¢+–Óš²ˆ½¹±¥¬õì ¤€ôøÍ•Ñ5½‰¥±•I…¥±=Á•¸¡™…±Í”¥ô€¼ùô((€€€€€€ñ‘¥Ø±…ÍÍ9…µ”õí½µµ…¹µ±…å½ÕĞÉ…¥°´‘íÉ…¥±M¥‘•ô€‘íÉ…¥±½±±…ÁÍ•€ü€‰É…¥°µ½±±…ÁÍ•ˆ€è€ˆ‰ô€‘íµ½‰¥±•I…¥±=Á•¸€ü€‰µ½‰¥±”µÉ…¥°µ½Á•¸ˆ€è€ˆ‰õôø(€€€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰½¹Ù•ÉÍ…Ñ¥½¸ˆ…É¥„µ±¥Ù”ô‰Á½±¥Ñ”ˆø(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰½¹Ù•ÉÍ…Ñ¥½¸µ¡•…‘¥¹œˆø(€€€€€€€€€€ñÀù$ƒ–>ã–ú/’ösš"Ã’â·–şğ½Àø(€€€€€€€€€€ñ Äû’î+–’§¾ò3Ÿ¢¢#V¯–&7¦Ëğ½ Äø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰¡½µ”µ•á…´µÁ½¥¹Ğˆ…É¥„µ±…‰•°ô‹’î+š^—Ç¢¦î{š:£¢Z˜ˆø(€€€€€€€€€€€€ñÍÁ…¸û’î+š^—Ç¢¦îxğ½ÍÁ…¸ø(€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰¡½µ”µ•á…´µÁ½¥¹ĞµÑ¥Ñ±”ˆ½¹±¥¬õí±•…É¹!½µ•á…µA½¥¹Ñôøñˆùí¡½µ•á…µA½¥¹Ğ¹ÍÕ‰©•Ñôğ½ˆùí¡½µ•á…µA½¥¹Ğ¹Ñ¥Ñ±•ôğ½‰ÕÑÑ½¸ø(€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰¡½µ”µ•á…´µÁ½¥¹ĞµÍİ…Àˆ½¹±¥¬õíÍİ…Á!½µ•á…µA½¥¹Ñôûš>o’â–,ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰¡½µ”µ…±•¹‘…Èµ•¹ÑÉäˆø(€€€€€€€€€€€€ñÍÁ…¸ûš"Gšr¢º–>[’öƒj¢¢#V¯¦Ë–ê›¢"šVgšvC¾ò3š:—¢F_’â+š²‡j–rÃšZç–âÛ’öƒ–¶ãğ½ÍÁ…¸ø(€€€€€€€€€€€€ñ„¡É•˜ôˆ½…±•¹‘…Èˆ…É¥„µ±…‰•°ô‹¦Z/–Vš"Gj¢†3’ê/šnˆû¢†3’ê/šnğ½„ø(€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰‘•Í­Ñ½ÀµÉ…¥°µÑ½±”ˆ½¹±¥¬õíÑ½±•I…¥±½±±…ÁÍ•‘ô…É¥„µ•áÁ…¹‘•õì…É…¥±½±±…ÁÍ•‘ô…É¥„µ½¹ÑÉ½±Ìô‰½µµ…¹µÉ…¥°ˆø(€€€€€€€€€€€íÉ…¥±½±±…ÁÍ•€ü€‹–ÆW¦Z/–¶ãşK–Ş—–Üˆ€è€‹šRÛ–B#–Óš²‰ô(€€€€€€€€€€ğ½‰ÕÑÑ½¸ø(€€€€€€€€ğ½‘¥Øø(€€€€€€€íÑ½‘…åQ…Í­Ì¹±•¹Ñ €ø€À€˜˜€ñ‘•Ñ…¥±Ì±…ÍÍ9…µ”ô‰Ñ½‘…äµÁ±…¸µ…Éˆø(€€€€€€€€€€ñÍÕµµ…Éäøñ‘¥Øøñˆû’î+š^—’îï–.dğ½ˆøñÍÁ…¸ùíÑ½‘…åQ…Í­Ì¹™¥±Ñ•È ¡Ñ…Í¬¤€ôøÑ…Í¬¹ÍÑ…ÑÕÌ€ôôô€‰½µÁ±•Ñ•ˆ¤¹±•¹Ñ¡ô½íÑ½‘…åQ…Í­Ì¹±•¹Ñ¡ôƒ–º3š"@ƒ
+ÜíÑ½‘…åQ…Í­Ì¹™¥¹ ¡Ñ…Í¬¤€ôøÑ…Í¬¹¥€ôôôÍ•±•Ñ•‘Q½‘…åQ…Í­%¤ü¹Ñ¥Ñ±”€üü€‹’î+š^—’îï–.g–ŞË–º3š"@‰ôğ½ÍÁ…¸øğ½‘¥Øøñ•´…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆøñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ½‘…äµÁ±…¸µ•áÁ…¹µ±…‰•°ˆû–ÆW¦Z/’îï–.gŠ2ğ½ÍÁ…¸øñÍÁ…¸±…ÍÍ9…µ”ô‰Ñ½‘…äµÁ±…¸µ½±±…ÁÍ”µ±…‰•°ˆûšRÛ–B#’îï–.gŠ2ğ½ÍÁ…¸øğ½•´øğ½ÍÕµµ…Éäø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ½‘…äµÁ±…¸µ¡•…ˆøñ‘¥ØøñÀû’î+š^—–¶ãşK¢¢#V¬ğ½ÀøñÍÑÉ½¹œùíÑ½‘…äñğ€‹’î+–’¤‰ôğ½ÍÑÉ½¹œøğ½‘¥Øøñ„¡É•˜ôˆ½…±•¹‘…Èˆûš~—r/¢†3’ê/šnƒŠHğ½„øğ½‘¥Øø(€€€€€€€€€€ñÀ±…ÍÍ9…µ”ô‰Ñ½‘…äµÑ…Í¬µ¡½¥”µ¡¥¹Ğˆû–.û¦ã’öƒšÏ–#–¶ãj¦‚n¸ğ½Àø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ½‘…äµÑ…Í¬µ±¥ÍĞˆùíÑ½‘…åQ…Í­Ì¹µ…À ¡Ñ…Í¬¤€ôøì(€€€€€€€€€€€½¹ÍĞ½µÁ±•Ñ•€ôÑ…Í¬¹ÍÑ…ÑÕÌ€ôôô€‰½µÁ±•Ñ•ˆì(€€€€€€€€€€€½¹ÍĞÍ•±•Ñ•€ô€…½µÁ±•Ñ•€˜˜Ñ…Í¬¹¥€ôôôÍ•±•Ñ•‘Q½‘…åQ…Í­%ì(€€€€€€€€€€€É•ÑÕÉ¸€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”õíÑ½‘…äµÑ…Í¬€‘í½µÁ±•Ñ•€ü€‰‘½¹”ˆ€è€ˆ‰ô€‘íÍ•±•Ñ•€ü€‰Í•±•Ñ•ˆ€è€ˆ‰õô…É¥„µÁÉ•ÍÍ•õíÍ•±•Ñ•‘ô‘¥Í…‰±•õí½µÁ±•Ñ•‘ô½¹±¥¬õì ¤€ôøÍ•ÑM•±•Ñ•‘Q½‘…åQ…Í­%¡Ñ…Í¬¹¥¥ô­•äõíÑ…Í¬¹¥‘ôøñÍÁ…¸…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆùí½µÁ±•Ñ•ñğÍ•±•Ñ•€ü€‹ŠrLˆ€è€ˆ‰ôğ½ÍÁ…¸øñ‘¥ØøñÍÑÉ½¹œùíÑ…Í¬¹ÍÕ‰©•Ñôƒ
+ÜíÑ…Í¬¹Ñ¥Ñ±•ôğ½ÍÑÉ½¹œøñÍµ…±°ùíÑ…Í¬¹‘ÕÉ…Ñ¥½¹5¥¹ÕÑ•Íôƒ–"¦BaíÑ…Í¬¹‘•Ñ…¥±Ì€ü€ƒ
+Ü€‘íÑ…Í¬¹‘•Ñ…¥±Íõ€€è€ˆ‰ôğ½Íµ…±°øğ½‘¥ØùíÍ•±•Ñ•€˜˜€ñ•´û–#–¶ã¦g¦‚ğ½•´ùôğ½‰ÕÑÑ½¸øì(€€€€€€€€€ô¥ôğ½‘¥Øø(€€€€€€€€€íÑ½‘…åQ…Í­Ì¹Í½µ” ¡Ñ…Í¬¤€ôøÑ…Í¬¹ÍÑ…ÑÕÌ€„ôô€‰½µÁ±•Ñ•ˆ¤€˜˜€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰Ñ½‘…äµÑ…Í¬µÍÑ…ÉĞˆ‘¥Í…‰±•õì…Í•±•Ñ•‘Q½‘…åQ…Í­%ñğÑ¡¥¹­¥¹ô½¹±¥¬õì ¤€ôøì½¹ÍĞÑ…Í¬€ôÑ½‘…åQ…Í­Ì¹™¥¹ ¡¥Ñ•´¤€ôø¥Ñ•´¹¥€ôôôÍ•±•Ñ•‘Q½‘…åQ…Í­%¤ì¥˜€¡Ñ…Í¬¤Ù½¥Í•¹¡ƒ¢®/nÓš:—–âÛš"G¦Z/–/’î+–’§¦ã–ºkj’îï–.g¾òh‘íÑ…Í¬¹ÍÕ‰©•Ñ÷ì‘íÑ…Í¬¹Ñ¥Ñ±•÷’îï–.g–Ÿ–ºç¾òh‘íÑ…Í¬¹‘•Ñ…¥±Ìñğ€‹’úw’î+š^—¢¢#V¯¦Z/–/šVg–¶à‰õ€¤ìõôùíÑ¡¥¹­¥¹œ€ü€‹šVgŞÓšê[–
+g’â·Š˜ˆ€è€‹¦Z/–/š&¦ã’îï–.d‰ôğ½‰ÕÑÑ½¸ùô(€€€€€€€€ğ½‘•Ñ…¥±Ìùô((€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ•ÍÍ…”µ±¥ÍĞˆÉ•˜õíµ•ÍÍ…•1¥ÍÑI•™ôø(€€€€€€€€€ì…¡¥ÍÑ½Éå1½…‘•€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ•ÍÍ…”µÉ½Üµ•¹Ñ½ÈˆøñÍÁ…¸±…ÍÍ9…µ”ô‰µ•¹Ñ½Èµ…Ù…Ñ…Èˆû–ú,ğ½ÍÁ…¸øñ‘¥Ø±…ÍÍ9…µ”ô‰µ•ÍÍ…”µ‰Õ‰‰±”ÑåÁ¥¹œˆøñ¤€¼øñ¤€¼øñ¤€¼øğ½‘¥Øøğ½‘¥Øùô(€€€€€€€€€íµ•ÍÍ…•Ì¹µ…À ¡µ•ÍÍ…”°¥¹‘•à¤€ôø€ (€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”õíµ•ÍÍ…”µÉ½Ü€‘íµ•ÍÍ…”¹É½±•õô­•äõí€‘íµ•ÍÍ…”¹É½±•ô´‘í¥¹‘•áõôø(€€€€€€€€€€€€€íµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜€ñÍÁ…¸±…ÍÍ9…µ”ô‰µ•¹Ñ½Èµ…Ù…Ñ…Èˆû–ú,ğ½ÍÁ…¸ùô(€€€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ•ÍÍ…”µ‰Õ‰‰±”ˆùíµ•ÍÍ…”¹½µÁ…É¥Í½¸€ü€ñ5½‘•±½µÁ…É¥Í½¹…É½µÁ…É¥Í½¸õíµ•ÍÍ…”¹½µÁ…É¥Í½¹ôµ•ÍÍ…•%¹‘•àõí¥¹‘•áôÁ…¥É•‘AÉ½µÁĞõíÁ…¥É•‘MÑÕ‘•¹ÑAÉ½µÁĞ¡µ•ÍÍ…•Ì°¥¹‘•à¥ôÍ•±•Ñ•‘-•åÌõíÍ•±•Ñ•‘½±±½İUÁ-•åÍô½¹I…Ñ”õíÉ…Ñ•½µÁ…É¥Í½¹ô½¹Q½±•½±±½İUÀõíÑ½±•½±±½İUÁM•±•Ñ¥½¹ô½¹¹Íİ•ÉÑ¥½¸õíÉÕ¹¹Íİ•ÉÑ¥½¹ôÑ¡¥¹­¥¹œõíÑ¡¥¹­¥¹ô€¼ø€è€ğùíµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€ü€ñ5•¹Ñ½É¹Íİ•ÉQ•áĞÑ•áĞõíµ•ÍÍ…”¹Ñ•áÑô±…‰•°õíµ½‘•±1…‰•°¡µ•ÍÍ…”¹µ½‘•°€üü€‰ÁĞ´Ô¸Øµ±Õ¹„ˆ¥ôµ½‘•°õíµ•ÍÍ…”¹µ½‘•°€üü€‰ÁĞ´Ô¸Øµ±Õ¹„‰ôÁÉ½µÁĞõíÁ…¥É•‘MÑÕ‘•¹ÑAÉ½µÁĞ¡µ•ÍÍ…•Ì°¥¹‘•à¥ô½¹¹Íİ•ÉÑ¥½¸õíÉÕ¹¹Íİ•ÉÑ¥½¹ô‘¥Í…‰±•õíÑ¡¥¹­¥¹ôÍ¡½İ1•…É¹¥¹Ñ¥½¹Ìõí™…±Í•ô€¼ø€è€ñÍÁ…¸±…ÍÍ9…µ”ô‰µ•ÍÍ…”µÑ•áĞˆùí±•…¹5•ÍÍ…•Q•áĞ¡µ•ÍÍ…”¹Ñ•áĞ¥ôğ½ÍÁ…¸ùõíµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜µ•ÍÍ…”¹ÕÍ…”€ü€ñÍµ…±°±…ÍÍ9…µ”ô‰µ•ÍÍ…”µÕÍ…”ˆøñˆùíµ•ÍÍ…”¹ÕÍ…”¹µ½‘•°¹É•Á±…” ‰ÁĞ´Ô¸Ø´ˆ°€ˆˆ¥ôğ½ˆøñÍÁ…¸û¢òã–”íµ•ÍÍ…”¹ÕÍ…”¹¥¹ÁÕÑQ½­•¹Ì¹Ñ½1½…±•MÑÉ¥¹œ ¥ôƒ
+Üƒ¢òã–èíµ•ÍÍ…”¹ÕÍ…”¹½ÕÑÁÕÑQ½­•¹Ì¹Ñ½1½…±•MÑÉ¥¹œ ¥ôƒ
+Üƒ–B#¢¢ ì¡µ•ÍÍ…”¹ÕÍ…”¹¥¹ÁÕÑQ½­•¹Ì€¬µ•ÍÍ…”¹ÕÍ…”¹½ÕÑÁÕÑQ½­•¹Ì¤¹Ñ½1½…±•MÑÉ¥¹œ ¥ôÑ½­•¹Ìğ½ÍÁ…¸øñÍÁ…¸ùQ½­•¸ƒš"Cšr°ULì¡µ•ÍÍ…”¹ÕÍ…”¹µ½‘•±Q½­•¹½ÍÑUÍ€üüµ•ÍÍ…”¹ÕÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¤¹Ñ½¥á• Ô¥ôƒ
+ÜƒÒ9Pí™½Éµ…ÑQİ¡µ•ÍÍ…”¹ÕÍ…”¹µ½‘•±Q½­•¹½ÍÑUÍ€üüµ•ÍÍ…”¹ÕÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¥ôğ½ÍÁ…¸ùíµ•ÍÍ…”¹ÕÍ…”¹İ•‰M•…É¡…±±Ì€ü€ñÍÁ…¸û–’[ÚËš~—¢¶$íµ•ÍÍ…”¹ÕÍ…”¹İ•‰M•…É¡…±±Íôƒš²„ƒ
+ÜƒšBs–Â/š"Cšr°ULì¡µ•ÍÍ…”¹ÕÍ…”¹İ•‰M•…É¡½ÍÑUÍ€üü€À¤¹Ñ½¥á• Ô¥ôƒ
+ÜƒÒ9Pí™½Éµ…ÑQİ¡µ•ÍÍ…”¹ÕÍ…”¹İ•‰M•…É¡½ÍÑUÍ€üü€À¥ôğ½ÍÁ…¸ø€è¹Õ±±ôñÍÁ…¸ûšr³š²‡–B#¢¢ ULíµ•ÍÍ…”¹ÕÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¹Ñ½¥á• Ô¥ôƒ
+ÜƒÒ9Pí™½Éµ…ÑQİ¡µ•ÍÍ…”¹ÕÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¥ôƒ
+Üƒ¢_šfíµ•ÍÍ…”¹ÕÍ…”¹‘ÕÉ…Ñ¥½¹5Ì¹Ñ½1½…±•MÑÉ¥¹œ ¥ôµÌğ½ÍÁ…¸øğ½Íµ…±°ø€è¹Õ±±õíµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜Ù¥Í¥‰±•M½ÕÉ•9…µ•Ì¡µ•ÍÍ…”¹Í½ÕÉ•Ì¤¹±•¹Ñ €ü€ñÍµ…±°±…ÍÍ9…µ”ô‰µ•ÍÍ…”µÍ½ÕÉ•Ìˆùíµ•ÍÍ…”¹¥Ñ…Ñ¥½¹MÑ…ÑÕÌ€ôôô€‰İ•‰}Í•…É ˆ€ü€‹š~—¢¶'’úšê@ˆ€è€‹šVgšvC’úšê@‰÷¾òiíÙ¥Í¥‰±•M½ÕÉ•9…µ•Ì¡µ•ÍÍ…”¹Í½ÕÉ•Ì¤¹©½¥¸ ‹ˆ¥õí¥Ñ…Ñ¥½¹MÑ…ÑÕÍ1…‰•°¡µ•ÍÍ…”¹¥Ñ…Ñ¥½¹MÑ…ÑÕÌ¤€ü€ƒ
+Ü€‘í¥Ñ…Ñ¥½¹MÑ…ÑÕÍ1…‰•°¡µ•ÍÍ…”¹¥Ñ…Ñ¥½¹MÑ…ÑÕÌ¥õ€€è€ˆ‰ôğ½Íµ…±°ø€èµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜µ•ÍÍ…”¹¥Ñ…Ñ¥½¹MÑ…ÑÕÌ€˜˜¥Ñ…Ñ¥½¹MÑ…ÑÕÍ1…‰•°¡µ•ÍÍ…”¹¥Ñ…Ñ¥½¹MÑ…ÑÕÌ¤€ü€ñÍµ…±°±…ÍÍ9…µ”ô‰µ•ÍÍ…”µÍ½ÕÉ•Ìˆùí¥Ñ…Ñ¥½¹MÑ…ÑÕÍ1…‰•°¡µ•ÍÍ…”¹¥Ñ…Ñ¥½¹MÑ…ÑÕÌ¥ôğ½Íµ…±°ø€è¹Õ±±ôğ¼ùõíµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ•ÍÍ…”µ…Ñ¥½¹Ìˆùì…µ•ÍÍ…”¹½µÁ…É¥Í½¸€˜˜€ñ±…‰•°±…ÍÍ9…µ”õí™½±±½ÜµÕÀµ¡•¬µ•ÍÍ…”µ™½±±½ÜµÕÀµ¡•¬€‘íÍ•±•Ñ•‘½±±½İUÁ-•åÌ¹¥¹±Õ‘•Ì¡Ñ•…¡•Èè‘í¥¹‘•áõ€¤€ü€‰™½±±½ÜµÕÀµÍ•±•Ñ•ˆ€è€ˆ‰õôøñ¥¹ÁÕĞÑåÁ”ô‰¡•­‰½àˆ¡•­•õíÍ•±•Ñ•‘½±±½İUÁ-•åÌ¹¥¹±Õ‘•Ì¡Ñ•…¡•Èè‘í¥¹‘•áõ€¥ô½¹¡…¹”õì ¤€ôøÑ½±•½±±½İUÁM•±•Ñ¥½¸¡ì­•äèÑ•…¡•Èè‘í¥¹‘•áõ€°±…‰•°èµ½‘•±1…‰•°¡µ•ÍÍ…”¹µ½‘•°€üü€‰ÁĞ´Ô¸Øµ±Õ¹„ˆ¤°µ½‘•°èµ•ÍÍ…”¹µ½‘•°€üü€‰ÁĞ´Ô¸Øµ±Õ¹„ˆ°Ñ•áĞèµ•ÍÍ…”¹Ñ•áĞ°ÁÉ½µÁĞèÁ…¥É•‘MÑÕ‘•¹ÑAÉ½µÁĞ¡µ•ÍÍ…•Ì°¥¹‘•à¤ô¥ô€¼øñÍÁ…¸û–n{¢šš¶“¢¢+š¼ğ½ÍÁ…¸øğ½±…‰•°ùõí¥Í1•…É¹¥¹9½Ñ”¡µ•ÍÍ…”¹Ñ•áĞ¤€˜˜€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰Í…Ù”µ¹½Ñ”µ‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ…Ù•5•ÍÍ…•9½Ñ”¡µ•ÍÍ…”°¥¹‘•à¥ôùíÍ…Ù•‘5•ÍÍ…”€ôôô¥¹‘•à€ü€‹–ŞËšRÛ¢^<ƒŠrLˆ€è€‹šRÛ¢^?¶¢¢`‰ôğ½‰ÕÑÑ½¸ùõì½±Õ¹„½¤¹Ñ•ÍĞ¡µ•ÍÍ…”¹µ½‘•°€üü€‰±Õ¹„ˆ¤€˜˜€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰…Í¬µÍ½°µ‰ÕÑÑ½¸ˆ‘¥Í…‰±•õíÑ¡¥¹­¥¹œñğÍ½±I•Ù¥•İ¥¹%¹‘•à€„ôô¹Õ±°ñğÍ½±I•Ù¥•İ•‘%¹‘•á•Ì¹¥¹±Õ‘•Ì¡¥¹‘•à¥ô½¹±¥¬õì ¤€ôøÙ½¥É•ÅÕ•ÍÑM½±I•Ù¥•Ü¡µ•ÍÍ…”°¥¹‘•à¥ôùíÍ½±I•Ù¥•İ¥¹%¹‘•à€ôôô¥¹‘•à€ü€‰M½°ƒ¢šš‚ã’â·Š˜ˆ€èÍ½±I•Ù¥•İ•‘%¹‘•á•Ì¹¥¹±Õ‘•Ì¡¥¹‘•à¤€ü€‰M½°ƒ–ŞË¢šš‚àƒŠrLˆ€è€‹Šr˜ƒ¢®,M½°ƒ–¶ã¦rã¢šš‚à‰ôğ½‰ÕÑÑ½¸ùôñ‘•Ñ…¥±Ì±…ÍÍ9…µ”ô‰™••‘‰…¬µµ•¹ÔˆøñÍÕµµ…Éäùí™••‘‰…­5•ÍÍ…”€ôôô¥¹‘•à€ü€‹–ŞË¦¢–â¬ƒŠrLˆ€è€½Í½°½¤¹Ñ•ÍĞ¡µ•ÍÍ…”¹µ½‘•°€üü€ˆˆ¤€ü€‹–n{¦–/’â›¢®/¢–â¯Šë¢ª4ˆ€è€‹–n{¦–,‰ôğ½ÍÕµµ…Éäøñ‘¥Øøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•¹‘••‘‰…¬¡µ•ÍÍ…”°¥¹‘•à°€‰¡•±Á™Õ°ˆ¥ôûšr'–æ¯–*¤ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•¹‘••‘‰…¬¡µ•ÍÍ…”°¥¹‘•à°€‰¥¹½ÉÉ•Ğˆ¥ôû–Ÿ–ºçšr'¢ªğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•¹‘••‘‰…¬¡µ•ÍÍ…”°¥¹‘•à°€‰Õ¹±•…Èˆ¥ôû’â7–’ƒšâš–hğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•¹‘••‘‰…¬¡µ•ÍÍ…”°¥¹‘•à°€‰¹½Ñ}±•…É¹¥¹œˆ¥ôû¦v{–¶ãşK–Ÿ–ºäğ½‰ÕÑÑ½¸øğ½‘¥Øøğ½‘•Ñ…¥±Ìøğ½‘¥Øùôğ½‘¥Øø(€€€€€€€€€€€€€íµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜µ•ÍÍ…”¹ÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜€ñAÉ…Ñ¥•EÕ•ÍÑ¥½¹	Õ‰‰±”ÅÕ•ÍÑ¥½¸õíµ•ÍÍ…”¹ÁÉ…Ñ¥•EÕ•ÍÑ¥½¹ô…¹Íİ•ÈõíÁÉ…Ñ¥•¹Íİ•Éô½¹¹Íİ•Èõì¡­•ä¤€ôøÙ½¥…¹Íİ•É5Ä¡­•ä¥ô½¹ÍÍ…åMÑ…ÉĞõí‰•¥¹ÍÍ…å½…¡ô€¼ùô(€€€€€€€€€€€€€íµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜µ•ÍÍ…”¹¡…±±•¹•Q¡É•…€˜˜€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰µ•ÍÍ…”µ¡…±±•¹”µÑ¡É•…ˆ…É¥„µ±…‰•°õíQ•ÉÉ„ƒ–Â4€‘íµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹Ñ…É•Ñ1…‰•±ôƒj–Æ¦£¢Î«ZEôø(€€€€€€€€€€€€€€€€ñ¡•…‘•ÈøñÍÁ…¸û–Æ¦£¢Î«ZG’âÈğ½ÍÁ…¸øñˆû¢Î«ZG–Â7¢Æ‡¾òiíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹Ñ…É•Ñ1…‰•±ôƒ–:¢¦W¢®Xğ½ˆøñÍµ…±°û²°íµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹Ù•ÉÍ¥½¸€´€Åôƒ& ƒŠHƒ²°íµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹Ù•ÉÍ¥½¹ôƒ& ğ½Íµ…±°øğ½¡•…‘•Èø(€€€€€€€€€€€€€€€€ñ‰±½­ÅÕ½Ñ”øñˆû¢Š¯¢Î«ZGšº×¢Bôğ½ˆøñÀùíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹Ñ…É•Ñá•ÉÁÑôğ½Àøğ½‰±½­ÅÕ½Ñ”ø(€€€€€€€€€€€€€€€€ñ…ÉÑ¥±”±…ÍÍ9…µ”ô‰Ñ•ÉÉ„ˆøñˆùQ•ÉÉ„ƒ¢Î«ZG¾ò?–BCšôğ½ˆøñÀùíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹¡…±±•¹•Q•áÑôğ½ÀøñÍµ…±°ùíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹¡…±±•¹•UÍ…”¹¥¹ÁÕÑQ½­•¹Ì€¬µ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹¡…±±•¹•UÍ…”¹½ÕÑÁÕÑQ½­•¹ÍôÑ½­•¹Ìƒ
+ÜƒÒ9Pí™½Éµ…ÑQİ¡µ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹¡…±±•¹•UÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¥ôğ½Íµ…±°øğ½…ÉÑ¥±”ø(€€€€€€€€€€€€€€€€ñ…ÉÑ¥±”±…ÍÍ9…µ”ô‰µ½‘•°µÉ•Á±äˆøñˆùíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹Ñ…É•Ñ1…‰•±ôƒ–n{š'’â›’ş»š¶Œğ½ˆøñÀùíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹É•Á±åQ•áÑôğ½ÀøñÍµ…±°ùíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹É•Á±åUÍ…”¹¥¹ÁÕÑQ½­•¹Ì€¬µ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹É•Á±åUÍ…”¹½ÕÑÁÕÑQ½­•¹ÍôÑ½­•¹Ìƒ
+ÜƒÒ9Pí™½Éµ…ÑQİ¡µ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹É•Á±åUÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¥ôğ½Íµ…±°øğ½…ÉÑ¥±”ø(€€€€€€€€€€€€€€€€ñ™½½Ñ•Èøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ‘¥Í…‰±•õíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹…ÁÁ±¥•‘ô½¹±¥¬õì ¤€ôø…ÁÁ±å¡…±±•¹•I•Ù¥Í¥½¸¡¥¹‘•à¥ôùíµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹…ÁÁ±¥•€ü€‹–ŞË––_R£¢Ï–:¢¦W¢®XƒŠrLˆ€èƒ––_R£¢Ì€‘íµ•ÍÍ…”¹¡…±±•¹•Q¡É•…¹Ñ…É•Ñ1…‰•±ôƒ–:¢¦W¢®Yôğ½‰ÕÑÑ½¸øñÍÁ…¸ûšr«š2'––_R£–&7¾ò3–:¢¦W¢®[’â7šr¢Š¯šRç–.Wğ½ÍÁ…¸øğ½™½½Ñ•Èø(€€€€€€€€€€€€€€ğ½Í•Ñ¥½¸ùô(€€€€€€€€€€€€€íµ•ÍÍ…”¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜Í¡½İÙ¥‘•¹”€˜˜€ñQ•…¡¥¹Ù¥‘•¹••Ñ…¥±Ì•Ù¥‘•¹”õíµ•ÍÍ…”¹Ñ•…¡¥¹Ù¥‘•¹•ô€¼ùô(€€€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€€€¤¥ô(€€€€€€€€€íÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜ÁÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”€˜˜€…ÁÉ…Ñ¥•½µÁ±•Ñ•€˜˜µ•ÍÍ…•Ì¹…Ğ ´Ä¤ü¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰ÁÉ…Ñ¥”µ½µÁ±•Ñ”µ…Ñ¥½¹ÌÁÉ…Ñ¥”µÕ¹‘•ÉÍÑ…¹‘¥¹œµ…Ñ¥½¹Ìˆ…É¥„µ±…‰•°ô‹¢šzC–ú3RÇ–¶ãRšÆë–ºkšb¿–B›–º3š"@ˆø(€€€€€€€€€€€€ñ‘¥Øøñˆû¦g¦†3¢š–#šRÛ–Âû–^;¾ò|ğ½ˆøñÍÁ…¸û’öƒ’î7–>¿æóê3¢ş÷–V?¾òo–>«šr'’öƒŠë¢ª7B¢–ú3¾ò3ÎïÖÇš&7šr–º3š"Cšr³¦†3ğ½ÍÁ…¸øğ½‘¥Øø(€€€€€€€€€€€€ñ‘¥Øøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøìÍ•ÑAÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”¡™…±Í”¤ìÙ½¥…Í­AÉ…Ñ¥•½…  ‹š"Gš’ê¾ò3¢®/–æ¯š"G–º3š"Cšr³¦†3ˆ°€‰½µÁ±•Ñ•}½¹™¥É´ˆ¤ìõôûš"Gš’ê¾ò3–º3š"Cšr³¦†0ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰Í•½¹‘…Éäˆ½¹±¥¬õì ¤€ôøìÍ•ÑAÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”¡™…±Í”¤ìÍ•ÑAÉ…Ñ¥•¥ÍÕÍÍ¥½¸¡ÑÉÕ”¤ìÙ½¥…Í­AÉ…Ñ¥•½…  ‹¢®/–7R£f÷¢¦Ç¢¦/¦g¦†3šr¦^s¦6×j–"“šZßˆ°€‰‘¥ÍÕÍÍ¥½¸ˆ¤ìõôû–7f÷¢¦Ç¢¦,ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰Í•½¹‘…Éäˆ½¹±¥¬õì ¤€ôøìÍ•ÑAÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”¡™…±Í”¤ìÍ•ÑAÉ…Ñ¥•¥ÍÕÍÍ¥½¸¡ÑÉÕ”¤ìÙ½¥…Í­AÉ…Ñ¥•½…  ‹¢®/š¾S¢òš"G¦ãj¦ã¦‚¢"š¶Šë¦ã¦‚¾ò3¢ª«šb;–§¢–Ş»–r£–N«¢‡ˆ°€‰‘¥ÍÕÍÍ¥½¸ˆ¤ìõôûš¾S¢ò–§–/¦ã¦‚ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰Í•½¹‘…Éäˆ½¹±¥¬õì ¤€ôøìÍ•ÑAÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”¡™…±Í”¤ìÍ•ÑAÉ…Ñ¥•¥ÍÕÍÍ¥½¸¡ÑÉÕ”¤ìÉ•ÅÕ•ÍÑ¹¥µ…Ñ¥½¹É…µ”  ¤€ôø½µÁ½Í•É%¹ÁÕÑI•˜¹ÕÉÉ•¹Ğü¹™½ÕÌ ¤¤ìõôûš"G¦
+šÏ–V<ğ½‰ÕÑÑ½¸øğ½‘¥Øø(€€€€€€€€€€ğ½Í•Ñ¥½¸ùô(€€€€€€€€€íÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜ÁÉ…Ñ¥•¥ÍÕÍÍ¥½¸€˜˜€…ÁÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”€˜˜€…ÁÉ…Ñ¥•½µÁ±•Ñ•€˜˜€…ÁÉ…Ñ¥•½…¡¥¹œ€˜˜µ•ÍÍ…•Ì¹…Ğ ´Ä¤ü¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰ÁÉ…Ñ¥”µ½µÁ±•Ñ”µ…Ñ¥½¹ÌÁÉ…Ñ¥”µ‘¥ÍÕÍÍ¥½¸µ…Ñ¥½¹Ìˆ…É¥„µ±…‰•°ô‹šr³¦†3š2ê3¢¢;¢®[’â·j¦ãšNˆø(€€€€€€€€€€€€ñ‘¥Øøñˆû¦
+–r£¢¢;¢®[¦g’â¦†0ğ½ˆøñÍÁ…¸û–>¿’î—æóê3¢òã–—–V?¦†3¾òoB¢–ú3–7RÇ’öƒ¢š«¢«–º3š"Cğ½ÍÁ…¸øğ½‘¥Øø(€€€€€€€€€€€€ñ‘¥Øøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥…Í­AÉ…Ñ¥•½…  ‹š"Gš’ê¾ò3¢®/–æ¯š"G–º3š"Cšr³¦†3ˆ°€‰½µÁ±•Ñ•}½¹™¥É´ˆ¥ôûš"Gš’ê¾ò3–º3š"Cšr³¦†0ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰Í•½¹‘…Éäˆ½¹±¥¬õì ¤€ôøÉ•ÅÕ•ÍÑ¹¥µ…Ñ¥½¹É…µ”  ¤€ôø½µÁ½Í•É%¹ÁÕÑI•˜¹ÕÉÉ•¹Ğü¹™½ÕÌ ¤¥ôûæóê3š>C–V<ğ½‰ÕÑÑ½¸øğ½‘¥Øø(€€€€€€€€€€ğ½Í•Ñ¥½¸ùô(€€€€€€€€€íÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜ÁÉ…Ñ¥•½µÁ±•Ñ•€˜˜µ•ÍÍ…•Ì¹…Ğ ´Ä¤ü¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰ÁÉ…Ñ¥”µ½µÁ±•Ñ”µ…Ñ¥½¹Ìˆ…É¥„µ±…‰•°ô‹šr³¦†3–º3š"C–ú3j¦ãšNˆø(€€€€€€€€€€€€ñ‘¥Øøñˆûšr³¦†3–º3š"@ğ½ˆøñÍÁ…¸ûRÇ’öƒšÆë–ºk’â/’âš¶—¾ò1$ƒ’â7šr¢«–.W–îÛ’òãšZÃ"·¦î{ğ½ÍÁ…¸øğ½‘¥Øø(€€€€€€€€€€€€ñ‘¥Øøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøìÍ•ÑAÉ…Ñ¥•EÕ•ÍÑ¥½¸¡¹Õ±°¤ìÍ•ÑAÉ…Ñ¥•¹Íİ•È¡¹Õ±°¤ìÍ•ÑAÉ…Ñ¥•½…¡5•ÍÍ…•Ì¡mt¤ìÍ•ÑAÉ…Ñ¥•½µÁ±•Ñ•¡™…±Í”¤ìÍ•ÑAÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”¡™…±Í”¤ìÍ•ÑAÉ…Ñ¥•¥ÍÕÍÍ¥½¸¡™…±Í”¤ìÙ½¥ÍÑ…ÉÑAÉ…Ñ¥” ‰µÄˆ¤ìõôû’â/’â¦†0ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰Í•½¹‘…Éäˆ½¹±¥¬õì ¤€ôøìÍ•ÑAÉ…Ñ¥•½µÁ±•Ñ•¡™…±Í”¤ìÍ•ÑAÉ…Ñ¥•I•…‘åQ½½µÁ±•Ñ”¡™…±Í”¤ìÍ•ÑAÉ…Ñ¥•¥ÍÕÍÍ¥½¸¡ÑÉÕ”¤ìÉ•ÅÕ•ÍÑ¹¥µ…Ñ¥½¹É…µ”  ¤€ôø½µÁ½Í•É%¹ÁÕÑI•˜¹ÕÉÉ•¹Ğü¹™½ÕÌ ¤¤ìõôûæóê3¢¢;¢®[šr³¦†0ğ½‰ÕÑÑ½¸øğ½‘¥Øø(€€€€€€€€€€ğ½Í•Ñ¥½¸ùô(€€€€€€€€€ì…Ñ¡¥¹­¥¹œ€˜˜‘…¥±å¡½¥•Y¥Í¥‰±”€˜˜å•ÍÑ•É‘…ä€˜˜µ•ÍÍ…•Ì¹…Ğ ´Ä¤ü¹É½±”€ôôô€‰µ•¹Ñ½Èˆ€˜˜€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰‘…¥±äµ¡…¹‘½™˜ˆ…É¥„µ±…‰•°ô‹šb£š^—–¶ãşKš:—ê3¦ãšNˆø(€€€€€€€€€€€€ñ‘¥Øøñˆû’î+–’§¢šš;¦êóš:—ê3¾ò|ğ½ˆøñÍÁ…¸ùíå•ÍÑ•É‘…ä¹¥¹½µÁ±•Ñ•Q…Í­Ì¹±•¹Ñ €üƒšb£–’§¦
+šr$€‘íå•ÍÑ•É‘…ä¹¥¹½µÁ±•Ñ•Q…Í­Ì¹±•¹Ñ¡ôƒ¦‚šr«–º3š"A€€è€‹šb£–’§j–¶ãşKÒ¦2–ŞË’şw–¶`‰ôğ½ÍÁ…¸øğ½‘¥Øø(€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰‘…¥±äµ¡…¹‘½™˜µ…Ñ¥½¹Ìˆø(€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥Í•¹ ‹š"GšÏæóê3šb£–’§j¦Ë–ê›¾ò3¢®/–#–F+¢¢Óš"Gšb£–’§–º3š"C–"Ã–N«¢‡¾ò3–7–ú{šr«–º3š"Cj’îï–.gš"[šr–ú3š:—ê3¦î{¦Z/–/ˆ¥ôûæóê3šb£–’§¦Ë–ê˜ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥Í•¹ ‹š"G’î+–’§šÏ¦Z/–/šZÃj–Z»–¾ò3¢®/’úwŸ’î+–’§j’îï–.gnÓš:—–âÛš"G¦Z/–/ˆ¥ôû¦Z/–/’î+–’§šZÃ–Z»–ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥Í•¹ ‹¢®/¢¢š"Gšb£–’§j–¶ãşKš"CšV#¾ò3–#–ë’â–/š"G–>¿’î—nÓš:—–n{¶Sj–Â?–V?¦†3¾ò3’â7¢š–#–³–â¶Sš†#ˆ¥ôû¢¢šb£–’§š"CšV ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€€€ğ½Í•Ñ¥½¸ùô(€€€€€€€€€íÑ¡¥¹­¥¹œ€˜˜€ (€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ•ÍÍ…”µÉ½Üµ•¹Ñ½Èˆø(€€€€€€€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”ô‰µ•¹Ñ½Èµ…Ù…Ñ…Èˆû–ú,ğ½ÍÁ…¸ø(€€€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ•ÍÍ…”µ‰Õ‰‰±”ÑåÁ¥¹œˆøñ¤€¼øñ¤€¼øñ¤€¼øğ½‘¥Øø(€€€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€€€¥ô(€€€€€€€€€€ñ‘¥ØÉ•˜õí•¹‘I•™ô€¼ø(€€€€€€€€ğ½‘¥Øø((€€€€€€€í™••‘‰…­Q…É•Ğ€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰™••‘‰…¬µ‘¥…±½œµ‰…­‘É½Àˆ½¹5½ÕÍ•½İ¸õì ¤€ôø€…™••‘‰…­M…Ù¥¹œ€˜˜Í•Ñ••‘‰…­Q…É•Ğ¡¹Õ±°¥ôøñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰™••‘‰…¬µ‘¥…±½œˆÉ½±”ô‰‘¥…±½œˆ…É¥„µµ½‘…°ô‰ÑÉÕ”ˆ½¹5½ÕÍ•½İ¸õì¡•Ù•¹Ğ¤€ôø•Ù•¹Ğ¹ÍÑ½ÁAÉ½Á……Ñ¥½¸ ¥ôøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰™••‘‰…¬µ‘¥…±½œµ±½Í”ˆ½¹±¥¬õì ¤€ôøÍ•Ñ••‘‰…­Q…É•Ğ¡¹Õ±°¥ô…É¥„µ±…‰•°ô‹¦^s¦Z$ˆû\ğ½‰ÕÑÑ½¸øñÍÁ…¸û–6S–*§¢–â¯’â¢Ößš*+¶Sš†#’ş»–ú_šnÓ––ôğ½ÍÁ…¸øñ Èû¦g–&$ƒ–*§šVg–n{¶S¦2¿–r£–N«¢‡¾ò|ğ½ Èøñ±…‰•°±…ÍÍ9…µ”ô‰™••‘‰…¬µÍÑ…ÉÌˆû¢¦W–"ñ‘¥ØùílÄ°È°Ì°Ğ°Õt¹µ…À ¡Í½É”¤€ôø€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”õíÍ½É”€ğô™••‘‰…­I…Ñ¥¹œ€ü€‰Í•±•Ñ•ˆ€è€ˆ‰ô½¹±¥¬õì ¤€ôøÍ•Ñ••‘‰…­I…Ñ¥¹œ¡Í½É”¥ô­•äõíÍ½É•ôûŠbğ½‰ÕÑÑ½¸ø¥ôğ½‘¥Øøğ½±…‰•°øñ™¥•±‘Í•Ğøñ±••¹û–>¿¢’¦ã¦2¿¢ª“¦†{–z,ğ½±••¹ùíml‰µ¥ÍÍ¥¹}¥ÍÍÕ”ˆ°‹šò?š:'¦7¢š"·¦îx‰t±l‰İÉ½¹}±…Üˆ°‹šÎWšŠwš"[ö«–B7¦2¿¢ª‰t±l‰İÉ½¹}…ÁÁ±¥…Ñ¥½¸ˆ°‹šÚ×šRw’â7²›–B#¦†3n»’ê/–¾˜‰t±l‰Õ¹±•…É}½¹±ÕÍ¥½¸ˆ°‹ÖC¢®[’â7šb;Šè‰t±l‰½¹™±¥ÑÍ}Í½ÕÉ”ˆ°‹¢"šVgšvC¾ò?¢–â¯šN³¶S’â7’â¢Ğ‰t±l‰¡…É‘}Ñ½}Õ¹‘•ÉÍÑ…¹ˆ°‹¢ª«šb;–’«¦nš"[’â7–’ƒšâš–h‰t±l‰½Ñ¡•Èˆ°‹–Û’î[¦2¿¢ª‰ut¹µ…À ¡mÙ…±Õ”±±…‰•±t¤€ôø€ñ±…‰•°­•äõíÙ…±Õ•ôøñ¥¹ÁÕĞÑåÁ”ô‰¡•­‰½àˆ¡•­•õí™••‘‰…­QåÁ•Ì¹¥¹±Õ‘•Ì¡Ù…±Õ”¥ô½¹¡…¹”õì ¤€ôøÍ•Ñ••‘‰…­QåÁ•Ì ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ¹¥¹±Õ‘•Ì¡Ù…±Õ”¤€üÕÉÉ•¹Ğ¹™¥±Ñ•È ¡¥Ñ•´¤€ôø¥Ñ•´€„ôôÙ…±Õ”¤€èl¸¸¹ÕÉÉ•¹Ğ°Ù…±Õ•t¥ô€¼ùí±…‰•±ôğ½±…‰•°ø¥ôğ½™¥•±‘Í•Ğøñ±…‰•°±…ÍÍ9…µ”ô‰™••‘‰…¬µ¹½Ñ”ˆû¢s–¢ª«šb8ñÑ•áÑ…É•„Ù…±Õ”õí™••‘‰…­9½Ñ•ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•Ñ••‘‰…­9½Ñ”¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ôÉ½İÌõìÑôÁ±…•¡½±‘•Èô‹¢®/–F+¢¢Óš"G–D$ƒ–*§šVg¦2¿–r£–N«¢‡¾ò3š"[¢Êó’â+’öƒ¢ª7
+ëš¶ŠëjBRÇˆ€¼øğ½±…‰•°øñ‘¥Ø±…ÍÍ9…µ”ô‰™••‘‰…¬µ‘¥…±½œµ…Ñ¥½¹Ìˆøñ‰ÕÑÑ½¸‘¥Í…‰±•õí™••‘‰…­M…Ù¥¹ô½¹±¥¬õì ¤€ôøÙ½¥Í•¹‘••‘‰…¬¡™••‘‰…­Q…É•Ğ¹µ•ÍÍ…”°™••‘‰…­Q…É•Ğ¹¥¹‘•à°™••‘‰…­QåÁ•Ì¹¥¹±Õ‘•Ì ‰¡…É‘}Ñ½}Õ¹‘•ÉÍÑ…¹ˆ¤€˜˜™••‘‰…­QåÁ•Ì¹±•¹Ñ €ôôô€Ä€ü€‰Õ¹±•…Èˆ€è€‰¥¹½ÉÉ•Ğˆ¥ôû–>«¦Ö›¢–â¯Šë¢ª4ğ½‰ÕÑÑ½¸ùì½±Õ¹„½¤¹Ñ•ÍĞ¡™••‘‰…­Q…É•Ğ¹µ•ÍÍ…”¹µ½‘•°€üü€‰±Õ¹„ˆ¤€˜˜€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰…Í¬µÍ½°µ‰ÕÑÑ½¸ˆ‘¥Í…‰±•õí™••‘‰…­M…Ù¥¹ô½¹±¥¬õì ¤€ôøÙ½¥Í•¹‘••‘‰…¬¡™••‘‰…­Q…É•Ğ¹µ•ÍÍ…”°™••‘‰…­Q…É•Ğ¹¥¹‘•à°€‰¥¹½ÉÉ•Ğˆ°ÑÉÕ”¥ôûŠr˜ƒ¢®,M½°ƒ–¶ã¦rã®/–6Ï¢¦WšZÜğ½‰ÕÑÑ½¸ùôğ½‘¥ØøñÍµ…±°û¦–ë–ú3¦Ë–—–úšª‹š~—¾òmM½°ƒ¢šš‚ã’â7¢÷–>[’î¢–â¯jšrÖŠë¢ª7ğ½Íµ…±°øğ½Í•Ñ¥½¸øğ½‘¥Øùô((€€€€€€€ì…ÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜Í½ÕÉ”€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰…¹Íİ•ÈµÍ½ÕÉ”ˆûšr³š²‡–n{¶S¾òiíÍ½ÕÉ”€ôôô€‹šVgšv@ˆ€ü€‹’úw–æÏ–>ÃšVgšvCšVÓBˆ€è€‹–æÏ–>ÃšVgšvCšr«–F÷’â·¾ò3’öÿR $ƒ’â¢"³~—¢¶c¢s–‰õíÍ¡½İ½ÍÑÌ€˜˜±…ÍÑUÍ…”€ü€ñÍÁ…¸±…ÍÍ9…µ”ô‰™É½¹Ñ•¹µ½ÍĞˆøƒ
+Üí±…ÍÑUÍ…”¹µ½‘•°¹É•Á±…” ‰ÁĞ´Ô¸Ø´ˆ°€ˆˆ¥ôƒ
+Üí±…ÍÑUÍ…”¹¥¹ÁÕÑQ½­•¹Ì€¬±…ÍÑUÍ…”¹½ÕÑÁÕÑQ½­•¹ÍôÑ½­•¹Ìƒ
+ÜULí±…ÍÑUÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¹Ñ½¥á• Ô¥ôƒ
+ÜƒÒ9Pí™½Éµ…ÑQİ¡±…ÍÑUÍ…”¹•ÍÑ¥µ…Ñ•‘½ÍÑUÍ¥ôğ½ÍÁ…¸ø€è¹Õ±±ôğ½‘¥Øùô((€€€€€€ğ½Í•Ñ¥½¸ø((€€€€€€ñ…Í¥‘”±…ÍÍ9…µ”ô‰½µµ…¹µÉ…¥°ˆ¥ô‰½µµ…¹µÉ…¥°ˆ…É¥„µ±…‰•°ô‹’ösš"Ã¢Î¢¢+–Óš²ˆø(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ½‰¥±”µÉ…¥°µ¡•…ˆø(€€€€€€€€€€ñÍÑÉ½¹œû–¶ãşK–Ş—–Üğ½ÍÑÉ½¹œø(€€€€€€€€€€ñ‘¥Øø(€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õíÑ½±•I…¥±M¥‘•ôûŠƒï–"ÁíÉ…¥±M¥‘”€ôôô€‰É¥¡Ğˆ€ü€‹–Ş›–Ğˆ€è€‹–>Ï–Ğ‰ôğ½‰ÕÑÑ½¸ø(€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ5½‰¥±•I…¥±=Á•¸¡™…±Í”¥ô…É¥„µ±…‰•°ô‹¦^s¦Z'’ösš"Ã¢Î¢¢+–Óš²ˆû¦^s¦Z$ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€ğ½‘¥Øø(€€€€€€€€ñ¹…Ø±…ÍÍ9…µ”ô‰µ½‰¥±”µÉ…¥°µÑ…‰Ìˆ…É¥„µ±…‰•°ô‹–"š>o–¶ãşK–Ş—–Üˆø(€€€€€€€€€ì¡l(€€€€€€€€€€€l‰‘¥Ñ¥½¹…Éäˆ°€‹šÎW–à‰t°(€€€€€€€€€€€l‰±¥ÍÑ•¹¥¹œˆ°€‹¢÷¢¦†0‰t°(€€€€€€€€€€€l‰µ……é¥¹”ˆ°€‹¢ºšÎWšVd‰t°(€€€€€€€€€€€l‰µÕÍ¥Œˆ°€‹¦~Ïš¢‰t°(€€€€€€€€€t…ÌÉÉ…äñm5½‰¥±•I…¥±Q½½°°ÍÑÉ¥¹tø¤¹µ…À ¡mÑ½½°°±…‰•±t¤€ôø€ (€€€€€€€€€€€€ñ‰ÕÑÑ½¸(€€€€€€€€€€€€€ÑåÁ”ô‰‰ÕÑÑ½¸ˆ(€€€€€€€€€€€€€É½±”ô‰Ñ…ˆˆ(€€€€€€€€€€€€€…É¥„µÍ•±•Ñ•õíµ½‰¥±•I…¥±Q½½°€ôôôÑ½½±ô(€€€€€€€€€€€€€±…ÍÍ9…µ”õíµ½‰¥±•I…¥±Q½½°€ôôôÑ½½°€ü€‰…Ñ¥Ù”ˆ€è€ˆ‰ô(€€€€€€€€€€€€€½¹±¥¬õì ¤€ôøÍ•Ñ5½‰¥±•I…¥±Q½½°¡Ñ½½°¥ô(€€€€€€€€€€€€€­•äõíÑ½½±ô(€€€€€€€€€€€€ø(€€€€€€€€€€€€€í±…‰•±ô(€€€€€€€€€€€€ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€¤¥ô(€€€€€€€€ğ½¹…Øø(€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰É…¥°µÍİ¥Ñ ˆ½¹±¥¬õíÑ½±•I…¥±M¥‘•ô…É¥„µ±…‰•°õíƒ–Â’ösš"Ã¢Î¢¢+ï–"À‘íÉ…¥±M¥‘”€ôôô€‰É¥¡Ğˆ€ü€‹–Ş˜ˆ€è€‹–>Ì‰÷–ÑôûŠƒï–"ÁíÉ…¥±M¥‘”€ôôô€‰É¥¡Ğˆ€ü€‹–Ş›¦
+(ˆ€è€‹–>Ï¦
+(‰ôğ½‰ÕÑÑ½¸ø(€€€€€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”õíÑ½Àµ‘¥Ñ¥½¹…Éäµ…ÉÉ…¥°µ‘¥Ñ¥½¹…Éäµ…Éµ½‰¥±”µÉ…¥°µÁ…¹•°€‘íµ½‰¥±•I…¥±Q½½°€ôôô€‰‘¥Ñ¥½¹…Éäˆ€ü€‰µ½‰¥±”µ…Ñ¥Ù”ˆ€è€ˆ‰õô…É¥„µ±…‰•°ô‹šÎW–ú/¢ú·–àˆø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ½Àµ‘¥Ñ¥½¹…Éäµ¥¹ÑÉ¼ˆøñ‘¥Ø±…ÍÍ9…µ”ô‰É…¥°µÑ¥Ñ±”ˆøñÍÑÉ½¹œûšÎW–ú/¢ú·–àğ½ÍÑÉ½¹œøñ„¡É•˜ô‰¡ÑÑÁÌè¼½Ñ•ÉµÌ¹©Õ‘¥¥…°¹½Ø¹ÑÜ¼ˆÑ…É•Ğô‰}‰±…¹¬ˆÉ•°ô‰¹½É•™•ÉÉ•Èˆû–>ãšÎW¦f‹’úšê@ƒŠ\ğ½„øğ½‘¥ØøñÀûš~—’â–/šÎW–ú/–B7¢¦{¾ò3š"[¢ºL$ƒ¦j£š¦š*÷’â–/–>ã–ú/–âã¢š/R£¢ª{ğ½Àøğ½‘¥Øø(€€€€€€€€€í‘¥Ñ¥½¹…Éå•…ÑÕÉ•€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ½Àµ‘¥Ñ¥½¹…Éäµ™•…ÑÕÉ•ˆøñ‘¥ØøñÍÁ…¸ù$ƒ’î+š^—¦j£š¦|ğ½ÍÁ…¸øñÍÑÉ½¹œùí‘¥Ñ¥½¹…Éå•…ÑÕÉ•¹Ñ•Éµôğ½ÍÑÉ½¹œøğ½‘¥ØøñÀùí‘¥Ñ¥½¹…Éå•…ÑÕÉ•¹½¹Ñ•¹Ñôğ½Àøñ‘¥Øøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õíÑ•…¡•…ÑÕÉ•‘¥Ñ¥½¹…ÉåQ•Éµôû¢ºL$ƒšVgš"Dğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥±½…‘I…¹‘½µ¥Ñ¥½¹…Éä ¥ô‘¥Í…‰±•õí‘¥Ñ¥½¹…Éå•…ÑÕÉ•‘1½…‘¥¹ôùí‘¥Ñ¥½¹…Éå•…ÑÕÉ•‘1½…‘¥¹œ€ü€‹š>o¦†3’â·Š˜ˆ€è€‹š>o’â–,‰ôğ½‰ÕÑÑ½¸øğ½‘¥Øøğ½‘¥Øùô(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ½Àµ‘¥Ñ¥½¹…ÉäµÍ•…É ˆøñ™½É´½¹MÕ‰µ¥ĞõíÍ•…É¡¥Ñ¥½¹…Éåôøñ¥¹ÁÕĞÙ…±Õ”õí‘¥Ñ¥½¹…ÉåQ•Éµô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•Ñ¥Ñ¥½¹…ÉåQ•É´¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ôÁ±…•¡½±‘•Èô‹’ú/–š¾òkš¾S’ú/–:–&š*_–F+Îï"´ˆ…É¥„µ±…‰•°ô‹¢òã–—šÎW–ú/–B7¢¦xˆ€¼øñ‰ÕÑÑ½¸‘¥Í…‰±•õí‘¥Ñ¥½¹…Éå1½…‘¥¹ôùí‘¥Ñ¥½¹…Éå1½…‘¥¹œ€ü€‹š~—¢¦‹’â·Š˜ˆ€è€‹š~—¢ú·–à‰ôğ½‰ÕÑÑ½¸øğ½™½É´ùí‘¥Ñ¥½¹…Éå9½Ñ¥”€˜˜€ñÍµ…±°±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…Éäµ¹½Ñ¥”ˆùí‘¥Ñ¥½¹…Éå9½Ñ¥•ôğ½Íµ…±°ùõí‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…ÉäµÉ•ÍÕ±Ğˆøñ‘¥Ø±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…ÉäµÉ•ÍÕ±Ğµ¡•…‘¥¹œˆøñÍÑÉ½¹œùí‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ¹Ñ•Éµôğ½ÍÑÉ½¹œøñÍÁ…¸ùí‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ¹Í½ÕÉ•1…‰•±ôğ½ÍÁ…¸øğ½‘¥ØøñÀùí‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ¹½¹Ñ•¹Ñôğ½Àùí‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ¹Í½ÕÉ•9½Ñ”€˜˜€ñÍµ…±°±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…ÉäµÍ½ÕÉ”µ¹½Ñ”ˆùí‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ¹Í½ÕÉ•9½Ñ•ôğ½Íµ…±°ùôñ‘¥Ø±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…ÉäµÉ•ÍÕ±Ğµ…Ñ¥½¹Ìˆøñ„¡É•˜õí‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ¹Í½ÕÉ•UÉ±ôÑ…É•Ğô‰}‰±…¹¬ˆÉ•°ô‰¹½É•™•ÉÉ•Èˆ…É¥„µ±…‰•°õíƒš~—r,‘í‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ¹Ñ•Éµ÷–º3šVÓ¢¦{šŠuôûr/–£šZğ½„øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õíÑ•…¡¥Ñ¥½¹…ÉåQ•Éµôûf÷¢¦Ç¢šz@ğ½‰ÕÑÑ½¸øğ½‘¥Øøğ½‘¥Øùõí‘¥Ñ¥½¹…Éå9½Ñ¥”€˜˜€…‘¥Ñ¥½¹…ÉåI•ÍÕ±Ğ€˜˜‘¥Ñ¥½¹…ÉåQ•É´¹ÑÉ¥´ ¤€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…ÉäµÉ•ÍÕ±Ğ‘¥Ñ¥½¹…Éäµ…¤µ™…±±‰…¬ˆøñ‘¥Ø±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…ÉäµÉ•ÍÕ±Ğµ¡•…‘¥¹œˆøñÍÑÉ½¹œùí‘¥Ñ¥½¹…ÉåQ•É´¹ÑÉ¥´ ¥ôğ½ÍÑÉ½¹œøñÍÁ…¸ù$ƒšVÓBğ½ÍÁ…¸øğ½‘¥ØøñÀû–’[¦£¢¦{–ãn»–&7šÊKšr'–>¿–òWR£j¢¦{šŠw¾òo–>¿’î—¢®,$ƒ’úw–>ã–ú/¢¢¦›¢#Ö‡–#–kf÷¢¦Ç¢ª«šb;ğ½Àøñ‘¥Ø±…ÍÍ9…µ”ô‰‘¥Ñ¥½¹…ÉäµÉ•ÍÕ±Ğµ…Ñ¥½¹Ìˆøñ„¡É•˜ô‰¡ÑÑÁÌè¼½Ñ•ÉµÌ¹©Õ‘¥¥…°¹½Ø¹ÑÜ¼ˆÑ…É•Ğô‰}‰±…¹¬ˆÉ•°ô‰¹½É•™•ÉÉ•Èˆû–>ãšÎW¦f‹¢¦{–àğ½„øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õíÑ•…¡U¹­¹½İ¹¥Ñ¥½¹…ÉåQ•Éµôù$ƒ¢¦,ğ½‰ÕÑÑ½¸øğ½‘¥Øøğ½‘¥Øùôğ½‘¥Øø(€€€€€€€€ğ½Í•Ñ¥½¸ø(€€€€€€€€ñ…ÉÑ¥±”±…ÍÍ9…µ”õí¡½µ”µ•‘¥Ñ½É¥…°µ…ÉÉ…¥°µ•‘¥Ñ½É¥…°µ…Éµ½‰¥±”µÉ…¥°µÁ…¹•°€‘íµ½‰¥±•I…¥±Q½½°€ôôô€‰±¥ÍÑ•¹¥¹œˆ€ü€‰µ½‰¥±”µ…Ñ¥Ù”ˆ€è€ˆ‰õôøñ‘¥Ø±…ÍÍ9…µ”ô‰½±Õµ¸µ­¥­•Èˆù1%MQ9%9M=1UQ%=8ğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰¡½µ”µ•‘¥Ñ½É¥…°µ¡•…ˆøñ‘¥Øøñ Èû¢÷¢¦†3–Â#–6 ğ½ ÈøñÍÁ…¸ùí¡½µ•••ü¹±¥ÍÑ•¹¥¹œ€ü€‘í¡½µ•••¹±¥ÍÑ•¹¥¹œ¹å•…Éôƒ
+Ü€‘í¡½µ•••¹±¥ÍÑ•¹¥¹œ¹ÍÕ‰©•Ñõ€€è€‹š*+¢¦†3¢º+š"C–>¿’î—–>7¢š¢÷j–¶ãşKšº×¢Bô‰ôğ½ÍÁ…¸øğ½‘¥Øøñ¤ùí¡½µ•••ü¹±¥ÍÑ•¹¥¹œ€ü€‹ŠZØˆ€è€‹¢ô‰ôğ½¤øğ½‘¥Øùí¡½µ•••ü¹±¥ÍÑ•¹¥¹œ€ü€ğøñÀû–#¢÷¢–â¯š*O"·¦î{¾ò3–7–n{–¶ãşK–Â#–6š:—ê3’î+–’§j¦†3n»ğ½Àøñ1¥ÍÑ•¹¥¹A±…å•È¥Ñ•´õí¡½µ•••¹±¥ÍÑ•¹¥¹ô½µÁ…Ğ€¼øğ¼ø€è€ñÀ±…ÍÍ9…µ”ô‰½±Õµ¸µ•µÁÑäˆû–ú3–>Ã–Âkšr«fó–â–>¿šJ·šRûj¢÷¢¦†3¦~ÏšªSğ½Àùôğ½…ÉÑ¥±”ø(€€€€€€€€ñ…ÉÑ¥±”±…ÍÍ9…µ”õí¡½µ”µ•‘¥Ñ½É¥…°µ…ÉÉ…¥°µ•‘¥Ñ½É¥…°µ…ÉÉ…¥°µµ……é¥¹”µ…Éµ½‰¥±”µÉ…¥°µÁ…¹•°€‘íµ½‰¥±•I…¥±Q½½°€ôôô€‰µ……é¥¹”ˆ€ü€‰µ½‰¥±”µ…Ñ¥Ù”ˆ€è€ˆ‰õôøñ‘¥Ø±…ÍÍ9…µ”ô‰½±Õµ¸µ­¥­•Èˆù1\1MMI==4ğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰¡½µ”µ•‘¥Ñ½É¥…°µ¡•…ˆøñ‘¥Øøñ Èû¢ºšÎWšVdğ½ ÈøñÍÁ…¸û–"š>ošZ®ƒ¾ò3–7š2'3"·¦î{¢šzC7–¶ãşKš‚ã–ş"·¦îxğ½ÍÁ…¸øğ½‘¥Øøñ¤ûšÎTğ½¤øğ½‘¥Øùí¡½µ•••ü¹µ……é¥¹”€ü€ğøñÍÑÉ½¹œùí¡½µ•••¹µ……é¥¹”¹Ñ¥Ñ±•ôğ½ÍÑÉ½¹œùíµ……é¥¹•ÉÑ¥±•Ì¹±•¹Ñ €ø€Ä€ü€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ……é¥¹”µÑ…‰ÌˆÉ½±”ô‰Ñ…‰±¥ÍĞˆ…É¥„µ±…‰•°ô‹šÎW–¶ãšVg–º“šZ®ƒ–"š>lˆùíµ……é¥¹•ÉÑ¥±•Ì¹µ…À ¡…ÉÑ¥±”°¥¹‘•à¤€ôø€ñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆÉ½±”ô‰Ñ…ˆˆ…É¥„µÍ•±•Ñ•õíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”ü¹¥€ôôô…ÉÑ¥±”¹¥‘ô±…ÍÍ9…µ”õíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”ü¹¥€ôôô…ÉÑ¥±”¹¥€ü€‰…Ñ¥Ù”ˆ€è€ˆ‰ô½¹±¥¬õì ¤€ôøÍ•ÑM•±•Ñ•‘5……é¥¹•ÉÑ¥±•%¡…ÉÑ¥±”¹¥¥ô­•äõí…ÉÑ¥±”¹¥‘ôùí¥¹‘•à€¬€Åôğ½‰ÕÑÑ½¸ø¥ôğ½‘¥Øø€è¹Õ±±õíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”€ü€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ……é¥¹”µ…ÉÑ¥±”µÁ…¹•°ˆÉ½±”ô‰Ñ…‰Á…¹•°ˆøñ‘¥Ø±…ÍÍ9…µ”ô‰µ……é¥¹”µ…ÉÑ¥±”µ½Áäˆøñ ÌùíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”¹Ñ¥Ñ±•ôğ½ ÌùíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”¹ÍÕµµ…Éä€˜˜€ñÀ±…ÍÍ9…µ”ô‰µ……é¥¹”µ…ÉÑ¥±”µÍÕµµ…ÉäˆøñˆûšFc¢šğ½ˆùíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”¹ÍÕµµ…Éåôğ½Àùôğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰µ……é¥¹”µ…ÉÑ¥±”µ…Ñ¥½¹Ìˆøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôø…Í­5……é¥¹•ÉÑ¥±”¡Í•±•Ñ•‘5……é¥¹•ÉÑ¥±”¥ôû"·¦î{¢šz@ğ½‰ÕÑÑ½¸ùíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”¹Í½ÕÉ•UÉ°€ü€ñ„¡É•˜õíÍ•±•Ñ•‘5……é¥¹•ÉÑ¥±”¹Í½ÕÉ•UÉ±ôÑ…É•Ğô‰}‰±…¹¬ˆÉ•°ô‰¹½É•™•ÉÉ•Èˆûš~—r/¦g¾¢¦›¢º AƒŠ\ğ½„ø€è¹Õ±±ôğ½‘¥Øøğ½‘¥Øø€è€ñÀ±…ÍÍ9…µ”ô‰½±Õµ¸µ•µÁÑäˆûšr³šršZ®ƒš¶–r£šVÓB’â·ğ½Àùôñ„¡É•˜õí¡½µ•••¹µ……é¥¹”¹Í½ÕÉ•UÉ±ôÑ…É•Ğô‰}‰±…¹¬ˆÉ•°ô‰¹½É•™•ÉÉ•Èˆûš~—r/šr³šršÎW–¶ãšVg–º“’úšê@ƒŠHğ½„øğ¼ø€è€ñÀ±…ÍÍ9…µ”ô‰½±Õµ¸µ•µÁÑäˆû–ú3–>Ã–2¿–—’â›fó–âšÎW–¶ãšVg–º“¢¦›¢º–Ÿ–ºç–ú3¾ò3šršZÃ–Â#–6šr–ë>û–r£¦g¢‡ğ½Àùôğ½…ÉÑ¥±”ø(€€€€€€€€ñ…ÉÑ¥±”±…ÍÍ9…µ”õí¡½µ”µ•‘¥Ñ½É¥…°µ…ÉÉ…¥°µ•‘¥Ñ½É¥…°µ…ÉÉ…¥°µµÕÍ¥Œµ…Éµ½‰¥±”µÉ…¥°µÁ…¹•°€‘íµ½‰¥±•I…¥±Q½½°€ôôô€‰µÕÍ¥Œˆ€ü€‰µ½‰¥±”µ…Ñ¥Ù”ˆ€è€ˆ‰õôøñ‘¥Ø±…ÍÍ9…µ”ô‰½±Õµ¸µ­¥­•Èˆù=UL5UM%ğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰¡½µ”µ•‘¥Ñ½É¥…°µ¡•…ˆøñ‘¥Øøñ Èû¢ºšnã¦~Ïš¢ğ½ ÈøñÍÁ…¸ùíµÕÍ¥A±…å¥¹œ€ü€‹šJ·šRû’â´ƒ
+Üƒ–7š2'’âš²‡–sš¶ˆˆ€è€‹¦r¢ššf–7¦Z/–V|ƒ
+Üƒ¢®/¦î{šN+šJ·šRû¦~Ïš¢‰ôğ½ÍÁ…¸øğ½‘¥Øøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰µÕÍ¥ŒµÁ±…äµ‰ÕÑÑ½¸ˆ½¹±¥¬õíÑ½±•5ÕÍ¥ô…É¥„µ±…‰•°õíµÕÍ¥A±…å¥¹œ€ü€‹–sš¶‹¢ºšnã¦~Ïš¢ˆ€è€‹¦î{šN+šJ·šRû¢ºšnã¦~Ïš¢‰ôøñÍÁ…¸ùíµÕÍ¥A±…å¥¹œ€ü€‹ŠZ€ˆ€è€‹ŠZØ‰ôğ½ÍÁ…¸øñˆùíµÕÍ¥A±…å¥¹œ€ü€‹–sš¶‹¦~Ïš¢ˆ€è€‹šJ·šRû¦~Ïš¢‰ôğ½ˆøğ½‰ÕÑÑ½¸øğ½‘¥Øùíå½ÕÑÕ‰•µ‰•‘UÉ°¡¡½µ•••ü¹™½ÕÍ5ÕÍ¥UÉ°€üü€ˆˆ¤€ü€ğøñ¥™É…µ”±…ÍÍ9…µ”õíµÕÍ¥Œµ¥™É…µ”€‘íµÕÍ¥Ñ¥Ù…Ñ•€ü€‰¥Ìµ…Ñ¥Ù”ˆ€è€ˆ‰õôÑ¥Ñ±”ô‹–>ã–ú/–
+g¢¢ºšnã¦~Ïš¢ˆÍÉŒõíå½ÕÑÕ‰•µ‰•‘UÉ°¡¡½µ•••ü¹™½ÕÍ5ÕÍ¥UÉ°€üü€ˆˆ¥ô…±±½Üô‰…•±•É½µ•Ñ•Èì…ÕÑ½Á±…äì±¥Á‰½…ÉµİÉ¥Ñ”ì•¹ÉåÁÑ•µµ•‘¥„ìåÉ½Í½Á”ìÁ¥ÑÕÉ”µ¥¸µÁ¥ÑÕÉ”ìİ•ˆµÍ¡…É”ˆÉ•™•ÉÉ•ÉA½±¥äô‰ÍÑÉ¥Ğµ½É¥¥¸µİ¡•¸µÉ½ÍÌµ½É¥¥¸ˆ…±±½İÕ±±MÉ••¸±½…‘¥¹œô‰•…•Èˆ€¼øñ„±…ÍÍ9…µ”ô‰µÕÍ¥Œµ½Á•¸µ±¥¹¬ˆ¡É•˜õíå½ÕÑÕ‰•]…Ñ¡UÉ°¡¡½µ•••ü¹™½ÕÍ5ÕÍ¥UÉ°€üü€ˆˆ¥ôÑ…É•Ğô‰}‰±…¹¬ˆÉ•°ô‰¹½É•™•ÉÉ•Èˆû‡šÎWšJ·šRûšf¾ò3–r e½ÕQÕ‰”ƒ¦Z/–V|ƒŠ\ğ½„øğ¼ø€è€ñÀ±…ÍÍ9…µ”ô‰½±Õµ¸µ•µÁÑäˆûº‡B–ú3–>Ã¢¢·–ºk¢ºšnã¦~Ïš¢–ú3¾ò3šr–r£¦g¢‡š>C’úošJ·šRûğ½Àùôğ½…ÉÑ¥±”ø(€€€€€€ğ½…Í¥‘”ø(€€€€€€ğ½‘¥Øø((€€€€€€ñ‘¥Ø±…ÍÍ9…µ”õí½µÁ½Í•ÈµİÉ…ÀÉ…¥°´‘íÉ…¥±M¥‘•ô€‘íÉ…¥±½±±…ÁÍ•€ü€‰É…¥°µ½±±…ÁÍ•ˆ€è€ˆ‰õôø(€€€€€€€€ñ‰ÕÑÑ½¸(€€€€€€€€€ÑåÁ”ô‰‰ÕÑÑ½¸ˆ(€€€€€€€€€±…ÍÍ9…µ”õíµ½‰¥±”µÉ…¥°µÑ½±”É…¥°´‘íÉ…¥±M¥‘•õô(€€€€€€€€€½¹±¥¬õì ¤€ôøÍ•Ñ5½‰¥±•I…¥±=Á•¸¡ÑÉÕ”¥ô(€€€€€€€€€…É¥„µ•áÁ…¹‘•õíµ½‰¥±•I…¥±=Á•¹ô(€€€€€€€€€…É¥„µ½¹ÑÉ½±Ìô‰½µµ…¹µÉ…¥°ˆ(€€€€€€€€ø(€€€€€€€€€€ñÍÁ…¸…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆû–Ş—–Üğ½ÍÁ…¸ø(€€€€€€€€€€ñˆû–¶ãşK–Ş—–Üğ½ˆø(€€€€€€€€ğ½‰ÕÑÑ½¸ø(€€€€€€€€€íÕÉÉ•¹Ñ5•µ‰•Èü¹…¹‘µ¥¸€˜˜€ñÍ•Ñ¥½¸±…ÍÍ9…µ”õíµ½‘•°µµ½‘”µÍİ¥Ñ €‘íÍ•ÑÑ¥¹Í½±±…ÁÍ•€ü€‰¥Ìµ½±±…ÁÍ•ˆ€è€ˆ‰õô…É¥„µ±…‰•°ô‰$ƒ–¶ãşK¢¢·–ºhˆø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ½‘•°µµ½‘”µ¡•…‘¥¹œˆøñÍÑÉ½¹œù$ƒ–¶ãşK¢¢·–ºhğ½ÍÑÉ½¹œøñÍÁ…¸±…ÍÍ9…µ”ô‰µ½‘•°µµ½‘”µÍÕµµ…ÉäˆùíÑ•…¡¥¹1•Ù•±1…‰•±ÍmÁ•¹‘¥¹Q•…¡¥¹1•Ù•°€üü€‰•¹•É…°‰uôƒ
+Ü1Õ¹„ğ½ÍÁ…¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰™½±±½ÜµÕÀµ½µÁ…Ğµ‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥•¹•É…Ñ•MÑÕ‘•¹Ñ½±±½İUÀ¡Á•¹‘¥¹Q•…¡¥¹1•Ù•°€üüÕ¹‘•™¥¹•¥ô‘¥Í…‰±•õì……¹•¹•É…Ñ•MÑÕ‘•¹ÑI•Á±äñğÑ¡¥¹­¥¹œñğ•¹•É…Ñ¥¹MÑÕ‘•¹ÑI•Á±äñğ•Ù…±Õ…Ñ¥¹Q•…¡¥¹ô…É¥„µ±…‰•°ô‹¦w–Â7’â+’â–&$ƒ–n{¢šæóê3¢ş÷–V<ˆùí•Ù…±Õ…Ñ¥¹1•Ù•°€ü€‹R‹R’â·Š˜ˆ€è€‹æóê3¢ş÷–V<‰ôğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰µ½‘•°µÍ•ÑÑ¥¹ÌµÑ½±”ˆ½¹±¥¬õì ¤€ôøÍ•ÑM•ÑÑ¥¹Í½±±…ÁÍ• ¡ÕÉÉ•¹Ğ¤€ôøì½¹ÍĞ¹•áĞ€ô€…ÕÉÉ•¹ĞìÍ…Ù•¥M•ÑÑ¥¹Ì¡Á•¹‘¥¹Q•…¡¥¹1•Ù•°€üü€‰•¹•É…°ˆ°€‰±Õ¹„ˆ°Í•ÑÑ¥¹ÍA¥¹¹•°¹•áĞ¤ìÉ•ÑÕÉ¸¹•áĞìô¥ô…É¥„µ•áÁ…¹‘•õì…Í•ÑÑ¥¹Í½±±…ÁÍ•‘ôùíÍ•ÑÑ¥¹Í½±±…ÁÍ•€ü€‹–ÆW¦Z/¢¢·–ºhˆ€è€‹šRÛ–B#¢¢·–ºh‰ôğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ±…ÍÍ9…µ”ô‰¹•ÜµÑ½Á¥Œµ‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥ÍÑ…ÉÑ9•İQ½Á¥Œ ¥ô‘¥Í…‰±•õíÑ¡¥¹­¥¹œñğ•¹•É…Ñ¥¹MÑÕ‘•¹ÑI•Á±äñğ•Ù…±Õ…Ñ¥¹Q•…¡¥¹ôû–>›¦Z/’âï¦†0ğ½‰ÕÑÑ½¸øğ½‘¥Øø(€€€€€€€€€ì…Í•ÑÑ¥¹Í½±±…ÁÍ•€˜˜€ğø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ½‘•°µµ½‘”µ™¥•±‘Ìˆø(€€€€€€€€€€€€ñ±…‰•°øñÍÁ…¸û–¶ãR|ğ½ÍÁ…¸øñÍ•±•ĞÙ…±Õ”õíÁ•¹‘¥¹Q•…¡¥¹1•Ù•°€üü€‰•¹•É…°‰ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•±•ÑQ•…¡¥¹1•Ù•°¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ô‘¥Í…‰±•õíÍ•ÑÑ¥¹ÍA¥¹¹•ñğÑ¡¥¹­¥¹œñğ•¹•É…Ñ¥¹MÑÕ‘•¹ÑI•Á±äñğ•Ù…±Õ…Ñ¥¹Q•…¡¥¹ôø(€€€€€€€€€€€€€€ñ½ÁÑ¥½¸Ù…±Õ”ô‰•¹•É…°ˆùíÑ•…¡¥¹1•Ù•±1…‰•±Ì¹•¹•É…±ôğ½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰‰•¥¹¹•ÈˆùíÑ•…¡¥¹1•Ù•±1…‰•±Ì¹‰•¥¹¹•Éôğ½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰¥¹Ñ•Éµ•‘¥…Ñ”ˆùíÑ•…¡¥¹1•Ù•±1…‰•±Ì¹¥¹Ñ•Éµ•‘¥…Ñ•ôğ½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰…‘Ù…¹•ˆùíÑ•…¡¥¹1•Ù•±1…‰•±Ì¹…‘Ù…¹•‘ôğ½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰ÍÕÁ•ÈˆùíÑ•…¡¥¹1•Ù•±1…‰•±Ì¹ÍÕÁ•Éôğ½½ÁÑ¥½¸ø(€€€€€€€€€€€€ğ½Í•±•Ğøğ½±…‰•°ø(€€€€€€€€€€€€ñ±…‰•°øñÍÁ…¸û–n{¶Pğ½ÍÁ…¸øñÍ•±•ĞÙ…±Õ”ô‰±Õ¹„ˆ‘¥Í…‰±•øñ½ÁÑ¥½¸Ù…±Õ”ô‰±Õ¹„ˆù1Õ¹„ğ½½ÁÑ¥½¸øğ½Í•±•Ğøğ½±…‰•°ø(€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”õíµ½‘•°µÍ•ÑÑ¥¹ÌµÁ¥¸µÉ½Ü€‘íÍ•ÑÑ¥¹ÍA¥¹¹•€ü€‰¥ÌµÁ¥¹¹•ˆ€è€ˆ‰õôø(€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰µ½‘•°µÍ•ÑÑ¥¹ÌµÁ¥¸ˆøñ¥¹ÁÕĞÑåÁ”ô‰¡•­‰½àˆ¡•­•õíÍ•ÑÑ¥¹ÍA¥¹¹•‘ô½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÑ½±•M•ÑÑ¥¹ÍA¥¹¹•¡•Ù•¹Ğ¹Ñ…É•Ğ¹¡•­•¥ô‘¥Í…‰±•õíÑ¡¥¹­¥¹œñğ•¹•É…Ñ¥¹MÑÕ‘•¹ÑI•Á±äñğ•Ù…±Õ…Ñ¥¹Q•…¡¥¹ô€¼øñÍÁ…¸û¢¢c’ö?–¶ãR¢K¢&Èğ½ÍÁ…¸øğ½±…‰•°ø(€€€€€€€€€€€€ñÍµ…±°ù1Õ¹„ƒ
+ë¦š[¦‚–në–ºkš¢‡–z/¾òoš¶“¢¢·–ºk–>«¢¢c’ö?–¶ãR¢K¢&Ëğ½Íµ…±°ø(€€€€€€€€€€ğ½‘¥Øø(€€€€€€€€€€ğ¼ùô(€€€€€€€€ğ½Í•Ñ¥½¸ùô(€€€€€€€í¥µ…•É…™Ğ€˜˜€…•‘¥Ñ¥¹%µ…”€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰¥µ…”µÉ•…‘äˆøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰¥µ…”µÉ•…‘äµÁÉ•Ù¥•Üˆ½¹±¥¬õì ¤€ôøÍ•Ñ‘¥Ñ¥¹%µ…”¡ÑÉÕ”¥ô…É¥„µ±…‰•°ô‹–7š²‡Ş£¢ò¿–r[&ˆøñ¥µœÍÉŒõí¥µ…•É…™Ğ¹ÕÉ±ô…±Ğô‹–ú¦–ëj¦†3n»–r[&ˆ€¼øğ½‰ÕÑÑ½¸øñÍÁ…¸ùí¥µ…•É…™Ğ¹¹…µ•ôñÍµ…±°û–ŞËšê[–
+g¾ò3¦î{–r[&–>¿–7¢ªÿšVĞğ½Íµ…±°øğ½ÍÁ…¸øñ‰ÕÑÑ½¸½¹±¥¬õì ¤€ôøÍ•Ñ%µ…•É…™Ğ¡¹Õ±°¥ô…É¥„µ±…‰•°ô‹ï¦f“–r[&ˆû\ğ½‰ÕÑÑ½¸øğ½‘¥Øùô(€€€€€€€€ñ™½É´±…ÍÍ9…µ”ô‰½µÁ½Í•Èˆ½¹MÕ‰µ¥ĞõíÍÕ‰µ¥Ñô½¹A…ÍÑ”õì¡•Ù•¹Ğ¤€ôøì½¹ÍĞ¥µ…”€ôÉÉ…ä¹™É½´¡•Ù•¹Ğ¹±¥Á‰½…É‘…Ñ„¹¥Ñ•µÌ¤¹™¥¹ ¡¥Ñ•´¤€ôø¥Ñ•´¹ÑåÁ”¹ÍÑ…ÉÑÍ]¥Ñ  ‰¥µ…”¼ˆ¤¤ü¹•ÑÍ¥±” ¤ì¥˜€¡¥µ…”¤ì•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤ì¡½½Í•EÕ•ÍÑ¥½¹%µ…”¡¹•Ü¥±”¡m¥µ…•t°ƒ¢Êó’â+j¦†3n¸´‘í…Ñ”¹¹½Ü ¥ô¹Á¹€°ìÑåÁ”è¥µ…”¹ÑåÁ”ô¤¤ìôõôø(€€€€€€€€€€ñ¥¹ÁÕĞÉ•˜õí¥µ…•%¹ÁÕÑI•™ôÑåÁ”ô‰™¥±”ˆ…•ÁĞô‰¥µ…”¼¨ˆ¡¥‘‘•¸½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøì¡½½Í•EÕ•ÍÑ¥½¹%µ…”¡•Ù•¹Ğ¹Ñ…É•Ğ¹™¥±•Ìü¹lÁt¤ì•Ù•¹Ğ¹ÕÉÉ•¹ÑQ…É•Ğ¹Ù…±Õ”€ô€ˆˆìõô€¼ø(€€€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰…ÑÑ… µ¥µ…”ˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ…É¥„µ±…‰•°ô‹’â+–
+Ïš"[¢Êó’â+–r[&–V?–V?¦†0ˆÑ¥Ñ±”ô‹’â+–
+Ï–r[&¾ò3’æ–>¿nÓš:—š2$ÑÉ°­Xƒ¢Êó’â(ˆ½¹±¥¬õì ¤€ôø¥µ…•%¹ÁÕÑI•˜¹ÕÉÉ•¹Ğü¹±¥¬ ¥ôû¾ò,ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€ñÑ•áÑ…É•„(€€€€€€€€€€€É•˜õí½µÁ½Í•É%¹ÁÕÑI•™ô(€€€€€€€€€€€…É¥„µ±…‰•°ô‹¢òã–—’öƒšÏ–¶ãşKj–Ÿ–ºäˆ(€€€€€€€€€€€Á±…•¡½±‘•ÈõíÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜ÁÉ…Ñ¥•¥ÍÕÍÍ¥½¸€ü€‹¦w–Â7šr³¦†3¢«RÇ¢ş÷–V?¾òm$ƒšrnÓš:—–n{¶S¾ò3’â7šr–7–>7–V<ˆ€èÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜ÁÉ…Ñ¥•½…¡5•ÍÍ…•Ì¹±•¹Ñ €ø€À€ü€‹–n{¶SšVgŞÓj–V?¦†3¾òo’â7~—¦O’æ–>¿’î—¢ª«–6‡–r£–N«¢„ˆ€è€‹–F+¢¢Óš"G’öƒšÏ–¶ã’î¦êó¾ò3š"[nÓš:—¢Êó’â+’â¦O¦†3n»Š›Š˜‰ô(€€€€€€€€€€€Ù…±Õ”õí¥¹ÁÕÑô(€€€€€€€€€€€½¹¡…¹”õì¡•Ù•¹Ğ¤€ôøÍ•Ñ%¹ÁÕĞ¡•Ù•¹Ğ¹Ñ…É•Ğ¹Ù…±Õ”¥ô(€€€€€€€€€€€½¹-•å½İ¸õì¡•Ù•¹Ğ¤€ôøì(€€€€€€€€€€€€€¥˜€¡•Ù•¹Ğ¹­•ä€ôôô€‰¹Ñ•Èˆ€˜˜€…•Ù•¹Ğ¹Í¡¥™Ñ-•ä¤ì(€€€€€€€€€€€€€€€•Ù•¹Ğ¹ÁÉ•Ù•¹Ñ•™…Õ±Ğ ¤ì(€€€€€€€€€€€€€€€¥˜€¡ÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€˜˜ÁÉ…Ñ¥•½…¡5•ÍÍ…•Ì¹±•¹Ñ €ø€À¤Ù½¥…Í­AÉ…Ñ¥•½… ¡¥¹ÁÕĞ¤ì(€€€€€€€€€€€€€€€•±Í”Ù½¥Í•¹¡¥¹ÁÕĞ¤ì(€€€€€€€€€€€€€ô(€€€€€€€€€€€õô(€€€€€€€€€€€É½İÌõìÅô(€€€€€€€€€€¼ø(€€€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰Í•¹µ‰ÕÑÑ½¸ˆÑåÁ”ô‰ÍÕ‰µ¥Ğˆ…É¥„µ±…‰•°ô‹¦–èˆ‘¥Í…‰±•õì …¥¹ÁÕĞ¹ÑÉ¥´ ¤€˜˜€…¥µ…•É…™Ğ¤ñğÑ¡¥¹­¥¹ôûŠDğ½‰ÕÑÑ½¸ø(€€€€€€€€ğ½™½É´ø(€€€€€€€€ñÀùíÁÉ…Ñ¥•EÕ•ÍÑ¥½¸€ü€‹r¦†3’ös¶SBRÇ¢"šVgŞÓ–n{¦–/¦÷’şw–¶c–r£¦g’â’âË–Â7¢¦Äˆ€è€‹šVgšvC–«–#šª‹Òˆƒ
+Üƒš&û’â7–"ÃšfRÄ$ƒ¢s–’â›šâš–kš¢g’è‰ôğ½Àø(€€€€€€ğ½‘¥Øø((€€€€€í¥µ…•É…™Ğ€˜˜•‘¥Ñ¥¹%µ…”€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰¥µ…”µ•‘¥Ñ½Èµ‰…­‘É½ÀˆÉ½±”ô‰‘¥…±½œˆ…É¥„µµ½‘…°ô‰ÑÉÕ”ˆ…É¥„µ±…‰•°ô‹Ş£¢ò¿¦†3n»–r[&ˆøñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰¥µ…”µ•‘¥Ñ½Èˆøñ‘¥Ø±…ÍÍ9…µ”ô‰¥µ…”µ•‘¥Ñ½Èµ¡•…ˆøñ‘¥ØøñÍÑÉ½¹œû¢ªÿšVÓ¦†3n»–r[&ğ½ÍÑÉ½¹œøñÍÁ…¸ûš.[šnÏšZçš†–no¢Kš"[–no¦
++¢ªÿšVÓ¾–r7¾òoš.[šnÏš†–Ÿ–>¿šVÓ¦®Sï–.Tğ½ÍÁ…¸øğ½‘¥Øøñ‰ÕÑÑ½¸½¹±¥¬õì ¤€ôøÍ•Ñ%µ…•É…™Ğ¡¹Õ±°¥ô…É¥„µ±…‰•°ô‹¦^s¦Z$ˆû\ğ½‰ÕÑÑ½¸øğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”õíÉ½ÀµÍÑ…”€‘í¥µ…•É…™Ğ¹•¹¡…¹”€ü€‰•¹¡…¹•ˆ€è€ˆ‰õôÉ•˜õí•‘¥Ñ½ÉI•™ôøñ¥µœÍÉŒõí¥µ…•É…™Ğ¹ÕÉ±ô…±Ğô‹–r[&¢–"¦‚C¢šôˆ±…ÍÍ9…µ”õí5…Ñ ¹…‰Ì¡¥µ…•É…™Ğ¹É½Ñ…Ñ¥½¸€¼€äÀ¤€”€È€ôôô€Ä€ü€‰ÅÕ…ÉÑ•ÈµÑÕÉ¸ˆ€è€ˆ‰ôÍÑå±”õíì€ˆ´µ¥µ…”µÉ½Ñ…Ñ¥½¸ˆè€‘í¥µ…•É…™Ğ¹É½Ñ…Ñ¥½¹õ‘•€ô…ÌI•…Ğ¹MMAÉ½Á•ÉÑ¥•Íô€¼ùì  ¤€ôøì½¹ÍĞ‰½Õ¹‘Ì€ôÉ½Á	½Õ¹‘Ì¡¥µ…•É…™Ğ¹Á½¥¹ÑÌ¤ì½¹ÍĞ¡…¹‘±•ÌèÉÉ…äñì¹…µ”èÉ½Á!…¹‘±”ìàè¹Õµ‰•Èìäè¹Õµ‰•Èôø€ômì¹…µ”è€‰¹Üˆ°àè‰½Õ¹‘Ì¹±•™Ğ°äè‰½Õ¹‘Ì¹Ñ½Àô°ì¹…µ”è€‰¸ˆ°àè€¡‰½Õ¹‘Ì¹±•™Ğ€¬‰½Õ¹‘Ì¹É¥¡Ğ¤€¼€È°äè‰½Õ¹‘Ì¹Ñ½Àô°ì¹…µ”è€‰¹”ˆ°àè‰½Õ¹‘Ì¹É¥¡Ğ°äè‰½Õ¹‘Ì¹Ñ½Àô°ì¹…µ”è€‰”ˆ°àè‰½Õ¹‘Ì¹É¥¡Ğ°äè€¡‰½Õ¹‘Ì¹Ñ½À€¬‰½Õ¹‘Ì¹‰½ÑÑ½´¤€¼€Èô°ì¹…µ”è€‰Í”ˆ°àè‰½Õ¹‘Ì¹É¥¡Ğ°äè‰½Õ¹‘Ì¹‰½ÑÑ½´ô°ì¹…µ”è€‰Ìˆ°àè€¡‰½Õ¹‘Ì¹±•™Ğ€¬‰½Õ¹‘Ì¹É¥¡Ğ¤€¼€È°äè‰½Õ¹‘Ì¹‰½ÑÑ½´ô°ì¹…µ”è€‰ÍÜˆ°àè‰½Õ¹‘Ì¹±•™Ğ°äè‰½Õ¹‘Ì¹‰½ÑÑ½´ô°ì¹…µ”è€‰Üˆ°àè‰½Õ¹‘Ì¹±•™Ğ°äè€¡‰½Õ¹‘Ì¹Ñ½À€¬‰½Õ¹‘Ì¹‰½ÑÑ½´¤€¼€ÈõtìÉ•ÑÕÉ¸€ğøñ‘¥Ø±…ÍÍ9…µ”ô‰É½Àµ™É…µ”ˆÍÑå±”õíì±•™Ğè€‘í‰½Õ¹‘Ì¹±•™Ñô•€°Ñ½Àè€‘í‰½Õ¹‘Ì¹Ñ½Áô•€°İ¥‘Ñ è€‘í‰½Õ¹‘Ì¹É¥¡Ğ€´‰½Õ¹‘Ì¹±•™Ñô•€°¡•¥¡Ğè€‘í‰½Õ¹‘Ì¹‰½ÑÑ½´€´‰½Õ¹‘Ì¹Ñ½Áô•€õô½¹A½¥¹Ñ•É½İ¸õì¡•Ù•¹Ğ¤€ôøìÉ½ÁÉ…µ•É…I•˜¹ÕÉÉ•¹Ğ€ôìÁ½¥¹Ñ•É%è•Ù•¹Ğ¹Á½¥¹Ñ•É%°ÍÑ…ÉÑ`è•Ù•¹Ğ¹±¥•¹Ñ`°ÍÑ…ÉÑdè•Ù•¹Ğ¹±¥•¹Ñd°Á½¥¹ÑÌè¥µ…•É…™Ğ¹Á½¥¹ÑÌ¹µ…À ¡Á½¥¹Ğ¤€ôø€¡ì€¸¸¹Á½¥¹Ğô¤¤ôì•Ù•¹Ğ¹ÕÉÉ•¹ÑQ…É•Ğ¹Í•ÑA½¥¹Ñ•É…ÁÑÕÉ”¡•Ù•¹Ğ¹Á½¥¹Ñ•É%¤ìõô½¹A½¥¹Ñ•É5½Ù”õì¡•Ù•¹Ğ¤€ôøì¥˜€¡•Ù•¹Ğ¹ÕÉÉ•¹ÑQ…É•Ğ¹¡…ÍA½¥¹Ñ•É…ÁÑÕÉ”¡•Ù•¹Ğ¹Á½¥¹Ñ•É%¤¤µ½Ù•É½ÁÉ…µ”¡•Ù•¹Ğ¹±¥•¹Ñ`°•Ù•¹Ğ¹±¥•¹Ñd¤ìõô½¹A½¥¹Ñ•ÉUÀõì ¤€ôøìÉ½ÁÉ…µ•É…I•˜¹ÕÉÉ•¹Ğ€ô¹Õ±°ìõôøñÍÁ…¸û’şwVg¾–r4ğ½ÍÁ…¸øğ½‘¥Øùí¡…¹‘±•Ì¹µ…À ¡¡…¹‘±”¤€ôø€ñ‰ÕÑÑ½¸­•äõí¡…¹‘±”¹¹…µ•ô±…ÍÍ9…µ”õíÉ½Àµ¡…¹‘±”É½Àµ¡…¹‘±”´‘í¡…¹‘±”¹¹…µ•õôÍÑå±”õíì±•™Ğè€‘í¡…¹‘±”¹áô•€°Ñ½Àè€‘í¡…¹‘±”¹åô•€õô…É¥„µ±…‰•°õíƒ¢ªÿšVÓ¢–"š†€‘í¡…¹‘±”¹¹…µ•õô½¹A½¥¹Ñ•É½İ¸õì¡•Ù•¹Ğ¤€ôøì•Ù•¹Ğ¹ÍÑ½ÁAÉ½Á……Ñ¥½¸ ¤ì•Ù•¹Ğ¹ÕÉÉ•¹ÑQ…É•Ğ¹Í•ÑA½¥¹Ñ•É…ÁÑÕÉ”¡•Ù•¹Ğ¹Á½¥¹Ñ•É%¤ìõô½¹A½¥¹Ñ•É5½Ù”õì¡•Ù•¹Ğ¤€ôøì¥˜€¡•Ù•¹Ğ¹ÕÉÉ•¹ÑQ…É•Ğ¹¡…ÍA½¥¹Ñ•É…ÁÑÕÉ”¡•Ù•¹Ğ¹Á½¥¹Ñ•É%¤¤µ½Ù•É½Á!…¹‘±”¡¡…¹‘±”¹¹…µ”°•Ù•¹Ğ¹±¥•¹Ñ`°•Ù•¹Ğ¹±¥•¹Ñd¤ìõô€¼ø¥ôğ¼øìô¤ ¥ôğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰¥µ…”µÑ½½±Ìˆøñ‰ÕÑÑ½¸½¹±¥¬õì ¤€ôøÍ•Ñ%µ…•É…™Ğ ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ€üì€¸¸¹ÕÉÉ•¹Ğ°É½Ñ…Ñ¥½¸èÕÉÉ•¹Ğ¹É½Ñ…Ñ¥½¸€´€äÀô€èÕÉÉ•¹Ğ¥ôûŠØƒ–Ş›¢ö$ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸½¹±¥¬õì ¤€ôøÍ•Ñ%µ…•É…™Ğ ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ€üì€¸¸¹ÕÉÉ•¹Ğ°É½Ñ…Ñ¥½¸èÕÉÉ•¹Ğ¹É½Ñ…Ñ¥½¸€¬€äÀô€èÕÉÉ•¹Ğ¥ôûŠÜƒ–>Ï¢ö$ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸±…ÍÍ9…µ”õí¥µ…•É…™Ğ¹•¹¡…¹”€ü€‰…Ñ¥Ù”ˆ€è€ˆ‰ô½¹±¥¬õì ¤€ôøÍ•Ñ%µ…•É…™Ğ ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ€üì€¸¸¹ÕÉÉ•¹Ğ°•¹¡…¹”è€…ÕÉÉ•¹Ğ¹•¹¡…¹”ô€èÕÉÉ•¹Ğ¥ôûŠr˜ƒ–*ƒ–òß–r[&ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸½¹±¥¬õì ¤€ôøÍ•Ñ%µ…•É…™Ğ ¡ÕÉÉ•¹Ğ¤€ôøÕÉÉ•¹Ğ€üì€¸¸¹ÕÉÉ•¹Ğ°É½Ñ…Ñ¥½¸è€À°•¹¡…¹”è™…±Í”°Á½¥¹ÑÌèmìàè€Ø°äè€Øô°ìàè€äĞ°äè€Øô°ìàè€äĞ°äè€äĞô°ìàè€Ø°äè€äĞõtô€èÕÉÉ•¹Ğ¥ôû¦7¢¢´ğ½‰ÕÑÑ½¸øğ½‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰¥µ…”µ•‘¥Ñ½Èµ…Ñ¥½¹Ìˆøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰Í•½¹‘…Éäˆ½¹±¥¬õì ¤€ôøÍ•Ñ%µ…•É…™Ğ¡¹Õ±°¥ôû–>[šÚ ğ½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸½¹±¥¬õì ¤€ôøÍ•Ñ‘¥Ñ¥¹%µ…”¡™…±Í”¥ôû’öÿR£¦g–ò×–r[&ğ½‰ÕÑÑ½¸øğ½‘¥ØøñÀûŞkš†–Ÿ
+ë–¾›¦jo’şwVg¾–r7¾òo¦–ëšf¢«–.Wâ»¢Ïšr¦Vß¦
+(€ÄØÀÁÁã¾ò3’â›–Oâ»
+è)Ağ½Àøğ½Í•Ñ¥½¸øğ½‘¥Øùô(€€€€ğ½µ…¥¸ø(€€¤ì)ô()•áÁ½ÉĞ‘•™…Õ±Ğ™Õ¹Ñ¥½¸5…¥¹¹ÑÉå…Ñ” ¤ì(€½¹ÍĞmÕÉÉ•¹Ñ5•µ‰•È°Í•ÑÕÉÉ•¹Ñ5•µ‰•Ét€ôÕÍ•MÑ…Ñ”ñÕÉÉ•¹Ñ5•µ‰•Èğ¹Õ±°ø¡¹Õ±°¤ì(€½¹ÍĞm…•ÍÍ1½…‘•°Í•Ñ•ÍÍ1½…‘•‘t€ôÕÍ•MÑ…Ñ”¡™…±Í”¤ì((€ÕÍ•™™•Ğ  ¤€ôøì(€€€™•Ñ  ˆ½…Á¤½…‘µ¥¸µ•¹ÑÉä½Í•ÍÍ¥½¸ˆ°ì…¡”è€‰¹¼µÍÑ½É”ˆô¤(€€€€€€¹Ñ¡•¸¡…Íå¹Œ€¡É•ÍÁ½¹Í”¤€ôøÉ•ÍÁ½¹Í”¹½¬€ü€¡…İ…¥ĞÉ•ÍÁ½¹Í”¹©Í½¸ ¤¤…Ìì…ÕÑ¡•¹Ñ¥…Ñ•üè‰½½±•…¸ìµ•µ‰•ÈüèÕÉÉ•¹Ñ5•µ‰•Èğ¹Õ±°ô€èì…ÕÑ¡•¹Ñ¥…Ñ•è™…±Í”ô¤(€€€€€€¹Ñ¡•¸ ¡É•ÍÕ±Ğ¤€ôøì(€€€€€€€Í•ÑÕÉÉ•¹Ñ5•µ‰•È¡É•ÍÕ±Ğ¹…ÕÑ¡•¹Ñ¥…Ñ•€üÉ•ÍÕ±Ğ¹µ•µ‰•È€üüì‘¥ÍÁ±…å9…µ”è€‹º‡B–N„ˆ°•µ…¥°è€‰…‘µ¥¸ˆ°É½±”è€‰Ñ•…¡•Èˆ°…¹‘µ¥¸èÑÉÕ”°ÍÑ…ÑÕÌè€‰…Ñ¥Ù”ˆô€è¹Õ±°¤ì(€€€€€€€Í•Ñ•ÍÍ1½…‘•¡ÑÉÕ”¤ì(€€€€€ô¤(€€€€€€¹…Ñ   ¤€ôøÍ•Ñ•ÍÍ1½…‘•¡ÑÉÕ”¤¤ì(€ô°mt¤ì((€½¹ÍĞ…¹¹Ñ•ÉA±…Ñ™½É´€ôÕÉÉ•¹Ñ5•µ‰•Èü¹…¹‘µ¥¸€ôôôÑÉÕ”ì(€½¹ÍĞ…•ÍÍ5•ÍÍ…”€ô€……•ÍÍ1½…‘•(€€€€ü€‹š¶–r£Šë¢ª7º‡B–N‡fï–—.š/Š˜ˆ(€€€€è…¹¹Ñ•ÉA±…Ñ™½É´(€€€€€€üƒº‡B–N„€‘íÕÉÉ•¹Ñ5•µ‰•Èü¹‘¥ÍÁ±…å9…µ”€üü€‹–âÏ¢f|‰ôƒ–ŞË¦¦_¢¶'¾ò3–>¿’î—¦Ë–—–æÏ–>Ã	€(€€€€€€èÕÉÉ•¹Ñ5•µ‰•È(€€€€€€€€ü€‹n»–&7–âÏ¢f’â7šb¿º‡B–N‡¾ò3¦g–§–/–—–>šj¯’â7¦Z/šRûˆ(€€€€€€€€è€‹¢®/–#fï–—º‡B–N‡–âÏ¢f¾ò3š&7¢÷–VR£–æÏ–>Ã–—–>ˆì((€É•ÑÕÉ¸€ñµ…¥¸±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµ…Ñ”ˆø(€€€€ñÍ•Ñ¥½¸ø(€€€€€€ñÍÁ…¸ù¥	I%8$1I9%9ğ½ÍÁ…¸ø(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµ±½¼ˆ…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆûšfèğ½‘¥Øø(€€€€€€ñ Äù¥	É…¥¸$ƒ–¶ãşK–æÏ–>Àğ½ Äø(€€€€€€ñÀûšr³–æÏ–>Ãn»–&7
+ë–Ÿ¦£šâ³¢¦›¦j;šº×¾ò3–æÏ–>Ã–—–>–¦fCº‡B–N‡fï–—–ú3’öÿR£ğ½Àø(€€€€€€ñÍµ…±°ùí…•ÍÍ5•ÍÍ…•ôğ½Íµ…±°ø(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµ…Ñ¥½¹Ìˆø(€€€€€€€í…¹¹Ñ•ÉA±…Ñ™½É´€ü€ğø(€€€€€€€€€€ñ„±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµ±…Üˆ¡É•˜ôˆ½±…Üˆû¦Ë–—–>ã–ú/–
+g¢ğ½„ø(€€€€€€€€€€ñ„±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµµ•‘Ñ• ˆ¡É•˜ôˆ½µ•‘Ñ• ˆû¦Ë–—¦¯šª‹–â¯–æÏ–>Àğ½„ø(€€€€€€€€ğ¼ø€è€ğø(€€€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµ±…Ü¥Ìµ±½­•ˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ‘¥Í…‰±•û¦Ë–—–>ã–ú/–
+g¢ğ½‰ÕÑÑ½¸ø(€€€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµµ•‘Ñ• ¥Ìµ±½­•ˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ‘¥Í…‰±•û¦Ë–—¦¯šª‹–â¯–æÏ–>Àğ½‰ÕÑÑ½¸ø(€€€€€€€€ğ¼ùô(€€€€€€ğ½‘¥Øø(€€€€€ì……•ÍÍ1½…‘•ñğ…¹¹Ñ•ÉA±…Ñ™½É´€ü¹Õ±°€è€ñ„±…ÍÍ9…µ”ô‰µ…¥¸µ•¹ÑÉäµÍ¥¹¥¸ˆ¡É•˜ôˆ½…‘µ¥¸µ±½¥¸ıÉ•ÑÕÉ¹}Ñ¼ô¼ˆûfï–—º‡B–N‡–âÏ¢f|ğ½„ùô(€€€€ğ½Í•Ñ¥½¸ø(€€ğ½µ…¥¸øì)ô
