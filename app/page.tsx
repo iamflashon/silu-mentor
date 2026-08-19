@@ -1182,10 +1182,10 @@ export default function MainEntryGate() {
   const [accessLoaded, setAccessLoaded] = useState(false);
 
   useEffect(() => {
-    fetch("/api/account", { cache: "no-store" })
-      .then(async (response) => response.ok ? (await response.json()).member as CurrentMember : null)
-      .then((member) => {
-        setCurrentMember(member);
+    fetch("/api/admin-entry/session", { cache: "no-store" })
+      .then(async (response) => response.ok ? (await response.json()) as { authenticated?: boolean; member?: CurrentMember | null } : { authenticated: false })
+      .then((result) => {
+        setCurrentMember(result.authenticated ? result.member ?? { displayName: "管理員", email: "admin", role: "teacher", canAdmin: true, status: "active" } : null);
         setAccessLoaded(true);
       })
       .catch(() => setAccessLoaded(true));
@@ -1216,7 +1216,7 @@ export default function MainEntryGate() {
           <button className="main-entry-medtech is-locked" type="button" disabled>進入醫檢師平台</button>
         </>}
       </div>
-      {!accessLoaded || canEnterPlatform ? null : <a className="main-entry-signin" href="/signin-with-chatgpt?return_to=/">登入管理員帳號</a>}
+      {!accessLoaded || canEnterPlatform ? null : <a className="main-entry-signin" href="/admin-login?return_to=/">登入管理員帳號</a>}
     </section>
   </main>;
 }

@@ -3,6 +3,7 @@ import { getDb } from "../db";
 import { memberExamAccess, members } from "../db/schema";
 import { getOrCreateMedtechUsage } from "./medtech-usage";
 import { getMedtechDeviceStatus } from "./medtech-device-session";
+import { ADMIN_ENTRY_OWNER_EMAIL, isAdminEntryAuthenticated } from "./admin-entry-auth";
 
 export type MemberRole = "teacher" | "student";
 
@@ -19,7 +20,7 @@ export function authenticatedEmail(request: Request) {
 }
 
 export async function requireMember(request: Request) {
-  const email = authenticatedEmail(request);
+  const email = authenticatedEmail(request) || (await isAdminEntryAuthenticated(request) ? ADMIN_ENTRY_OWNER_EMAIL : "");
   if (!email) return { error: Response.json({ error: "請先登入自己的學習帳號" }, { status: 401 }) } as const;
   const db = await getDb();
   let [member] = await db.select().from(members).where(eq(members.email, email)).limit(1);
