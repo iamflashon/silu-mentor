@@ -1,0 +1,21 @@
+.manual-question-trigger { border: 1px solid #0f766e; color: #0f766e; background: #fff; }
+.manual-question-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgb(15 23 42 / 42%); }
+.manual-question-dialog { width: min(860px, 100%); max-height: min(900px, calc(100vh - 48px)); overflow: auto; border: 1px solid #c8dfdc; border-radius: 18px; background: #fff; padding: 24px; box-shadow: 0 24px 80px rgb(15 23 42 / 25%); color: #164e63; }
+.manual-question-dialog header, .manual-question-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.manual-question-dialog h2 { margin: 0 0 6px; font-size: 22px; }
+.manual-question-dialog p { margin: 0; color: #52727b; font-size: 14px; }
+.manual-question-close { border: 0; background: transparent; font-size: 28px; color: #52727b; cursor: pointer; }
+.manual-question-grid, .manual-option-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.manual-option-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.manual-question-dialog label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #315c66; }
+.manual-question-dialog input, .manual-question-dialog select, .manual-question-dialog textarea { width: 100%; box-sizing: border-box; border: 1px solid #bdd9d6; border-radius: 9px; padding: 10px 12px; color: #164e63; background: #fbfefe; font: inherit; font-weight: 400; resize: vertical; }
+.manual-question-wide { display: block; margin-top: 14px; }
+.manual-question-paste { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 14px; padding: 12px; border: 1px dashed #bdd9d6; border-radius: 10px; background: #f7fcfb; }
+.manual-question-paste button { border: 1px solid #0f766e; border-radius: 9px; padding: 10px 14px; background: #fff; color: #0f766e; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.manual-question-wide-inline { grid-column: span 2; }
+.manual-question-hint { margin-top: 14px !important; padding: 10px 12px; border-radius: 8px; background: #f1f8f7; }
+.manual-question-error { margin-top: 12px !important; color: #b42318 !important; }
+.manual-question-dialog footer { justify-content: flex-end; margin-top: 20px; }
+.manual-question-dialog footer button { border: 1px solid #bdd9d6; border-radius: 9px; padding: 10px 16px; background: #fff; color: #164e63; cursor: pointer; }
+.manual-question-dialog footer .manual-question-save { border-color: #0f766e; background: #0f766e; color: #fff; }
+@media (max-width: 700px) { .manual-question-grid, .manual-option-grid { grid-template-columns: 1fr; } .manual-question-paste { grid-template-columns: 1fr; } .manual-question-wide-inline { grid-column: auto; } .manual-question-backdrop { padding: 10px; } .manual-question-dialog { padding: 16px; } }

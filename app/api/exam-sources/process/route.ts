@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { getOpenAIKey } from "../../../../lib/openai";
 import { examQuestions, examSourceItems, examSources, usageLogs } from "../../../../db/schema";
@@ -15,30 +15,38 @@ function textOnly(html: string) {
   return html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/\s+/g, " ").trim();
 }
 
-function discoverRows(html: string, pageUrl: URL) {
-  const found: Array<{ fileUrl: string; title: string; year: string; subject: string }> = [];
+function discoverRows(html: string, pageUrl: URL, examType: string) {
+  const found: Array<{ fileUrl: string; title: string; year: string; subject: string; examName: string }> = [];
   for (const row of html.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []) {
     const link = row.match(/href=["']([^"']*Download\.ashx[^"']*)["']/i);
     if (!link) continue;
     const cells = [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => textOnly(match[1]));
+    const examGroup = cells[1] ?? "";
+    if (examType === "essay" && !/律師、司法官第二試/.test(examGroup)) continue;
+    if (examType === "mcq" && /律師、司法官第二試/.test(examGroup)) continue;
     const fileUrl = new URL(link[1].replace(/&amp;/g, "&"), pageUrl).toString();
     const year = cells.find((cell) => /^\d{3}$/.test(cell)) ?? "";
     const subject = cells.find((cell) => /法|倫理|英文/.test(cell) && !/律師|司法官/.test(cell)) ?? "綜合法學";
-    found.push({ fileUrl, title: subject, year, subject });
+    found.push({ fileUrl, title: subject, year, subject, examName: examGroup || "類科待辨識" });
   }
   return found;
 }
 
-async function discover(sourceUrl: string) {
+async function discover(sourceUrl: string, examType: string) {
   const base = assertAllowed(sourceUrl);
+  if (examType === "essay" && base.pathname.toLowerCase().endsWith("/exam/list.aspx")) {
+    base.searchParams.set("sFilterType", "D");
+    base.searchParams.set("sFilter", "律師、司法官第二試");
+    base.searchParams.delete("iPageNo");
+  }
   const pages: URL[] = [base];
   const first = await fetch(base, { headers: { "user-agent": "iBrain-SiluMentor/1.0" } });
   if (!first.ok) throw new Error(`來源頁讀取失敗（HTTP ${first.status}）`);
   const firstHtml = await first.text();
-  const totalPages = Math.min(10, Math.max(1, Number(firstHtml.match(/共\s*(\d+)\s*頁/)?.[1] ?? 1)));
+  const totalPages = Math.min(250, Math.max(1, Number(firstHtml.match(/共\s*(\d+)\s*頁/)?.[1] ?? 1)));
   for (let page = 2; page <= totalPages; page += 1) { const url = new URL(base); url.searchParams.set("iPageNo", String(page)); pages.push(url); }
-  const rows = discoverRows(firstHtml, base);
-  for (const page of pages.slice(1)) { const response = await fetch(page, { headers: { "user-agent": "iBrain-SiluMentor/1.0" } }); if (response.ok) rows.push(...discoverRows(await response.text(), page)); }
+  const rows = discoverRows(firstHtml, base, examType);
+  for (const page of pages.slice(1)) { const response = await fetch(page, { headers: { "user-agent": "iBrain-SiluMentor/1.0" } }); if (response.ok) rows.push(...discoverRows(await response.text(), page, examType)); }
   return [...new Map(rows.map((row) => [row.fileUrl, row])).values()];
 }
 
@@ -84,16 +92,27 @@ async function extractPdf(item: typeof examSourceItems.$inferSelect, examType: s
 export async function POST(request: Request) {
   const db = await getDb(); let sourceId = 0; let itemId = 0;
   try {
-    const body = await request.json() as { sourceId?: number }; sourceId = Number(body.sourceId);
+    const body = await request.json() as { sourceId?: number; rescan?: boolean }; sourceId = Number(body.sourceId);
     if (!Number.isInteger(sourceId) || sourceId < 1) return Response.json({ error: "來源編號不正確" }, { status: 400 });
     const [source] = await db.select().from(examSources).where(eq(examSources.id, sourceId)).limit(1);
     if (!source || source.sourceKind !== "exam") return Response.json({ error: "找不到可處理的真題來源" }, { status: 404 });
     await db.update(examSources).set({ status: "discovering", lastError: null, updatedAt: new Date() }).where(eq(examSources.id, sourceId));
     const existing = await db.select().from(examSourceItems).where(eq(examSourceItems.sourceId, sourceId)).limit(1);
-    if (!existing.length) {
-      const rows = await discover(source.url);
+    if (!existing.length || body.rescan) {
+      const rows = await discover(source.url, source.examType);
       if (!rows.length) throw new Error("來源頁沒有找到可下載的 PDF");
-      for (const row of rows) await db.insert(examSourceItems).values({ sourceId, ...row }).onConflictDoNothing();
+      const discoveredUrls = rows.map((row) => row.fileUrl);
+      const oldItems = await db.select().from(examSourceItems).where(eq(examSourceItems.sourceId, sourceId));
+      for (const row of rows) {
+        const old = oldItems.find((item) => item.fileUrl === row.fileUrl);
+        if (old) await db.update(examSourceItems).set({ title: row.title, year: row.year, subject: row.subject, examName: row.examName }).where(eq(examSourceItems.id, old.id));
+        else await db.insert(examSourceItems).values({ sourceId, ...row }).onConflictDoNothing();
+        await db.update(examQuestions).set({ examName: row.examName }).where(eq(examQuestions.sourceUrl, row.fileUrl));
+      }
+      if (body.rescan) {
+        const staleUrls = oldItems.filter((item) => !discoveredUrls.includes(item.fileUrl)).map((item) => item.fileUrl);
+        if (staleUrls.length) await db.update(examQuestions).set({ examName: "類科待辨識" }).where(inArray(examQuestions.sourceUrl, staleUrls));
+      }
     }
     const allItems = await db.select().from(examSourceItems).where(eq(examSourceItems.sourceId, sourceId)).orderBy(asc(examSourceItems.id));
     const next = allItems.find((item) => item.status === "waiting" || item.status === "failed");
@@ -102,7 +121,14 @@ export async function POST(request: Request) {
     const result = await extractPdf(next, source.examType);
     for (const question of result.questions) {
       const teacherAnswer = source.examType === "essay" ? question.teacher_answer?.trim() || "" : "";
-      await db.insert(examQuestions).values({ examType: source.examType, year: next.year || "未標示", subject: question.subject || next.subject, questionNumber: question.question_number || String(Date.now()), stem: question.stem.trim(), optionsJson: source.examType === "mcq" ? JSON.stringify(Object.fromEntries((question.options ?? []).map((option) => [option.label.toUpperCase(), option.text]))) : null, correctAnswer: question.correct_answer?.trim() || null, explanation: question.explanation?.trim() || "", teacherAnswer, teacherNotes: source.examType === "essay" ? question.teacher_notes?.trim() || "" : "", rubricJson: source.examType === "essay" ? JSON.stringify(question.rubric ?? []) : "[]", answerSource: teacherAnswer ? "高點名師參考擬答" : "", answerStatus: teacherAnswer ? "source_matched" : "missing", sourceUrl: next.fileUrl, status: "draft" });
+      const year = next.year || "未標示";
+      const examName = next.examName || "類科待辨識";
+      const subject = question.subject || next.subject;
+      const questionNumber = question.question_number || String(Date.now());
+      const values = { examType: source.examType, year, examName, subject, questionNumber, stem: question.stem.trim(), optionsJson: source.examType === "mcq" ? JSON.stringify(Object.fromEntries((question.options ?? []).map((option) => [option.label.toUpperCase(), option.text]))) : null, correctAnswer: question.correct_answer?.trim() || null, explanation: question.explanation?.trim() || "", teacherAnswer, teacherNotes: source.examType === "essay" ? question.teacher_notes?.trim() || "" : "", rubricJson: source.examType === "essay" ? JSON.stringify(question.rubric ?? []) : "[]", answerSource: teacherAnswer ? "高點名師參考擬答" : "", answerStatus: teacherAnswer ? "source_matched" : "missing", sourceUrl: next.fileUrl };
+      const [existingQuestion] = await db.select({ id: examQuestions.id }).from(examQuestions).where(and(eq(examQuestions.examType, source.examType), eq(examQuestions.examName, examName), eq(examQuestions.year, year), eq(examQuestions.subject, subject), eq(examQuestions.questionNumber, questionNumber), eq(examQuestions.sourceUrl, next.fileUrl))).limit(1);
+      if (existingQuestion) await db.update(examQuestions).set(values).where(eq(examQuestions.id, existingQuestion.id));
+      else await db.insert(examQuestions).values({ ...values, status: "draft" });
     }
     await db.insert(usageLogs).values({ model: result.usage.model, source: "真題拆解", inputTokens: result.usage.input, cachedTokens: result.usage.cached, outputTokens: result.usage.output, fileSearchCalls: 0, estimatedCostUsdMicros: result.usage.costMicros });
     await db.update(examSourceItems).set({ status: "review", questionCount: result.questions.length, processedAt: new Date() }).where(eq(examSourceItems.id, next.id));

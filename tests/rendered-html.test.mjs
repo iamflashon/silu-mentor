@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const developmentPreviewMeta =
@@ -30,4 +31,32 @@ test("renders development preview metadata", async () => {
     /^text\/html\b/i,
   );
   assert.match(await response.text(), developmentPreviewMeta);
+});
+
+test("student follow-up click never serializes a React event", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /onClick=\{latestComparison \? generateStudentFollowUp/);
+  assert.match(source, /level === "beginner" \|\| level === "intermediate" \|\| level === "advanced"/);
+  assert.match(source, /level: requestedLevel/);
+  assert.match(source, /const latestTeacherPrompt = latestTeacherIndex >= 0/);
+  assert.match(source, /responses: followUpResponses\.map/);
+  assert.doesNotMatch(source, /selectedTeacherResponses\.map/);
+  assert.match(source, /針對這段追問/);
+  assert.match(source, /const followUpResponses = selectedFollowUps\.length > 0/);
+  assert.match(source, /message\.audience !== "judge"/);
+});
+
+test("teaching verdict uses the independent Sol judge", async () => {
+  const route = await readFile(new URL("../app/api/chat/teaching-evaluation/route.ts", import.meta.url), "utf8");
+  const models = await readFile(new URL("../lib/openai.ts", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(route, /getTeachingJudgeOpenAIModel\("gpt-5\.6-sol"\)/);
+  assert.match(route, /runOpenAI\(openAiKey, judgeModel,/);
+  assert.match(route, /output_text\?: unknown/);
+  assert.match(route, /judgeInput, 1800, judgeSchema/);
+  assert.match(route, /輸出在 JSON 完成前達到上限/);
+  assert.match(models, /OPENAI_TEACHING_JUDGE_MODEL/);
+  assert.match(page, /Sol 審判長評比/);
 });

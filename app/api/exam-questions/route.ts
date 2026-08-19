@@ -1,7 +1,9 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { getOpenAIKey } from "../../../lib/openai";
 import { examQuestions } from "../../../db/schema";
+import { removeAccountingPageFurniture } from "../../../lib/accounting-question";
+import { ACCOUNTING_WORD_BANK_SOURCE, importAccountingWordBank } from "../../../lib/accounting-word-bank";
 
 const allowedAnswerHosts = new Set(["lawyer.get.com.tw", "fd.get.com.tw"]);
 
@@ -67,26 +69,53 @@ export async function GET(request: Request) {
   const examType = url.searchParams.get("examType") || "all";
   const year = url.searchParams.get("year") || "all";
   const subject = url.searchParams.get("subject") || "all";
+  const sourceBook = url.searchParams.get("sourceBook") || "all";
+  const chapter = url.searchParams.get("chapter") || "all";
+  const paper = url.searchParams.get("paper") || "all";
+  const examCategory = url.searchParams.get("examCategory") || "all";
+  const db = await getDb();
+  if (examCategory === "accounting") await importAccountingWordBank(db);
   const filters = [];
   if (status !== "all") filters.push(eq(examQuestions.status, status));
   if (examType !== "all") filters.push(eq(examQuestions.examType, examType));
   if (year !== "all") filters.push(eq(examQuestions.year, year));
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
-  const db = await getDb();
+  if (sourceBook !== "all") filters.push(eq(examQuestions.examName, sourceBook));
+  if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
+  if (paper !== "all") {
+    const paperPrefix = `accounting-word-bank:v3:${paper}.docx:`;
+    const wordRows = await db.select({ id: examQuestions.id, sourceUrl: examQuestions.sourceUrl }).from(examQuestions).where(eq(examQuestions.examName, ACCOUNTING_WORD_BANK_SOURCE));
+    const paperIds = wordRows.filter((row) => row.sourceUrl.startsWith(paperPrefix)).map((row) => row.id);
+    filters.push(paperIds.length ? inArray(examQuestions.id, paperIds) : eq(examQuestions.id, -1));
+  }
+  if (examCategory !== "all") filters.push(eq(examQuestions.examCategory, examCategory));
   const where = filters.length ? and(...filters) : undefined;
   const facetFilters = [];
   if (status !== "all") facetFilters.push(eq(examQuestions.status, status));
   if (examType !== "all") facetFilters.push(eq(examQuestions.examType, examType));
+  if (examCategory !== "all") facetFilters.push(eq(examQuestions.examCategory, examCategory));
   const facetWhere = facetFilters.length ? and(...facetFilters) : undefined;
-  const [items, countRows, totals, typeTotals, years, subjects] = await Promise.all([
-    db.select().from(examQuestions).where(where).orderBy(desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
+  const [items, countRows, totals, typeTotals, years, subjects, sourceBooks, chapterRows, paperRows] = await Promise.all([
+    db.select().from(examQuestions).where(where).orderBy(paper !== "all" ? asc(examQuestions.id) : desc(examQuestions.id)).limit(10).offset((page - 1) * 10),
     db.select({ count: sql<number>`count(*)` }).from(examQuestions).where(where),
     db.select({ status: examQuestions.status, count: sql<number>`count(*)` }).from(examQuestions).groupBy(examQuestions.status),
     db.select({ examType: examQuestions.examType, count: sql<number>`count(*)` }).from(examQuestions).where(facetWhere).groupBy(examQuestions.examType),
     db.selectDistinct({ year: examQuestions.year }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.year)),
     db.selectDistinct({ subject: examQuestions.subject }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.subject)),
+    db.selectDistinct({ sourceBook: examQuestions.examName }).from(examQuestions).where(facetWhere).orderBy(asc(examQuestions.examName)),
+    db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(facetWhere),
+    db.selectDistinct({ teacherNotes: examQuestions.teacherNotes }).from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.examName,ACCOUNTING_WORD_BANK_SOURCE),like(examQuestions.sourceUrl,"accounting-word-bank:v3:%"))),
   ]);
-  return Response.json({ items, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject) } });
+  const chapters=[...new Set(chapterRows.map(row=>row.teacherNotes.split("｜")[0].trim()).filter(value=>/^第.+章/u.test(value)))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
+  const papers=[...new Set(paperRows.map(row=>row.teacherNotes.match(/^內部來源：(.+?)\.docx｜/u)?.[1]??"").filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-Hant",{numeric:true}));
+  const cleanedItems = items.map((item) => item.examCategory === "accounting" ? {
+    ...item,
+    stem: removeAccountingPageFurniture(item.stem) ?? "",
+    optionsJson: (() => { try { const options = JSON.parse(item.optionsJson || "{}") as Record<string, string>; return JSON.stringify(Object.fromEntries(Object.entries(options).map(([key, value]) => [key, removeAccountingPageFurniture(value)]))); } catch { return item.optionsJson; } })(),
+    explanation: removeAccountingPageFurniture(item.explanation) ?? "",
+    teacherAnswer: removeAccountingPageFurniture(item.teacherAnswer) ?? "",
+  } : item);
+  return Response.json({ items: cleanedItems, total: Number(countRows[0]?.count ?? 0), page, totals: Object.fromEntries(totals.map((row) => [row.status, Number(row.count)])), examTypeTotals: Object.fromEntries(typeTotals.map((row) => [row.examType, Number(row.count)])), filters: { years: years.map((row) => row.year), subjects: subjects.map((row) => row.subject), sourceBooks:sourceBooks.map(row=>row.sourceBook), chapters, papers } });
 }
 
 export async function POST(request: Request) {
@@ -129,12 +158,14 @@ export async function PATCH(request: Request) {
     status?: string;
     publishAllDrafts?: boolean;
     year?: string;
+    examName?: string;
     subject?: string;
     questionNumber?: string;
     stem?: string;
     teacherAnswer?: string;
     teacherNotes?: string;
     rubricJson?: string;
+    examCategory?: string;
   };
   const db = await getDb();
   if (body.action === "update") {
@@ -145,6 +176,7 @@ export async function PATCH(request: Request) {
     const teacherAnswer = typeof body.teacherAnswer === "string" ? body.teacherAnswer.trim() : current.teacherAnswer;
     const update = {
       year: typeof body.year === "string" && body.year.trim() ? body.year.trim() : current.year,
+      examName: typeof body.examName === "string" && body.examName.trim() ? body.examName.trim() : current.examName,
       subject: typeof body.subject === "string" && body.subject.trim() ? body.subject.trim() : current.subject,
       questionNumber: typeof body.questionNumber === "string" && body.questionNumber.trim() ? body.questionNumber.trim() : current.questionNumber,
       stem: typeof body.stem === "string" && body.stem.trim() ? body.stem.trim() : current.stem,
@@ -158,7 +190,8 @@ export async function PATCH(request: Request) {
     return Response.json({ question: updated });
   }
   if (body.publishAllDrafts) {
-    const rows = await db.update(examQuestions).set({ status: "published" }).where(sql`${examQuestions.status} = 'draft' AND (${examQuestions.examType} = 'mcq' OR ${examQuestions.teacherAnswer} <> '')`).returning({ id: examQuestions.id });
+    const category = ["law", "accounting", "medtech"].includes(body.examCategory || "") ? body.examCategory! : "law";
+    const rows = await db.update(examQuestions).set({ status: "published" }).where(and(eq(examQuestions.examCategory, category), sql`${examQuestions.status} = 'draft' AND (${examQuestions.examType} = 'mcq' OR ${examQuestions.teacherAnswer} <> '')`)).returning({ id: examQuestions.id });
     return Response.json({ updated: rows.length });
   }
   const ids = body.ids?.length ? body.ids : body.id ? [body.id] : [];

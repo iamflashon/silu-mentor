@@ -19,6 +19,10 @@ if [[ ! -x "${vinext}" ]]; then
 fi
 
 echo "Running bounded vinext build..."
+# The Vite/RSC build can retain hashed chunks from a previous build.  That can
+# leave the server asset manifest pointing at files that are no longer emitted,
+# so a fresh artifact is required for each Sites checkpoint.
+rm -rf "${SITES_PROJECT_ROOT}/dist"
 timeout \
   --signal=TERM \
   --kill-after="${SITES_BUILD_KILL_AFTER:-10s}" \

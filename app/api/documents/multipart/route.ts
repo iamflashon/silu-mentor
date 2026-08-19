@@ -1,5 +1,6 @@
 import { getDb } from "../../../../db";
 import { documents } from "../../../../db/schema";
+import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
 
 type InitPayload = {
   action: "init";
@@ -15,6 +16,7 @@ type CompletePayload = {
   fileName: string;
   contentType: string;
   sizeBytes: number;
+  examCategory: string;
   subject: string;
   documentType: string;
 };
@@ -35,18 +37,18 @@ export async function POST(request: Request) {
     const bucket = await getBucket();
 
     if (body.action === "init") {
-      if (!body.fileName || body.contentType !== "application/pdf") {
-        return Response.json({ error: "請選擇 PDF 文件" }, { status: 400 });
+      if (!body.fileName || !isSupportedDocument(body.fileName, body.contentType)) {
+        return Response.json({ error: "請選擇 PDF、HTML、JSONL、MD、TXT、DOCX 或 ZIP 文件" }, { status: 400 });
       }
       const key = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName(body.fileName)}`;
       const upload = await bucket.createMultipartUpload(key, {
-        httpMetadata: { contentType: body.contentType },
+        httpMetadata: { contentType: contentTypeForDocument(body.fileName, body.contentType) },
       });
       return Response.json({ key, uploadId: upload.uploadId });
     }
 
     if (body.action === "complete") {
-      if (!body.key.startsWith("documents/") || !body.uploadId || !body.parts.length) {
+      if (!body.key.startsWith("documents/") || !body.uploadId || !body.parts.length || body.sizeBytes < 1 || body.sizeBytes > MAX_DOCUMENT_BYTES) {
         return Response.json({ error: "上傳資料不完整" }, { status: 400 });
       }
       const upload = bucket.resumeMultipartUpload(body.key, body.uploadId);
@@ -57,8 +59,9 @@ export async function POST(request: Request) {
         const [row] = await db.insert(documents).values({
           storageKey: body.key,
           fileName: body.fileName,
-          contentType: body.contentType,
+          contentType: contentTypeForDocument(body.fileName, body.contentType),
           sizeBytes: body.sizeBytes,
+          examCategory: ["law", "accounting", "medtech", "data-structure"].includes(body.examCategory) ? body.examCategory : "law",
           subject: body.subject,
           documentType: body.documentType,
           status: "uploaded",
@@ -72,7 +75,7 @@ export async function POST(request: Request) {
 
     return Response.json({ error: "不支援的上傳動作" }, { status: 400 });
   } catch {
-    return Response.json({ error: "大型 PDF 上傳失敗，請稍後再試" }, { status: 500 });
+    return Response.json({ error: "教材文件上傳失敗，請稍後再試" }, { status: 500 });
   }
 }
 
@@ -90,6 +93,6 @@ export async function PUT(request: Request) {
     const part = await upload.uploadPart(partNumber, request.body!);
     return Response.json({ partNumber: part.partNumber, etag: part.etag });
   } catch {
-    return Response.json({ error: "PDF 分段上傳失敗" }, { status: 500 });
+    return Response.json({ error: "教材分段上傳失敗" }, { status: 500 });
   }
 }

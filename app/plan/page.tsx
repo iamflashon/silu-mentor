@@ -12,8 +12,10 @@ import {
 import { ListeningPlayer, ListeningFeed } from "../listening-player";
 import CourseVideoPlayer, { formatMediaTime, PlaybackRateSelect } from "../course-video-player";
 import { PracticeLab } from "./practice-lab";
+import { IssuePractice } from "./issue-practice";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
+import { formatTwd } from "../../lib/currency";
 import { coreExamPoints } from "../../lib/core-exam-points";
 import type { YoutubePlaylistItem } from "../../lib/youtube-playlist";
 
@@ -99,6 +101,42 @@ type SavedNote = {
     url: string;
   }>;
 };
+type StudentSummary = {
+  id: number;
+  name: string;
+  displayTitle?: string;
+  subject: string;
+  topic?: string;
+  collectionTitle?: string;
+  folder?: string;
+  sizeBytes: number;
+  status: string;
+  processingStage: string;
+  processingMessage: string;
+  error?: string | null;
+  createdAt: string | Date;
+  summary: string;
+  editedSummary: string;
+  favorite: boolean;
+  examFocus: string;
+  keyPoints: string[];
+  issueOutline: string[];
+  commonMistakes: string[];
+  sourceNotes: string[];
+  tags: string[];
+  flashcards: Array<{ question: string; answer: string }>;
+  model: string;
+  fontSize?: number;
+  usage: { inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsd: number } | null;
+};
+type SummaryFolder = { subject: string; name: string };
+const summaryFieldOptions = [
+  { key: "summary", label: "摘要", fields: ["summary"] },
+  { key: "focus", label: "考點與爭點", fields: ["examFocus", "keyPoints", "issueOutline"] },
+  { key: "mistakes", label: "常見錯誤", fields: ["commonMistakes"] },
+  { key: "sources", label: "來源依據", fields: ["sourceNotes"] },
+] as const;
+const defaultSummaryFields = summaryFieldOptions.flatMap((option) => [...option.fields]);
 type LearningResource = {
   id: number;
   resourceType: "book" | "course" | "trial" | "magazine";
@@ -109,6 +147,9 @@ type LearningResource = {
   documentId: number | null;
   documentStatus?: string | null;
   documentError?: string | null;
+  documentChapterCount?: number;
+  documentTopicCount?: number;
+  documentQuestionCount?: number;
   sourceUrl: string;
   accessType: string;
   courseCategory?: "managed" | "public" | null;
@@ -156,7 +197,54 @@ type ResourceSegment = {
   importance: number;
   recommended: boolean;
   sequence: number;
+  completeQuestion?: boolean;
 };
+
+function studentProblemQuestion(value: string, title = "") {
+  let text = value
+    .replace(/\u0000/g, "")
+    .replace(/[\uE000-\uF8FF□■▪▫◆◇●○★☆▸◂▶◀]+\s*(爭\s*點\s*解\s*析)\s*[\uE000-\uF8FF□■▪▫◆◇●○★☆▸◂▶◀]*/gu, "$1")
+    .replace(/爭\s*點\s*解\s*析/gu, "爭點解析")
+    .trim();
+  const structured = text.match(/^【完整題目】\s*([\s\S]*?)(?:\s*\n\s*【(?:爭點解析|擬答)】|$)/u);
+  if (structured) text = structured[1].trim();
+  else {
+    const boundary = /(?:【\s*)?爭點解析(?:\s*】)?\s*[:：]?|(?:【\s*)?擬\s*答(?:\s*】)?\s*[:：]/u.exec(text);
+    if (boundary) text = text.slice(0, boundary.index).trim();
+  }
+  const escapedTitle = title.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (escapedTitle) text = text.replace(new RegExp(`^(?:題型\\s*[\\d.．、-]+\\s*)?${escapedTitle}\\s*`, "u"), "").trim();
+  return text;
+}
+
+function teacherProblemAnswer(value: string) {
+  const text = value.replace(/\u0000/g, "").replace(/爭\s*點\s*解\s*析/gu, "爭點解析").trim();
+  const structured = text.match(/^【完整題目】\s*[\s\S]*?\s*\n\s*【(?:爭點解析|擬答)】\s*([\s\S]+)$/u);
+  if (structured?.[1]) return structured[1].trim();
+  const boundary = /(?:【\s*)?爭點解析(?:\s*】)?\s*[:：]?|(?:【\s*)?擬\s*答(?:\s*】)?\s*[:：]/u.exec(text);
+  return boundary ? text.slice((boundary.index ?? 0) + boundary[0].length).trim() : "";
+}
+
+function studentProblemParagraphs(value: string, title = "") {
+  const question = studentProblemQuestion(value, title)
+    .replace(/\r\n?/g, "\n")
+    .trim();
+
+  if (!question) return [];
+
+  return question
+    .split(/\n\s*\n+/u)
+    .map((block) =>
+      block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join("")
+        .replace(/[ \t\u3000]+/gu, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+}
 type BookFullTextHit = {
   section: string;
   excerpt: string;
@@ -164,7 +252,58 @@ type BookFullTextHit = {
   page_end: number | null;
   relevance: string;
 };
-type TutorMessage = { role: "mentor" | "student"; text: string };
+type TeachingEvidence = {
+  status: "verified" | "applied_inference" | "full_text_search" | "unavailable";
+  retrieval: "chapter_segment" | "stored_analysis" | "full_text_search" | "none";
+  resourceId: number;
+  segmentId: number;
+  resourceTitle: string;
+  segmentTitle: string;
+  lessonLabel: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  fileName: string;
+  excerpt: string;
+  message: string;
+  matchedTerms?: string[];
+  basis?: "teacher_solution" | "chapter";
+};
+type BookUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
+type ChallengeRun = { reply: string; model: string; usage: BookUsage };
+type BookModelMode = "luna" | "sonnet" | "deepseek" | "compare-luna-sonnet" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
+type BookComparison = {
+  responses: Array<{
+    id: number;
+    label: string;
+    model: string;
+    text: string;
+    error?: string | null;
+    usage: { inputTokens: number; cachedTokens: number; outputTokens: number; durationMs: number; estimatedCostUsd: number };
+  }>;
+};
+type BookHistoryEntry = {
+  id: number;
+  resourceId: number | null;
+  segmentId: number | null;
+  title: string;
+  summary: string;
+  updatedAt: string | Date;
+  progressStatus?: string;
+  messageCount: number;
+  lastRole: string | null;
+  lastText: string;
+};
+type TutorMessage = { role: "mentor" | "student" | "scholar"; text: string; model?: string; usage?: BookUsage; comparison?: BookComparison; teachingEvidence?: TeachingEvidence | null; createdAt?: string | Date };
+
+async function fetchBookConversation(input: string, init: RequestInit, timeoutMs = 90_000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 type ChatDay = {
   id: number;
   date: string;
@@ -204,6 +343,15 @@ type MagazineFeed = {
     issue: string;
     sourceUrl: string;
     reviewStatus: string;
+    sequence: number;
+  }>;
+  catalog?: Array<{
+    id: number;
+    title: string;
+    sourceUrl: string;
+    category: string;
+    author: string;
+    content: string;
     sequence: number;
   }>;
 };
@@ -297,6 +445,7 @@ type PlanTab =
   | "calendar"
   | "practice"
   | "hotspots"
+  | "summaries"
   | "laws"
   | "books"
   | "courses"
@@ -312,10 +461,12 @@ type PlanTab =
 function requestedPlanTab(): PlanTab {
   if (typeof window === "undefined") return "calendar";
   const value = new URLSearchParams(window.location.search).get("tab");
+  if (value === "essay-history") return "practice";
   return [
     "calendar",
     "practice",
     "hotspots",
+    "summaries",
     "laws",
     "books",
     "courses",
@@ -393,7 +544,28 @@ function isProblemSolvingBook(
   );
 }
 
+const bookTeachingLevelLabels: Record<"general" | "beginner" | "intermediate" | "advanced" | "super", string> = {
+  general: "自由提問",
+  beginner: "法律小白",
+  intermediate: "基礎考生",
+  advanced: "進階考生",
+  super: "頂尖學霸",
+};
+
 function problemBookOutline(chapters: ResourceSegment[]) {
+  const outlineOrder = (label: string, kind: "section" | "topic") => {
+    const normalized = label.trim();
+    if (/未分類|待核對|其他/.test(normalized)) return Number.MAX_SAFE_INTEGER;
+    const pattern = kind === "section"
+      ? /(?:第\s*)?(\d+)\s*(?:部|部分)/
+      : /主題\s*(\d+)/;
+    const matched = normalized.match(pattern);
+    return matched ? Number(matched[1]) : Number.MAX_SAFE_INTEGER - 1;
+  };
+  const compareOutlineLabels = (kind: "section" | "topic") =>
+    ([left]: [string, unknown], [right]: [string, unknown]) =>
+      outlineOrder(left, kind) - outlineOrder(right, kind)
+      || left.localeCompare(right, "zh-Hant", { numeric: true });
   const sections = new Map<string, Map<string, ResourceSegment[]>>();
   for (const chapter of chapters) {
     const [rawSection, rawTopic] = chapter.lessonLabel.split("｜");
@@ -406,19 +578,45 @@ function problemBookOutline(chapters: ResourceSegment[]) {
     const topics = sections.get(section)!;
     topics.set(topic, [...(topics.get(topic) ?? []), chapter]);
   }
-  return [...sections].map(([section, topics]) => ({
+  return [...sections]
+    .sort(compareOutlineLabels("section"))
+    .map(([section, topics]) => ({
     section,
-    topics: [...topics].map(([topic, questions]) => ({ topic, questions })),
+    topics: [...topics]
+      .sort(compareOutlineLabels("topic"))
+      .map(([topic, questions]) => ({
+        topic,
+        questions: [...questions].sort(
+          (left, right) => left.sequence - right.sequence || left.id - right.id,
+        ),
+      })),
   }));
 }
 
-export default function StudyPlanPage() {
+type StudyPlanPageProps = {
+  initialTab?: PlanTab;
+  standalone?: boolean;
+};
+
+type CurrentMember = { canAdmin: boolean };
+
+export default function StudyPlanPage({ initialTab = "calendar", standalone = false }: StudyPlanPageProps = {}) {
+  const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const [month, setMonth] = useState(monthValue());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(taipeiDate());
   const [plans, setPlans] = useState<Plan[]>([]);
+
+  useEffect(() => {
+    fetch("/api/account")
+      .then(async (response) => response.ok ? (await response.json()).member as CurrentMember : null)
+      .then(setCurrentMember)
+      .catch(() => setCurrentMember(null));
+  }, []);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [message, setMessage] = useState("");
   const [records, setRecords] = useState<StudyRecord[]>([]);
+  const [expandedRecordIds, setExpandedRecordIds] = useState<Set<number>>(new Set());
   const [chatDays, setChatDays] = useState<ChatDay[]>([]);
   const [examConversations, setExamConversations] = useState<
     ExamCoachConversation[]
@@ -429,6 +627,8 @@ export default function StudyPlanPage() {
   const [openChatDay, setOpenChatDay] = useState<number | null>(null);
   const [notes, setNotes] = useState<SavedNote[]>([]);
   const [recordPage, setRecordPage] = useState(1);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<Set<number>>(new Set());
+  const [deletingRecords, setDeletingRecords] = useState(false);
   const [learningAnalysis, setLearningAnalysis] = useState<LearningAnalysis | null>(null);
   const [learningAnalysisLoading, setLearningAnalysisLoading] = useState(false);
   const [learningAnalysisNotice, setLearningAnalysisNotice] = useState("");
@@ -442,7 +642,32 @@ export default function StudyPlanPage() {
     weakness: "",
     nextStep: "",
   });
-  const [activeTab, setActiveTab] = useState<PlanTab>(requestedPlanTab);
+  const [activeTab, setActiveTab] = useState<PlanTab>(initialTab);
+  const [studentSummaries, setStudentSummaries] = useState<StudentSummary[]>([]);
+  const [selectedSummaryId, setSelectedSummaryId] = useState<number | null>(null);
+  const [selectedSummaryIds, setSelectedSummaryIds] = useState<Set<number>>(new Set());
+  const [summaryFields, setSummaryFields] = useState<string[]>(defaultSummaryFields);
+  const [summaryCustomFields, setSummaryCustomFields] = useState<string[]>([]);
+  const [summaryCustomDraft, setSummaryCustomDraft] = useState("");
+  const [summarySubject, setSummarySubject] = useState("刑法");
+  const [summaryTopic, setSummaryTopic] = useState("");
+  const [summaryUploadLoading, setSummaryUploadLoading] = useState(false);
+  const [summaryNotice, setSummaryNotice] = useState("");
+  const [summarySaving, setSummarySaving] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [summaryFavorite, setSummaryFavorite] = useState(false);
+  const [summarySelectedFile, setSummarySelectedFile] = useState<File | null>(null);
+  const [summaryPane, setSummaryPane] = useState<"summary" | "files">("summary");
+  const [summaryDeleting, setSummaryDeleting] = useState(false);
+  const [summaryTitleDraft, setSummaryTitleDraft] = useState("");
+  const [summaryFontSize, setSummaryFontSize] = useState(20);
+  const [summaryFolders, setSummaryFolders] = useState<SummaryFolder[]>([]);
+  const [summaryFolderDraft, setSummaryFolderDraft] = useState("");
+  const [editingSummaryFolder, setEditingSummaryFolder] = useState<string | null>(null);
+  const [editingSummaryFolderName, setEditingSummaryFolderName] = useState("");
+  const [summaryFolderSubject, setSummaryFolderSubject] = useState("刑法");
+  const [summaryDestination, setSummaryDestination] = useState("");
+  const [summaryCollectionTitle, setSummaryCollectionTitle] = useState("");
   const [hotSubject, setHotSubject] = useState("全部");
   const [publicCourseSubject, setPublicCourseSubject] = useState("全部");
   const [selectedPublicCourseId, setSelectedPublicCourseId] = useState<number | null>(null);
@@ -529,12 +754,33 @@ export default function StudyPlanPage() {
   );
   const [bookMessages, setBookMessages] = useState<TutorMessage[]>([]);
   const [bookSessionId, setBookSessionId] = useState<number | null>(null);
+  const [lastBookSessionId, setLastBookSessionId] = useState<number | null>(null);
+  const [bookHistory, setBookHistory] = useState<BookHistoryEntry[]>([]);
+  const [bookHistoryOpen, setBookHistoryOpen] = useState(false);
+  const [bookHistoryLoading, setBookHistoryLoading] = useState(false);
   const [lastBookProgress, setLastBookProgress] = useState<{
     resourceId: number;
     segmentId: number;
   } | null>(null);
   const [bookInput, setBookInput] = useState("");
   const [bookChatLoading, setBookChatLoading] = useState(false);
+  const [bookLoadingRole, setBookLoadingRole] = useState<"mentor" | "scholar" | null>(null);
+  const [bookSelectedMessageIndex, setBookSelectedMessageIndex] = useState<number | null>(null);
+  const [bookQuestionOpen, setBookQuestionOpen] = useState(true);
+  const [bookSettingsOpen, setBookSettingsOpen] = useState(false);
+  const [bookFocusMode, setBookFocusMode] = useState(false);
+  const [bookSettingsPinned, setBookSettingsPinned] = useState(false);
+  const [bookModelMode, setBookModelMode] = useState<BookModelMode>("luna");
+  const [bookTeachingLevel, setBookTeachingLevel] = useState<"beginner" | "intermediate" | "advanced" | "super" | null>(null);
+  const [bookTestNotice, setBookTestNotice] = useState("");
+  const [challengeStudentAnswer, setChallengeStudentAnswer] = useState("");
+  const [challengeAnswers, setChallengeAnswers] = useState<Partial<Record<"luna" | "sol", ChallengeRun>>>({});
+  const [challengeVote, setChallengeVote] = useState<"luna" | "sol" | "both" | "neither" | "">("");
+  const [challengeReason, setChallengeReason] = useState("");
+  const [challengeCoach, setChallengeCoach] = useState<"terra" | "sonnet">("terra");
+  const [challengeCoachRun, setChallengeCoachRun] = useState<ChallengeRun | null>(null);
+  const [challengeReply, setChallengeReply] = useState<ChallengeRun | null>(null);
+  const [challengeLoading, setChallengeLoading] = useState<"luna" | "sol" | "coach" | "reply" | null>(null);
   const [bookChaptersLoading, setBookChaptersLoading] = useState(false);
   const [bookChapterMessage, setBookChapterMessage] = useState("");
   const [bookSearchQuery, setBookSearchQuery] = useState("");
@@ -545,7 +791,7 @@ export default function StudyPlanPage() {
   const [bookFullTextMessage, setBookFullTextMessage] = useState("");
   const chapterBuildAttemptedRef = useRef<Set<number>>(new Set());
   const restoredBookProgressRef = useRef(false);
-  const bookDialogueEndRef = useRef<HTMLDivElement | null>(null);
+  const bookDialogueMessagesRef = useRef<HTMLDivElement | null>(null);
   const [resourceProgress, setResourceProgress] = useState<
     Record<
       string,
@@ -566,6 +812,43 @@ export default function StudyPlanPage() {
       return {};
     }
   });
+
+  useEffect(() => {
+    // Standalone learning routes provide their own tab explicitly. Only the
+    // full learning-center page should restore a tab from the query string.
+    if (!standalone) setActiveTab(requestedPlanTab());
+  }, [standalone]);
+  useEffect(() => {
+    let localPreference: { pinned?: boolean; modelMode?: string; teachingLevel?: string | null } | null = null;
+    try {
+      const stored = window.localStorage.getItem("silu-book-ai-settings-pinned");
+      if (stored) {
+        const parsed = JSON.parse(stored) as { pinned?: boolean; modelMode?: string; teachingLevel?: string | null };
+        localPreference = parsed;
+        const allowedModes: BookModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+        if (parsed.pinned) setBookSettingsPinned(true);
+        if (allowedModes.includes(parsed.modelMode as BookModelMode)) setBookModelMode(parsed.modelMode as BookModelMode);
+        if (["beginner", "intermediate", "advanced", "super"].includes(String(parsed.teachingLevel))) setBookTeachingLevel(parsed.teachingLevel as "beginner" | "intermediate" | "advanced" | "super");
+      }
+    } catch {
+      window.localStorage.removeItem("silu-book-ai-settings-pinned");
+    }
+    fetch("/api/book-learning/preferences", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const { preference, stored } = await response.json() as { stored?: boolean; preference?: { bookTeachingLevel?: string | null; bookModelMode?: string; bookSettingsPinned?: boolean; lastBookResourceId?: number | null; lastBookSegmentId?: number | null; lastBookSessionId?: number | null } };
+      if (!preference) return;
+      if (!stored && localPreference) {
+        void fetch("/api/book-learning/preferences", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ bookTeachingLevel: localPreference.teachingLevel ?? null, bookModelMode: localPreference.modelMode ?? "luna", bookSettingsPinned: Boolean(localPreference.pinned), lastBookResourceId: preference.lastBookResourceId ?? null, lastBookSegmentId: preference.lastBookSegmentId ?? null }) });
+        return;
+      }
+      const allowedModes: BookModelMode[] = ["luna", "sonnet", "deepseek", "compare-luna-sonnet", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
+      setBookSettingsPinned(Boolean(preference.bookSettingsPinned));
+      if (allowedModes.includes(preference.bookModelMode as BookModelMode)) setBookModelMode(preference.bookModelMode as BookModelMode);
+      setBookTeachingLevel(["beginner", "intermediate", "advanced", "super"].includes(String(preference.bookTeachingLevel)) ? preference.bookTeachingLevel as "beginner" | "intermediate" | "advanced" | "super" : null);
+      if (preference.lastBookResourceId && preference.lastBookSegmentId) setLastBookProgress({ resourceId: preference.lastBookResourceId, segmentId: preference.lastBookSegmentId });
+      if (preference.lastBookSessionId) setLastBookSessionId(preference.lastBookSessionId);
+    }).catch(() => undefined);
+  }, []);
   const [resourceMessage, setResourceMessage] = useState("");
   const [coursePlayerError, setCoursePlayerError] = useState("");
   const [courseCapture, setCourseCapture] = useState("");
@@ -651,12 +934,31 @@ export default function StudyPlanPage() {
           ).conversations ?? [],
         );
     });
-    fetch("/api/notes").then(async (response) => {
+    fetch("/api/notes?category=law").then(async (response) => {
       if (response.ok)
         setNotes(
           ((await response.json()) as { notes?: SavedNote[] }).notes ?? [],
         );
     });
+    fetch("/api/summaries").then(async (response) => {
+      if (!response.ok) return;
+      const summaries = ((await response.json()) as { summaries?: StudentSummary[] }).summaries ?? [];
+      setStudentSummaries(summaries);
+      const latest = summaries[0];
+      if (latest) {
+        setSelectedSummaryId(latest.id);
+        setSummaryDraft(latest.editedSummary || latest.summary);
+        setSummaryFavorite(latest.favorite);
+        setSummaryTitleDraft(latest.displayTitle || latest.name);
+        setSummaryTopic(latest.topic || "");
+        setSummaryCollectionTitle(latest.collectionTitle || latest.topic || latest.displayTitle || "");
+        setSummaryFontSize([16, 18, 20, 22, 24].includes(latest.fontSize ?? 20) ? latest.fontSize ?? 20 : 20);
+      }
+    }).catch(() => undefined);
+    fetch("/api/summaries/folders").then(async (response) => {
+      if (response.ok) setSummaryFolders(((await response.json()) as { folders?: SummaryFolder[] }).folders ?? []);
+    }).catch(() => undefined);
+    fetch("/api/summaries/preferences").then(async (response) => { if (!response.ok) return; const result = await response.json() as { preferences?: { fields?: string[]; customFields?: string[] } }; if (result.preferences?.fields) setSummaryFields(result.preferences.fields); if (result.preferences?.customFields) setSummaryCustomFields(result.preferences.customFields); }).catch(() => undefined);
     fetch("/api/home-feed").then(async (response) => {
       if (response.ok) setHomeFeed((await response.json()) as HomeFeed);
     });
@@ -687,12 +989,14 @@ export default function StudyPlanPage() {
         const result = (await response.json()) as {
           resourceId?: number | null;
           segmentId?: number | null;
+          sessionId?: number | null;
         };
         if (result.resourceId && result.segmentId)
           setLastBookProgress({
             resourceId: result.resourceId,
             segmentId: result.segmentId,
           });
+        if (result.sessionId) setLastBookSessionId(result.sessionId);
       }
     });
   }, []);
@@ -846,6 +1150,19 @@ export default function StudyPlanPage() {
     }
   }
 
+  async function loadBookHistory(resourceId: number) {
+    setBookHistoryLoading(true);
+    try {
+      const response = await fetch(`/api/book-learning?resourceId=${resourceId}`);
+      const result = await response.json() as { history?: BookHistoryEntry[] };
+      if (response.ok) setBookHistory(result.history ?? []);
+    } catch {
+      setBookHistory([]);
+    } finally {
+      setBookHistoryLoading(false);
+    }
+  }
+
   useEffect(() => {
     const resource =
       resources.find((item) => item.id === selectedResourceId) ??
@@ -857,18 +1174,25 @@ export default function StudyPlanPage() {
         : null);
     if (!resource || resource.resourceType !== "book" || activeTab !== "books")
       return;
+    setBookHistory([]);
+    setBookHistoryOpen(false);
     const timer = window.setTimeout(() => {
       void loadBookChapters(resource.id);
+      void loadBookHistory(resource.id);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [resources, selectedResourceId, activeTab]);
 
   useEffect(() => {
-    if (activeTab === "books")
-      bookDialogueEndRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
+    if (activeTab !== "books") return;
+    const messages = bookDialogueMessagesRef.current;
+    if (!messages) return;
+    // 只捲動訊息容器；不要使用 scrollIntoView，否則會連同整個頁面把
+    // 下方的輸入框一起推到畫面外。
+    const frame = window.requestAnimationFrame(() => {
+      messages.scrollTop = messages.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [activeTab, bookMessages, bookChatLoading, selectedChapterId]);
 
   const days = useMemo(() => {
@@ -1007,6 +1331,8 @@ export default function StudyPlanPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: [{ role: "student", text: prompt }],
+          // 這是後端專用的規劃指令，不要把完整 prompt 寫入首頁對話紀錄。
+          persistStudentMessage: false,
           planningConstraint:
             resetPlanDraft.mode === "single"
               ? {
@@ -1075,8 +1401,14 @@ export default function StudyPlanPage() {
 
   function moveMonth(delta: number) {
     const [year, monthNumber] = month.split("-").map(Number);
-    setMonth(monthValue(new Date(year, monthNumber - 1 + delta, 1)));
+    const nextMonth = monthValue(new Date(year, monthNumber - 1 + delta, 1));
+    setMonth(nextMonth);
+    setSelectedCalendarDate(`${nextMonth}-01`);
   }
+
+  const selectedCalendarTasks = tasks.filter(
+    (task) => task.taskDate === selectedCalendarDate,
+  );
 
   const filteredNotes = notes.filter(
     (note) =>
@@ -1086,6 +1418,8 @@ export default function StudyPlanPage() {
         .includes(noteQuery.trim().toLowerCase()),
   );
   const visibleRecords = records.slice((recordPage - 1) * 10, recordPage * 10);
+  const visibleRecordIds = visibleRecords.map((record) => record.id);
+  const allVisibleRecordsSelected = visibleRecordIds.length > 0 && visibleRecordIds.every((id) => selectedRecordIds.has(id));
   const coachPreviewData = useMemo(() => coachPreview(records), [records]);
   const coachData = learningAnalysis ?? coachPreviewData;
   const learningSnapshot = useMemo(() => {
@@ -1234,6 +1568,11 @@ export default function StudyPlanPage() {
           article.title,
           article.summary,
           article.issue,
+        ]),
+        ...(magazine.catalog ?? []).flatMap((item) => [
+          item.title,
+          item.category,
+          item.author,
         ]),
       ]
         .join(" ")
@@ -1680,41 +2019,56 @@ export default function StudyPlanPage() {
     setBookMessages([]);
     setBookSessionId(null);
     setBookInput("");
-    if (selectedBookIsProblemSolving && !forceRestart) {
-      setBookChatLoading(false);
-      setLastBookProgress({
-        resourceId: selectedResource.id,
-        segmentId: chapter.id,
-      });
-      updateResourceProgress(selectedResource.id, {
-        segmentId: chapter.id,
-        page: chapter.pageStart ?? 1,
-      });
-      return;
-    }
+    setBookSelectedMessageIndex(null);
+    setBookQuestionOpen(true);
+    setBookTestNotice("");
     setBookChatLoading(true);
+    setBookLoadingRole(selectedBookIsProblemSolving ? null : "mentor");
     if (!forceRestart) {
       try {
-        const historyResponse = await fetch(
-          `/api/book-learning?resourceId=${selectedResource.id}&segmentId=${chapter.id}`,
-        );
+        const resumeExactSession =
+          lastBookSessionId &&
+          lastBookProgress?.resourceId === selectedResource.id &&
+          lastBookProgress.segmentId === chapter.id;
+        const historyResponse = await fetch(resumeExactSession
+          ? `/api/book-learning?sessionId=${lastBookSessionId}`
+          : `/api/book-learning?resourceId=${selectedResource.id}&segmentId=${chapter.id}`);
         const history = (await historyResponse.json()) as {
           sessionId?: number | null;
           messages?: TutorMessage[];
+          history?: BookHistoryEntry[];
         };
+        if (history.history) setBookHistory(history.history);
         if (historyResponse.ok && history.messages?.length) {
           setBookSessionId(history.sessionId ?? null);
+          setLastBookSessionId(history.sessionId ?? null);
           setBookMessages(history.messages);
           setLastBookProgress({
             resourceId: selectedResource.id,
             segmentId: chapter.id,
           });
+          void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: chapter.id, lastBookSessionId: history.sessionId ?? null });
           setBookChatLoading(false);
+          setBookLoadingRole(null);
           return;
         }
       } catch {
         /* start a fresh chapter below */
       }
+    }
+    if (selectedBookIsProblemSolving) {
+      setBookChatLoading(false);
+      setBookLoadingRole(null);
+      setLastBookProgress({
+        resourceId: selectedResource.id,
+        segmentId: chapter.id,
+      });
+      void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: chapter.id, lastBookSessionId: null });
+      updateResourceProgress(selectedResource.id, {
+        segmentId: chapter.id,
+        page: chapter.pageStart ?? 1,
+      });
+      return;
     }
     const focus = focusPoint
       ? `\n本次從熱考點「${focusPoint}」進入，請先在本章教材中定位與這個考點最相關的內容；若本章沒有足夠依據，請明確告知，不要補造。`
@@ -1728,7 +2082,8 @@ export default function StudyPlanPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           messages: [{ role: "student", text: prompt }],
-          visibleStudentText: "",
+          visibleStudentText: selectedBookIsProblemSolving ? "開始學習題目" : "開始學習本章",
+          modelMode: bookModelMode,
           context: {
             type: "book",
             resourceId: selectedResource.id,
@@ -1742,20 +2097,34 @@ export default function StudyPlanPage() {
         reply?: string;
         error?: string;
         sessionId?: number;
+        usage?: BookUsage;
+        comparison?: BookComparison | null;
+        teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? null);
+      setLastBookSessionId(result.sessionId ?? null);
       setLastBookProgress({
         resourceId: selectedResource.id,
         segmentId: chapter.id,
       });
+      void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: chapter.id, lastBookSessionId: result.sessionId ?? null });
       setBookMessages([
+        {
+          role: "student",
+          text: selectedBookIsProblemSolving ? "開始學習題目" : "開始學習本章",
+        },
         {
           role: "mentor",
           text: response.ok
             ? (result.reply ?? "我們先從這一章開始。")
             : (result.error ?? "AI 教學暫時無法開始"),
+          model: result.usage?.model,
+          usage: result.usage,
+          comparison: result.comparison ?? undefined,
+          teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
+      void loadBookHistory(selectedResource.id);
     } catch {
       setBookMessages([
         {
@@ -1765,6 +2134,93 @@ export default function StudyPlanPage() {
       ]);
     } finally {
       setBookChatLoading(false);
+      setBookLoadingRole(null);
+    }
+  }
+
+  async function openBookHistory(entry: BookHistoryEntry) {
+    if (!selectedResource || selectedResource.resourceType !== "book" || bookChatLoading) return;
+    const chapter = bookChapters.find((item) => item.id === entry.segmentId);
+    if (chapter) {
+      setSelectedChapterId(chapter.id);
+      setLastBookProgress({ resourceId: selectedResource.id, segmentId: chapter.id });
+      updateResourceProgress(selectedResource.id, { segmentId: chapter.id, page: chapter.pageStart ?? 1 });
+    }
+    setBookChatLoading(true);
+    setBookLoadingRole(null);
+    try {
+      const response = await fetchBookConversation(`/api/book-learning?sessionId=${entry.id}`, { method: "GET" });
+      const result = await response.json() as { sessionId?: number; messages?: TutorMessage[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "這段學習紀錄暫時無法讀取");
+      setBookSessionId(result.sessionId ?? entry.id);
+      setLastBookSessionId(result.sessionId ?? entry.id);
+      setBookMessages(result.messages ?? []);
+      setBookHistoryOpen(false);
+      setBookTestNotice("");
+    } catch (error) {
+      setBookTestNotice(error instanceof Error ? error.message : "這段學習紀錄暫時無法讀取");
+    } finally {
+      setBookChatLoading(false);
+      setBookLoadingRole(null);
+    }
+  }
+
+  async function startBookReview() {
+    if (!selectedChapter || !selectedResource || selectedResource.resourceType !== "book" || bookChatLoading) return;
+    const prompt = `${bookContext(selectedChapter)}\n這是解題書中的題目或題組。請依老師解析開始一對一引導教學，不要要求學生先交完整答案。第一輪只做兩件事：先用一句話說明本題要學會什麼，再指出一個具體行為或關鍵事實，提出一個學生可以直接回答的短問題。學生回答後，再依序引導辨認行為人、爭點、判準、學說、涵攝與結論；每輪先消化學生上一句回答，給具體回饋後只問一個問題。先不要公布完整擬答；完成理解後再整理完整解題架構。`;
+    setBookQuestionOpen(false);
+    setBookInput("");
+    setBookSelectedMessageIndex(null);
+    setBookChatLoading(true);
+    setBookLoadingRole("mentor");
+    setBookTestNotice("AI 導師正在準備引導教學…");
+    try {
+      const response = await fetchBookConversation("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "student", text: prompt }],
+          visibleStudentText: "開始引導教學",
+          modelMode: bookModelMode,
+          context: {
+            type: "book",
+            resourceId: selectedResource.id,
+            segmentId: selectedChapter.id,
+            resourceTitle: selectedResource.title,
+            segmentTitle: selectedChapter.title,
+          },
+        }),
+      });
+      const result = await response.json() as {
+        reply?: string;
+        error?: string;
+        sessionId?: number;
+        usage?: BookUsage;
+        comparison?: BookComparison | null;
+        teachingEvidence?: TeachingEvidence | null;
+      };
+      setBookSessionId(result.sessionId ?? null);
+      setLastBookSessionId(result.sessionId ?? null);
+      void persistBookPreferences({ lastBookResourceId: selectedResource.id, lastBookSegmentId: selectedChapter.id, lastBookSessionId: result.sessionId ?? null });
+      setBookMessages([{
+        role: "student",
+        text: "開始引導教學",
+      }, {
+        role: "mentor",
+        text: response.ok ? (result.reply ?? "我們先從題目的關鍵行為開始。") : (result.error ?? "AI 引導教學暫時無法開始"),
+        model: result.usage?.model,
+        usage: result.usage,
+        comparison: result.comparison ?? undefined,
+        teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
+      }]);
+      void loadBookHistory(selectedResource.id);
+      setBookTestNotice("");
+    } catch {
+      setBookMessages([{ role: "mentor", text: "AI 審題暫時沒有回應，請稍後再按一次「開始審題」。" }]);
+      setBookTestNotice("");
+    } finally {
+      setBookChatLoading(false);
+      setBookLoadingRole(null);
     }
   }
 
@@ -1847,27 +2303,209 @@ export default function StudyPlanPage() {
     return () => window.clearTimeout(timer);
   }, [bookChapters, lastBookProgress, selectedChapterId, selectedResourceId]);
 
-  async function sendBookMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    event.currentTarget.querySelector("textarea")?.blur();
-    const text = bookInput.trim();
-    if (!text || !selectedChapter || !selectedResource || bookChatLoading)
+  function persistBookPreferences(patch: Record<string, unknown>) {
+    return fetch("/api/book-learning/preferences", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).catch(() => undefined);
+  }
+
+  function saveBookAiSettings(next: { pinned?: boolean; modelMode?: BookModelMode; teachingLevel?: "beginner" | "intermediate" | "advanced" | "super" | null }) {
+    const pinned = next.pinned ?? bookSettingsPinned;
+    const modelMode = next.modelMode ?? bookModelMode;
+    const teachingLevel = next.teachingLevel === undefined ? bookTeachingLevel : next.teachingLevel;
+    window.localStorage.setItem("silu-book-ai-settings-pinned", JSON.stringify({ pinned, modelMode, teachingLevel }));
+    void persistBookPreferences({ bookSettingsPinned: pinned, bookModelMode: modelMode, bookTeachingLevel: teachingLevel });
+  }
+
+  function toggleBookSettingsPinned(checked: boolean) {
+    setBookSettingsPinned(checked);
+    saveBookAiSettings({ pinned: checked });
+  }
+
+  useEffect(() => {
+    setChallengeStudentAnswer("");
+    setChallengeAnswers({});
+    setChallengeVote("");
+    setChallengeReason("");
+    setChallengeCoachRun(null);
+    setChallengeReply(null);
+    setChallengeLoading(null);
+  }, [selectedChapterId]);
+
+  async function runModelChallenge(action: "answer" | "challenge" | "reply", provider?: "luna" | "sol") {
+    if (!selectedChapter || challengeLoading) return;
+    const question = studentProblemQuestion(selectedChapter.text, selectedChapter.title);
+    const teacherAnswer = teacherProblemAnswer(selectedChapter.text);
+    if (!question || !teacherAnswer) {
+      setBookTestNotice("本題尚未取得可核對的完整老師解析／擬答，暫不開放模型評選與質疑。");
       return;
+    }
+    const loading = action === "answer" ? provider! : action === "challenge" ? "coach" : "reply";
+    setChallengeLoading(loading);
+    setChallengeReply(action === "reply" ? null : challengeReply);
+    try {
+      const target = provider ?? (challengeVote === "luna" ? "luna" : "sol");
+      const response = await fetch("/api/book-learning/model-challenge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action,
+          provider: target,
+          challenger: challengeCoach,
+          question,
+          teacherAnswer,
+          studentAnswer: challengeStudentAnswer,
+          lunaAnswer: challengeAnswers.luna?.reply,
+          solAnswer: challengeAnswers.sol?.reply,
+          challenge: challengeReason || challengeCoachRun?.reply,
+          originalAnswer: challengeAnswers[target]?.reply,
+        }),
+      });
+      const result = await response.json() as ChallengeRun & { error?: string };
+      if (!response.ok || !result.reply) throw new Error(result.error ?? "模型挑戰暫時無法完成");
+      if (action === "answer" && provider) setChallengeAnswers((current) => ({ ...current, [provider]: result }));
+      if (action === "challenge") { setChallengeCoachRun(result); if (!challengeReason.trim()) setChallengeReason(result.reply); }
+      if (action === "reply") setChallengeReply(result);
+      setBookTestNotice("");
+    } catch (error) {
+      setBookTestNotice(error instanceof Error ? error.message : "模型挑戰暫時無法完成");
+    } finally {
+      setChallengeLoading(null);
+    }
+  }
+
+  async function answerBookTeacherMessage() {
+    if (!selectedChapter || !selectedResource || bookChatLoading) return;
+    const selectedMessage = bookSelectedMessageIndex !== null && bookMessages[bookSelectedMessageIndex]?.role === "mentor"
+      ? bookMessages[bookSelectedMessageIndex]
+      : [...bookMessages].reverse().find((message) => message.role === "mentor" && message.text.trim());
+    if (!selectedMessage) return;
+    if (bookModelMode.startsWith("compare-")) {
+      setBookTestNotice("AI 學霸回答老師問題時請先選一個單一模型；比較模式保留給模型測試。" );
+      return;
+    }
+    setBookSelectedMessageIndex(null);
+    setBookChatLoading(true);
+    setBookLoadingRole("scholar");
+    try {
+      const response = await fetchBookConversation("/api/book-learning/scholar-answer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: bookSessionId,
+          teacherText: selectedMessage.text,
+          subject: selectedResource.subject,
+          resourceTitle: selectedResource.title,
+          segmentTitle: selectedChapter.title,
+          chapterText: selectedChapter.text,
+          level: bookTeachingLevel ?? undefined,
+          modelMode: bookModelMode,
+        }),
+      });
+      const result = await response.json() as { reply?: string; error?: string; model?: string; sessionId?: number | null; usage?: BookUsage };
+      if (!response.ok || !result.reply) throw new Error(result.error ?? "AI 學霸暫時無法回答老師的問題");
+      setBookSessionId(result.sessionId ?? bookSessionId);
+      const scholarMessage: TutorMessage = {
+        role: "scholar",
+        text: result.reply!,
+        model: result.model,
+        usage: result.usage,
+      };
+      const messagesAfterScholar = [...bookMessages, scholarMessage].slice(-12);
+      setBookMessages(messagesAfterScholar);
+
+      // 學霸回答完成後，立即由 AI 導師針對這個回答給回饋，不能再要求
+      // 使用者按第二次送出。學霸訊息以 scholar 身分傳給導師，並由 API
+      // 只保存導師回饋，不重複保存一筆假的學生訊息。
+      setBookLoadingRole("mentor");
+      setBookTestNotice("AI 學霸已回答，AI 導師正在立即回饋…");
+      try {
+        const feedbackResponse = await fetchBookConversation("/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            messages: messagesAfterScholar.map(({ role, text }) => ({ role, text })),
+            visibleStudentText: "",
+            persistStudentMessage: false,
+            teacherFeedback: true,
+            sessionId: result.sessionId ?? bookSessionId,
+            context: {
+              type: "book",
+              resourceId: selectedResource.id,
+              segmentId: selectedChapter.id,
+              resourceTitle: selectedResource.title,
+              segmentTitle: selectedChapter.title,
+            },
+            modelMode: bookModelMode,
+            teachingLevel: bookTeachingLevel ?? undefined,
+          }),
+        });
+        const feedback = await feedbackResponse.json() as {
+          reply?: string;
+          error?: string;
+          sessionId?: number;
+          usage?: BookUsage;
+          comparison?: BookComparison | null;
+          teachingEvidence?: TeachingEvidence | null;
+        };
+        setBookSessionId(feedback.sessionId ?? result.sessionId ?? bookSessionId);
+      setBookMessages((current) => [...current, {
+          role: "mentor",
+          text: feedbackResponse.ok ? (feedback.reply ?? "我先針對剛才的回答給你回饋。") : (feedback.error ?? "AI 導師暫時無法回饋這次回答"),
+          model: feedback.usage?.model,
+          usage: feedback.usage,
+          comparison: feedback.comparison ?? undefined,
+          teachingEvidence: feedbackResponse.ok ? feedback.teachingEvidence ?? null : null,
+        }].slice(-12));
+      void loadBookHistory(selectedResource.id);
+      } catch {
+        setBookMessages((current) => [...current, {
+          role: "mentor",
+          text: "AI 學霸已完成回答，但 AI 導師的即時回饋逾時；請稍後再送出一次。",
+        }].slice(-12));
+      }
+      setBookTestNotice("");
+    } catch (error) {
+      setBookMessages((current) => [...current, { role: "scholar", text: error instanceof Error ? error.message : "AI 學霸暫時無法回答老師的問題" }].slice(-12));
+    } finally {
+      setBookChatLoading(false);
+      setBookLoadingRole(null);
+    }
+  }
+
+  async function submitBookMessage(directedText?: string) {
+    const text = (directedText ?? bookInput).trim();
+    if (!selectedChapter || !selectedResource || bookChatLoading) return;
+    // 留白送出時，直接複用「老師問題 → 學霸回答」流程；只有學生自行輸入文字時，才走一般教材對話。
+    if (!text) {
+      await answerBookTeacherMessage();
+      return;
+    }
+    const selectedMessage =
+      bookSelectedMessageIndex !== null &&
+      bookMessages[bookSelectedMessageIndex]?.role === "mentor"
+        ? bookMessages[bookSelectedMessageIndex]
+        : null;
     const studentMessage = { role: "student" as const, text };
     const nextMessages = [...bookMessages, studentMessage].slice(-12);
     setBookMessages(nextMessages);
     setBookInput("");
+    setBookSelectedMessageIndex(null);
     setBookChatLoading(true);
+    setBookLoadingRole("mentor");
+    setBookTestNotice("學生回答已送出，AI 導師正在立即回饋…");
     try {
       const apiMessages = nextMessages.map((message, index) =>
         index === nextMessages.length - 1 && message.role === "student"
           ? {
               ...message,
-              text: `${bookContext(selectedChapter)}\n學生回覆：${message.text}`,
+              text: `${bookContext(selectedChapter)}${selectedMessage ? `\n\n【指定回覆】請直接承接下列較早的 AI 導師訊息，回應學生這次的內容；不要顯示「選取內容」或內部處理文字。\n${selectedMessage.text.slice(0, 6000)}` : ""}\n學生回覆：${message.text}`,
             }
           : message,
       );
-      const response = await fetch("/api/chat", {
+      const response = await fetchBookConversation("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1881,12 +2519,17 @@ export default function StudyPlanPage() {
             resourceTitle: selectedResource.title,
             segmentTitle: selectedChapter.title,
           },
+          modelMode: bookModelMode,
+          teachingLevel: bookTeachingLevel ?? undefined,
         }),
       });
       const result = (await response.json()) as {
         reply?: string;
         error?: string;
         sessionId?: number;
+        usage?: BookUsage;
+        comparison?: BookComparison | null;
+        teachingEvidence?: TeachingEvidence | null;
       };
       setBookSessionId(result.sessionId ?? bookSessionId);
       setBookMessages((current) => [
@@ -1896,8 +2539,14 @@ export default function StudyPlanPage() {
           text: response.ok
             ? (result.reply ?? "我們接著往下釐清。")
             : (result.error ?? "AI 教學暫時無法回應"),
+          model: result.usage?.model,
+          usage: result.usage,
+          comparison: result.comparison ?? undefined,
+          teachingEvidence: response.ok ? result.teachingEvidence ?? null : null,
         },
       ]);
+      void loadBookHistory(selectedResource.id);
+      setBookTestNotice("");
     } catch {
       setBookMessages((current) => [
         ...current,
@@ -1905,7 +2554,21 @@ export default function StudyPlanPage() {
       ]);
     } finally {
       setBookChatLoading(false);
+      setBookLoadingRole(null);
     }
+  }
+
+  async function sendBookMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    event.currentTarget.querySelector("textarea")?.blur();
+    await submitBookMessage();
+  }
+
+  function prepareBookLevelQuestion(level: "beginner" | "intermediate" | "advanced" | "super") {
+    setBookTeachingLevel(level);
+    saveBookAiSettings({ teachingLevel: level });
+    setBookInput("");
+    setBookTestNotice(`已設定為${bookTeachingLevelLabels[level]}；按「送出訊息」後，AI 學霸會直接回答老師的問題。`);
   }
 
   function captureMagazineSelection() {
@@ -1928,7 +2591,7 @@ export default function StudyPlanPage() {
     if (!question || !selectedMagazine || magazineAiLoading) return;
     const nextMessages: TutorMessage[] = [
       ...magazineMessages,
-      { role: "student", text: question },
+      { role: "student" as const, text: question },
     ].slice(-12);
     setMagazineMessages(nextMessages);
     setMagazineInput("");
@@ -2007,6 +2670,50 @@ export default function StudyPlanPage() {
     setRecordPage(1);
   }
 
+  function toggleRecord(id: number) {
+    setSelectedRecordIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleRecordDetails(id: number) {
+    setExpandedRecordIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleRecords() {
+    setSelectedRecordIds((current) => {
+      const next = new Set(current);
+      if (allVisibleRecordsSelected) visibleRecordIds.forEach((id) => next.delete(id));
+      else visibleRecordIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function deleteSelectedRecords() {
+    const ids = [...selectedRecordIds];
+    if (!ids.length || !window.confirm(`確定要刪除選取的 ${ids.length} 筆學習紀錄嗎？刪除後無法復原。`)) return;
+    setDeletingRecords(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/learning-records", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "學習紀錄刪除失敗");
+      setRecords((current) => current.filter((record) => !selectedRecordIds.has(record.id)));
+      setSelectedRecordIds(new Set());
+      setRecordPage((current) => Math.min(current, Math.max(1, Math.ceil((records.length - ids.length) / 10))));
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "學習紀錄刪除失敗");
+    } finally {
+      setDeletingRecords(false);
+    }
+  }
+
   async function analyzeLearning() {
     setLearningAnalysisLoading(true);
     setLearningAnalysisNotice("");
@@ -2036,7 +2743,7 @@ export default function StudyPlanPage() {
     const response = await fetch("/api/notes", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(noteDraft),
+      body: JSON.stringify({ ...noteDraft, category: "law" }),
     });
     if (!response.ok) return;
     setNotes((current) =>
@@ -2049,6 +2756,207 @@ export default function StudyPlanPage() {
     setNoteDraft(null);
   }
 
+  async function uploadStudentSummary(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const input = form.elements.namedItem("summary-file") as HTMLInputElement | null;
+    const file = summarySelectedFile ?? input?.files?.[0];
+    if (!file) { setSummaryNotice("請先選擇檔案，或直接在這裡貼上截圖。 "); return; }
+    setSummaryUploadLoading(true);
+    setSummaryNotice("正在上傳原始資料…");
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      body.set("subject", summarySubject);
+      body.set("topic", summaryTopic);
+      const upload = await fetch("/api/summaries", { method: "POST", body });
+      const uploaded = await upload.json() as { summary?: StudentSummary; error?: string };
+      if (!upload.ok || !uploaded.summary) throw new Error(uploaded.error ?? "上傳失敗");
+      setStudentSummaries((current) => [uploaded.summary!, ...current]);
+      setSelectedSummaryId(uploaded.summary.id);
+      setSummaryPane("summary");
+      setSummaryDraft(uploaded.summary.editedSummary || uploaded.summary.summary);
+      setSummaryFavorite(uploaded.summary.favorite);
+      setSummaryTitleDraft(uploaded.summary.displayTitle || uploaded.summary.name);
+      setSummaryCollectionTitle(uploaded.summary.collectionTitle || uploaded.summary.topic || uploaded.summary.displayTitle || "");
+      setSummaryNotice("已上傳，Luna 正在整理精簡摘要…");
+      const process = await fetch("/api/summaries/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: uploaded.summary.id, fields: summaryFields, customFields: summaryCustomFields }) });
+      const processed = await process.json() as { error?: string };
+      if (!process.ok) throw new Error(processed.error ?? "AI 整理失敗，原始檔案已保留");
+      const refreshed = await fetch("/api/summaries");
+      if (refreshed.ok) setStudentSummaries(((await refreshed.json()) as { summaries?: StudentSummary[] }).summaries ?? []);
+      setSummaryNotice("已完成整理；請核對原文與 AI 摘要後再收藏。");
+      setSummarySelectedFile(null);
+      form.reset();
+    } catch (error) {
+      setSummaryNotice(error instanceof Error ? error.message : "上傳或整理失敗");
+    } finally {
+      setSummaryUploadLoading(false);
+    }
+  }
+
+  async function copySummaryReviewPack(item: StudentSummary) {
+    const pack = `【司律備考｜整摘要模型評測】\n檔案：${item.name}\n科目：${item.subject}\n模型：${item.model}\n摘要欄位：${summaryFields.join("、")}\n自訂欄位：${summaryCustomFields.join("、") || "無"}\nToken：${(item.usage?.inputTokens ?? 0) + (item.usage?.outputTokens ?? 0)}\n成本：US$ ${(item.usage?.estimatedCostUsd ?? 0).toFixed(5)}\n\n【模型產出】\n${item.editedSummary || item.summary}\n\n考試整理：${item.examFocus}\n重點：${item.keyPoints.join("；")}\n重要爭點：${item.issueOutline.join("；")}\n常見錯誤：${item.commonMistakes.join("；")}\n來源位置：${item.sourceNotes.join("；")}\n\n請評測內容忠實度、重點完整度、法律考試實用性、結構與可讀性，並指出遺漏、錯誤及是否適合設為預設模型。`;
+    await navigator.clipboard.writeText(pack); setSummaryNotice("已複製評測包；直接貼到這個 ChatGPT 對話，我會替你評測，不會產生網站內的評審模型成本。");
+  }
+
+  function handleSummaryPaste(event: ClipboardEvent<HTMLFormElement>) {
+    const imageItem = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"));
+    const image = imageItem?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    const extension = image.type === "image/jpeg" ? "jpg" : image.type === "image/webp" ? "webp" : "png";
+    setSummarySelectedFile(new File([image], `貼上的截圖-${new Date().toISOString().slice(0, 10)}.${extension}`, { type: image.type || "image/png" }));
+    setSummaryNotice("已貼上截圖；確認科目與模型後，按「上傳並整理」。");
+  }
+
+  function openStudentSummary(item: StudentSummary) {
+    setSelectedSummaryId(item.id);
+    setSummaryDraft(item.editedSummary || item.summary);
+    setSummaryFavorite(item.favorite);
+    setSummaryTitleDraft(item.displayTitle || item.name);
+    setSummaryTopic(item.topic || "");
+    setSummaryCollectionTitle(item.collectionTitle || item.topic || item.displayTitle || "");
+    setSummaryFontSize([16, 18, 20, 22, 24].includes(item.fontSize ?? 20) ? item.fontSize ?? 20 : 20);
+    setSummaryPane("summary");
+  }
+
+  function toggleSummaryFieldGroup(fields: readonly string[]) {
+    setSummaryFields((current) => {
+      const selected = fields.every((field) => current.includes(field));
+      return selected
+        ? current.filter((field) => !fields.includes(field))
+        : [...new Set([...current, ...fields])];
+    });
+  }
+
+  async function saveSummaryFolders(folders: SummaryFolder[]) {
+    const response = await fetch("/api/summaries/folders", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ folders }) });
+    const result = await response.json() as { folders?: SummaryFolder[]; error?: string };
+    if (!response.ok) throw new Error(result.error ?? "資料夾保存失敗");
+    setSummaryFolders(result.folders ?? folders);
+  }
+
+  async function addSummaryFolder() {
+    const name = summaryFolderDraft.trim();
+    if (!name) return;
+    const next = [...summaryFolders, { subject: summaryFolderSubject, name }];
+    try { await saveSummaryFolders(next); setSummaryFolderDraft(""); setSummaryDestination(`${summaryFolderSubject}::${name}`); setSummaryNotice(`已在${summaryFolderSubject}新增「${name}」。`); }
+    catch (error) { setSummaryNotice(error instanceof Error ? error.message : "資料夾保存失敗"); }
+  }
+
+  async function renameSummaryFolder(subject: string, oldName: string) {
+    const name = editingSummaryFolderName.trim();
+    if (!name) { setSummaryNotice("資料夾名稱不能空白。"); return; }
+    if (name === oldName) { setEditingSummaryFolder(null); return; }
+    if (summaryFolders.some((folder) => folder.subject === subject && folder.name === name)) {
+      setSummaryNotice(`「${name}」已存在於${subject}，請使用其他名稱。`);
+      return;
+    }
+    setSummarySaving(true);
+    try {
+      const affected = studentSummaries.filter((item) => item.subject === subject && (item.folder || "未分類") === oldName);
+      const updated = await Promise.all(affected.map(async (item) => {
+        const response = await fetch("/api/summaries", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, subject, folder: name }) });
+        const result = await response.json() as { summary?: StudentSummary; error?: string };
+        if (!response.ok || !result.summary) throw new Error(result.error ?? "資料歸屬更新失敗");
+        return result.summary;
+      }));
+      await saveSummaryFolders(summaryFolders.map((folder) => folder.subject === subject && folder.name === oldName ? { ...folder, name } : folder));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setStudentSummaries((items) => items.map((item) => byId.get(item.id) ?? item));
+      if (summaryDestination === `${subject}::${oldName}`) setSummaryDestination(`${subject}::${name}`);
+      setEditingSummaryFolder(null);
+      setEditingSummaryFolderName("");
+      setSummaryNotice(`已將${subject}／「${oldName}」改名為「${name}」。`);
+    } catch (error) { setSummaryNotice(error instanceof Error ? error.message : "資料夾改名失敗"); }
+    finally { setSummarySaving(false); }
+  }
+
+  async function moveSelectedSummaries() {
+    const [subject, folder] = summaryDestination.split("::");
+    const ids = [...selectedSummaryIds];
+    if (!subject || !folder || !ids.length) { setSummaryNotice("請先勾選資料並選擇目的資料夾。"); return; }
+    setSummarySaving(true);
+    try {
+      const updated = await Promise.all(ids.map(async (id) => {
+        const response = await fetch("/api/summaries", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, subject, folder }) });
+        const result = await response.json() as { summary?: StudentSummary; error?: string };
+        if (!response.ok || !result.summary) throw new Error(result.error ?? "移動失敗");
+        return result.summary;
+      }));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setStudentSummaries((items) => items.map((item) => byId.get(item.id) ?? item));
+      setSelectedSummaryIds(new Set());
+      setSummaryNotice(`已將 ${ids.length} 份資料移到${subject}／${folder}。`);
+    } catch (error) { setSummaryNotice(error instanceof Error ? error.message : "移動失敗"); }
+    finally { setSummarySaving(false); }
+  }
+
+  function toggleSummarySelection(id: number) {
+    setSelectedSummaryIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllSummaries() {
+    setSelectedSummaryIds((current) =>
+      studentSummaries.length > 0 && studentSummaries.every((item) => current.has(item.id))
+        ? new Set()
+        : new Set(studentSummaries.map((item) => item.id)),
+    );
+  }
+
+  async function deleteSelectedSummaries() {
+    const ids = [...selectedSummaryIds];
+    if (!ids.length || !window.confirm(`確定要刪除選取的 ${ids.length} 份摘要嗎？原始檔案與整理結果都會刪除，且無法復原。`)) return;
+    setSummaryDeleting(true);
+    setSummaryNotice("正在刪除選取的摘要…");
+    try {
+      const response = await fetch("/api/summaries", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const result = await response.json() as { deletedIds?: number[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "摘要刪除失敗");
+      const deletedIds = new Set(result.deletedIds ?? ids);
+      const remaining = studentSummaries.filter((item) => !deletedIds.has(item.id));
+      setStudentSummaries(remaining);
+      setSelectedSummaryIds(new Set());
+      const nextSelected = selectedSummaryId !== null && !deletedIds.has(selectedSummaryId)
+        ? remaining.find((item) => item.id === selectedSummaryId)
+        : undefined;
+      setSelectedSummaryId(nextSelected?.id ?? null);
+      setSummaryDraft(nextSelected ? nextSelected.editedSummary || nextSelected.summary : "");
+      setSummaryFavorite(nextSelected?.favorite ?? false);
+      setSummaryNotice(`已刪除 ${deletedIds.size} 份摘要。`);
+    } catch (error) {
+      setSummaryNotice(error instanceof Error ? error.message : "摘要刪除失敗");
+    } finally {
+      setSummaryDeleting(false);
+    }
+  }
+
+  async function saveStudentSummary() {
+    const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
+    if (!item) return;
+    setSummarySaving(true);
+    try {
+      const response = await fetch("/api/summaries", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, editedSummary: summaryDraft, favorite: summaryFavorite, tags: item.tags, title: summaryTitleDraft, topic: summaryTopic, collectionTitle: summaryCollectionTitle, folder: item.folder || "未分類", fontSize: summaryFontSize }) });
+      const result = await response.json() as { summary?: StudentSummary; error?: string };
+      if (!response.ok || !result.summary) throw new Error(result.error ?? "摘要保存失敗");
+      setStudentSummaries((current) => current.map((summary) => summary.id === item.id ? result.summary! : summary));
+      setSummaryNotice("摘要已保存。");
+    } catch (error) {
+      setSummaryNotice(error instanceof Error ? error.message : "摘要保存失敗");
+    } finally {
+      setSummarySaving(false);
+    }
+  }
+
   async function addBlankNote() {
     const response = await fetch("/api/notes", {
       method: "POST",
@@ -2058,6 +2966,7 @@ export default function StudyPlanPage() {
         content: "",
         subject: "綜合",
         sourceType: "manual",
+        category: "law",
       }),
     });
     if (!response.ok) return;
@@ -2069,7 +2978,7 @@ export default function StudyPlanPage() {
   async function removeNote() {
     if (!noteDraft || !window.confirm(`確定刪除「${noteDraft.title}」？`))
       return;
-    const response = await fetch(`/api/notes?id=${noteDraft.id}`, {
+    const response = await fetch(`/api/notes?id=${noteDraft.id}&category=law`, {
       method: "DELETE",
     });
     if (response.ok) {
@@ -2174,7 +3083,7 @@ export default function StudyPlanPage() {
       const result = (await response.json()) as { reply?: string; error?: string; sessionId?: number };
       if (!response.ok) throw new Error(result.error ?? "AI 暫時無法回應");
       setMyCourseSessionId(result.sessionId ?? myCourseSessionId);
-      setMyCourseChatMessages((current) => [...current, { role: "mentor", text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
+      setMyCourseChatMessages((current) => [...current, { role: "mentor" as const, text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
       setMyCourseAiReply(result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。");
       setMyCourseAiInput("");
     } catch (error) {
@@ -2254,6 +3163,7 @@ export default function StudyPlanPage() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        category: "law",
         sourceType: "my-course-screenshot",
         sourceId: `my-course:${selectedMyCourse.id}:${episodeKey}`,
         title: `${selectedMyCourse.title}｜${episodeTitle}`,
@@ -2272,7 +3182,7 @@ export default function StudyPlanPage() {
       setMyCourseNoteMessage(result.error ?? "截圖筆記保存失敗");
       return;
     }
-    const notesResponse = await fetch("/api/notes");
+    const notesResponse = await fetch("/api/notes?category=law");
     if (notesResponse.ok) setNotes(((await notesResponse.json()) as { notes?: SavedNote[] }).notes ?? []);
     setMyCourseNoteMessage("已保存到筆記收藏；下次可從筆記繼續複習。");
   }
@@ -2317,7 +3227,7 @@ export default function StudyPlanPage() {
       const result = (await response.json()) as { reply?: string; error?: string; sessionId?: number };
       if (!response.ok) throw new Error(result.error ?? "AI 暫時無法回應");
       setPublicCourseSessionId(result.sessionId ?? publicCourseSessionId);
-      setPublicCourseChatMessages((current) => [...current, { role: "mentor", text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
+      setPublicCourseChatMessages((current) => [...current, { role: "mentor" as const, text: result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。" }].slice(-12));
       setPublicCourseAiReply(result.reply ?? "AI 尚未產生回答，請換一種問法再試一次。");
       setPublicCourseAiInput("");
     } catch (error) {
@@ -2337,6 +3247,7 @@ export default function StudyPlanPage() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        category: "law",
         sourceType: "public-course-screenshot",
         sourceId: `public-course:${selectedPublicCourse.id}:${episodeKey}`,
         title: `${selectedPublicCourse.title}｜${episodeTitle}`,
@@ -2355,29 +3266,33 @@ export default function StudyPlanPage() {
       setPublicCourseNoteMessage(result.error ?? "截圖筆記保存失敗");
       return;
     }
-    const notesResponse = await fetch("/api/notes");
+    const notesResponse = await fetch("/api/notes?category=law");
     if (notesResponse.ok) setNotes(((await notesResponse.json()) as { notes?: SavedNote[] }).notes ?? []);
     setPublicCourseNoteMessage("已保存；筆記會留在這一集影片下方，也可到筆記收藏查看。");
   }
 
   return (
-    <main className="plan-shell">
-      <header className="topbar">
-        <a href="/" className="brand">
-          <span className="brand-mark">律</span>
-          <span>司律備考</span>
+    <main className={standalone ? "essay-standalone-page standalone-learning-page" : "plan-shell"}>
+      <header className={standalone ? "essay-standalone-header" : "topbar"}>
+        <a href="/law" className="brand">
+          <span className={standalone ? "" : "brand-mark"}>{standalone ? "司" : "律"}</span>
+          {standalone ? <b>司律備考</b> : <span>司律備考</span>}
         </a>
-        <div className="top-actions">
-          <a href="/" className="back-link">
-            返回對話
-          </a>
-          <a href="/admin" className="admin-link">
-            管理後台
-          </a>
-        </div>
+        {standalone ? <nav aria-label="獨立學習頁導覽"><a href="/law" aria-label="回到司律備考首頁">← 回首頁</a></nav> : <div className="top-actions"><a href="/law" className="back-link">返回對話</a><a href="/admin" className="admin-link">管理後台</a></div>}
       </header>
       <div className="plan-main">
-        <div className="plan-header">
+        {standalone && activeTab === "calendar" && <div className="standalone-calendar-heading">
+          <div>
+            <p>MY CALENDAR</p>
+            <h1>我的行事曆</h1>
+            <span>查看每天的讀書安排、完成進度與待辦任務。</span>
+          </div>
+          <div className="calendar-header-actions">
+            <button className="reset-plan-btn" onClick={openResetPlanner}>↻ AI 重新規劃</button>
+            <button className="add-task" onClick={() => openNew()}>＋ 新增任務</button>
+          </div>
+        </div>}
+        {!standalone && <div className="plan-header">
           <div>
             <p>MY LEARNING CENTER</p>
             <h1>學習專區</h1>
@@ -2397,8 +3312,8 @@ export default function StudyPlanPage() {
               </button>
             </div>
           )}
-        </div>
-        <nav className="plan-tabs">
+        </div>}
+        {!standalone && <nav className="plan-tabs">
           <button
             className={activeTab === "calendar" ? "active" : ""}
             onClick={() => setActiveTab("calendar")}
@@ -2415,8 +3330,15 @@ export default function StudyPlanPage() {
             className={activeTab === "hotspots" ? "active" : ""}
             onClick={() => setActiveTab("hotspots")}
           >
-            熱考點
+            找爭點
           </button>
+          <button
+            className={activeTab === "summaries" ? "active" : ""}
+            onClick={() => setActiveTab("summaries")}
+          >
+            整摘要 <span>{studentSummaries.length}</span>
+          </button>
+          <a href="/study-group" className="plan-tab-link">AI 讀書會</a>
           <button
             className={activeTab === "books" ? "active" : ""}
             onClick={() => setActiveTab("books")}
@@ -2477,15 +3399,95 @@ export default function StudyPlanPage() {
           >
             試題問答 <span>{examConversations.length}</span>
           </button>
-          <button
-            className={activeTab === "notes" ? "active" : ""}
-            onClick={() => setActiveTab("notes")}
-          >
-            筆記收藏 <span>{notes.length}</span>
-          </button>
-        </nav>
+          <a href="/notes" className="plan-tab-link">我的筆記 <span>{notes.length}</span></a>
+        </nav>}
+        {activeTab === "summaries" && (
+          <section className="student-summary-hub" aria-label="整摘要">
+            <header className="student-summary-head">
+              <div>
+                <p>STUDY MATERIAL ORGANIZER</p>
+                <h2>整摘要</h2>
+                <span>上傳照片或檔案，整理成可核對、可編輯、可收藏的學習資料。</span>
+              </div>
+              <div className="student-summary-controls">
+                <label>科目<select value={summarySubject} onChange={(event) => setSummarySubject(event.target.value)}>{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label>
+                <label>分類主題<input value={summaryTopic} maxLength={120} onChange={(event) => setSummaryTopic(event.target.value)} placeholder="例如：不作為犯／遺產稅" /></label>
+              </div>
+            </header>
+            <form className="student-summary-upload" onSubmit={uploadStudentSummary} onPaste={handleSummaryPaste}>
+              <label className="student-summary-dropzone" tabIndex={0}>
+                <strong>拍照／選擇檔案／貼上截圖</strong>
+                <span>PDF、PNG、JPG、WEBP、TXT、JSONL；單檔最多 25MB。也可以按 Ctrl/Cmd+V 直接貼上截圖。</span>
+                {summarySelectedFile && <small className="student-summary-selected-file">已選取：{summarySelectedFile.name}</small>}
+                <input name="summary-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.jsonl,application/pdf,image/png,image/jpeg,image/webp,text/plain,application/jsonl" onChange={(event) => setSummarySelectedFile(event.target.files?.[0] ?? null)} />
+              </label>
+              <button type="submit" disabled={summaryUploadLoading}>{summaryUploadLoading ? "整理中…" : "上傳並整理"}</button>
+            </form>
+            {summaryNotice && <p className="student-summary-notice">{summaryNotice}</p>}
+            <nav className="student-summary-pane-tabs" role="tablist" aria-label="摘要與整理資料切換">
+              <button type="button" role="tab" aria-selected={summaryPane === "files"} className={summaryPane === "files" ? "active" : ""} onClick={() => setSummaryPane("files")}>整理資料 <span>{studentSummaries.length}</span></button>
+              <button type="button" role="tab" aria-selected={summaryPane === "summary"} className={summaryPane === "summary" ? "active" : ""} onClick={() => setSummaryPane("summary")}>摘要</button>
+            </nav>
+            <div className="student-summary-layout">
+              <aside className={`student-summary-list ${summaryPane === "files" ? "mobile-summary-active" : "mobile-summary-hidden"}`} role="tabpanel" aria-label="我的整理資料">
+                <div className="student-summary-list-head">
+                  <div><strong>我的整理資料</strong><span>{studentSummaries.length} 份</span></div>
+                  {studentSummaries.length > 0 && <label className="student-summary-select-all"><input type="checkbox" checked={studentSummaries.every((item) => selectedSummaryIds.has(item.id))} onChange={toggleAllSummaries} aria-label="全選摘要" />全選</label>}
+                </div>
+                <div className="student-summary-folder-create">
+                  <select value={summaryFolderSubject} onChange={(event) => setSummaryFolderSubject(event.target.value)} aria-label="資料夾所屬科目">{subjects.map((subject) => <option key={subject}>{subject}</option>)}</select>
+                  <input value={summaryFolderDraft} onChange={(event) => setSummaryFolderDraft(event.target.value)} placeholder="新增自訂資料夾" maxLength={80} />
+                  <button type="button" onClick={() => void addSummaryFolder()} disabled={!summaryFolderDraft.trim()}>＋</button>
+                </div>
+                {studentSummaries.length > 0 && <div className="student-summary-bulkbar student-summary-movebar"><span>已選 {selectedSummaryIds.size} 份</span><select value={summaryDestination} onChange={(event) => setSummaryDestination(event.target.value)} aria-label="移動到資料夾"><option value="">移動到…</option>{summaryFolders.map((folder) => <option key={`${folder.subject}-${folder.name}`} value={`${folder.subject}::${folder.name}`}>{folder.subject}／{folder.name}</option>)}</select><button type="button" onClick={() => void moveSelectedSummaries()} disabled={selectedSummaryIds.size === 0 || !summaryDestination || summarySaving}>移動</button><button type="button" onClick={() => void deleteSelectedSummaries()} disabled={selectedSummaryIds.size === 0 || summaryDeleting}>{summaryDeleting ? "刪除中…" : "刪除"}</button></div>}
+                {studentSummaries.length ? subjects.filter((subject) => studentSummaries.some((item) => item.subject === subject) || summaryFolders.some((folder) => folder.subject === subject)).map((subject) => (
+                  <details className="student-summary-subject-group" key={subject} open>
+                    <summary><span>▾ {subject}</span><small>{studentSummaries.filter((item) => item.subject === subject).length}</small></summary>
+                    {["未分類", ...summaryFolders.filter((folder) => folder.subject === subject).map((folder) => folder.name)].map((folderName) => {
+                      const folderItems = studentSummaries.filter((item) => item.subject === subject && (item.folder || "未分類") === folderName);
+                      if (!folderItems.length && folderName === "未分類") return null;
+                      const folderKey = `${subject}::${folderName}`;
+                      const isEditingFolder = editingSummaryFolder === folderKey;
+                      return <details className="student-summary-folder-group" key={`${subject}-${folderName}`} open={folderItems.length > 0 || isEditingFolder}>
+                        <summary>
+                          {isEditingFolder ? <span className="student-summary-folder-rename" onClick={(event) => event.preventDefault()}>
+                            <input value={editingSummaryFolderName} onChange={(event) => setEditingSummaryFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void renameSummaryFolder(subject, folderName); } if (event.key === "Escape") setEditingSummaryFolder(null); }} maxLength={80} autoFocus aria-label="修改資料夾名稱" />
+                            <button type="button" onClick={() => void renameSummaryFolder(subject, folderName)} disabled={!editingSummaryFolderName.trim() || summarySaving}>保存</button>
+                            <button type="button" className="cancel" onClick={() => setEditingSummaryFolder(null)}>取消</button>
+                          </span> : <span>📁 {folderName}</span>}
+                          <span className="student-summary-folder-tools"><small>{folderItems.length}</small>{folderName !== "未分類" && !isEditingFolder && <button type="button" title="修改資料夾名稱" aria-label={`修改${folderName}資料夾名稱`} onClick={(event) => { event.preventDefault(); setEditingSummaryFolder(folderKey); setEditingSummaryFolderName(folderName); }}>✎</button>}</span>
+                        </summary>
+                        {folderItems.map((item) => <div className={`student-summary-row ${selectedSummaryId === item.id ? "active" : ""}`} key={item.id}>
+                          <label className="student-summary-checkbox"><input type="checkbox" checked={selectedSummaryIds.has(item.id)} onChange={() => toggleSummarySelection(item.id)} aria-label={`選取 ${item.name}`} /></label>
+                          <button type="button" className="student-summary-item" onClick={() => openStudentSummary(item)}><span>{item.favorite ? "★" : "☆"}</span><div><strong>{item.collectionTitle || item.displayTitle || item.name}</strong><small>{item.status === "completed" ? "已整理" : item.processingMessage || "處理中"}</small></div></button>
+                        </div>)}
+                      </details>;
+                    })}
+                  </details>
+                )) : <div className="student-summary-empty">尚未上傳資料。先上傳一份講義或照片，這裡會保存整理紀錄。</div>}
+              </aside>
+              <section className={`student-summary-detail ${summaryPane === "summary" ? "mobile-summary-active" : "mobile-summary-hidden"}`} role="tabpanel" aria-live="polite">
+                {(() => {
+                  const item = studentSummaries.find((summary) => summary.id === selectedSummaryId);
+                  if (!item) return <div className="student-summary-empty large">請從左側點選一份整理資料，這裡才會顯示內容。</div>;
+                  return <>
+                    <div className="student-summary-detail-head"><div className="student-summary-detail-title"><span>{item.subject} · 原始檔案：{item.name}</span><h3>{item.status === "completed" ? "整理完成，可編輯與收藏" : item.processingMessage}</h3><div className="student-summary-title-grid"><label className="student-summary-title-editor"><span>左側顯示標題</span><input value={summaryTitleDraft} maxLength={120} onChange={(event) => setSummaryTitleDraft(event.target.value)} placeholder="例如：刑法鑑定制度重點" /></label><label className="student-summary-title-editor"><span>收藏主題</span><input value={summaryCollectionTitle} maxLength={120} onChange={(event) => setSummaryCollectionTitle(event.target.value)} placeholder="例如：刑事鑑定重要實務" /></label></div></div><div className="student-summary-detail-actions"><label className="student-summary-font-control"><span>摘要字級</span><select value={summaryFontSize} onChange={(event) => setSummaryFontSize(Number(event.target.value))}><option value={16}>小</option><option value={18}>標準</option><option value={20}>大</option><option value={22}>特大</option><option value={24}>超大</option></select></label><button type="button" className={summaryFavorite ? "favorite active" : "favorite"} onClick={() => setSummaryFavorite((value) => !value)}>{summaryFavorite ? "★ 已收藏" : "☆ 收藏摘要"}</button></div></div>
+                    {item.status === "completed" ? <>
+                      <label className="student-summary-editor"><span>我的摘要版本（可直接修改）</span><textarea style={{ fontSize: `${summaryFontSize}px` }} value={summaryDraft || item.editedSummary || item.summary} onChange={(event) => setSummaryDraft(event.target.value)} rows={10} /></label>
+                      <details className="student-summary-supporting"><summary>查看考試補充</summary><div style={{ fontSize: `${summaryFontSize}px` }}><section><b>考點與爭點</b><p>{item.examFocus || "原檔未明確提供考試整理，請依原文核對。"}</p>{item.keyPoints.length > 0 && <ul>{item.keyPoints.map((point) => <li key={`point-${point}`}>{point}</li>)}</ul>}{item.issueOutline.length > 0 && <ul>{item.issueOutline.map((point) => <li key={`issue-${point}`}>{point}</li>)}</ul>}</section><section><b>常見錯誤</b>{item.commonMistakes.length ? <ul>{item.commonMistakes.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供常見錯誤。</p>}</section><section><b>來源依據</b>{item.sourceNotes.length ? <ul>{item.sourceNotes.map((point) => <li key={point}>{point}</li>)}</ul> : <p>原檔未明確提供來源位置。</p>}</section></div></details>
+                      <details className="student-summary-flashcard-toggle"><summary>用複習卡自我測驗</summary>{item.flashcards.length > 0 ? <div className="student-summary-flashcards">{item.flashcards.slice(0, 6).map((card) => <details key={card.question}><summary>{card.question}</summary><p>{card.answer}</p></details>)}</div> : <p>目前沒有可用的複習卡。</p>}</details>
+                      <footer className="student-summary-meta"><span>{item.model || "尚未使用模型"} · {(item.usage?.inputTokens ?? 0) + (item.usage?.outputTokens ?? 0)} tokens · 約 US$ {(item.usage?.estimatedCostUsd ?? 0).toFixed(4)} · 約 NT$ {formatTwd(item.usage?.estimatedCostUsd ?? 0)}</span><div><button type="button" onClick={() => void saveStudentSummary()} disabled={summarySaving}>{summarySaving ? "保存中…" : "保存標題、收藏主題與摘要"}</button></div></footer>
+                    </> : <div className="student-summary-empty large">{item.error || item.processingMessage || "正在處理…"}</div>}
+                  </>;
+                })()}
+              </section>
+            </div>
+          </section>
+        )}
         {activeTab === "hotspots" && (
-          <section className="hot-points-hub" aria-label="司律熱考點">
+          <>
+          <IssuePractice />
+          {false && (<section className="hot-points-hub" aria-label="司律熱考點">
             <header className="hot-points-head">
               <div>
                 <p>CORE EXAM POINTS</p>
@@ -2588,7 +3590,8 @@ export default function StudyPlanPage() {
               目前 88 筆是核心考點整理，不代表已有 88
               組真題。須核對歷屆題的年度、題號與實際爭點後，才會逐筆開放練習。
             </p>
-          </section>
+          </section>)}
+          </>
         )}
         {activeTab === "listening" && (
           <section className="learning-single-column" aria-label="聽解題專區">
@@ -3006,31 +4009,44 @@ export default function StudyPlanPage() {
                               ) : bookChapters.length ? (
                                 isProblemSolvingBook(resource) ? (
                                   selectedBookOutline.map((part) => (
-                                    <section
+                                    <details
                                       className="problem-part"
                                       key={part.section}
+                                      open
                                     >
-                                      <h4>{part.section}</h4>
+                                      <summary>
+                                        <h4>{part.section}</h4>
+                                        <em>{part.topics.reduce((total, topic) => total + topic.questions.length, 0)} 題型</em>
+                                      </summary>
                                       {part.topics.map((topic) => (
-                                        <div
+                                        <details
                                           className="problem-topic"
                                           key={`${part.section}-${topic.topic}`}
+                                          open={topic.questions.some((question) => question.id === selectedChapterId)}
                                         >
-                                          <h5>{topic.topic}</h5>
+                                          <summary>
+                                            <h5>{topic.topic}</h5>
+                                            <em>{topic.questions.length} 題型</em>
+                                          </summary>
                                           {topic.questions.map((chapter) => (
                                             <button
+                                              type="button"
                                               key={chapter.id}
+                                              disabled={chapter.completeQuestion === false}
                                               className={
-                                                selectedChapter?.id ===
+                                                `${selectedChapter?.id ===
                                                 chapter.id
                                                   ? "active"
-                                                  : ""
+                                                  : ""}${chapter.completeQuestion === false ? " catalogue-only" : ""}`
                                               }
                                               onClick={() =>
                                                 void startBookChapter(chapter)
                                               }
                                             >
-                                              <strong>{chapter.title}</strong>
+                                              <strong title={chapter.title}>{chapter.title}</strong>
+                                              {chapter.completeQuestion === false && (
+                                                <small>題文整理中</small>
+                                              )}
                                               {chapter.pageStart && (
                                                 <em>
                                                   第 {chapter.pageStart}
@@ -3044,9 +4060,9 @@ export default function StudyPlanPage() {
                                               )}
                                             </button>
                                           ))}
-                                        </div>
+                                        </details>
                                       ))}
-                                    </section>
+                                    </details>
                                   ))
                                 ) : (
                                   bookChapters.map((chapter, index) => (
@@ -3060,8 +4076,8 @@ export default function StudyPlanPage() {
                                       onClick={() =>
                                         void startBookChapter(chapter)
                                       }
-                                    >
-                                      <span>
+                                  >
+                                    <span>
                                         {String(index + 1).padStart(2, "0")}
                                       </span>
                                       <div>
@@ -3149,7 +4165,9 @@ export default function StudyPlanPage() {
                 )}
               </aside>
               {selectedResource ? (
-                <article className="resource-study-panel">
+                <article
+                  className={`resource-study-panel ${selectedResource.resourceType === "book" ? "book-study-panel" : ""} ${bookFocusMode ? "book-focus-mode" : ""}`}
+                >
                   <header>
                     <div>
                       <span>
@@ -3216,58 +4234,111 @@ export default function StudyPlanPage() {
                                   : "先選一個章節"}
                             </strong>
                           </div>
-                          <small>
-                            {selectedBookIsProblemSolving
-                              ? selectedChapter
-                                ? "先看完整題目，再開始審題"
-                                : "依原書的部分、主題與題型選題"
-                              : selectedChapter
-                                ? "依本章內容開始對話"
-                                : "從左側書本下方展開章節，AI 會直接開始教你"}
-                          </small>
+                          <div className="book-heading-actions">
+                            {!bookFocusMode && <small>
+                              {selectedBookIsProblemSolving
+                                ? selectedChapter
+                                  ? "先看完整題目，再開始審題"
+                                  : "依原書的部分、主題與題型選題"
+                                : selectedChapter
+                                  ? "依本章內容開始對話"
+                                  : "從左側書本下方展開章節，AI 會直接開始教你"}
+                            </small>}
+                            <button type="button" className="book-focus-toggle" onClick={() => { setBookFocusMode((active) => !active); setBookSettingsOpen(false); }} aria-pressed={bookFocusMode}>
+                              {bookFocusMode ? "退出專注模式" : "放大對話"}
+                            </button>
+                          </div>
                         </div>
+                        {(
+                          <section className={`book-history-panel ${bookHistoryOpen ? "is-open" : ""}`} aria-label="智能書學習紀錄">
+                            <div className="book-history-heading">
+                              <div>
+                                <strong>智能書學習紀錄</strong>
+                                <span>{bookHistoryLoading ? "正在讀取…" : bookHistory.length ? `已保存 ${bookHistory.length} 次學習` : bookSessionId ? "本次學習已保存" : "開始後會自動保存"}</span>
+                              </div>
+                              {bookHistory.length > 0 && <button type="button" onClick={() => setBookHistoryOpen((open) => !open)} aria-expanded={bookHistoryOpen}>
+                                {bookHistoryOpen ? "收起紀錄" : "查看紀錄"}
+                              </button>}
+                            </div>
+                            {bookHistoryOpen && bookHistory.length > 0 && (
+                              <div className="book-history-list">
+                                {bookHistory.map((entry) => {
+                                  const historyChapter = bookChapters.find((item) => item.id === entry.segmentId);
+                                  const date = new Date(entry.updatedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                                  return (
+                                    <button type="button" key={entry.id} className={`book-history-item ${bookSessionId === entry.id ? "active" : ""}`} onClick={() => void openBookHistory(entry)} disabled={!historyChapter || bookChatLoading}>
+                                      <span>{historyChapter?.title ?? entry.title.replace(/^書籍｜[^｜]+｜/, "")}</span>
+                                      <small>{date} · {entry.messageCount} 則對話</small>
+                                      <em>{bookSessionId === entry.id ? "目前紀錄" : "開啟這段對話"}</em>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </section>
+                        )}
                         {selectedChapter ? (
-                          <>
+                          <div className="book-dialogue-body">
                             {selectedBookIsProblemSolving && (
                               <div className="problem-question-panel">
                                 <div className="problem-question-meta">
-                                  <span>
-                                    {selectedChapter.lessonLabel.replace(
-                                      "｜",
-                                      " · ",
+                                  <div>
+                                    <span>
+                                      {selectedChapter.lessonLabel.replace(
+                                        "｜",
+                                        " · ",
+                                      )}
+                                    </span>
+                                    {selectedChapter.pageStart && (
+                                      <em>
+                                        第 {selectedChapter.pageStart}
+                                        {selectedChapter.pageEnd &&
+                                        selectedChapter.pageEnd !==
+                                          selectedChapter.pageStart
+                                          ? `–${selectedChapter.pageEnd}`
+                                          : ""} 頁
+                                      </em>
                                     )}
-                                  </span>
-                                  {selectedChapter.pageStart && (
-                                    <em>
-                                      第 {selectedChapter.pageStart}
-                                      {selectedChapter.pageEnd &&
-                                      selectedChapter.pageEnd !==
-                                        selectedChapter.pageStart
-                                        ? `–${selectedChapter.pageEnd}`
-                                        : ""} 頁
-                                    </em>
-                                  )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="problem-question-toggle"
+                                    aria-expanded={bookQuestionOpen}
+                                    onClick={() => setBookQuestionOpen((open) => !open)}
+                                  >
+                                    {bookQuestionOpen ? "收起題目" : "展開題目"}
+                                  </button>
                                 </div>
-                                <h4>{selectedChapter.title}</h4>
-                                <div className="problem-question-stem">
-                                  {selectedChapter.text ||
-                                    "完整題目尚未從原書索引擷取完成；核對前不由 AI 補造內容。"}
-                                </div>
-                                <button
-                                  type="button"
-                                  className="problem-start-button"
-                                  disabled={!selectedChapter.text.trim()}
-                                  onClick={() =>
-                                    setBookInput(
-                                      "請帶我審這一題：先辨認題型與關鍵事實，再逐步問我可能的爭點；先不要公布完整擬答。",
-                                    )
-                                  }
-                                >
-                                  開始審題
-                                </button>
+                                {bookQuestionOpen && <>
+                                  <h4>{selectedChapter.title}</h4>
+                                  <div className="problem-question-stem">
+                                    {studentProblemParagraphs(selectedChapter.text, selectedChapter.title).length
+                                      ? studentProblemParagraphs(selectedChapter.text, selectedChapter.title).map((paragraph, index) => (
+                                          <p key={`${selectedChapter.id}-question-${index}`}>{paragraph}</p>
+                                        ))
+                                      : <p>完整題目尚未從原書索引擷取完成；核對前不由 AI 補造內容。</p>}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="problem-start-button"
+                                    disabled={!studentProblemQuestion(selectedChapter.text, selectedChapter.title)}
+                                    onClick={() =>
+                                      void startBookReview()
+                                    }
+                                  >
+                                    開始引導教學
+                                  </button>
+                                </>}
                               </div>
                             )}
-                            <div className="book-dialogue-messages">
+                            {selectedBookIsProblemSolving && bookMessages.length === 0 && (
+                              <section className="book-guided-learning-intro" aria-label="AI 引導教學說明">
+                                <strong>AI 會依老師解析逐步帶你解題</strong>
+                                <p>先辨認行為人與關鍵事實，再引導你找出爭點、判準與涵攝；每一步都會回應你的想法，最後整理成完整解題架構。</p>
+                                <small>不必先寫完整答案。想深入比較學說或覆核結論時，再請 Sol 補充。</small>
+                              </section>
+                            )}
+                            <div ref={bookDialogueMessagesRef} className="book-dialogue-messages">
                               {bookMessages.map((message, index) => (
                                 <div
                                   key={`${message.role}-${index}`}
@@ -3275,49 +4346,130 @@ export default function StudyPlanPage() {
                                 >
                                   <span>
                                     {message.role === "mentor"
-                                      ? "AI 教練"
-                                      : "你"}
+                                      ? "AI 導師"
+                                      : message.role === "scholar"
+                                        ? "AI 學霸"
+                                        : "你"}
                                   </span>
-                                  <p>{message.text}</p>
-                                </div>
+                                    {message.comparison ? (
+                                      <div className="book-model-comparison" aria-label="解題書雙模型回答比較">
+                                        {message.comparison.responses.map((response) => (
+                                          <article key={`${response.id}-${response.label}`}>
+                                            <header><strong>{response.label}</strong><small>{response.model}</small></header>
+                                            {response.error ? <p className="book-model-error">{response.error}</p> : <p>{response.text}</p>}
+                                            <footer>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms · US$ {response.usage.estimatedCostUsd.toFixed(5)}</footer>
+                                          </article>
+                                        ))}
+                                      </div>
+                                    ) : <p>{message.text}</p>}
+                                    {message.role === "mentor" && message.text.includes("完整解題架構已完成") && (
+                                      <button type="button" className="book-direct-solution-button" onClick={() => void submitBookMessage("開始考場擬答。請立即依本題老師解析，按照老師原本的行為人與罪名順序，直接生成可在考場落筆的完整申論答案；必須包含標題、法條、要件或學說、具體事實涵攝及每位行為人的完整罪責結論。不要再提問，不要只提供寫作提示、架構或順序說明。") } disabled={bookChatLoading}>
+                                        開始考場擬答
+                                      </button>
+                                    )}
+                                    {message.usage && !message.comparison && <small className="book-ai-usage">{message.usage.model} · {message.usage.inputTokens + message.usage.outputTokens} tokens · {message.usage.durationMs.toLocaleString()} ms · US$ {message.usage.estimatedCostUsd.toFixed(5)}</small>}
+                                    {message.role === "mentor" && message.teachingEvidence && (
+                                      <div className={`book-teaching-evidence ${message.teachingEvidence.status}`}>
+                                        <strong>
+                                          {message.teachingEvidence.status === "verified"
+                                            ? message.teachingEvidence.basis === "teacher_solution"
+                                              ? "✓ 依本題老師解析／擬答教學"
+                                              : "✓ 教材原文直接支持本次教學內容"
+                                            : message.teachingEvidence.status === "applied_inference"
+                                              ? "◆ 教材提供判準，AI 依原文涵攝"
+                                            : message.teachingEvidence.status === "full_text_search"
+                                              ? message.teachingEvidence.retrieval === "full_text_search"
+                                                ? "△ 命中全文索引，章節待核對"
+                                                : ""
+                                              : "! 尚未取得本章原文"}
+                                        </strong>
+                                        <span>
+                                          {message.teachingEvidence.status === "verified" || message.teachingEvidence.status === "applied_inference"
+                                            ? selectedBookIsProblemSolving
+                                              ? message.teachingEvidence.basis === "teacher_solution"
+                                                ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜老師答案為主要依據`
+                                                : `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}`
+                                              : `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
+                                            : message.teachingEvidence.message}
+                                        </span>
+                                        {message.teachingEvidence.excerpt && !selectedBookIsProblemSolving && (
+                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}<small>上方章節頁碼是本教材 PDF 的位置；原文註腳中的其他頁碼屬引用書目頁碼。</small>{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
+                                        )}
+                                      </div>
+                                    )}
+                                    {message.role === "mentor" && (
+                                      <label className={`book-message-reply ${bookSelectedMessageIndex === index ? "is-selected" : ""}`}>
+                                        <input
+                                          type="checkbox"
+                                          checked={bookSelectedMessageIndex === index}
+                                          onChange={() => setBookSelectedMessageIndex((current) => current === index ? null : index)}
+                                          disabled={bookChatLoading}
+                                        />
+                                        <span>回覆此訊息</span>
+                                      </label>
+                                    )}
+                                  </div>
                               ))}
                               {bookChatLoading && (
                                 <div className="book-dialogue-message mentor">
-                                  <span>AI 教練</span>
-                                  <p className="book-typing">
-                                    {selectedBookIsProblemSolving
-                                      ? "正在分析這一題…"
-                                      : "正在整理本章內容…"}
-                                  </p>
+                                  <span>{bookLoadingRole === "scholar" ? "AI 學霸" : "AI 導師"}</span>
+                                  <p className="book-typing">{bookLoadingRole === "scholar" ? "AI 學霸正在回答 AI 導師的問題…" : "AI 導師正在立即回饋你的回答…"}</p>
                                 </div>
                               )}
-                              <div ref={bookDialogueEndRef} />
                             </div>
-                            <form
-                              className="book-dialogue-form"
-                              onSubmit={sendBookMessage}
-                            >
-                              <textarea
-                                value={bookInput}
-                                onChange={(event) =>
-                                  setBookInput(event.target.value)
-                                }
-                                placeholder={
-                                  selectedBookIsProblemSolving
-                                    ? "寫下你看到的關鍵事實或爭點…"
-                                    : "回覆 AI 教練，繼續這一章…"
-                                }
-                                disabled={bookChatLoading}
-                                rows={2}
-                              />
-                              <button
-                                type="submit"
-                                disabled={bookChatLoading || !bookInput.trim()}
-                              >
-                                送出
-                              </button>
-                            </form>
-                          </>
+                            <div className="book-dialogue-composer-wrap">
+                              {currentMember?.canAdmin && <section className={`book-ai-controls model-mode-switch ${bookSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
+                                <div className="model-mode-heading">
+                                  <strong>AI 學習設定</strong>
+                                  <span className="model-mode-summary">{bookTeachingLevelLabels[bookTeachingLevel ?? "general"]} · {bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : bookModelMode === "luna" ? "Luna" : bookModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}</span>
+                                  <button type="button" className="model-settings-toggle" aria-expanded={bookSettingsOpen} onClick={() => setBookSettingsOpen((open) => !open)}>{bookSettingsOpen ? "收合設定" : "展開設定"}</button>
+                                </div>
+                                {bookSettingsOpen && <>
+                                  <div className="book-ai-fields">
+                                    <label><span>學生</span><select value={bookTeachingLevel ?? "general"} onChange={(event) => { const value = event.target.value as "general" | "beginner" | "intermediate" | "advanced" | "super"; if (value === "general") { setBookTeachingLevel(null); saveBookAiSettings({ teachingLevel: null }); setBookTestNotice(`已切換為${bookTeachingLevelLabels.general}`); } else { prepareBookLevelQuestion(value); } }} disabled={bookSettingsPinned || bookChatLoading}>
+                                      <option value="general">{bookTeachingLevelLabels.general}</option><option value="beginner">{bookTeachingLevelLabels.beginner}</option><option value="intermediate">{bookTeachingLevelLabels.intermediate}</option><option value="advanced">{bookTeachingLevelLabels.advanced}</option><option value="super">{bookTeachingLevelLabels.super}</option>
+                                    </select></label>
+                                    <label><span>回答</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] : bookModelMode} onChange={(event) => { const mode = event.target.value as BookModelMode; setBookModelMode(mode); saveBookAiSettings({ modelMode: mode }); }} disabled={bookSettingsPinned || bookChatLoading}>
+                                      <option value="luna">Luna</option><option value="sonnet">Claude Sonnet</option><option value="deepseek">DeepSeek V4-Pro</option>
+                                    </select></label>
+                                    <label><span>比較</span><select value={bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length) : "none"} onChange={(event) => { const value = event.target.value; const mode = value === "none" ? (bookModelMode.startsWith("compare-") ? bookModelMode.split("-")[1] as BookModelMode : bookModelMode) : value as BookModelMode; setBookModelMode(mode); saveBookAiSettings({ modelMode: mode }); }} disabled={bookSettingsPinned || bookChatLoading}>
+                                      <option value="none">不比較</option><option value="luna-sonnet">Luna＋Sonnet</option><option value="luna-deepseek">Luna＋DeepSeek</option><option value="sonnet-deepseek">Sonnet＋DeepSeek</option><option value="luna-sonnet-deepseek">Luna＋Sonnet＋DeepSeek</option>
+                                    </select></label>
+                                  </div>
+                                  <div className={`model-settings-pin-row ${bookSettingsPinned ? "is-pinned" : ""}`}>
+                                    <label className="model-settings-pin"><input type="checkbox" checked={bookSettingsPinned} onChange={(event) => toggleBookSettingsPinned(event.target.checked)} disabled={bookChatLoading} /><span>固定此角色與模型</span></label>
+                                    <small>{bookSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "固定後所有智能書都沿用目前的學生角色與回答模型。"}</small>
+                                  </div>
+                                  <small>{bookTestNotice || "下方留白按「送出訊息」，AI 學霸會直接回答 AI 導師的問題。"}</small>
+                                </>}
+                              </section>}
+                              <div className="book-dialogue-composer-actions">
+                                <span>{bookSelectedMessageIndex === null ? "留白送出：回答 AI 導師最新問題" : "已指定一則 AI 導師訊息；留白送出即可回答"}</span>
+                                {selectedBookIsProblemSolving && bookMessages.some((message) => message.role === "mentor") && (
+                                  <button
+                                    type="button"
+                                    className="book-direct-solution-button"
+                                    onClick={() => void submitBookMessage("跳過理解追問，請直接依老師解析進入完整解題架構。依老師原本的行為人與罪名順序，完成爭點、判準、老師實際處理的各說、評析、正確事實涵攝及每位行為人的明確罪責結論；不得補造行為主體或題目事實。若老師認定不知情工具人無過失，須明寫欠缺注意義務違反，再檢查結果是否發生與過失未遂不罰。完成後顯示可操作的『開始考場擬答』入口，不要再提出新的反事實問題，也不要只提供擬答寫作提示。")}
+                                    disabled={bookChatLoading}
+                                  >
+                                    跳過追問，進入完整解題
+                                  </button>
+                                )}
+                                <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || (!bookInput.trim() && !bookMessages.some((message) => message.role === "mentor"))}>送出訊息</button>
+                              </div>
+                              <form className="book-dialogue-form" onSubmit={sendBookMessage}>
+                                <textarea
+                                  value={bookInput}
+                                  onChange={(event) => setBookInput(event.target.value)}
+                                  placeholder={bookSelectedMessageIndex === null ? "回答 AI 導師的問題……（留白由 AI 學霸直接回答）" : "回答指定的 AI 導師問題……（留白由 AI 學霸直接回答）"}
+                                  disabled={bookChatLoading}
+                                  rows={1}
+                                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitBookMessage(); } }}
+                                />
+                                <button type="submit" aria-label="送出訊息" disabled={bookChatLoading || (!bookInput.trim() && !bookMessages.some((message) => message.role === "mentor"))}>↑</button>
+                              </form>
+                            </div>
+                          </div>
                         ) : (
                           <div className="book-dialogue-empty">
                             <div>{selectedBookIsProblemSolving ? "題" : "AI"}</div>
@@ -3690,7 +4842,7 @@ export default function StudyPlanPage() {
                       <small>
                         {highlightMagazineText(magazine.title, magazineQuery)}
                       </small>
-                      <span>{magazine.articles?.length ?? 0} 篇試讀</span>
+                      <span>{magazine.catalog?.length || magazine.articles?.length || 0} 筆本期內容</span>
                     </button>
                   ))}
                   {!filteredMagazines.length && <p>找不到符合的期數或文章。</p>}
@@ -3709,8 +4861,8 @@ export default function StudyPlanPage() {
                           )}
                         </h3>
                         <small>
-                          本期共 {selectedMagazine.articles?.length ?? 0}{" "}
-                          篇試讀內容
+                          本期共 {selectedMagazine.catalog?.length || selectedMagazine.articles?.length || 0}{" "}
+                          筆目錄內容
                         </small>
                       </div>
                       <a
@@ -3725,6 +4877,25 @@ export default function StudyPlanPage() {
                       <p className="column-notice">
                         目前先顯示後台匯入的試讀目錄，完整分析仍由後台確認。
                       </p>
+                    )}
+                    {(selectedMagazine.catalog?.length ?? 0) > 0 && (
+                      <div className="magazine-catalog">
+                        {[...new Set(selectedMagazine.catalog?.map((item) => item.category) ?? [])].map((category) => (
+                          <section className="magazine-catalog-section" key={category}>
+                            <h4>【{category}】</h4>
+                            {(selectedMagazine.catalog ?? []).filter((item) => item.category === category).map((item) => (
+                              <article className="magazine-catalog-item" key={item.id}>
+                                <div>
+                                  <strong>{highlightMagazineText(item.title, magazineQuery)}</strong>
+                                  {item.author ? <small>{highlightMagazineText(item.author, magazineQuery)}</small> : null}
+                                  {item.content && item.category === "編輯手札" ? <p>{highlightMagazineText(item.content, magazineQuery)}</p> : null}
+                                </div>
+                                {item.sourceUrl && !/[?&]catalog_item=/i.test(item.sourceUrl) ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">查看公開資料 ↗</a> : <span>目錄</span>}
+                              </article>
+                            ))}
+                          </section>
+                        ))}
+                      </div>
                     )}
                     <div
                       className="magazine-reading-list"
@@ -3905,13 +5076,19 @@ export default function StudyPlanPage() {
               ))}
               {days.map((day, index) => (
                 <div
-                  className={`calendar-day ${day ? "" : "blank"}`}
+                  className={`calendar-day ${day ? "" : "blank"} ${day && selectedCalendarDate === dateFor(day) ? "selected" : ""}`}
                   key={`${day}-${index}`}
+                  onClick={() => day && setSelectedCalendarDate(dateFor(day))}
                   onDoubleClick={() => day && openNew(day)}
                 >
                   {day && (
                     <>
                       <span className="day-number">{day}</span>
+                      {tasks.some((task) => task.taskDate === dateFor(day)) && (
+                        <span className="mobile-task-count" aria-label={`${tasks.filter((task) => task.taskDate === dateFor(day)).length} 項任務`}>
+                          {tasks.filter((task) => task.taskDate === dateFor(day)).length}
+                        </span>
+                      )}
                       <div className="day-tasks">
                         {tasks
                           .filter((task) => task.taskDate === dateFor(day))
@@ -3919,7 +5096,10 @@ export default function StudyPlanPage() {
                             <div
                               className={`calendar-task ${task.status === "completed" ? "done" : ""}`}
                               key={task.id}
-                              onClick={() => openTask(task)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTask(task);
+                              }}
                             >
                               <button
                                 onClick={(event) => {
@@ -3938,7 +5118,7 @@ export default function StudyPlanPage() {
                             </div>
                           ))}
                       </div>
-                      <button className="day-add" onClick={() => openNew(day)}>
+                      <button className="day-add" onClick={(event) => { event.stopPropagation(); openNew(day); }}>
                         ＋
                       </button>
                     </>
@@ -3946,9 +5126,40 @@ export default function StudyPlanPage() {
                 </div>
               ))}
             </div>
+            <section className="mobile-calendar-agenda" aria-live="polite">
+              <header>
+                <div>
+                  <span>所選日期</span>
+                  <h2>{Number(selectedCalendarDate.slice(5, 7))} 月 {Number(selectedCalendarDate.slice(8, 10))} 日</h2>
+                </div>
+                <b>{selectedCalendarTasks.length} 項任務</b>
+              </header>
+              {selectedCalendarTasks.length ? (
+                <div className="mobile-agenda-list">
+                  {selectedCalendarTasks.map((task) => (
+                    <article className={task.status === "completed" ? "done" : ""} key={task.id}>
+                      <button className="mobile-agenda-main" onClick={() => openTask(task)}>
+                        <span>{task.subject}・{task.durationMinutes} 分鐘</span>
+                        <strong>{task.title}</strong>
+                        <small>{task.details || "點開查看或開始這項學習任務"}</small>
+                        <em>查看內容 ›</em>
+                      </button>
+                      <button className="mobile-agenda-toggle" onClick={() => void toggle(task)}>
+                        {task.status === "completed" ? "✓ 已完成（點此取消）" : "○ 標記完成"}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="mobile-agenda-empty">
+                  <p>這一天還沒有安排任務。</p>
+                  <button onClick={() => openNew(Number(selectedCalendarDate.slice(8, 10)))}>＋ 新增這天任務</button>
+                </div>
+              )}
+            </section>
           </>
         )}
-        {activeTab === "practice" && <PracticeLab initialType="mcq" />}
+        {activeTab === "practice" && <PracticeLab initialType="mcq" standalone canAdmin={currentMember?.canAdmin === true} />}
         {activeTab === "laws" && <LegalResearchTabs />}
         {activeTab === "records" && (
           <section className="learning-hub tab-hub" id="records">
@@ -4078,7 +5289,7 @@ export default function StudyPlanPage() {
                   )}
                   <footer className="learning-coach-meta">
                     <span>{coachData.model} · {coachData.generatedAt ? `分析於 ${coachData.generatedAt}` : "剛剛完成"}{learningAnalysis?.saved ? " · 已保存" : ""}</span>
-                    {showAnalysisCost && coachData.usage && <span>Token {(coachData.usage.inputTokens + coachData.usage.outputTokens).toLocaleString()} · 約 US$ {coachData.usage.estimatedCostUsd.toFixed(4)}</span>}
+                    {showAnalysisCost && coachData.usage && <span>Token {(coachData.usage.inputTokens + coachData.usage.outputTokens).toLocaleString()} · 約 US$ {coachData.usage.estimatedCostUsd.toFixed(4)} · 約 NT$ {formatTwd(coachData.usage.estimatedCostUsd)}</span>}
                   </footer>
                 </div>
               )}
@@ -4140,15 +5351,32 @@ export default function StudyPlanPage() {
               />
               <button onClick={addRecord}>補登紀錄</button>
             </div>
+            {records.length > 0 && <div className="record-batch-toolbar">
+              <label><input type="checkbox" checked={allVisibleRecordsSelected} onChange={toggleAllVisibleRecords} /> 全選本頁</label>
+              <span>已選 {selectedRecordIds.size} 筆</span>
+              <button type="button" onClick={() => void deleteSelectedRecords()} disabled={!selectedRecordIds.size || deletingRecords}>{deletingRecords ? "刪除中…" : "刪除選取紀錄"}</button>
+            </div>}
             {visibleRecords.length ? (
               <div className="record-list">
-                {visibleRecords.map((record) => (
-                  <article key={record.id}>
+                {visibleRecords.map((record) => {
+                  const expanded = expandedRecordIds.has(record.id);
+                  return (
+                  <article key={record.id} className={expanded ? "is-expanded" : ""}>
+                    <input type="checkbox" checked={selectedRecordIds.has(record.id)} onChange={() => toggleRecord(record.id)} aria-label={`選取 ${record.subject} ${record.title}`} />
                     <time>{record.recordDate}</time>
-                    <div>
+                    <div className="record-content">
+                      <button
+                        type="button"
+                        className="record-title-button"
+                        onClick={() => toggleRecordDetails(record.id)}
+                        aria-expanded={expanded}
+                        aria-controls={`record-details-${record.id}`}
+                      >
                       <strong>
                         {record.subject} · {record.title}
                       </strong>
+                      <span className="record-expand-label">{expanded ? "收合完整紀錄" : "查看完整紀錄"}<span aria-hidden="true">⌄</span></span>
+                      </button>
                       <span>
                         {record.activityType} · 實際 {record.actualMinutes} 分鐘
                         {record.correct === null
@@ -4157,15 +5385,24 @@ export default function StudyPlanPage() {
                             ? " · 答對"
                             : " · 待補強"}
                       </span>
-                      {record.weakness && (
+                      {!expanded && record.weakness && (
                         <small>弱點：{record.weakness}</small>
                       )}
-                      {record.nextStep && (
+                      {!expanded && record.nextStep && (
                         <small>下次接續：{record.nextStep}</small>
+                      )}
+                      {expanded && (
+                        <div className="record-details" id={`record-details-${record.id}`}>
+                          <div><b>完整學習內容</b><p>{record.reflection || record.title}</p></div>
+                          {record.weakness && <div><b>發現的弱點</b><p>{record.weakness}</p></div>}
+                          {record.nextStep && <div><b>下次接續</b><p>{record.nextStep}</p></div>}
+                          {!record.reflection && !record.weakness && !record.nextStep && <p className="record-empty-detail">這筆紀錄目前只有學習項目與時間。</p>}
+                        </div>
                       )}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="hub-empty">

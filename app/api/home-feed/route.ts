@@ -25,16 +25,42 @@ export async function GET() {
     }
   }
   const magazines = await db.select().from(learningResources).where(and(eq(learningResources.resourceType, "magazine"), eq(learningResources.status, "active"))).orderBy(desc(learningResources.updatedAt));
+  const [lawdataIndex] = await db.select({ id: learningResources.id }).from(learningResources).where(and(eq(learningResources.resourceType, "external_index"), eq(learningResources.creator, "lawdata"), eq(learningResources.status, "active"))).limit(1);
+  const catalogRows = lawdataIndex ? await db.select({ id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, summary: resourceSegments.summary, text: resourceSegments.text, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, lawdataIndex.id), eq(resourceSegments.segmentType, "external_catalog"), eq(resourceSegments.reviewStatus, "published"))).orderBy(asc(resourceSegments.sequence)) : [];
+  const issueCatalog = new Map<string, Array<{ id: number; title: string; sourceUrl: string; category: string; author: string; content: string; sequence: number }>>();
+  const issueSources = new Map<string, { title: string; sourceUrl: string; id: number }>();
+  for (const row of catalogRows) {
+    let meta: { parentTitle?: string; depth?: number; content?: string } = {};
+    try { meta = JSON.parse(row.text || "{}"); } catch {}
+    const parentIssue = meta.parentTitle?.match(/月旦法學教室第\s*(\d+)\s*期/)?.[1] ?? "";
+    const rowIssue = row.title.match(/月旦法學教室第\s*(\d+)\s*期/)?.[1] ?? "";
+    if (rowIssue && row.sourceUrl) issueSources.set(rowIssue, { id: row.id, title: row.title, sourceUrl: row.sourceUrl });
+    if (!parentIssue || !/本期目錄|期刊文章目錄/.test(row.summary || "")) continue;
+    const category = row.summary?.match(/分類：([^｜]+)/)?.[1]?.trim() || "本期內容";
+    const author = row.summary?.match(/作者：([^｜]+)/)?.[1]?.trim() || "";
+    const current = issueCatalog.get(parentIssue) ?? [];
+    if (!current.some((item) => item.title === row.title && item.author === author)) current.push({ id: row.id, title: row.title, sourceUrl: row.sourceUrl || "", category, author, content: meta.content || "", sequence: row.sequence });
+    issueCatalog.set(parentIssue, current);
+  }
   const magazineFeeds = (await Promise.all(magazines.map(async (magazine) => {
     const magazineRows = await db.select({ id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, sequence: resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId, magazine.id), inArray(resourceSegments.segmentType, ["article_trial", "article_link", "article"]))).orderBy(asc(resourceSegments.sequence)).limit(4);
     const articles = magazineRows.map((article) => {
       const analysis = parseMagazineAnalysis(article.summary);
       return { ...article, summary: analysis.summary, issue: analysis.issue };
     });
-    return { ...magazine, isDraft: false, articles };
+    const issue = magazine.title.match(/第\s*(\d+)\s*期/)?.[1] ?? "";
+    return { ...magazine, isDraft: false, articles, catalog: issueCatalog.get(issue) ?? [] };
   }))).sort((a, b) => magazineSortValue(b) - magazineSortValue(a) || b.id - a.id);
+  const existingIssues = new Set(magazineFeeds.map((item) => item.title.match(/第\s*(\d+)\s*期/)?.[1] ?? ""));
+  for (const [issue, catalog] of issueCatalog) {
+    if (existingIssues.has(issue)) continue;
+    const source = issueSources.get(issue);
+    if (!source) continue;
+    magazineFeeds.push({ id: -source.id, title: source.title, description: "月旦法學教室本期公開目錄", sourceUrl: source.sourceUrl, status: "active", resourceType: "magazine", creator: "元照出版", subject: "綜合", accessType: "public_index", sortOrder: 0, documentId: null, linkedBookId: null, coverStorageKey: null, createdAt: new Date(), updatedAt: new Date(), isDraft: false, articles: [], catalog } as typeof magazineFeeds[number]);
+  }
+  magazineFeeds.sort((a, b) => magazineSortValue(b) - magazineSortValue(a) || b.id - a.id);
   const recommended = await db.select({ id: resourceSegments.id, resourceId: resourceSegments.resourceId, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds, importance: resourceSegments.importance }).from(resourceSegments).where(eq(resourceSegments.recommended, true)).orderBy(desc(resourceSegments.importance)).limit(5);
-  const settings = await db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings).where(inArray(appSettings.key, ["focus_music_url", "exam_countdowns", "battle_alerts"]));
+  const settings = await db.select({ key: appSettings.key, value: appSettings.value }).from(appSettings).where(inArray(appSettings.key, ["focus_music_url", "exam_countdowns", "battle_alerts", "learning_center_enabled"]));
   const settingValues = Object.fromEntries(settings.map((item) => [item.key, item.value]));
   const parseSetting = <T,>(key: string, fallback: T): T => { try { return settingValues[key] ? JSON.parse(settingValues[key]) as T : fallback; } catch { return fallback; } };
   return Response.json({
@@ -48,5 +74,6 @@ export async function GET() {
     recommended,
     ticker: parseSetting<Array<{ id: string; text: string; url: string; enabled: boolean }>>("battle_alerts", []).filter((item) => item.enabled),
     examCountdowns: parseSetting<Array<{ id: string; label: string; date: string; enabled: boolean }>>("exam_countdowns", []).filter((item) => item.enabled),
+    learningCenterEnabled: settingValues.learning_center_enabled !== "false",
   });
 }

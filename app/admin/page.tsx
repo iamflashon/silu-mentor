@@ -1,18 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
+import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
+
+type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
+type ExternalBookData = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
+type ExternalIndexSource = { id: number; key: "lawdata" | "angle_books" | "angle_media" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: Array<{ label: string; url: string }>; book?: ExternalBookData }> };
+type ExternalRetrievalMatch = { id: number; source: string; title: string; summary: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; excerpt: string };
+type ExternalRetrievalTest = { query: string; mode: "children" | "single"; found: boolean; complete: boolean; failureReason: string; stats: { total: number; complete: number; titleOnly: number; missing: number; disabled: number }; hierarchy: { categories: number; issues: number; articles: number; unresolved: number }; target: { id: number; title: string; enabled: boolean; indexed: boolean; parentTitle: string }; tests: Array<{ id: number; title: string; parentTitle: string; depth: number; dataType: "category" | "issue" | "article" | "unresolved"; enabled: boolean; indexed: boolean; found: boolean; complete: boolean; failureReason: string; matches: ExternalRetrievalMatch[] }>; matches: ExternalRetrievalMatch[] };
 
 type Uploaded = {
   id: number;
   name: string;
+  examCategory?: string;
   subject: string;
   size: string;
   status: string;
+  type?: string;
+  processingStage?: string;
+  processingMessage?: string;
+  pageCount?: number | null;
+  extractedChars?: number;
+  chapterCount?: number;
+  topicCount?: number;
+  questionCount?: number;
+  tags?: string[];
+  fullTextIndexed?: boolean;
+  vectorIndexed?: boolean;
+  homepageSearchEnabled?: boolean;
+  summary?: string;
+  sourceFileName?: string;
+  indexedFileName?: string;
+  extractionNote?: string;
+  analysisStatus?: string;
+  chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
+  questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
   error?: string | null;
 };
 type QueueItem = {
@@ -42,7 +69,23 @@ type UsageData = {
     estimatedCostUsdMicros: number;
     createdAt: string;
   }>;
+  comparisonStats?: {
+    comparisons: number;
+    ratedResponses: number;
+    lunaPreferred: number;
+    claudePreferred: number;
+    deepseekPreferred: number;
+    averageScore: number;
+  };
+  recentComparisons?: Array<{
+    id: number;
+    promptText: string;
+    sourceStatus: string;
+    createdAt: string;
+    responses: Array<{ id: number; label: string; model: string; inputTokens: number; outputTokens: number; estimatedCostUsdMicros: number; durationMs: number; error?: string | null; ratings: Array<{ score: number; feedbackType: string }> }>;
+  }>;
   showCosts: boolean;
+  showEvidence: boolean;
 };
 type ExamSource = {
   id: number;
@@ -88,10 +131,24 @@ type LearningResource = {
   hasCover: number;
   segmentCount: number;
   chapterCount?: number;
+  pendingChapterCount?: number;
+  chapterSourceReadyCount?: number;
+  sourcePageCount?: number;
   articleCount?: number;
   analyzedArticleCount?: number;
   failedArticleCount?: number;
   pendingArticleCount?: number;
+  documentStatus?: string | null;
+  documentError?: string | null;
+  documentProcessingStage?: string | null;
+  documentProcessingMessage?: string | null;
+  documentChapterCount?: number;
+  documentTopicCount?: number;
+  documentQuestionCount?: number;
+  hasStoredChapterCatalogue?: boolean;
+  storedChapterCatalogueCount?: number;
+  documentExtractedChars?: number;
+  documentTags?: string[];
   articlePreviews?: Array<{
     id: number;
     title: string;
@@ -115,7 +172,7 @@ type CourseCollection = {
 };
 type ChapterProgress = {
   state: "not_started" | "building" | "paused" | "failed" | "completed" | "needs_rebuild";
-  phase?: "outline" | "questions" | "saving" | "paused" | "failed";
+  phase?: "outline" | "questions" | "pages" | "saving" | "paused" | "failed";
   completedTopics?: number;
   totalTopics?: number;
   foundQuestions?: number;
@@ -123,12 +180,34 @@ type ChapterProgress = {
   error?: string;
   stale?: boolean;
   lastUpdatedAt?: string | null;
+  pageCoverage?: { scanned: number; continuation: number; empty: number; unprocessed: number };
+};
+type ChapterSegment = {
+  id: number;
+  resourceId: number;
+  segmentType: string;
+  lessonLabel: string;
+  title: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  text: string;
+  summary: string;
+  reviewStatus: string;
+  sequence: number;
+  completeQuestion?: boolean;
 };
 
 function isProblemSolvingResource(resource: LearningResource) {
   return /解題|題庫|題型|案例演習|申論/.test(
     `${resource.title} ${resource.description}`,
   );
+}
+
+function problemContentSections(text: string) {
+  const value = text.trim();
+  const match = value.match(/^【完整題目】\s*([\s\S]*?)\s*\n\s*【(爭點解析|擬答)】\s*([\s\S]+)$/u);
+  if (!match) return null;
+  return { question: match[1].trim(), label: match[2], analysis: match[3].trim() };
 }
 
 function chapterProgressPercent(progress?: ChapterProgress) {
@@ -142,9 +221,10 @@ function chapterProgressPercent(progress?: ChapterProgress) {
 function chapterProgressLabel(progress?: ChapterProgress) {
   if (!progress) return "尚未開始解析";
   if (progress.state === "completed") return "解析完成";
-  if (progress.state === "paused") return "解析暫停，原資料仍保留";
+  if (progress.state === "paused") return "AI 目前較忙，將自動重試；原資料仍保留";
   if (progress.state === "failed") return "解析未完成，原資料仍保留";
   if (progress.phase === "outline") return "正在讀取原書的部分與主題目錄";
+  if (progress.phase === "pages") return "正在依頁碼順序掃描原始 PDF";
   if (progress.phase === "saving") return "正在保存已完成的題型";
   return "正在逐一擷取題型與完整題目";
 }
@@ -211,6 +291,7 @@ type ExamQuestion = {
   id: number;
   examType: string;
   year: string;
+  examName: string;
   subject: string;
   questionNumber: string;
   stem: string;
@@ -226,6 +307,7 @@ type QuestionEditorDraft = {
   id: number;
   examType: string;
   year: string;
+  examName: string;
   subject: string;
   questionNumber: string;
   stem: string;
@@ -338,13 +420,146 @@ export default function AdminPage() {
     | "sources"
     | "questions"
     | "costs"
+    | "members"
     | "homepage"
+    | "ai-feedback"
+    | "external-index"
   >("documents");
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [aiFeedback, setAiFeedback] = useState<Array<{ id: number; userKey: string; feedbackType: string; messageText: string; rating: number; errorTypes: string[]; studentNote: string; model: string; originalPrompt: string; reviewStatus: string; solRequested: boolean; teacherDecision: string; teacherNote: string; correctedContent: string; createdAt: string }>>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [memberNotice, setMemberNotice] = useState("");
+  const [memberCreating, setMemberCreating] = useState(false);
+  const [externalSources, setExternalSources] = useState<ExternalIndexSource[]>([]);
+  const [externalLoading, setExternalLoading] = useState(false);
+  const [externalSyncing, setExternalSyncing] = useState<string>("");
+  const [externalDeepSyncing, setExternalDeepSyncing] = useState<number | null>(null);
+  const [externalDeleting, setExternalDeleting] = useState<string>("");
+  const [externalNotice, setExternalNotice] = useState("");
+  const [externalQuery, setExternalQuery] = useState("");
+  const [externalSourceTab, setExternalSourceTab] = useState<ExternalIndexSource["key"]>("lawdata");
+  const [externalPage, setExternalPage] = useState(1);
+  const [externalSelectedItemId, setExternalSelectedItemId] = useState<number | null>(null);
+  const [externalTestLoading, setExternalTestLoading] = useState(false);
+  const [externalTestResult, setExternalTestResult] = useState<ExternalRetrievalTest | null>(null);
+  const [newMember, setNewMember] = useState({ displayName: "", email: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
+
+  useEffect(() => {
+    if (activeTab !== "ai-feedback") return;
+    setFeedbackLoading(true);
+    fetch("/api/chat/feedback").then((response) => response.json()).then((data) => setAiFeedback(data.feedback ?? [])).finally(() => setFeedbackLoading(false));
+  }, [activeTab]);
+
+  async function loadExternalSources() {
+    setExternalLoading(true);
+    try {
+      const response = await fetch("/api/admin/external-index");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "讀取資源同步狀態失敗");
+      setExternalSources(data.sources ?? []);
+    } catch (error) {
+      setExternalNotice(error instanceof Error ? error.message : "讀取失敗");
+    } finally { setExternalLoading(false); }
+  }
+
+  async function readExternalIndexResponse<T extends { error?: string }>(response: Response): Promise<T> {
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      await response.text().catch(() => "");
+      throw new Error(response.status >= 500
+        ? "同步處理時間過長，系統已停止本次作業；既有索引不受影響，請稍後再試。"
+        : "同步服務暫時無法回應，請重新整理後再試。");
+    }
+    return await response.json() as T;
+  }
+
+  useEffect(() => { if (activeTab === "external-index") void loadExternalSources(); }, [activeTab]);
+
+  async function syncExternalSource(source: ExternalIndexSource["key"] | "lawdata" | "get" | "ibrain") {
+    setExternalSourceTab(source);
+    setExternalPage(1);
+    setExternalSelectedItemId(null);
+    setExternalSyncing(source);
+    setExternalNotice("正在讀取公開索引…");
+    try {
+      const response = await fetch("/api/admin/external-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source }) });
+      const data = await readExternalIndexResponse<{ sources?: ExternalIndexSource[]; discovered?: number; coverage?: { books: number; authors: number; catalogues: number; descriptions: number; complete: number }; error?: string }>(response);
+      if (!response.ok) throw new Error(data.error || "同步失敗");
+      setExternalSources(data.sources ?? []);
+      const coverage = data.coverage;
+      setExternalNotice(coverage ? `已同步 ${data.discovered ?? 0} 筆索引，其中辨識 ${coverage.books} 本書；作者 ${coverage.authors}/${coverage.books}、目錄 ${coverage.catalogues}/${coverage.books}、介紹 ${coverage.descriptions}/${coverage.books}、完整度達 80% 共 ${coverage.complete} 本。未完整的資料不會被標示為完成。` : `已自動逐層探索並同步 ${data.discovered ?? 0} 筆公開索引；不必再逐頁點擊，且未抓取付費全文。`);
+    } catch (error) { setExternalNotice(error instanceof Error ? error.message : "同步失敗"); }
+    finally { setExternalSyncing(""); }
+  }
+
+  async function toggleExternalItem(id: number, enabled: boolean) {
+    const response = await fetch("/api/admin/external-index", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, enabled }) });
+    if (!response.ok) { const data = await response.json(); setExternalNotice(data.error || "更新失敗"); return; }
+    setExternalSources((sources) => sources.map((source) => ({ ...source, items: source.items.map((item) => item.id === id ? { ...item, enabled, indexed: enabled } : item) })));
+  }
+
+  async function syncExternalChildren(source: ExternalIndexSource, item: ExternalIndexSource["items"][number]) {
+    setExternalDeepSyncing(item.id);
+    setExternalNotice(`正在讀取「${item.title}」的下一層公開資料…`);
+    try {
+      const response = await fetch("/api/admin/external-index", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: source.key, itemId: item.id }) });
+      const data = await readExternalIndexResponse<{ sources?: ExternalIndexSource[]; discovered?: number; added?: number; detailUpdated?: boolean; error?: string }>(response);
+      if (!response.ok) throw new Error(data.error || "內層抓取失敗");
+      setExternalSources(data.sources ?? []);
+      setExternalPage(1);
+      setExternalNotice(data.detailUpdated
+        ? `已補齊「${item.title}」的文章詳細資料${data.added ? `，另新增 ${data.added} 筆相關公開索引` : ""}。`
+        : `已檢查「${item.title}」並辨識 ${data.discovered ?? 0} 筆下一層資料；新增 ${data.added ?? 0} 筆公開索引。`);
+    } catch (error) { setExternalNotice(error instanceof Error ? error.message : "內層抓取失敗"); }
+    finally { setExternalDeepSyncing(null); }
+  }
+
+  async function testExternalHomepageRetrieval(item: ExternalIndexSource["items"][number]) {
+    setExternalSelectedItemId(item.id);
+    setExternalPage(1);
+    setExternalTestLoading(true);
+    setExternalTestResult(null);
+    setExternalNotice(`正在用首頁相同流程測試「${item.title}」…`);
+    try {
+      const response = await fetch("/api/admin/external-index/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ itemId: item.id }) });
+      const data = await readExternalIndexResponse<ExternalRetrievalTest & { error?: string }>(response);
+      if (!response.ok) throw new Error(data.error || "首頁檢索測試失敗");
+      setExternalTestResult(data);
+      setExternalNotice(data.complete ? `首頁可完整找到本次測試的 ${data.stats.complete} 筆最末層資料。` : `已遞迴到底層：文章 ${data.hierarchy.articles}、期數 ${data.hierarchy.issues}；完整 ${data.stats.complete}、僅標題 ${data.stats.titleOnly}、找不到 ${data.stats.missing}。`);
+    } catch (error) { setExternalNotice(error instanceof Error ? error.message : "首頁檢索測試失敗"); }
+    finally { setExternalTestLoading(false); }
+  }
+
+  async function deleteExternalSource(source: ExternalIndexSource) {
+    if (!window.confirm(`確定刪除「${source.label}」目前抓取的 ${source.items.length} 筆舊資料？\n\n刪除後首頁 Luna 將不再使用這些索引；其他網站與教材資料不受影響。`)) return;
+    setExternalDeleting(source.key);
+    setExternalNotice(`正在清除「${source.label}」舊資料…`);
+    try {
+      const response = await fetch("/api/admin/external-index", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: source.key }) });
+      const data = await readExternalIndexResponse<{ sources?: ExternalIndexSource[]; deleted?: number; error?: string }>(response);
+      if (!response.ok) throw new Error(data.error || "刪除失敗");
+      setExternalSources(data.sources ?? []);
+      setExternalPage(1);
+      setExternalSelectedItemId(null);
+      setExternalQuery("");
+      setExternalNotice(`已刪除「${source.label}」${data.deleted ?? 0} 筆舊資料；其他來源與教材均未受影響。`);
+    } catch (error) { setExternalNotice(error instanceof Error ? error.message : "刪除失敗"); }
+    finally { setExternalDeleting(""); }
+  }
+
+  async function updateAiFeedback(id: number, values: { reviewStatus: string; teacherDecision?: string; teacherNote?: string; correctedContent?: string }) {
+    const response = await fetch("/api/chat/feedback", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...values }) });
+    if (response.ok) setAiFeedback((current) => current.map((item) => item.id === id ? { ...item, ...values } : item));
+  }
   const fileRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [examCategory, setExamCategory] = useState<"law" | "accounting" | "medtech">("law");
   const [subject, setSubject] = useState("刑法");
   const [type, setType] = useState("教科書");
   const [files, setFiles] = useState<Uploaded[]>([]);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
+  const [deletingDocuments, setDeletingDocuments] = useState(false);
   const [documentPage, setDocumentPage] = useState(1);
   const [documentStats, setDocumentStats] = useState<DocumentStats>({
     total: 0,
@@ -358,6 +573,8 @@ export default function AdminPage() {
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [glmTesting, setGlmTesting] = useState(false);
+  const [glmTestResult, setGlmTestResult] = useState<{ ok?: boolean; model?: string; text?: string; inputTokens?: number; outputTokens?: number; totalTokens?: number; durationMs?: number; estimatedCostUsd?: number; error?: string } | null>(null);
   const [usagePage, setUsagePage] = useState(1);
   const [examSources, setExamSources] = useState<ExamSource[]>([]);
   const [sourceUrl, setSourceUrl] = useState("");
@@ -377,6 +594,19 @@ export default function AdminPage() {
   const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(null);
   const [selectedCollectionResourceId, setSelectedCollectionResourceId] = useState("");
   const [chapterProgress, setChapterProgress] = useState<Record<number, ChapterProgress>>({});
+  const chapterProgressRef = useRef<Record<number, ChapterProgress>>({});
+  const chapterJobsRef = useRef(new Set<number>());
+  const [chapterViewer, setChapterViewer] = useState<{
+    resource: LearningResource;
+    rows: ChapterSegment[];
+    status?: string;
+    message?: string;
+    incompleteCount?: number;
+    sourceFailures?: Array<{ segmentId: number; title: string; error: string }>;
+  } | null>(null);
+  const [chapterViewerLoading, setChapterViewerLoading] = useState<number | null>(null);
+  const [chapterSourceRunning, setChapterSourceRunning] = useState<number | null>(null);
+  const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null);
   const [resourceType, setResourceType] = useState("book");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceCreator, setResourceCreator] = useState("");
@@ -462,6 +692,7 @@ export default function AdminPage() {
   );
   const [questionTypeTotals, setQuestionTypeTotals] = useState<Record<string, number>>({});
   const [questionExamType, setQuestionExamType] = useState<"mcq" | "essay">("mcq");
+  const [questionExamCategory, setQuestionExamCategory] = useState<"law" | "accounting" | "medtech">("law");
   const [questionYear, setQuestionYear] = useState("all");
   const [questionSubject, setQuestionSubject] = useState("all");
   const [questionFilterOptions, setQuestionFilterOptions] = useState<QuestionFilterOptions>({ years: [], subjects: [] });
@@ -476,12 +707,19 @@ export default function AdminPage() {
     null,
   );
   const [syncingJudicial, setSyncingJudicial] = useState(false);
+  const [judicialClock, setJudicialClock] = useState(() => Date.now());
+  const [judicialLaunching, setJudicialLaunching] = useState(false);
   const [focusMusicUrl, setFocusMusicUrl] = useState("");
   const [focusMusicDraft, setFocusMusicDraft] = useState("");
   const [savingFocusMusic, setSavingFocusMusic] = useState(false);
   const [examCountdowns, setExamCountdowns] = useState<ExamCountdown[]>([]);
   const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
+  const [learningCenterEnabled, setLearningCenterEnabled] = useState(true);
+  const [savingLearningCenter, setSavingLearningCenter] = useState(false);
+  const [homeWebSearchMode, setHomeWebSearchMode] = useState<"off" | "fallback" | "always">("off");
+  const [savingWebSearchMode, setSavingWebSearchMode] = useState(false);
   const [savingHomepage, setSavingHomepage] = useState(false);
+  const chapterBuildRunningRef = useRef<Set<number>>(new Set());
 
   async function refreshChapterProgress(resourceIds: number[]) {
     const entries = await Promise.all(resourceIds.map(async (id) => {
@@ -509,10 +747,29 @@ export default function AdminPage() {
           documents?: Array<{
             id: number;
             name: string;
+            examCategory?: string;
             subject: string;
             type: string;
             sizeBytes: number;
             status: string;
+            processingStage?: string;
+            processingMessage?: string;
+            pageCount?: number | null;
+            extractedChars?: number;
+            chapterCount?: number;
+            topicCount?: number;
+            questionCount?: number;
+            tags?: string[];
+            fullTextIndexed?: boolean;
+            vectorIndexed?: boolean;
+            homepageSearchEnabled?: boolean;
+            summary?: string;
+            sourceFileName?: string;
+            indexedFileName?: string;
+            extractionNote?: string;
+            analysisStatus?: string;
+            chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
+            questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
             error?: string | null;
           }>;
           stats?: DocumentStats;
@@ -521,13 +778,35 @@ export default function AdminPage() {
           (result.documents ?? []).map((item) => ({
             id: item.id,
             name: item.name,
+            examCategory: item.examCategory ?? "law",
             subject: item.subject,
             size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
             status: item.status,
+            type: item.type,
+            processingStage: item.processingStage,
+            processingMessage: item.processingMessage,
+            pageCount: item.pageCount,
+            extractedChars: item.extractedChars,
+            chapterCount: item.chapterCount,
+            topicCount: item.topicCount,
+            questionCount: item.questionCount,
+            tags: item.tags,
+            fullTextIndexed: item.fullTextIndexed,
+            vectorIndexed: item.vectorIndexed,
+            homepageSearchEnabled: item.homepageSearchEnabled,
+            summary: item.summary,
+            sourceFileName: item.sourceFileName,
+            indexedFileName: item.indexedFileName,
+            extractionNote: item.extractionNote,
+            analysisStatus: item.analysisStatus,
+            chapters: item.chapters,
+            questions: item.questions,
             error: item.error,
           })),
         );
         if (result.stats) setDocumentStats(result.stats);
+        const resumable = (result.documents ?? []).filter((item) => ["queued", "uploaded", "extracting", "indexing", "analyzing", "in_progress"].includes(item.processingStage ?? item.status)).map((item) => item.id);
+        if (resumable.length) window.setTimeout(() => { void Promise.all(resumable.slice(0, 3).map((id) => processDocument(id))); }, 250);
       })
       .catch(() => undefined);
     fetch("/api/usage")
@@ -599,14 +878,59 @@ export default function AdminPage() {
     fetch("/api/site-settings")
       .then(async (response) => {
         if (!response.ok) return;
-        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[] };
+        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean; homeWebSearchMode?: "off" | "fallback" | "always" };
         setFocusMusicUrl(result.focusMusicUrl ?? "");
         setFocusMusicDraft(result.focusMusicUrl ?? "");
         setExamCountdowns(result.examCountdowns ?? []);
         setBattleAlerts(result.battleAlerts ?? []);
+        setLearningCenterEnabled(result.learningCenterEnabled !== false);
+        setHomeWebSearchMode(result.homeWebSearchMode ?? "off");
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setJudicialClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!judicialStatus?.schedule?.enabled || syncingJudicial) return;
+    const taipeiNow = new Date(judicialClock + 8 * 3600_000);
+    const hour = taipeiNow.getUTCHours();
+    const minute = taipeiNow.getUTCMinutes();
+    const second = taipeiNow.getUTCSeconds();
+    const inWindow = hour >= 0 && hour < 6;
+    const atNextTick = inWindow && minute > 0 && second === 0;
+    if (atNextTick) {
+      setJudicialLaunching(true);
+      const timer = window.setTimeout(() => setJudicialLaunching(false), 2600);
+      return () => window.clearTimeout(timer);
+    }
+  }, [judicialClock, judicialStatus?.schedule?.enabled, syncingJudicial]);
+
+  function judicialNextRun() {
+    const taipei = new Date(judicialClock + 8 * 3600_000);
+    const hour = taipei.getUTCHours();
+    const minute = taipei.getUTCMinutes();
+    const second = taipei.getUTCSeconds();
+    let seconds = 0;
+    if (hour >= 6) {
+      seconds = ((24 - hour) * 60 * 60) - minute * 60 - second;
+    } else if (hour === 0 && minute === 0 && second === 0) {
+      seconds = 0;
+    } else {
+      seconds = 60 - second;
+    }
+    return Math.max(0, seconds);
+  }
+
+  function formatCountdown(totalSeconds: number) {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
 
   async function refreshCourseCollections() {
     const response = await fetch("/api/course-collections?all=1", { cache: "no-store" });
@@ -711,9 +1035,32 @@ export default function AdminPage() {
     setSavingHomepage(false);
   }
 
+  async function toggleLearningCenter() {
+    const next = !learningCenterEnabled;
+    setSavingLearningCenter(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ learningCenterEnabled: next }) });
+    const result = (await readJson(response)) as { learningCenterEnabled?: boolean; error?: string };
+    if (response.ok) {
+      setLearningCenterEnabled(result.learningCenterEnabled !== false);
+      setNotice(next ? "學習專區入口已重新開放。" : "學習專區入口已暫時隱藏；既有學習資料仍保留。");
+    } else setNotice(result.error ?? "學習專區開關更新失敗");
+    setSavingLearningCenter(false);
+  }
+
+  async function saveHomeWebSearchMode(mode: "off" | "fallback" | "always") {
+    setSavingWebSearchMode(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ homeWebSearchMode: mode }) });
+    const result = (await readJson(response)) as { homeWebSearchMode?: "off" | "fallback" | "always"; error?: string };
+    if (response.ok) {
+      setHomeWebSearchMode(result.homeWebSearchMode ?? mode);
+      setNotice(mode === "off" ? "首頁外網搜尋已關閉。" : mode === "always" ? "首頁每次回答都會先查外網。" : "首頁會先查站內，資料不足時才查外網。");
+    } else setNotice(result.error ?? "外網搜尋設定失敗");
+    setSavingWebSearchMode(false);
+  }
+
   useEffect(() => {
     if (activeTab === "questions") loadExamQuestions(questionPage);
-  }, [activeTab, questionPage, questionExamType, questionStatus, questionYear, questionSubject]);
+  }, [activeTab, questionPage, questionExamType, questionExamCategory, questionStatus, questionYear, questionSubject]);
 
   async function syncLegal(sourceKey: string, restart = false) {
     setSyncingLegal(sourceKey);
@@ -903,7 +1250,10 @@ export default function AdminPage() {
     const response = await fetch("/api/judicial-sync", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, limit: 30 }),
+      // Manual run uses the same batch size as the scheduled Worker. The
+      // button is an immediate kick-off, not the mechanism required for
+      // continued downloading.
+      body: JSON.stringify({ action, limit: 120 }),
     });
     const result = (await readJson(response)) as {
       message?: string;
@@ -1387,7 +1737,7 @@ export default function AdminPage() {
   }
 
   async function loadExamQuestions(page = questionPage) {
-    const params = new URLSearchParams({ page: String(page), status: questionStatus, examType: questionExamType });
+    const params = new URLSearchParams({ page: String(page), status: questionStatus, examType: questionExamType, examCategory: questionExamCategory });
     if (questionYear !== "all") params.set("year", questionYear);
     if (questionSubject !== "all") params.set("subject", questionSubject);
     const response = await fetch(
@@ -1412,7 +1762,7 @@ export default function AdminPage() {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(
-        all ? { publishAllDrafts: true } : { ids, status: "published" },
+        all ? { publishAllDrafts: true, examCategory: questionExamCategory } : { ids, status: "published" },
       ),
     });
     const result = await readJson(response);
@@ -1436,6 +1786,7 @@ export default function AdminPage() {
       id: question.id,
       examType: question.examType,
       year: question.year,
+      examName: question.examName || "類科待辨識",
       subject: question.subject,
       questionNumber: question.questionNumber,
       stem: question.stem,
@@ -1738,68 +2089,282 @@ export default function AdminPage() {
       ),
     );
     setNotice(
-      `${resource.title} 已${documentId ? "綁定教材 PDF" : "解除教材綁定"}。`,
+      `${resource.title} 已${documentId ? "綁定教材文件" : "解除教材綁定"}。`,
     );
+    if (documentId && result.resource.documentStatus === "completed" && isProblemSolvingResource(result.resource)) {
+      void startAutomaticChapterIndex(result.resource);
+    }
   }
 
-  async function buildBookChapters(resource: LearningResource) {
+  async function buildBookChapters(resource: LearningResource, restart = false) {
+    if (chapterBuildRunningRef.current.has(resource.id)) return;
     if (!resource.documentId) {
-      setNotice("請先替這本書綁定已完成索引的教材 PDF。");
+      setNotice("請先替這本書綁定已完成索引的教材文件。");
       return;
     }
-    setNotice(`正在從「${resource.title}」已建立的教材索引整理章節；不會重新上傳或讀取整份 PDF…`);
-    setChapterProgress((current) => ({
-      ...current,
-      [resource.id]: { state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0 },
-    }));
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const response = await fetch("/api/resources/chapters", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          resourceId: resource.id,
-          rebuild: isProblemSolvingResource(resource),
-        }),
-      });
+    chapterBuildRunningRef.current.add(resource.id);
+    try {
+      const previous = chapterProgress[resource.id];
+      setNotice(restart
+        ? `正在逐頁重新核對「${resource.title}」的題型；完成前會保留目前可用資料…`
+        : `正在從「${resource.title}」已建立的教材索引接續整理；不會重新上傳、刪除或重新拆解既有資料…`);
+      setChapterProgress((current) => ({
+        ...current,
+        [resource.id]: current[resource.id] ?? {
+          state: "building", phase: "outline", completedTopics: 0, totalTopics: 0, foundQuestions: 0,
+        },
+      }));
+      let pausedRetries = 0;
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const response = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          // Never send the old `rebuild` flag: a retry must resume the saved
+          // queue instead of deleting pending real rows and starting at 0%.
+          body: JSON.stringify({ resourceId: resource.id, restart: restart && attempt === 0 }),
+        });
+        const result = (await readJson(response)) as {
+          chapters?: unknown[];
+          generated?: boolean;
+          reused?: boolean;
+          status?: string;
+          progress?: ChapterProgress;
+          error?: string;
+        };
+        if (result.progress) {
+          setChapterProgress((current) => ({ ...current, [resource.id]: result.progress! }));
+          if (result.progress.totalTopics) {
+            setNotice(`正在解析「${resource.title}」：主題 ${result.progress.completedTopics ?? 0}／${result.progress.totalTopics}，已找到 ${result.progress.foundQuestions ?? 0} 題。`);
+          }
+        }
+        if (!response.ok && response.status !== 202) {
+          setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
+          return;
+        }
+        if (result.status === "paused") {
+          // Rate limits are transient. Keep the saved checkpoint and retry in
+          // the same run, with a small backoff instead of requiring the user
+          // to discover and press another button.
+          pausedRetries += 1;
+          if (pausedRetries > 8) {
+            setNotice("AI 目前較忙；已保存拆解進度，系統稍後重新進入後會接續處理。");
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(8000, 1200 * 2 ** Math.min(pausedRetries - 1, 3))));
+          continue;
+        }
+        if (result.status === "failed") {
+          setNotice(result.error ?? "解析未完成；原資料仍保留，稍後可接續處理。");
+          return;
+        }
+        if (result.status === "building") {
+          await new Promise((resolve) => window.setTimeout(resolve, 350));
+          continue;
+        }
+        const count = result.chapters?.length ?? 0;
+        setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
+        setChapterProgress((current) => ({
+          ...current,
+          [resource.id]: result.progress ?? { ...(previous ?? {}), state: "completed", phase: "saving", foundQuestions: count },
+        }));
+        setNotice(result.reused
+          ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
+          : isProblemSolvingResource(resource)
+            ? `「${resource.title}」已完成目錄整理，共 ${count} 筆真實題型。`
+            : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
+        return;
+      }
+      setNotice("拆解進度已保存；系統下一次檢查會從目前主題接續，不會歸零。");
+    } finally {
+      chapterBuildRunningRef.current.delete(resource.id);
+    }
+  }
+
+  async function scanProblemBookPages(resource: LearningResource) {
+    if (!resource.documentId || chapterBuildRunningRef.current.has(resource.id)) return;
+    chapterBuildRunningRef.current.add(resource.id);
+    setChapterSourceRunning(resource.id);
+    try {
+      setNotice(`正在逐頁掃描「${resource.title}」；每批完成後立即保存，可中斷後接續。`);
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const response = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ resourceId: resource.id, sourceBatch: true }),
+        });
+        const result = (await readJson(response)) as {
+          status?: string; pagesDone?: number; totalPages?: number;
+          chaptersReady?: number; chaptersTotal?: number; pendingCount?: number;
+          pageCoverage?: { scanned: number; continuation: number; empty: number; unprocessed: number };
+          message?: string; error?: string;
+        };
+        if (!response.ok) throw new Error(result.error ?? "逐頁拆解失敗");
+        setResources((current) => current.map((item) => item.id === resource.id ? {
+          ...item,
+          sourcePageCount: result.pagesDone ?? item.sourcePageCount,
+          chapterCount: result.chaptersReady ?? item.chapterCount,
+          pendingChapterCount: result.pendingCount ?? item.pendingChapterCount,
+          chapterSourceReadyCount: result.chaptersReady ?? item.chapterSourceReadyCount,
+        } : item));
+        setChapterProgress((current) => ({
+          ...current,
+          [resource.id]: {
+            state: result.status === "completed" ? "completed" : "building",
+            phase: result.status === "completed" ? "saving" : "pages",
+            completedTopics: result.pagesDone ?? 0,
+            totalTopics: result.totalPages ?? 0,
+            foundQuestions: result.chaptersReady ?? 0,
+            pageCoverage: result.pageCoverage,
+          },
+        }));
+        if (result.message) setNotice(result.message);
+        if (result.status === "extracting") continue;
+        const refreshed = await fetch("/api/resources", { cache: "no-store" });
+        if (refreshed.ok) {
+          const data = (await readJson(refreshed)) as { resources?: LearningResource[] };
+          setResources(data.resources ?? []);
+        }
+        await openChapterViewer(resource);
+        return;
+      }
+      setNotice("本次已保存目前頁面；再次按下即可從最後成功頁接續。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "逐頁拆解失敗");
+    } finally {
+      chapterBuildRunningRef.current.delete(resource.id);
+      setChapterSourceRunning(null);
+    }
+  }
+
+  async function openChapterViewer(resource: LearningResource) {
+    if (!resource.documentId) {
+      setNotice("請先替這本書綁定教材文件，才能查看拆解內容。");
+      return;
+    }
+    setChapterViewerLoading(resource.id);
+    try {
+      const response = await fetch(`/api/resources/chapters?resourceId=${resource.id}`, { cache: "no-store" });
       const result = (await readJson(response)) as {
-        chapters?: unknown[];
-        generated?: boolean;
-        reused?: boolean;
+        chapters?: ChapterSegment[];
         status?: string;
-        progress?: ChapterProgress;
+        message?: string;
+        incompleteCount?: number;
+        sourceFailures?: Array<{ segmentId: number; title: string; error: string }>;
         error?: string;
       };
-      if (result.progress) {
-        setChapterProgress((current) => ({ ...current, [resource.id]: result.progress! }));
-        if (result.progress.totalTopics) {
-          setNotice(`正在解析「${resource.title}」：主題 ${result.progress.completedTopics ?? 0}／${result.progress.totalTopics}，已找到 ${result.progress.foundQuestions ?? 0} 題。`);
-        }
-      }
-      if (!response.ok && response.status !== 202) {
-        setNotice(result.error ?? "章節索引建立失敗；教材本身不會被重新拆解。");
-        return;
-      }
-      if (result.status === "paused" || result.status === "failed") {
-        setNotice(result.status === "paused"
-          ? "解析暫停；已保存目前進度，稍後再按一次即可接著解析。"
-          : (result.error ?? "解析未完成；原資料仍保留。"));
-        return;
-      }
-      if (result.status === "building") {
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-        continue;
-      }
-      const count = result.chapters?.length ?? 0;
-      setResources((current) => current.map((item) => item.id === resource.id ? { ...item, chapterCount: count } : item));
-      setNotice(result.reused
-        ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
-        : isProblemSolvingResource(resource)
-          ? `「${resource.title}」已擷取 ${count} 道含完整題目的題型。`
-          : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
+      if (!response.ok) throw new Error(result.error ?? "章節內容讀取失敗");
+      const rows = Array.isArray(result.chapters) ? result.chapters : [];
+      setChapterViewer({
+        resource,
+        rows,
+        status: result.status,
+        message: result.message,
+        incompleteCount: result.incompleteCount,
+        sourceFailures: result.sourceFailures,
+      });
+      setSelectedChapterId(rows[0]?.id ?? null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "章節內容讀取失敗");
+    } finally {
+      setChapterViewerLoading(null);
+    }
+  }
+
+  async function enrichBookText(resource: LearningResource) {
+    if (!resource.documentId) {
+      setNotice("請先替這本書綁定已完成索引的教材文件。");
       return;
     }
-    setNotice("解析工作已保存目前進度；可再次按下按鈕接著處理剩餘主題。");
+    if (chapterBuildRunningRef.current.has(resource.id)) return;
+    chapterBuildRunningRef.current.add(resource.id);
+    setChapterSourceRunning(resource.id);
+    try {
+      setNotice(`正在直接讀取「${resource.title}」的原始教材；進度會逐批保存，可中斷後接續。`);
+      let pausedRetries = 0;
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const response = await fetch("/api/resources/chapters", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            resourceId: resource.id,
+            sourceBatch: true,
+            restartSourceFailures: attempt === 0,
+          }),
+        });
+        const result = (await readJson(response)) as {
+          status?: "extracting" | "searching" | "paused" | "completed" | "partial";
+          phase?: string;
+          pagesDone?: number;
+          totalPages?: number;
+          chaptersReady?: number;
+          chaptersTotal?: number;
+          failedCount?: number;
+          currentTitle?: string;
+          message?: string;
+          failures?: Array<{ title: string; error: string }>;
+          error?: string;
+        };
+        if (!response.ok && response.status !== 202) throw new Error(result.error ?? "章節原文補齊失敗");
+        if (result.status === "paused") {
+          pausedRetries += 1;
+          if (pausedRetries > 6) {
+            setNotice(result.message ?? "原文索引目前較忙；進度已保存，稍後可按同一按鈕接續。");
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(8000, 1200 * 2 ** pausedRetries)));
+          continue;
+        }
+        pausedRetries = 0;
+        setResources((current) => current.map((item) => item.id === resource.id ? {
+          ...item,
+          chapterCount: result.chaptersTotal ?? item.chapterCount,
+          chapterSourceReadyCount: result.chaptersReady ?? item.chapterSourceReadyCount,
+          sourcePageCount: result.pagesDone ?? item.sourcePageCount,
+        } : item));
+        if (result.message) setNotice(result.message);
+        if (result.status === "extracting" || result.status === "searching") continue;
+        if (result.status === "partial") {
+          const examples = (result.failures ?? []).slice(0, 3).map((item) => item.title).join("、");
+          setNotice(`「${resource.title}」已補齊 ${result.chaptersReady ?? 0}／${result.chaptersTotal ?? 0} 章原文；${result.failedCount ?? 0} 章未命中${examples ? `（${examples}${(result.failedCount ?? 0) > 3 ? "…" : ""}）` : ""}。未命中章節不會用假資料補寫。`);
+        } else {
+          setNotice(`「${resource.title}」已完成，共補齊 ${result.chaptersReady ?? result.chaptersTotal ?? 0} 章原文。`);
+        }
+        const refreshed = await fetch("/api/resources", { cache: "no-store" });
+        if (refreshed.ok) {
+          const refreshedResult = (await readJson(refreshed)) as { resources?: LearningResource[] };
+          setResources(refreshedResult.resources ?? []);
+        }
+        await openChapterViewer(resource);
+        return;
+      }
+      setNotice("本次處理時間較長，已保存目前進度；再次按下「補齊章節原文」會接續處理。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "章節原文補齊失敗");
+    } finally {
+      chapterBuildRunningRef.current.delete(resource.id);
+      setChapterSourceRunning(null);
+    }
   }
+
+  async function startAutomaticChapterIndex(resource: LearningResource) {
+    if (
+      !resource.documentId ||
+      resource.documentStatus !== "completed" ||
+      !isProblemSolvingResource(resource) ||
+      chapterJobsRef.current.has(resource.id) ||
+      chapterProgressRef.current[resource.id]?.state === "completed"
+    ) return;
+    chapterJobsRef.current.add(resource.id);
+    try {
+      await buildBookChapters(resource);
+    } finally {
+      chapterJobsRef.current.delete(resource.id);
+    }
+  }
+
+  useEffect(() => {
+    chapterProgressRef.current = chapterProgress;
+  }, [chapterProgress]);
 
   async function bindCourseBook(
     resource: LearningResource,
@@ -2129,7 +2694,7 @@ export default function AdminPage() {
     );
   }
 
-  async function runExamSourceStep(sourceId: number) {
+  async function runExamSourceStep(sourceId: number, rescan = false) {
     setExamSources((current) =>
       current.map((source) =>
         source.id === sourceId
@@ -2140,7 +2705,7 @@ export default function AdminPage() {
     const response = await fetch("/api/exam-sources/process", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceId }),
+      body: JSON.stringify({ sourceId, rescan }),
     });
     const result = (await readJson(response)) as ExamProcessResult;
     if (!response.ok) throw new Error(result.error ?? "真題處理失敗");
@@ -2179,6 +2744,19 @@ export default function AdminPage() {
         ),
       );
       setNotice(message);
+    } finally {
+      setProcessingSourceId(null);
+    }
+  }
+
+  async function rescanExamSource(sourceId: number) {
+    setProcessingSourceId(sourceId);
+    setNotice("正在重新掃描高點完整題庫，並補入尚未發現的司律二試 PDF…");
+    try {
+      const result = await runExamSourceStep(sourceId, true);
+      setNotice(`${result.message ?? "重新掃描完成"}；已更新來源總數，可繼續批次處理。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "重新掃描失敗");
     } finally {
       setProcessingSourceId(null);
     }
@@ -2239,55 +2817,137 @@ export default function AdminPage() {
     if (response.ok) setUsage({ ...usage, showCosts: next });
   }
 
-  async function startIndex(documentId: number) {
+  async function toggleTeachingEvidence() {
+    if (!usage) return;
+    const next = !usage.showEvidence;
+    const response = await fetch("/api/usage", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ showEvidence: next }) });
+    if (response.ok) setUsage({ ...usage, showEvidence: next });
+  }
+
+  async function testGlmConnection() {
+    setGlmTesting(true);
+    setGlmTestResult(null);
+    try {
+      const response = await fetch("/api/model-test/glm", { method: "POST" });
+      const payload = await response.json() as typeof glmTestResult;
+      setGlmTestResult(response.ok ? payload : { error: payload?.error || "GLM 測試失敗" });
+    } catch {
+      setGlmTestResult({ error: "目前無法執行 GLM 測試，請稍後再試。" });
+    } finally {
+      setGlmTesting(false);
+    }
+  }
+
+  async function processDocument(documentId: number, retry = false) {
     setFiles((current) =>
       current.map((item) =>
         item.id === documentId
-          ? { ...item, status: "uploading_to_index", error: null }
+          ? { ...item, status: "processing", processingStage: retry ? "queued" : item.processingStage, error: null }
           : item,
       ),
     );
-    setNotice("正在把 PDF 送入教材索引服務…");
     try {
-      const response = await fetch("/api/documents/index", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ documentId }),
-      });
-      const result = (await readJson(response)) as {
-        status?: string;
-        error?: string;
-      };
-      if (!response.ok) throw new Error(result.error ?? "建立索引失敗");
-      setFiles((current) =>
-        current.map((item) =>
-          item.id === documentId
-            ? { ...item, status: result.status ?? "in_progress" }
-            : item,
-        ),
-      );
-      setNotice("索引服務已接收文件，完成後會自動改為「可供搜尋」。");
+      for (let attempt = 0; attempt < 120; attempt += 1) {
+        const response = await fetch("/api/documents/process", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ documentId, retry: retry && attempt === 0 }),
+        });
+        const result = (await readJson(response)) as { status?: string; stage?: string; message?: string; error?: string; document?: Uploaded };
+        if (!response.ok && response.status !== 202) throw new Error(result.error ?? "教材自動處理失敗");
+        setFiles((current) => current.map((item) => item.id === documentId ? { ...item, status: result.status ?? "processing", processingStage: result.stage ?? item.processingStage, processingMessage: result.message ?? item.processingMessage } : item));
+        setNotice(result.message ?? "教材正在自動處理…");
+        if (result.status === "completed") {
+          const refreshed = await fetch("/api/documents", { cache: "no-store" });
+          if (refreshed.ok) {
+            const data = await refreshed.json() as { documents?: Array<Record<string, unknown>>; stats?: DocumentStats };
+            const current = (data.documents ?? []).find((item) => Number(item.id) === documentId);
+            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), topicCount: Number(current.topicCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
+            if (data.stats) setDocumentStats(data.stats);
+            const resourcesResponse = await fetch("/api/resources", { cache: "no-store" });
+            if (resourcesResponse.ok) {
+              const loaded = ((await resourcesResponse.json()) as { resources?: LearningResource[] }).resources ?? [];
+              setResources(loaded);
+              void refreshChapterProgress(loaded.filter((item) => item.resourceType === "book").map((item) => item.id));
+            }
+          }
+          return true;
+        }
+        if (result.status === "failed") throw new Error(result.error ?? "教材自動處理失敗");
+        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+      }
+      throw new Error("教材處理時間較長，進度已保存；稍後會自動接續");
     } catch (error) {
       const message = error instanceof Error ? error.message : "建立索引失敗";
       setFiles((current) =>
         current.map((item) =>
           item.id === documentId
-            ? { ...item, status: "failed", error: message }
+            ? { ...item, status: "failed", processingStage: "failed", processingMessage: message, error: message }
             : item,
         ),
       );
       setNotice(message);
+      return false;
+    }
+  }
+
+  async function startIndex(documentId: number) {
+    await processDocument(documentId, true);
+  }
+
+  async function toggleHomepageDocument(file: Uploaded) {
+    const next = !file.homepageSearchEnabled;
+    setFiles((current) => current.map((item) => item.id === file.id ? { ...item, homepageSearchEnabled: next } : item));
+    setNotice(next ? `正在開放「${file.name}」供首頁搜尋…` : `正在停止首頁搜尋「${file.name}」…`);
+    try {
+      let response = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, homepageSearchEnabled: next }) });
+      let result = await response.json() as { error?: string; code?: string; repairable?: boolean };
+      if (!response.ok && next && response.status === 409 && result.code === "INDEX_REPAIR_REQUIRED" && result.repairable) {
+        setNotice(`「${file.name}」是舊版索引，正在自動補建；完成後會直接開放首頁搜尋…`);
+        const repaired = await processDocument(file.id, true);
+        if (!repaired) throw new Error("舊版索引補建失敗，請查看這份教材的處理訊息");
+        response = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, homepageSearchEnabled: next }) });
+        result = await response.json() as { error?: string; code?: string; repairable?: boolean };
+      }
+      if (!response.ok) throw new Error(result.error ?? "首頁搜尋設定更新失敗");
+      setNotice(next ? `「${file.name}」已允許首頁 AI 搜尋；不必開啟或綁定智能書。` : `「${file.name}」已停止供首頁 AI 搜尋；智能書綁定不受影響。`);
+    } catch (error) {
+      setFiles((current) => current.map((item) => item.id === file.id ? { ...item, homepageSearchEnabled: !next } : item));
+      setNotice(error instanceof Error ? error.message : "首頁搜尋設定更新失敗");
+    }
+  }
+
+  async function deleteSelectedDocuments() {
+    if (!selectedDocumentIds.length || deletingDocuments) return;
+    if (!window.confirm(`確定刪除已選取的 ${selectedDocumentIds.length} 份教材？\n\n原始檔、全文／向量索引及處理紀錄都會一併刪除；已綁定的智能書會解除教材連結。`)) return;
+    setDeletingDocuments(true);
+    setNotice(`正在刪除 ${selectedDocumentIds.length} 份教材及其索引…`);
+    try {
+      const response = await fetch("/api/documents", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: selectedDocumentIds }) });
+      const result = await response.json() as { deleted?: number; deletedIds?: number[]; deletedReady?: number; deletedIndexedBytes?: number; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "教材刪除失敗");
+      const deletedIds = new Set(result.deletedIds ?? []);
+      setFiles((current) => current.filter((file) => !deletedIds.has(file.id)));
+      setSelectedDocumentIds([]);
+      setDocumentStats((current) => ({
+        ...current,
+        total: Math.max(0, current.total - (result.deleted ?? 0)),
+        ready: Math.max(0, current.ready - (result.deletedReady ?? 0)),
+        indexedBytes: Math.max(0, current.indexedBytes - (result.deletedIndexedBytes ?? 0)),
+      }));
+      setDocumentPage(1);
+      setNotice(`已刪除 ${result.deleted ?? 0} 份教材、原始檔與搜尋索引。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "教材刪除失敗");
+    } finally {
+      setDeletingDocuments(false);
     }
   }
 
   function chooseFiles(list: FileList | File[] | null) {
     const incoming = Array.from(list ?? []);
-    const pdfs = incoming.filter(
-      (file) =>
-        file.type === "application/pdf" ||
-        file.name.toLowerCase().endsWith(".pdf"),
-    );
-    const rejected = incoming.length - pdfs.length;
+    const documents = incoming.filter((file) => /\.(pdf|jsonl|md|txt|docx|zip)$/i.test(file.name));
+    const rejected = incoming.length - documents.length;
     setQueue((current) => {
       const known = new Set(
         current.map(
@@ -2295,7 +2955,7 @@ export default function AdminPage() {
             `${item.file.name}-${item.file.size}-${item.file.lastModified}`,
         ),
       );
-      const additions = pdfs
+      const additions = documents
         .filter(
           (file) =>
             !known.has(`${file.name}-${file.size}-${file.lastModified}`),
@@ -2309,9 +2969,9 @@ export default function AdminPage() {
       return [...current, ...additions];
     });
     setNotice(
-      pdfs.length
-        ? `已加入 ${pdfs.length} 份 PDF${rejected ? `，另排除 ${rejected} 個非 PDF 檔案` : ""}。確認科目與類型後即可依序上傳。`
-        : "拖入的檔案沒有 PDF，請重新選擇。",
+      documents.length
+        ? `已加入 ${documents.length} 份教材（PDF／JSONL／MD／TXT／DOCX／ZIP）${rejected ? `，另排除 ${rejected} 個不支援檔案` : ""}。確認科目與類型後即可自動處理。`
+        : "拖入的檔案不是 PDF、JSONL、MD、TXT、DOCX 或 ZIP，請重新選擇。",
     );
   }
 
@@ -2323,6 +2983,17 @@ export default function AdminPage() {
 
   async function uploadOne(item: QueueItem, position: number, total: number) {
     const selected = item.file;
+    const documentContentType = selected.name.toLowerCase().endsWith(".pdf")
+      ? "application/pdf"
+      : selected.name.toLowerCase().endsWith(".jsonl")
+        ? "application/jsonl"
+        : selected.name.toLowerCase().endsWith(".md")
+          ? "text/markdown"
+          : selected.name.toLowerCase().endsWith(".docx")
+            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : selected.name.toLowerCase().endsWith(".zip")
+          ? "application/zip"
+          : "text/plain";
     patchQueue(item.key, {
       status: "uploading",
       progress: 0,
@@ -2333,10 +3004,10 @@ export default function AdminPage() {
     const initResponse = await fetch("/api/documents/multipart", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        action: "init",
-        fileName: selected.name,
-        contentType: "application/pdf",
+        body: JSON.stringify({
+          action: "init",
+          fileName: selected.name,
+          contentType: documentContentType,
       }),
     });
     const init = (await readJson(initResponse)) as {
@@ -2389,8 +3060,9 @@ export default function AdminPage() {
         uploadId: init.uploadId,
         parts,
         fileName: selected.name,
-        contentType: "application/pdf",
+        contentType: documentContentType,
         sizeBytes: selected.size,
+        examCategory,
         subject,
         documentType: type,
       }),
@@ -2406,32 +3078,20 @@ export default function AdminPage() {
       {
         id: newId,
         name: selected.name,
+        examCategory,
         subject,
-        size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${type}`,
-        status: "uploaded",
+        size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${documentContentType}`,
+        status: "processing",
+        type: documentContentType,
+        processingStage: "queued",
+        processingMessage: "等待自動處理",
       },
       ...current,
     ]);
     setDocumentPage(1);
     patchQueue(item.key, { status: "indexing", progress: 92 });
-
-    const indexResponse = await fetch("/api/documents/index", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ documentId: newId }),
-    });
-    const indexed = (await readJson(indexResponse)) as {
-      status?: string;
-      error?: string;
-    };
-    if (!indexResponse.ok) throw new Error(indexed.error ?? "建立索引失敗");
-    setFiles((current) =>
-      current.map((file) =>
-        file.id === newId
-          ? { ...file, status: indexed.status ?? "in_progress" }
-          : file,
-      ),
-    );
+    const processed = await processDocument(newId);
+    if (!processed) throw new Error("教材自動處理失敗，請查看文件卡片後重新處理");
     patchQueue(item.key, { status: "done", progress: 100 });
   }
 
@@ -2482,15 +3142,58 @@ export default function AdminPage() {
       (usagePage - 1) * USAGE_PER_PAGE,
       usagePage * USAGE_PER_PAGE,
     ) ?? [];
+  const activeChapter = chapterViewer?.rows.find((chapter) => chapter.id === selectedChapterId)
+    ?? chapterViewer?.rows[0]
+    ?? null;
+
+  useEffect(() => {
+    if (activeTab !== "members") return;
+    setMembersLoading(true);
+    fetch("/api/admin/members")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "無法讀取學員名單");
+        setMembers(data.members ?? []);
+      })
+      .catch((error) => setMemberNotice(error instanceof Error ? error.message : "無法讀取學員名單"))
+      .finally(() => setMembersLoading(false));
+  }, [activeTab]);
+
+  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">>) {
+    setMemberNotice("儲存中…");
+    const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
+    const data = await response.json();
+    if (!response.ok) { setMemberNotice(data.error || "儲存失敗"); return; }
+    setMembers((rows) => rows.map((row) => row.id === id ? data.member : row));
+    setMemberNotice("學員設定已儲存");
+  }
+
+  async function createMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMemberCreating(true);
+    setMemberNotice("正在新增學員…");
+    try {
+      const response = await fetch("/api/admin/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(newMember) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "新增學員失敗");
+      setMembers((rows) => [data.member, ...rows]);
+      setNewMember({ displayName: "", email: "", className: "", role: "student", status: "active" });
+      setMemberNotice(`已新增學員：${data.member.displayName}`);
+    } catch (error) {
+      setMemberNotice(error instanceof Error ? error.message : "新增學員失敗");
+    } finally {
+      setMemberCreating(false);
+    }
+  }
 
   return (
     <main className="admin-shell">
       <header className="topbar">
-        <a href="/" className="brand">
+        <a href="/law" className="brand">
           <span className="brand-mark">律</span>
           <span>司律備考</span>
         </a>
-        <a href="/" className="back-link">
+        <a href="/law" className="back-link">
           返回對話首頁 →
         </a>
       </header>
@@ -2544,6 +3247,9 @@ export default function AdminPage() {
           >
             月旦法學教室
           </button>
+          <button className={activeTab === "external-index" ? "active" : ""} onClick={() => setActiveTab("external-index")}>
+            資源同步
+          </button>
           <button
             className={activeTab === "legal" ? "active" : ""}
             onClick={() => setActiveTab("legal")}
@@ -2575,14 +3281,110 @@ export default function AdminPage() {
             模型與成本
           </button>
           <button
+            className={activeTab === "members" ? "active" : ""}
+            onClick={() => setActiveTab("members")}
+          >
+            學員管理
+          </button>
+          <button className={activeTab === "ai-feedback" ? "active" : ""} onClick={() => setActiveTab("ai-feedback")}>AI 回答覆核</button>
+          <button
             className={activeTab === "homepage" ? "active" : ""}
             onClick={() => setActiveTab("homepage")}
           >
             首頁與播放
           </button>
         </nav>
+        {activeTab === "external-index" && <section className="panel external-index-admin">
+          <div className="external-index-heading"><div><p>PUBLIC INDEX DEMO</p><h2>跨網站資源同步</h2><span>按一次同步即會由主目錄自動逐層探索；不下載付費文章、教材或影片全文。</span></div><label className="external-index-search"><span>搜尋目前網站資源</span><input value={externalQuery} onChange={(event) => { setExternalQuery(event.target.value); setExternalPage(1); }} placeholder="篇名、書名、課程或來源" /></label></div>
+          <div className="external-source-tabs" role="tablist" aria-label="資源網站">{(["lawdata", "angle_books", "angle_media", "get", "ibrain"] as const).map((key) => { const config = key === "lawdata" ? { label: "元照雜誌", note: "雜誌種類、各期目錄、作者與公開試讀" } : key === "angle_books" ? { label: "元照圖書", note: "圖書分類、書單與單本書介紹" } : key === "angle_media" ? { label: "品評家", note: "公開文章、影音、作者與講者" } : key === "get" ? { label: "高點文化", note: "圖書目錄、考試分類、書單與單本書介紹" } : { label: "iBrain 知識達", note: "司律課程與試聽" }; const source = externalSources.find((item) => item.key === key); return <button type="button" role="tab" aria-selected={externalSourceTab === key} className={externalSourceTab === key ? "active" : ""} key={key} onClick={() => { setExternalSourceTab(key); setExternalPage(1); setExternalSelectedItemId(null); setExternalQuery(""); }}><span><b>{config.label}</b><small>{config.note}</small></span><strong>{source?.items.length ?? 0}<small> 筆</small></strong></button>; })}</div>
+          {externalNotice && <p className="external-index-notice">{externalNotice}</p>}
+          {externalLoading ? <p className="usage-empty">正在讀取同步紀錄…</p> : (() => {
+            const source = externalSources.find((item) => item.key === externalSourceTab);
+            if (!source) return <div className="external-index-empty"><b>這個來源尚未建立索引</b><span>按「開始同步」抓取公開資料，供首頁跨來源推薦。</span><button disabled={externalSyncing !== "" || externalDeleting !== ""} onClick={() => void syncExternalSource(externalSourceTab)}>{externalSyncing === externalSourceTab ? "同步中…" : "開始同步"}</button></div>;
+            const selected = source.items.find((item) => item.id === externalSelectedItemId) ?? null;
+            const parentTitle = selected?.title ?? "";
+            const levelItems = selected
+              ? source.items.filter((item) => item.parentTitle === parentTitle)
+              : source.items.filter((item) => !item.parentTitle || (item.depth ?? 1) === 1);
+            const filtered = levelItems.filter((item) => !externalQuery.trim() || `${source.label} ${item.title} ${item.summary}`.toLowerCase().includes(externalQuery.trim().toLowerCase()));
+            const pageCount = Math.max(1, Math.ceil(filtered.length / 10));
+            const page = Math.min(externalPage, pageCount);
+            const rows = filtered.slice((page - 1) * 10, page * 10);
+            const parentItem = selected?.parentTitle ? source.items.find((item) => item.title === selected.parentTitle) : null;
+            const selectedAuthor = selected?.summary.match(/作者：([^｜]+)/u)?.[1]?.trim() ?? "";
+            const selectedSection = selected?.summary.match(/分類：([^｜]+)/u)?.[1]?.trim() ?? "";
+            const hasArticleDetail = Boolean(selected && !selected.book && (selected.content?.trim() || selected.publicLinks?.length || selectedAuthor || selectedSection));
+            const books = source.key === "get" ? source.items.filter((item) => item.book) : [];
+            const authorBooks = books.filter((item) => item.book?.authors?.length).length;
+            const catalogueBooks = books.filter((item) => item.book?.catalogue?.length).length;
+            const descriptionBooks = books.filter((item) => item.book?.description).length;
+            const completeBooks = books.filter((item) => (item.book?.completeness ?? 0) >= 80).length;
+            const authorDirectory = Array.from(books.reduce((directory, item) => {
+              for (const author of item.book?.authors ?? []) {
+                const name = author.trim();
+                if (!name) continue;
+                const titles = directory.get(name) ?? [];
+                if (!titles.includes(item.title)) titles.push(item.title);
+                directory.set(name, titles);
+              }
+              return directory;
+            }, new Map<string, string[]>()).entries()).sort((left, right) => left[0].localeCompare(right[0], "zh-Hant"));
+            const percent = (count: number) => books.length ? Math.round(count / books.length * 100) : 0;
+            const openItem = (id: number) => { setExternalSelectedItemId(id); setExternalPage(1); setExternalQuery(""); };
+            const goBack = () => { setExternalSelectedItemId(parentItem?.id ?? null); setExternalPage(1); setExternalQuery(""); };
+            return <div className="external-source-lists">{source.key === "get" && <><div className="external-book-coverage"><header><div><b>高點圖書資料完整率</b><span>逐本詳細頁核對；只有實際辨識出姓名才計入作者</span></div><strong>{books.length}<small> 本已辨識</small></strong></header><div><article><span>有作者姓名的書</span><b>{authorBooks}/{books.length}</b><em>{percent(authorBooks)}%</em></article><article><span>完整目錄</span><b>{catalogueBooks}/{books.length}</b><em>{percent(catalogueBooks)}%</em></article><article><span>書籍介紹</span><b>{descriptionBooks}/{books.length}</b><em>{percent(descriptionBooks)}%</em></article><article><span>整體達 80%</span><b>{completeBooks}/{books.length}</b><em>{percent(completeBooks)}%</em></article></div></div><details className="external-author-directory" open><summary><span><b>作者與著作</b><small>直接核對每位作者抓到哪些書</small></span><strong>{authorDirectory.length} 位作者</strong></summary><div>{authorDirectory.map(([author, titles]) => <article key={author}><header><b>{author}</b><span>{titles.length} 本</span></header><ul>{titles.map((title) => <li key={title}>{title}</li>)}</ul></article>)}</div>{authorDirectory.length === 0 && <p>目前沒有可辨識的作者姓名，不能算作者抓取完成。</p>}</details></>}<section>
+              <header><div><h3>{selected ? selected.title : source.label}</h3><span>{selected ? hasArticleDetail ? `第 ${selected.depth ?? 1} 層 · 文章詳細資料已辨識` : `第 ${selected.depth ?? 1} 層 · ${levelItems.length} 筆下層資源` : `${source.items.filter((item) => item.enabled).length} 筆啟用／${source.items.length} 筆已抓取`}</span></div><div className="external-source-actions">{selected && <><button type="button" onClick={goBack}>← 回上一層</button><button type="button" className="external-retrieval-test-button" disabled={externalTestLoading} onClick={() => void testExternalHomepageRetrieval(selected)}>{externalTestLoading ? "測試中…" : "測試首頁檢索"}</button><button type="button" disabled={externalDeepSyncing !== null} onClick={() => void syncExternalChildren(source, selected)}>{externalDeepSyncing === selected.id ? "抓取中…" : hasArticleDetail || selected.kind === "detail" ? "補抓文章詳細資料" : "抓取此頁內層資料"}</button></>}<a href={selected?.url || source.sourceUrl} target="_blank" rel="noreferrer">查看原始頁面 ↗</a>{!selected && <><button className="danger" disabled={externalSyncing !== "" || externalDeleting !== "" || source.items.length === 0} onClick={() => void deleteExternalSource(source)}>{externalDeleting === source.key ? "清除中…" : "清除此來源舊資料"}</button><button disabled={externalSyncing !== "" || externalDeleting !== ""} onClick={() => void syncExternalSource(source.key)}>{externalSyncing === source.key ? "同步中…" : "重新同步"}</button></>}</div></header>
+              <nav className="external-index-breadcrumb" aria-label="資源層級"><button type="button" onClick={() => { setExternalSelectedItemId(null); setExternalPage(1); setExternalQuery(""); }}>{source.label}</button>{parentItem && <><span>›</span><button type="button" onClick={() => openItem(parentItem.id)}>{parentItem.title}</button></>}{selected && <><span>›</span><strong>{selected.title}</strong></>}</nav>
+              {selected && <div className="external-index-detail"><div><span>目前層級</span><strong>第 {selected.depth ?? 1} 層</strong></div><div><span>資料類型</span><strong>{selected.book ? "書籍詳細資料" : hasArticleDetail ? "文章詳細資料" : selected.kind === "detail" ? "主題／內容" : "分類／入口"}</strong></div><div><span>上層來源</span><strong>{selected.parentTitle || source.label}</strong></div><div><span>{hasArticleDetail ? "詳細資料" : "下層資料"}</span><strong>{hasArticleDetail ? "已抓取" : `${levelItems.length} 筆`}</strong></div>{selected.book?.authors?.length ? <div><span>作者</span><strong>{selected.book.authors.join("、")}</strong></div> : selectedAuthor ? <div><span>作者</span><strong>{selectedAuthor}</strong></div> : selected.teacher && <div><span>授課師資</span><strong>{selected.teacher}</strong></div>}{selectedSection && <div><span>文章分類</span><strong>{selectedSection}</strong></div>}{selected.book?.edition && <div><span>版次</span><strong>{selected.book.edition}</strong></div>}{selected.book?.publishedAt && <div><span>出版日期</span><strong>{selected.book.publishedAt}</strong></div>}{(selected.book?.isbn || selected.book?.bookCode) && <div><span>ISBN／書號</span><strong>{selected.book.isbn || selected.book.bookCode}</strong></div>}{selected.book && <div><span>資料完整度</span><strong>{selected.book.completeness ?? 0}%</strong></div>}<p>{selected.book?.description || selected.content || selected.summary}</p>{selected.publicLinks?.length ? <div className="external-article-public-links"><span>公開資源</span><strong>{selected.publicLinks.map((link) => <a key={`${link.label}-${link.url}`} href={link.url} target="_blank" rel="noopener noreferrer">{link.label} ↗</a>)}</strong></div> : null}{selected.book?.catalogue?.length ? <details className="external-book-catalogue"><summary>查看完整目錄（{selected.book.catalogue.length} 項）</summary><ol>{selected.book.catalogue.map((row, index) => <li key={`${index}-${row}`}>{row}</li>)}</ol></details> : null}</div>}
+              {selected && externalTestResult?.target.id === selected.id && <section className={`external-retrieval-test ${externalTestResult.complete ? "success" : "warning"}`}><header><div><span>首頁相同檢索流程</span><h4>{externalTestResult.complete ? "全部可以找到" : externalTestResult.found ? "部分資料可找到" : "目前全部找不到"}</h4></div><b>{externalTestResult.mode === "children" ? `下層 ${externalTestResult.stats.total} 筆批次測試` : "單筆測試"}</b></header><div className="external-retrieval-stats"><div><span>測試筆數</span><strong>{externalTestResult.stats.total}</strong></div><div className="complete"><span>完整命中</span><strong>{externalTestResult.stats.complete}</strong></div><div className="title-only"><span>僅標題</span><strong>{externalTestResult.stats.titleOnly}</strong></div><div className="missing"><span>找不到</span><strong>{externalTestResult.stats.missing}</strong></div><div><span>未啟用／索引</span><strong>{externalTestResult.stats.disabled}</strong></div></div><dl><div><dt>測試範圍</dt><dd>{externalTestResult.query}</dd></div><div><dt>所屬分類與來源</dt><dd>{externalTestResult.target.parentTitle || selected.title}｜{source.label}</dd></div>{externalTestResult.failureReason && <div className="failure"><dt>整體結果</dt><dd>{externalTestResult.failureReason}</dd></div>}</dl><div className="external-retrieval-items"><b>逐筆測試結果</b>{externalTestResult.tests.map((test) => <details key={test.id} className={test.complete ? "complete" : test.found ? "partial" : "missing"}><summary><div><strong>{test.title}</strong><span>{test.parentTitle || source.label}｜第 {test.depth} 層</span></div><em>{test.complete ? "完整命中" : test.found ? "僅命中標題" : "找不到"}</em></summary><div>{test.failureReason && <p className="failure-reason">{test.failureReason}</p>}{test.matches.length ? test.matches.map((match) => <article key={`${test.id}-${match.id}`}><div><strong>{match.title}</strong><span>{match.source}｜{match.parentTitle || "最上層資源"}</span></div><p>{match.excerpt || "此筆只有標題索引，沒有可顯示的內容片段。"}</p><small>{match.enabled ? "已啟用" : "未啟用"} · {match.indexed ? "已索引" : "未索引"}</small></article>) : <p className="external-retrieval-empty">沒有任何命中結果。</p>}</div></details>)}</div></section>}
+              <div className="external-index-table"><div className="external-index-row table-head"><span>{selected ? "下一層資源" : "資源名稱"}</span><span>權限</span><span>首頁索引</span><span>使用</span></div>{rows.map((item) => { const childCount = source.items.filter((child) => child.parentTitle === item.title).length; return <div className="external-index-row" key={item.id}><div><div className="external-index-title-actions"><button type="button" className="external-index-title" onClick={() => openItem(item.id)}>{item.title}<span>查看已抓資料 ›</span></button><button type="button" className="external-index-row-test" disabled={externalTestLoading} onClick={() => void testExternalHomepageRetrieval(item)}>測試首頁檢索</button>{item.url ? <a className="external-index-origin-link" href={item.url} target="_blank" rel="noopener noreferrer">開啟原始頁面 ↗</a> : null}</div>{item.book?.authors?.length ? <small className="external-book-authors"><b>作者：</b>{item.book.authors.join("、")}</small> : null}<small>{item.summary}{childCount ? ` · ${childCount} 筆下層資料` : " · 最末層"}</small></div><span><em>公開索引</em></span><span className={item.indexed ? "indexed" : "disabled"}>{item.indexed ? "已索引" : "已停用"}</span><label className="external-index-toggle"><input type="checkbox" checked={item.enabled} onChange={(event) => void toggleExternalItem(item.id, event.target.checked)} /><span>{item.enabled ? "啟用" : "停用"}</span></label></div>; })}</div>
+              {selected && levelItems.length === 0 && (hasArticleDetail ? <div className="external-index-leaf complete"><b>這筆已是文章詳細資料</b><span>作者、分類、公開導讀與試讀連結會直接保存於本篇，不需要再建立假的下一層。</span></div> : <div className="external-index-leaf"><b>尚未辨識到文章詳細資料</b><span>按右上角「補抓文章詳細資料」進入原始頁；若來源未公開作者、摘要或試讀，系統不會以假資料補齊。</span></div>)}
+              {filtered.length === 0 && levelItems.length > 0 ? <p className="usage-empty">這一層沒有符合搜尋條件的資料。</p> : filtered.length > 0 && <nav className="external-pagination" aria-label="資源分頁"><span>第 {page}／{pageCount} 頁，共 {filtered.length} 筆</span><div><button disabled={page <= 1} onClick={() => setExternalPage(page - 1)}>上一頁</button>{Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => <button key={number} className={number === page ? "active" : ""} onClick={() => setExternalPage(number)}>{number}</button>)}<button disabled={page >= pageCount} onClick={() => setExternalPage(page + 1)}>下一頁</button></div></nav>}
+            </section></div>;
+          })()}
+        </section>}
+        {activeTab === "ai-feedback" && <section className="panel ai-feedback-admin"><div className="cost-heading"><div><h2>AI 回答覆核</h2><p className="panel-sub">學生回報先由 Sol 協助檢查，最後仍由老師確認是否有誤及是否寫回標準解析。</p></div><span className="source-count configured">{aiFeedback.length} 筆</span></div>{feedbackLoading ? <p>讀取回饋中…</p> : <div className="ai-feedback-list">{aiFeedback.map((item) => <article key={item.id}><header><div><b>{item.model || "AI 助教"}</b><span>{item.userKey} · {item.rating ? `${item.rating} 分` : "未評分"}</span></div><em>{item.reviewStatus === "pending" ? "待檢查" : item.reviewStatus === "ai_review_requested" ? "等待 Sol 覆核" : item.reviewStatus === "ai_reviewed" ? "AI 已覆核" : item.reviewStatus === "teacher_confirmed" ? "老師已確認" : item.reviewStatus === "corrected" ? "已修正" : "無需修正"}</em></header>{item.originalPrompt && <details><summary>學生原問題</summary><p>{item.originalPrompt}</p></details>}<details><summary>被回報的回答</summary><p>{item.messageText}</p></details><p className="student-feedback-note"><b>學生回饋：</b>{item.studentNote || "未補充說明"}</p><small>{item.errorTypes.join("、") || "未選錯誤類型"}</small><label>老師判斷<select value={item.teacherDecision} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherDecision: event.target.value } : row))}><option value="">待確認</option><option value="confirmed_error">確認有誤</option><option value="no_error">確認無誤</option><option value="partly_correct">部分需修正</option></select></label><label>老師說明<textarea rows={3} value={item.teacherNote} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherNote: event.target.value } : row))} /></label><label>修正後內容<textarea rows={5} value={item.correctedContent} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, correctedContent: event.target.value } : row))} /></label><div className="ai-feedback-actions"><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "teacher_confirmed", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>老師確認</button><button disabled={!item.correctedContent.trim()} onClick={() => void updateAiFeedback(item.id, { reviewStatus: "corrected", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>標記已修正</button><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "dismissed", teacherDecision: "no_error", teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>確認無誤</button></div></article>)}</div>}</section>}
+        {activeTab === "members" && (
+          <section className="panel member-admin-panel">
+            <div className="cost-heading"><div><h2>學員與權限管理</h2><p className="panel-sub">每位登入者都有獨立的對話、角色、智能書進度、練題與批改紀錄。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
+            <form className="member-create-form" onSubmit={createMember}>
+              <div className="member-create-heading"><div><h3>新增學員</h3><p>先建立帳號；學員日後以相同 Email 登入，即會接上自己的學習平台。</p></div><button type="submit" disabled={memberCreating}>{memberCreating ? "新增中…" : "＋ 新增學員"}</button></div>
+              <div className="member-create-fields">
+                <label><span>姓名</span><input required value={newMember.displayName} onChange={(event) => setNewMember((current) => ({ ...current, displayName: event.target.value }))} placeholder="例如：王小明" /></label>
+                <label><span>Email</span><input required type="email" value={newMember.email} onChange={(event) => setNewMember((current) => ({ ...current, email: event.target.value }))} placeholder="student@example.com" /></label>
+                <label><span>班級</span><input value={newMember.className} onChange={(event) => setNewMember((current) => ({ ...current, className: event.target.value }))} placeholder="例如：司律二試 A 班" /></label>
+                <label><span>學習身分</span><select value={newMember.role} onChange={(event) => setNewMember((current) => ({ ...current, role: event.target.value as MemberRow["role"] }))}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
+                <label><span>帳號狀態</span><select value={newMember.status} onChange={(event) => setNewMember((current) => ({ ...current, status: event.target.value as MemberRow["status"] }))}><option value="active">使用中</option><option value="disabled">暫不開放</option></select></label>
+              </div>
+            </form>
+            {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
+            {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
+              {members.map((member) => <article className="member-admin-row" key={member.id}>
+                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small></div></div>
+                <label><span>學習身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
+                <label><span>管理權限</span><select value={member.canAdmin ? "enabled" : "disabled"} onChange={(event) => void updateMember(member.id, { canAdmin: event.target.value === "enabled" })}><option value="disabled">無</option><option value="enabled">管理員</option></select></label>
+                <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
+                <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
+                <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未登入"}</strong></div>
+              </article>)}
+              {!members.length && <p className="usage-empty">尚無會員。學生首次登入後會自動出現在這裡。</p>}
+            </div>}
+          </section>
+        )}
         {activeTab === "homepage" && (
           <section className="panel site-settings-panel">
+            <div className="setting-block">
+              <div className="setting-block-head"><div><h3>學習專區入口</h3><p>可先隱藏首頁的「學習專區」按鈕；再次開啟時，會員原有進度與紀錄仍會保留。</p></div><label className="cost-toggle"><input type="checkbox" checked={learningCenterEnabled} disabled={savingLearningCenter} onChange={() => void toggleLearningCenter()} /><span>{savingLearningCenter ? "更新中…" : learningCenterEnabled ? "目前開放" : "目前關閉"}</span></label></div>
+            </div>
+            <div className="setting-block home-web-search-setting">
+              <div className="setting-block-head"><div><h3>首頁回答｜外網搜尋</h3><p>讓 Luna 在首頁回答時查證特定作者、著作、判決與最新資料。回答會列出實際來源網址，並計入本次成本。</p></div><span className={`source-count ${homeWebSearchMode === "off" ? "" : "configured"}`}>{homeWebSearchMode === "off" ? "未啟用" : "試驗中"}</span></div>
+              <div className="web-search-mode-options" role="radiogroup" aria-label="首頁外網搜尋模式">
+                <label><input type="radio" name="home-web-search" checked={homeWebSearchMode === "off"} disabled={savingWebSearchMode} onChange={() => void saveHomeWebSearchMode("off")} /><span><b>關閉</b><small>只使用站內教材、題庫與既有索引</small></span></label>
+                <label><input type="radio" name="home-web-search" checked={homeWebSearchMode === "fallback"} disabled={savingWebSearchMode} onChange={() => void saveHomeWebSearchMode("fallback")} /><span><b>站內不足才搜尋（建議）</b><small>作者、著作、特定判決或最新資料不足時才查外網</small></span></label>
+                <label><input type="radio" name="home-web-search" checked={homeWebSearchMode === "always"} disabled={savingWebSearchMode} onChange={() => void saveHomeWebSearchMode("always")} /><span><b>每次都搜尋</b><small>方便短期比較效果，但速度與費用較高</small></span></label>
+              </div>
+              <p className="web-search-trust-note">優先來源：司法院、全國法規資料庫、考選部、政府機關、大學、出版社與作者官方頁面。AI 必須區分原文、作者主張與整理推論。</p>
+            </div>
             <div className="cost-heading">
               <div>
                 <h2>首頁與播放設定</h2>
@@ -2662,11 +3464,21 @@ export default function AdminPage() {
         )}
         {activeTab === "costs" && (
           <section className="cost-panel panel">
+            <div className="homepage-setting-block">
+              <div className="setting-block-head">
+                <div>
+                  <h3>智譜 GLM-4.7-Flash</h3>
+                  <p>使用伺服器端金鑰進行最小連線測試；金鑰不會傳到瀏覽器。建議環境變數名稱使用 <code>ZAI_API_KEY</code>。</p>
+                </div>
+                <button type="button" className="primary-btn" disabled={glmTesting} onClick={() => void testGlmConnection()}>{glmTesting ? "測試中…" : "測試 GLM 連線"}</button>
+              </div>
+              {glmTestResult?.ok ? <div className="notice"><strong>連線成功｜{glmTestResult.model}</strong><p>{glmTestResult.text}</p><small>輸入 {glmTestResult.inputTokens ?? 0} · 輸出 {glmTestResult.outputTokens ?? 0} · 合計 {glmTestResult.totalTokens ?? 0} tokens｜{glmTestResult.durationMs ?? 0} ms｜推理費 US$ {(glmTestResult.estimatedCostUsd ?? 0).toFixed(5)}</small></div> : glmTestResult?.error ? <div className="notice error">{glmTestResult.error}</div> : null}
+            </div>
             <div className="cost-heading">
               <div>
                 <h2>AI 使用成本</h2>
                 <p className="panel-sub">
-                  依實際 API usage 記錄，供未來方案與收費評估。
+                  依實際 API usage 記錄，供未來方案與收費評估；台幣以 1 USD ≈ NT$ {USD_TO_TWD_RATE} 暫估。
                 </p>
               </div>
               <label className="cost-toggle">
@@ -2716,10 +3528,15 @@ export default function AdminPage() {
                   US${" "}
                   {(Number(usage?.totals.costMicros ?? 0) / 1_000_000).toFixed(
                     4,
-                  )}
+                  )} · 約 NT$ {formatTwd(Number(usage?.totals.costMicros ?? 0) / 1_000_000, 2)}
                 </strong>
               </div>
             </div>
+            <section className="comparison-admin-summary" aria-label="雙模型比較統計">
+              <div className="cost-heading"><div><h3>AI 導師模型比較</h3><p className="panel-sub">前台測試者可比較 Luna、Claude Sonnet 與 DeepSeek V4-Pro；這裡顯示各模型的實際回覆、Token、耗時、成本與回饋。</p></div><span className="source-count">{usage?.comparisonStats?.comparisons ?? 0} 次比較</span></div>
+              <div className="cost-metrics comparison-metrics"><div><span>已評分回答</span><strong>{usage?.comparisonStats?.ratedResponses ?? 0}</strong></div><div><span>Luna 被選較多</span><strong>{usage?.comparisonStats?.lunaPreferred ?? 0}</strong></div><div><span>Sonnet 被選較多</span><strong>{usage?.comparisonStats?.claudePreferred ?? 0}</strong></div><div><span>DeepSeek 被選較多</span><strong>{usage?.comparisonStats?.deepseekPreferred ?? 0}</strong></div><div><span>平均評分</span><strong>{Number(usage?.comparisonStats?.averageScore ?? 0).toFixed(2)} / 5</strong></div></div>
+              {usage?.recentComparisons?.length ? <div className="comparison-admin-list">{usage.recentComparisons.slice(0, 10).map((comparison) => <article key={comparison.id}><header><strong>#{comparison.id}</strong><span>{comparison.promptText.slice(0, 100)}</span><small>{new Date(comparison.createdAt).toLocaleString("zh-TW")}</small></header><div>{comparison.responses.map((response) => <p key={response.id}><b>{response.label}</b><span>{response.inputTokens + response.outputTokens} tokens · {response.durationMs.toLocaleString()} ms · US$ {(response.estimatedCostUsdMicros / 1_000_000).toFixed(5)}</span><em>{response.ratings.length ? `評分 ${response.ratings.map((rating) => rating.score).join("、")}` : "尚未評分"}{response.error ? ` · ${response.error}` : ""}</em></p>)}</div></article>)}</div> : <p className="usage-empty">尚未產生模型比較。前台選擇任一比較組合後，結果會出現在這裡。</p>}
+            </section>
             {usage?.recent?.length ? (
               <>
                 <div className="usage-table-wrap">
@@ -2757,7 +3574,7 @@ export default function AdminPage() {
                             US${" "}
                             {(row.estimatedCostUsdMicros / 1_000_000).toFixed(
                               5,
-                            )}
+                            )} ·<br />約 NT$ {formatTwd(row.estimatedCostUsdMicros / 1_000_000, 2)}
                           </td>
                         </tr>
                       ))}
@@ -2807,7 +3624,7 @@ export default function AdminPage() {
             <form className="panel" onSubmit={submit}>
               <h2>上傳教材</h2>
               <p className="panel-sub">
-                PDF 將自動解析、切分並建立搜尋索引，供司律備考回答與教學。
+                上傳後由系統自動檢查檔案、擷取文字、整理章節／題目、建立標籤與索引；不同類科的教材與題庫不會混用。
               </p>
               <label
                 className={`upload-zone ${dragActive ? "drag-active" : ""}`}
@@ -2835,7 +3652,7 @@ export default function AdminPage() {
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="application/pdf"
+                  accept=".pdf,.jsonl,.md,.txt,.docx,.zip,application/pdf,application/jsonl,text/markdown,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/zip"
                   multiple
                   hidden
                   onChange={(e) => chooseFiles(e.target.files)}
@@ -2845,13 +3662,13 @@ export default function AdminPage() {
                   {dragActive
                     ? "放開滑鼠，加入批次佇列"
                     : queue.length
-                      ? `已選擇 ${queue.length} 份 PDF`
-                      : "拖曳大量 PDF 到這裡"}
+                      ? `已選擇 ${queue.length} 份教材`
+                    : "拖曳 PDF、JSONL、MD、TXT、DOCX 或 ZIP 到這裡"}
                 </strong>
                 <span>
                   {queue.length
                     ? `共 ${(queue.reduce((sum, item) => sum + item.file.size, 0) / 1024 / 1024).toFixed(1)} MB · 還可以繼續拖入更多檔案`
-                    : "或點此批次選取；系統將逐本上傳與建立索引"}
+                    : "或點此批次選取；系統會逐份檢查、解析、分類並建立索引"}
                 </span>
               </label>
               {queue.length > 0 && (
@@ -2868,9 +3685,9 @@ export default function AdminPage() {
                               : item.status === "uploading"
                                 ? `上傳中 ${item.progress}%`
                                 : item.status === "indexing"
-                                  ? "送入索引中"
-                                  : item.status === "done"
-                                    ? "已送出索引"
+                                  ? "AI 自動檢查／解析／索引中"
+                                : item.status === "done"
+                                    ? "已完成自動處理"
                                     : `失敗 · ${item.error ?? "請重試"}`}
                           </span>
                         </div>
@@ -2884,18 +3701,20 @@ export default function AdminPage() {
               )}
               <div className="meta-fields">
                 <label className="field">
+                  類科
+                  <select value={examCategory} onChange={(e) => { const next = e.target.value as "law" | "accounting" | "medtech"; setExamCategory(next); setSubject(next === "law" ? "刑法" : next === "accounting" ? "中級會計學" : "臨床病毒學"); }}>
+                    <option value="law">司律</option>
+                    <option value="accounting">會計</option>
+                    <option value="medtech">醫檢師</option>
+                  </select>
+                </label>
+                <label className="field">
                   科目
                   <select
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
                   >
-                    <option>刑法</option>
-                    <option>刑事訴訟法</option>
-                    <option>民法</option>
-                    <option>民事訴訟法</option>
-                    <option>憲法</option>
-                    <option>行政法</option>
-                    <option>商事法</option>
+                    {examCategory === "law" ? <><option>刑法</option><option>刑事訴訟法</option><option>民法</option><option>民事訴訟法</option><option>憲法</option><option>行政法</option><option>商事法</option></> : examCategory === "accounting" ? <><option>中級會計學</option><option>高等會計學</option><option>成本與管理會計</option><option>審計學</option><option>稅務法規</option></> : <><option>臨床病毒學</option><option>臨床血液學</option><option>臨床生化學</option><option>臨床微生物學</option><option>血庫學</option><option>醫學分子檢驗學</option></>}
                   </select>
                 </label>
                 <label className="field">
@@ -2926,49 +3745,120 @@ export default function AdminPage() {
                   ? "批次處理中，請勿關閉頁面…"
                   : queue.some((item) => item.status === "failed")
                     ? "重試失敗項目"
-                    : `依序上傳 ${queue.length || ""} 份並建立索引`}
+                    : `依序上傳 ${queue.length || ""} 份並自動處理`}
               </button>
               {notice && <div className="notice">{notice}</div>}
             </form>
             <section className="panel document-panel">
-              <h2>文件處理狀態</h2>
+              <div className="document-list-heading">
+                <h2>文件處理狀態</h2>
+                {files.length > 0 && (
+                  <div className="document-batch-actions">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={files.length > 0 && selectedDocumentIds.length === files.length}
+                        onChange={(event) => setSelectedDocumentIds(event.target.checked ? files.map((file) => file.id) : [])}
+                      />
+                      全選
+                    </label>
+                    <button type="button" disabled={!selectedDocumentIds.length || deletingDocuments} onClick={() => void deleteSelectedDocuments()}>
+                      {deletingDocuments ? "刪除中…" : `刪除已選（${selectedDocumentIds.length}）`}
+                    </button>
+                  </div>
+                )}
+              </div>
               <p className="panel-sub">
-                只有完成索引的內容，才會進入教材優先檢索。
+                上傳後會自動完成檔案檢查、文字擷取、分類、章節／題目整理與全文／向量索引；不需要另外按處理。
               </p>
               {files.length === 0 ? (
                 <div className="empty-state">
                   尚未上傳教材
                   <br />
-                  第一份 PDF 會顯示在這裡
+                  第一份教材會顯示在這裡
                 </div>
               ) : (
                 <div className="file-list">
                   {visibleFiles.map((file) => {
                     const ready = file.status === "completed";
                     const failed = file.status === "failed";
-                    const waiting = file.status === "uploaded";
+                    const waiting = ["uploaded", "queued"].includes(file.processingStage ?? file.status);
+                    const stageLabel = file.processingStage === "extracting"
+                      ? "檔案檢查／文字擷取"
+                      : file.processingStage === "indexing" || file.status === "in_progress"
+                        ? "全文／向量索引"
+                        : file.processingStage === "analyzing"
+                          ? "AI 章節／題目／分類分析"
+                          : file.processingStage === "completed"
+                            ? "已完成"
+                            : file.processingMessage ?? "等待自動處理";
                     return (
                       <div className="file-card" key={file.id}>
-                        <span className="file-type">PDF</span>
+                        <input
+                          className="document-select"
+                          type="checkbox"
+                          aria-label={`選取 ${file.name}`}
+                          checked={selectedDocumentIds.includes(file.id)}
+                          onChange={(event) => setSelectedDocumentIds((current) => event.target.checked ? [...current, file.id] : current.filter((id) => id !== file.id))}
+                        />
+                        <span className="file-type">{file.name.split(".").pop()?.toUpperCase() ?? "FILE"}</span>
                         <div className="file-info">
                           <strong>{file.name}</strong>
                           <span>
-                            {file.subject} · {file.size}
-                            {file.error ? ` · ${file.error}` : ""}
+                            {(file.examCategory === "medtech" ? "醫檢師" : file.examCategory === "accounting" ? "會計" : "司律")} · {file.subject} · {file.size}
                           </span>
+                          <small>{stageLabel}{file.error ? ` · ${file.error}` : ""}</small>
+                          {(ready || file.processingStage === "analyzing") && (
+                            <small className="document-facts">
+                              {file.pageCount ? `${file.pageCount} 頁 · ` : ""}
+                              {file.extractedChars ? `${file.extractedChars.toLocaleString()} 字 · ` : file.name.toLowerCase().endsWith(".pdf") || file.name.toLowerCase().endsWith(".zip") ? "PDF文字由索引服務擷取 · " : ""}
+                              {file.chapterCount ?? 0} 章 · {file.questionCount ?? 0} 題
+                              {file.tags?.length ? ` · ${file.tags.slice(0, 5).join("、")}` : ""}
+                            </small>
+                          )}
+                          {ready && (file.summary || file.chapters?.length || file.questions?.length) && (
+                            <details className="document-result">
+                              <summary>查看自動處理結果</summary>
+                              {file.sourceFileName && file.sourceFileName !== file.name && (
+                                <small>ZIP 來源：{file.sourceFileName}；實際索引：{file.indexedFileName ?? file.name}</small>
+                              )}
+                              {file.summary && <p>{file.summary}</p>}
+                              <div className="document-result-columns">
+                                {file.chapters?.length ? (
+                                  <div>
+                                    <strong>章節／主題</strong>
+                                    <ul>{file.chapters.slice(0, 8).map((chapter, index) => <li key={`${chapter.title}-${index}`}>{chapter.path && `${chapter.path}｜`}{chapter.title}</li>)}</ul>
+                                    {(file.chapterCount ?? 0) > 8 && <small>另有 {(file.chapterCount ?? 0) - 8} 章已保存於索引</small>}
+                                  </div>
+                                ) : null}
+                                {file.questions?.length ? (
+                                  <div>
+                                    <strong>題目／題型</strong>
+                                    <ul>{file.questions.slice(0, 8).map((question, index) => <li key={`${question.number}-${question.title}-${index}`}>{question.number ? `第 ${question.number} 題｜` : ""}{question.title}</li>)}</ul>
+                                    {(file.questionCount ?? 0) > 8 && <small>另有 {(file.questionCount ?? 0) - 8} 題已保存於索引</small>}
+                                  </div>
+                                ) : null}
+                              </div>
+                              {file.extractionNote && <small className="document-result-note">{file.extractionNote}</small>}
+                              <div className="document-index-badges"><span>{file.fullTextIndexed ? "✓ 全文索引" : "○ 全文索引"}</span><span>{file.vectorIndexed ? "✓ 向量索引" : "○ 向量索引"}</span><span>{file.analysisStatus === "completed" ? "✓ AI 結構分析" : "已完成技術索引"}</span></div>
+                            </details>
+                          )}
                         </div>
-                        {waiting || failed ? (
-                          <button
-                            className="index-btn"
-                            onClick={() => startIndex(file.id)}
-                          >
-                            {failed ? "重新索引" : "開始索引"}
-                          </button>
-                        ) : (
-                          <span className={`status ${ready ? "" : "pending"}`}>
-                            {ready ? "可供搜尋" : "建立索引中"}
-                          </span>
-                        )}
+                        <div className="file-card-actions">
+                          {ready && (
+                            <label className={`homepage-search-toggle ${file.homepageSearchEnabled ? "enabled" : ""}`}>
+                              <input type="checkbox" checked={Boolean(file.homepageSearchEnabled)} onChange={() => void toggleHomepageDocument(file)} />
+                              <span>{file.homepageSearchEnabled ? "首頁可搜尋" : "允許首頁搜尋"}</span>
+                            </label>
+                          )}
+                          {failed ? (
+                            <button className="index-btn" onClick={() => startIndex(file.id)}>重新處理</button>
+                          ) : (
+                            <span className={`status ${ready ? "" : "pending"}`}>
+                              {ready ? "索引完成" : waiting ? "等待處理" : "處理中"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -3032,11 +3922,25 @@ export default function AdminPage() {
         )}
         {(activeTab === "resources" || activeTab === "courses" || activeTab === "trials") && (
           <section className="panel resource-manager">
+            {activeTab === "resources" && (
+              <div className="evidence-verification-setting">
+                <div>
+                  <span className="evidence-setting-kicker">智能書測試工具</span>
+                  <h2>教材原文驗證模式</h2>
+                  <p>開啟後，學生在智能書取得 AI 導師回答時，可展開查看實際命中的教材片段、頁碼與檢索方式；測試完成後可隨時關閉。</p>
+                </div>
+                <label className="cost-toggle evidence-main-toggle">
+                  <input type="checkbox" checked={usage?.showEvidence ?? false} onChange={toggleTeachingEvidence} />
+                  <span />
+                  {usage?.showEvidence ? "驗證模式已開啟" : "開啟驗證模式"}
+                </label>
+              </div>
+            )}
             <div className="cost-heading">
               <div>
                 <h2>{activeTab === "trials" ? "知識達試聽管理" : "書籍與課程管理"}</h2>
                 <p className="panel-sub">
-                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材 PDF 並管理書封；影音課程可嵌入 YouTube 單支影片、播放清單或 HLS／MP4，並可搭配字幕整理學習重點。"}
+                  {activeTab === "trials" ? "新增老師、科目、課程簡介與知識達官方試聽連結；前台只提供外部入口，不搬動或播放影片。" : "書籍綁定教材文件並管理書封；影音課程可嵌入 YouTube 單支影片、播放清單或 HLS／MP4，並可搭配字幕整理學習重點。"}
                 </p>
               </div>
               <span className="source-count">{resources.length} 項資源</span>
@@ -3085,7 +3989,7 @@ export default function AdminPage() {
                 </label>
               ) : (
                 <div className="field resource-create-hint">
-                  <span>教材 PDF</span>
+                  <span>教材文件</span>
                   <strong>建立後在書卡上選擇</strong>
                 </div>
               )}
@@ -3127,8 +4031,10 @@ export default function AdminPage() {
                       <small>
                         {resource.resourceType === "book"
                           ? resource.documentId
-                            ? "已綁定教材 PDF，AI 將從文件索引搜尋"
-                            : "尚未綁定教材 PDF"
+                            ? resource.documentStatus === "completed"
+                              ? `已完成教材解析與索引（${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"}／${resource.documentQuestionCount ?? 0} 題）`
+                              : "教材已綁定，正在自動解析與建立索引"
+                            : "尚未綁定教材文件"
                           : resource.sourceUrl
                             ? "已設定課程來源網址"
                             : "尚未設定課程來源網址"}
@@ -3145,32 +4051,124 @@ export default function AdminPage() {
                       {resource.resourceType === "book" && (
                         <>
                           <select
-                            aria-label={`${resource.title}綁定教材 PDF`}
+                            aria-label={`${resource.title}綁定教材文件`}
                             value={resource.documentId ?? ""}
                             onChange={(e) =>
                               bindBookDocument(resource, e.target.value)
                             }
                           >
-                            <option value="">選擇教材 PDF</option>
+                            <option value="">選擇教材文件</option>
                             {files.map((file) => (
                               <option key={file.id} value={file.id}>
                                 {file.name}
                               </option>
                             ))}
                           </select>
+                          <details className="resource-manage-details">
+                            <summary>
+                              <span>教材處理與管理</span>
+                              <small>
+                                {chapterSourceRunning === resource.id
+                                  ? "原文補齊中…"
+                                  : Number(resource.chapterCount ?? resource.storedChapterCatalogueCount ?? 0) > 0
+                                    ? `原文 ${Math.min(Number(resource.chapterCount ?? resource.storedChapterCatalogueCount ?? 0), Number(resource.chapterSourceReadyCount ?? 0))}／${Number(resource.chapterCount ?? resource.storedChapterCatalogueCount ?? 0)}`
+                                    : resource.documentId
+                                      ? "尚未建立章節索引"
+                                      : "尚未綁定教材"}
+                              </small>
+                            </summary>
+                            <div className="resource-manage-content">
+                          {resource.documentId && (
+                            <div className="chapter-progress-panel completed" role="status">
+                              <div className="chapter-progress-heading">
+                                <strong>{resource.documentStatus === "completed" ? "教材檔案已完成檢查、全文／向量索引" : resource.documentProcessingMessage ?? "教材正在自動處理"}</strong>
+                              </div>
+                              <div className="chapter-progress-meta">
+                                <span>
+                                  {resource.documentStatus === "completed"
+                                    ? (() => {
+                                        const progress = chapterProgress[resource.id];
+                                        const storedTopics = Math.max(resource.documentTopicCount ?? 0, resource.documentChapterCount ?? 0);
+                                        const storedQuestions = resource.documentQuestionCount ?? 0;
+                                        const topics = storedTopics || (progress?.completedTopics ?? 0);
+                                        const questions = storedQuestions || (progress?.foundQuestions ?? 0);
+                                        const running = progress && progress.state !== "completed" && progress.totalTopics;
+                                        return running
+                                          ? `檔案分析已整理 ${progress.completedTopics ?? 0}／${progress.totalTopics} 個主題 · 已找到 ${questions} 題`
+                                          : `檔案分析已整理 ${topics} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${questions} 題`;
+                                      })()
+                                    : "完成後會自動更新章節、題目與分類結果"}
+                                </span>
+                                {!!resource.documentTags?.length && <small>標籤：{resource.documentTags.slice(0, 8).join("、")}</small>}
+                              </div>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            className="chapter-view-open"
+                            disabled={!resource.documentId || chapterViewerLoading === resource.id}
+                            onClick={() => void openChapterViewer(resource)}
+                          >
+                            {chapterViewerLoading === resource.id ? "讀取章節中…" : "查看章節內容"}
+                          </button>
+                          {resource.hasStoredChapterCatalogue && Number(resource.chapterCount ?? 0) === 0 && (
+                            <span className="chapter-index-complete" role="status">
+                              ✓ 已沿用教材分析保存的真實內容（{resource.storedChapterCatalogueCount ?? resource.documentChapterCount ?? 0} 筆）
+                            </span>
+                          )}
                           <button
                             type="button"
                             className="subtitle-open"
-                            disabled={!resource.documentId}
-                            onClick={() => void buildBookChapters(resource)}
+                            disabled={!resource.documentId || chapterSourceRunning === resource.id}
+                            onClick={() => void (isProblemSolvingResource(resource)
+                              ? scanProblemBookPages(resource)
+                              : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
+                                ? enrichBookText(resource)
+                                : buildBookChapters(resource))}
                           >
-                            {isProblemSolvingResource(resource)
-                              ? "重新擷取題型與完整題目"
-                              : Number(resource.chapterCount ?? 0) > 0
-                                ? "已建立好章節索引"
+                            {chapterSourceRunning === resource.id
+                              ? "補齊原文中…"
+                              : isProblemSolvingResource(resource)
+                              ? Number(resource.sourcePageCount ?? 0) > 0
+                                ? "接續逐頁拆解"
+                                : "開始逐頁拆解整本書"
+                              : resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0
+                                ? "補齊章節原文"
                                 : "建立章節索引（一次）"}
                           </button>
-                          {isProblemSolvingResource(resource) && (() => {
+                          {isProblemSolvingResource(resource) && Number(resource.chapterCount ?? 0) > 0 && (
+                            <button
+                              type="button"
+                              className="chapter-view-open"
+                              disabled={!resource.documentId || chapterSourceRunning === resource.id}
+                              onClick={() => void scanProblemBookPages(resource)}
+                            >
+                              重新檢查未處理頁
+                            </button>
+                          )}
+                          {(resource.hasStoredChapterCatalogue || Number(resource.chapterCount ?? 0) > 0) && (() => {
+                            const published = Number(resource.chapterCount ?? 0);
+                            const pending = Number(resource.pendingChapterCount ?? 0);
+                            const total = Math.max(published + pending, Number(resource.storedChapterCatalogueCount ?? 0));
+                            const ready = Math.min(total, Number(resource.chapterSourceReadyCount ?? 0));
+                            const percent = total ? Math.round((ready / total) * 100) : 0;
+                            return (
+                              <div className={`chapter-progress-panel ${ready === total && total > 0 ? "completed" : chapterSourceRunning === resource.id ? "building" : "not_started"}`} role="status">
+                                <div className="chapter-progress-heading">
+                                  <strong>{isProblemSolvingResource(resource) ? "題目與解析全文" : "章節原文"} {ready}／{total}</strong>
+                                  <span>{percent}%</span>
+                                </div>
+                                <div className="chapter-progress-track"><i style={{ width: `${percent}%` }} /></div>
+                                <div className="chapter-progress-meta">
+                                  <span>{isProblemSolvingResource(resource) ? `正式 ${published} 題 · 待補 ${pending} 題` : resource.sourcePageCount ? `已直接讀取原始 PDF ${resource.sourcePageCount} 頁` : "尚未逐頁讀取原始教材"}</span>
+                                  <small>{isProblemSolvingResource(resource) && chapterProgress[resource.id]?.pageCoverage
+                                    ? `頁面覆蓋：已掃描 ${chapterProgress[resource.id].pageCoverage!.scanned} · 續頁 ${chapterProgress[resource.id].pageCoverage!.continuation} · 空白 ${chapterProgress[resource.id].pageCoverage!.empty} · 未處理 ${chapterProgress[resource.id].pageCoverage!.unprocessed}`
+                                    : ready === total && total > 0 ? "智能書可直接引用已保存原文" : pending > 0 ? "找到下一題邊界後會自動轉為正式題型" : "按下後會逐批保存，可中斷後接續"}</small>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          {isProblemSolvingResource(resource) && Number(resource.chapterCount ?? 0) === 0 && (() => {
                             const progress = chapterProgress[resource.id];
                             const percent = chapterProgressPercent(progress);
                             return (
@@ -3198,6 +4196,8 @@ export default function AdminPage() {
                               ✓ 已建立好章節索引（{Number(resource.chapterCount)} 章）
                             </span>
                           )}
+                            </div>
+                          </details>
                         </>
                       )}
                       {resource.resourceType === "course" && (
@@ -3764,6 +4764,14 @@ export default function AdminPage() {
                             </button>
                           ) : (
                             <>
+                              {source.examType === "essay" ? <button
+                                className="source-process"
+                                type="button"
+                                disabled={processingSourceId !== null}
+                                onClick={() => rescanExamSource(source.id)}
+                              >
+                                {processingSourceId === source.id ? "掃描中…" : "重新掃描補齊"}
+                              </button> : null}
                               <button
                                 className="source-process"
                                 type="button"
@@ -3833,7 +4841,8 @@ export default function AdminPage() {
               <button type="button" className={questionExamType === "essay" ? "active" : ""} onClick={() => { setQuestionPage(1); setQuestionExamType("essay"); setQuestionYear("all"); setQuestionSubject("all"); }}><strong>二試申論題</strong><span>{questionTypeTotals.essay ?? 0} 題</span><small>獨立題庫／老師擬答與評分點</small></button>
             </div>
             <div className="question-taxonomy" aria-label="考科年度篩選">
-              <div><span>目前分類</span><strong>{questionExamType === "mcq" ? "一試選擇題" : "二試申論題"}</strong></div>
+              <label><span>類科</span><select value={questionExamCategory} onChange={(event) => { const category = event.target.value as "law" | "accounting" | "medtech"; setQuestionPage(1); setQuestionExamCategory(category); setQuestionYear("all"); setQuestionSubject("all"); }}><option value="law">司律</option><option value="accounting">會計</option><option value="medtech">醫檢師</option></select></label>
+              <div><span>目前分類</span><strong>{questionExamCategory === "medtech" ? "醫檢師" : questionExamCategory === "accounting" ? "會計" : "司律"}／{questionExamType === "mcq" ? "選擇題" : "申論題"}</strong></div>
               <label><span>顯示狀態</span><select value={questionStatus} onChange={(event) => { setQuestionPage(1); setQuestionStatus(event.target.value as "draft" | "published" | "all"); }}><option value="draft">待審核草稿</option><option value="published">已發布</option><option value="all">全部題目</option></select></label>
               <label><span>考科</span><select value={questionSubject} onChange={(event) => { setQuestionPage(1); setQuestionSubject(event.target.value); }}><option value="all">全部考科</option>{questionFilterOptions.subjects.map((subject) => <option value={subject} key={subject}>{subject}</option>)}</select></label>
               <label><span>年度</span><select value={questionYear} onChange={(event) => { setQuestionPage(1); setQuestionYear(event.target.value); }}><option value="all">全部年度</option>{questionFilterOptions.years.map((year) => <option value={year} key={year}>{year}</option>)}</select></label>
@@ -3872,7 +4881,7 @@ export default function AdminPage() {
                         : "二試申論題"}
                     </span>
                     <b>
-                      {question.year} · {question.subject} · 第{" "}
+                      {question.year}年｜{question.examName || "類科待辨識"}｜{question.subject}｜第{" "}
                       {question.questionNumber} 題
                     </b>
                   </header>
@@ -3923,11 +4932,12 @@ export default function AdminPage() {
         <div className="question-editor-backdrop" role="presentation" onClick={() => setEditingQuestion(null)}>
           <section className="question-editor" role="dialog" aria-modal="true" aria-labelledby="question-editor-title" onClick={(event) => event.stopPropagation()}>
             <header>
-              <div><span>{editingQuestion.examType === "essay" ? "二試申論題編輯" : "一試選擇題編輯"}</span><h2 id="question-editor-title">{editingQuestion.year} · {editingQuestion.subject} · 第 {editingQuestion.questionNumber} 題</h2></div>
+              <div><span>{editingQuestion.examType === "essay" ? "二試申論題編輯" : "一試選擇題編輯"}</span><h2 id="question-editor-title">{editingQuestion.year}年｜{editingQuestion.examName}｜{editingQuestion.subject}｜第 {editingQuestion.questionNumber} 題</h2></div>
               <button type="button" onClick={() => setEditingQuestion(null)} aria-label="關閉編輯">×</button>
             </header>
             <div className="question-editor-grid">
               <label>年度<input value={editingQuestion.year} onChange={(event) => setEditingQuestion({ ...editingQuestion, year: event.target.value })} /></label>
+              <label>考試名稱／類科<input value={editingQuestion.examName} onChange={(event) => setEditingQuestion({ ...editingQuestion, examName: event.target.value })} placeholder="例如：律師、司法官第二試" /></label>
               <label>考科<input value={editingQuestion.subject} onChange={(event) => setEditingQuestion({ ...editingQuestion, subject: event.target.value })} /></label>
               <label>題號<input value={editingQuestion.questionNumber} onChange={(event) => setEditingQuestion({ ...editingQuestion, questionNumber: event.target.value })} /></label>
             </div>
@@ -4595,8 +5605,8 @@ export default function AdminPage() {
             <div>
               <h2>司法院裁判資料</h2>
               <p className="panel-sub">
-                使用已儲存帳密取得 6 小時 Token；官方 API 僅於每日 00:00 至
-                06:00 開放。
+                使用已儲存帳密取得 6 小時 Token；官方 API 每日 00:00 至
+                06:00 開放，系統會在開放後自動持續下載。
               </p>
             </div>
             <span
@@ -4616,8 +5626,8 @@ export default function AdminPage() {
             </article>
             <article>
               <span>{judicialStatus?.schedule?.enabled ? "實際排程" : "排程狀態"}</span>
-              <strong>{judicialStatus?.schedule?.time ?? "00:30"}</strong>
-              <small>{judicialStatus?.schedule?.enabled ? `每 ${judicialStatus.schedule.intervalMinutes ?? 5} 分鐘自動續傳（台灣時間）` : "尚未啟用"}</small>
+              <strong>{judicialStatus?.schedule?.time ?? "00:00"}</strong>
+              <small>{judicialStatus?.schedule?.enabled ? `每 ${judicialStatus.schedule.intervalMinutes ?? 1} 分鐘自動續傳（台灣時間）` : "尚未啟用"}</small>
             </article>
             <article>
               <span>待下載</span>
@@ -4626,7 +5636,7 @@ export default function AdminPage() {
                   judicialStatus?.settings?.judicial_pending_count ?? 0,
                 ).toLocaleString()}
               </strong>
-              <small>每批 30 筆續傳</small>
+              <small>每批最多 120 筆續傳</small>
             </article>
           </div>
           <div className="judicial-actions">
@@ -4644,6 +5654,17 @@ export default function AdminPage() {
               {syncingJudicial ? "同步中…" : "立即下載一批"}
             </button>
           </div>
+          {judicialStatus?.schedule?.enabled && (
+            <div className={`judicial-schedule-live ${judicialLaunching ? "launching" : ""}`} role="status" aria-live="polite">
+              {judicialLaunching ? (
+                <><span className="download-orbit" aria-hidden="true"><i /><i /><i /></span><div><b>時間到，正在啟動下載</b><small>背景 Worker 已收到本分鐘同步任務，正在取得官方清單…</small></div></>
+              ) : syncingJudicial ? (
+                <><span className="download-spinner" aria-hidden="true" /><div><b>正在下載本批裁判資料</b><small>完成後會自動更新同步狀態</small></div></>
+              ) : (
+                <><span className="countdown-clock" aria-hidden="true">⏱</span><div><b>距離下一次自動啟動</b><strong>{formatCountdown(judicialNextRun())}</strong><small>時間到會先顯示啟動動畫，再由背景自動下載；不用重新按鈕</small></div></>
+              )}
+            </div>
+          )}
           <div className="sync-log">
             <h3>同步狀態</h3>
             <p>
@@ -4668,7 +5689,7 @@ export default function AdminPage() {
             </p>
             {judicialStatus?.schedule?.enabled && (
               <p className="sync-auto-note">
-                錯誤或中斷後會在 {judicialStatus.schedule.window ?? "00:30–05:55"} 每 {judicialStatus.schedule.intervalMinutes ?? 5} 分鐘自動恢復；不用整晚開著此頁面。
+                錯誤或中斷後會在 {judicialStatus.schedule.window ?? "00:00–05:59"} 每 {judicialStatus.schedule.intervalMinutes ?? 1} 分鐘自動恢復；不用整晚開著此頁面。
               </p>
             )}
             {!!judicialStatus?.failedCount && (
@@ -4723,6 +5744,97 @@ export default function AdminPage() {
               onChange={(e) => uploadListeningZip(e.target.files?.[0])}
             />
           </label>
+        </div>
+      )}
+      {chapterViewer && (
+        <div
+          className="chapter-viewer-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setChapterViewer(null);
+          }}
+        >
+          <section className="chapter-viewer" role="dialog" aria-modal="true" aria-labelledby="chapter-viewer-title">
+            <header className="chapter-viewer-header">
+              <div>
+                <span>教材拆解檢視</span>
+                <h2 id="chapter-viewer-title">{chapterViewer.resource.title}</h2>
+                <p>
+                  已載入 {chapterViewer.rows.length} 筆真實章節／題型
+                  {chapterViewer.incompleteCount ? ` · ${chapterViewer.incompleteCount} 筆仍只有目錄資料` : ""}
+                </p>
+              </div>
+              <button type="button" aria-label="關閉章節內容" onClick={() => setChapterViewer(null)}>×</button>
+            </header>
+            {chapterViewer.message && <div className="chapter-viewer-message">{chapterViewer.message}</div>}
+            {chapterViewer.sourceFailures?.length ? (
+              <details className="chapter-viewer-failures">
+                <summary>{chapterViewer.sourceFailures.length} 章尚未定位原文（查看原因）</summary>
+                <ul>
+                  {chapterViewer.sourceFailures.map((failure) => (
+                    <li key={failure.segmentId}><strong>{failure.title}</strong><span>{failure.error}</span></li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+            {chapterViewer.rows.length ? (
+              <div className="chapter-viewer-layout">
+                <aside className="chapter-viewer-index" aria-label="部、主題與完整題型">
+                  <div className="chapter-viewer-index-heading"><strong>部・主題・題型</strong><span>{chapterViewer.rows.length} 題</span></div>
+                  <div className="chapter-viewer-index-list">
+                    {chapterViewer.rows.map((chapter, index) => {
+                      const [section = "未分類部分", topic = "未分類主題"] = (chapter.lessonLabel || "").split("｜");
+                      const previous = chapterViewer.rows[index - 1];
+                      const [previousSection = "", previousTopic = ""] = (previous?.lessonLabel || "").split("｜");
+                      return (
+                        <Fragment key={`${chapter.id}-${chapter.sequence}`}>
+                          {section !== previousSection && <div className="chapter-viewer-part">{section}</div>}
+                          {(section !== previousSection || topic !== previousTopic) && <div className="chapter-viewer-topic">{topic}</div>}
+                          <button
+                            type="button"
+                            className={activeChapter?.id === chapter.id ? "active" : ""}
+                            onClick={() => setSelectedChapterId(chapter.id)}
+                          >
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                            <strong>{chapter.title || "未命名題型"}</strong>
+                            <small>題型{chapter.pageStart ? ` · PDF p.${chapter.pageStart}${chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}` : " · 頁碼待核對"}</small>
+                          </button>
+                        </Fragment>
+                      );
+                    })}
+                  </div>
+                </aside>
+                <article className="chapter-viewer-content">
+                  {activeChapter ? (
+                    <>
+                      <div className="chapter-viewer-content-meta">
+                        <span>{activeChapter.lessonLabel || "教材章節"}</span>
+                        <em>{activeChapter.reviewStatus === "ai_reviewed" ? "AI 已整理" : activeChapter.reviewStatus === "catalogue_only" ? "目錄已保存" : activeChapter.reviewStatus}</em>
+                      </div>
+                      <h3>{activeChapter.title || "未命名章節"}</h3>
+                      <small className="chapter-viewer-pages">原教材頁碼：{activeChapter.pageStart ? `${activeChapter.pageStart}${activeChapter.pageEnd && activeChapter.pageEnd !== activeChapter.pageStart ? `–${activeChapter.pageEnd}` : ""}` : "待核對"}</small>
+                      {activeChapter.summary && <div className="chapter-viewer-summary"><strong>拆解摘要</strong><p>{activeChapter.summary}</p></div>}
+                      {activeChapter.text ? (() => {
+                        const sections = problemContentSections(activeChapter.text);
+                        return sections ? (
+                          <div className="chapter-viewer-problem-sections">
+                            <section className="chapter-viewer-text question"><strong>完整題目</strong><p>{sections.question}</p></section>
+                            <section className="chapter-viewer-text analysis"><strong>{sections.label}</strong><p>{sections.analysis}</p></section>
+                          </div>
+                        ) : (
+                          <div className="chapter-viewer-text"><strong>完整內容／題目原文</strong><p>{activeChapter.text}</p></div>
+                        );
+                      })() : (
+                        <div className="chapter-viewer-empty">目前已確認這個真實目錄項目，但完整內容仍在後台分批整理；系統不會用假資料補上。</div>
+                      )}
+                    </>
+                  ) : <div className="chapter-viewer-empty">尚未選擇章節。</div>}
+                </article>
+              </div>
+            ) : (
+              <div className="chapter-viewer-empty">目前沒有可查看的章節資料。請先完成教材索引，再按「建立章節索引」。</div>
+            )}
+          </section>
         </div>
       )}
     </main>

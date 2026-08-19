@@ -51,7 +51,7 @@ const worker = {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const judicialCrons = new Set(["30-59/5 16 * * *", "*/5 17-21 * * *"]);
+    const judicialCrons = new Set(["*/1 16-21 * * *"]);
     if (!judicialCrons.has(controller.cron)) return;
     ctx.waitUntil(
       (async () => {
@@ -59,7 +59,7 @@ const worker = {
           new Request("https://silu-mentor.internal/api/judicial-sync", {
             method: "POST",
             headers: { "content-type": "application/json", "x-scheduled-sync": "1" },
-            body: JSON.stringify({ action: "sync", limit: 30 }),
+            body: JSON.stringify({ action: "sync", limit: 120 }),
           }),
           env,
           ctx,

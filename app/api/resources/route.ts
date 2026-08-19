@@ -8,6 +8,7 @@ import {
   learningResources,
   resourceSegments,
 } from "../../../db/schema";
+import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
 
 function isPlayableCourseUrl(value: string) {
   try {
@@ -51,9 +52,22 @@ export async function GET() {
       sortOrder: learningResources.sortOrder,
       documentStatus: documents.status,
       documentError: documents.indexError,
+      documentProcessingStage: documents.processingStage,
+      documentProcessingMessage: documents.processingMessage,
+      documentChapterCount: documents.chapterCount,
+      documentQuestionCount: documents.questionCount,
+      documentProcessingResultJson: documents.processingResultJson,
+      documentExtractedChars: documents.extractedChars,
+      documentTagsJson: documents.tagsJson,
       hasCover: sql<number>`case when ${learningResources.coverStorageKey} is null then 0 else 1 end`,
       segmentCount: sql<number>`count(${resourceSegments.id})`,
+      // Published and staging rows are deliberately counted separately. A
+      // resumable audit may have dozens of real staged results, but they are
+      // not complete until the final validation pass promotes them.
       chapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') then 1 else 0 end)`,
+      pendingChapterCount: sql<number>`sum(case when ${resourceSegments.segmentType} = 'book_chapter_pending' then 1 else 0 end)`,
+      chapterSourceReadyCount: sql<number>`sum(case when ${resourceSegments.segmentType} in ('book_chapter', 'chapter', 'book_outline') and ${resourceSegments.reviewStatus} in ('source', 'source_index', 'ai_reviewed') and length(trim(${resourceSegments.text})) >= 40 then 1 else 0 end)`,
+      sourcePageCount: sql<number>`sum(case when ${resourceSegments.segmentType} = 'book_source_page' then 1 else 0 end)`,
       updatedAt: learningResources.updatedAt,
     })
     .from(learningResources)
@@ -62,7 +76,7 @@ export async function GET() {
       eq(resourceSegments.resourceId, learningResources.id),
     )
     .leftJoin(documents, eq(learningResources.documentId, documents.id))
-    .groupBy(learningResources.id, documents.status, documents.indexError)
+    .groupBy(learningResources.id, documents.status, documents.indexError, documents.processingStage, documents.processingMessage, documents.chapterCount, documents.questionCount, documents.processingResultJson, documents.extractedChars, documents.tagsJson)
     .orderBy(asc(learningResources.sortOrder), asc(learningResources.createdAt));
   const articleRows = await db
     .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
@@ -116,8 +130,39 @@ export async function GET() {
       });
       const analyzedArticleCount = articlePreviews.filter((article) => article.analysisState === "analyzed").length;
       const failedArticleCount = articlePreviews.filter((article) => article.analysisState === "failed").length;
+      const { documentProcessingResultJson, ...publicRow } = row;
+      const storedAnalysis = storedDocumentAnalysis(documentProcessingResultJson ?? "{}");
+      const storedChapterRows = Array.isArray(storedAnalysis.chapters)
+        ? storedAnalysis.chapters
+        : [];
+      const storedQuestionRows = Array.isArray(storedAnalysis.questions)
+        ? storedAnalysis.questions
+        : [];
+      // The document processor already saves a real chapter/question catalogue
+      // in processing_result_json.  It is usable by the viewer even when the
+      // optional resource_segments chapter index has not been materialized.
+      // Expose that fact so the admin page does not ask for the same sync on
+      // every visit.
+      const storedCatalogueCount = Math.max(
+        storedChapterRows.length,
+        storedQuestionRows.length,
+      );
       return {
-        ...row,
+        ...publicRow,
+        hasStoredChapterCatalogue: storedCatalogueCount > 0,
+        storedChapterCatalogueCount: storedCatalogueCount,
+        ...(() => {
+          const counts = storedDocumentStats(
+            documentProcessingResultJson ?? "{}",
+            Number(publicRow.documentChapterCount ?? 0),
+            Number(publicRow.documentQuestionCount ?? 0),
+          );
+          return {
+            documentChapterCount: counts.chapterCount,
+            documentTopicCount: counts.topicCount,
+            documentQuestionCount: counts.questionCount,
+          };
+        })(),
         courseCategory:
           row.resourceType === "course" && publicCourseResourceIds.has(row.id)
             ? "public"
@@ -129,6 +174,7 @@ export async function GET() {
         analyzedArticleCount,
         failedArticleCount,
         pendingArticleCount: articlePreviews.length - analyzedArticleCount - failedArticleCount,
+        documentTags: (() => { try { return JSON.parse(row.documentTagsJson ?? "[]"); } catch { return []; } })(),
       };
     }),
   });
@@ -195,9 +241,10 @@ export async function PUT(request: Request) {
   if (current.resourceType === "book" && current.documentId !== nextDocumentId) {
     await db.delete(resourceSegments).where(and(
       eq(resourceSegments.resourceId, id),
-      inArray(resourceSegments.segmentType, ["book_chapter", "chapter", "book_outline"]),
+      inArray(resourceSegments.segmentType, ["book_chapter", "chapter", "book_outline", "book_chapter_pending", "book_source_page"]),
     ));
     await db.delete(appSettings).where(eq(appSettings.key, `book_chapters_status:${id}`));
+    await db.delete(appSettings).where(eq(appSettings.key, `book_chapter_source_status:${id}`));
   }
   const [row] = await db
     .update(learningResources)

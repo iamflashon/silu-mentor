@@ -10,16 +10,20 @@ const CURSOR_KEY = "judicial_sync_cursor";
 const FAILURES_KEY = "judicial_sync_failures";
 const CYCLE_DATE_KEY = "judicial_sync_cycle_date";
 const LOCK_KEY = "judicial_sync_lock_until";
-const DEFAULT_BATCH_SIZE = 30;
+// Keep the batch large enough to make useful progress, while retaining the
+// per-record error isolation below so one malformed official record does not
+// stop the whole sync.
+const DEFAULT_BATCH_SIZE = 120;
 const MAX_RETRY_ATTEMPTS = 3;
-const LOCK_TTL_MS = 15 * 60 * 1000;
+const LOCK_TTL_MS = 2 * 60 * 1000;
 const JUDICIAL_SCHEDULE = {
   enabled: true,
-  time: "00:30",
+  time: "00:00",
   timezone: "Asia/Taipei",
-  cron: ["30-59/5 16 * * *", "*/5 17-21 * * *"],
-  intervalMinutes: 5,
-  window: "00:30–05:55",
+  cron: ["*/1 16-21 * * *"],
+  intervalMinutes: 1,
+  window: "00:00–05:59",
+  mode: "worker-cron",
 };
 
 type JsonObject = Record<string, unknown>;
@@ -313,7 +317,7 @@ export async function POST(request: Request) {
         return Response.json({
           ok: true,
           busy: true,
-          message: "上一批同步仍在處理，系統會在下一個 5 分鐘週期自動續接。",
+          message: "上一批同步仍在處理，系統會在下一個 1 分鐘週期自動續接。",
         }, { status: 202 });
       }
     }

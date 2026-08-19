@@ -1,0 +1,310 @@
+{
+  "publicSource": "115年會計研究所班 中級會計學",
+  "files": [
+    {
+      "file": "115年會計研究所班 先修課程 第1次小考1.docx",
+      "answer_rows": 9,
+      "accepted": 9
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第2次小考1.docx"
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第3次小考1.docx",
+      "answer_rows": 5,
+      "accepted": 5
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第4次小考1.docx",
+      "answer_rows": 5,
+      "accepted": 5
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第5次小考.docx",
+      "answer_rows": 6,
+      "accepted": 5,
+      "rejected_option_split": 1
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第6次小考.docx",
+      "answer_rows": 8,
+      "rejected_option_split": 1,
+      "accepted": 7
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第7次小考.docx",
+      "answer_rows": 4,
+      "accepted": 4
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第8次小考.docx",
+      "answer_rows": 10,
+      "accepted": 10
+    },
+    {
+      "file": "115年會計研究所班 先修課程 第9次小考.docx",
+      "answer_rows": 8,
+      "accepted": 7,
+      "rejected_option_split": 1
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第1次小考.docx",
+      "answer_rows": 13,
+      "accepted": 8,
+      "rejected_option_split": 5
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第2次小考.docx",
+      "answer_rows": 11,
+      "accepted": 8,
+      "rejected_option_split": 3
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第3次小考.docx",
+      "answer_rows": 8,
+      "accepted": 8
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第4次小考.docx",
+      "answer_rows": 8,
+      "accepted": 7,
+      "rejected_option_split": 1
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第5次小考.docx",
+      "answer_rows": 11,
+      "accepted": 11
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第6次小考.docx",
+      "answer_rows": 11,
+      "accepted": 11
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第7次小考.docx",
+      "answer_rows": 13,
+      "rejected_option_split": 3,
+      "accepted": 10
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第8次小考.docx",
+      "answer_rows": 10,
+      "accepted": 10
+    },
+    {
+      "file": "115年高雄暑期班中級會計學 第1次小考.docx",
+      "answer_rows": 5,
+      "accepted": 5
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第9次小考.docx",
+      "answer_rows": 4,
+      "accepted": 2,
+      "rejected_option_split": 2
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第10次小考.docx",
+      "answer_rows": 6,
+      "accepted": 6
+    },
+    {
+      "file": "115年高雄暑期班中級會計學 第2次小考.docx",
+      "answer_rows": 9,
+      "accepted": 9
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第11次小考.docx",
+      "answer_rows": 9,
+      "accepted": 7,
+      "rejected_option_split": 2
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第12次小考.docx",
+      "answer_rows": 10,
+      "accepted": 10
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第13次小考.docx",
+      "answer_rows": 5,
+      "accepted": 5
+    },
+    {
+      "file": "115年高雄暑期班中級會計學 第3次小考.docx",
+      "answer_rows": 8,
+      "accepted": 8
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第14次小考.docx",
+      "answer_rows": 18,
+      "rejected_incomplete": 1,
+      "accepted": 15,
+      "rejected_option_split": 2
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第15次小考.docx",
+      "answer_rows": 12,
+      "accepted": 10,
+      "rejected_option_split": 2
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第16次小考.docx",
+      "answer_rows": 7,
+      "accepted": 7
+    },
+    {
+      "file": "115年高雄暑期班中級會計學 第4次小考.docx",
+      "answer_rows": 7,
+      "accepted": 7
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第17次小考.docx",
+      "answer_rows": 5,
+      "accepted": 4,
+      "rejected_option_split": 1
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第18次小考.docx",
+      "answer_rows": 6,
+      "accepted": 6
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第19次小考.docx",
+      "answer_rows": 5,
+      "accepted": 5
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第20次小考.docx",
+      "answer_rows": 15,
+      "accepted": 11,
+      "rejected_option_split": 4
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第21次小考.docx",
+      "answer_rows": 5,
+      "rejected_option_split": 3,
+      "accepted": 2
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第22次小考.docx",
+      "answer_rows": 2,
+      "accepted": 2
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第23次小考.docx",
+      "answer_rows": 6,
+      "accepted": 2,
+      "rejected_option_split": 4
+    },
+    {
+      "file": "115年高雄暑期班中級會計學 第5次小考.docx",
+      "answer_rows": 12,
+      "accepted": 8,
+      "rejected_option_split": 4
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第24次小考.docx",
+      "answer_rows": 13,
+      "rejected_option_split": 6,
+      "accepted": 7
+    },
+    {
+      "file": "115年高雄暑期班中級會計學 第6次小考.docx",
+      "answer_rows": 5,
+      "accepted": 4,
+      "rejected_option_split": 1
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第25次小考.docx",
+      "answer_rows": 9,
+      "accepted": 6,
+      "rejected_option_split": 3
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第26次小考.docx",
+      "answer_rows": 5,
+      "accepted": 3,
+      "rejected_option_split": 2
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第27次小考.docx",
+      "answer_rows": 7,
+      "accepted": 7
+    },
+    {
+      "file": "115年高雄暑期班中級會計學 第7次小考.docx",
+      "answer_rows": 8,
+      "accepted": 7,
+      "rejected_option_split": 1
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第28次小考.docx",
+      "answer_rows": 5,
+      "accepted": 2,
+      "rejected_option_split": 3
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第29次小考.docx",
+      "answer_rows": 12,
+      "rejected_option_split": 5,
+      "accepted": 7
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第30次小考.docx",
+      "answer_rows": 8,
+      "accepted": 5,
+      "rejected_option_split": 3
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第31次小考.docx",
+      "answer_rows": 6,
+      "rejected_option_split": 3,
+      "accepted": 3
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第32次小考.docx"
+    },
+    {
+      "file": "115年 高點會研所班 中級會計學 第2次模擬考2.docx",
+      "answer_rows": 8,
+      "accepted": 6,
+      "rejected_option_split": 2
+    },
+    {
+      "file": "114中會 第1次複習考(1027).docx"
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第2次複習考.docx",
+      "answer_rows": 20,
+      "accepted": 16,
+      "rejected_option_split": 4
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第4次複習考.docx",
+      "answer_rows": 30,
+      "rejected_option_split": 5,
+      "accepted": 25
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第6次複習考.docx",
+      "answer_rows": 25,
+      "accepted": 25
+    },
+    {
+      "file": "115年會計研究所班 中級會計學 第7次複習考.docx",
+      "answer_rows": 20,
+      "accepted": 20
+    },
+    {
+      "file": "115年 高點會研所班 中級會計學 第4次模擬考2.docx",
+      "answer_rows": 30,
+      "accepted": 24,
+      "rejected_option_split": 6
+    }
+  ],
+  "totals": {
+    "answer_rows": 507,
+    "accepted": 423,
+    "rejected_option_split": 83,
+    "rejected_incomplete": 1
+  }
+}

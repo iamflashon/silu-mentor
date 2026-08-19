@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./plan/selection-tools.css";
+import GlobalSelectionTools from "./global-selection-tools";
+import StudyBreakReminder from "./study-break-reminder";
+import NavigationFeedback from "./navigation-feedback";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "司律備考｜AI 司律考試教練",
-  description: "以公司教材為依據，主動帶你準備律師與司法官考試。",
+  title: { default: "iBrain AI 學習平台", template: "%s｜iBrain AI 學習平台" },
+  description: "iBrain 各類科獨立的 AI 學習與測驗平台。",
   other: {
     "codex-preview": "development",
   },
@@ -40,6 +44,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        <NavigationFeedback />
+        <GlobalSelectionTools />
+        <StudyBreakReminder />
       </body>
     </html>
   );

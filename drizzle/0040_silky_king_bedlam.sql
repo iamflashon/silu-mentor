@@ -1,0 +1,1 @@
+ALTER TABLE `issue_practice_records` ADD `challenge_workflow_json` text;
