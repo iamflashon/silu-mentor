@@ -7,6 +7,7 @@ export const ADMIN_ENTRY_COOKIE = "silu_admin_entry";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 type AdminEntryEnv = {
+  ENTRY_ADMIN_EMAIL?: string;
   ENTRY_ADMIN_PASSWORD?: string;
   ENTRY_SESSION_SECRET?: string;
 };
@@ -101,10 +102,17 @@ export async function isAdminEntryAuthenticated(request: Request) {
   }
 }
 
-export async function isAdminPassword(password: string) {
+export async function isAdminCredentials(email: string, password: string) {
   const env = await runtimeEnv();
-  if (!env.ENTRY_ADMIN_PASSWORD) return false;
-  return constantTimeEqual(await sha256(password), await sha256(env.ENTRY_ADMIN_PASSWORD));
+  const expectedEmail = (env.ENTRY_ADMIN_EMAIL || ADMIN_ENTRY_OWNER_EMAIL).trim().toLowerCase();
+  if (!env.ENTRY_ADMIN_PASSWORD || !expectedEmail) return false;
+  const [emailDigest, expectedEmailDigest, passwordDigest, expectedPasswordDigest] = await Promise.all([
+    sha256(email.trim().toLowerCase()),
+    sha256(expectedEmail),
+    sha256(password),
+    sha256(env.ENTRY_ADMIN_PASSWORD),
+  ]);
+  return constantTimeEqual(emailDigest, expectedEmailDigest) && constantTimeEqual(passwordDigest, expectedPasswordDigest);
 }
 
 export async function createAdminEntryCookie() {
