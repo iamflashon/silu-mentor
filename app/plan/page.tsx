@@ -4391,11 +4391,11 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                                               ? message.teachingEvidence.basis === "teacher_solution"
                                                 ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜老師答案為主要依據`
                                                 : `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}`
-                                              : `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
+                                              : `${message.teachingEvidence.resourceTitle || "未設定教材名稱"}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
                                             : message.teachingEvidence.message}
                                         </span>
                                         {message.teachingEvidence.excerpt && !selectedBookIsProblemSolving && (
-                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}<small>上方章節頁碼是本教材 PDF 的位置；原文註腳中的其他頁碼屬引用書目頁碼。</small>{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
+                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}<small>上方章節頁碼依教材檔案頁序標示；原文註腳中的其他頁碼屬引用書目頁碼。</small>{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
                                         )}
                                       </div>
                                     )}
@@ -4483,7 +4483,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                             <p>
                               {selectedBookIsProblemSolving
                                 ? "點選後，這裡會先直接顯示原書完整題目，不先上課或分析。"
-                                : "這裡不顯示 PDF。AI 會依教材內容先教你抓本章重點，再用問題帶你思考。"}
+                                : "這裡不開啟原始教材檔案。AI 會依教材內容先教你抓本章重點，再用問題帶你思考。"}
                             </p>
                           </div>
                         )}

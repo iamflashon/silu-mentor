@@ -1,6 +1,7 @@
 import { getDb } from "../../../../db";
 import { documents } from "../../../../db/schema";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
+import { documentDisplayTitle } from "../../../../lib/document-title";
 
 type InitPayload = {
   action: "init";
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
           contentType: contentTypeForDocument(body.fileName, body.contentType),
           sizeBytes: body.sizeBytes,
           examCategory: ["law", "accounting", "medtech", "data-structure"].includes(body.examCategory) ? body.examCategory : "law",
+          bookTitle: documentDisplayTitle(null, body.fileName),
           subject: body.subject,
           documentType: body.documentType,
           status: "uploaded",

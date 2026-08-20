@@ -6,6 +6,7 @@ import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
 import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
+import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document-title";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
@@ -17,6 +18,7 @@ type ExternalRetrievalTest = { query: string; mode: "children" | "single"; found
 type Uploaded = {
   id: number;
   name: string;
+  bookTitle?: string;
   examCategory?: string;
   subject: string;
   size: string;
@@ -750,6 +752,7 @@ export default function AdminPage() {
           documents?: Array<{
             id: number;
             name: string;
+            bookTitle?: string;
             examCategory?: string;
             subject: string;
             type: string;
@@ -781,6 +784,7 @@ export default function AdminPage() {
           (result.documents ?? []).map((item) => ({
             id: item.id,
             name: item.name,
+            bookTitle: item.bookTitle ?? documentDisplayTitle(null, item.name),
             examCategory: item.examCategory ?? "law",
             subject: item.subject,
             size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
@@ -2889,7 +2893,7 @@ export default function AdminPage() {
           if (refreshed.ok) {
             const data = await refreshed.json() as { documents?: Array<Record<string, unknown>>; stats?: DocumentStats };
             const current = (data.documents ?? []).find((item) => Number(item.id) === documentId);
-            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), topicCount: Number(current.topicCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
+            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, bookTitle: typeof current.bookTitle === "string" && current.bookTitle.trim() ? current.bookTitle : item.bookTitle, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), topicCount: Number(current.topicCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
             if (data.stats) setDocumentStats(data.stats);
             const resourcesResponse = await fetch("/api/resources", { cache: "no-store" });
             if (resourcesResponse.ok) {
@@ -2942,6 +2946,23 @@ export default function AdminPage() {
       setFiles((current) => current.map((item) => item.id === file.id ? { ...item, homepageSearchEnabled: !next } : item));
       setNotice(error instanceof Error ? error.message : "首頁搜尋設定更新失敗");
     }
+  }
+
+  async function saveDocumentBookTitle(file: Uploaded) {
+    const bookTitle = normalizeDocumentTitle(file.bookTitle ?? "") || documentDisplayTitle(null, file.name);
+    setFiles((current) => current.map((item) => item.id === file.id ? { ...item, bookTitle } : item));
+    const response = await fetch("/api/documents", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: file.id, bookTitle }),
+    });
+    const result = await response.json() as { bookTitle?: string; error?: string };
+    if (!response.ok) {
+      setNotice(result.error ?? "教材顯示名稱儲存失敗");
+      return;
+    }
+    setFiles((current) => current.map((item) => item.id === file.id ? { ...item, bookTitle: result.bookTitle ?? bookTitle } : item));
+    setNotice(`前台教材名稱已更新為「${result.bookTitle ?? bookTitle}」。`);
   }
 
   async function deleteSelectedDocuments() {
@@ -3105,6 +3126,7 @@ export default function AdminPage() {
       {
         id: newId,
         name: selected.name,
+        bookTitle: documentDisplayTitle(null, selected.name),
         examCategory,
         subject,
         size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${documentContentType}`,
@@ -3859,7 +3881,20 @@ export default function AdminPage() {
                         />
                         <span className="file-type">{file.name.split(".").pop()?.toUpperCase() ?? "FILE"}</span>
                         <div className="file-info">
-                          <strong>{file.name}</strong>
+                          <strong>{file.bookTitle || documentDisplayTitle(null, file.name)}</strong>
+                          <label className="document-display-name">
+                            <span>前台教材名稱</span>
+                            <input
+                              value={file.bookTitle ?? ""}
+                              placeholder={documentDisplayTitle(null, file.name)}
+                              aria-label={`${file.name}的前台教材名稱`}
+                              onChange={(event) => setFiles((current) => current.map((item) => item.id === file.id ? { ...item, bookTitle: event.target.value } : item))}
+                              onBlur={() => void saveDocumentBookTitle(file)}
+                              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
+                            />
+                            <small>離開欄位會自動儲存；學生端只顯示這個名稱。</small>
+                          </label>
+                          <small className="document-source-name">原始檔名：{file.name}</small>
                           <span>
                             {(file.examCategory === "medtech" ? "醫檢師" : file.examCategory === "accounting" ? "會計" : "司律")} · {file.subject} · {file.size}
                           </span>
@@ -4116,7 +4151,7 @@ export default function AdminPage() {
                             <option value="">選擇教材文件</option>
                             {files.map((file) => (
                               <option key={file.id} value={file.id}>
-                                {file.name}
+                                {file.bookTitle || documentDisplayTitle(null, file.name)}
                               </option>
                             ))}
                           </select>

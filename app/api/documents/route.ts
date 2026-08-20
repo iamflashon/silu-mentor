@@ -4,6 +4,7 @@ import { chatMessages, documents, examQuestions } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../lib/document-processing";
 import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
+import { documentDisplayTitle, normalizeDocumentTitle } from "../../../lib/document-title";
 import { openAIJson } from "../../../lib/openai";
 
 function processingResult(value: string) {
@@ -153,8 +154,7 @@ export async function POST(request: Request) {
     const subject = String(form.get("subject") ?? "").trim();
     const requestedExamCategory = String(form.get("examCategory") ?? "law").trim();
     const examCategory = ["law", "accounting", "medtech"].includes(requestedExamCategory) ? requestedExamCategory : "law";
-    const bookTitle = String(form.get("bookTitle") ?? "").replace(/\s+/gu, " ").trim().slice(0, 200)
-      || (examCategory === "medtech" ? "醫檢師國考題詳解（Ⅲ）臨床病毒學（下）" : "");
+    const requestedBookTitle = normalizeDocumentTitle(String(form.get("bookTitle") ?? ""));
     const documentType = String(form.get("documentType") ?? "").trim();
 
     if (!(file instanceof File) || !isSupportedDocument(file.name, file.type)) {
@@ -174,7 +174,7 @@ export async function POST(request: Request) {
     const key = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName(file.name)}`;
     await bucket.put(key, file.stream(), {
       httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) },
-      customMetadata: { subject, documentType, bookTitle, originalName: file.name },
+      customMetadata: { subject, documentType, bookTitle: requestedBookTitle || documentDisplayTitle(null, file.name), originalName: file.name },
     });
     const stored = await bucket.head(key);
     if (!stored || stored.size !== file.size || stored.size < 1) {
@@ -190,7 +190,7 @@ export async function POST(request: Request) {
         contentType: contentTypeForDocument(file.name, file.type),
         sizeBytes: file.size,
         examCategory,
-        bookTitle,
+        bookTitle: requestedBookTitle || documentDisplayTitle(null, file.name),
         subject,
         documentType,
         status: "uploaded",
@@ -243,17 +243,19 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; bookTitle?: string };
     const id = Number(body.id);
-    if (!Number.isInteger(id) || id < 1 || typeof body.homepageSearchEnabled !== "boolean") {
-      return Response.json({ error: "首頁搜尋設定不正確" }, { status: 400 });
+    const hasBookTitle = typeof body.bookTitle === "string";
+    const hasHomepageSearchSetting = typeof body.homepageSearchEnabled === "boolean";
+    if (!Number.isInteger(id) || id < 1 || (!hasBookTitle && !hasHomepageSearchSetting)) {
+      return Response.json({ error: "教材設定資料不正確" }, { status: 400 });
     }
     const db = await getDb();
     const [document] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
     if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
-    if (typeof body.bookTitle === "string") {
-      const bookTitle = body.bookTitle.replace(/\s+/gu, " ").trim().slice(0, 200);
+    if (hasBookTitle) {
+      const bookTitle = normalizeDocumentTitle(String(body.bookTitle ?? ""));
       if (!bookTitle) return Response.json({ error: "請輸入書籍名稱" }, { status: 400 });
       await db.update(documents).set({ bookTitle }).where(eq(documents.id, id));
-      return Response.json({ id, bookTitle });
+      if (!hasHomepageSearchSetting) return Response.json({ id, bookTitle });
     }
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     if (body.homepageSearchEnabled && document.status !== "completed") {

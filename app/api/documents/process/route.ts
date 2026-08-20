@@ -3,6 +3,7 @@ import { getDb } from "../../../../db";
 import { appSettings, documents, examQuestions, usageLogs } from "../../../../db/schema";
 import { getOpenAIModel, openAIHeaders, openAIJson } from "../../../../lib/openai";
 import { inspectDocumentBytes, MAX_DOCUMENT_BYTES, isSupportedDocument, resolveDocumentPayload } from "../../../../lib/document-processing";
+import { documentDisplayTitle } from "../../../../lib/document-title";
 
 type Analysis = {
   document_title?: string;
@@ -73,7 +74,7 @@ async function uploadToVectorStore(document: typeof documents.$inferSelect, orig
   const storeId = await vectorStoreId();
   const indexed = await openAIJson(`/vector_stores/${storeId}/files`, {
     method: "POST",
-    body: JSON.stringify({ file_id: filePayload.id, attributes: { exam_category: document.examCategory, subject: document.subject, document_type: document.documentType, source_file: document.fileName, indexed_file: source.fileName, homepage_enabled: Boolean(document.homepageSearchEnabled) } }),
+    body: JSON.stringify({ file_id: filePayload.id, attributes: { exam_category: document.examCategory, subject: document.subject, document_type: document.documentType, display_name: documentDisplayTitle(document.bookTitle, document.fileName), source_file: document.fileName, indexed_file: source.fileName, homepage_enabled: Boolean(document.homepageSearchEnabled) } }),
   });
   return { fileId: filePayload.id, storeId, status: typeof indexed.status === "string" ? indexed.status : "in_progress", indexedFileName: source.fileName };
 }
