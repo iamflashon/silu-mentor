@@ -31,6 +31,7 @@ const SOURCE_TEXT_MAX_LENGTH = 120_000;
 // statement safely below the limit while avoiding one network round-trip per
 // chapter.
 const CHAPTER_INSERT_BATCH_SIZE = 4;
+const ORDINARY_BOOK_OUTLINE_MAX_ITEMS = 180;
 
 type ChapterPayload = {
   chapters?: Array<{
@@ -1824,7 +1825,7 @@ export async function POST(request: Request) {
       properties: {
         chapters: {
           type: "array",
-          maxItems: 80,
+          maxItems: ORDINARY_BOOK_OUTLINE_MAX_ITEMS,
           items: {
             type: "object",
             additionalProperties: false,
@@ -1937,8 +1938,8 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify({
         model: extractionModel,
-        instructions: "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄、篇、章與節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的章名。保留原有順序。content 只能抄錄搜尋結果中能確認的章節原文片段；若沒有足夠原文就填空字串，不得用摘要或一般法律知識代替。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 80 筆，重複或只是頁眉頁碼的項目不要回傳。",
-        input: `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋目錄與章節標題，依檔案中的原有順序輸出。只回傳檔案明確出現的章節，並在 content 填入可核對的原文片段。`,
+        instructions: "你是台灣司律考試教材編輯。必須先使用 file_search 搜尋已建立的教材索引，只能根據該書已索引內容整理目錄與正文中的篇、章、節、小節；不得讀取或要求重新上傳整份 PDF，也不得自行創造不存在的標題。保留原有順序與階層。這次要建立可供學生精準查找的細目，不要把整個章合併成一筆：若目錄或正文有「第一節、第二節、壹、貳、（一）、（二）」等明確層級，應各自建立資料列，優先細到節／小節。每筆的 section 填上層篇章，topic 填所屬章或節，title 填該筆最末層的完整標題；page_start/page_end 只填該節或小節實際涵蓋的 PDF 頁碼。content 只能抄錄搜尋結果中能確認的原文片段；若沒有足夠原文就填空字串，不得用摘要或一般法律知識代替。若頁碼無法確認填 null。summary 只用索引片段可支持的 20 至 60 字說明。最多 180 筆，重複、只有頁眉頁碼或純粹上層目錄項目不要回傳。",
+        input: `請從已索引的教材《${resource.title}》（原始檔名：${document.fileName}）搜尋完整目錄與各節／小節標題，依檔案中的原有順序輸出。不要只回傳章名；請盡量拆到「節」或「小節」層級，並在 content 填入各細目的可核對原文片段。`,
         tools: [
           {
             type: "file_search",
@@ -1975,12 +1976,10 @@ export async function POST(request: Request) {
     const rows = generated.map((chapter, index) => ({
       resourceId,
       segmentType: "book_chapter",
-      lessonLabel: problemBook
-        ? `${String(chapter.section ?? "").trim()}｜${String(chapter.topic ?? "").trim()}`.slice(
-            0,
-            160,
-          )
-        : "教材章節",
+      lessonLabel: `${String(chapter.section ?? "").trim()}｜${String(chapter.topic ?? "").trim()}`
+        .replace(/^｜|｜$/g, "")
+        .trim()
+        .slice(0, 160) || (problemBook ? "未分類部分｜待核對主題" : "教材章節"),
       title: String(chapter.title ?? "")
         .trim()
         .slice(0, 160),
