@@ -192,6 +192,7 @@ export function LawHome() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
   const [railCollapsed, setRailCollapsed] = useState(true);
+  const [chatFocusMode, setChatFocusMode] = useState(false);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
   const [input, setInput] = useState("");
@@ -298,6 +299,15 @@ export function LawHome() {
     const timer = window.setInterval(refreshTaipeiClock, 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!chatFocusMode) return;
+    const exitFocusMode = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setChatFocusMode(false);
+    };
+    window.addEventListener("keydown", exitFocusMode);
+    return () => window.removeEventListener("keydown", exitFocusMode);
+  }, [chatFocusMode]);
 
   useEffect(() => {
     if (!subjectExamPoints.length) return;
@@ -1022,7 +1032,7 @@ export function LawHome() {
   }
 
   return (
-    <main className="coach-shell">
+    <main className={`coach-shell ${chatFocusMode ? "chat-focus-mode" : ""}`}>
       <header className="topbar">
         <div className="brand-zone"><a href="/law" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
@@ -1064,6 +1074,9 @@ export function LawHome() {
 
       <div className={`command-layout rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""} ${mobileRailOpen ? "mobile-rail-open" : ""}`}>
       <section className="conversation" aria-live="polite">
+        <button type="button" className="chat-focus-toggle" onClick={() => setChatFocusMode((current) => !current)} aria-pressed={chatFocusMode}>
+          {chatFocusMode ? "退出專注模式" : "放大對話"}
+        </button>
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
           <h1>今天，照計畫前進。</h1>
@@ -1099,6 +1112,7 @@ export function LawHome() {
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
             <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} showCosts={showCosts} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} onAnswerAction={runAnswerAction} disabled={thinking} showLearningActions={false} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage && showCosts ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>Token 成本 US$ {(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd).toFixed(5)} · 約 NT$ {formatTwd(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd)}</span>{message.usage.webSearchCalls ? <span>外網查證 {message.usage.webSearchCalls} 次 · 搜尋成本 US$ {(message.usage.webSearchCostUsd ?? 0).toFixed(5)} · 約 NT$ {formatTwd(message.usage.webSearchCostUsd ?? 0)}</span> : null}<span>本次合計 US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)} · 耗時 {message.usage.durationMs.toLocaleString()} ms</span></small> : null}{message.role === "mentor" && visibleSourceNames(message.sources).length ? <small className="message-sources">{message.citationStatus === "web_search" ? "查證來源" : "教材來源"}：{visibleSourceNames(message.sources).join("、")}{citationStatusLabel(message.citationStatus) ? ` · ${citationStatusLabel(message.citationStatus)}` : ""}</small> : message.role === "mentor" && message.citationStatus && citationStatusLabel(message.citationStatus) ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{!message.comparison && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}`, label: modelLabel(message.model ?? "gpt-5.6-luna"), model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>回覆此訊息</span></label>}{isLearningNote(message.text) && <button type="button" className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}{/luna/i.test(message.model ?? "luna") && <button type="button" className="ask-sol-button" disabled={thinking || solReviewingIndex !== null || solReviewedIndexes.includes(index)} onClick={() => void requestSolReview(message, index)}>{solReviewingIndex === index ? "Sol 覆核中…" : solReviewedIndexes.includes(index) ? "Sol 已覆核 ✓" : "✦ 請 Sol 學霸覆核"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已送老師 ✓" : /sol/i.test(message.model ?? "") ? "回饋並請老師確認" : "回饋"}</summary><div><button type="button" onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button type="button" onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button type="button" onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button type="button" onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              {message.role === "mentor" && index === messages.length - 1 && !practiceQuestion && source && <small className="message-answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}</small>}
               {message.role === "mentor" && message.practiceQuestion && <PracticeQuestionBubble question={message.practiceQuestion} answer={practiceAnswer} onAnswer={(key) => void answerMcq(key)} onEssayStart={beginEssayCoach} />}
               {message.role === "mentor" && message.challengeThread && <section className="message-challenge-thread" aria-label={`Terra 對 ${message.challengeThread.targetLabel} 的局部質疑`}>
                 <header><span>局部質疑串</span><b>質疑對象：{message.challengeThread.targetLabel} 原評論</b><small>第 {message.challengeThread.version - 1} 版 → 第 {message.challengeThread.version} 版</small></header>
@@ -1140,8 +1154,6 @@ export function LawHome() {
         </div>
 
         {feedbackTarget && <div className="feedback-dialog-backdrop" onMouseDown={() => !feedbackSaving && setFeedbackTarget(null)}><section className="feedback-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="feedback-dialog-close" onClick={() => setFeedbackTarget(null)} aria-label="關閉">×</button><span>協助老師一起把答案修得更好</span><h2>這則 AI 助教回答錯在哪裡？</h2><label className="feedback-stars">評分<div>{[1,2,3,4,5].map((score) => <button type="button" className={score <= feedbackRating ? "selected" : ""} onClick={() => setFeedbackRating(score)} key={score}>★</button>)}</div></label><fieldset><legend>可複選錯誤類型</legend>{[["missing_issue","漏掉重要爭點"],["wrong_law","法條或罪名錯誤"],["wrong_application","涵攝不符合題目事實"],["unclear_conclusion","結論不明確"],["conflicts_source","與教材／老師擬答不一致"],["hard_to_understand","說明太難或不夠清楚"],["other","其他錯誤"]].map(([value,label]) => <label key={value}><input type="checkbox" checked={feedbackTypes.includes(value)} onChange={() => setFeedbackTypes((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])} />{label}</label>)}</fieldset><label className="feedback-note">補充說明<textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} rows={4} placeholder="請告訴我們 AI 助教錯在哪裡，或貼上你認為正確的理由。" /></label><div className="feedback-dialog-actions"><button disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, feedbackTypes.includes("hard_to_understand") && feedbackTypes.length === 1 ? "unclear" : "incorrect")}>只送給老師確認</button>{/luna/i.test(feedbackTarget.message.model ?? "luna") && <button className="ask-sol-button" disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, "incorrect", true)}>✦ 請 Sol 學霸立即評斷</button>}</div><small>送出後進入待檢查；Sol 覆核不能取代老師的最終確認。</small></section></div>}
-
-        {!practiceQuestion && source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(lastUsage.estimatedCostUsd)}</span> : null}</div>}
 
       </section>
 

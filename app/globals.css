@@ -3870,6 +3870,86 @@ a {
   color: #738795;
   font-size: 11px;
 }
+.message-answer-source {
+  width: calc(100% - 46px);
+  margin: -10px 0 0 46px;
+  padding: 7px 10px;
+  border-top: 1px solid #e7edf1;
+  color: #7b8f9c;
+  font-size: 10px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+.chat-focus-toggle {
+  position: absolute;
+  top: 18px;
+  right: 0;
+  z-index: 4;
+  padding: 7px 11px;
+  border: 1px solid #b9d0dc;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .94);
+  color: #315f78;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 5px 16px rgba(31, 68, 93, .08);
+}
+.chat-focus-toggle:hover {
+  border-color: #75a8b9;
+  background: #eef7f8;
+}
+.coach-shell.chat-focus-mode {
+  height: 100dvh;
+  min-height: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.chat-focus-mode > .topbar,
+.chat-focus-mode > .study-ticker,
+.chat-focus-mode > .mobile-primary-tabs,
+.chat-focus-mode > .home-date-line,
+.chat-focus-mode .conversation-heading,
+.chat-focus-mode .today-plan-card,
+.chat-focus-mode .command-rail,
+.chat-focus-mode .mobile-rail-toggle,
+.chat-focus-mode .mobile-rail-backdrop {
+  display: none !important;
+}
+.chat-focus-mode .command-layout,
+.chat-focus-mode .command-layout.rail-left,
+.chat-focus-mode .command-layout.rail-right {
+  width: min(1180px, calc(100% - 24px));
+  height: 100dvh;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0 auto;
+}
+.chat-focus-mode .conversation,
+.chat-focus-mode .command-layout.rail-left .conversation {
+  grid-column: 1;
+  padding-top: 0;
+}
+.chat-focus-mode .chat-focus-toggle {
+  position: fixed;
+  top: 12px;
+  right: 18px;
+  z-index: 20;
+}
+.chat-focus-mode .message-list {
+  height: calc(100dvh - 112px);
+  min-height: 0;
+  padding: 58px 6px 180px 0;
+}
+.chat-focus-mode .composer-wrap,
+.chat-focus-mode .composer-wrap.rail-left {
+  left: 0;
+  right: 0;
+}
+.chat-focus-mode .composer-wrap .composer,
+.chat-focus-mode .composer-wrap .image-ready,
+.chat-focus-mode .composer-wrap .model-mode-switch {
+  width: min(980px, 100%);
+}
 .today-plan-card {
   margin: 0 0 12px;
   padding: 0;
