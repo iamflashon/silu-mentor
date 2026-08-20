@@ -113,10 +113,18 @@ type ExamProcessResult = {
 type DocumentStats = {
   total: number;
   ready: number;
+  vectorReady: number;
   indexedBytes: number;
   citations: number;
   misses: number;
   indexVersion: string;
+};
+type DocumentSearchTest = {
+  status: "testing" | "success" | "error";
+  query: string;
+  selectedFileWasSearched?: boolean;
+  hits?: Array<{ fileName: string; score: number | null; text: string; pageStart: number | null; pageEnd: number | null }>;
+  error?: string;
 };
 type LearningResource = {
   id: number;
@@ -204,6 +212,38 @@ function isProblemSolvingResource(resource: LearningResource) {
   return /解題|題庫|題型|案例演習|申論/.test(
     `${resource.title} ${resource.description}`,
   );
+}
+
+function documentSearchValue(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
+function documentOptionLabel(file: Uploaded) {
+  const title = file.bookTitle || documentDisplayTitle(null, file.name);
+  const type = file.name.split(".").pop()?.toUpperCase() || file.type?.split("/").pop()?.toUpperCase() || "文件";
+  return `${title}｜${file.subject || "未分類"}｜${type}${file.pageCount ? `｜${file.pageCount}頁` : ""}`;
+}
+
+function documentSubjectMatches(file: Uploaded, subject: string) {
+  const expected = documentSearchValue(subject);
+  if (!expected) return true;
+  const actual = documentSearchValue(file.subject);
+  const title = documentSearchValue(file.bookTitle || "");
+  return actual === expected || actual.includes(expected) || expected.includes(actual) || title.includes(expected);
+}
+
+function searchableDocuments(files: Uploaded[], subject: string, query: string, selectedId: number | null) {
+  const subjectFiles = files.filter((file) => documentSubjectMatches(file, subject));
+  const candidates = subjectFiles.length ? subjectFiles : files.filter((file) => file.id === selectedId);
+  const needle = documentSearchValue(query);
+  const filtered = needle
+    ? candidates.filter((file) => documentSearchValue(`${file.bookTitle || ""} ${file.name} ${file.subject} ${file.type || ""}`).includes(needle))
+    : candidates;
+  if (selectedId && !filtered.some((file) => file.id === selectedId)) {
+    const selected = files.find((file) => file.id === selectedId);
+    return selected ? [selected, ...filtered] : filtered;
+  }
+  return filtered;
 }
 
 function problemContentSections(text: string) {
@@ -567,11 +607,15 @@ export default function AdminPage() {
   const [documentStats, setDocumentStats] = useState<DocumentStats>({
     total: 0,
     ready: 0,
+    vectorReady: 0,
     indexedBytes: 0,
     citations: 0,
     misses: 0,
     indexVersion: "待建立",
   });
+  const [documentSearchQueries, setDocumentSearchQueries] = useState<Record<number, string>>({});
+  const [documentSearchTests, setDocumentSearchTests] = useState<Record<number, DocumentSearchTest>>({});
+  const [resourceDocumentQueries, setResourceDocumentQueries] = useState<Record<number, string>>({});
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
@@ -2965,6 +3009,38 @@ export default function AdminPage() {
     setNotice(`前台教材名稱已更新為「${result.bookTitle ?? bookTitle}」。`);
   }
 
+  async function testDocumentSearch(file: Uploaded) {
+    const query = (documentSearchQueries[file.id] ?? "").trim();
+    if (query.length < 2) {
+      setNotice("請先輸入至少兩個字的教材測試關鍵字，例如「未遂」或「第三章」。");
+      return;
+    }
+    setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query } }));
+    try {
+      const response = await fetch("/api/documents/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ documentId: file.id, query }),
+      });
+      const result = await response.json() as DocumentSearchTest & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "教材向量索引測試失敗");
+      setDocumentSearchTests((current) => ({
+        ...current,
+        [file.id]: {
+          status: "success",
+          query,
+          selectedFileWasSearched: Boolean(result.selectedFileWasSearched),
+          hits: result.hits ?? [],
+        },
+      }));
+      setNotice(result.selectedFileWasSearched ? `「${file.name}」已命中 ${result.hits?.length ?? 0} 個教材片段。` : `「${file.name}」這次沒有命中指定檔案片段。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "教材向量索引測試失敗";
+      setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "error", query, error: message } }));
+      setNotice(message);
+    }
+  }
+
   async function deleteSelectedDocuments() {
     if (!selectedDocumentIds.length || deletingDocuments) return;
     if (!window.confirm(`確定刪除已選取的 ${selectedDocumentIds.length} 份教材？\n\n原始檔、全文／向量索引及處理紀錄都會一併刪除；已綁定的智能書會解除教材連結。`)) return;
@@ -3899,6 +3975,11 @@ export default function AdminPage() {
                             {(file.examCategory === "medtech" ? "醫檢師" : file.examCategory === "accounting" ? "會計" : "司律")} · {file.subject} · {file.size}
                           </span>
                           <small>{stageLabel}{file.error ? ` · ${file.error}` : ""}</small>
+                          {ready && (
+                            <small className="document-index-summary">
+                              {file.fullTextIndexed ? "✓ 全文索引完成" : "○ 全文索引待確認"} · {file.vectorIndexed ? "✓ 向量索引完成" : "⚠ 向量索引待確認"}
+                            </small>
+                          )}
                           {(ready || file.processingStage === "analyzing") && (
                             <small className="document-facts">
                               {file.pageCount ? `${file.pageCount} 頁 · ` : ""}
@@ -3934,6 +4015,44 @@ export default function AdminPage() {
                               <div className="document-index-badges"><span>{file.fullTextIndexed ? "✓ 全文索引" : "○ 全文索引"}</span><span>{file.vectorIndexed ? "✓ 向量索引" : "○ 向量索引"}</span><span>{file.analysisStatus === "completed" ? "✓ AI 結構分析" : "已完成技術索引"}</span></div>
                             </details>
                           )}
+                          {ready && (
+                            <div className="document-search-test">
+                              <div className="document-search-test-heading">
+                                <strong>內部向量檢索測試</strong>
+                                <small>只測這一份教材，不影響學生端設定</small>
+                              </div>
+                              <div className="document-search-test-controls">
+                                <input
+                                  type="search"
+                                  value={documentSearchQueries[file.id] ?? ""}
+                                  placeholder="例如：未遂、第三章、構成要件"
+                                  aria-label={`${file.name}的向量索引測試關鍵字`}
+                                  onChange={(event) => setDocumentSearchQueries((current) => ({ ...current, [file.id]: event.target.value }))}
+                                  onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void testDocumentSearch(file); } }}
+                                />
+                                <button type="button" onClick={() => void testDocumentSearch(file)} disabled={documentSearchTests[file.id]?.status === "testing" || !file.vectorIndexed}>
+                                  {documentSearchTests[file.id]?.status === "testing" ? "測試中…" : "測試命中"}
+                                </button>
+                              </div>
+                              {documentSearchTests[file.id]?.status === "error" && (
+                                <small className="document-search-test-error">{documentSearchTests[file.id]?.error}</small>
+                              )}
+                              {documentSearchTests[file.id]?.status === "success" && (
+                                <div className={`document-search-test-result ${documentSearchTests[file.id]?.selectedFileWasSearched ? "hit" : "miss"}`}>
+                                  <strong>{documentSearchTests[file.id]?.selectedFileWasSearched ? `已命中 ${documentSearchTests[file.id]?.hits?.length ?? 0} 個片段` : "未命中這份指定教材"}</strong>
+                                  {!!documentSearchTests[file.id]?.hits?.length && (
+                                    <ul>
+                                      {documentSearchTests[file.id]?.hits?.slice(0, 3).map((hit, index) => (
+                                        <li key={`${hit.fileName}-${index}`}>
+                                          {hit.pageStart ? `第 ${hit.pageStart}${hit.pageEnd && hit.pageEnd !== hit.pageStart ? `–${hit.pageEnd}` : ""} 頁｜` : ""}{hit.text}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div className="file-card-actions">
                           {ready && (
@@ -3957,9 +4076,9 @@ export default function AdminPage() {
               )}
               <div className="index-metrics" aria-label="教材索引即時統計">
                 <div>
-                  <span>可搜尋</span>
+                  <span>向量可搜尋</span>
                   <strong>
-                    {documentStats.ready} / {documentStats.total}
+                    {documentStats.vectorReady} / {documentStats.total}
                   </strong>
                 </div>
                 <div>
@@ -4141,20 +4260,46 @@ export default function AdminPage() {
                       </div>
                       {resource.resourceType === "book" && (
                         <>
-                          <select
-                            aria-label={`${resource.title}綁定教材文件`}
-                            value={resource.documentId ?? ""}
-                            onChange={(e) =>
-                              bindBookDocument(resource, e.target.value)
-                            }
-                          >
-                            <option value="">選擇教材文件</option>
-                            {files.map((file) => (
-                              <option key={file.id} value={file.id}>
-                                {file.bookTitle || documentDisplayTitle(null, file.name)}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const query = resourceDocumentQueries[resource.id] ?? "";
+                            const candidateFiles = searchableDocuments(files, resource.subject, query, resource.documentId);
+                            const selectedFile = files.find((file) => file.id === resource.documentId);
+                            return (
+                              <div className="resource-document-picker">
+                                <label>
+                                  <span>搜尋教材文件</span>
+                                  <input
+                                    type="search"
+                                    value={query}
+                                    placeholder={`搜尋「${resource.subject || "教材"}」名稱、檔名或關鍵字`}
+                                    aria-label={`${resource.title}搜尋教材文件`}
+                                    onChange={(event) => setResourceDocumentQueries((current) => ({ ...current, [resource.id]: event.target.value }))}
+                                  />
+                                </label>
+                                <label>
+                                  <span>綁定教材文件</span>
+                                  <select
+                                    aria-label={`${resource.title}綁定教材文件`}
+                                    value={resource.documentId ?? ""}
+                                    onChange={(event) => bindBookDocument(resource, event.target.value)}
+                                  >
+                                    <option value="">選擇教材文件</option>
+                                    {candidateFiles.map((file) => (
+                                      <option key={file.id} value={file.id} title={file.name}>
+                                        {documentOptionLabel(file)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <small>
+                                  {candidateFiles.length
+                                    ? `目前顯示 ${candidateFiles.length} 份「${resource.subject || "相符"}」教材`
+                                    : `找不到「${resource.subject || "這本書"}」的教材文件；請先到教材知識庫確認科目。`}
+                                </small>
+                                {selectedFile && <small className="resource-document-source">目前完整檔名：{selectedFile.name}</small>}
+                              </div>
+                            );
+                          })()}
                           <details className="resource-manage-details">
                             <summary>
                               <span>教材處理與管理</span>

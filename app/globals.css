@@ -6223,6 +6223,123 @@ a {
   font-size: 10px;
   font-weight: 750;
 }
+.document-index-summary {
+  color: #2d7763 !important;
+  font-weight: 800;
+}
+.document-search-test {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px dashed #b9d5df;
+  border-radius: 10px;
+  background: #f7fbfc;
+}
+.document-search-test-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.document-search-test-heading strong {
+  color: #2f6f8d;
+  font-size: 11px;
+}
+.document-search-test-heading small {
+  color: #78909f;
+  font-size: 10px;
+}
+.document-search-test-controls {
+  display: flex;
+  gap: 6px;
+}
+.document-search-test-controls input {
+  min-width: 0;
+  flex: 1;
+  padding: 7px 8px;
+  border: 1px solid #c4dbe4;
+  border-radius: 7px;
+  background: #fff;
+  color: #31566f;
+  font-size: 10px;
+}
+.document-search-test-controls button {
+  padding: 7px 9px;
+  border: 1px solid #8db8c8;
+  border-radius: 7px;
+  background: #e5f3f6;
+  color: #25657b;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.document-search-test-controls button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.document-search-test-error {
+  color: #a04f46 !important;
+  overflow-wrap: anywhere;
+}
+.document-search-test-result {
+  padding: 7px 8px;
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.document-search-test-result.hit {
+  background: #eaf8ef;
+  color: #2b7050;
+}
+.document-search-test-result.miss {
+  background: #fff5e7;
+  color: #8b6420;
+}
+.document-search-test-result ul {
+  display: grid;
+  gap: 4px;
+  margin: 5px 0 0;
+  padding-left: 16px;
+}
+.document-search-test-result li {
+  overflow-wrap: anywhere;
+}
+.resource-document-picker {
+  display: grid;
+  gap: 6px;
+  width: min(310px, 28vw);
+}
+.resource-document-picker label {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  color: #2d6387;
+  font-size: 10px;
+  font-weight: 800;
+}
+.resource-document-picker input,
+.resource-document-picker select {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid #bdd0dd;
+  border-radius: 8px;
+  background: #fff;
+  color: #31566f;
+  font-size: 10px;
+}
+.resource-document-picker > small {
+  color: #718b97;
+  font-size: 9px;
+  line-height: 1.45;
+}
+.resource-document-picker .resource-document-source {
+  color: #527488;
+  overflow-wrap: anywhere;
+}
 .status {
   font-size: 11px;
   padding: 6px 9px;
@@ -21229,6 +21346,14 @@ a {
   .resource-actions select {
     width: 100%;
     max-width: none;
+  }
+  .resource-document-picker {
+    width: 100%;
+    max-width: none;
+  }
+  .document-search-test-controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
   }
   .resource-manage-details {
     width: 100%;

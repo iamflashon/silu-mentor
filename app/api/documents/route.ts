@@ -81,6 +81,7 @@ export async function GET(request: Request) {
     const [documentStats] = await db.select({
       total: sql<number>`count(*)`,
       ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
+      vectorReady: sql<number>`coalesce(sum(case when ${documents.vectorIndexed} = true then 1 else 0 end), 0)`,
       indexedBytes: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then ${documents.sizeBytes} else 0 end), 0)`,
     }).from(documents);
     const [usageStats] = await db.select({
@@ -137,6 +138,7 @@ export async function GET(request: Request) {
     }), stats: {
       total: Number(documentStats?.total ?? 0),
       ready: Number(documentStats?.ready ?? 0),
+      vectorReady: Number(documentStats?.vectorReady ?? 0),
       indexedBytes: Number(documentStats?.indexedBytes ?? 0),
       citations: Number(usageStats?.citations ?? 0),
       misses: Number(usageStats?.misses ?? 0),
