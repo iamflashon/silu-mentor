@@ -3931,8 +3931,8 @@ a {
 }
 .chat-focus-mode .chat-focus-toggle {
   position: fixed;
-  top: 12px;
-  right: 18px;
+  top: 16px;
+  right: max(18px, calc((100vw - 980px) / 2));
   z-index: 20;
 }
 .chat-focus-mode .message-list {
@@ -3942,8 +3942,8 @@ a {
 }
 .chat-focus-mode .composer-wrap,
 .chat-focus-mode .composer-wrap.rail-left {
-  left: 0;
-  right: 0;
+  left: 0 !important;
+  right: 0 !important;
 }
 .chat-focus-mode .composer-wrap .composer,
 .chat-focus-mode .composer-wrap .image-ready,
