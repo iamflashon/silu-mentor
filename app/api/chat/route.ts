@@ -1128,7 +1128,10 @@ export async function POST(request: Request) {
       type: "file_search",
       vector_store_ids: [vectorStoreId],
       max_num_results: 8,
-      ...(context.type === "home" ? { filters: { type: "eq", key: "homepage_enabled", value: true } } : {}),
+      ...(context.type === "home" ? { filters: { type: "and", filters: [
+        { type: "eq", key: "exam_category", value: "law" },
+        { type: "eq", key: "homepage_enabled", value: true },
+      ] } } : {}),
     });
     const allowWebSearch = needsOpenAi && context.type === "home" && homeWebSearchMode !== "off";
     if (allowWebSearch) tools.unshift({ type: "web_search" });

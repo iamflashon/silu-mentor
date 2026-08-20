@@ -54,6 +54,11 @@ export async function GET() {
       documentError: documents.indexError,
       documentProcessingStage: documents.processingStage,
       documentProcessingMessage: documents.processingMessage,
+      documentFullTextIndexed: documents.fullTextIndexed,
+      documentVectorIndexed: documents.vectorIndexed,
+      documentPageCount: documents.pageCount,
+      documentFileName: documents.fileName,
+      documentExamCategory: documents.examCategory,
       documentChapterCount: documents.chapterCount,
       documentQuestionCount: documents.questionCount,
       documentProcessingResultJson: documents.processingResultJson,
@@ -76,7 +81,7 @@ export async function GET() {
       eq(resourceSegments.resourceId, learningResources.id),
     )
     .leftJoin(documents, eq(learningResources.documentId, documents.id))
-    .groupBy(learningResources.id, documents.status, documents.indexError, documents.processingStage, documents.processingMessage, documents.chapterCount, documents.questionCount, documents.processingResultJson, documents.extractedChars, documents.tagsJson)
+    .groupBy(learningResources.id, documents.status, documents.indexError, documents.processingStage, documents.processingMessage, documents.fullTextIndexed, documents.vectorIndexed, documents.pageCount, documents.fileName, documents.examCategory, documents.chapterCount, documents.questionCount, documents.processingResultJson, documents.extractedChars, documents.tagsJson)
     .orderBy(asc(learningResources.sortOrder), asc(learningResources.createdAt));
   const articleRows = await db
     .select({ resourceId: resourceSegments.resourceId, id: resourceSegments.id, title: resourceSegments.title, sourceUrl: resourceSegments.sourceUrl, text: resourceSegments.text, summary: resourceSegments.summary, reviewStatus: resourceSegments.reviewStatus, segmentType: resourceSegments.segmentType, sequence: resourceSegments.sequence })
@@ -233,6 +238,13 @@ export async function PUT(request: Request) {
   const hasLinkedBookId = Object.prototype.hasOwnProperty.call(body, "linkedBookId");
   const nextDocumentId = hasDocumentId ? Number(body.documentId) || null : current.documentId;
   const nextSourceUrl = String(body.sourceUrl ?? "").trim();
+  if (current.resourceType === "book" && nextDocumentId) {
+    const [nextDocument] = await db.select({ examCategory: documents.examCategory }).from(documents).where(eq(documents.id, nextDocumentId)).limit(1);
+    if (!nextDocument) return Response.json({ error: "找不到要綁定的教材文件" }, { status: 404 });
+    if (nextDocument.examCategory !== "law") {
+      return Response.json({ error: "司律書籍只能綁定司律教材，請改選類科為司律的文件。" }, { status: 422 });
+    }
+  }
   if (current.resourceType === "course" && nextSourceUrl && !isPlayableCourseUrl(nextSourceUrl))
     return Response.json(
       { error: "影音課程請填寫可直接播放的 HLS（.m3u8）或影片網址；ibrain 課程頁網址不能直接嵌入播放器。" },

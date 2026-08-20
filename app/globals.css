@@ -6340,6 +6340,14 @@ a {
   color: #527488;
   overflow-wrap: anywhere;
 }
+.resource-document-picker .resource-document-warning {
+  padding: 6px 7px;
+  border-radius: 7px;
+  background: #fff1e8;
+  color: #9b4f3f;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
 .status {
   font-size: 11px;
   padding: 6px 9px;

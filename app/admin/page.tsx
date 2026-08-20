@@ -44,6 +44,35 @@ type Uploaded = {
   questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
   error?: string | null;
 };
+type DocumentApiRow = {
+  id: number;
+  name: string;
+  bookTitle?: string;
+  examCategory?: string;
+  subject: string;
+  type: string;
+  sizeBytes: number;
+  status: string;
+  processingStage?: string;
+  processingMessage?: string;
+  pageCount?: number | null;
+  extractedChars?: number;
+  chapterCount?: number;
+  topicCount?: number;
+  questionCount?: number;
+  tags?: string[];
+  fullTextIndexed?: boolean;
+  vectorIndexed?: boolean;
+  homepageSearchEnabled?: boolean;
+  summary?: string;
+  sourceFileName?: string;
+  indexedFileName?: string;
+  extractionNote?: string;
+  analysisStatus?: string;
+  chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
+  questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
+  error?: string | null;
+};
 type QueueItem = {
   key: string;
   file: File;
@@ -153,6 +182,11 @@ type LearningResource = {
   documentError?: string | null;
   documentProcessingStage?: string | null;
   documentProcessingMessage?: string | null;
+  documentFullTextIndexed?: boolean | null;
+  documentVectorIndexed?: boolean | null;
+  documentPageCount?: number | null;
+  documentFileName?: string | null;
+  documentExamCategory?: string | null;
   documentChapterCount?: number;
   documentTopicCount?: number;
   documentQuestionCount?: number;
@@ -218,6 +252,38 @@ function documentSearchValue(value: string) {
   return value.trim().toLocaleLowerCase();
 }
 
+function uploadedDocument(item: DocumentApiRow): Uploaded {
+  return {
+    id: item.id,
+    name: item.name,
+    bookTitle: item.bookTitle ?? documentDisplayTitle(null, item.name),
+    examCategory: item.examCategory ?? "law",
+    subject: item.subject,
+    size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
+    status: item.status,
+    type: item.type,
+    processingStage: item.processingStage,
+    processingMessage: item.processingMessage,
+    pageCount: item.pageCount,
+    extractedChars: item.extractedChars,
+    chapterCount: item.chapterCount,
+    topicCount: item.topicCount,
+    questionCount: item.questionCount,
+    tags: item.tags,
+    fullTextIndexed: item.fullTextIndexed,
+    vectorIndexed: item.vectorIndexed,
+    homepageSearchEnabled: item.homepageSearchEnabled,
+    summary: item.summary,
+    sourceFileName: item.sourceFileName,
+    indexedFileName: item.indexedFileName,
+    extractionNote: item.extractionNote,
+    analysisStatus: item.analysisStatus,
+    chapters: item.chapters,
+    questions: item.questions,
+    error: item.error,
+  };
+}
+
 function documentOptionLabel(file: Uploaded) {
   const title = file.bookTitle || documentDisplayTitle(null, file.name);
   const type = file.name.split(".").pop()?.toUpperCase() || file.type?.split("/").pop()?.toUpperCase() || "文件";
@@ -232,15 +298,16 @@ function documentSubjectMatches(file: Uploaded, subject: string) {
   return actual === expected || actual.includes(expected) || expected.includes(actual) || title.includes(expected);
 }
 
-function searchableDocuments(files: Uploaded[], subject: string, query: string, selectedId: number | null) {
-  const subjectFiles = files.filter((file) => documentSubjectMatches(file, subject));
-  const candidates = subjectFiles.length ? subjectFiles : files.filter((file) => file.id === selectedId);
+function searchableDocuments(files: Uploaded[], examCategory: string, subject: string, query: string, selectedId: number | null) {
+  const categoryFiles = files.filter((file) => (file.examCategory ?? "law") === examCategory);
+  const subjectFiles = categoryFiles.filter((file) => documentSubjectMatches(file, subject));
+  const candidates = subjectFiles.length ? subjectFiles : categoryFiles.filter((file) => file.id === selectedId);
   const needle = documentSearchValue(query);
   const filtered = needle
     ? candidates.filter((file) => documentSearchValue(`${file.bookTitle || ""} ${file.name} ${file.subject} ${file.type || ""}`).includes(needle))
     : candidates;
   if (selectedId && !filtered.some((file) => file.id === selectedId)) {
-    const selected = files.find((file) => file.id === selectedId);
+    const selected = categoryFiles.find((file) => file.id === selectedId);
     return selected ? [selected, ...filtered] : filtered;
   }
   return filtered;
@@ -788,78 +855,27 @@ export default function AdminPage() {
     });
   }
 
+  async function loadDocumentCategory(category: "law" | "accounting" | "medtech", replaceAll = false) {
+    try {
+      const response = await fetch(`/api/documents?category=${category}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { documents?: DocumentApiRow[]; stats?: DocumentStats };
+      const loaded = (result.documents ?? []).map(uploadedDocument);
+      setFiles((current) => replaceAll
+        ? loaded
+        : [...current.filter((file) => (file.examCategory ?? "law") !== category), ...loaded]);
+      if (result.stats) setDocumentStats(result.stats);
+      const resumable = (result.documents ?? [])
+        .filter((item) => ["queued", "uploaded", "extracting", "indexing", "analyzing", "in_progress"].includes(item.processingStage ?? item.status))
+        .map((item) => item.id);
+      if (resumable.length) window.setTimeout(() => { void Promise.all(resumable.slice(0, 3).map((id) => processDocument(id))); }, 250);
+    } catch {
+      // 保留目前畫面，稍後切換類科時可再次載入。
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/documents")
-      .then(async (response) => {
-        if (!response.ok) return;
-        const result = (await response.json()) as {
-          documents?: Array<{
-            id: number;
-            name: string;
-            bookTitle?: string;
-            examCategory?: string;
-            subject: string;
-            type: string;
-            sizeBytes: number;
-            status: string;
-            processingStage?: string;
-            processingMessage?: string;
-            pageCount?: number | null;
-            extractedChars?: number;
-            chapterCount?: number;
-            topicCount?: number;
-            questionCount?: number;
-            tags?: string[];
-            fullTextIndexed?: boolean;
-            vectorIndexed?: boolean;
-            homepageSearchEnabled?: boolean;
-            summary?: string;
-            sourceFileName?: string;
-            indexedFileName?: string;
-            extractionNote?: string;
-            analysisStatus?: string;
-            chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
-            questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
-            error?: string | null;
-          }>;
-          stats?: DocumentStats;
-        };
-        setFiles(
-          (result.documents ?? []).map((item) => ({
-            id: item.id,
-            name: item.name,
-            bookTitle: item.bookTitle ?? documentDisplayTitle(null, item.name),
-            examCategory: item.examCategory ?? "law",
-            subject: item.subject,
-            size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
-            status: item.status,
-            type: item.type,
-            processingStage: item.processingStage,
-            processingMessage: item.processingMessage,
-            pageCount: item.pageCount,
-            extractedChars: item.extractedChars,
-            chapterCount: item.chapterCount,
-            topicCount: item.topicCount,
-            questionCount: item.questionCount,
-            tags: item.tags,
-            fullTextIndexed: item.fullTextIndexed,
-            vectorIndexed: item.vectorIndexed,
-            homepageSearchEnabled: item.homepageSearchEnabled,
-            summary: item.summary,
-            sourceFileName: item.sourceFileName,
-            indexedFileName: item.indexedFileName,
-            extractionNote: item.extractionNote,
-            analysisStatus: item.analysisStatus,
-            chapters: item.chapters,
-            questions: item.questions,
-            error: item.error,
-          })),
-        );
-        if (result.stats) setDocumentStats(result.stats);
-        const resumable = (result.documents ?? []).filter((item) => ["queued", "uploaded", "extracting", "indexing", "analyzing", "in_progress"].includes(item.processingStage ?? item.status)).map((item) => item.id);
-        if (resumable.length) window.setTimeout(() => { void Promise.all(resumable.slice(0, 3).map((id) => processDocument(id))); }, 250);
-      })
-      .catch(() => undefined);
+    void loadDocumentCategory("law", true);
     fetch("/api/usage")
       .then(async (response) => {
         if (response.ok) setUsage((await response.json()) as UsageData);
@@ -940,6 +956,10 @@ export default function AdminPage() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (examCategory !== "law") void loadDocumentCategory(examCategory);
+  }, [examCategory]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setJudicialClock(Date.now()), 1000);
@@ -3250,11 +3270,12 @@ export default function AdminPage() {
     );
   }
 
+  const categoryFiles = files.filter((file) => (file.examCategory ?? "law") === examCategory);
   const documentPageCount = Math.max(
     1,
-    Math.ceil(files.length / DOCUMENTS_PER_PAGE),
+    Math.ceil(categoryFiles.length / DOCUMENTS_PER_PAGE),
   );
-  const visibleFiles = files.slice(
+  const visibleFiles = categoryFiles.slice(
     (documentPage - 1) * DOCUMENTS_PER_PAGE,
     documentPage * DOCUMENTS_PER_PAGE,
   );
@@ -3856,7 +3877,7 @@ export default function AdminPage() {
               <div className="meta-fields">
                 <label className="field">
                   類科
-                  <select value={examCategory} onChange={(e) => { const next = e.target.value as "law" | "accounting" | "medtech"; setExamCategory(next); setSubject(next === "law" ? "刑法" : next === "accounting" ? "中級會計學" : "臨床病毒學"); }}>
+                  <select value={examCategory} onChange={(e) => { const next = e.target.value as "law" | "accounting" | "medtech"; setExamCategory(next); setSubject(next === "law" ? "刑法" : next === "accounting" ? "中級會計學" : "臨床病毒學"); setDocumentPage(1); setSelectedDocumentIds([]); }}>
                     <option value="law">司律</option>
                     <option value="accounting">會計</option>
                     <option value="medtech">醫檢師</option>
@@ -3906,13 +3927,13 @@ export default function AdminPage() {
             <section className="panel document-panel">
               <div className="document-list-heading">
                 <h2>文件處理狀態</h2>
-                {files.length > 0 && (
+                {categoryFiles.length > 0 && (
                   <div className="document-batch-actions">
                     <label>
                       <input
                         type="checkbox"
-                        checked={files.length > 0 && selectedDocumentIds.length === files.length}
-                        onChange={(event) => setSelectedDocumentIds(event.target.checked ? files.map((file) => file.id) : [])}
+                        checked={categoryFiles.length > 0 && selectedDocumentIds.length === categoryFiles.length}
+                        onChange={(event) => setSelectedDocumentIds(event.target.checked ? categoryFiles.map((file) => file.id) : [])}
                       />
                       全選
                     </label>
@@ -3923,11 +3944,11 @@ export default function AdminPage() {
                 )}
               </div>
               <p className="panel-sub">
-                上傳後會自動完成檔案檢查、文字擷取、分類、章節／題目整理與全文／向量索引；不需要另外按處理。
+                目前只顯示「{examCategory === "law" ? "司律" : examCategory === "accounting" ? "會計" : "醫檢師"}」教材。上傳後會自動完成檔案檢查、文字擷取、分類、章節／題目整理與全文／向量索引。
               </p>
-              {files.length === 0 ? (
+              {categoryFiles.length === 0 ? (
                 <div className="empty-state">
-                  尚未上傳教材
+                  尚未上傳「{examCategory === "law" ? "司律" : examCategory === "accounting" ? "會計" : "醫檢師"}」教材
                   <br />
                   第一份教材會顯示在這裡
                 </div>
@@ -4076,9 +4097,9 @@ export default function AdminPage() {
               )}
               <div className="index-metrics" aria-label="教材索引即時統計">
                 <div>
-                  <span>向量可搜尋</span>
+                  <span>本類科向量可搜尋</span>
                   <strong>
-                    {documentStats.vectorReady} / {documentStats.total}
+                    {categoryFiles.filter((file) => file.vectorIndexed).length} / {categoryFiles.length}
                   </strong>
                 </div>
                 <div>
@@ -4100,7 +4121,7 @@ export default function AdminPage() {
                   <strong>{documentStats.indexVersion}</strong>
                 </div>
               </div>
-              {files.length > DOCUMENTS_PER_PAGE && (
+              {categoryFiles.length > DOCUMENTS_PER_PAGE && (
                 <nav className="document-pagination" aria-label="文件清單分頁">
                   <button
                     type="button"
@@ -4242,7 +4263,7 @@ export default function AdminPage() {
                         {resource.resourceType === "book"
                           ? resource.documentId
                             ? resource.documentStatus === "completed"
-                              ? `已完成教材解析與索引（${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"}／${resource.documentQuestionCount ?? 0} 題）`
+                              ? `技術索引：全文${resource.documentFullTextIndexed ? "✓" : "待確認"}、向量${resource.documentVectorIndexed ? "✓" : "待確認"}；AI 結構：${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"}／${resource.documentQuestionCount ?? 0} 題`
                               : "教材已綁定，正在自動解析與建立索引"
                             : "尚未綁定教材文件"
                           : resource.sourceUrl
@@ -4262,7 +4283,7 @@ export default function AdminPage() {
                         <>
                           {(() => {
                             const query = resourceDocumentQueries[resource.id] ?? "";
-                            const candidateFiles = searchableDocuments(files, resource.subject, query, resource.documentId);
+                            const candidateFiles = searchableDocuments(files, "law", resource.subject, query, resource.documentId);
                             const selectedFile = files.find((file) => file.id === resource.documentId);
                             return (
                               <div className="resource-document-picker">
@@ -4293,10 +4314,11 @@ export default function AdminPage() {
                                 </label>
                                 <small>
                                   {candidateFiles.length
-                                    ? `目前顯示 ${candidateFiles.length} 份「${resource.subject || "相符"}」教材`
-                                    : `找不到「${resource.subject || "這本書"}」的教材文件；請先到教材知識庫確認科目。`}
+                                    ? `目前顯示 ${candidateFiles.length} 份「${resource.subject || "相符"}」司律教材`
+                                    : `找不到「${resource.subject || "這本書"}」的司律教材文件；請先到教材知識庫確認類科與科目。`}
                                 </small>
-                                {selectedFile && <small className="resource-document-source">目前完整檔名：{selectedFile.name}</small>}
+                                {selectedFile && (selectedFile.examCategory ?? "law") !== "law" && <small className="resource-document-warning">⚠ 目前綁定的是非司律文件，請重新選擇司律教材。</small>}
+                                {selectedFile && (selectedFile.examCategory ?? "law") === "law" && <small className="resource-document-source">目前完整檔名：{selectedFile.name}</small>}
                               </div>
                             );
                           })()}
@@ -4315,9 +4337,13 @@ export default function AdminPage() {
                             </summary>
                             <div className="resource-manage-content">
                           {resource.documentId && (
-                            <div className="chapter-progress-panel completed" role="status">
+                            <div className={`chapter-progress-panel ${resource.documentVectorIndexed ? "completed" : "paused"}`} role="status">
                               <div className="chapter-progress-heading">
-                                <strong>{resource.documentStatus === "completed" ? "教材檔案已完成檢查、全文／向量索引" : resource.documentProcessingMessage ?? "教材正在自動處理"}</strong>
+                                <strong>
+                                  {resource.documentStatus === "completed"
+                                    ? `技術索引：全文${resource.documentFullTextIndexed ? "已完成" : "待確認"}／向量${resource.documentVectorIndexed ? "已完成" : "待確認"}`
+                                    : resource.documentProcessingMessage ?? "教材正在自動處理"}
+                                </strong>
                               </div>
                               <div className="chapter-progress-meta">
                                 <span>
@@ -4330,11 +4356,14 @@ export default function AdminPage() {
                                         const questions = storedQuestions || (progress?.foundQuestions ?? 0);
                                         const running = progress && progress.state !== "completed" && progress.totalTopics;
                                         return running
-                                          ? `檔案分析已整理 ${progress.completedTopics ?? 0}／${progress.totalTopics} 個主題 · 已找到 ${questions} 題`
-                                          : `檔案分析已整理 ${topics} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${questions} 題`;
+                                          ? `AI 結構分析：${progress.completedTopics ?? 0}／${progress.totalTopics} 個主題 · ${questions} 題`
+                                          : topics || questions
+                                            ? `AI 結構分析：${topics} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${questions} 題`
+                                            : "AI 結構分析：尚未整理出章／題；不影響已完成的全文與向量搜尋";
                                       })()
                                     : "完成後會自動更新章節、題目與分類結果"}
                                 </span>
+                                {resource.documentPageCount ? <small>原始文件：{resource.documentPageCount} 頁</small> : null}
                                 {!!resource.documentTags?.length && <small>標籤：{resource.documentTags.slice(0, 8).join("、")}</small>}
                               </div>
                             </div>
