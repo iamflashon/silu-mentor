@@ -3400,7 +3400,18 @@ export default function AdminPage() {
         {activeTab === "homepage" && (
           <section className="panel site-settings-panel">
             <div className="setting-block">
-              <div className="setting-block-head"><div><h3>管理測試與模擬回答</h3><p>一鍵隱藏首頁、智能書、申論引導、爭點辨識、讀書會與會計答疑中的模擬學生、測試擬答、程度與模型測試工具；一般學生作答與正式 AI 回覆不受影響。</p></div><label className="cost-toggle"><input type="checkbox" checked={simulationToolsEnabled} disabled={savingSimulationTools} onChange={() => void toggleSimulationTools()} /><span>{savingSimulationTools ? "更新中…" : simulationToolsEnabled ? "目前開放" : "目前關閉"}</span></label></div>
+              <div className="setting-block-head simulation-master-setting">
+                <div>
+                  <h3>管理測試與模擬回答</h3>
+                  <p>一鍵隱藏首頁、智能書、申論引導、爭點辨識、讀書會與會計答疑中的模擬學生、測試擬答、程度與模型測試工具；一般學生作答與正式 AI 回覆不受影響。</p>
+                  <strong className={`simulation-master-status ${simulationToolsEnabled ? "is-on" : "is-off"}`}>
+                    模擬功能目前：{simulationToolsEnabled ? "開啟" : "關閉"}
+                  </strong>
+                </div>
+                <button type="button" className={`simulation-master-button ${simulationToolsEnabled ? "turn-off" : "turn-on"}`} disabled={savingSimulationTools} onClick={() => void toggleSimulationTools()}>
+                  {savingSimulationTools ? "正在更新…" : simulationToolsEnabled ? "一鍵關閉全部模擬" : "重新開啟模擬功能"}
+                </button>
+              </div>
             </div>
             <div className="setting-block">
               <div className="setting-block-head"><div><h3>學習專區入口</h3><p>可先隱藏首頁的「學習專區」按鈕；再次開啟時，會員原有進度與紀錄仍會保留。</p></div><label className="cost-toggle"><input type="checkbox" checked={learningCenterEnabled} disabled={savingLearningCenter} onChange={() => void toggleLearningCenter()} /><span>{savingLearningCenter ? "更新中…" : learningCenterEnabled ? "目前開放" : "目前關閉"}</span></label></div>
