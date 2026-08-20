@@ -1210,18 +1210,33 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
+  const [adminEntryState, setAdminEntryState] = useState<"loading" | "authenticated" | "anonymous">("loading");
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/admin-entry/session", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : { authenticated: false })
+      .then((result: { authenticated?: boolean }) => {
+        if (active) setAdminEntryState(result.authenticated ? "authenticated" : "anonymous");
+      })
+      .catch(() => {
+        if (active) setAdminEntryState("anonymous");
+      });
+    return () => { active = false; };
+  }, []);
+
   return <main className="main-entry-gate">
     <section>
       <span>iBRAIN AI LEARNING</span>
       <div className="main-entry-logo" aria-hidden="true">智</div>
       <h1>iBrain AI 學習平台</h1>
-      <p>首頁公開瀏覽；選擇學習平台後，系統會要求會員登入才能開始使用功能。</p>
-      <small>會員帳號由管理員建立；管理員請由後台入口登入。</small>
-      <div className="main-entry-actions">
-        <a className="main-entry-law" href="/law">進入司律備考</a>
-        <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
-      </div>
-      <a className="main-entry-signin" href="/admin-login?return_to=/admin">管理員登入</a>
+      {adminEntryState === "authenticated" ? <>
+        <div className="main-entry-actions">
+          <a className="main-entry-law" href="/law">進入司律備考</a>
+          <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
+        </div>
+        <a className="main-entry-signin" href="/admin">管理後台</a>
+      </> : adminEntryState === "anonymous" ? <a className="main-entry-signin" href="/admin-login?return_to=/">管理員登入</a> : null}
     </section>
   </main>;
 }
