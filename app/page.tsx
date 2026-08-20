@@ -6,6 +6,7 @@ import { ListeningPlayer, ListeningFeed } from "./listening-player";
 import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
 import { formatTwd } from "../lib/currency";
 import { coreExamPoints, type CoreExamPoint } from "../lib/core-exam-points";
+import { useSimulationToolsEnabled } from "../lib/use-simulation-tools";
 import "./entry-gate.css";
 
 type ComparisonResponse = {
@@ -230,6 +231,7 @@ export function LawHome() {
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [terraChallenging, setTerraChallenging] = useState(false);
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
+  const simulationToolsEnabled = useSimulationToolsEnabled();
   const [memberMenuOpen, setMemberMenuOpen] = useState(false);
   const handoffHandled = useRef(false);
   useEffect(() => {
@@ -1133,7 +1135,7 @@ export function LawHome() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-          {currentMember?.canAdmin && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
+          {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
@@ -1148,6 +1150,7 @@ export function LawHome() {
           </div>
           </>}
         </section>}
+        {currentMember?.canAdmin && !simulationToolsEnabled && <button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />

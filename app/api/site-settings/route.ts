@@ -1,5 +1,6 @@
 import { getDb } from "../../../db";
 import { appSettings } from "../../../db/schema";
+import { requireAdmin } from "../../../lib/member-auth";
 
 type ExamCountdown = { id: string; label: string; date: string; enabled: boolean };
 type BattleAlert = { id: string; text: string; url: string; enabled: boolean };
@@ -37,11 +38,14 @@ export async function GET() {
     battleAlerts: parseJsonSetting<BattleAlert[]>(values.battle_alerts, []),
     learningCenterEnabled: values.learning_center_enabled !== "false",
     homeWebSearchMode: ["off", "fallback", "always"].includes(values.home_web_search_mode) ? values.home_web_search_mode : "off",
+    simulationToolsEnabled: values.simulation_tools_enabled === "true",
   });
 }
 
 export async function PATCH(request: Request) {
-  const body = await request.json() as { focusMusicUrl?: unknown; examCountdowns?: unknown; battleAlerts?: unknown; learningCenterEnabled?: unknown; homeWebSearchMode?: unknown };
+  const auth = await requireAdmin(request);
+  if ("error" in auth) return auth.error;
+  const body = await request.json() as { focusMusicUrl?: unknown; examCountdowns?: unknown; battleAlerts?: unknown; learningCenterEnabled?: unknown; homeWebSearchMode?: unknown; simulationToolsEnabled?: unknown };
   const response: Record<string, unknown> = {};
   if (Object.prototype.hasOwnProperty.call(body, "focusMusicUrl")) {
     const value = typeof body.focusMusicUrl === "string" ? body.focusMusicUrl.trim() : "";
@@ -78,6 +82,11 @@ export async function PATCH(request: Request) {
     if (!["off", "fallback", "always"].includes(mode)) return Response.json({ error: "外網搜尋模式不正確" }, { status: 400 });
     await saveSetting("home_web_search_mode", mode);
     response.homeWebSearchMode = mode;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "simulationToolsEnabled")) {
+    const enabled = body.simulationToolsEnabled === true;
+    await saveSetting("simulation_tools_enabled", String(enabled));
+    response.simulationToolsEnabled = enabled;
   }
   return Response.json(response);
 }

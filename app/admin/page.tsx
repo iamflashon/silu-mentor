@@ -717,6 +717,8 @@ export default function AdminPage() {
   const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
   const [learningCenterEnabled, setLearningCenterEnabled] = useState(true);
   const [savingLearningCenter, setSavingLearningCenter] = useState(false);
+  const [simulationToolsEnabled, setSimulationToolsEnabled] = useState(false);
+  const [savingSimulationTools, setSavingSimulationTools] = useState(false);
   const [homeWebSearchMode, setHomeWebSearchMode] = useState<"off" | "fallback" | "always">("off");
   const [savingWebSearchMode, setSavingWebSearchMode] = useState(false);
   const [savingHomepage, setSavingHomepage] = useState(false);
@@ -879,12 +881,13 @@ export default function AdminPage() {
     fetch("/api/site-settings")
       .then(async (response) => {
         if (!response.ok) return;
-        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean; homeWebSearchMode?: "off" | "fallback" | "always" };
+        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean; homeWebSearchMode?: "off" | "fallback" | "always"; simulationToolsEnabled?: boolean };
         setFocusMusicUrl(result.focusMusicUrl ?? "");
         setFocusMusicDraft(result.focusMusicUrl ?? "");
         setExamCountdowns(result.examCountdowns ?? []);
         setBattleAlerts(result.battleAlerts ?? []);
         setLearningCenterEnabled(result.learningCenterEnabled !== false);
+        setSimulationToolsEnabled(result.simulationToolsEnabled === true);
         setHomeWebSearchMode(result.homeWebSearchMode ?? "off");
       })
       .catch(() => undefined);
@@ -1046,6 +1049,19 @@ export default function AdminPage() {
       setNotice(next ? "學習專區入口已重新開放。" : "學習專區入口已暫時隱藏；既有學習資料仍保留。");
     } else setNotice(result.error ?? "學習專區開關更新失敗");
     setSavingLearningCenter(false);
+  }
+
+  async function toggleSimulationTools() {
+    const next = !simulationToolsEnabled;
+    setSavingSimulationTools(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ simulationToolsEnabled: next }) });
+    const result = (await readJson(response)) as { simulationToolsEnabled?: boolean; error?: string };
+    if (response.ok) {
+      setSimulationToolsEnabled(result.simulationToolsEnabled === true);
+      window.dispatchEvent(new CustomEvent("simulation-tools-change", { detail: result.simulationToolsEnabled === true }));
+      setNotice(next ? "已開啟管理測試與模擬回答。" : "已關閉所有管理測試與模擬回答。一般學習功能不受影響。");
+    } else setNotice(result.error ?? "模擬回答設定更新失敗");
+    setSavingSimulationTools(false);
   }
 
   async function saveHomeWebSearchMode(mode: "off" | "fallback" | "always") {
@@ -3383,6 +3399,9 @@ export default function AdminPage() {
         )}
         {activeTab === "homepage" && (
           <section className="panel site-settings-panel">
+            <div className="setting-block">
+              <div className="setting-block-head"><div><h3>管理測試與模擬回答</h3><p>一鍵隱藏首頁、智能書、申論引導、爭點辨識、讀書會與會計答疑中的模擬學生、測試擬答、程度與模型測試工具；一般學生作答與正式 AI 回覆不受影響。</p></div><label className="cost-toggle"><input type="checkbox" checked={simulationToolsEnabled} disabled={savingSimulationTools} onChange={() => void toggleSimulationTools()} /><span>{savingSimulationTools ? "更新中…" : simulationToolsEnabled ? "目前開放" : "目前關閉"}</span></label></div>
+            </div>
             <div className="setting-block">
               <div className="setting-block-head"><div><h3>學習專區入口</h3><p>可先隱藏首頁的「學習專區」按鈕；再次開啟時，會員原有進度與紀錄仍會保留。</p></div><label className="cost-toggle"><input type="checkbox" checked={learningCenterEnabled} disabled={savingLearningCenter} onChange={() => void toggleLearningCenter()} /><span>{savingLearningCenter ? "更新中…" : learningCenterEnabled ? "目前開放" : "目前關閉"}</span></label></div>
             </div>

@@ -29188,3 +29188,14 @@ button[aria-busy="true"]{cursor:wait!important;opacity:.78}
   .medtech-chapter-page .medtech-pack-grid .medtech-pack-item>button{height:100px;min-height:100px}
 }
 .medtech-challenge-abandon{justify-self:start;padding:8px 11px;border:1px solid #e1b2a8;border-radius:8px;background:#fff;color:#a64c3d;font:inherit;font-size:11px;font-weight:850;cursor:pointer}.medtech-challenge-abandon:hover{background:#fff4f0}.medtech-challenge-abandon:disabled{cursor:wait;opacity:.55}
+html.simulation-tools-disabled .issue-sample-tools,
+html.simulation-tools-disabled .study-group-simulation-shortcuts,
+html.simulation-tools-disabled .accounting-admin-simulation,
+html.simulation-tools-disabled .accounting-simulated-answer,
+html.simulation-tools-disabled .essay-chat-settings,
+html.simulation-tools-disabled .student-simulation,
+html.simulation-tools-disabled .essay-chat-message.scholar,
+html.simulation-tools-disabled .book-ai-controls,
+html.simulation-tools-disabled .book-dialogue-message.scholar {
+  display: none !important;
+}

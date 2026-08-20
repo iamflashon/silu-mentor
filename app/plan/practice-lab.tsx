@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { EssayHistory } from "./essay-history";
+import { useSimulationToolsEnabled } from "../../lib/use-simulation-tools";
 
 type PracticeQuestion = {
   id: number;
@@ -339,6 +340,7 @@ function EssayBatchGrading() {
 }
 
 export function PracticeLab({ initialType, standalone = false, canAdmin = false }: Props) {
+  const simulationToolsEnabled = useSimulationToolsEnabled();
   const [accountCanAdmin, setAccountCanAdmin] = useState(canAdmin);
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
   const [question, setQuestion] = useState<PracticeQuestion | null>(null);
@@ -2126,7 +2128,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                     </div>}
                     <div ref={coachMessagesRef} className="essay-chat-messages" aria-live="polite">
                       {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>{accountCanAdmin ? "請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。" : "按「開始對話」後，AI 導師會依這一題的科目自然追問，不會套用其他法科的流程。"}</p></div></div>}
-                      {coachMessages.map((message, index) => !accountCanAdmin && message.role === "scholar" ? null : <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
+                      {coachMessages.map((message, index) => (!accountCanAdmin || !simulationToolsEnabled) && message.role === "scholar" ? null : <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
                         {message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span>}
                         <div className="essay-chat-message-content">
                           <div className="essay-chat-bubble">
@@ -2148,7 +2150,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                       {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
                     </div>
                     <div className="essay-chat-composer-wrap">
-                      {accountCanAdmin && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="管理測試設定">
+                      {accountCanAdmin && simulationToolsEnabled && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="管理測試設定">
                         <div className="model-mode-heading">
                           <strong>管理測試設定</strong>
                           <span className="model-mode-summary">{coachTeachingLevel === "general" ? "一般學生" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · Luna</span>
@@ -2168,7 +2170,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                       {coachStarted && !coachEnded && <div className="essay-chat-guidance-actions" aria-label="回答引導">
                         <button type="button" onClick={() => sendGuidedCoachReply("hint")} disabled={coaching}>給我一點提示</button>
                         <button type="button" onClick={() => sendGuidedCoachReply("smaller_step")} disabled={coaching}>拆成更小一步</button>
-                        {accountCanAdmin && <button type="button" className="student-simulation" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "模擬學生回答" : "模擬學生回答這句"}</button>}
+                        {accountCanAdmin && simulationToolsEnabled && <button type="button" className="student-simulation" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "模擬學生回答" : "模擬學生回答這句"}</button>}
                       </div>}
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachEnded ? "本次對話已結束" : coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit || !coachInput.trim()}>↑</button></form>
                     </div>
