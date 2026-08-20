@@ -6,6 +6,7 @@ import GlobalSelectionTools from "./global-selection-tools";
 import StudyBreakReminder from "./study-break-reminder";
 import NavigationFeedback from "./navigation-feedback";
 import SimulationToolsVisibility from "./simulation-tools-visibility";
+import FrontendCostVisibility from "./frontend-cost-visibility";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,6 +46,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <SimulationToolsVisibility />
+        <FrontendCostVisibility />
         {children}
         <NavigationFeedback />
         <GlobalSelectionTools />

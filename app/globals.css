@@ -29215,6 +29215,23 @@ html.simulation-tools-disabled .book-dialogue-message.scholar {
   display: none !important;
 }
 
+html.frontend-costs-disabled .message-usage,
+html.frontend-costs-disabled .model-comparison-meta,
+html.frontend-costs-disabled .terra small,
+html.frontend-costs-disabled .model-reply small,
+html.frontend-costs-disabled .study-group-message-usage,
+html.frontend-costs-disabled .accounting-usage,
+html.frontend-costs-disabled .essay-usage-meta,
+html.frontend-costs-disabled .essay-coach-comparisons em,
+html.frontend-costs-disabled .book-ai-usage,
+html.frontend-costs-disabled .book-model-comparison footer,
+html.frontend-costs-disabled .student-issue-result footer > div > small,
+html.frontend-costs-disabled .issue-workflow-result > small,
+html.frontend-costs-disabled .issue-challenge-meta,
+html.frontend-costs-disabled .student-summary-meta > span {
+  display: none !important;
+}
+
 .simulation-master-setting {
   align-items: stretch;
   flex-direction: column;

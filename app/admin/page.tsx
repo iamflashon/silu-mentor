@@ -2831,7 +2831,10 @@ export default function AdminPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ showCosts: next }),
     });
-    if (response.ok) setUsage({ ...usage, showCosts: next });
+    if (response.ok) {
+      setUsage({ ...usage, showCosts: next });
+      window.dispatchEvent(new CustomEvent("frontend-costs-change", { detail: next }));
+    }
   }
 
   async function toggleTeachingEvidence() {
