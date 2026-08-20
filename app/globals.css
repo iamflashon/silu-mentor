@@ -6093,11 +6093,14 @@ a {
 }
 .file-info strong {
   display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-size: 14px;
   color: #243d51;
+}
+.file-info .document-file-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
 }
 .file-info span {
   display: block;
@@ -6142,8 +6145,13 @@ a {
   font-weight: 500;
 }
 .document-source-name {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: #83939e !important;
   font-size: 10px !important;
+  line-height: 1.5;
 }
 .document-facts {
   color: #2f7898 !important;

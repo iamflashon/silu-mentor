@@ -3881,7 +3881,7 @@ export default function AdminPage() {
                         />
                         <span className="file-type">{file.name.split(".").pop()?.toUpperCase() ?? "FILE"}</span>
                         <div className="file-info">
-                          <strong>{file.bookTitle || documentDisplayTitle(null, file.name)}</strong>
+                          <strong className="document-file-name" title={file.name}>{file.name}</strong>
                           <label className="document-display-name">
                             <span>前台教材名稱</span>
                             <input
@@ -3894,7 +3894,7 @@ export default function AdminPage() {
                             />
                             <small>離開欄位會自動儲存；學生端只顯示這個名稱。</small>
                           </label>
-                          <small className="document-source-name">原始檔名：{file.name}</small>
+                          <small className="document-source-name">完整原始檔名：{file.name}</small>
                           <span>
                             {(file.examCategory === "medtech" ? "醫檢師" : file.examCategory === "accounting" ? "會計" : "司律")} · {file.subject} · {file.size}
                           </span>
