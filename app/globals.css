@@ -3157,8 +3157,8 @@ a {
 .practice-complete-actions b, .practice-complete-actions span { display: block; }
 .practice-complete-actions b { color: #285f4d; }
 .practice-complete-actions span { margin-top: 3px; color: #6c8178; font-size: 12px; }
-.practice-complete-actions > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
-.practice-complete-actions button { min-width: 112px; min-height: 40px; border: 0; border-radius: 9px; padding: 9px 14px; background: #34775f; color: #fff; font-weight: 800; cursor: pointer; }
+.practice-complete-actions > div:last-child { display: flex; flex-wrap: wrap; justify-content: center; width: 100%; gap: 8px; }
+.practice-complete-actions button { min-width: 102px; min-height: 38px; border: 0; border-radius: 9px; padding: 8px 12px; background: #34775f; color: #fff; font-weight: 800; cursor: pointer; }
 .practice-complete-actions button.secondary { border: 1px solid #a9c9bb; background: #fff; color: #34775f; }
 .message-list {
   min-height: 250px;

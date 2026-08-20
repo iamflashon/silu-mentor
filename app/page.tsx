@@ -33,7 +33,8 @@ const teachingLevelLabels: Record<TeachingLevel, string> = {
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
 type TeachingEvidence = { status: "verified" | "applied_inference" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string; matchedTerms?: string[]; basis?: "teacher_solution" | "chapter" };
 type ChallengeThread = { targetLabel: string; targetExcerpt: string; challengeText: string; challengeUsage: ReplyUsage; replyText: string; replyUsage: ReplyUsage; version: number; applied: boolean };
-type Message = { role: "mentor" | "student"; text: string; source?: string | null; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread; practiceQuestion?: PracticeQuestion | null };
+type PracticeHistoryState = { questionId: number; selectedAnswer: string | null; correct: boolean | null; correctAnswer: string | null; completed: boolean; readyToComplete: boolean; discussion: boolean };
+type Message = { role: "mentor" | "student"; text: string; source?: string | null; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread; practiceQuestion?: PracticeQuestion | null; practiceState?: PracticeHistoryState | null };
 
 function examPointSubject(subject: string) {
   const normalized = subject.replace(/\s/g, "");
@@ -334,6 +335,21 @@ export function LawHome() {
         const restoredQuestion = [...restored].reverse().find((message) => message.practiceQuestion)?.practiceQuestion ?? null;
         setPracticeQuestion(restoredQuestion);
         if (restoredQuestion) {
+          const restoredState = [...restored].reverse().find((message) => message.practiceState?.questionId === restoredQuestion.id)?.practiceState ?? null;
+          if (restoredState) {
+            setPracticeAnswer(restoredState.selectedAnswer && restoredState.correctAnswer && typeof restoredState.correct === "boolean" ? { selected: restoredState.selectedAnswer, correct: restoredState.correct, correctAnswer: restoredState.correctAnswer } : null);
+            setPracticeCompleted(restoredState.completed);
+            setPracticeReadyToComplete(restoredState.readyToComplete);
+            setPracticeDiscussion(restoredState.discussion);
+          } else {
+            const practiceMessages = restored.slice(restored.findIndex((message) => message.practiceQuestion?.id === restoredQuestion.id) + 1).filter((message) => message.source === "真題練習");
+            const lastStudentText = [...practiceMessages].reverse().find((message) => message.role === "student")?.text ?? "";
+            const lastMentorText = [...practiceMessages].reverse().find((message) => message.role === "mentor")?.text ?? "";
+            const selectedAnswer = [...lastStudentText.matchAll(/(?:我選|改選|選擇)\s*([A-D])/gi)].at(-1)?.[1]?.toUpperCase() ?? null;
+            const correctAnswer = lastMentorText.match(/正確答案(?:是|為)\s*([A-D])/i)?.[1]?.toUpperCase() ?? null;
+            if (selectedAnswer && correctAnswer) setPracticeAnswer({ selected: selectedAnswer, correct: selectedAnswer === correctAnswer, correctAnswer });
+            if (/正確答案(?:是|為)|判定答[對錯]|法律分析已正確|判斷已正確/.test(lastMentorText)) setPracticeReadyToComplete(true);
+          }
           const questionIndex = restored.findIndex((message) => message.practiceQuestion?.id === restoredQuestion.id);
           setPracticeCoachMessages(restored.slice(questionIndex + 1).filter((message) => message.source === "真題練習").map((message) => ({ role: message.role, text: message.text })));
         }
@@ -584,16 +600,19 @@ export function LawHome() {
       const mentorMessage = { role: "mentor" as const, text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" };
       setPracticeCoachMessages((current) => [...current, mentorMessage]);
       setMessages((current) => [...current, { ...mentorMessage, source: "真題練習" }]);
-      if (dialogueMode === "complete_confirm" && result.completed) {
+      const nextCompleted = dialogueMode === "complete_confirm" && Boolean(result.completed);
+      const nextReadyToComplete = !nextCompleted && Boolean(result.completed);
+      const nextDiscussion = !nextCompleted && (dialogueMode === "discussion" || practiceDiscussion);
+      if (nextCompleted) {
         setPracticeCompleted(true);
         setPracticeReadyToComplete(false);
-      } else if (result.completed) {
+      } else if (nextReadyToComplete) {
         setPracticeReadyToComplete(true);
         setPracticeCompleted(false);
       } else {
         setPracticeReadyToComplete(false);
       }
-      if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: [studentMessage, mentorMessage] }) });
+      if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: [studentMessage, mentorMessage], state: { questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, correct: practiceAnswer?.correct ?? null, correctAnswer: practiceAnswer?.correctAnswer ?? null, completed: nextCompleted, readyToComplete: nextReadyToComplete, discussion: nextDiscussion } satisfies PracticeHistoryState }) });
       if (/本題引導結束|本次對話已結束/.test(mentorMessage.text)) setPracticeQuestion(null);
     } finally {
       setPracticeCoaching(false);
@@ -619,7 +638,7 @@ export function LawHome() {
     ];
     setPracticeCoachMessages(turns);
     setMessages((current) => [...current, ...turns.map((turn) => ({ ...turn, source: "真題練習" }))]);
-    if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: turns }) });
+    if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: turns, state: { questionId: practiceQuestion.id, selectedAnswer: answer, correct: result.correct, correctAnswer: result.correctAnswer, completed: false, readyToComplete: false, discussion: false } satisfies PracticeHistoryState }) });
   }
 
   function chooseQuestionImage(file: File | undefined) {
