@@ -28581,12 +28581,12 @@ a.is-action-pending {
 .medtech-ai-workspace>.medtech-ai-empty{order:1}
 .medtech-ai-workspace>.medtech-ai-question{order:1}
 .medtech-ai-workspace>.medtech-action-note{order:2}
-.medtech-ai-workspace>.medtech-voice-unlocked{order:3}
+.medtech-ai-workspace>.medtech-voice-unlocked{order:7}
 .medtech-ai-workspace>div:empty{order:4;height:0;margin:0;padding:0}
 .medtech-ai-workspace>.medtech-ai-chat{order:5}
 .medtech-ai-workspace>.medtech-ai-quick{order:6;margin:14px 0 10px;flex-wrap:wrap}
-.medtech-ai-workspace>form{order:7}
-.medtech-ai-workspace>.medtech-ai-error{order:8}
+.medtech-ai-workspace>form{order:8}
+.medtech-ai-workspace>.medtech-ai-error{order:9}
 
 /* Medtech notes readability */
 .medtech-note-dialog input{font-size:15px;line-height:1.55}
