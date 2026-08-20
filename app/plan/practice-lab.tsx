@@ -253,7 +253,7 @@ const gradingAnimationSteps = [
 function EssayBatchGrading() {
   const [attempts, setAttempts] = useState<EssayBatchAttempt[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const model: EssayModelMode = "sol";
+  const model: EssayModelMode = "luna";
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -368,10 +368,10 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     useState<EssayComparison | null>(null);
   const [essayModelFailures, setEssayModelFailures] = useState<EssayModelFailure[]>([]);
   const [essayModelMode, setEssayModelMode] =
-    useState<EssayModelMode | null>("sol");
+    useState<EssayModelMode | null>("luna");
   const [essayResultMode, setEssayResultMode] =
-    useState<EssayModelMode>("sol");
-  const [essayDualEnabled, setEssayDualEnabled] = useState(true);
+    useState<EssayModelMode>("luna");
+  const [essayDualEnabled, setEssayDualEnabled] = useState(false);
   const [essayDisplayMode, setEssayDisplayMode] = useState<EssayDisplayMode>("tabs");
   const [essayVisibleModel, setEssayVisibleModel] = useState<"sol" | "luna">("sol");
   const [submitting, setSubmitting] = useState(false);
@@ -589,7 +589,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
           if (typeof state.essayPickerSubject === "string") setEssayPickerSubject(state.essayPickerSubject);
           if (typeof state.essayPickerId === "string") setEssayPickerId(state.essayPickerId);
           if (typeof state.essayPickerOpen === "boolean") setEssayPickerOpen(state.essayPickerOpen);
-          setEssayModelMode("sol");
+          setEssayModelMode("luna");
           setDraftSavedAt(
             session?.updatedAt
               ? new Date(session.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })
@@ -716,7 +716,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setEssayReviews(null);
     setEssayComparison(null);
     setEssayModelFailures([]);
-    setEssayResultMode("sol");
+    setEssayResultMode("luna");
     setEssayDisplayMode("tabs");
     setEssayVisibleModel("sol");
     setEssayModelMode(null);
@@ -761,7 +761,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         // The essay grader currently has one fixed model and no visible picker.
         // Re-establish that mode after loading a new question so the submit
         // button never depends on stale picker state.
-        setEssayModelMode("sol");
+        setEssayModelMode("luna");
         await restoreGuidedSession(result.question.id);
       } else {
         setGuidedStateReady(false);
@@ -807,9 +807,9 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         const result = (await response.json()) as { dualEnabled?: boolean };
         const enabled = result.dualEnabled !== false;
         setEssayDualEnabled(enabled);
-        if (!enabled) setEssayModelMode((current) => current === "dual" ? "sol" : current);
+        if (!enabled) setEssayModelMode("luna");
       })
-      .catch(() => setEssayDualEnabled(true));
+      .catch(() => { setEssayDualEnabled(false); setEssayModelMode("luna"); });
     setEssayPickerLoading(true);
     fetch("/api/practice?type=essay&list=1")
       .then(async (response) => {
@@ -1183,7 +1183,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   async function submitEssay() {
     if (!question || !essay.trim() || submitting) return;
-    const selectedMode: "sol" | "luna" | "dual" = essayModelMode === "luna" || essayModelMode === "dual" ? essayModelMode : "sol";
+    const selectedMode: "sol" | "luna" | "dual" = essayDualEnabled && (essayModelMode === "sol" || essayModelMode === "dual") ? essayModelMode : "luna";
     setSubmitting(true);
     setEssayFeedback("");
     try {
@@ -1255,13 +1255,26 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   function essayModelPicker() {
     const selectedMode = essayModelMode === "luna" || essayModelMode === "dual" ? essayModelMode : "sol";
+    if (!essayDualEnabled) {
+      return (
+        <fieldset className="essay-model-picker is-luna-only" aria-label="正式申論批改模型">
+          <legend>正式申論初步批改</legend>
+          <div>
+            <label className="selected">
+              <input type="radio" name="essay-model" checked readOnly disabled />
+              <span><strong>GPT-5.6 Luna</strong><small>先由 Luna 診斷漏點與修正方向，最後仍由老師確認與定稿。</small></span>
+            </label>
+          </div>
+        </fieldset>
+      );
+    }
     return (
       <fieldset className="essay-model-picker" aria-label="正式申論批改模型">
         <legend>正式申論批改｜選擇模型</legend>
         <div>
           <label className={selectedMode === "sol" ? "selected" : ""}>
             <input type="radio" name="essay-model" checked={selectedMode === "sol"} onChange={() => setEssayModelMode("sol")} disabled={submitting} />
-            <span><strong>GPT-5.6 Sol</strong><small>正式批改預設模型，建議先看這份結果。</small></span>
+            <span><strong>GPT-5.6 Sol</strong><small>進階覆核模型，適合需要額外核對時使用。</small></span>
           </label>
           <label className={selectedMode === "luna" ? "selected" : ""}>
             <input type="radio" name="essay-model" checked={selectedMode === "luna"} onChange={() => setEssayModelMode("luna")} disabled={submitting} />
@@ -1279,12 +1292,16 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   function renderTeacherAnswer() {
     if (!question?.teacherAnswer) return null;
+    const sourceLabel = question.answerSource || "老師參考擬答";
+    const answerText = question.teacherAnswer.trim().startsWith(sourceLabel.trim())
+      ? question.teacherAnswer.trim().slice(sourceLabel.trim().length).replace(/^[\s：:｜|—-]+/, "").trimStart()
+      : question.teacherAnswer;
     return (
       <details className="essay-teacher-answer" open={teacherAnswerOpen} onToggle={(event) => setTeacherAnswerOpen(event.currentTarget.open)}>
         <summary>查看老師擬答</summary>
         <div>
-          <strong>{question.answerSource || "老師參考擬答"}</strong>
-          <p>{question.teacherAnswer}</p>
+          <strong>{sourceLabel}</strong>
+          <p>{answerText}</p>
           <small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small>
         </div>
       </details>

@@ -3477,13 +3477,13 @@ export default function AdminPage() {
             <div className="homepage-setting-block">
               <div className="setting-block-head">
                 <div>
-                  <h3>正式申論批改｜Sol＋Luna 比較</h3>
-                  <p>開啟後，前台可以直接選擇 Sol、Luna 或雙模型比較，並用分頁／分割方式查看；關閉後只保留 Sol 正式批改。</p>
+                  <h3>正式申論批改｜進階模型比較</h3>
+                  <p>目前關閉時一律由 Luna 進行初步批改，再交由老師確認；需要測試時可開啟 Sol、Luna 與雙模型分頁／分割比較。</p>
                 </div>
                 <label className="cost-toggle">
-                  <input type="checkbox" checked={usage?.essayGradingDualEnabled ?? true} onChange={toggleEssayGradingDual} />
+                  <input type="checkbox" checked={usage?.essayGradingDualEnabled ?? false} onChange={toggleEssayGradingDual} />
                   <span />
-                  {usage?.essayGradingDualEnabled ?? true ? "目前開放" : "目前關閉"}
+                  {usage?.essayGradingDualEnabled ?? false ? "目前開放" : "目前關閉"}
                 </label>
               </div>
             </div>

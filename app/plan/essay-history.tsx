@@ -117,6 +117,14 @@ function dateLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function teacherAnswerBody(answer: string, source?: string) {
+  const sourceLabel = (source || "老師參考擬答").trim();
+  const text = answer.trim();
+  return sourceLabel && text.startsWith(sourceLabel)
+    ? text.slice(sourceLabel.length).replace(/^[\s：:｜|—-]+/, "").trimStart()
+    : answer;
+}
+
 function GradingView({ grading, title }: { grading: EssayGrading; title?: string }) {
   return (
     <div className="essay-history-grading">
@@ -247,7 +255,7 @@ export function EssayHistory({ onBack }: { onBack: () => void }) {
                   ) : primary ? <GradingView grading={primary} title={attempt.mode === "dual" ? "可用的模型批改結果" : modeLabel(attempt.mode, attempt.model ?? attempt.usage?.[0]?.model)} /> : (
                     <div className="essay-history-empty is-error">這筆紀錄只有作答內容，批改欄位格式較舊；請回到練真題重新批改。</div>
                   )}
-                  {attempt.teacherAnswer && <details className="essay-teacher-answer essay-history-teacher-answer"><summary>查看老師擬答</summary><div><strong>{attempt.answerSource || "老師參考擬答"}</strong><p>{attempt.teacherAnswer}</p><small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small></div></details>}
+                  {attempt.teacherAnswer && <details className="essay-teacher-answer essay-history-teacher-answer"><summary>查看老師擬答</summary><div><strong>{attempt.answerSource || "老師參考擬答"}</strong><p>{teacherAnswerBody(attempt.teacherAnswer, attempt.answerSource)}</p><small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small></div></details>}
                 </div>
               </details>
             );

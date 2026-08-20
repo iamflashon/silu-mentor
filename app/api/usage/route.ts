@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const settings = await db.select().from(appSettings);
     const showCosts = settings.find((item) => item.key === "show_frontend_costs")?.value === "true";
     const showEvidence = settings.find((item) => item.key === "show_teaching_evidence")?.value === "true";
-    const essayGradingDualEnabled = settings.find((item) => item.key === "essay_grading_dual_enabled")?.value !== "false";
+    const essayGradingDualEnabled = settings.find((item) => item.key === "essay_grading_dual_enabled")?.value === "true";
     return Response.json({
       totals,
       recent,
@@ -89,7 +89,7 @@ export async function PATCH(request: Request) {
     return Response.json({
       showCosts: settings.find((item) => item.key === "show_frontend_costs")?.value === "true",
       showEvidence: settings.find((item) => item.key === "show_teaching_evidence")?.value === "true",
-      essayGradingDualEnabled: settings.find((item) => item.key === "essay_grading_dual_enabled")?.value !== "false",
+      essayGradingDualEnabled: settings.find((item) => item.key === "essay_grading_dual_enabled")?.value === "true",
     });
   } catch {
     return Response.json({ error: "成本顯示設定無法更新" }, { status: 500 });

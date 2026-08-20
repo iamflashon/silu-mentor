@@ -16515,6 +16515,9 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
+.essay-model-picker.is-luna-only > div {
+  grid-template-columns: 1fr;
+}
 .essay-model-picker label {
   display: flex;
   align-items: flex-start;

@@ -435,7 +435,7 @@ export async function GET(request: Request) {
       .from(appSettings)
       .where(eq(appSettings.key, "essay_grading_dual_enabled"))
       .limit(1);
-    const dualEnabled = dualSetting[0]?.value !== "false";
+    const dualEnabled = dualSetting[0]?.value === "true";
     if (new URL(request.url).searchParams.get("config") === "1") {
       return Response.json({ dualEnabled });
     }
@@ -520,7 +520,7 @@ export async function POST(request: Request) {
     const body = await request.json() as { questionId?: number; answer?: string; mode?: EssayModelMode };
     const questionId = Number(body.questionId);
     const answer = String(body.answer ?? "").trim();
-    const requestedMode: "sol" | "luna" | "dual" = body.mode === "luna" || body.mode === "dual" ? body.mode : "sol";
+    const requestedMode: "sol" | "luna" | "dual" = body.mode === "sol" || body.mode === "dual" ? body.mode : "luna";
     if (!Number.isInteger(questionId) || !answer) return Response.json({ error: "請提供題目與申論作答內容" }, { status: 400 });
 
     const openAIKey = await getOpenAIKey();
@@ -532,8 +532,10 @@ export async function POST(request: Request) {
       .from(appSettings)
       .where(eq(appSettings.key, "essay_grading_dual_enabled"))
       .limit(1);
-    const dualEnabled = dualSetting[0]?.value !== "false";
-    const mode: "sol" | "luna" | "dual" = requestedMode === "dual" && !dualEnabled ? "sol" : requestedMode;
+    const dualEnabled = dualSetting[0]?.value === "true";
+    // 目前正式申論先由 Luna 完成初步診斷，再交由老師確認。
+    // Sol 與雙模型程式保留，日後可由後台重新開放。
+    const mode: "sol" | "luna" | "dual" = dualEnabled ? requestedMode : "luna";
     const [question] = await db
       .select()
       .from(examQuestions)
