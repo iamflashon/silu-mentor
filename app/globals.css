@@ -4738,6 +4738,9 @@ a {
   border-radius: 24px;
   box-shadow: 0 14px 40px rgba(28, 61, 85, 0.13);
 }
+.composer-actions {
+  display: contents;
+}
 .composer textarea {
   flex: 1;
   min-height: 36px;
@@ -21418,9 +21421,28 @@ a {
     left: 0;
   }
   .composer {
-    gap: 8px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 7px 8px;
     padding: 7px 8px 7px 11px;
     border-radius: 18px;
+  }
+  .composer-actions {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+    padding-bottom: 1px;
+  }
+  .composer .attach-image {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .composer textarea {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
   }
   .composer textarea {
     min-height: 32px;
@@ -21440,6 +21462,17 @@ a {
     margin: 4px 0 4px -5px;
     border-radius: 9px;
     font-size: 18px;
+  }
+  .composer .composer-focus-button,
+  .composer .composer-topic-button {
+    min-width: 58px;
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 11px;
+    font-size: 11px;
+  }
+  .composer .composer-topic-button {
+    min-width: 72px;
   }
   .composer-wrap > p {
     margin-top: 5px;
