@@ -2191,7 +2191,9 @@ export default function AdminPage() {
     try {
       const previous = chapterProgress[resource.id];
       setNotice(restart
-        ? `正在逐頁重新核對「${resource.title}」的題型；完成前會保留目前可用資料…`
+        ? isProblemSolvingResource(resource)
+          ? `正在逐頁重新核對「${resource.title}」的題型；完成前會保留目前可用資料…`
+          : `正在重新細分「${resource.title}」的篇、章、節與小節；完成前會保留目前可用資料…`
         : `正在從「${resource.title}」已建立的教材索引接續整理；不會重新上傳、刪除或重新拆解既有資料…`);
       setChapterProgress((current) => ({
         ...current,
@@ -2256,7 +2258,7 @@ export default function AdminPage() {
           ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
           : isProblemSolvingResource(resource)
             ? `「${resource.title}」已完成目錄整理，共 ${count} 筆真實題型。`
-            : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
+            : `「${resource.title}」已建立細分索引，共 ${count} 個節／細目；之後前台會直接讀取已保存內容。`);
         return;
       }
       setNotice("拆解進度已保存；系統下一次檢查會從目前主題接續，不會歸零。");
@@ -4457,9 +4459,19 @@ export default function AdminPage() {
                             );
                           })()}
                           {Number(resource.chapterCount ?? 0) > 0 && !isProblemSolvingResource(resource) && (
-                            <span className="chapter-index-complete" role="status">
-                              ✓ 已建立好章節索引（{Number(resource.chapterCount)} 章）
-                            </span>
+                            <>
+                              <span className="chapter-index-complete" role="status">
+                                ✓ 已建立章節索引（{Number(resource.chapterCount)} 筆）
+                              </span>
+                              <button
+                                type="button"
+                                className="chapter-view-open"
+                                disabled={!resource.documentId || chapterBuildRunningRef.current.has(resource.id)}
+                                onClick={() => void buildBookChapters(resource, true)}
+                              >
+                                重新細分章節索引
+                              </button>
+                            </>
                           )}
                             </div>
                           </details>
