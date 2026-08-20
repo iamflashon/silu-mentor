@@ -1085,7 +1085,6 @@ export function LawHome() {
           <div className="home-calendar-entry">
             <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
             <a href="/calendar" aria-label="開啟我的行事曆">行事曆</a>
-            {currentMember?.canAdmin && <button type="button" className="header-new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
           </div>
           <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
             {railCollapsed ? "展開學習工具" : "收合側欄"}
@@ -1240,6 +1239,7 @@ export function LawHome() {
           />
           <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
           <button className="composer-focus-button" type="button" onClick={() => setChatFocusMode((current) => !current)} aria-pressed={chatFocusMode} aria-label={chatFocusMode ? "還原對話視窗" : "放大對話視窗"}>{chatFocusMode ? "還原" : "放大"}</button>
+          {currentMember?.canAdmin && <button className="composer-topic-button" type="button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
         </form>
       </div>
 

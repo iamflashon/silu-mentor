@@ -4783,7 +4783,8 @@ a {
 .composer .send-button {
   flex: 0 0 auto;
 }
-.composer .composer-focus-button {
+.composer .composer-focus-button,
+.composer .composer-topic-button {
   width: auto;
   min-width: 52px;
   height: 42px;
@@ -4796,9 +4797,13 @@ a {
   font-size: 11px;
   font-weight: 800;
 }
-.composer .composer-focus-button:hover {
+.composer .composer-focus-button:hover,
+.composer .composer-topic-button:hover:not(:disabled) {
   border-color: #83afbd;
   background: #eaf5f6;
+}
+.composer .composer-topic-button {
+  min-width: 72px;
 }
 .composer-wrap > p {
   text-align: center;
