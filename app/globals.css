@@ -2839,6 +2839,21 @@ a {
   border-color: #8fb7c8;
   background: #eef7fa;
 }
+.header-new-topic-button {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid #c9dce5;
+  border-radius: 999px;
+  color: #315f78;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.header-new-topic-button:hover:not(:disabled) {
+  border-color: #8fb7c8;
+  background: #eef7fa;
+}
 .standalone-calendar-heading {
   display: flex;
   align-items: flex-end;

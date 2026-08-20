@@ -34,6 +34,18 @@ type TeachingRound = { level: TeachingLevel; label: string; reply: string; teach
 type TeachingEvidence = { status: "verified" | "applied_inference" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string; matchedTerms?: string[]; basis?: "teacher_solution" | "chapter" };
 type ChallengeThread = { targetLabel: string; targetExcerpt: string; challengeText: string; challengeUsage: ReplyUsage; replyText: string; replyUsage: ReplyUsage; version: number; applied: boolean };
 type Message = { role: "mentor" | "student"; text: string; source?: string | null; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread; practiceQuestion?: PracticeQuestion | null };
+
+function examPointSubject(subject: string) {
+  const normalized = subject.replace(/\s/g, "");
+  if (/刑事訴訟|刑訴/.test(normalized)) return "刑事訴訟法";
+  if (/民事訴訟|民訴/.test(normalized)) return "民事訴訟法";
+  if (/刑法/.test(normalized)) return "刑法";
+  if (/民法/.test(normalized)) return "民法";
+  if (/憲法/.test(normalized)) return "憲法";
+  if (/行政/.test(normalized)) return "行政法";
+  if (/商|公司|證券|保險|票據/.test(normalized)) return "商事法";
+  return "";
+}
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; webSearchCalls?: number; modelTokenCostUsd?: number; fileSearchCostUsd?: number; webSearchCostUsd?: number; estimatedCostUsd: number; durationMs: number };
@@ -233,6 +245,16 @@ export function LawHome() {
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const simulationToolsEnabled = useSimulationToolsEnabled();
   const [memberMenuOpen, setMemberMenuOpen] = useState(false);
+  const activeStudySubject = useMemo(() => examPointSubject(
+    practiceQuestion?.subject
+      || todayTasks.find((task) => task.id === selectedTodayTaskId)?.subject
+      || todayTasks.find((task) => task.status !== "completed")?.subject
+      || "",
+  ), [practiceQuestion?.subject, selectedTodayTaskId, todayTasks]);
+  const subjectExamPoints = useMemo(
+    () => coreExamPoints.filter((point) => point.subject === activeStudySubject),
+    [activeStudySubject],
+  );
   const handoffHandled = useRef(false);
   useEffect(() => {
     fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
@@ -276,8 +298,9 @@ export function LawHome() {
   }, []);
 
   useEffect(() => {
-    setHomeExamPoint(coreExamPoints[Math.floor(Math.random() * coreExamPoints.length)] ?? coreExamPoints[0]);
-  }, []);
+    if (!subjectExamPoints.length) return;
+    setHomeExamPoint(subjectExamPoints[Math.floor(Math.random() * subjectExamPoints.length)] ?? subjectExamPoints[0]);
+  }, [subjectExamPoints]);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -352,7 +375,11 @@ export function LawHome() {
 
   useEffect(() => { fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed(await response.json() as HomeFeed); }).catch(() => undefined); }, []);
   useEffect(() => { if (magazineArticles.length && !magazineArticles.some((article) => article.id === selectedMagazineArticleId)) setSelectedMagazineArticleId(magazineArticles[0].id); }, [magazineArticles, selectedMagazineArticleId]);
-  useEffect(() => { fetch("/api/legal-learning").then(async (response) => { if (response.ok) setLegalLesson(((await response.json()) as { article?: LegalLesson | null }).article ?? null); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!activeStudySubject) { setLegalLesson(null); return; }
+    setLegalLesson(null);
+    fetch(`/api/legal-learning?subject=${encodeURIComponent(activeStudySubject)}`).then(async (response) => { if (response.ok) setLegalLesson(((await response.json()) as { article?: LegalLesson | null }).article ?? null); }).catch(() => undefined);
+  }, [activeStudySubject]);
   useEffect(() => { fetch("/api/legal-dictionary?random=1").then(async (response) => { if (response.ok) setDictionaryFeatured(await response.json() as DictionaryResult); }).catch(() => undefined); }, []);
   useEffect(() => {
     fetch("/api/dashboard").then(async (response) => {
@@ -483,8 +510,8 @@ export function LawHome() {
 
   function swapHomeExamPoint() {
     setHomeExamPoint((current) => {
-      if (coreExamPoints.length < 2) return current;
-      const candidates = coreExamPoints.filter((point) => point.title !== current.title || point.subject !== current.subject);
+      if (subjectExamPoints.length < 2) return current;
+      const candidates = subjectExamPoints.filter((point) => point.title !== current.title);
       return candidates[Math.floor(Math.random() * candidates.length)] ?? current;
     });
   }
@@ -494,7 +521,8 @@ export function LawHome() {
   }
 
   async function loadRandomLegalLesson() {
-    const response = await fetch("/api/legal-learning?random=1");
+    if (!activeStudySubject) return;
+    const response = await fetch(`/api/legal-learning?random=1&subject=${encodeURIComponent(activeStudySubject)}`);
     if (!response.ok) return;
     const result = await response.json() as { article?: LegalLesson | null };
     if (result.article) setLegalLesson(result.article);
@@ -989,7 +1017,7 @@ export function LawHome() {
         <a href="/law/guide">使用說明</a>
       </nav>
 
-      <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button></div></section></div>
+      <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{activeStudySubject && (legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>{activeStudySubject}法條</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>{activeStudySubject}法條</b><span>正在依今日考科推薦</span></span>)}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button></div></section></div>
 
       {practiceQuestion && <button
         type="button"
@@ -1008,13 +1036,14 @@ export function LawHome() {
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
           <h1>今天，照計畫前進。</h1>
-          <div className="home-exam-point" aria-label="今日熱考點推薦">
+          {activeStudySubject && subjectExamPoints.length > 0 && <div className="home-exam-point" aria-label={`${activeStudySubject}今日熱考點推薦`}>
             <span>今日熱考點</span>
             <button type="button" className="home-exam-point-title" onClick={learnHomeExamPoint}><b>{homeExamPoint.subject}</b>{homeExamPoint.title}</button>
             <button type="button" className="home-exam-point-swap" onClick={swapHomeExamPoint}>換一個</button>
-          </div>
+          </div>}
           <div className="home-calendar-entry">
             <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
+            {currentMember?.canAdmin && <button type="button" className="header-new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
             <a href="/calendar" aria-label="開啟我的行事曆">行事曆</a>
           </div>
           <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
@@ -1136,7 +1165,7 @@ export function LawHome() {
           <b>學習工具</b>
         </button>
           {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
-          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
@@ -1150,7 +1179,6 @@ export function LawHome() {
           </div>
           </>}
         </section>}
-        {currentMember?.canAdmin && !simulationToolsEnabled && <button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
         {imageDraft && !editingImage && <div className="image-ready"><button className="image-ready-preview" onClick={() => setEditingImage(true)} aria-label="再次編輯圖片"><img src={imageDraft.url} alt="待送出的題目圖片" /></button><span>{imageDraft.name}<small>已準備，點圖片可再調整</small></span><button onClick={() => setImageDraft(null)} aria-label="移除圖片">×</button></div>}
         <form className="composer" onSubmit={submit} onPaste={(event) => { const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"))?.getAsFile(); if (image) { event.preventDefault(); chooseQuestionImage(new File([image], `貼上的題目-${Date.now()}.png`, { type: image.type })); } }}>
           <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={(event) => { chooseQuestionImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
