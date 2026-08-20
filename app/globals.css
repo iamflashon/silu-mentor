@@ -21422,7 +21422,7 @@ a {
   }
   .composer {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 7px 8px;
     padding: 7px 8px 7px 11px;
     border-radius: 18px;
@@ -21443,6 +21443,10 @@ a {
     grid-column: 2;
     grid-row: 2;
     min-width: 0;
+  }
+  .composer .send-button {
+    grid-column: 3;
+    grid-row: 2;
   }
   .composer textarea {
     min-height: 32px;

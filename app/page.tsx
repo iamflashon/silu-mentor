@@ -1237,8 +1237,8 @@ export function LawHome() {
             }}
             rows={1}
           />
+          <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
           <div className="composer-actions">
-            <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
             <button className="composer-focus-button" type="button" onClick={() => setChatFocusMode((current) => !current)} aria-pressed={chatFocusMode} aria-label={chatFocusMode ? "還原對話視窗" : "放大對話視窗"}>{chatFocusMode ? "還原" : "放大"}</button>
             {currentMember?.canAdmin && <button className="composer-topic-button" type="button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
           </div>
