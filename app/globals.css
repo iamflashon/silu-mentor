@@ -16536,6 +16536,10 @@ a {
 .essay-model-picker label.selected strong {
   color: #245c78;
 }
+.essay-model-picker label.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .essay-model-picker input {
   flex: 0 0 auto;
   margin-top: 3px;
@@ -16599,6 +16603,40 @@ a {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+.essay-dual-models.is-tabs {
+  display: block;
+}
+.essay-result-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.essay-result-tabs,
+.essay-result-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.essay-result-tabs button,
+.essay-result-layout button {
+  border: 1px solid #c8dce6;
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: #fff;
+  color: #477083;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.essay-result-tabs button.active,
+.essay-result-layout button.active {
+  border-color: #4b879f;
+  background: #e4f2f6;
+  color: #245c78;
+  font-weight: 800;
 }
 .essay-dual-models .essay-grading-result {
   margin-top: 0;
@@ -23012,6 +23050,10 @@ a {
   }
   .essay-dual-review > header {
     align-items: flex-start;
+    flex-direction: column;
+  }
+  .essay-result-controls {
+    align-items: stretch;
     flex-direction: column;
   }
   .essay-model-picker label strong,

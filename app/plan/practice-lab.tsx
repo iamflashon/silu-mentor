@@ -46,13 +46,14 @@ type EssayGrading = {
 };
 
 type EssayModelMode = "luna" | "sol" | "claude" | "dual";
+type EssayDisplayMode = "tabs" | "split";
 type EssayComparison = {
   scoreDifference: number;
   agreements: string[];
-  differences: Array<{ criterion: string; sol: number; claude: number }>;
+  differences: Array<{ criterion: string; sol: number; luna?: number; claude?: number }>;
 };
 type EssayModelFailure = {
-  model: "sol" | "claude";
+  model: "sol" | "luna" | "claude";
   label: string;
   message: string;
   retryable: boolean;
@@ -252,7 +253,7 @@ const gradingAnimationSteps = [
 function EssayBatchGrading() {
   const [attempts, setAttempts] = useState<EssayBatchAttempt[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const model: EssayModelMode = "luna";
+  const model: EssayModelMode = "sol";
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -361,15 +362,18 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const [essayUsage, setEssayUsage] = useState<EssayUsage[]>([]);
   const [essayReviews, setEssayReviews] = useState<{
     sol: EssayGrading;
-    claude: EssayGrading;
+    luna: EssayGrading;
   } | null>(null);
   const [essayComparison, setEssayComparison] =
     useState<EssayComparison | null>(null);
   const [essayModelFailures, setEssayModelFailures] = useState<EssayModelFailure[]>([]);
   const [essayModelMode, setEssayModelMode] =
-    useState<EssayModelMode | null>("luna");
+    useState<EssayModelMode | null>("sol");
   const [essayResultMode, setEssayResultMode] =
-    useState<EssayModelMode>("luna");
+    useState<EssayModelMode>("sol");
+  const [essayDualEnabled, setEssayDualEnabled] = useState(true);
+  const [essayDisplayMode, setEssayDisplayMode] = useState<EssayDisplayMode>("tabs");
+  const [essayVisibleModel, setEssayVisibleModel] = useState<"sol" | "luna">("sol");
   const [submitting, setSubmitting] = useState(false);
   const [gradingAnimationStep, setGradingAnimationStep] = useState(0);
   const [teacherAnswerOpen, setTeacherAnswerOpen] = useState(false);
@@ -713,6 +717,8 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setEssayComparison(null);
     setEssayModelFailures([]);
     setEssayResultMode("sol");
+    setEssayDisplayMode("tabs");
+    setEssayVisibleModel("sol");
     setEssayModelMode(null);
     setEssay("");
     setCoachInput("");
@@ -795,6 +801,15 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   useEffect(() => {
     if (examType !== "essay") return;
+    fetch("/api/essay-grading?config=1")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as { dualEnabled?: boolean };
+        const enabled = result.dualEnabled !== false;
+        setEssayDualEnabled(enabled);
+        if (!enabled) setEssayModelMode((current) => current === "dual" ? "sol" : current);
+      })
+      .catch(() => setEssayDualEnabled(true));
     setEssayPickerLoading(true);
     fetch("/api/practice?type=essay&list=1")
       .then(async (response) => {
@@ -1168,7 +1183,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   async function submitEssay() {
     if (!question || !essay.trim() || submitting) return;
-    const selectedMode: EssayModelMode = "luna";
+    const selectedMode: "sol" | "luna" | "dual" = essayModelMode === "luna" || essayModelMode === "dual" ? essayModelMode : "sol";
     setSubmitting(true);
     setEssayFeedback("");
     try {
@@ -1185,23 +1200,26 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         mode?: EssayModelMode;
         saved?: boolean;
         grading?: EssayGrading;
-        reviews?: { sol?: EssayGrading; claude?: EssayGrading };
+        reviews?: { sol?: EssayGrading; luna?: EssayGrading; claude?: EssayGrading };
         comparison?: EssayComparison | null;
         modelFailures?: EssayModelFailure[];
         usage?: EssayUsage[];
         retryable?: boolean;
-        failedModel?: "sol" | "claude";
+        failedModel?: "sol" | "luna" | "claude";
         source?: { label?: string };
         error?: string;
       };
       if (response.ok && result.grading) {
-        const resultMode = result.mode ?? selectedMode;
+        const resultMode = result.mode === "claude" ? "sol" : result.mode ?? selectedMode;
         setEssayResultMode(resultMode);
+        setEssayDisplayMode("tabs");
+        setEssayVisibleModel("sol");
         setEssayGrading(result.grading);
         setEssayUsage(result.usage ?? []);
         setEssayModelFailures(result.modelFailures ?? []);
-        if (result.reviews?.sol && result.reviews.claude) {
-          setEssayReviews({ sol: result.reviews.sol, claude: result.reviews.claude });
+        const lunaReview = result.reviews?.luna ?? result.reviews?.claude;
+        if (result.reviews?.sol && lunaReview) {
+          setEssayReviews({ sol: result.reviews.sol, luna: lunaReview });
           setEssayComparison(result.comparison ?? null);
         } else {
           setEssayReviews(null);
@@ -1210,15 +1228,15 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         const failures = result.modelFailures ?? [];
         setEssayFeedback(
           failures.length > 0
-            ? (resultMode === "dual" ? "Sol 批改已完成並保存；" : "批改尚未完成；") + failures.map((item) => item.message).join("；") + " 你的答案已保留，可重新選擇模型批改。"
+            ? (resultMode === "dual" ? "Sol 或 Luna 其中一個模型已完成並保存；" : "批改尚未完成；") + failures.map((item) => item.message).join("；") + " 你的答案已保留，可重新選擇模型批改。"
             : resultMode === "dual"
-              ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
-              : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
+              ? `已完成 GPT-5.6 Sol 與 GPT-5.6 Luna 雙模型批改，請用上方分頁或分割檢視比較。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
+              : `本次使用${resultMode === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
         );
       } else {
         setEssayModelFailures(result.failedModel ? [{
           model: result.failedModel,
-          label: result.failedModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
+          label: result.failedModel === "claude" ? "Claude Opus 5" : result.failedModel === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol",
           message: result.error ?? "申論批改暫時無法使用",
           retryable: result.retryable ?? false,
         }] : []);
@@ -1236,10 +1254,44 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   }
 
   function essayModelPicker() {
-    return null;
+    const selectedMode = essayModelMode === "luna" || essayModelMode === "dual" ? essayModelMode : "sol";
+    return (
+      <fieldset className="essay-model-picker" aria-label="正式申論批改模型">
+        <legend>正式申論批改｜選擇模型</legend>
+        <div>
+          <label className={selectedMode === "sol" ? "selected" : ""}>
+            <input type="radio" name="essay-model" checked={selectedMode === "sol"} onChange={() => setEssayModelMode("sol")} disabled={submitting} />
+            <span><strong>GPT-5.6 Sol</strong><small>正式批改預設模型，建議先看這份結果。</small></span>
+          </label>
+          <label className={selectedMode === "luna" ? "selected" : ""}>
+            <input type="radio" name="essay-model" checked={selectedMode === "luna"} onChange={() => setEssayModelMode("luna")} disabled={submitting} />
+            <span><strong>GPT-5.6 Luna</strong><small>另一份獨立批改，方便比較不同判斷。</small></span>
+          </label>
+          <label className={`${selectedMode === "dual" ? "selected" : ""} ${!essayDualEnabled ? "is-disabled" : ""}`}>
+            <input type="radio" name="essay-model" checked={selectedMode === "dual"} onChange={() => setEssayModelMode("dual")} disabled={submitting || !essayDualEnabled} />
+            <span><strong>Sol＋Luna 比較</strong><small>{essayDualEnabled ? "一次取得兩份結果，送出後可分頁或分割查看。" : "目前由後台關閉比較功能。"}</small></span>
+          </label>
+        </div>
+        <p>一般教學功能維持使用 Luna；這裡是正式申論批改，可在送出前直接選擇 Sol、Luna 或雙模型比較。</p>
+      </fieldset>
+    );
   }
 
-  function renderEssayGrading(grading: EssayGrading, title?: string) {
+  function renderTeacherAnswer() {
+    if (!question?.teacherAnswer) return null;
+    return (
+      <details className="essay-teacher-answer" open={teacherAnswerOpen} onToggle={(event) => setTeacherAnswerOpen(event.currentTarget.open)}>
+        <summary>查看老師擬答</summary>
+        <div>
+          <strong>{question.answerSource || "老師參考擬答"}</strong>
+          <p>{question.teacherAnswer}</p>
+          <small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small>
+        </div>
+      </details>
+    );
+  }
+
+  function renderEssayGrading(grading: EssayGrading, title?: string, includeTeacherAnswer = true) {
     return (
       <div className="essay-grading-result">
         {title && (
@@ -1292,16 +1344,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
           <strong>下一步</strong>
           <p>{grading.next_step}</p>
         </div>
-        {question?.teacherAnswer ? (
-          <details className="essay-teacher-answer" open={teacherAnswerOpen} onToggle={(event) => setTeacherAnswerOpen(event.currentTarget.open)}>
-            <summary>查看老師擬答</summary>
-            <div>
-              <strong>{question.answerSource || "老師參考擬答"}</strong>
-              <p>{question.teacherAnswer}</p>
-              <small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small>
-            </div>
-          </details>
-        ) : null}
+        {includeTeacherAnswer && renderTeacherAnswer()}
       </div>
     );
   }
@@ -1338,23 +1381,36 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     if (!essayReviews || essayResultMode !== "dual") {
       return renderEssayGrading(
         essayGrading,
-        essayResultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
+        essayResultMode === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol",
       );
     }
+    const visibleGrading = essayVisibleModel === "luna" ? essayReviews.luna : essayReviews.sol;
     return (
       <section className="essay-dual-review" aria-label="雙模型申論覆核結果">
         <header>
           <div>
-            <strong>Sol＋Claude 雙模型覆核</strong>
-            <span>兩個模型獨立評分，先看各自判斷，再看採分差異。</span>
+            <strong>Sol＋Luna 雙模型批改</strong>
+            <span>可先用分頁查看各自判斷，也可切換分割畫面直接比較。</span>
           </div>
           {essayComparison && (
             <b>總分差距 {essayComparison.scoreDifference} 分</b>
           )}
         </header>
-        <div className="essay-dual-models">
-          {renderEssayGrading(essayReviews.sol, "GPT-5.6 Sol")}
-          {renderEssayGrading(essayReviews.claude, "Claude Opus 5")}
+        <div className="essay-result-controls" aria-label="批改結果檢視方式">
+          <div className="essay-result-tabs" role="tablist" aria-label="模型結果分頁">
+            <button type="button" className={essayVisibleModel === "sol" ? "active" : ""} onClick={() => { setEssayVisibleModel("sol"); setEssayDisplayMode("tabs"); }} role="tab" aria-selected={essayVisibleModel === "sol"}>Sol 結果</button>
+            <button type="button" className={essayVisibleModel === "luna" ? "active" : ""} onClick={() => { setEssayVisibleModel("luna"); setEssayDisplayMode("tabs"); }} role="tab" aria-selected={essayVisibleModel === "luna"}>Luna 結果</button>
+          </div>
+          <div className="essay-result-layout" role="group" aria-label="結果版面">
+            <button type="button" className={essayDisplayMode === "tabs" ? "active" : ""} onClick={() => setEssayDisplayMode("tabs")}>分頁比較</button>
+            <button type="button" className={essayDisplayMode === "split" ? "active" : ""} onClick={() => setEssayDisplayMode("split")}>分割比較</button>
+          </div>
+        </div>
+        <div className={`essay-dual-models ${essayDisplayMode === "split" ? "is-split" : "is-tabs"}`}>
+          {essayDisplayMode === "split" ? <>
+            {renderEssayGrading(essayReviews.sol, "GPT-5.6 Sol", false)}
+            {renderEssayGrading(essayReviews.luna, "GPT-5.6 Luna", false)}
+          </> : renderEssayGrading(visibleGrading, essayVisibleModel === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol", false)}
         </div>
         {essayComparison && (
           <div className="essay-comparison">
@@ -1368,7 +1424,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
               <p>
                 <b>配分差異：</b>
                 {essayComparison.differences
-                  .map((item) => `${item.criterion}（Sol ${item.sol}／Claude ${item.claude}）`)
+                  .map((item) => `${item.criterion}（Sol ${item.sol}／Luna ${item.luna ?? item.claude ?? 0}）`)
                   .join("、")}
               </p>
             ) : (
@@ -1376,6 +1432,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
             )}
           </div>
         )}
+        {renderTeacherAnswer()}
       </section>
     );
   }

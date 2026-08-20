@@ -86,6 +86,7 @@ type UsageData = {
   }>;
   showCosts: boolean;
   showEvidence: boolean;
+  essayGradingDualEnabled: boolean;
 };
 type ExamSource = {
   id: number;
@@ -2824,6 +2825,13 @@ export default function AdminPage() {
     if (response.ok) setUsage({ ...usage, showEvidence: next });
   }
 
+  async function toggleEssayGradingDual() {
+    if (!usage) return;
+    const next = !usage.essayGradingDualEnabled;
+    const response = await fetch("/api/usage", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ essayGradingDualEnabled: next }) });
+    if (response.ok) setUsage({ ...usage, essayGradingDualEnabled: next });
+  }
+
   async function testGlmConnection() {
     setGlmTesting(true);
     setGlmTestResult(null);
@@ -3466,6 +3474,19 @@ export default function AdminPage() {
         )}
         {activeTab === "costs" && (
           <section className="cost-panel panel">
+            <div className="homepage-setting-block">
+              <div className="setting-block-head">
+                <div>
+                  <h3>正式申論批改｜Sol＋Luna 比較</h3>
+                  <p>開啟後，前台可以直接選擇 Sol、Luna 或雙模型比較，並用分頁／分割方式查看；關閉後只保留 Sol 正式批改。</p>
+                </div>
+                <label className="cost-toggle">
+                  <input type="checkbox" checked={usage?.essayGradingDualEnabled ?? true} onChange={toggleEssayGradingDual} />
+                  <span />
+                  {usage?.essayGradingDualEnabled ?? true ? "目前開放" : "目前關閉"}
+                </label>
+              </div>
+            </div>
             <div className="homepage-setting-block">
               <div className="setting-block-head">
                 <div>
