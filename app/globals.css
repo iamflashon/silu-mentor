@@ -29201,8 +29201,11 @@ html.simulation-tools-disabled .book-dialogue-message.scholar {
 }
 
 .simulation-master-setting {
-  align-items: center;
-  gap: 24px;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
 }
 
 .simulation-master-status {
@@ -29226,7 +29229,8 @@ html.simulation-tools-disabled .book-dialogue-message.scholar {
   border: 1px solid #9dd4b7;
 }
 
-.simulation-master-button {
+.setting-block-head .simulation-master-button {
+  align-self: flex-start;
   min-width: 190px;
   min-height: 44px;
   padding: 10px 18px;
@@ -29238,17 +29242,58 @@ html.simulation-tools-disabled .book-dialogue-message.scholar {
   cursor: pointer;
 }
 
-.simulation-master-button.turn-off {
+.setting-block-head .simulation-master-button.turn-off {
   background: #a94625;
+  color: #fff;
 }
 
-.simulation-master-button.turn-on {
+.setting-block-head .simulation-master-button.turn-on {
   background: #176b61;
+  color: #fff;
 }
 
 .simulation-master-button:disabled {
   cursor: wait;
   opacity: .65;
+}
+
+.site-settings-panel > .setting-block + .setting-block {
+  margin-top: 18px;
+}
+
+.site-settings-panel .cost-toggle {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.site-settings-panel .cost-toggle span {
+  width: auto;
+  min-width: 112px;
+  height: 36px;
+  padding: 9px 12px 9px 38px;
+  color: #526b7c;
+  line-height: 18px;
+}
+
+.site-settings-panel .cost-toggle span::after {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.site-settings-panel .cost-toggle input:checked + span {
+  color: #fff;
+}
+
+.site-settings-panel .cost-toggle input:checked + span::after {
+  transform: none;
+}
+
+@media (min-width: 801px) {
+  .admin-tabs {
+    top: 108px;
+    max-height: calc(100vh - 132px);
+  }
 }
 
 @media (max-width: 760px) {
