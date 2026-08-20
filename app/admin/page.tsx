@@ -35,6 +35,9 @@ type Uploaded = {
   fullTextIndexed?: boolean;
   vectorIndexed?: boolean;
   homepageSearchEnabled?: boolean;
+  fineSearchUnitCount?: number;
+  assignmentCount?: number;
+  assignmentCategories?: string[];
   summary?: string;
   sourceFileName?: string;
   indexedFileName?: string;
@@ -64,6 +67,9 @@ type DocumentApiRow = {
   fullTextIndexed?: boolean;
   vectorIndexed?: boolean;
   homepageSearchEnabled?: boolean;
+  fineSearchUnitCount?: number;
+  assignmentCount?: number;
+  assignmentCategories?: string[];
   summary?: string;
   sourceFileName?: string;
   indexedFileName?: string;
@@ -273,6 +279,9 @@ function uploadedDocument(item: DocumentApiRow): Uploaded {
     fullTextIndexed: item.fullTextIndexed,
     vectorIndexed: item.vectorIndexed,
     homepageSearchEnabled: item.homepageSearchEnabled,
+    fineSearchUnitCount: item.fineSearchUnitCount,
+    assignmentCount: item.assignmentCount,
+    assignmentCategories: item.assignmentCategories,
     summary: item.summary,
     sourceFileName: item.sourceFileName,
     indexedFileName: item.indexedFileName,
@@ -682,6 +691,7 @@ export default function AdminPage() {
   });
   const [documentSearchQueries, setDocumentSearchQueries] = useState<Record<number, string>>({});
   const [documentSearchTests, setDocumentSearchTests] = useState<Record<number, DocumentSearchTest>>({});
+  const [fineIndexingDocumentId, setFineIndexingDocumentId] = useState<number | null>(null);
   const [resourceDocumentQueries, setResourceDocumentQueries] = useState<Record<number, string>>({});
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -855,7 +865,7 @@ export default function AdminPage() {
     });
   }
 
-  async function loadDocumentCategory(category: "law" | "accounting" | "medtech", replaceAll = false) {
+  async function loadDocumentCategory(category: "law" | "accounting" | "medtech" | "data-structure", replaceAll = false) {
     try {
       const response = await fetch(`/api/documents?category=${category}`, { cache: "no-store" });
       if (!response.ok) return;
@@ -875,7 +885,10 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    void loadDocumentCategory("law", true);
+    void (async () => {
+      await loadDocumentCategory("law", true);
+      await Promise.all([loadDocumentCategory("accounting"), loadDocumentCategory("medtech"), loadDocumentCategory("data-structure")]);
+    })();
     fetch("/api/usage")
       .then(async (response) => {
         if (response.ok) setUsage((await response.json()) as UsageData);
@@ -3063,6 +3076,56 @@ export default function AdminPage() {
     }
   }
 
+  async function buildFineSearchIndex(file: Uploaded) {
+    if (fineIndexingDocumentId) return;
+    setFineIndexingDocumentId(file.id);
+    setNotice(`正在把「${file.bookTitle || file.name}」依 PDF 頁面拆成精準搜尋片段…`);
+    try {
+      let restart = true;
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const response = await fetch("/api/documents/fine-index", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ documentId: file.id, restart }),
+        });
+        const result = await response.json() as { done?: boolean; pagesDone?: number; totalPages?: number; units?: number; error?: string };
+        if (!response.ok) throw new Error(result.error ?? "精準搜尋索引建立失敗");
+        restart = false;
+        setFiles((current) => current.map((item) => item.id === file.id ? { ...item, fineSearchUnitCount: Number(result.units ?? 0) } : item));
+        setNotice(`精準索引進度：${result.pagesDone ?? 0} / ${result.totalPages ?? 0} 頁，已建立 ${result.units ?? 0} 個搜尋片段。`);
+        if (result.done) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+      setNotice(`「${file.bookTitle || file.name}」已完成頁面級精準索引；可立即在下方測試關鍵字與頁碼。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "精準搜尋索引建立失敗");
+    } finally {
+      setFineIndexingDocumentId(null);
+    }
+  }
+
+  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "medtech" | "accounting") {
+    try {
+      const response = await fetch(`/api/documents/assignments?documentId=${file.id}`, { cache: "no-store" });
+      const loaded = await response.json() as { assignments?: Array<{ examCategory: string; subject: string; usageType?: string; visibility?: string; aiSearchEnabled?: boolean }>; error?: string };
+      if (!response.ok) throw new Error(loaded.error ?? "讀取教材平台失敗");
+      const current = loaded.assignments ?? [];
+      const exists = current.some((item) => item.examCategory === category);
+      const next = exists
+        ? current.filter((item) => item.examCategory !== category)
+        : [...current, { examCategory: category, subject: file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
+      if (!next.length) throw new Error("至少保留一個使用平台");
+      const savedResponse = await fetch("/api/documents/assignments", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, assignments: next }) });
+      const saved = await savedResponse.json() as { assignments?: Array<{ examCategory: string }>; error?: string };
+      if (!savedResponse.ok) throw new Error(saved.error ?? "教材平台儲存失敗");
+      const assignmentCategories = (saved.assignments ?? []).map((item) => item.examCategory);
+      setFiles((rows) => rows.map((item) => item.id === file.id ? { ...item, assignmentCategories, assignmentCount: assignmentCategories.length } : item));
+      setNotice(`「${file.bookTitle || file.name}」的平台關聯已更新。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "教材平台儲存失敗");
+    }
+  }
+
   async function deleteSelectedDocuments() {
     if (!selectedDocumentIds.length || deletingDocuments) return;
     if (!window.confirm(`確定刪除已選取的 ${selectedDocumentIds.length} 份教材？\n\n原始檔、全文／向量索引及處理紀錄都會一併刪除；已綁定的智能書會解除教材連結。`)) return;
@@ -3272,7 +3335,7 @@ export default function AdminPage() {
     );
   }
 
-  const categoryFiles = files.filter((file) => (file.examCategory ?? "law") === examCategory);
+  const categoryFiles = files;
   const documentPageCount = Math.max(
     1,
     Math.ceil(categoryFiles.length / DOCUMENTS_PER_PAGE),
@@ -3357,7 +3420,7 @@ export default function AdminPage() {
             className={activeTab === "documents" ? "active" : ""}
             onClick={() => setActiveTab("documents")}
           >
-            教材知識庫
+            中央教材資料庫
           </button>
           <button
             className={activeTab === "resources" ? "active" : ""}
@@ -3928,7 +3991,7 @@ export default function AdminPage() {
             </form>
             <section className="panel document-panel">
               <div className="document-list-heading">
-                <h2>文件處理狀態</h2>
+                <h2>公司教材與索引狀態</h2>
                 {categoryFiles.length > 0 && (
                   <div className="document-batch-actions">
                     <label>
@@ -3946,11 +4009,11 @@ export default function AdminPage() {
                 )}
               </div>
               <p className="panel-sub">
-                目前只顯示「{examCategory === "law" ? "司律" : examCategory === "accounting" ? "會計" : "醫檢師"}」教材。上傳後會自動完成檔案檢查、文字擷取、分類、章節／題目整理與全文／向量索引。
+                每本書只上傳一次；可同時關聯司律、醫檢師與會計平台。系統保留 PDF 原始頁碼，並可再拆成約 760 字的重疊片段，兼顧精準命中與上下文完整。
               </p>
               {categoryFiles.length === 0 ? (
                 <div className="empty-state">
-                  尚未上傳「{examCategory === "law" ? "司律" : examCategory === "accounting" ? "會計" : "醫檢師"}」教材
+                  公司教材資料庫目前尚未上傳文件
                   <br />
                   第一份教材會顯示在這裡
                 </div>
@@ -4010,6 +4073,27 @@ export default function AdminPage() {
                               {file.chapterCount ?? 0} 章 · {file.questionCount ?? 0} 題
                               {file.tags?.length ? ` · ${file.tags.slice(0, 5).join("、")}` : ""}
                             </small>
+                          )}
+                          {ready && (
+                            <div className="document-granular-index">
+                              <div>
+                                <strong>精準搜尋索引</strong>
+                                <small>{file.fineSearchUnitCount ? `已建立 ${file.fineSearchUnitCount.toLocaleString()} 個頁面級片段` : "尚未建立細粒度片段；目前仍可使用全文向量搜尋"}</small>
+                              </div>
+                              <button type="button" onClick={() => void buildFineSearchIndex(file)} disabled={fineIndexingDocumentId !== null}>
+                                {fineIndexingDocumentId === file.id ? "逐頁拆解中…" : file.fineSearchUnitCount ? "重建精準索引" : "建立精準索引"}
+                              </button>
+                            </div>
+                          )}
+                          {ready && (
+                            <div className="document-platform-links">
+                              <strong>使用平台</strong>
+                              {([['law', '司律'], ['medtech', '醫檢師'], ['accounting', '會計']] as const).map(([value, label]) => {
+                                const enabled = (file.assignmentCategories?.length ? file.assignmentCategories : [file.examCategory ?? 'law']).includes(value);
+                                return <button key={value} type="button" className={enabled ? "active" : ""} onClick={() => void toggleDocumentAssignment(file, value)}>{enabled ? "✓ " : "+ "}{label}</button>;
+                              })}
+                              <small>可跨平台共用檔案，但搜尋時只會進入已勾選的平台。</small>
+                            </div>
                           )}
                           {ready && (file.summary || file.chapters?.length || file.questions?.length) && (
                             <details className="document-result">
@@ -4099,7 +4183,7 @@ export default function AdminPage() {
               )}
               <div className="index-metrics" aria-label="教材索引即時統計">
                 <div>
-                  <span>本類科向量可搜尋</span>
+                  <span>全公司向量可搜尋</span>
                   <strong>
                     {categoryFiles.filter((file) => file.vectorIndexed).length} / {categoryFiles.length}
                   </strong>

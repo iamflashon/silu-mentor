@@ -6332,6 +6332,46 @@ a {
   color: #2d7763 !important;
   font-weight: 800;
 }
+
+.document-granular-index,
+.document-platform-links {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  margin-top: 0.65rem;
+  padding: 0.7rem;
+  border: 1px solid #cfe1df;
+  border-radius: 12px;
+  background: #f4faf9;
+}
+
+.document-granular-index > div {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1 1 240px;
+}
+
+.document-granular-index button,
+.document-platform-links button {
+  border: 1px solid #8fc4bd;
+  border-radius: 999px;
+  background: white;
+  color: #145f59;
+  padding: 0.42rem 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.document-platform-links button.active {
+  color: white;
+  background: #18746b;
+  border-color: #18746b;
+}
+
+.document-platform-links small {
+  flex-basis: 100%;
+}
 .document-search-test {
   display: grid;
   gap: 6px;

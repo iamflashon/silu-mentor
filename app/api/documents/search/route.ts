@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { appSettings, documents, usageLogs } from "../../../../db/schema";
+import { appSettings, documentSearchUnits, documents, usageLogs } from "../../../../db/schema";
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 
@@ -47,6 +47,28 @@ export async function POST(request: Request) {
     }
 
     const db = await getDb();
+    const terms = [...new Set(query.normalize("NFKC").toLocaleLowerCase("zh-Hant").split(/[\s、，。；：,.;:()（）]+/u).filter((item) => item.length >= 2))].slice(0, 6);
+    const lexicalRows = terms.length ? await db.select({
+      title: documentSearchUnits.title,
+      text: documentSearchUnits.text,
+      pageStart: documentSearchUnits.pageStart,
+      pageEnd: documentSearchUnits.pageEnd,
+      hierarchyPath: documentSearchUnits.hierarchyPath,
+      sequence: documentSearchUnits.sequence,
+    }).from(documentSearchUnits).where(and(
+      eq(documentSearchUnits.documentId, documentId),
+      or(...terms.map((term) => like(documentSearchUnits.normalizedText, `%${term}%`))),
+    )).orderBy(desc(sql<number>`case when ${documentSearchUnits.normalizedText} like ${`%${query.normalize("NFKC").toLocaleLowerCase("zh-Hant")}%`} then 2 else 1 end`), documentSearchUnits.sequence).limit(8) : [];
+    const lexicalHits = lexicalRows.map((row) => ({
+      fileName: "精準頁面索引",
+      score: null,
+      text: row.text.slice(0, 900),
+      pageStart: row.pageStart,
+      pageEnd: row.pageEnd,
+      title: row.title,
+      hierarchyPath: row.hierarchyPath,
+      retrievalMode: "fine_lexical",
+    }));
     const [document] = await db.select({
       id: documents.id,
       fileName: documents.fileName,
@@ -58,6 +80,7 @@ export async function POST(request: Request) {
     }).from(documents).where(eq(documents.id, documentId)).limit(1);
     if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
     if (document.status !== "completed" || !document.openaiFileId || !document.vectorIndexed) {
+      if (lexicalHits.length) return Response.json({ documentId, query, selectedFileWasSearched: true, hits: lexicalHits, retrievalModes: ["fine_lexical"], index: { fullTextIndexed: Boolean(document.fullTextIndexed), vectorIndexed: Boolean(document.vectorIndexed) } });
       return Response.json({
         error: "這份教材尚未完成向量索引，請先重新處理教材。",
         code: "INDEX_NOT_READY",
@@ -82,7 +105,7 @@ export async function POST(request: Request) {
       }),
     }) as Record<string, unknown>;
     const allResults = fileSearchResults(payload);
-    const hits = allResults
+    const vectorHits = allResults
       .filter((result) => result.file_id === document.openaiFileId || result.filename === document.fileName)
       .map((result) => ({
         fileName: String(result.filename || document.fileName),
@@ -92,6 +115,9 @@ export async function POST(request: Request) {
         pageEnd: resultPage(result, "page_end"),
       }))
       .filter((result) => result.text)
+      .slice(0, 8);
+    const hits = [...lexicalHits, ...vectorHits.map((hit) => ({ ...hit, retrievalMode: "vector" }))]
+      .filter((hit, index, rows) => rows.findIndex((candidate) => candidate.pageStart === hit.pageStart && candidate.text.slice(0, 100) === hit.text.slice(0, 100)) === index)
       .slice(0, 8);
     const usage = payload.usage && typeof payload.usage === "object"
       ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
@@ -113,6 +139,7 @@ export async function POST(request: Request) {
       query,
       selectedFileWasSearched: hits.length > 0,
       hits,
+      retrievalModes: [...new Set(hits.map((hit) => hit.retrievalMode))],
       index: { fullTextIndexed: Boolean(document.fullTextIndexed), vectorIndexed: Boolean(document.vectorIndexed) },
     });
   } catch (error) {

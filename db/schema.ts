@@ -96,6 +96,46 @@ export const documents = sqliteTable("documents", {
     .$defaultFn(() => new Date()),
 });
 
+// A company document is stored once, then assigned to any number of learning
+// platforms/subjects.  Legacy examCategory/subject columns remain as the
+// primary assignment so existing documents continue to work unchanged.
+export const documentAssignments = sqliteTable("document_assignments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: integer("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  examCategory: text("exam_category").notNull(),
+  subject: text("subject").notNull().default("綜合"),
+  usageType: text("usage_type").notNull().default("教材檢索"),
+  visibility: text("visibility").notNull().default("members"),
+  aiSearchEnabled: integer("ai_search_enabled", { mode: "boolean" }).notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("document_assignments_document_category_subject_unique").on(table.documentId, table.examCategory, table.subject),
+  index("document_assignments_category_subject_idx").on(table.examCategory, table.subject),
+]);
+
+// Fine-grained, page-authoritative retrieval units.  Each unit is small enough
+// for precise matching but retains its page and hierarchy path for citations.
+export const documentSearchUnits = sqliteTable("document_search_units", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  documentId: integer("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  unitType: text("unit_type").notNull().default("paragraph_window"),
+  hierarchyPath: text("hierarchy_path").notNull().default(""),
+  title: text("title").notNull().default(""),
+  pageStart: integer("page_start"),
+  pageEnd: integer("page_end"),
+  sequence: integer("sequence").notNull().default(0),
+  text: text("text").notNull(),
+  normalizedText: text("normalized_text").notNull().default(""),
+  keywordsJson: text("keywords_json").notNull().default("[]"),
+  contentHash: text("content_hash").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("document_search_units_document_sequence_unique").on(table.documentId, table.sequence),
+  index("document_search_units_document_page_idx").on(table.documentId, table.pageStart),
+]);
+
 export const medtechUsage = sqliteTable("medtech_usage", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull().unique(),

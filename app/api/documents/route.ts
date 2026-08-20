@@ -1,6 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { chatMessages, documents, examQuestions } from "../../../db/schema";
+import { chatMessages, documentAssignments, documentSearchUnits, documents, examQuestions } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../lib/document-processing";
 import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
@@ -60,6 +60,9 @@ export async function GET(request: Request) {
       fullTextIndexed: documents.fullTextIndexed,
       vectorIndexed: documents.vectorIndexed,
       homepageSearchEnabled: documents.homepageSearchEnabled,
+      fineSearchUnitCount: sql<number>`(select count(*) from ${documentSearchUnits} where ${documentSearchUnits.documentId} = ${documents.id})`,
+      assignmentCount: sql<number>`(select count(*) from ${documentAssignments} where ${documentAssignments.documentId} = ${documents.id})`,
+      assignmentCategories: sql<string>`coalesce((select group_concat(${documentAssignments.examCategory}, ',') from ${documentAssignments} where ${documentAssignments.documentId} = ${documents.id}), '')`,
       processedAt: documents.processedAt,
       createdAt: documents.createdAt,
     }).from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
@@ -118,6 +121,9 @@ export async function GET(request: Request) {
         fullTextIndexed: row.fullTextIndexed,
         vectorIndexed: row.vectorIndexed,
         homepageSearchEnabled: row.homepageSearchEnabled,
+        fineSearchUnitCount: Number(row.fineSearchUnitCount ?? 0),
+        assignmentCount: Math.max(1, Number(row.assignmentCount ?? 0)),
+        assignmentCategories: row.assignmentCategories ? [...new Set(row.assignmentCategories.split(",").filter(Boolean))] : [row.examCategory],
         summary: typeof result.summary === "string" ? result.summary : "",
         sourceFileName: typeof result.sourceFileName === "string" ? result.sourceFileName : row.fileName,
         indexedFileName: typeof result.indexedFileName === "string" ? result.indexedFileName : row.fileName,
