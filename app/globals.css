@@ -4783,6 +4783,23 @@ a {
 .composer .send-button {
   flex: 0 0 auto;
 }
+.composer .composer-focus-button {
+  width: auto;
+  min-width: 52px;
+  height: 42px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border: 1px solid #c8dbe4;
+  border-radius: 14px;
+  background: #f1f6f9;
+  color: #315f78;
+  font-size: 11px;
+  font-weight: 800;
+}
+.composer .composer-focus-button:hover {
+  border-color: #83afbd;
+  background: #eaf5f6;
+}
 .composer-wrap > p {
   text-align: center;
   color: #8999a5;

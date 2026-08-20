@@ -1074,7 +1074,6 @@ export function LawHome() {
 
       <div className={`command-layout rail-${railSide} ${railCollapsed ? "rail-collapsed" : ""} ${mobileRailOpen ? "mobile-rail-open" : ""}`}>
       <section className="conversation" aria-live="polite">
-        {chatFocusMode && <button type="button" className="chat-focus-toggle" onClick={() => setChatFocusMode(false)} aria-pressed="true">退出專注模式</button>}
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
           <h1>今天，照計畫前進。</h1>
@@ -1085,9 +1084,8 @@ export function LawHome() {
           </div>}
           <div className="home-calendar-entry">
             <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
-            {currentMember?.canAdmin && <button type="button" className="header-new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
-            <button type="button" className="header-new-topic-button" onClick={() => setChatFocusMode(true)}>放大對話</button>
             <a href="/calendar" aria-label="開啟我的行事曆">行事曆</a>
+            {currentMember?.canAdmin && <button type="button" className="header-new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
           </div>
           <button type="button" className="desktop-rail-toggle" onClick={toggleRailCollapsed} aria-expanded={!railCollapsed} aria-controls="command-rail">
             {railCollapsed ? "展開學習工具" : "收合側欄"}
@@ -1241,6 +1239,7 @@ export function LawHome() {
             rows={1}
           />
           <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
+          <button className="composer-focus-button" type="button" onClick={() => setChatFocusMode((current) => !current)} aria-pressed={chatFocusMode} aria-label={chatFocusMode ? "還原對話視窗" : "放大對話視窗"}>{chatFocusMode ? "還原" : "放大"}</button>
         </form>
       </div>
 
