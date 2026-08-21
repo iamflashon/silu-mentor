@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./entry-gate.css";
 import "./plan/selection-tools.css";
 import GlobalSelectionTools from "./global-selection-tools";
 import StudyBreakReminder from "./study-break-reminder";

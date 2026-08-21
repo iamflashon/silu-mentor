@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import "../entry-gate.css";
 
 function returnToFromLocation() {
   if (typeof window === "undefined") return "/";

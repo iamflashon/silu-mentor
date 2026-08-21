@@ -7,7 +7,6 @@ import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
 import { formatTwd } from "../lib/currency";
 import { coreExamPoints, type CoreExamPoint } from "../lib/core-exam-points";
 import { useSimulationToolsEnabled } from "../lib/use-simulation-tools";
-import "./entry-gate.css";
 
 type ComparisonResponse = {
   id: number;
