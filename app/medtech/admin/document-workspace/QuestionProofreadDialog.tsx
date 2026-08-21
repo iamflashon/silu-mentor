@@ -37,7 +37,7 @@ function ExplanationCard({ title, value, tone = "plain", empty }: { title: strin
   </section>;
 }
 
-export function QuestionProofreadDialog({ question, onClose }: { question: ProofreadQuestion; onClose: () => void }) {
+export function QuestionProofreadDialog({ question, onClose, accounting = false }: { question: ProofreadQuestion; onClose: () => void; accounting?: boolean }) {
   const teacherAnswer = content(question.teacherAnswer || question.correctAnswer).toUpperCase();
   const aiAnswer = content(question.simulatedAnswer).toUpperCase();
   const aiComplete = content(question.aiCompleteExplanation || question.simulatedCompleteExplanation);
@@ -48,8 +48,8 @@ export function QuestionProofreadDialog({ question, onClose }: { question: Proof
     <div className="question-proofread-dialog question-proofread-inline-dialog">
       <header className="question-proofread-header">
         <div>
-          <span>PROOFREAD VIEW</span>
-          <h2>第 {question.questionNumber || "未標示"} 題｜單題校對檢視</h2>
+          <span>{accounting ? "PLAIN VIEW" : "PROOFREAD VIEW"}</span>
+          <h2>第 {question.questionNumber || "未標示"} 題｜{accounting ? "純文字檢視" : "單題校對檢視"}</h2>
           <p>{question.year || "未標示年份"} · {question.subject || "未分類科目"}</p>
         </div>
         <button type="button" className="question-proofread-close" onClick={onClose}>開啟富文編輯</button>
@@ -71,18 +71,16 @@ export function QuestionProofreadDialog({ question, onClose }: { question: Proof
           </div>
         </section>
 
-        <section className="question-proofread-answer-grid">
-          <div className="question-proofread-answer ai"><span>AI 擬答（AI 版）</span><strong>{aiAnswer || "尚未產生"}</strong><small>AI 獨立判斷；僅供與老師答案比對</small></div>
+        <section className={`question-proofread-answer-grid ${accounting ? "single" : ""}`}>
+          {!accounting && <div className="question-proofread-answer ai"><span>AI 擬答（AI 版）</span><strong>{aiAnswer || "尚未產生"}</strong><small>AI 獨立判斷；僅供與老師答案比對</small></div>}
           <div className="question-proofread-answer teacher"><span>老師答案（老師版）</span><strong>{teacherAnswer || "尚未確認"}</strong><small>{question.answerSource || "原稿／題庫來源尚未標示"}</small></div>
         </section>
 
         <ExplanationCard title="題目原有簡要解析" value={question.explanation} empty="原題沒有附簡要解析。" />
-        <ExplanationCard title="AI 簡要解析" value={question.simulatedExplanation} tone="ai" empty="AI 簡要解析尚未產生。" />
-        <ExplanationCard title="AI 完整解析（待老師核對）" value={aiComplete} tone="ai" empty="AI 完整解析尚未產生。" />
-        <ExplanationCard title="老師完整解析（老師版）" value={teacherComplete} tone="teacher" empty="老師完整解析尚未補充。" />
+        {!accounting && <><ExplanationCard title="AI 簡要解析" value={question.simulatedExplanation} tone="ai" empty="AI 簡要解析尚未產生。" /><ExplanationCard title="AI 完整解析（待老師核對）" value={aiComplete} tone="ai" empty="AI 完整解析尚未產生。" /><ExplanationCard title="老師完整解析（老師版）" value={teacherComplete} tone="teacher" empty="老師完整解析尚未補充。" /></>}
 
         <div className={`question-proofread-status ${question.reviewStatus === "confirmed" ? "confirmed" : "pending"}`}>
-          {question.reviewStatus === "confirmed" ? "本題已確認校對" : "本題尚未確認校對"}
+          {accounting ? "目前已關閉富文工具列" : question.reviewStatus === "confirmed" ? "本題已確認校對" : "本題尚未確認校對"}
           <span>目前為對照檢視；按右上方「開啟富文編輯」後，才會顯示題幹與選項的編輯工具。</span>
         </div>
       </div>
