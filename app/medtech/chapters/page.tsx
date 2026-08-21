@@ -83,8 +83,8 @@ export default async function MedtechChapters() {
       const hasHistory = sessionRows.some((row) => row.packageName === name && row.packNumber === packNumber && (isCompleted(row) || row.answeredQuestions > 0));
       const canStart = previousCompleted;
       const needsUnlock = !active && (freePackageUsed || packNumber > 1 || hasHistory);
-      const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !canStart ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : !hasDiscountChoice ? "可抽一次折扣" : "30 點解鎖";
-      const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !canStart ? "尚未開放" : !freePackageUsed ? "免費開始" : !hasDiscountChoice ? "🎡 抽轉轉樂" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
+      const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !canStart ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : !hasDiscountChoice ? "可抽一次折扣" : "NT$30 購買";
+      const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !canStart ? "尚未開放" : !freePackageUsed ? "免費開始" : !hasDiscountChoice ? "🎡 抽轉轉樂" : hasHistory ? "NT$30 再次購買" : "NT$30 購買";
       return { packNumber, questionTotal, isBonus, active, completed, hasHistory, hasDiscountChoice, canStart, needsUnlock, label, action, availableUntil };
     });
     return { name, description, index, questionCount, packs };

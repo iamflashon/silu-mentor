@@ -1,7 +1,9 @@
 import { getDb } from "../../../../db";
 import { documents } from "../../../../db/schema";
-import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
+import { eq } from "drizzle-orm";
+import { contentTypeForDocument, documentExtension, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
 import { documentDisplayTitle } from "../../../../lib/document-title";
+import { requireAdmin } from "../../../../lib/member-auth";
 
 type InitPayload = {
   action: "init";
@@ -20,6 +22,7 @@ type CompletePayload = {
   examCategory: string;
   subject: string;
   documentType: string;
+  replaceDocumentId?: number;
 };
 
 function safeName(value: string) {
@@ -57,6 +60,37 @@ export async function POST(request: Request) {
 
       try {
         const db = await getDb();
+        if (Number.isInteger(body.replaceDocumentId) && Number(body.replaceDocumentId) > 0) {
+          const auth = await requireAdmin(request);
+          if ("error" in auth) {
+            await bucket.delete(body.key);
+            return auth.error;
+          }
+          const [current] = await db.select().from(documents).where(eq(documents.id, Number(body.replaceDocumentId))).limit(1);
+          if (!current) {
+            await bucket.delete(body.key);
+            return Response.json({ error: "找不到要新增原稿的文件" }, { status: 404 });
+          }
+          let result: Record<string, unknown> = {};
+          try { result = JSON.parse(current.processingResultJson) as Record<string, unknown>; } catch { result = {}; }
+          const variants = Array.isArray(result.sourceVariants)
+            ? result.sourceVariants.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && typeof (item as Record<string, unknown>).storageKey === "string"))
+            : [];
+          const currentKind = documentExtension(current.fileName) ?? "other";
+          const nextKind = documentExtension(body.fileName) ?? "other";
+          const nextVariants = variants.filter(item => item.kind !== nextKind && item.storageKey !== current.storageKey);
+          nextVariants.push({ kind: currentKind, storageKey: current.storageKey, fileName: current.fileName, contentType: current.contentType, sizeBytes: current.sizeBytes, createdAt: new Date().toISOString() });
+          await db.update(documents).set({
+            storageKey: body.key,
+            fileName: body.fileName,
+            contentType: contentTypeForDocument(body.fileName, body.contentType),
+            sizeBytes: body.sizeBytes,
+            processingMessage: `已新增 ${nextKind.toUpperCase()} 原稿版本；既有題目與解析均保留`,
+            processingResultJson: JSON.stringify({ ...result, sourceVariants: nextVariants }),
+            indexError: null,
+          }).where(eq(documents.id, current.id));
+          return Response.json({ replaced: true, variant: nextKind, id: current.id, name: body.fileName });
+        }
         const [row] = await db.insert(documents).values({
           storageKey: body.key,
           fileName: body.fileName,

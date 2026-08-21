@@ -162,7 +162,7 @@ export default function MedtechUltimateChallenge({ packageName, packNumber, href
   const question = questions[index];
   return <>
     <div className="medtech-ultimate-banner">
-      <div><span className="medtech-ultimate-kicker">DAILY MASTER CHALLENGE</span><strong>🏆 1 折終極挑戰</strong><p>每日限 1 次；從上一關隨機抽 30 題，題號與選項都重新打亂。每題 5 秒、總限時 3 分鐘，30 題全對，下一關只要 3 點解鎖。</p></div>
+      <div><span className="medtech-ultimate-kicker">DAILY MASTER CHALLENGE</span><strong>🏆 1 折終極挑戰</strong><p>每日限 1 次；從上一關隨機抽 30 題，題號與選項都重新打亂。每題 5 秒、總限時 3 分鐘，30 題全對，下一關優惠價 NT$3。</p></div>
       <button type="button" onClick={() => void openChallenge()} disabled={loading || busy || dailyStatus === "finished"}>{dailyStatus === "finished" ? "今日已挑戰，明天再來" : dailyStatus === "in_progress" ? "繼續今日挑戰 →" : "開始挑戰 →"}</button>
     </div>
     {open && <div className="medtech-spin-backdrop" role="presentation" onMouseDown={close}>

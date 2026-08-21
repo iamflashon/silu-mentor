@@ -17,8 +17,8 @@ type PointOption = {
 
 const pointOptions: PointOption[] = [
   { id: "welcome", name: "首次登入贈點", amount: "10 點＝NT$10", period: "登入後自動贈送", note: "先體驗題目、提示與引導學習流程", features: ["提示免費快取", "比較選項免費簡答", "語音完整解析每次扣 1 點／NT$1"], purchasable: false },
-  { id: "mock120", name: "全真模擬 120 題包", amount: "60 點＝NT$60", period: "一次購買／五折", note: "一次取得完整 120 題；題目包開通後 7 天內不限次數重做", features: ["120 題一次購足", "完整保存刷題統計與錯題分析", "語音完整解析另扣 1 點／NT$1／24 小時"], purchasable: true, recommended: true },
-  { id: "points", name: "章節／隨機題目包", amount: "30 點＝NT$30／包", period: "30 題／7 天", note: "任選一包免費體驗一次；完成前一關後，每包最多 2 次答題挑戰，每題 5 秒，另有一次轉轉樂，最高五折", features: ["任選一包 30 題免費", "答題挑戰最多 2 次＋轉轉樂 1 次", "語音解析 1 點／NT$1／24 小時；AI 追問 1 點／NT$1／題"], purchasable: true },
+  { id: "mock120", name: "全真模擬 120 題包", amount: "NT$60", period: "一次購買／五折", note: "一次取得完整 120 題；購買後 7 天內不限次數重做", features: ["120 題一次購足", "完整保存刷題統計與錯題分析", "語音完整解析另扣 1 點／NT$1／24 小時"], purchasable: true, recommended: true },
+  { id: "points", name: "章節／隨機題目包", amount: "NT$30／包", period: "30 題／7 天", note: "任選一包免費體驗一次；完成前一關後，每包最多 2 次答題挑戰，每題 5 秒，另有一次轉轉樂，最高五折", features: ["任選一包 30 題免費", "答題挑戰最多 2 次＋轉轉樂 1 次", "語音解析 1 點／NT$1／24 小時；AI 追問 1 點／NT$1／題"], purchasable: true },
 ];
 
 export default function MedtechUpgradePage() {
@@ -45,7 +45,7 @@ export default function MedtechUpgradePage() {
     <MedtechTabs />
     <section className="medtech-upgrade-head">
       <span>醫檢師點數商店</span>
-      <h1>不用訂閱，1 點就是 NT$1，按照使用方式簡單扣點。</h1>
+      <h1>不用訂閱，題目包直接以新台幣購買。</h1>
       <p>學員首次登入贈送 10 點；任選一包 30 題免費初體驗，完成前一關後可挑戰隨機 10 題，每題 5 秒，每包最多 2 次，另可抽一次限時轉轉樂，最高五折；之後再用點數解鎖，7 天內不限次數重做。</p>
     </section>
     <div className="medtech-test-banner"><b>{bannerTitle}</b><span>{bannerText}</span></div>

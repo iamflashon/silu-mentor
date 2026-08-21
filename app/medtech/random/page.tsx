@@ -67,8 +67,8 @@ export default async function MedtechRandomPackages() {
     const previousCompleted = packNumber === 1 || sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber - 1 && isCompleted(row));
     const hasHistory = sessionRows.some((row) => row.packageName === "隨機模考" && row.packNumber === packNumber && (isCompleted(row) || row.answeredQuestions > 0));
     const needsUnlock = !active && (freePackageUsed || packNumber > 1 || hasHistory);
-    const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !previousCompleted ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : !hasDiscountChoice ? "可抽一次折扣" : "30 點解鎖";
-    const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !previousCompleted ? "尚未開放" : !freePackageUsed ? "免費開始" : !hasDiscountChoice ? "🎡 抽轉轉樂" : hasHistory ? "30 點重新解鎖" : "30 點解鎖";
+    const label = active ? (completed ? "已完成 · 可重做" : "進行中") : !previousCompleted ? "完成上一關後開放" : !freePackageUsed ? "任選一包免費" : !hasDiscountChoice ? "可抽一次折扣" : "NT$30 購買";
+    const action = active ? (completed ? "再次挑戰" : "繼續闖關") : !previousCompleted ? "尚未開放" : !freePackageUsed ? "免費開始" : !hasDiscountChoice ? "🎡 抽轉轉樂" : hasHistory ? "NT$30 再次購買" : "NT$30 購買";
     return { packNumber, questionTotal, isBonus, active, completed, hasHistory, hasDiscountChoice, previousCompleted, needsUnlock, label, action, availableUntil };
   });
 

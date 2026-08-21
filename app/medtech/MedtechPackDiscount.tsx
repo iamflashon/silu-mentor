@@ -260,11 +260,11 @@ export default function MedtechPackDiscount({ packageName, packNumber, questionT
       <div className="medtech-pack-discount-topline"><span>第 {packNumber} 關</span><i aria-hidden="true">🎡</i></div>
       <b>{questionTotal} 題</b>
       <small>{label}</small>
-      {!loaded ? <span className="medtech-discount-loading"><span className="medtech-loading-spinner" /> 優惠方式讀取中…</span> : used ? <div className="medtech-discount-revealed"><strong>本關已使用過優惠</strong><button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 解鎖中…</> : "30 點解鎖並開始練習 →"}</button></div> : reward ? <div className="medtech-discount-revealed">
-        <strong>{isOriginal ? "這次抽到原價" : `🎉 抽到${reward.label || "優惠"}`}｜{reward.cost ?? 30} 點</strong>
+      {!loaded ? <span className="medtech-discount-loading"><span className="medtech-loading-spinner" /> 優惠方式讀取中…</span> : used ? <div className="medtech-discount-revealed"><strong>本關已使用過優惠</strong><button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 處理中…</> : "NT$30 購買並開始練習 →"}</button></div> : reward ? <div className="medtech-discount-revealed">
+        <strong>{isOriginal ? "這次抽到原價" : `🎉 抽到${reward.label || "優惠"}`}｜NT${"$"}{reward.cost ?? 30}</strong>
         {isOriginal && retryText && <em>{retryText}</em>}
         {canChallengeAgain && <button type="button" className="medtech-discount-challenge" onClick={() => void openChallenge()}>🧠 再挑戰（剩 {reward.quizAttemptsRemaining} 次）</button>}
-        <button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 解鎖中…</> : `用 ${reward.cost ?? 30} 點解鎖並開始練習 →`}</button>
+        <button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 處理中…</> : `NT$${reward.cost ?? 30} 購買並開始練習 →`}</button>
       </div> : <div className="medtech-discount-actions"><button type="button" onClick={() => void openChallenge()} disabled={busy || challengeAttemptsRemaining <= 0} aria-busy={challengeLoading}>🧠 答題挑戰折扣</button><button type="button" className="secondary" onClick={openWheel} disabled={busy} aria-busy={busy}>🎡 打開轉轉樂</button></div>}
       {error && <em>{error}</em>}
     </div>
@@ -288,8 +288,8 @@ export default function MedtechPackDiscount({ packageName, packNumber, questionT
         </div>
         {!reward ? <button type="button" className="medtech-spin-start" onClick={() => void spin()} disabled={busy} aria-busy={busy}>{busy ? <><span className="medtech-loading-spinner" /> 抽獎中…</> : "開始抽獎"}</button> : <div className={`medtech-spin-result${isOriginal ? " original" : ""}`}>
           <strong>{isOriginal ? "這次是原價" : `恭喜你抽到${reward.label}`}</strong>
-          <span>{isOriginal ? `${retryText || "24 小時後可再抽一次"}；現在也能用 ${reward.cost ?? 30} 點解鎖。` : `本關只要 ${reward.cost ?? 30} 點即可解鎖。`}</span>
-          <button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 解鎖中…</> : `用 ${reward.cost ?? 30} 點解鎖並開始練習 →`}</button>
+          <span>{isOriginal ? `${retryText || "24 小時後可再抽一次"}；現在也能以 NT$${reward.cost ?? 30} 購買。` : `本關優惠價 NT$${reward.cost ?? 30}。`}</span>
+          <button type="button" className="medtech-discount-unlock-button" onClick={() => void unlockInPlace()} disabled={unlocking} aria-busy={unlocking}>{unlocking ? <><span className="medtech-loading-spinner" /> 處理中…</> : `NT$${reward.cost ?? 30} 購買並開始練習 →`}</button>
         </div>}
         {error && <em className="medtech-spin-error">{error}</em>}
       </section>
