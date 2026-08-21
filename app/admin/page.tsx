@@ -3396,13 +3396,11 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
     ?? chapterViewer?.rows[0]
     ?? null;
   const activeQuestionBankPlatform = questionBankCategory === "all" ? "medtech" : questionBankCategory;
-  const questionBankWorkspaceLinks = activeQuestionBankPlatform === "law"
-    ? { upload: "/admin?tab=sources", documents: "/admin?tab=questions", questions: "/admin?tab=questions" }
-    : activeQuestionBankPlatform === "accounting"
-      ? { upload: "/accounting/admin?tab=documents", documents: "/accounting/admin?tab=questions", questions: "/accounting/admin/questions" }
-      : activeQuestionBankPlatform === "data-structure"
-        ? { upload: "/data-structure/admin", documents: "/data-structure/admin", questions: "/data-structure/admin" }
-        : { upload: "/medtech/admin?tab=documents", documents: "/medtech/admin?tab=questions", questions: "/medtech/admin/questions" };
+  const questionBankWorkspaceLinks = {
+    upload: `/admin/question-bank?view=upload&category=${activeQuestionBankPlatform}`,
+    documents: `/admin/question-bank?view=documents&category=${activeQuestionBankPlatform}`,
+    questions: `/admin/question-bank?view=questions&category=${activeQuestionBankPlatform}`,
+  };
 
   useEffect(() => {
     if (activeTab !== "members") return;
@@ -3614,8 +3612,8 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
             <section className="question-bank-control-center" aria-label="中央題庫作業台">
               <div>
                 <span>CENTRAL EDITING WORKSPACE</span>
-                <h3>以醫檢題庫完整流程為統一母版</h3>
-                <p>文件上傳、處理進度、原稿對照、重新拆題、搜尋取代、逐題編輯、AI／老師解析、草稿審核及整份發布，中央與各類科共用同一套資料與操作規則。</p>
+                <h3>通用中央題庫工作流程</h3>
+                <p>以完整題庫流程為母版，統一文件上傳、原稿對照、重新拆題、分類、逐題編輯、老師審題與發布；各類科只保留特殊屬性及學生端呈現。</p>
               </div>
               <div className="question-bank-control-actions">
                 <a href="/admin?tab=sources"><b>網址來源</b><small>建立與重新擷取司律題庫</small></a>
@@ -3624,11 +3622,11 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
                 <a href={questionBankWorkspaceLinks.questions}><b>題目總編輯</b><small>搜尋、啟停與逐題編輯</small></a>
               </div>
               <div className="question-bank-platform-editor-links">
-                <strong>切換類科作業台</strong>
-                <a href="/admin?tab=questions">司律</a>
-                <a href="/medtech/admin?tab=documents">醫檢師</a>
-                <a href="/accounting/admin?tab=documents">會計</a>
-                <a href="/data-structure/admin">資料結構</a>
+                <strong>中央分類檢視</strong>
+                <button type="button" onClick={() => setQuestionBankCategory("law")}>司律</button>
+                <button type="button" onClick={() => setQuestionBankCategory("medtech")}>醫檢師</button>
+                <button type="button" onClick={() => setQuestionBankCategory("accounting")}>會計</button>
+                <button type="button" onClick={() => setQuestionBankCategory("data-structure")}>資料結構</button>
               </div>
             </section>
             <nav className="question-bank-platforms" aria-label="題庫類科篩選">
@@ -3681,7 +3679,7 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
             <div className="question-bank-files">
               <header><div><h3>文件上傳模式</h3><p>PDF、Word、HTML 等原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).length} 份文件</span></header>
               {(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).map((file) => {
-                const workspace = file.examCategory === 'medtech' ? `/medtech/admin/document-workspace?id=${file.id}` : file.examCategory === 'accounting' ? `/accounting/admin/document-workspace?id=${file.id}` : file.examCategory === 'law' ? '/admin?tab=questions' : '/data-structure/admin';
+                const workspace = file.examCategory === 'medtech' || file.examCategory === 'accounting' ? `/admin/question-bank/workspace?category=${file.examCategory}&id=${file.id}` : `/admin/question-bank?view=questions&category=${file.examCategory}&documentId=${file.id}`;
                 return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>拆題與總編輯</a></article>;
               })}
               {!questionBankSummary?.files.length && <p className="usage-empty">目前沒有已拆出題目的原始文件。</p>}
