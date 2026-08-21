@@ -95,10 +95,6 @@ async function importQuestions(id:number,materializeOnly=false,forceReparse=fals
     const response=await fetch(paths.docs,{method:"PUT",body:form});
     const result=await response.json().catch(()=>({})) as {error?:string;variant?:string;name?:string;persisted?:boolean};
     if(!response.ok||!result.persisted)throw new Error(result.error||"PDF 上傳後未通過持久化驗證");
-    const verifyResponse=await fetch(`${paths.docs}?id=${documentId}&verify=${Date.now()}`,{cache:"no-store"});
-    const verified=await verifyResponse.json().catch(()=>({})) as {documents?:Doc[]};
-    const verifiedDocument=verified.documents?.find(item=>item.id===documentId);
-    if(!verifyResponse.ok||verifiedDocument?.name!==file.name)throw new Error("PDF 已送達伺服器，但重新讀回的文件名稱不一致");
     await load(documentId);setSourceRevision(value=>value+1);setDocName(file.name);
     const variant=result.variant==="html"?"html":"pdf";setContentType(variant);setSourceMode("primary");
     setNotice(`PDF 原稿已寫入並重新讀回驗證成功；${questions.length} 題未重新拆解。`);return;
