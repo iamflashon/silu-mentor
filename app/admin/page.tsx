@@ -51,6 +51,10 @@ type QuestionBankSummary = {
   totals: Array<{ examCategory: string; total: number; published: number; draft: number; reviewed: number }>;
   files: Array<{ id: number; examCategory: string; bookTitle: string; fileName: string; subject: string; documentType: string; status: string; pageCount: number; questionCount: number; processedAt: string | null }>;
   urlSources: Array<{ id: number; examCategory: string; label: string; url: string; examType: string; sourceKind: string; status: string; discoveredCount: number; processedCount: number; questionCount: number; lastError: string | null }>;
+  questions?: Array<{ id: number; examCategory: string; examType: string; year: string; examName: string; subject: string; questionNumber: string; stem: string; status: string; reviewStatus: string }>;
+  subjects?: string[];
+  years?: string[];
+  packages?: Array<{ key: string; name: string; examCategory: string; description: string; questionIds: number[]; questionCount: number; status: string; createdAt: string }>;
 };
 type DocumentApiRow = {
   id: number;
@@ -561,6 +565,16 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
   const [questionBankSummary, setQuestionBankSummary] = useState<QuestionBankSummary | null>(null);
   const [questionBankLoading, setQuestionBankLoading] = useState(false);
   const [questionBankCategory, setQuestionBankCategory] = useState("all");
+  const [questionBankDomain, setQuestionBankDomain] = useState("");
+  const [questionBankQuery, setQuestionBankQuery] = useState("");
+  const [questionBankSubject, setQuestionBankSubject] = useState("");
+  const [questionBankChapter, setQuestionBankChapter] = useState("");
+  const [questionBankYear, setQuestionBankYear] = useState("");
+  const [questionBankExamType, setQuestionBankExamType] = useState("");
+  const [questionBankStatus, setQuestionBankStatus] = useState("");
+  const [selectedQuestionBankIds, setSelectedQuestionBankIds] = useState<number[]>([]);
+  const [questionPackName, setQuestionPackName] = useState("");
+  const [questionPackNotice, setQuestionPackNotice] = useState("");
   const [aiFeedback, setAiFeedback] = useState<Array<{ id: number; userKey: string; feedbackType: string; messageText: string; rating: number; errorTypes: string[]; studentNote: string; model: string; originalPrompt: string; reviewStatus: string; solRequested: boolean; teacherDecision: string; teacherNote: string; correctedContent: string; createdAt: string }>>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -3381,6 +3395,14 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
   const activeChapter = chapterViewer?.rows.find((chapter) => chapter.id === selectedChapterId)
     ?? chapterViewer?.rows[0]
     ?? null;
+  const activeQuestionBankPlatform = questionBankCategory === "all" ? "medtech" : questionBankCategory;
+  const questionBankWorkspaceLinks = activeQuestionBankPlatform === "law"
+    ? { upload: "/admin?tab=sources", documents: "/admin?tab=questions", questions: "/admin?tab=questions" }
+    : activeQuestionBankPlatform === "accounting"
+      ? { upload: "/accounting/admin?tab=documents", documents: "/accounting/admin?tab=questions", questions: "/accounting/admin/questions" }
+      : activeQuestionBankPlatform === "data-structure"
+        ? { upload: "/data-structure/admin", documents: "/data-structure/admin", questions: "/data-structure/admin" }
+        : { upload: "/medtech/admin?tab=documents", documents: "/medtech/admin?tab=questions", questions: "/medtech/admin/questions" };
 
   useEffect(() => {
     if (activeTab !== "members") return;
@@ -3395,10 +3417,17 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
       .finally(() => setMembersLoading(false));
   }, [activeTab]);
 
-  useEffect(() => {
-    if (activeTab !== "question-bank") return;
+  async function loadQuestionBank() {
     setQuestionBankLoading(true);
-    fetch("/api/admin/question-bank-summary", { cache: "no-store" })
+    const params = new URLSearchParams();
+    if (questionBankCategory !== "all") params.set("category", questionBankCategory);
+    if (questionBankSubject) params.set("subject", questionBankSubject);
+    if (questionBankYear) params.set("year", questionBankYear);
+    if (questionBankExamType) params.set("examType", questionBankExamType);
+    if (questionBankStatus) params.set("status", questionBankStatus);
+    const combinedQuery = [questionBankQuery, questionBankChapter].filter(Boolean).join(" ");
+    if (combinedQuery) params.set("query", combinedQuery);
+    await fetch(`/api/admin/question-bank-summary?${params}`, { cache: "no-store" })
       .then(async (response) => {
         const data = await response.json() as QuestionBankSummary & { error?: string };
         if (!response.ok) throw new Error(data.error || "無法讀取總題庫");
@@ -3406,7 +3435,23 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
       })
       .catch((error) => setNotice(error instanceof Error ? error.message : "無法讀取總題庫"))
       .finally(() => setQuestionBankLoading(false));
+  }
+
+  useEffect(() => {
+    if (activeTab !== "question-bank") return;
+    void loadQuestionBank();
   }, [activeTab]);
+
+  async function createQuestionPack() {
+    setQuestionPackNotice("正在建立組合包…");
+    const response = await fetch("/api/admin/question-bank-summary", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: questionPackName, examCategory: questionBankCategory, description: questionBankChapter ? `章節／主題：${questionBankChapter}` : "", questionIds: selectedQuestionBankIds }) });
+    const data = await response.json() as { package?: QuestionBankSummary["packages"] extends Array<infer T> ? T : never; error?: string };
+    if (!response.ok) { setQuestionPackNotice(data.error ?? "組合包建立失敗"); return; }
+    setQuestionPackName("");
+    setSelectedQuestionBankIds([]);
+    setQuestionPackNotice(`已建立「${data.package?.name}」，共 ${data.package?.questionCount ?? 0} 題，保留為草稿。`);
+    await loadQuestionBank();
+  }
 
   async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { password?: string }) {
     setMemberNotice("儲存中…");
@@ -3566,12 +3611,66 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
             <strong>{questionBankSummary?.totals.reduce((sum, item) => sum + item.total, 0).toLocaleString() ?? "—"}<small> 題</small></strong>
           </header>
           {questionBankLoading ? <p className="usage-empty">正在彙整各平台題庫…</p> : <>
+            <section className="question-bank-control-center" aria-label="中央題庫作業台">
+              <div>
+                <span>CENTRAL EDITING WORKSPACE</span>
+                <h3>以醫檢題庫完整流程為統一母版</h3>
+                <p>文件上傳、處理進度、原稿對照、重新拆題、搜尋取代、逐題編輯、AI／老師解析、草稿審核及整份發布，中央與各類科共用同一套資料與操作規則。</p>
+              </div>
+              <div className="question-bank-control-actions">
+                <a href="/admin?tab=sources"><b>網址來源</b><small>建立與重新擷取司律題庫</small></a>
+                <a href={questionBankWorkspaceLinks.upload}><b>文件上傳</b><small>上傳、抽取並自動拆題</small></a>
+                <a href={questionBankWorkspaceLinks.documents}><b>拆題工作區</b><small>逐份原稿對照及校正</small></a>
+                <a href={questionBankWorkspaceLinks.questions}><b>題目總編輯</b><small>搜尋、啟停與逐題編輯</small></a>
+              </div>
+              <div className="question-bank-platform-editor-links">
+                <strong>切換類科作業台</strong>
+                <a href="/admin?tab=questions">司律</a>
+                <a href="/medtech/admin?tab=documents">醫檢師</a>
+                <a href="/accounting/admin?tab=documents">會計</a>
+                <a href="/data-structure/admin">資料結構</a>
+              </div>
+            </section>
             <nav className="question-bank-platforms" aria-label="題庫類科篩選">
               {([['all', '全部題庫', '/admin?tab=question-bank'], ['law', '司律', '/admin?tab=questions'], ['medtech', '醫檢師', '/medtech/admin'], ['accounting', '會計', '/accounting/admin/questions'], ['data-structure', '資料結構', '/data-structure/admin']] as const).map(([value, label, href]) => {
                 const total = value === 'all' ? questionBankSummary?.totals.reduce((sum, item) => sum + item.total, 0) ?? 0 : questionBankSummary?.totals.find((item) => item.examCategory === value)?.total ?? 0;
                 return <article className={questionBankCategory === value ? "active" : ""} key={value}><button type="button" onClick={() => setQuestionBankCategory(value)}><span>{label}</span><strong>{total.toLocaleString()} 題</strong></button>{!questionBankMode && value !== 'all' && <a href={href}>類科後台 →</a>}</article>;
               })}
             </nav>
+            <section className="central-question-search">
+              <header>
+                <div><h3>搜尋、分類與建立組合包</h3><p>依領域、考試項目、科目、章節／主題、年份、題型與狀態縮小範圍，再勾選單題建立新的題目包。</p></div>
+                <span>最多顯示 100 題</span>
+              </header>
+              <div className="central-question-filters">
+                <label>領域<select value={questionBankDomain} onChange={(event) => { const value = event.target.value; setQuestionBankDomain(value); setQuestionBankCategory(value === "law" ? "law" : value === "medical" ? "medtech" : value === "business" ? "accounting" : value === "information" ? "data-structure" : "all"); }}><option value="">全部領域</option><option value="law">法律</option><option value="medical">醫療</option><option value="business">商管／會計</option><option value="information">資訊</option></select></label>
+                <label>考試項目<select value={questionBankCategory} onChange={(event) => setQuestionBankCategory(event.target.value)}><option value="all">全部考試項目</option><option value="law">司律</option><option value="medtech">醫檢師</option><option value="accounting">會計類考試</option><option value="data-structure">資訊類考試</option></select></label>
+                <label>關鍵字<input value={questionBankQuery} onChange={(event) => setQuestionBankQuery(event.target.value)} placeholder="搜尋題幹、解析、題號或考試名稱" /></label>
+                <label>科目<select value={questionBankSubject} onChange={(event) => setQuestionBankSubject(event.target.value)}><option value="">全部科目</option>{(questionBankSummary?.subjects ?? []).map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label>章節／主題<input value={questionBankChapter} onChange={(event) => setQuestionBankChapter(event.target.value)} placeholder="例如：未遂犯、RNA 病毒" /></label>
+                <label>年份<select value={questionBankYear} onChange={(event) => setQuestionBankYear(event.target.value)}><option value="">全部年份</option>{(questionBankSummary?.years ?? []).map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label>題型<select value={questionBankExamType} onChange={(event) => setQuestionBankExamType(event.target.value)}><option value="">全部題型</option><option value="mcq">選擇題</option><option value="essay">申論題</option></select></label>
+                <label>狀態<select value={questionBankStatus} onChange={(event) => setQuestionBankStatus(event.target.value)}><option value="">全部狀態</option><option value="published">已發布</option><option value="draft">草稿</option><option value="disabled">已停用</option></select></label>
+                <button type="button" onClick={() => void loadQuestionBank()}>搜尋題庫</button>
+              </div>
+              <div className="central-question-package-bar">
+                <label><input type="checkbox" checked={Boolean(questionBankSummary?.questions?.length) && selectedQuestionBankIds.length === questionBankSummary?.questions?.length} onChange={(event) => setSelectedQuestionBankIds(event.target.checked ? (questionBankSummary?.questions ?? []).map((item) => item.id) : [])} />全選目前結果</label>
+                <strong>已選 {selectedQuestionBankIds.length} 題</strong>
+                <input value={questionPackName} onChange={(event) => setQuestionPackName(event.target.value)} placeholder="輸入組合包名稱" />
+                <button type="button" disabled={!selectedQuestionBankIds.length || !questionPackName.trim() || questionBankCategory === "all"} onClick={() => void createQuestionPack()}>建立組合包</button>
+                {questionBankCategory === "all" && <small>請先選定一個類科，才能建立並分派組合包。</small>}
+              </div>
+              {questionPackNotice && <p className="central-question-notice">{questionPackNotice}</p>}
+              <div className="central-question-results">
+                {(questionBankSummary?.questions ?? []).map((question) => <article key={question.id}>
+                  <input type="checkbox" checked={selectedQuestionBankIds.includes(question.id)} onChange={(event) => setSelectedQuestionBankIds((current) => event.target.checked ? [...new Set([...current, question.id])] : current.filter((id) => id !== question.id))} aria-label={`選取第 ${question.questionNumber} 題`} />
+                  <div><small>{question.examCategory === "law" ? "司律" : question.examCategory === "medtech" ? "醫檢師" : question.examCategory === "accounting" ? "會計" : "資料結構"} · {question.subject} · {question.year} · {question.examType === "essay" ? "申論題" : "選擇題"}</small><strong>{question.stem.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()}</strong><span>{question.examName} · 第 {question.questionNumber} 題</span></div>
+                  <em className={question.status}>{question.status === "published" ? "已發布" : question.status === "draft" ? "草稿" : "已停用"}</em>
+                </article>)}
+                {!questionBankSummary?.questions?.length && <p className="usage-empty">沒有符合條件的題目。</p>}
+              </div>
+              {!!questionBankSummary?.packages?.length && <details className="central-question-packages"><summary>查看已建立組合包（{questionBankSummary.packages.length}）</summary>{questionBankSummary.packages.map((item) => <article key={item.key}><div><b>{item.name}</b><span>{item.examCategory} · {item.status === "draft" ? "草稿" : item.status}</span></div><strong>{item.questionCount} 題</strong></article>)}</details>}
+            </section>
             <div className="question-bank-overview">
               {(questionBankSummary?.totals ?? []).filter((item) => questionBankCategory === 'all' || item.examCategory === questionBankCategory).map((item) => <article key={item.examCategory}>
                 <span>{item.examCategory === 'law' ? '司律' : item.examCategory === 'medtech' ? '醫檢師' : item.examCategory === 'accounting' ? '會計' : item.examCategory === 'data-structure' ? '資料結構' : item.examCategory}</span>
@@ -3582,8 +3681,8 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
             <div className="question-bank-files">
               <header><div><h3>文件上傳模式</h3><p>PDF、Word、HTML 等原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).length} 份文件</span></header>
               {(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).map((file) => {
-                const workspace = questionBankMode ? `/admin/question-bank?documentId=${file.id}` : file.examCategory === 'medtech' ? `/medtech/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'accounting' ? `/accounting/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'law' ? '/admin?tab=questions' : '/data-structure/admin';
-                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>{questionBankMode ? '中央管理' : '開啟對照工作區'}</a></article>;
+                const workspace = file.examCategory === 'medtech' ? `/medtech/admin/document-workspace?id=${file.id}` : file.examCategory === 'accounting' ? `/accounting/admin/document-workspace?id=${file.id}` : file.examCategory === 'law' ? '/admin?tab=questions' : '/data-structure/admin';
+                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>拆題與總編輯</a></article>;
               })}
               {!questionBankSummary?.files.length && <p className="usage-empty">目前沒有已拆出題目的原始文件。</p>}
             </div>
