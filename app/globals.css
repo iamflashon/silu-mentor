@@ -5225,6 +5225,37 @@ a {
 .library-node-status span { width: max-content; padding: 4px 9px; border-radius: 999px; background: #fff1df; color: #976123; font-size: 11px; font-weight: 900; }
 .library-node-status small { color: #728893; line-height: 1.55; }
 
+.library-section-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.library-section-tabs button {
+  display: grid;
+  gap: 3px;
+  padding: 15px 18px;
+  border: 1px solid #cedee5;
+  border-radius: 13px;
+  background: #fff;
+  color: #587285;
+  text-align: left;
+  cursor: pointer;
+}
+
+.library-section-tabs button strong { color: #173c5c; font-size: 15px; }
+.library-section-tabs button span { font-size: 11px; }
+.library-section-tabs button.active { border-color: #18776c; background: #eaf5f2; box-shadow: 0 0 0 2px rgba(24,119,108,.1); }
+.library-admin-stack { grid-template-columns: minmax(0, 1fr); }
+.library-admin-stack > .panel { width: 100%; box-sizing: border-box; }
+.library-admin-stack .document-panel { max-height: none; }
+.library-admin-stack .file-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.library-admin-stack .file-card { min-width: 0; }
+.library-admin-stack .document-list-heading > div:first-child { display: flex; align-items: end; justify-content: space-between; gap: 18px; width: 100%; }
+.library-document-search { min-width: min(380px, 48%); display: grid; gap: 5px; color: #637d8e; font-size: 11px; font-weight: 800; }
+.library-document-search input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #c7d9e1; border-radius: 9px; background: #fff; color: #173c5c; }
+
 .external-index-admin { display: grid; gap: 20px; }
 .external-index-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .external-index-heading p { margin: 0 0 5px; color: #76859b; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
@@ -5413,8 +5444,14 @@ a {
   }
   .independent-admin-shell .admin-main { width: calc(100% - 28px); }
   .library-storage-architecture { grid-template-columns: 1fr; }
+  .library-admin-stack .document-list-heading > div:first-child { align-items: stretch; flex-direction: column; }
+  .library-document-search { min-width: 0; }
   .admin-nav-section { grid-column: 1 / -1; padding-top: 12px; }
   .admin-platform-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .library-section-tabs { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 520px) {

@@ -696,6 +696,8 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
   const [deletingDocuments, setDeletingDocuments] = useState(false);
   const [documentPage, setDocumentPage] = useState(1);
+  const [librarySection, setLibrarySection] = useState<"materials" | "upload">("materials");
+  const [librarySearch, setLibrarySearch] = useState("");
   const [documentStats, setDocumentStats] = useState<DocumentStats>({
     total: 0,
     ready: 0,
@@ -3354,9 +3356,11 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
         ? `批次處理完成：${pending.length - failed} 本成功，${failed} 本失敗，可按下方按鈕重試失敗項目。`
         : `${pending.length} 本 PDF 已依序上傳，索引服務正在處理。`,
     );
+    if (!failed && libraryMode) setLibrarySection("materials");
   }
 
-  const categoryFiles = files;
+  const normalizedLibrarySearch = librarySearch.trim().toLowerCase();
+  const categoryFiles = files.filter((file) => !normalizedLibrarySearch || `${file.bookTitle ?? ""} ${file.name} ${file.subject} ${file.type ?? ""} ${(file.tags ?? []).join(" ")}`.toLowerCase().includes(normalizedLibrarySearch));
   const documentPageCount = Math.max(
     1,
     Math.ceil(categoryFiles.length / DOCUMENTS_PER_PAGE),
@@ -3950,7 +3954,12 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
             <div><p>PRIVATE SOURCE STORAGE</p><h2>原始 PDF 留在公司本機</h2><span>RTX 4090 24GB／64GB RAM 可先擔任私有教材節點；雲端平台只接收必要的文字切片、索引識別碼與檢索結果，不必保存原始 PDF。</span></div>
             <div className="library-node-status"><strong>本機節點</strong><span>尚未連線</span><small>下一階段安裝本機處理服務與安全連線後啟用</small></div>
           </section>}
-          <div className="admin-grid">
+          {libraryMode && <nav className="library-section-tabs" aria-label="教材資料庫操作切換">
+            <button type="button" className={librarySection === "materials" ? "active" : ""} onClick={() => setLibrarySection("materials")}><strong>教材列表</strong><span>搜尋、索引狀態與細部資料</span></button>
+            <button type="button" className={librarySection === "upload" ? "active" : ""} onClick={() => setLibrarySection("upload")}><strong>上傳教材</strong><span>新增檔案與查看處理進度</span></button>
+          </nav>}
+          <div className={`admin-grid ${libraryMode ? "library-admin-stack" : ""}`}>
+            {(!libraryMode || librarySection === "upload") && (
             <form className="panel" onSubmit={submit}>
               <h2>上傳教材</h2>
               <p className="panel-sub">
@@ -4079,9 +4088,11 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
               </button>
               {notice && <div className="notice">{notice}</div>}
             </form>
+            )}
+            {(!libraryMode || librarySection === "materials") && (
             <section className="panel document-panel">
               <div className="document-list-heading">
-                <h2>公司教材與索引狀態</h2>
+                <div><h2>公司教材與索引狀態</h2><label className="library-document-search"><span>搜尋教材</span><input type="search" value={librarySearch} onChange={(event) => { setLibrarySearch(event.target.value); setDocumentPage(1); }} placeholder="書名、檔名、科目、標籤…" /></label></div>
                 {categoryFiles.length > 0 && (
                   <div className="document-batch-actions">
                     <label>
@@ -4325,6 +4336,7 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
                 </nav>
               )}
             </section>
+            )}
           </div>
           </>
         )}
