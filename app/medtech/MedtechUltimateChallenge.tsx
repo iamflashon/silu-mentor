@@ -33,6 +33,7 @@ type Result = {
 };
 const TOTAL_TIME_LIMIT_SECONDS = 180;
 const QUESTION_TIME_LIMIT_SECONDS = 5;
+const RESCUE_TIME_LIMIT_SECONDS = 10;
 
 export default function MedtechUltimateChallenge({
   packageName,
@@ -43,6 +44,7 @@ export default function MedtechUltimateChallenge({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMode, setLoadingMode] = useState<"challenge" | "rescue" | null>(null);
   const [busy, setBusy] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
@@ -65,6 +67,9 @@ export default function MedtechUltimateChallenge({
   const [rescueQuestions, setRescueQuestions] = useState<Question[]>([]);
   const [rescueIndex, setRescueIndex] = useState(0);
   const [rescueMessage, setRescueMessage] = useState("");
+  const [selectedRescueAnswer, setSelectedRescueAnswer] = useState("");
+  const [rescueSecondsLeft, setRescueSecondsLeft] = useState(RESCUE_TIME_LIMIT_SECONDS);
+  const [rescueTimerRound, setRescueTimerRound] = useState(0);
 
   function close() {
     if (!loading && !busy && (!questions.length || result)) setOpen(false);
@@ -78,6 +83,7 @@ export default function MedtechUltimateChallenge({
 
   async function startChallenge() {
     setLoading(true);
+    setLoadingMode("challenge");
     setError("");
     setResult(null);
     setQuestions([]);
@@ -146,11 +152,13 @@ export default function MedtechUltimateChallenge({
       );
     } finally {
       setLoading(false);
+      setLoadingMode(null);
     }
   }
 
   async function startRescue() {
     setLoading(true);
+    setLoadingMode("rescue");
     setError("");
     setRescueMessage("");
     try {
@@ -162,17 +170,21 @@ export default function MedtechUltimateChallenge({
       } else {
         setRescueQuestions(data.questions ?? []);
         setRescueIndex(data.currentIndex ?? 0);
+        setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "補救任務暫時無法使用。");
     } finally {
       setLoading(false);
+      setLoadingMode(null);
     }
   }
 
   async function answerRescue(answer: string) {
     const question = rescueQuestions[rescueIndex];
     if (!question || busy) return;
+    setSelectedRescueAnswer(answer);
+    setRescueMessage("答案送出中…");
     setBusy(true);
     setError("");
     try {
@@ -186,9 +198,14 @@ export default function MedtechUltimateChallenge({
       setRescueMessage(data.message || (data.correct ? "答對了，繼續下一題。" : "再想一次。"));
       if (data.completed) {
         setRescueQuestions([]);
+        setSelectedRescueAnswer("");
         router.refresh();
       } else if (data.correct) {
         setRescueIndex(data.currentIndex ?? rescueIndex + 1);
+        setSelectedRescueAnswer("");
+        setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
+      } else {
+        setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "補救作答送出失敗。");
@@ -322,6 +339,23 @@ export default function MedtechUltimateChallenge({
     return () => window.clearInterval(timer);
   }, [open, loading, result, busy, index, questions]);
 
+  useEffect(() => {
+    if (!open || loading || busy || !rescueQuestions[rescueIndex]) return;
+    const deadline = Date.now() + RESCUE_TIME_LIMIT_SECONDS * 1000;
+    setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
+    const timer = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setRescueSecondsLeft(remaining);
+      if (!remaining) {
+        window.clearInterval(timer);
+        setSelectedRescueAnswer("");
+        setRescueMessage("本題時間到，請重新作答；答對後才會進入下一題。");
+        setRescueTimerRound((round) => round + 1);
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [open, loading, busy, rescueIndex, rescueQuestions, rescueTimerRound]);
+
   const question = questions[index];
   return (
     <>
@@ -378,17 +412,19 @@ export default function MedtechUltimateChallenge({
             </p>
             {loading ? (
               <div className="medtech-challenge-loading">
-                <span className="medtech-loading-spinner" /> 30
-                題準備中，載入完成才開始計時…
+                <span className="medtech-loading-spinner" />
+                {loadingMode === "rescue"
+                  ? "10 題補救複習準備中…"
+                  : "30 題正式挑戰準備中，載入完成才開始計時…"}
               </div>
             ) : rescueQuestions[rescueIndex] ? (
               <div className="medtech-ultimate-question">
-                <div className="medtech-ultimate-meta"><small>補救複習第 {rescueIndex + 1}／10 題</small><strong>答對後進入下一題</strong></div>
+                <div className="medtech-ultimate-meta"><small>補救複習第 {rescueIndex + 1}／10 題</small><strong className={rescueSecondsLeft <= 3 ? "urgent" : ""}>本題剩 {rescueSecondsLeft} 秒</strong></div>
                 <h3>{rescueQuestions[rescueIndex].stem}</h3>
                 <div className="medtech-challenge-options">
-                  {["A", "B", "C", "D"].map((letter) => <button type="button" key={letter} disabled={busy} onClick={() => void answerRescue(letter)}><b>{letter}</b><span>{rescueQuestions[rescueIndex].options[letter] || ""}</span></button>)}
+                  {["A", "B", "C", "D"].map((letter) => <button type="button" key={letter} disabled={busy} className={selectedRescueAnswer === letter ? "selected" : ""} onClick={() => void answerRescue(letter)}><b>{letter}</b><span>{rescueQuestions[rescueIndex].options[letter] || ""}</span></button>)}
                 </div>
-                {rescueMessage && <p>{rescueMessage}</p>}
+                {rescueMessage && <p className="medtech-ultimate-answer-feedback" role="status">{rescueMessage}</p>}
               </div>
             ) : result ? (
               <div
