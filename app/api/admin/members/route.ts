@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { members } from "../../../../db/schema";
+import { memberExamAccess, members } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 import { hashMemberPassword } from "../../../../lib/member-session-auth";
 
@@ -7,7 +7,8 @@ export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
   const rows = await auth.db.select({ id: members.id, email: members.email, displayName: members.displayName, role: members.role, canAdmin: members.canAdmin, status: members.status, className: members.className, lastSeenAt: members.lastSeenAt, createdAt: members.createdAt }).from(members).orderBy(desc(members.lastSeenAt), desc(members.createdAt));
-  return Response.json({ members: rows });
+  const accessRows = await auth.db.select({ memberId: memberExamAccess.memberId, examCategory: memberExamAccess.examCategory, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, className: memberExamAccess.className }).from(memberExamAccess);
+  return Response.json({ members: rows.map((member) => ({ ...member, accesses: accessRows.filter((access) => access.memberId === member.id) })) });
 }
 
 export async function POST(request: Request) {

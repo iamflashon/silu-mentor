@@ -6911,6 +6911,91 @@ a {
     font-size: 18px;
   }
 }
+
+.company-question-bank {
+  display: grid;
+  gap: 22px;
+}
+
+.company-question-bank-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 26px;
+  border-radius: 18px;
+  background: #173c5c;
+  color: #fff;
+}
+
+.company-question-bank-heading p,
+.company-question-bank-heading h2,
+.company-question-bank-heading span { margin: 0; }
+.company-question-bank-heading p { color: #9fd7cf; font-size: 12px; font-weight: 900; letter-spacing: .12em; }
+.company-question-bank-heading h2 { margin: 5px 0 8px; font-size: 30px; }
+.company-question-bank-heading > strong { min-width: 130px; text-align: right; font-size: 40px; }
+.company-question-bank-heading > strong small { font-size: 13px; }
+
+.question-bank-platforms {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.question-bank-platforms article {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #cbdde8;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.question-bank-platforms article.active { border-color: #18776c; box-shadow: 0 0 0 2px rgba(24,119,108,.12); }
+.question-bank-platforms button { display: grid; gap: 5px; padding: 15px; border: 0; background: transparent; color: #173c5c; text-align: left; cursor: pointer; }
+.question-bank-platforms button span { font-weight: 800; }
+.question-bank-platforms button strong { font-size: 21px; }
+.question-bank-platforms a { padding: 8px 15px; border-top: 1px solid #e3edf2; color: #18776c; font-size: 12px; font-weight: 800; text-decoration: none; }
+
+.question-bank-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.question-bank-overview article { display: grid; gap: 5px; padding: 16px; border-radius: 13px; background: #eef5f8; }
+.question-bank-overview strong { color: #173c5c; font-size: 26px; }
+.question-bank-overview small { color: #637d8e; }
+
+.question-bank-files { overflow: hidden; border: 1px solid #cbdde8; border-radius: 16px; background: #fff; }
+.question-bank-files > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; background: #f2f7f9; }
+.question-bank-files > header h3, .question-bank-files > header p { margin: 0; }
+.question-bank-files > header p { margin-top: 4px; color: #637d8e; font-size: 13px; }
+.question-bank-files > header > span { white-space: nowrap; color: #18776c; font-weight: 900; }
+.question-bank-files > article { display: grid; grid-template-columns: 42px minmax(0,1fr) 90px auto; align-items: center; gap: 14px; padding: 15px 20px; border-top: 1px solid #e3edf2; }
+.question-bank-files > article > div { display: grid; min-width: 0; gap: 3px; }
+.question-bank-files > article > div > strong, .question-bank-files > article > div > span, .question-bank-source-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-bank-files > article > div > span, .question-bank-files > article small, .question-bank-source-url { color: #6d8493; font-size: 12px; }
+.question-bank-files > article > b { color: #173c5c; font-size: 24px; text-align: right; }
+.question-bank-files > article > a:last-child { padding: 9px 12px; border: 1px solid #9fc5c0; border-radius: 9px; color: #176b61; font-size: 12px; font-weight: 900; text-decoration: none; }
+.question-bank-file-mark { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 10px; background: #e5eef5; color: #173c5c; font-weight: 900; }
+.question-bank-file-mark.medtech { background: #dff1ed; color: #176b61; }
+.question-bank-file-mark.accounting { background: #fff1d9; color: #92671e; }
+.question-bank-file-mark.data-structure { background: #eee8fa; color: #66449b; }
+.question-bank-url-sources > article > div > em { color: #a94625; font-size: 12px; font-style: normal; }
+.question-bank-source-url { text-decoration: none; }
+
+.member-platform-access { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.member-platform-access em { padding: 3px 7px; border-radius: 999px; background: #edf2f5; color: #748692; font-size: 10px; font-style: normal; font-weight: 800; }
+.member-platform-access em.active { background: #e5f5ec; color: #176b61; }
+
+@media (max-width: 900px) {
+  .question-bank-platforms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .question-bank-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .question-bank-files > article { grid-template-columns: 42px minmax(0,1fr); }
+  .question-bank-files > article > b { text-align: left; }
+  .question-bank-files > article > a:last-child { justify-self: start; }
+}
+
+@media (max-width: 600px) {
+  .company-question-bank-heading { align-items: flex-start; flex-direction: column; }
+  .company-question-bank-heading > strong { text-align: left; }
+  .question-bank-platforms, .question-bank-overview { grid-template-columns: 1fr; }
+}
 .chapter-progress-panel {
   width: min(360px, 100%);
   padding: 10px 11px;

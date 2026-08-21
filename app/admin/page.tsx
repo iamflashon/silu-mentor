@@ -9,7 +9,7 @@ import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document-title";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
-type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
+type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }> };
 type ExternalBookData = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
 type ExternalIndexSource = { id: number; key: "lawdata" | "angle_books" | "angle_media" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: Array<{ label: string; url: string }>; book?: ExternalBookData }> };
 type ExternalRetrievalMatch = { id: number; source: string; title: string; summary: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; excerpt: string };
@@ -46,6 +46,11 @@ type Uploaded = {
   chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
   questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
   error?: string | null;
+};
+type QuestionBankSummary = {
+  totals: Array<{ examCategory: string; total: number; published: number; draft: number; reviewed: number }>;
+  files: Array<{ id: number; examCategory: string; bookTitle: string; fileName: string; subject: string; documentType: string; status: string; pageCount: number; questionCount: number; processedAt: string | null }>;
+  urlSources: Array<{ id: number; examCategory: string; label: string; url: string; examType: string; sourceKind: string; status: string; discoveredCount: number; processedCount: number; questionCount: number; lastError: string | null }>;
 };
 type DocumentApiRow = {
   id: number;
@@ -538,6 +543,7 @@ export default function AdminPage() {
     | "judicial"
     | "sources"
     | "questions"
+    | "question-bank"
     | "costs"
     | "members"
     | "homepage"
@@ -545,6 +551,9 @@ export default function AdminPage() {
     | "external-index"
   >("documents");
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [questionBankSummary, setQuestionBankSummary] = useState<QuestionBankSummary | null>(null);
+  const [questionBankLoading, setQuestionBankLoading] = useState(false);
+  const [questionBankCategory, setQuestionBankCategory] = useState("all");
   const [aiFeedback, setAiFeedback] = useState<Array<{ id: number; userKey: string; feedbackType: string; messageText: string; rating: number; errorTypes: string[]; studentNote: string; model: string; originalPrompt: string; reviewStatus: string; solRequested: boolean; teacherDecision: string; teacherNote: string; correctedContent: string; createdAt: string }>>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -968,6 +977,11 @@ export default function AdminPage() {
         setHomeWebSearchMode(result.homeWebSearchMode ?? "off");
       })
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (requested === "questions" || requested === "question-bank" || requested === "documents") setActiveTab(requested);
   }, []);
 
   useEffect(() => {
@@ -3370,6 +3384,19 @@ export default function AdminPage() {
       .finally(() => setMembersLoading(false));
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== "question-bank") return;
+    setQuestionBankLoading(true);
+    fetch("/api/admin/question-bank-summary", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as QuestionBankSummary & { error?: string };
+        if (!response.ok) throw new Error(data.error || "無法讀取總題庫");
+        setQuestionBankSummary(data);
+      })
+      .catch((error) => setNotice(error instanceof Error ? error.message : "無法讀取總題庫"))
+      .finally(() => setQuestionBankLoading(false));
+  }, [activeTab]);
+
   async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { password?: string }) {
     setMemberNotice("儲存中…");
     const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
@@ -3429,6 +3456,12 @@ export default function AdminPage() {
             onClick={() => setActiveTab("documents")}
           >
             中央教材資料庫
+          </button>
+          <button
+            className={activeTab === "question-bank" ? "active" : ""}
+            onClick={() => setActiveTab("question-bank")}
+          >
+            總題庫管理
           </button>
           <button
             className={activeTab === "members" ? "active" : ""}
@@ -3516,6 +3549,40 @@ export default function AdminPage() {
             首頁與播放
           </button>
         </nav>
+        {activeTab === "question-bank" && <section className="panel company-question-bank">
+          <header className="company-question-bank-heading">
+            <div><p>COMPANY QUESTION BANK</p><h2>總題庫管理</h2><span>各類科可自行上傳與處理；中央集中查看全部文件題庫、網址題庫、校對與發布狀態。</span></div>
+            <strong>{questionBankSummary?.totals.reduce((sum, item) => sum + item.total, 0).toLocaleString() ?? "—"}<small> 題</small></strong>
+          </header>
+          {questionBankLoading ? <p className="usage-empty">正在彙整各平台題庫…</p> : <>
+            <nav className="question-bank-platforms" aria-label="題庫平台篩選">
+              {([['all', '全部題庫', '/admin?tab=question-bank'], ['law', '司律', '/admin?tab=questions'], ['medtech', '醫檢師', '/medtech/admin'], ['accounting', '會計', '/accounting/admin/questions'], ['data-structure', '資料結構', '/data-structure/admin']] as const).map(([value, label, href]) => {
+                const total = value === 'all' ? questionBankSummary?.totals.reduce((sum, item) => sum + item.total, 0) ?? 0 : questionBankSummary?.totals.find((item) => item.examCategory === value)?.total ?? 0;
+                return <article className={questionBankCategory === value ? "active" : ""} key={value}><button type="button" onClick={() => setQuestionBankCategory(value)}><span>{label}</span><strong>{total.toLocaleString()} 題</strong></button>{value !== 'all' && <a href={href}>進入工作區 →</a>}</article>;
+              })}
+            </nav>
+            <div className="question-bank-overview">
+              {(questionBankSummary?.totals ?? []).filter((item) => questionBankCategory === 'all' || item.examCategory === questionBankCategory).map((item) => <article key={item.examCategory}>
+                <span>{item.examCategory === 'law' ? '司律' : item.examCategory === 'medtech' ? '醫檢師' : item.examCategory === 'accounting' ? '會計' : item.examCategory === 'data-structure' ? '資料結構' : item.examCategory}</span>
+                <strong>{item.total.toLocaleString()}</strong>
+                <small>已發布 {item.published.toLocaleString()} · 待處理 {item.draft.toLocaleString()}</small>
+              </article>)}
+            </div>
+            <div className="question-bank-files">
+              <header><div><h3>文件上傳模式</h3><p>PDF、Word、HTML 等原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).length} 份文件</span></header>
+              {(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).map((file) => {
+                const workspace = file.examCategory === 'medtech' ? `/medtech/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'accounting' ? `/accounting/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'law' ? '/admin?tab=questions' : '/data-structure/admin';
+                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>開啟對照工作區</a></article>;
+              })}
+              {!questionBankSummary?.files.length && <p className="usage-empty">目前沒有已拆出題目的原始文件。</p>}
+            </div>
+            {(questionBankCategory === 'all' || questionBankCategory === 'law') && <div className="question-bank-files question-bank-url-sources">
+              <header><div><h3>網址擷取模式</h3><p>司律選擇題與申論題可由公開來源網址擷取；中央保留來源、題型、處理進度與錯誤狀態。</p></div><span>{questionBankSummary?.urlSources?.length ?? 0} 個來源</span></header>
+              {(questionBankSummary?.urlSources ?? []).map((source) => <article key={source.id}><span className="question-bank-file-mark law">網</span><div><small>司律 · {source.examType === 'essay' ? '申論題' : '選擇題'} · {source.sourceKind === 'exam' ? '歷屆真題' : source.sourceKind}</small><strong>{source.label}</strong><a className="question-bank-source-url" href={source.url} target="_blank" rel="noreferrer">{source.url}</a>{source.lastError && <em>{source.lastError}</em>}</div><b>{source.questionCount.toLocaleString()}<small> 題</small></b><a href="/admin?tab=sources">管理網址來源</a></article>)}
+              {!questionBankSummary?.urlSources?.length && <p className="usage-empty">尚未建立網址題庫來源。</p>}
+            </div>}
+          </>}
+        </section>}
         {activeTab === "external-index" && <section className="panel external-index-admin">
           <div className="external-index-heading"><div><p>PUBLIC INDEX DEMO</p><h2>跨網站資源同步</h2><span>按一次同步即會由主目錄自動逐層探索；不下載付費文章、教材或影片全文。</span></div><label className="external-index-search"><span>搜尋目前網站資源</span><input value={externalQuery} onChange={(event) => { setExternalQuery(event.target.value); setExternalPage(1); }} placeholder="篇名、書名、課程或來源" /></label></div>
           <div className="external-source-tabs" role="tablist" aria-label="資源網站">{(["lawdata", "angle_books", "angle_media", "get", "ibrain"] as const).map((key) => { const config = key === "lawdata" ? { label: "元照雜誌", note: "雜誌種類、各期目錄、作者與公開試讀" } : key === "angle_books" ? { label: "元照圖書", note: "圖書分類、書單與單本書介紹" } : key === "angle_media" ? { label: "品評家", note: "公開文章、影音、作者與講者" } : key === "get" ? { label: "高點文化", note: "圖書目錄、考試分類、書單與單本書介紹" } : { label: "iBrain 知識達", note: "司律課程與試聽" }; const source = externalSources.find((item) => item.key === key); return <button type="button" role="tab" aria-selected={externalSourceTab === key} className={externalSourceTab === key ? "active" : ""} key={key} onClick={() => { setExternalSourceTab(key); setExternalPage(1); setExternalSelectedItemId(null); setExternalQuery(""); }}><span><b>{config.label}</b><small>{config.note}</small></span><strong>{source?.items.length ?? 0}<small> 筆</small></strong></button>; })}</div>
@@ -3568,7 +3635,7 @@ export default function AdminPage() {
         {activeTab === "ai-feedback" && <section className="panel ai-feedback-admin"><div className="cost-heading"><div><h2>AI 回答覆核</h2><p className="panel-sub">學生回報先由 Sol 協助檢查，最後仍由老師確認是否有誤及是否寫回標準解析。</p></div><span className="source-count configured">{aiFeedback.length} 筆</span></div>{feedbackLoading ? <p>讀取回饋中…</p> : <div className="ai-feedback-list">{aiFeedback.map((item) => <article key={item.id}><header><div><b>{item.model || "AI 助教"}</b><span>{item.userKey} · {item.rating ? `${item.rating} 分` : "未評分"}</span></div><em>{item.reviewStatus === "pending" ? "待檢查" : item.reviewStatus === "ai_review_requested" ? "等待 Sol 覆核" : item.reviewStatus === "ai_reviewed" ? "AI 已覆核" : item.reviewStatus === "teacher_confirmed" ? "老師已確認" : item.reviewStatus === "corrected" ? "已修正" : "無需修正"}</em></header>{item.originalPrompt && <details><summary>學生原問題</summary><p>{item.originalPrompt}</p></details>}<details><summary>被回報的回答</summary><p>{item.messageText}</p></details><p className="student-feedback-note"><b>學生回饋：</b>{item.studentNote || "未補充說明"}</p><small>{item.errorTypes.join("、") || "未選錯誤類型"}</small><label>老師判斷<select value={item.teacherDecision} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherDecision: event.target.value } : row))}><option value="">待確認</option><option value="confirmed_error">確認有誤</option><option value="no_error">確認無誤</option><option value="partly_correct">部分需修正</option></select></label><label>老師說明<textarea rows={3} value={item.teacherNote} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherNote: event.target.value } : row))} /></label><label>修正後內容<textarea rows={5} value={item.correctedContent} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, correctedContent: event.target.value } : row))} /></label><div className="ai-feedback-actions"><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "teacher_confirmed", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>老師確認</button><button disabled={!item.correctedContent.trim()} onClick={() => void updateAiFeedback(item.id, { reviewStatus: "corrected", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>標記已修正</button><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "dismissed", teacherDecision: "no_error", teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>確認無誤</button></div></article>)}</div>}</section>}
         {activeTab === "members" && (
           <section className="panel member-admin-panel">
-            <div className="cost-heading"><div><h2>學員與權限管理</h2><p className="panel-sub">每位登入者都有獨立的對話、角色、智能書進度、練題與批改紀錄。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
+            <div className="cost-heading"><div><h2>全平台會員總管理</h2><p className="panel-sub">中央顯示全部會員及其可使用類科；各類科後台仍只會看到自己的會員。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
             <form className="member-create-form" onSubmit={createMember}>
               <div className="member-create-heading"><div><h3>新增學員</h3><p>先建立帳號；學員日後以相同 Email 登入，即會接上自己的學習平台。</p></div><button type="submit" disabled={memberCreating}>{memberCreating ? "新增中…" : "＋ 新增學員"}</button></div>
               <div className="member-create-fields">
@@ -3583,7 +3650,7 @@ export default function AdminPage() {
             {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
-                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small></div></div>
+                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small><div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
                 <label><span>學習身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
                 <label><span>管理權限</span><select value={member.canAdmin ? "enabled" : "disabled"} onChange={(event) => void updateMember(member.id, { canAdmin: event.target.value === "enabled" })}><option value="disabled">無</option><option value="enabled">管理員</option></select></label>
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
