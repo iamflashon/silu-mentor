@@ -60,7 +60,7 @@ export async function POST(request: Request) {
       await upload.complete(body.parts);
 
       try {
-        const db = await getDb();
+        const db = await getDb("primary");
         if (Number.isInteger(body.replaceDocumentId) && Number(body.replaceDocumentId) > 0) {
           const auth = await requireAdmin(request);
           if ("error" in auth) {
