@@ -5256,12 +5256,11 @@ a {
 .library-document-search { min-width: min(380px, 48%); display: grid; gap: 5px; color: #637d8e; font-size: 11px; font-weight: 800; }
 .library-document-search input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #c7d9e1; border-radius: 9px; background: #fff; color: #173c5c; }
 
-/* The central library is a dedicated workspace: its tabs and active panel
-   should use the complete viewport width instead of inheriting the old
-   two-column subject-admin layout. */
+/* Match the central question-bank reading width instead of stretching the
+   library workspace edge to edge on large screens. */
 .library-admin-shell .admin-main {
-  width: calc(100% - 48px);
-  max-width: none;
+  width: min(1180px, calc(100% - 40px));
+  max-width: 1180px;
   margin: 0 auto;
 }
 
