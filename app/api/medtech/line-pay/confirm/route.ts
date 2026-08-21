@@ -20,10 +20,11 @@ export async function GET(request: Request) {
       ),
     )
     .limit(1);
+  const destination = order?.packageName === "隨機模考" ? "/medtech/random" : "/medtech/chapters";
   if (!order)
     return Response.redirect(`${url.origin}/medtech/chapters?payment=missing`);
   if (order.status === "paid")
-    return Response.redirect(`${url.origin}/medtech/chapters?payment=success`);
+    return Response.redirect(`${url.origin}${destination}?payment=success`);
   const transactionId = callbackTransactionId || order.transactionId || "";
   if (
     !transactionId ||
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
       callbackTransactionId &&
       order.transactionId !== callbackTransactionId)
   ) {
-    return Response.redirect(`${url.origin}/medtech/chapters?payment=invalid`);
+    return Response.redirect(`${url.origin}${destination}?payment=invalid`);
   }
   try {
     const result = await linePayPost(`/v3/payments/${transactionId}/confirm`, {
@@ -51,9 +52,9 @@ export async function GET(request: Request) {
       })
       .where(eq(medtechPaymentOrders.id, order.id));
     return Response.redirect(
-      `${url.origin}/medtech/chapters?payment=${paid ? "success" : "failed"}&pack=${order.packNumber}`,
+      `${url.origin}${destination}?payment=${paid ? "success" : "failed"}&pack=${order.packNumber}`,
     );
   } catch {
-    return Response.redirect(`${url.origin}/medtech/chapters?payment=failed`);
+    return Response.redirect(`${url.origin}${destination}?payment=failed`);
   }
 }

@@ -3,15 +3,18 @@ import { and, eq } from "drizzle-orm";
 import MedtechTabs from "../MedtechTabs";
 import MedtechHeaderActions from "../MedtechHeaderActions";
 import MedtechRetakeOptions from "../MedtechRetakeOptions";
-import MedtechPackDiscount from "../MedtechPackDiscount";
+import MedtechUltimateChallenge from "../MedtechUltimateChallenge";
+import LinePayPurchaseButton from "../LinePayPurchaseButton";
 import { memberLoginPath } from "../../../lib/member-login-path";
 import {
   documents,
   examQuestions,
   medtechPointLedger,
+  medtechPaymentOrders,
   medtechPracticeSessions,
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
+import { taipeiDate } from "../../../lib/taipei-time";
 
 const PACKAGE_SIZE = 30;
 const PACKAGE_HOURS = 7 * 24;
@@ -40,7 +43,11 @@ function remainingText(until: Date | null, now: number) {
     : `剩餘 ${hours} 小時 ${minutes % 60} 分`;
 }
 
-export default async function MedtechRandomPackages() {
+export default async function MedtechRandomPackages({
+  searchParams,
+}: {
+  searchParams?: Promise<{ payment?: string }>;
+}) {
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(
     new Request("https://medtech.local/medtech/random", {
@@ -61,7 +68,7 @@ export default async function MedtechRandomPackages() {
       </main>
     );
 
-  const [sourceRows, questionRows, ledgerRows, sessionRows] = await Promise.all(
+  const [sourceRows, questionRows, ledgerRows, sessionRows, paymentRows] = await Promise.all(
     [
       auth.db
         .select({
@@ -99,12 +106,23 @@ export default async function MedtechRandomPackages() {
         .select({
           packageName: medtechPracticeSessions.packageName,
           packNumber: medtechPracticeSessions.packNumber,
+          packageType: medtechPracticeSessions.packageType,
+          startedAt: medtechPracticeSessions.startedAt,
           completedAt: medtechPracticeSessions.completedAt,
           status: medtechPracticeSessions.status,
           answeredQuestions: medtechPracticeSessions.answeredQuestions,
+          totalQuestions: medtechPracticeSessions.totalQuestions,
         })
         .from(medtechPracticeSessions)
         .where(eq(medtechPracticeSessions.userKey, auth.userKey)),
+      auth.db
+        .select({
+          packageName: medtechPaymentOrders.packageName,
+          packNumber: medtechPaymentOrders.packNumber,
+          status: medtechPaymentOrders.status,
+        })
+        .from(medtechPaymentOrders)
+        .where(eq(medtechPaymentOrders.userKey, auth.userKey)),
     ],
   );
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
@@ -145,11 +163,12 @@ export default async function MedtechRandomPackages() {
           row.action === "question_pack_gift") &&
         descriptions(packNumber).includes(row.description),
     );
-    const hasDiscountChoice = ledgerRows.some(
+    const ultimateDiscount = ledgerRows.some(
       (row) =>
-        (row.action === "question_pack_spin" ||
-          row.action === "question_pack_spin_abandoned") &&
-        row.description === `題目包轉轉樂：隨機模考第 ${packNumber} 包`,
+        row.action === "question_pack_ultimate" &&
+        row.description === `題目包轉轉樂：隨機模考第 ${packNumber} 包` &&
+        row.createdAt >= new Date(`${taipeiDate()}T00:00:00+08:00`) &&
+        (!row.availableUntil || row.availableUntil.getTime() > now),
     );
     const latest = [...matches].sort(
       (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
@@ -159,54 +178,54 @@ export default async function MedtechRandomPackages() {
         new Date(latest.createdAt.getTime() + PACKAGE_HOURS * 60 * 60 * 1000))
       : null;
     const active = Boolean(availableUntil && availableUntil.getTime() > now);
-    const isCompleted = (row: { completedAt: Date | null; status: string }) =>
-      Boolean(row.completedAt || row.status === "completed");
+    const isCompleted = (row: { completedAt: Date | null; status: string; answeredQuestions: number; totalQuestions: number }) =>
+      Boolean(
+        row.completedAt ||
+          row.status === "completed" ||
+          ((row.status === "awaiting_submit" || row.status === "in_progress") &&
+            row.totalQuestions > 0 &&
+            row.answeredQuestions >= row.totalQuestions),
+      );
     const completed = sessionRows.some(
       (row) =>
         row.packageName === "隨機模考" &&
         row.packNumber === packNumber &&
         isCompleted(row),
     );
-    const previousCompleted =
-      packNumber === 1 ||
-      sessionRows.some(
-        (row) =>
-          row.packageName === "隨機模考" &&
-          row.packNumber === packNumber - 1 &&
-          isCompleted(row),
-      );
     const hasHistory = sessionRows.some(
       (row) =>
         row.packageName === "隨機模考" &&
         row.packNumber === packNumber &&
         (isCompleted(row) || row.answeredQuestions > 0),
     );
-    const needsUnlock =
-      !active && (freePackageUsed || packNumber > 1 || hasHistory);
+    const purchased = paymentRows.some(
+      (row) =>
+        row.packageName === "隨機模考" &&
+        row.packNumber === packNumber &&
+        row.status === "paid",
+    );
+    const canStart = active || purchased || !freePackageUsed;
+    const needsUnlock = !active && !purchased && freePackageUsed;
     const label = active
       ? completed
         ? "已完成 · 可重做"
         : "進行中"
-      : !previousCompleted
-        ? "完成上一關後開放"
+      : purchased
+        ? "LINE Pay 已付款・可開始"
         : !freePackageUsed
           ? "任選一包免費"
-          : !hasDiscountChoice
-            ? "可抽一次折扣"
-            : "NT$30 購買";
+          : "NT$30 購買";
     const action = active
       ? completed
         ? "再次挑戰"
         : "繼續闖關"
-      : !previousCompleted
-        ? "尚未開放"
+      : purchased
+        ? "啟用並開始"
         : !freePackageUsed
           ? "免費開始"
-          : !hasDiscountChoice
-            ? "🎡 抽轉轉樂"
-            : hasHistory
-              ? "NT$30 再次購買"
-              : "NT$30 購買";
+          : hasHistory
+            ? "NT$30 再次購買"
+            : "NT$30 購買";
     return {
       packNumber,
       questionTotal,
@@ -214,14 +233,43 @@ export default async function MedtechRandomPackages() {
       active,
       completed,
       hasHistory,
-      hasDiscountChoice,
-      previousCompleted,
+      purchased,
+      ultimateDiscount,
+      canStart,
       needsUnlock,
       label,
       action,
       availableUntil,
     };
   });
+  const ultimateTargets = packs
+    .filter((pack) => !pack.active && !pack.purchased && !pack.ultimateDiscount)
+    .map((pack) => ({ packageName: "隨機模考", packNumber: pack.packNumber, questionTotal: pack.questionTotal }));
+  const todayStart = new Date(`${taipeiDate()}T00:00:00+08:00`);
+  const dailyUltimate = sessionRows.find(
+    (row) => row.packageType === "ultimate_challenge" && row.startedAt >= todayStart,
+  );
+  const dailyUltimateStatus = dailyUltimate
+    ? dailyUltimate.status === "in_progress" ? "in_progress" : "finished"
+    : "available";
+  const latestUltimate = [...sessionRows]
+    .filter((row) => row.packageType === "ultimate_challenge")
+    .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())[0];
+  const latestRescueAfterUltimate = latestUltimate
+    ? [...sessionRows]
+        .filter((row) => row.packageType === "ultimate_rescue" && row.startedAt > latestUltimate.startedAt)
+        .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())[0]
+    : undefined;
+  const rescueDue = Boolean(
+    latestUltimate?.status === "failed" &&
+    latestRescueAfterUltimate?.status !== "completed" &&
+    (!latestRescueAfterUltimate ||
+      latestRescueAfterUltimate.status === "in_progress" ||
+      (latestRescueAfterUltimate.status === "failed" &&
+        latestRescueAfterUltimate.answeredQuestions < (latestRescueAfterUltimate.totalQuestions || 10)) ||
+      (latestRescueAfterUltimate.status === "failed" && latestRescueAfterUltimate.startedAt < todayStart)),
+  );
+  const payment = (await searchParams)?.payment;
 
   return (
     <main className="medtech-practice">
@@ -239,33 +287,51 @@ export default async function MedtechRandomPackages() {
       <section className="medtech-chapter-page">
         <span>RANDOM MOCK</span>
         <h1>跨章節隨機模考</h1>
+        {payment === "success" && (
+          <div className="medtech-line-pay-notice success">LINE Pay 付款成功；題目包已解鎖，可立即開始。</div>
+        )}
+        {payment === "cancelled" && (
+          <div className="medtech-line-pay-notice">您已取消 LINE Pay 付款，題目包未購買。</div>
+        )}
+        {payment && !["success", "cancelled"].includes(payment) && (
+          <div className="medtech-line-pay-notice failed">LINE Pay 付款尚未完成，請稍後再試。</div>
+        )}
         <p>
           從臨床病毒學總論、DNA 病毒與 RNA 病毒題庫跨章節抽題。每 30
           題是一關，任選一包首次免費；使用一次後其他題目包皆為 NT$30。
         </p>
         <div className="medtech-pack-rule">
-          <b>解題闖關 × 限時轉轉樂</b>
+          <b>解題闖關 × 每日 1 折挑戰</b>
           <span>
             共 {questionCount} 題 · {packageCount} 關；每關開通後 7
-            天內不限次數重做。完成前一關後，可挑戰上一關隨機 10 題，每題 5
-            秒，每包最多 2
-            次，答對率與平均速度越好，折扣越優惠，兩次取最佳結果；另有一次限時轉轉樂，最高五折。轉轉樂抽到原價可於
-            24 小時後再抽一次，其他結果或放棄後可直接購買題目包。
+            天內不限次數重做；已付款的題目包可立即開始，不必等待上一關。每天可挑戰一次 30 題 1 折終極挑戰，3 分鐘內全對即可在今日 23:59 前用 LINE Pay NT$3 購買。失敗後可完成 10 題補救複習，每題 10 秒且僅能作答一次，答對至少 8 題即可取得明日一次挑戰資格。
           </span>
         </div>
+        {ultimateTargets.length > 0 && (
+          <MedtechUltimateChallenge
+            packageName={ultimateTargets[0].packageName}
+            packNumber={ultimateTargets[0].packNumber}
+            targets={ultimateTargets}
+            dailyStatus={dailyUltimateStatus}
+            rescueDue={rescueDue}
+          />
+        )}
         <div className="medtech-random-pack-grid">
           {packs.map((pack) => {
             const practiceHref = `/medtech/practice?pack=${pack.packNumber}`;
-            const spinAvailable =
-              !pack.active &&
-              pack.previousCompleted &&
-              (pack.packNumber > 1 || pack.hasHistory);
             return (
               <div
                 className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}`}
                 key={pack.packNumber}
               >
-                {pack.active && pack.completed ? (
+                {pack.ultimateDiscount && !pack.active && !pack.purchased ? (
+                  <div className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}>
+                    <span>第 {pack.packNumber} 關</span>
+                    <b>{pack.questionTotal} 題</b>
+                    <small>1 折挑戰成功・優惠至今日 23:59</small>
+                    <LinePayPurchaseButton packageName="隨機模考" packNumber={pack.packNumber} amount={3} />
+                  </div>
+                ) : pack.active && pack.completed ? (
                   <MedtechRetakeOptions
                     href={practiceHref}
                     packNumber={pack.packNumber}
@@ -277,35 +343,30 @@ export default async function MedtechRandomPackages() {
                         : ""
                     }
                   />
-                ) : spinAvailable ? (
-                  <MedtechPackDiscount
-                    packageName="隨機模考"
-                    packNumber={pack.packNumber}
-                    questionTotal={pack.questionTotal}
-                    label={pack.label}
-                    href={practiceHref}
-                  />
+                ) : !pack.active && pack.needsUnlock ? (
+                  <div className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}>
+                    <span>第 {pack.packNumber} 關</span>
+                    <b>{pack.questionTotal} 題</b>
+                    <small>{pack.label} <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i></small>
+                    <LinePayPurchaseButton packageName="隨機模考" packNumber={pack.packNumber} purchased={pack.purchased} />
+                  </div>
                 ) : (
                   <a
-                    className={`${pack.active ? "active " : ""}${!pack.previousCompleted || pack.needsUnlock ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`}
-                    href={pack.previousCompleted ? practiceHref : "#"}
-                    aria-disabled={!pack.previousCompleted}
+                    className={`${pack.active ? "active " : ""}${!pack.canStart ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`}
+                    href={pack.canStart ? practiceHref : "#"}
+                    aria-disabled={!pack.canStart}
                   >
                     <span>第 {pack.packNumber} 關</span>
-                    {(!pack.previousCompleted || pack.needsUnlock) && (
-                      <i className="medtech-pack-lock" aria-label="尚未解鎖">
-                        🔒
-                      </i>
-                    )}
                     <b>{pack.questionTotal} 題</b>
                     <small>
                       {pack.label}
                       {pack.active && pack.availableUntil
                         ? ` · ${remainingText(pack.availableUntil, now)}`
                         : ""}
+                      {!pack.canStart && <> <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i></>}
                     </small>
                     <strong>
-                      {pack.action} {pack.previousCompleted ? "→" : ""}
+                      {pack.action} {pack.canStart ? "→" : ""}
                     </strong>
                   </a>
                 )}

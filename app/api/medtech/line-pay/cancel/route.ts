@@ -7,6 +7,18 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const orderId = url.searchParams.get("orderId")?.trim() ?? "";
+  const [order] = orderId
+    ? await auth.db
+        .select({ packageName: medtechPaymentOrders.packageName })
+        .from(medtechPaymentOrders)
+        .where(
+          and(
+            eq(medtechPaymentOrders.orderId, orderId),
+            eq(medtechPaymentOrders.userKey, auth.userKey),
+          ),
+        )
+        .limit(1)
+    : [];
   if (orderId) {
     await auth.db
       .update(medtechPaymentOrders)
@@ -18,5 +30,6 @@ export async function GET(request: Request) {
         ),
       );
   }
-  return Response.redirect(`${url.origin}/medtech/chapters?payment=cancelled`);
+  const destination = order?.packageName === "隨機模考" ? "/medtech/random" : "/medtech/chapters";
+  return Response.redirect(`${url.origin}${destination}?payment=cancelled`);
 }
