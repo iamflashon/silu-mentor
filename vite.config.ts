@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { kvDataAdapter } from "@vinext/cloudflare/cache/kv-data-adapter";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -54,7 +55,7 @@ export default defineConfig(async () => {
         : {}),
     },
     plugins: [
-      vinext(),
+      vinext({ cache: { data: kvDataAdapter() } }),
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
