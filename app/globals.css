@@ -5134,7 +5134,8 @@ a {
   font-weight: 850;
   letter-spacing: .11em;
 }
-.admin-tabs button {
+.admin-tabs button,
+.admin-tabs > a {
   flex: 0 0 auto;
   width: 100%;
   text-align: left;
@@ -5145,12 +5146,44 @@ a {
   color: #587285;
   font-weight: 750;
   cursor: pointer;
+  text-decoration: none;
 }
-.admin-tabs button.active {
+.admin-tabs button.active,
+.admin-tabs > a.active {
   background: #193b58;
   color: white;
   box-shadow: 0 5px 14px rgba(25, 59, 88, 0.18);
 }
+
+.independent-admin-shell .admin-main {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+}
+
+.independent-admin-shell .admin-title {
+  margin-bottom: 22px;
+}
+
+.library-storage-architecture {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 18px;
+  border-color: #bad6d1;
+  background: linear-gradient(135deg, #f6fbfa, #e9f5f2);
+}
+
+.library-storage-architecture p,
+.library-storage-architecture h2,
+.library-storage-architecture span { margin: 0; }
+.library-storage-architecture p { color: #26766e; font-size: 11px; font-weight: 900; letter-spacing: .12em; }
+.library-storage-architecture h2 { margin: 5px 0 7px; color: #153f5d; }
+.library-storage-architecture > div > span { color: #5f7685; font-size: 13px; line-height: 1.7; }
+.library-node-status { display: grid; gap: 5px; padding: 17px; border: 1px solid #c4dbd7; border-radius: 14px; background: rgba(255,255,255,.78); }
+.library-node-status strong { color: #173c5c; }
+.library-node-status span { width: max-content; padding: 4px 9px; border-radius: 999px; background: #fff1df; color: #976123; font-size: 11px; font-weight: 900; }
+.library-node-status small { color: #728893; line-height: 1.55; }
 
 .external-index-admin { display: grid; gap: 20px; }
 .external-index-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
@@ -5332,11 +5365,14 @@ a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-bottom: 18px;
   }
-  .admin-tabs button {
+  .admin-tabs button,
+  .admin-tabs > a {
     text-align: center;
     padding: 9px 7px;
     font-size: 11px;
   }
+  .independent-admin-shell .admin-main { width: calc(100% - 28px); }
+  .library-storage-architecture { grid-template-columns: 1fr; }
   .admin-nav-section { grid-column: 1 / -1; padding-top: 12px; }
   .admin-platform-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
