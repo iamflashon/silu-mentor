@@ -41007,6 +41007,43 @@ button[aria-busy="true"] {
   white-space: pre-wrap;
   line-height: 1.65;
 }
+
+.medtech-rescue-rule {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 11px 13px;
+  border: 1px solid #d9bf67;
+  border-radius: 10px;
+  background: #fff9e8;
+  color: #604f1e;
+  line-height: 1.55;
+}
+
+.medtech-rescue-review {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #b9d7d1;
+  border-radius: 12px;
+  background: #f7fbfa;
+}
+
+.medtech-rescue-review.incorrect {
+  border-color: #e6aaa0;
+  background: #fff8f6;
+}
+
+.medtech-rescue-review > strong,
+.medtech-rescue-review p {
+  margin: 0;
+}
+
+.medtech-rescue-review p {
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
 .medtech-ultimate-dialog .medtech-spin-error {
   display: block;
   margin-top: 12px;

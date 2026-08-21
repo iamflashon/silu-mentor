@@ -10,12 +10,23 @@ type Props = {
   packNumber: number;
   targets?: Array<{ packageName: string; packNumber: number; questionTotal: number }>;
   dailyStatus?: "available" | "in_progress" | "finished";
+  rescueDue?: boolean;
 };
 type Question = { id: number; stem: string; options: Record<string, string> };
 type Reward = { status?: string; label?: string | null; cost?: number };
 type WrongAnswer = {
   questionNumber: number;
   stem: string;
+  selectedAnswer: string;
+  selectedText: string;
+  correctAnswer: string;
+  correctText: string;
+  explanation: string;
+  reason: string;
+};
+type RescueReview = {
+  questionNumber: number;
+  correct: boolean;
   selectedAnswer: string;
   selectedText: string;
   correctAnswer: string;
@@ -40,6 +51,7 @@ export default function MedtechUltimateChallenge({
   packNumber,
   targets = [],
   dailyStatus = "available",
+  rescueDue = false,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -70,6 +82,9 @@ export default function MedtechUltimateChallenge({
   const [selectedRescueAnswer, setSelectedRescueAnswer] = useState("");
   const [rescueSecondsLeft, setRescueSecondsLeft] = useState(RESCUE_TIME_LIMIT_SECONDS);
   const [rescueTimerRound, setRescueTimerRound] = useState(0);
+  const [rescueFailed, setRescueFailed] = useState(false);
+  const [rescueReview, setRescueReview] = useState<RescueReview | null>(null);
+  const [rescueNext, setRescueNext] = useState<{ index: number; completed: boolean; passed: boolean; score: number } | null>(null);
 
   function close() {
     if (!loading && !busy && (!questions.length || result)) setOpen(false);
@@ -78,7 +93,8 @@ export default function MedtechUltimateChallenge({
   function openChallenge() {
     setOpen(true);
     setError("");
-    if (dailyStatus !== "available") void startChallenge();
+    if (rescueDue && dailyStatus === "available") void startRescue();
+    else if (dailyStatus !== "available") void startChallenge();
   }
 
   async function startChallenge() {
@@ -163,11 +179,15 @@ export default function MedtechUltimateChallenge({
     setRescueMessage("");
     try {
       const response = await fetch("/api/medtech/question-pack-reward?challenge=ultimate-rescue", { cache: "no-store" });
-      const data = (await response.json()) as { questions?: Question[]; currentIndex?: number; completed?: boolean; error?: string };
+      const data = (await response.json()) as { questions?: Question[]; currentIndex?: number; completed?: boolean; failed?: boolean; score?: number; error?: string };
       if (!response.ok) throw new Error(data.error || "補救任務暫時無法使用。");
       if (data.completed) {
-        setRescueMessage("補救已完成，明日取得一次正式挑戰資格。");
+        setRescueMessage("補救已通過，明日取得一次正式挑戰資格。");
+      } else if (data.failed) {
+        setRescueFailed(true);
+        setRescueMessage("補救答對 " + (data.score ?? 0) + "／10 題，未達 8 題；明天可重新挑戰。");
       } else {
+        setRescueFailed(false);
         setRescueQuestions(data.questions ?? []);
         setRescueIndex(data.currentIndex ?? 0);
         setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
@@ -193,25 +213,43 @@ export default function MedtechUltimateChallenge({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "ultimate-rescue-answer", questionId: question.id, answer }),
       });
-      const data = (await response.json()) as { correct?: boolean; currentIndex?: number; completed?: boolean; message?: string; error?: string };
+      const data = (await response.json()) as { correct?: boolean; currentIndex?: number; completed?: boolean; passed?: boolean; score?: number; review?: RescueReview; message?: string; error?: string };
       if (!response.ok) throw new Error(data.error || "補救作答送出失敗。");
-      setRescueMessage(data.message || (data.correct ? "答對了，繼續下一題。" : "再想一次。"));
-      if (data.completed) {
-        setRescueQuestions([]);
-        setSelectedRescueAnswer("");
-        router.refresh();
-      } else if (data.correct) {
-        setRescueIndex(data.currentIndex ?? rescueIndex + 1);
-        setSelectedRescueAnswer("");
-        setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
-      } else {
-        setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
-      }
+      setRescueMessage(data.message || (data.correct ? "答對了。" : "這題答錯了，請查看解析。"));
+      setRescueReview(data.review ?? null);
+      setRescueNext({
+        index: data.currentIndex ?? rescueIndex + 1,
+        completed: Boolean(data.completed),
+        passed: Boolean(data.passed),
+        score: data.score ?? 0,
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "補救作答送出失敗。");
     } finally {
       setBusy(false);
     }
+  }
+
+  function continueRescue() {
+    if (!rescueNext) return;
+    if (rescueNext.completed) {
+      setRescueQuestions([]);
+      setRescueFailed(!rescueNext.passed);
+      setRescueMessage(
+        rescueNext.passed
+          ? "補救通過：答對 " + rescueNext.score + "／10 題，明日取得一次正式挑戰資格。"
+          : "補救未通過：答對 " + rescueNext.score + "／10 題，需達 8 題；明天可重新挑戰。",
+      );
+      router.refresh();
+    } else {
+      setRescueIndex(rescueNext.index);
+      setRescueMessage("");
+      setSelectedRescueAnswer("");
+      setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
+      setRescueTimerRound((round) => round + 1);
+    }
+    setRescueReview(null);
+    setRescueNext(null);
   }
 
   async function sendAnswer(
@@ -340,7 +378,7 @@ export default function MedtechUltimateChallenge({
   }, [open, loading, result, busy, index, questions]);
 
   useEffect(() => {
-    if (!open || loading || busy || !rescueQuestions[rescueIndex]) return;
+    if (!open || loading || busy || rescueReview || !rescueQuestions[rescueIndex]) return;
     const deadline = Date.now() + RESCUE_TIME_LIMIT_SECONDS * 1000;
     setRescueSecondsLeft(RESCUE_TIME_LIMIT_SECONDS);
     const timer = window.setInterval(() => {
@@ -349,12 +387,12 @@ export default function MedtechUltimateChallenge({
       if (!remaining) {
         window.clearInterval(timer);
         setSelectedRescueAnswer("");
-        setRescueMessage("本題時間到，請重新作答；答對後才會進入下一題。");
-        setRescueTimerRound((round) => round + 1);
+        setRescueMessage("本題時間到，正在結束本次補救…");
+        void answerRescue("");
       }
     }, 100);
     return () => window.clearInterval(timer);
-  }, [open, loading, busy, rescueIndex, rescueQuestions, rescueTimerRound]);
+  }, [open, loading, busy, rescueIndex, rescueQuestions, rescueTimerRound, rescueReview]);
 
   const question = questions[index];
   return (
@@ -377,6 +415,8 @@ export default function MedtechUltimateChallenge({
         >
           {dailyStatus === "finished"
             ? "查看結果／補救任務 →"
+            : rescueDue
+              ? "開始 10 題補救任務 →"
             : dailyStatus === "in_progress"
               ? "繼續今日挑戰 →"
               : "開始挑戰 →"}
@@ -410,6 +450,12 @@ export default function MedtechUltimateChallenge({
               先選定一個尚未購買的題包；隨機 30 題、選項重新打亂。每題限時 5 秒，總限時 3
               分鐘，答錯、逾時或放棄都會結束今天的挑戰。完成後才顯示結果，不會在作答中透露答案。
             </p>
+            {(rescueQuestions[rescueIndex] || rescueFailed) && (
+              <div className="medtech-rescue-rule">
+                <strong>補救任務規則</strong>
+                <span>共 10 題，每題 10 秒且只能作答一次；答對 8 題以上即通過。每題作答後會顯示正確答案與解析，通過後於明日取得一次正式挑戰資格。</span>
+              </div>
+            )}
             {loading ? (
               <div className="medtech-challenge-loading">
                 <span className="medtech-loading-spinner" />
@@ -419,12 +465,27 @@ export default function MedtechUltimateChallenge({
               </div>
             ) : rescueQuestions[rescueIndex] ? (
               <div className="medtech-ultimate-question">
-                <div className="medtech-ultimate-meta"><small>補救複習第 {rescueIndex + 1}／10 題</small><strong className={rescueSecondsLeft <= 3 ? "urgent" : ""}>本題剩 {rescueSecondsLeft} 秒</strong></div>
+                <div className="medtech-ultimate-meta"><small>補救複習第 {rescueIndex + 1}／10 題 · 通過門檻 8／10</small><strong className={rescueSecondsLeft <= 3 ? "urgent" : ""}>{rescueReview ? "本題已完成" : "本題剩 " + rescueSecondsLeft + " 秒"}</strong></div>
                 <h3>{rescueQuestions[rescueIndex].stem}</h3>
                 <div className="medtech-challenge-options">
-                  {["A", "B", "C", "D"].map((letter) => <button type="button" key={letter} disabled={busy} className={selectedRescueAnswer === letter ? "selected" : ""} onClick={() => void answerRescue(letter)}><b>{letter}</b><span>{rescueQuestions[rescueIndex].options[letter] || ""}</span></button>)}
+                  {["A", "B", "C", "D"].map((letter) => <button type="button" key={letter} disabled={busy || Boolean(rescueReview)} className={selectedRescueAnswer === letter ? "selected" : ""} onClick={() => void answerRescue(letter)}><b>{letter}</b><span>{rescueQuestions[rescueIndex].options[letter] || ""}</span></button>)}
                 </div>
                 {rescueMessage && <p className="medtech-ultimate-answer-feedback" role="status">{rescueMessage}</p>}
+                {rescueReview && (
+                  <div className={"medtech-rescue-review " + (rescueReview.correct ? "correct" : "incorrect")}>
+                    <strong>{rescueReview.correct ? "答對了" : "這題需要複習"}</strong>
+                    <p>你的答案：{rescueReview.selectedAnswer}{rescueReview.selectedText ? "　" + rescueReview.selectedText : ""}</p>
+                    <p>正確答案：{rescueReview.correctAnswer}{rescueReview.correctText ? "　" + rescueReview.correctText : ""}</p>
+                    <p>說明：{rescueReview.reason}</p>
+                    <p>解析：{rescueReview.explanation}</p>
+                    <button type="button" className="medtech-discount-unlock-button" onClick={continueRescue}>{rescueNext?.completed ? "查看補救結果 →" : "下一題 →"}</button>
+                  </div>
+                )}
+              </div>
+            ) : rescueFailed ? (
+              <div className="medtech-ultimate-result failed">
+                <strong>本次補救未通過</strong>
+                <span>{rescueMessage || "10 題需答對至少 8 題；明天可重新挑戰一組新的 10 題。"}</span>
               </div>
             ) : result ? (
               <div

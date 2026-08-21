@@ -313,6 +313,19 @@ export default async function MedtechChapters({
       ? "in_progress"
       : "finished"
     : "available";
+  const latestUltimate = [...sessionRows]
+    .filter((row) => row.packageType === "ultimate_challenge")
+    .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())[0];
+  const latestRescueAfterUltimate = latestUltimate
+    ? [...sessionRows]
+        .filter((row) => row.packageType === "ultimate_rescue" && row.startedAt > latestUltimate.startedAt)
+        .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())[0]
+    : undefined;
+  const rescueDue = Boolean(
+    !dailyUltimate &&
+    latestUltimate?.status === "failed" &&
+    latestRescueAfterUltimate?.status !== "completed",
+  );
   const payment = (await searchParams)?.payment;
 
   return (
@@ -357,7 +370,7 @@ export default async function MedtechChapters({
             秒，每個題目包最多 2
             次答題挑戰。答對率越高、平均作答越快，折扣越優惠，兩次取最佳結果；另有一次限時轉轉樂，最高五折。另可每天挑戰一次
             30 題 1 折終極挑戰，先任選一個未購題包，3 分鐘內全對即可在今日 23:59 前用 LINE Pay NT$3
-            購買。失敗後完成 10 題補救複習，明日可再取得一次挑戰資格。每一關完成後，系統保存作答時間、答對率、錯題與需加強觀念。
+            購買。失敗後可進行 10 題補救複習：每題 10 秒、僅能作答一次，答對至少 8 題即可在明日取得一次挑戰資格；每題作答後會顯示正確答案與解析。每一關完成後，系統保存作答時間、答對率、錯題與需加強觀念。
           </span>
         </div>
         {ultimateTargets.length > 0 && (
@@ -366,6 +379,7 @@ export default async function MedtechChapters({
             packNumber={ultimateTargets[0].packNumber}
             targets={ultimateTargets}
             dailyStatus={dailyUltimateStatus}
+            rescueDue={rescueDue}
           />
         )}
         <div className="medtech-chapter-list">

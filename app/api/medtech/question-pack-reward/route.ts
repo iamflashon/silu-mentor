@@ -162,6 +162,16 @@ async function findDailyUltimateSession(auth: { db: Awaited<ReturnType<typeof im
   return session ?? null;
 }
 
+async function findLatestFailedUltimateSession(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const [session] = await auth.db.select().from(medtechPracticeSessions).where(and(
+    eq(medtechPracticeSessions.userKey, auth.userKey),
+    eq(medtechPracticeSessions.packageName, ULTIMATE_SESSION_NAME),
+    eq(medtechPracticeSessions.packageType, "ultimate_challenge"),
+    eq(medtechPracticeSessions.status, "failed"),
+  )).orderBy(desc(medtechPracticeSessions.startedAt)).limit(1);
+  return session ?? null;
+}
+
 async function completedLearningQuestionIds(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
   const rows = await auth.db.select({ questionIdsJson: medtechPracticeSessions.questionIdsJson, completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status, answeredQuestions: medtechPracticeSessions.answeredQuestions, totalQuestions: medtechPracticeSessions.totalQuestions })
     .from(medtechPracticeSessions)
@@ -268,7 +278,8 @@ export async function GET(request: Request) {
   const packageNumber = readPackNumber(url.searchParams.get("pack"));
   if (url.searchParams.get("challenge") === "ultimate-rescue") {
     const dailyChallenge = await findDailyUltimateSession(auth);
-    if (!dailyChallenge || dailyChallenge.status !== "failed") return Response.json({ error: "正式挑戰失敗後，才能進行補救複習。" }, { status: 403 });
+    const failedChallenge = dailyChallenge?.status === "failed" ? dailyChallenge : await findLatestFailedUltimateSession(auth);
+    if (!failedChallenge) return Response.json({ error: "正式挑戰失敗後，才能進行補救複習。" }, { status: 403 });
     let rescue = await findDailyRescueSession(auth);
     if (!rescue) {
       const ids = shuffle(await completedLearningQuestionIds(auth)).slice(0, ULTIMATE_RESCUE_SIZE);
@@ -277,7 +288,7 @@ export async function GET(request: Request) {
         userKey: auth.userKey,
         packageName: ULTIMATE_SESSION_NAME,
         packageType: "ultimate_rescue",
-        packNumber: dailyChallenge.packNumber,
+        packNumber: failedChallenge.packNumber,
         questionIdsJson: JSON.stringify(ids),
         answerDetailsJson: JSON.stringify({ correctIds: [] }),
         totalQuestions: ULTIMATE_RESCUE_SIZE,
@@ -285,7 +296,15 @@ export async function GET(request: Request) {
       }).returning())[0] ?? null;
     }
     if (!rescue) return Response.json({ error: "補救任務建立失敗。" }, { status: 500 });
-    return Response.json({ status: rescue.status, currentIndex: Math.min(rescue.lastQuestionIndex, ULTIMATE_RESCUE_SIZE - 1), questions: await rescueQuestions(auth, rescue), completed: rescue.status === "completed" });
+    return Response.json({
+      status: rescue.status,
+      currentIndex: Math.min(rescue.lastQuestionIndex, ULTIMATE_RESCUE_SIZE - 1),
+      questions: rescue.status === "in_progress" ? await rescueQuestions(auth, rescue) : [],
+      completed: rescue.status === "completed",
+      failed: rescue.status === "failed",
+      score: rescue.correctQuestions || 0,
+      total: rescue.totalQuestions || ULTIMATE_RESCUE_SIZE,
+    });
   }
   if (url.searchParams.get("challenge") === "ultimate") {
     const currentReward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
@@ -395,21 +414,72 @@ export async function POST(request: Request) {
     const questionId = Number(body.questionId);
     const answer = typeof body.answer === "string" && /^[A-D]$/.test(body.answer) ? body.answer : "";
     if (questionId !== ids[index]) return Response.json({ error: "補救題目順序已變更，請重新開啟。" }, { status: 409 });
-    const [row] = await auth.db.select({ correctAnswer: examQuestions.correctAnswer, teacherAnswer: examQuestions.teacherAnswer, simulatedAnswer: examQuestions.simulatedAnswer }).from(examQuestions).where(eq(examQuestions.id, questionId)).limit(1);
-    const correct = Boolean(row && answer === (row.teacherAnswer || row.correctAnswer || row.simulatedAnswer || ""));
-    if (!correct) return Response.json({ status: "in_progress", correct: false, currentIndex: index, message: "再想一次；答對後才會進入下一題。" });
+    const [row] = await auth.db.select({
+      stem: examQuestions.stem,
+      optionsJson: examQuestions.optionsJson,
+      correctAnswer: examQuestions.correctAnswer,
+      teacherAnswer: examQuestions.teacherAnswer,
+      simulatedAnswer: examQuestions.simulatedAnswer,
+      explanation: examQuestions.explanation,
+      completeExplanation: examQuestions.completeExplanation,
+      aiCompleteExplanation: examQuestions.aiCompleteExplanation,
+      teacherCompleteExplanation: examQuestions.teacherCompleteExplanation,
+      simulatedExplanation: examQuestions.simulatedExplanation,
+      simulatedCompleteExplanation: examQuestions.simulatedCompleteExplanation,
+    }).from(examQuestions).where(eq(examQuestions.id, questionId)).limit(1);
+    const correctAnswer = row?.teacherAnswer || row?.correctAnswer || row?.simulatedAnswer || "";
+    const correct = Boolean(row && answer && answer === correctAnswer);
+    const options = parseOptions(row?.optionsJson || "{}");
+    const payload = parseJsonObject(rescue.answerDetailsJson);
+    const priorAnswers = Array.isArray(payload.answers) ? payload.answers.filter((item) => item && typeof item === "object") : [];
+    const answers = [...priorAnswers, { questionId, order: index, answer: answer || null, correct }];
     const nextIndex = index + 1;
     const completed = nextIndex >= ids.length;
+    const correctQuestions = Math.max(0, rescue.correctQuestions || 0) + (correct ? 1 : 0);
+    const passed = completed && correctQuestions >= 8;
+    const incorrectIds = answers.filter((item) => !(item as { correct?: boolean }).correct).map((item) => Number((item as { questionId?: unknown }).questionId)).filter(Number.isInteger);
+    const explanation = plainText(
+      row?.teacherCompleteExplanation ||
+      row?.completeExplanation ||
+      row?.aiCompleteExplanation ||
+      row?.simulatedCompleteExplanation ||
+      row?.explanation ||
+      row?.simulatedExplanation ||
+      "本題尚未附文字解析，請依正確答案回到教材複習。",
+    );
+    const review = {
+      questionNumber: index + 1,
+      correct,
+      selectedAnswer: answer || "未作答",
+      selectedText: answer ? plainText(options[answer]) : "",
+      correctAnswer,
+      correctText: plainText(options[correctAnswer]),
+      explanation,
+      reason: answer ? (correct ? "作答正確。" : "你的答案與本題正確答案不同。") : "本題超過 10 秒作答時間。",
+    };
     await auth.db.update(medtechPracticeSessions).set({
-      status: completed ? "completed" : "in_progress",
+      status: completed ? (passed ? "completed" : "failed") : "in_progress",
       completedAt: completed ? new Date() : null,
       lastActiveAt: new Date(),
       lastQuestionIndex: nextIndex,
       answeredQuestions: nextIndex,
-      correctQuestions: nextIndex,
-      answerDetailsJson: JSON.stringify({ correctIds: ids.slice(0, nextIndex) }),
+      correctQuestions,
+      incorrectQuestionIdsJson: JSON.stringify(incorrectIds),
+      answerDetailsJson: JSON.stringify({ answers, rescueRule: "score-8-of-10-v1" }),
     }).where(eq(medtechPracticeSessions.id, rescue.id));
-    return Response.json({ status: completed ? "completed" : "in_progress", correct: true, currentIndex: Math.min(nextIndex, ids.length - 1), completed, message: completed ? "補救完成，明日取得一次正式挑戰資格。" : undefined });
+    return Response.json({
+      status: completed ? (passed ? "completed" : "failed") : "in_progress",
+      correct,
+      currentIndex: Math.min(nextIndex, ids.length - 1),
+      completed,
+      passed,
+      score: correctQuestions,
+      total: ids.length,
+      review,
+      message: completed
+        ? (passed ? "補救通過：答對 " + correctQuestions + "／10 題，明日取得一次正式挑戰資格。" : "補救未通過：答對 " + correctQuestions + "／10 題，需達 8 題；明天可重新挑戰。")
+        : undefined,
+    });
   }
   if (body.action === "ultimate-answer" || body.action === "ultimate-abandon") {
     const dailySession = await findDailyUltimateSession(auth);
