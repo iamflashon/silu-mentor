@@ -23,6 +23,7 @@ type CompletePayload = {
   subject: string;
   documentType: string;
   replaceDocumentId?: number;
+  existingQuestionCount?: number;
 };
 
 function safeName(value: string) {
@@ -68,8 +69,29 @@ export async function POST(request: Request) {
           }
           const [current] = await db.select().from(documents).where(eq(documents.id, Number(body.replaceDocumentId))).limit(1);
           if (!current) {
-            await bucket.delete(body.key);
-            return Response.json({ error: "找不到要新增原稿的文件" }, { status: 404 });
+            // Some Dev databases were imported with exam_questions but without
+            // the matching documents row. Rebuild that missing parent record
+            // at the same logical id so refreshes can resolve and retain the
+            // uploaded PDF instead of falling back to "文件 {id}" / Word view.
+            const category = ["law", "accounting", "medtech", "data-structure"].includes(body.examCategory) ? body.examCategory : "law";
+            const questionCount = Number.isInteger(body.existingQuestionCount) ? Math.max(0, Number(body.existingQuestionCount)) : 0;
+            await db.insert(documents).values({
+              id: Number(body.replaceDocumentId),
+              storageKey: body.key,
+              fileName: body.fileName,
+              contentType: contentTypeForDocument(body.fileName, body.contentType),
+              sizeBytes: body.sizeBytes,
+              examCategory: category,
+              bookTitle: documentDisplayTitle(null, body.fileName),
+              subject: body.subject || "未分類",
+              documentType: body.documentType || "題庫",
+              status: "completed",
+              processingStage: "completed",
+              processingMessage: "已補回遺失的原稿文件紀錄；既有題目與解析均保留",
+              questionCount,
+              processingResultJson: JSON.stringify({ sourceVariants: [] }),
+            });
+            return Response.json({ replaced: true, repaired: true, variant: documentExtension(body.fileName) ?? "other", id: Number(body.replaceDocumentId), name: body.fileName });
           }
           let result: Record<string, unknown> = {};
           try { result = JSON.parse(current.processingResultJson) as Record<string, unknown>; } catch { result = {}; }

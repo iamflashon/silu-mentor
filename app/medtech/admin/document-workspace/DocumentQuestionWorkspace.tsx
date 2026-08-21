@@ -102,7 +102,7 @@ async function importQuestions(id:number,materializeOnly=false,forceReparse=fals
     parts.push({partNumber:part.partNumber,etag:part.etag});
    }
    setNotice("上傳完成，正在保存原稿版本…");
-   const completeResponse=await fetch("/api/documents/multipart",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"complete",key:init.key,uploadId:init.uploadId,parts,fileName:file.name,contentType,sizeBytes:file.size,examCategory:category,subject:current?.subject||docName,documentType:"題庫",replaceDocumentId:documentId})});
+   const completeResponse=await fetch("/api/documents/multipart",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"complete",key:init.key,uploadId:init.uploadId,parts,fileName:file.name,contentType,sizeBytes:file.size,examCategory:category,subject:current?.subject||docName,documentType:"題庫",replaceDocumentId:documentId,existingQuestionCount:questions.length})});
    const result=await completeResponse.json().catch(()=>({})) as {error?:string;variant?:string};
    if(!completeResponse.ok)throw new Error(result.error||"無法保存原稿版本");
    await load(documentId);setSourceRevision(value=>value+1);
