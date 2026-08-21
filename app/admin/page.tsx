@@ -181,6 +181,7 @@ type DocumentSearchTest = {
   autoResults?: Array<{ query: string; hit: boolean; hits: number; page: number | null; excerpt: string }>;
   error?: string;
 };
+type DocumentSearchRun = { id: string; documentId: number; documentName: string; createdAt: string; passed: number; total: number; results: NonNullable<DocumentSearchTest["autoResults"]> };
 type LearningResource = {
   id: number;
   resourceType: string;
@@ -742,6 +743,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
   });
   const [documentSearchQueries, setDocumentSearchQueries] = useState<Record<number, string>>({});
   const [documentSearchTests, setDocumentSearchTests] = useState<Record<number, DocumentSearchTest>>({});
+  const [documentSearchHistory, setDocumentSearchHistory] = useState<Record<number, DocumentSearchRun[]>>({});
   const [fineIndexingDocumentId, setFineIndexingDocumentId] = useState<number | null>(null);
   const [resourceDocumentQueries, setResourceDocumentQueries] = useState<Record<number, string>>({});
   const [uploading, setUploading] = useState(false);
@@ -3143,7 +3145,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
       setNotice("這份教材尚未產生可用的章節或標籤，請先完成 AI 結構分析。");
       return;
     }
-    setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: "AI 自動模擬測試" } }));
+    setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 0 / ${candidates.length}`, autoResults: [] } }));
     const results: NonNullable<DocumentSearchTest["autoResults"]> = [];
     try {
       for (const query of candidates) {
@@ -3151,19 +3153,30 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         const result = await response.json() as DocumentSearchTest & { error?: string };
         if (!response.ok) {
           results.push({ query, hit: false, hits: 0, page: null, excerpt: result.error ?? "測試失敗" });
+          setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 ${results.length} / ${candidates.length}`, autoResults: [...results] } }));
           continue;
         }
         const first = result.hits?.[0];
         results.push({ query, hit: Boolean(result.selectedFileWasSearched && result.hits?.length), hits: result.hits?.length ?? 0, page: first?.pageStart ?? null, excerpt: first?.text?.slice(0, 120) ?? "" });
+        setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 ${results.length} / ${candidates.length}`, autoResults: [...results] } }));
       }
       const passed = results.filter((item) => item.hit).length;
       setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "success", query: "AI 自動模擬測試", selectedFileWasSearched: passed > 0, autoResults: results } }));
+      const savedResponse = await fetch("/api/documents/search-tests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, documentName: file.bookTitle || file.name, results }) });
+      const saved = await savedResponse.json() as { run?: DocumentSearchRun };
+      if (saved.run) setDocumentSearchHistory((current) => ({ ...current, [file.id]: [saved.run!, ...(current[file.id] ?? [])].slice(0, 10) }));
       setNotice(`「${file.bookTitle || file.name}」自動測試完成：${passed} / ${results.length} 組查詢命中。`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI 自動模擬測試失敗";
       setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "error", query: "AI 自動模擬測試", error: message, autoResults: results } }));
       setNotice(message);
     }
+  }
+
+  async function loadDocumentSearchHistory(documentId: number) {
+    const response = await fetch(`/api/documents/search-tests?documentId=${documentId}`, { cache: "no-store" });
+    const data = await response.json() as { runs?: DocumentSearchRun[] };
+    if (response.ok) setDocumentSearchHistory((current) => ({ ...current, [documentId]: data.runs ?? [] }));
   }
 
   async function buildFineSearchIndex(file: Uploaded) {
@@ -4451,6 +4464,12 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                               {documentSearchTests[file.id]?.status === "error" && (
                                 <small className="document-search-test-error">{documentSearchTests[file.id]?.error}</small>
                               )}
+                              {documentSearchTests[file.id]?.status === "testing" && !!documentSearchTests[file.id]?.autoResults?.length && (
+                                <div className="document-search-test-result testing">
+                                  <strong>{documentSearchTests[file.id]?.query}</strong>
+                                  <ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} {item.query}</b><span>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}` : item.excerpt || "未命中"}</span></li>)}</ul>
+                                </div>
+                              )}
                               {documentSearchTests[file.id]?.status === "success" && (
                                 <div className={`document-search-test-result ${documentSearchTests[file.id]?.selectedFileWasSearched ? "hit" : "miss"}`}>
                                   {documentSearchTests[file.id]?.autoResults?.length ? <><strong>自動測試通過 {documentSearchTests[file.id]?.autoResults?.filter((item) => item.hit).length} / {documentSearchTests[file.id]?.autoResults?.length} 組</strong><ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} {item.query}</b><span>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}` : item.excerpt || "未命中"}</span></li>)}</ul></> : <strong>{documentSearchTests[file.id]?.selectedFileWasSearched ? `已命中 ${documentSearchTests[file.id]?.hits?.length ?? 0} 個片段` : "未命中這份指定教材"}</strong>}
@@ -4465,6 +4484,11 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                                   )}
                                 </div>
                               )}
+                              <details className="document-search-history" onToggle={(event) => { if (event.currentTarget.open) void loadDocumentSearchHistory(file.id); }}>
+                                <summary>查看最近測試紀錄</summary>
+                                {(documentSearchHistory[file.id] ?? []).map((run) => <article key={run.id}><header><b>{new Date(run.createdAt).toLocaleString("zh-TW")}</b><strong>{run.passed} / {run.total} 組通過</strong></header><ul>{run.results.map((item) => <li key={`${run.id}-${item.query}`}><span>{item.hit ? "✓" : "✕"} {item.query}</span><small>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}` : item.excerpt || "未命中"}</small></li>)}</ul></article>)}
+                                {!documentSearchHistory[file.id]?.length && <small>尚無已保存的自動測試紀錄。</small>}
+                              </details>
                             </div>
                           )}
                         </div>

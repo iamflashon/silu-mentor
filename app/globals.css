@@ -6641,6 +6641,7 @@ a {
   background: #fff5e7;
   color: #8b6420;
 }
+.document-search-test-result.testing { background: #eef5f8; color: #315f78; }
 .document-search-test-result ul {
   display: grid;
   gap: 4px;
@@ -6650,6 +6651,13 @@ a {
 .document-search-test-result li {
   overflow-wrap: anywhere;
 }
+.document-search-history { margin-top: 4px; padding-top: 6px; border-top: 1px solid #d4e3e8; }
+.document-search-history summary { color: #386c82; font-size: 10px; font-weight: 850; cursor: pointer; }
+.document-search-history > article { margin-top: 6px; padding: 7px; border: 1px solid #d9e7eb; border-radius: 7px; background: #fff; }
+.document-search-history article header { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #416b7e; font-size: 9px; }
+.document-search-history article ul { display: grid; gap: 3px; margin: 5px 0 0; padding: 0; list-style: none; }
+.document-search-history article li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 9px; }
+.document-search-history article li small { color: #748c98; }
 .resource-document-picker {
   display: grid;
   gap: 6px;
