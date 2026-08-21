@@ -12,7 +12,10 @@ import {
   medtechPracticeSessions,
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
-import { getActiveMedtechAllAccess } from "../../../lib/medtech-usage";
+import {
+  MEDTECH_ALL_ACCESS_DAYS,
+  MEDTECH_ALL_ACCESS_NAME,
+} from "../../../lib/medtech-usage";
 
 const PACKAGE_SIZE = 30;
 const PACKAGE_HOURS = 7 * 24;
@@ -118,13 +121,34 @@ export default async function MedtechRandomPackages({
           packageName: medtechPaymentOrders.packageName,
           packNumber: medtechPaymentOrders.packNumber,
           status: medtechPaymentOrders.status,
+          paidAt: medtechPaymentOrders.paidAt,
         })
         .from(medtechPaymentOrders)
         .where(eq(medtechPaymentOrders.userKey, auth.userKey)),
     ],
   );
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
-  const allAccess = await getActiveMedtechAllAccess(auth.db, auth.userKey);
+  const allAccessOrder = paymentRows
+    .filter(
+      (row) =>
+        row.packageName === MEDTECH_ALL_ACCESS_NAME &&
+        row.status === "paid" &&
+        row.paidAt,
+    )
+    .sort(
+      (left, right) =>
+        (right.paidAt?.getTime() ?? 0) - (left.paidAt?.getTime() ?? 0),
+    )[0];
+  const allAccessUntil = allAccessOrder?.paidAt
+    ? new Date(
+        allAccessOrder.paidAt.getTime() +
+          MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
+      )
+    : null;
+  const allAccess =
+    allAccessUntil && allAccessUntil.getTime() > Date.now()
+      ? { availableUntil: allAccessUntil }
+      : null;
   const sourceByAlias = new Map(
     sourceRows.flatMap(
       (row) =>

@@ -47,30 +47,43 @@ export async function getActiveMedtechAllAccess(
   db: Awaited<ReturnType<typeof getDb>>,
   userKey: string,
 ) {
-  const cutoff = new Date(
-    Date.now() - MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
-  );
-  const [order] = await db
-    .select()
-    .from(medtechPaymentOrders)
-    .where(
-      and(
-        eq(medtechPaymentOrders.userKey, userKey),
-        eq(medtechPaymentOrders.packageName, MEDTECH_ALL_ACCESS_NAME),
-        eq(medtechPaymentOrders.status, "paid"),
-        gte(medtechPaymentOrders.paidAt, cutoff),
-      ),
-    )
-    .orderBy(desc(medtechPaymentOrders.paidAt))
-    .limit(1);
-  if (!order?.paidAt) return null;
-  return {
-    order,
-    availableUntil: new Date(
-      order.paidAt.getTime() +
-        MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
-    ),
-  };
+  try {
+    // Do not put the rolling cutoff in SQL. Older D1 rows and different
+    // runtime adapters can expose timestamp values differently; filtering in
+    // JavaScript keeps the chapter list usable across both old and new data.
+    const [order] = await db
+      .select()
+      .from(medtechPaymentOrders)
+      .where(
+        and(
+          eq(medtechPaymentOrders.userKey, userKey),
+          eq(medtechPaymentOrders.packageName, MEDTECH_ALL_ACCESS_NAME),
+          eq(medtechPaymentOrders.status, "paid"),
+          isNotNull(medtechPaymentOrders.paidAt),
+        ),
+      )
+      .orderBy(desc(medtechPaymentOrders.paidAt))
+      .limit(1);
+    if (!order?.paidAt) return null;
+
+    const paidAt =
+      order.paidAt instanceof Date
+        ? order.paidAt
+        : new Date(order.paidAt as unknown as string | number);
+    if (Number.isNaN(paidAt.getTime())) return null;
+
+    const availableUntil = new Date(
+      paidAt.getTime() + MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
+    );
+    if (availableUntil.getTime() <= Date.now()) return null;
+    return { order, availableUntil };
+  } catch (error) {
+    // A pricing lookup must never take down the whole practice catalogue.
+    // Treat an unavailable legacy payment table as no active pass and keep
+    // the page available while preserving an actionable Worker log.
+    console.error("[medtech] all-access lookup failed", error);
+    return null;
+  }
 }
 
 export const MEDTECH_ULTIMATE_DISCOUNT = {
