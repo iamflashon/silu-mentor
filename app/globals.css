@@ -5195,6 +5195,15 @@ a {
   margin-left: auto;
 }
 
+.admin-route-forward {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #f5f8fa;
+  color: #587285;
+  font-weight: 800;
+}
+
 .library-storage-architecture {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
@@ -5404,7 +5413,6 @@ a {
   }
   .independent-admin-shell .admin-main { width: calc(100% - 28px); }
   .library-storage-architecture { grid-template-columns: 1fr; }
-  .central-admin-tabs a:last-child { margin-left: 0; }
   .admin-nav-section { grid-column: 1 / -1; padding-top: 12px; }
   .admin-platform-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

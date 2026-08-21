@@ -535,6 +535,9 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
   const questionBankMode = workspaceMode === "question-bank";
   const memberMode = workspaceMode === "members";
   const independentMode = libraryMode || questionBankMode || memberMode;
+  useEffect(() => {
+    if (workspaceMode === "management") window.location.replace("/admin/library");
+  }, [workspaceMode]);
   const [activeTab, setActiveTab] = useState<
     | "documents"
     | "resources"
@@ -3428,6 +3431,10 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
     }
   }
 
+  if (workspaceMode === "management") {
+    return <main className="admin-route-forward"><span>正在進入中央教材庫…</span></main>;
+  }
+
   return (
     <main className={`admin-shell ${independentMode ? "independent-admin-shell" : ""} ${libraryMode ? "library-admin-shell" : ""} ${questionBankMode ? "question-bank-admin-shell" : ""}`}>
       <header className="topbar">
@@ -3451,7 +3458,6 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
           <a className={libraryMode ? "active" : ""} href="/admin/library">教材向量庫</a>
           <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
           <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
-          <a href="/admin">其他管理功能</a>
         </nav>}
         {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
           <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
