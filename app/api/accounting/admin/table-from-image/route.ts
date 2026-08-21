@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
   const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
     model: "gpt-5.6-luna",
-    instructions: "你是會計教材版面轉換助手。完整保留圖片中的所有文字與表格，不解題、不改寫、不刪除表格外文字。依圖片由上到下順序輸出安全 HTML：分錄或欄列資料用 table；表格上方或下方的計算式、期初餘額、期末餘額、括號說明等用 p。忠實保留借貸排列、合併欄、空白儲存格與框線位置。原圖中有單底線或雙底線的金額，必須在對應 span 使用 inline style 的 text-decoration-line:underline；雙底線另加 text-decoration-style:double。表格只在原圖確實有線的位置設定 border；沒有線的邊不得補線。禁止 Markdown、script、style 標籤、事件屬性與外部連結。",
+    instructions: "你是會計教材版面轉換助手。完整保留圖片中的所有文字與表格，不解題、不改寫、不刪除表格外文字。依圖片由上到下順序輸出安全 HTML：分錄或欄列資料用 table；表格上方或下方的計算式、期初餘額、期末餘額、括號說明等用 p。忠實保留借貸排列、合併欄、空白儲存格與框線位置。原圖中有單底線或雙底線的金額，必須在對應 span 使用 inline style 的 text-decoration-line:underline；雙底線另加 text-decoration-style:double。表格只在原圖確實有線的位置設定 border；沒有線的邊不得補線。所有元素背景必須透明，不得設定 background、background-color 或 bgcolor。禁止 Markdown、script、style 標籤、事件屬性與外部連結。",
     input: [{ role: "user", content: [{ type: "input_text", text: "請將整張圖片完整轉成可編輯 HTML。表格與表格外文字都必須保留，並保留金額雙底線及實際框線。" }, { type: "input_image", image_url: `data:${file.type};base64,${base64}`, detail: "high" }] }],
     text: { format: { type: "json_schema", name: "accounting_layout_from_image", strict: true, schema: { type: "object", additionalProperties: false, properties: { html: { type: "string" }, confidence: { type: "string", enum: ["high", "medium", "low"] }, note: { type: "string" } }, required: ["html", "confidence", "note"] } } },
     max_output_tokens: 3200,
