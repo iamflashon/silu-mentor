@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { chatMessages, documentAssignments, documentSearchUnits, documents, examQuestions } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
@@ -60,12 +60,19 @@ export async function GET(request: Request) {
       fullTextIndexed: documents.fullTextIndexed,
       vectorIndexed: documents.vectorIndexed,
       homepageSearchEnabled: documents.homepageSearchEnabled,
-      fineSearchUnitCount: sql<number>`(select count(*) from ${documentSearchUnits} where ${documentSearchUnits.documentId} = ${documents.id})`,
       assignmentCount: sql<number>`(select count(*) from ${documentAssignments} where ${documentAssignments.documentId} = ${documents.id})`,
       assignmentCategories: sql<string>`coalesce((select group_concat(${documentAssignments.examCategory}, ',') from ${documentAssignments} where ${documentAssignments.documentId} = ${documents.id}), '')`,
       processedAt: documents.processedAt,
       createdAt: documents.createdAt,
     }).from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
+    // D1 can return a stale value for a correlated count subquery even when the
+    // same primary-anchored session sees every row in a direct aggregate. Read
+    // the fine-index totals explicitly and merge them by document id.
+    const fineIndexCounts = rows.length ? await db.select({
+      documentId: documentSearchUnits.documentId,
+      total: sql<number>`count(*)`,
+    }).from(documentSearchUnits).where(inArray(documentSearchUnits.documentId, rows.map((row) => row.id))).groupBy(documentSearchUnits.documentId) : [];
+    const fineIndexCountByDocument = new Map(fineIndexCounts.map((row) => [row.documentId, Number(row.total)]));
     const questionCounts = await db.select({
       sourceUrl: examQuestions.sourceUrl,
       subject: examQuestions.subject,
@@ -121,7 +128,7 @@ export async function GET(request: Request) {
         fullTextIndexed: row.fullTextIndexed,
         vectorIndexed: row.vectorIndexed,
         homepageSearchEnabled: row.homepageSearchEnabled,
-        fineSearchUnitCount: Number(row.fineSearchUnitCount ?? 0),
+        fineSearchUnitCount: fineIndexCountByDocument.get(row.id) ?? 0,
         assignmentCount: Math.max(1, Number(row.assignmentCount ?? 0)),
         assignmentCategories: row.assignmentCategories ? [...new Set(row.assignmentCategories.split(",").filter(Boolean))] : [row.examCategory],
         summary: typeof result.summary === "string" ? result.summary : "",
