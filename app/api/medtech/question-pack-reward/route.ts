@@ -48,6 +48,21 @@ function parseJsonObject(value: string) {
   }
 }
 
+function plainText(value: unknown) {
+  return String(value ?? "")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .trim();
+}
+
 function shuffle<T>(items: T[]) {
   const shuffled = [...items];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -241,6 +256,7 @@ function ultimateResult(session: typeof medtechPracticeSessions.$inferSelect) {
     passed: session.status === "completed" && (session.correctQuestions || 0) === (session.totalQuestions || MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT),
     targetPackageName: String(payload.targetPackageName || ""),
     targetPackNumber: Math.max(1, Math.floor(Number(payload.targetPackNumber) || session.packNumber || 1)),
+    wrongAnswer: payload.wrongAnswer && typeof payload.wrongAnswer === "object" && !Array.isArray(payload.wrongAnswer) ? payload.wrongAnswer : undefined,
   };
 }
 
@@ -278,9 +294,9 @@ export async function GET(request: Request) {
       const failedPayload = parseJsonObject(dailySession.answerDetailsJson);
       // Repair sessions created by the earlier build that started its timer
       // before the browser had finished loading the first question.
-      if (failedPayload.attemptLimit !== 2) {
+      if (failedPayload.challengeRule !== "perfect-v1") {
         const now = new Date();
-        const repairedPayload = { ...failedPayload, answers: [], endedBy: undefined, readyAt: undefined, attemptLimit: 2 };
+        const repairedPayload = { ...failedPayload, answers: [], endedBy: undefined, wrongAnswer: undefined, readyAt: undefined, challengeRule: "perfect-v1" };
         await auth.db.update(medtechPracticeSessions).set({
           status: "in_progress",
           completedAt: null,
@@ -365,7 +381,7 @@ export async function POST(request: Request) {
       await auth.db.update(medtechPracticeSessions).set({
         startedAt: now,
         lastActiveAt: now,
-        answerDetailsJson: JSON.stringify({ ...payload, readyAt: now.toISOString(), attemptLimit: 2 }),
+        answerDetailsJson: JSON.stringify({ ...payload, readyAt: now.toISOString(), challengeRule: "perfect-v1" }),
       }).where(eq(medtechPracticeSessions.id, dailySession.id));
       return Response.json({ startedAt: now.toISOString(), lastActiveAt: now.toISOString() });
     }
@@ -413,7 +429,20 @@ export async function POST(request: Request) {
     const totalElapsedSeconds = Math.max(0, Math.ceil((now.getTime() - dailySession.startedAt.getTime()) / 1000));
     const questionElapsedSeconds = Math.max(0, (now.getTime() - dailySession.lastActiveAt.getTime()) / 1000);
     const answer = typeof body.answer === "string" && /^[A-D]$/.test(body.answer) ? body.answer : null;
-    const rows = questionIds.length ? await auth.db.select({ id: examQuestions.id, correctAnswer: examQuestions.correctAnswer, teacherAnswer: examQuestions.teacherAnswer, simulatedAnswer: examQuestions.simulatedAnswer }).from(examQuestions).where(inArray(examQuestions.id, questionIds)) : [];
+    const rows = questionIds.length ? await auth.db.select({
+      id: examQuestions.id,
+      stem: examQuestions.stem,
+      optionsJson: examQuestions.optionsJson,
+      correctAnswer: examQuestions.correctAnswer,
+      teacherAnswer: examQuestions.teacherAnswer,
+      simulatedAnswer: examQuestions.simulatedAnswer,
+      explanation: examQuestions.explanation,
+      completeExplanation: examQuestions.completeExplanation,
+      aiCompleteExplanation: examQuestions.aiCompleteExplanation,
+      teacherCompleteExplanation: examQuestions.teacherCompleteExplanation,
+      simulatedExplanation: examQuestions.simulatedExplanation,
+      simulatedCompleteExplanation: examQuestions.simulatedCompleteExplanation,
+    }).from(examQuestions).where(inArray(examQuestions.id, questionIds)) : [];
     const correctById = new Map(rows.map((row) => [row.id, row.teacherAnswer || row.correctAnswer || row.simulatedAnswer || ""]));
     const optionMaps = payload.optionMaps && typeof payload.optionMaps === "object" && !Array.isArray(payload.optionMaps) ? payload.optionMaps as Record<string, unknown> : {};
     const optionMap = optionMaps[String(questionId)];
@@ -422,26 +451,37 @@ export async function POST(request: Request) {
       : answer || "";
     const timedOut = totalElapsedSeconds > MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS || questionElapsedSeconds > 5;
     const correct = !isAbandon && !timedOut && Boolean(answer) && originalAnswer === correctById.get(questionId);
-    const previousAnswers = Array.isArray(payload.answers) ? payload.answers.filter((item): item is { questionId: number; order: number; answer: string | null; correct: boolean; attempts?: number } => Boolean(item && typeof item === "object" && Number.isInteger((item as { questionId?: unknown }).questionId))).filter((item, index, items) => items.findIndex((candidate) => candidate.questionId === item.questionId) === index) : [];
-    const priorCurrent = previousAnswers.find((item) => item.questionId === questionId);
-    const attempts = isAbandon ? 2 : Math.min(2, Math.max(0, priorCurrent?.attempts ?? 0) + 1);
-    const currentAnswer = !isAbandon && Number.isInteger(questionId) ? { questionId, order: currentIndex, answer, correct, attempts } : null;
+    const previousAnswers = Array.isArray(payload.answers) ? payload.answers.filter((item): item is { questionId: number; order: number; answer: string | null; correct: boolean } => Boolean(item && typeof item === "object" && Number.isInteger((item as { questionId?: unknown }).questionId))).filter((item, index, items) => items.findIndex((candidate) => candidate.questionId === item.questionId) === index) : [];
+    const currentAnswer = !isAbandon && Number.isInteger(questionId) ? { questionId, order: currentIndex, answer, correct } : null;
     const answerDetails = currentAnswer ? [...previousAnswers.filter((item) => item.questionId !== questionId), currentAnswer].sort((left, right) => left.order - right.order) : previousAnswers;
-    const canRetry = !correct && !isAbandon && totalElapsedSeconds <= MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS && attempts < 2;
-    const nextPayload = { ...payload, answers: answerDetails, endedBy: correct || canRetry ? undefined : (isAbandon ? "abandoned" : timedOut ? "time_limit" : "wrong_answer") };
+    const questionRow = rows.find((row) => row.id === questionId);
+    const originalOptions = parseOptions(questionRow?.optionsJson || "{}");
+    const correctOriginal = correctById.get(questionId) || "";
+    const presentedCorrect = optionMap && typeof optionMap === "object" && !Array.isArray(optionMap)
+      ? Object.entries(optionMap as Record<string, unknown>).find(([, original]) => String(original) === correctOriginal)?.[0] || correctOriginal
+      : correctOriginal;
+    const explanation = plainText(
+      questionRow?.teacherCompleteExplanation ||
+      questionRow?.completeExplanation ||
+      questionRow?.aiCompleteExplanation ||
+      questionRow?.simulatedCompleteExplanation ||
+      questionRow?.explanation ||
+      questionRow?.simulatedExplanation ||
+      "本題尚未附文字解析，請依正確答案回到教材複習。",
+    );
+    const wrongAnswer = !correct && !isAbandon && questionRow ? {
+      questionNumber: currentIndex + 1,
+      stem: plainText(questionRow.stem),
+      selectedAnswer: answer || "未作答",
+      selectedText: originalAnswer ? plainText(originalOptions[originalAnswer]) : "",
+      correctAnswer: presentedCorrect,
+      correctText: correctOriginal ? plainText(originalOptions[correctOriginal]) : "",
+      explanation,
+      reason: timedOut ? "本題超過 5 秒作答時間。" : "你的答案與本題正確答案不同。",
+    } : undefined;
+    const nextPayload = { ...payload, challengeRule: "perfect-v1", answers: answerDetails, wrongAnswer, endedBy: correct ? undefined : (isAbandon ? "abandoned" : timedOut ? "time_limit" : "wrong_answer") };
     const answeredQuestions = answerDetails.filter((item) => Boolean(item.answer)).length;
     const correctQuestions = answerDetails.filter((item) => item.correct).length;
-    if (canRetry) {
-      await auth.db.update(medtechPracticeSessions).set({
-        status: "in_progress",
-        lastActiveAt: now,
-        answeredQuestions,
-        correctQuestions,
-        incorrectQuestionIdsJson: JSON.stringify(answerDetails.filter((item) => !item.correct).map((item) => item.questionId)),
-        answerDetailsJson: JSON.stringify(nextPayload),
-      }).where(eq(medtechPracticeSessions.id, dailySession.id));
-      return Response.json({ packageName, packageNumber, challenge: "ultimate", status: "in_progress", correct: false, retry: true, attemptsRemaining: 2 - attempts, nextIndex: currentIndex, score: correctQuestions, total: questionIds.length, durationSeconds: Math.min(MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS, totalElapsedSeconds), passed: false, message: "第一次未答對，還有一次機會。" });
-    }
     if (!correct) {
       await auth.db.update(medtechPracticeSessions).set({
         status: "failed",
@@ -453,7 +493,7 @@ export async function POST(request: Request) {
         incorrectQuestionIdsJson: JSON.stringify(answerDetails.filter((item) => !item.correct).map((item) => item.questionId)),
         answerDetailsJson: JSON.stringify(nextPayload),
       }).where(eq(medtechPracticeSessions.id, dailySession.id));
-      return Response.json({ packageName, packageNumber, challenge: "ultimate", status: "failed", correct: false, score: correctQuestions, total: questionIds.length, durationSeconds: Math.min(MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS, totalElapsedSeconds), passed: false, reason: nextPayload.endedBy });
+      return Response.json({ packageName, packageNumber, challenge: "ultimate", status: "failed", correct: false, score: correctQuestions, total: questionIds.length, durationSeconds: Math.min(MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS, totalElapsedSeconds), passed: false, reason: nextPayload.endedBy, wrongAnswer });
     }
     const nextIndex = currentIndex + 1;
     if (nextIndex >= questionIds.length) {

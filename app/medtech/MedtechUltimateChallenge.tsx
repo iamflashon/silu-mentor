@@ -13,12 +13,23 @@ type Props = {
 };
 type Question = { id: number; stem: string; options: Record<string, string> };
 type Reward = { status?: string; label?: string | null; cost?: number };
+type WrongAnswer = {
+  questionNumber: number;
+  stem: string;
+  selectedAnswer: string;
+  selectedText: string;
+  correctAnswer: string;
+  correctText: string;
+  explanation: string;
+  reason: string;
+};
 type Result = {
   score: number;
   total: number;
   durationSeconds: number;
   passed: boolean;
   reward?: Reward;
+  wrongAnswer?: WrongAnswer;
 };
 const TOTAL_TIME_LIMIT_SECONDS = 180;
 const QUESTION_TIME_LIMIT_SECONDS = 5;
@@ -218,9 +229,7 @@ export default function MedtechUltimateChallenge({
         durationSeconds?: number;
         passed?: boolean;
         reward?: Reward;
-        retry?: boolean;
-        attemptsRemaining?: number;
-        message?: string;
+        wrongAnswer?: WrongAnswer;
         error?: string;
       };
       if (!response.ok)
@@ -232,12 +241,9 @@ export default function MedtechUltimateChallenge({
           durationSeconds: data.durationSeconds ?? TOTAL_TIME_LIMIT_SECONDS,
           passed: Boolean(data.passed),
           reward: data.reward,
+          wrongAnswer: data.wrongAnswer,
         });
         setQuestions([]);
-      } else if (data.retry) {
-        setAnswerFeedback(data.message || `還有 ${data.attemptsRemaining ?? 1} 次機會。`);
-        questionStartedAtRef.current = Date.now();
-        setQuestionSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
       } else if (data.correct) {
         if (question && answer) {
           const next = { ...answersRef.current, [question.id]: answer };
@@ -398,6 +404,18 @@ export default function MedtechUltimateChallenge({
                     ? " · 一折優惠保留至今日 23:59"
                     : " · 完成 10 題補救，可取得明日一次挑戰資格"}
                 </span>
+                {!result.passed && result.wrongAnswer && (
+                  <div className="medtech-ultimate-wrong-detail">
+                    <strong>第 {result.wrongAnswer.questionNumber} 題未答對</strong>
+                    <p>{result.wrongAnswer.stem}</p>
+                    <dl>
+                      <div><dt>你的答案</dt><dd>{result.wrongAnswer.selectedAnswer}{result.wrongAnswer.selectedText ? `　${result.wrongAnswer.selectedText}` : ""}</dd></div>
+                      <div><dt>正確答案</dt><dd>{result.wrongAnswer.correctAnswer}{result.wrongAnswer.correctText ? `　${result.wrongAnswer.correctText}` : ""}</dd></div>
+                      <div><dt>答錯原因</dt><dd>{result.wrongAnswer.reason}</dd></div>
+                      <div><dt>老師／原稿解析</dt><dd>{result.wrongAnswer.explanation}</dd></div>
+                    </dl>
+                  </div>
+                )}
                 {result.passed && (
                   <LinePayPurchaseButton packageName={selectedTarget.packageName} packNumber={selectedTarget.packNumber} amount={3} />
                 )}

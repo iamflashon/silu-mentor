@@ -40968,6 +40968,45 @@ button[aria-busy="true"] {
   padding: 10px 12px;
   font-size: 12px;
 }
+
+.medtech-ultimate-wrong-detail {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e6aaa0;
+  border-radius: 12px;
+  background: #fff;
+  color: #173852;
+}
+
+.medtech-ultimate-wrong-detail > strong,
+.medtech-ultimate-wrong-detail p,
+.medtech-ultimate-wrong-detail dl,
+.medtech-ultimate-wrong-detail dd {
+  margin: 0;
+}
+
+.medtech-ultimate-wrong-detail dl {
+  display: grid;
+  gap: 8px;
+}
+
+.medtech-ultimate-wrong-detail dl > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.medtech-ultimate-wrong-detail dt {
+  font-weight: 800;
+  color: #9c3f31;
+}
+
+.medtech-ultimate-wrong-detail dd {
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
 .medtech-ultimate-dialog .medtech-spin-error {
   display: block;
   margin-top: 12px;
