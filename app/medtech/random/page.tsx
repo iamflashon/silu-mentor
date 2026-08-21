@@ -353,8 +353,7 @@ export default async function MedtechRandomPackages({
                   <div className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}>
                     <span>第 {pack.packNumber} 關</span>
                     <b>{pack.questionTotal} 題</b>
-                    <small>{pack.label} <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i></small>
-                    <a className="medtech-pack-plan-link" href="/medtech/pricing">NT$199 開通全庫 30 天</a>
+                    <i className="medtech-pack-lock-only" aria-label="尚未解鎖">🔒</i>
                   </div>
                 ) : (
                   <a
