@@ -29,7 +29,7 @@ function safeName(value: string) {
 
 export async function GET(request: Request) {
   try {
-    const db = await getDb();
+    const db = await getDb("primary");
     const category = new URL(request.url).searchParams.get("category")?.trim();
     // Do not pull an unbounded processingResultJson into every admin list
     // request. Older HTML imports may contain a very large serialized result;
@@ -149,7 +149,7 @@ export async function GET(request: Request) {
       citations: Number(usageStats?.citations ?? 0),
       misses: Number(usageStats?.misses ?? 0),
       indexVersion: indexSetting ? `VS-${new Date(indexSetting.updatedAt).toISOString().slice(0, 10).replaceAll("-", "")}` : "待建立",
-    } });
+    } }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", "Expires": "0" } });
   } catch {
     return Response.json({ error: "教材資料庫尚未就緒" }, { status: 503 });
   }

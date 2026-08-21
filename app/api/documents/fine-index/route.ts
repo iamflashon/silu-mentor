@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     const body = await request.json() as { documentId?: number; restart?: boolean; forceReset?: boolean };
     const documentId = Number(body.documentId);
     if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "教材編號不正確" }, { status: 400 });
-    const db = await getDb();
+    const db = await getDb("primary");
     const [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
     if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
     // Normal rebuild requests are resumable: never erase a usable index merely
@@ -116,8 +116,8 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const documentId = Number(new URL(request.url).searchParams.get("documentId"));
   if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "教材編號不正確" }, { status: 400 });
-  const db = await getDb();
+  const db = await getDb("primary");
   const [{ units, pages }] = await db.select({ units: sql<number>`count(*)`, pages: sql<number>`count(distinct ${documentSearchUnits.pageStart})` })
     .from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
-  return Response.json({ units: Number(units), pages: Number(pages) });
+  return Response.json({ units: Number(units), pages: Number(pages) }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } });
 }
