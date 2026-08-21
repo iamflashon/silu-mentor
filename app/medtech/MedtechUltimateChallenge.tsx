@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import LinePayPurchaseButton from "./LinePayPurchaseButton";
 
 type Props = {
@@ -94,8 +95,15 @@ export default function MedtechUltimateChallenge({
       }
       if (data.result) setResult(data.result);
       if (data.status === "in_progress" && data.questions?.length) {
+        const readyResponse = await fetch("/api/medtech/question-pack-reward", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "ultimate-ready" }),
+        });
+        const ready = (await readyResponse.json()) as { startedAt?: string; lastActiveAt?: string; error?: string };
+        if (!readyResponse.ok) throw new Error(ready.error || "挑戰計時器啟動失敗。");
         setQuestions(data.questions);
-        setStartedAt(data.startedAt || new Date().toISOString());
+        setStartedAt(ready.startedAt || data.startedAt || new Date().toISOString());
         setIndex(
           Math.max(
             0,
@@ -107,8 +115,8 @@ export default function MedtechUltimateChallenge({
             ),
           ),
         );
-        questionStartedAtRef.current = data.lastActiveAt
-          ? new Date(data.lastActiveAt).getTime()
+        questionStartedAtRef.current = ready.lastActiveAt
+          ? new Date(ready.lastActiveAt).getTime()
           : Date.now();
         setSecondsLeft(TOTAL_TIME_LIMIT_SECONDS);
         setQuestionSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
@@ -319,7 +327,7 @@ export default function MedtechUltimateChallenge({
               : "開始挑戰 →"}
         </button>
       </div>
-      {open && (
+      {open && typeof document !== "undefined" && createPortal((
         <div
           className="medtech-spin-backdrop"
           role="presentation"
@@ -439,7 +447,7 @@ export default function MedtechUltimateChallenge({
             {error && <em className="medtech-spin-error">{error}</em>}
           </section>
         </div>
-      )}
+      ), document.body)}
     </>
   );
 }

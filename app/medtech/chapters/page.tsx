@@ -426,11 +426,8 @@ export default async function MedtechChapters({
                           className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}
                         >
                           <span>第 {pack.packNumber} 關</span>
-                          <i className="medtech-pack-lock" aria-label="尚未解鎖">
-                            🔒
-                          </i>
                           <b>{pack.questionTotal} 題</b>
-                          <small>{pack.label}</small>
+                          <small>{pack.label} <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i></small>
                           <LinePayPurchaseButton
                             packageName={card.name}
                             packNumber={pack.packNumber}
@@ -444,20 +441,15 @@ export default async function MedtechChapters({
                           aria-disabled={!pack.canStart}
                         >
                           <span>第 {pack.packNumber} 關</span>
-                          {(!pack.canStart || pack.needsUnlock) && (
-                            <i
-                              className="medtech-pack-lock"
-                              aria-label="尚未解鎖"
-                            >
-                              🔒
-                            </i>
-                          )}
                           <b>{pack.questionTotal} 題</b>
                           <small>
                             {pack.label}
                             {pack.active && pack.availableUntil
                               ? ` · ${remainingText(pack.availableUntil, now)}`
                               : ""}
+                            {(!pack.canStart || pack.needsUnlock) && (
+                              <> <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i></>
+                            )}
                           </small>
                           <strong>
                             {pack.action} {pack.canStart ? "→" : ""}

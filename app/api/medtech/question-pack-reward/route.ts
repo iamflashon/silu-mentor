@@ -273,7 +273,25 @@ export async function GET(request: Request) {
   }
   if (url.searchParams.get("challenge") === "ultimate") {
     const currentReward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
-    const dailySession = await findDailyUltimateSession(auth);
+    let dailySession = await findDailyUltimateSession(auth);
+    if (dailySession && dailySession.status === "failed" && dailySession.answeredQuestions === 0) {
+      const failedPayload = parseJsonObject(dailySession.answerDetailsJson);
+      // Repair sessions created by the earlier build that started its timer
+      // before the browser had finished loading the first question.
+      if (!failedPayload.readyAt) {
+        const now = new Date();
+        await auth.db.update(medtechPracticeSessions).set({
+          status: "in_progress",
+          completedAt: null,
+          startedAt: now,
+          lastActiveAt: now,
+          durationSeconds: 0,
+          lastQuestionIndex: 0,
+          answerDetailsJson: JSON.stringify({ ...failedPayload, endedBy: undefined }),
+        }).where(eq(medtechPracticeSessions.id, dailySession.id));
+        dailySession = { ...dailySession, status: "in_progress", completedAt: null, startedAt: now, lastActiveAt: now, durationSeconds: 0, lastQuestionIndex: 0 };
+      }
+    }
     if (dailySession) {
       const dailyTarget = ultimatePayload(dailySession.answerDetailsJson);
       return Response.json({
@@ -333,6 +351,22 @@ export async function POST(request: Request) {
   }
   const packageName = readPackage(body.packageName);
   const packageNumber = readPackNumber(body.pack);
+  if (body.action === "ultimate-ready") {
+    const dailySession = await findDailyUltimateSession(auth);
+    if (!dailySession || dailySession.status !== "in_progress") return Response.json({ error: "今天沒有等待開始的正式挑戰。" }, { status: 409 });
+    const payload = parseJsonObject(dailySession.answerDetailsJson);
+    const readyAt = typeof payload.readyAt === "string" ? payload.readyAt : "";
+    if (!readyAt && dailySession.lastQuestionIndex === 0 && dailySession.answeredQuestions === 0) {
+      const now = new Date();
+      await auth.db.update(medtechPracticeSessions).set({
+        startedAt: now,
+        lastActiveAt: now,
+        answerDetailsJson: JSON.stringify({ ...payload, readyAt: now.toISOString() }),
+      }).where(eq(medtechPracticeSessions.id, dailySession.id));
+      return Response.json({ startedAt: now.toISOString(), lastActiveAt: now.toISOString() });
+    }
+    return Response.json({ startedAt: dailySession.startedAt.toISOString(), lastActiveAt: dailySession.lastActiveAt.toISOString() });
+  }
   if (body.action === "ultimate-rescue-answer") {
     const rescue = await findDailyRescueSession(auth);
     if (!rescue || rescue.status !== "in_progress") return Response.json({ error: "今天沒有進行中的補救任務。" }, { status: 409 });
