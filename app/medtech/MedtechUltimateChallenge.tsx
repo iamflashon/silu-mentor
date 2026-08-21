@@ -2,11 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import LinePayPurchaseButton from "./LinePayPurchaseButton";
 
 type Props = {
   packageName: string;
   packNumber: number;
-  href: string;
+  targets?: Array<{ packageName: string; packNumber: number; questionTotal: number }>;
   dailyStatus?: "available" | "in_progress" | "finished";
 };
 type Question = { id: number; stem: string; options: Record<string, string> };
@@ -24,14 +25,13 @@ const QUESTION_TIME_LIMIT_SECONDS = 5;
 export default function MedtechUltimateChallenge({
   packageName,
   packNumber,
-  href,
+  targets = [],
   dailyStatus = "available",
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [unlocking, setUnlocking] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -45,13 +45,24 @@ export default function MedtechUltimateChallenge({
   );
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
+  const [selectedTarget, setSelectedTarget] = useState(() =>
+    targets.find((target) => target.packageName === packageName && target.packNumber === packNumber) ?? targets[0] ?? { packageName, packNumber, questionTotal: 30 },
+  );
+  const [rescueQuestions, setRescueQuestions] = useState<Question[]>([]);
+  const [rescueIndex, setRescueIndex] = useState(0);
+  const [rescueMessage, setRescueMessage] = useState("");
 
   function close() {
     if (!loading && !busy && (!questions.length || result)) setOpen(false);
   }
 
-  async function openChallenge() {
+  function openChallenge() {
     setOpen(true);
+    setError("");
+    if (dailyStatus !== "available") void startChallenge();
+  }
+
+  async function startChallenge() {
     setLoading(true);
     setError("");
     setResult(null);
@@ -62,7 +73,7 @@ export default function MedtechUltimateChallenge({
     setIndex(0);
     try {
       const response = await fetch(
-        `/api/medtech/question-pack-reward?challenge=ultimate&packageName=${encodeURIComponent(packageName)}&pack=${packNumber}`,
+        `/api/medtech/question-pack-reward?challenge=ultimate&packageName=${encodeURIComponent(selectedTarget.packageName)}&pack=${selectedTarget.packNumber}`,
         { cache: "no-store" },
       );
       const data = (await response.json()) as {
@@ -71,10 +82,16 @@ export default function MedtechUltimateChallenge({
         lastActiveAt?: string;
         status?: string;
         result?: Result | null;
+        packageName?: string;
+        packageNumber?: number;
         error?: string;
       };
       if (!response.ok)
         throw new Error(data.error || "終極挑戰暫時無法使用，請稍後再試。");
+      if (data.packageName && data.packageNumber) {
+        const restored = targets.find((target) => target.packageName === data.packageName && target.packNumber === data.packageNumber);
+        setSelectedTarget(restored ?? { packageName: data.packageName, packNumber: data.packageNumber, questionTotal: 30 });
+      }
       if (data.result) setResult(data.result);
       if (data.status === "in_progress" && data.questions?.length) {
         setQuestions(data.questions);
@@ -109,6 +126,54 @@ export default function MedtechUltimateChallenge({
     }
   }
 
+  async function startRescue() {
+    setLoading(true);
+    setError("");
+    setRescueMessage("");
+    try {
+      const response = await fetch("/api/medtech/question-pack-reward?challenge=ultimate-rescue", { cache: "no-store" });
+      const data = (await response.json()) as { questions?: Question[]; currentIndex?: number; completed?: boolean; error?: string };
+      if (!response.ok) throw new Error(data.error || "補救任務暫時無法使用。");
+      if (data.completed) {
+        setRescueMessage("補救已完成，明日取得一次正式挑戰資格。");
+      } else {
+        setRescueQuestions(data.questions ?? []);
+        setRescueIndex(data.currentIndex ?? 0);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "補救任務暫時無法使用。");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function answerRescue(answer: string) {
+    const question = rescueQuestions[rescueIndex];
+    if (!question || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/medtech/question-pack-reward", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "ultimate-rescue-answer", questionId: question.id, answer }),
+      });
+      const data = (await response.json()) as { correct?: boolean; currentIndex?: number; completed?: boolean; message?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || "補救作答送出失敗。");
+      setRescueMessage(data.message || (data.correct ? "答對了，繼續下一題。" : "再想一次。"));
+      if (data.completed) {
+        setRescueQuestions([]);
+        router.refresh();
+      } else if (data.correct) {
+        setRescueIndex(data.currentIndex ?? rescueIndex + 1);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "補救作答送出失敗。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendAnswer(
     answer: string | null,
     reason: "answer" | "timeout" | "abandoned",
@@ -123,8 +188,8 @@ export default function MedtechUltimateChallenge({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          packageName,
-          pack: packNumber,
+          packageName: selectedTarget.packageName,
+          pack: selectedTarget.packNumber,
           action:
             reason === "abandoned" ? "ultimate-abandon" : "ultimate-answer",
           questionId: question?.id,
@@ -228,47 +293,6 @@ export default function MedtechUltimateChallenge({
     return () => window.clearInterval(timer);
   }, [open, loading, result, busy, index, questions]);
 
-  async function unlock() {
-    if (unlocking || !result?.passed) return;
-    setUnlocking(true);
-    setError("");
-    try {
-      const query = new URLSearchParams({
-        limit: "30",
-        mode: "practice",
-        pack: String(packNumber),
-        unlock: "1",
-        questionOrder: "ordered",
-        optionOrder: "ordered",
-        topic: packageName,
-      });
-      const response = await fetch(
-        `/api/medtech/questions?${query.toString()}`,
-        { cache: "no-store" },
-      );
-      const data = (await response.json()) as {
-        packageAccess?: { locked?: boolean; blockedByPrevious?: boolean };
-        error?: string;
-      };
-      if (
-        !response.ok ||
-        data.packageAccess?.locked ||
-        data.packageAccess?.blockedByPrevious
-      )
-        throw new Error(data.error || "解鎖失敗，請稍後再試。");
-      window.dispatchEvent(new Event("medtech-points-updated"));
-      setOpen(false);
-      router.push(href);
-      router.refresh();
-    } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "解鎖失敗，請稍後再試。",
-      );
-    } finally {
-      setUnlocking(false);
-    }
-  }
-
   const question = questions[index];
   return (
     <>
@@ -279,17 +303,17 @@ export default function MedtechUltimateChallenge({
           </span>
           <strong>🏆 1 折終極挑戰</strong>
           <p>
-            每日限 1 次；從上一關隨機抽 30 題，題號與選項都重新打亂。每題 5
-            秒、總限時 3 分鐘，30 題全對，下一關優惠價 NT$3。
+            完成過任一題包即可取得 1 次資格；任選尚未購買的題包，挑戰隨機 30
+            題。每題 5 秒、總限時 3 分鐘，全部答對即可用 LINE Pay NT$3 購買。
           </p>
         </div>
         <button
           type="button"
-          onClick={() => void openChallenge()}
-          disabled={loading || busy || dailyStatus === "finished"}
+          onClick={openChallenge}
+          disabled={loading || busy}
         >
           {dailyStatus === "finished"
-            ? "今日已挑戰，明天再來"
+            ? "查看結果／補救任務 →"
             : dailyStatus === "in_progress"
               ? "繼續今日挑戰 →"
               : "開始挑戰 →"}
@@ -320,13 +344,22 @@ export default function MedtechUltimateChallenge({
             <span className="medtech-spin-kicker">DAILY MASTER CHALLENGE</span>
             <h2 id="medtech-ultimate-title">🏆 1 折終極挑戰</h2>
             <p className="medtech-ultimate-intro">
-              每日限 1 次；隨機 30 題、選項重新打亂。每題限時 5 秒，總限時 3
+              先選定一個尚未購買的題包；隨機 30 題、選項重新打亂。每題限時 5 秒，總限時 3
               分鐘，答錯、逾時或放棄都會結束今天的挑戰。完成後才顯示結果，不會在作答中透露答案。
             </p>
             {loading ? (
               <div className="medtech-challenge-loading">
                 <span className="medtech-loading-spinner" /> 30
                 題準備中，載入完成才開始計時…
+              </div>
+            ) : rescueQuestions[rescueIndex] ? (
+              <div className="medtech-ultimate-question">
+                <div className="medtech-ultimate-meta"><small>補救複習第 {rescueIndex + 1}／10 題</small><strong>答對後進入下一題</strong></div>
+                <h3>{rescueQuestions[rescueIndex].stem}</h3>
+                <div className="medtech-challenge-options">
+                  {["A", "B", "C", "D"].map((letter) => <button type="button" key={letter} disabled={busy} onClick={() => void answerRescue(letter)}><b>{letter}</b><span>{rescueQuestions[rescueIndex].options[letter] || ""}</span></button>)}
+                </div>
+                {rescueMessage && <p>{rescueMessage}</p>}
               </div>
             ) : result ? (
               <div
@@ -339,19 +372,14 @@ export default function MedtechUltimateChallenge({
                   答對 {result.score}／{result.total} 題 · 用時{" "}
                   {result.durationSeconds} 秒
                   {result.passed
-                    ? " · 今日 1 折資格已取得"
-                    : " · 今日機會已用完，明天再來"}
+                    ? " · 一折優惠保留至今日 23:59"
+                    : " · 完成 10 題補救，可取得明日一次挑戰資格"}
                 </span>
                 {result.passed && (
-                  <button
-                    type="button"
-                    className="medtech-discount-unlock-button"
-                    onClick={() => void unlock()}
-                    disabled={unlocking}
-                  >
-                    {unlocking ? "處理中…" : "NT$3 購買並開始練習 →"}
-                  </button>
+                  <LinePayPurchaseButton packageName={selectedTarget.packageName} packNumber={selectedTarget.packNumber} amount={3} />
                 )}
+                {!result.passed && !rescueMessage && <button type="button" className="medtech-discount-unlock-button" onClick={() => void startRescue()}>開始 10 題補救複習 →</button>}
+                {rescueMessage && <p>{rescueMessage}</p>}
               </div>
             ) : question ? (
               <div className="medtech-ultimate-question">
@@ -390,6 +418,18 @@ export default function MedtechUltimateChallenge({
                 >
                   放棄挑戰
                 </button>
+              </div>
+            ) : dailyStatus === "available" && targets.length ? (
+              <div className="medtech-ultimate-targets">
+                <strong>選擇要取得一折優惠的題目包</strong>
+                <div>
+                  {targets.map((target) => (
+                    <button type="button" key={`${target.packageName}-${target.packNumber}`} className={selectedTarget.packageName === target.packageName && selectedTarget.packNumber === target.packNumber ? "selected" : ""} onClick={() => setSelectedTarget(target)}>
+                      {target.packageName}・第 {target.packNumber} 關（{target.questionTotal} 題）
+                    </button>
+                  ))}
+                </div>
+                <button type="button" className="medtech-discount-unlock-button" onClick={() => void startChallenge()}>我要挑戰這一包 →</button>
               </div>
             ) : (
               <div className="medtech-challenge-error">

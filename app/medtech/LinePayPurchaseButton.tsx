@@ -49,7 +49,7 @@ export default function LinePayPurchaseButton({
         disabled={loading || purchased}
       >
         {purchased
-          ? "已付款・完成上一關後開放"
+          ? "已付款・立即開始"
           : loading
             ? "正在前往 LINE Pay…"
             : `LINE Pay NT$${amount} 提前購買`}

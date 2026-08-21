@@ -188,6 +188,13 @@ export default async function MedtechChapters({
             row.action === "question_pack_spin_abandoned") &&
           row.description === `題目包轉轉樂：${name}第 ${packNumber} 包`,
       );
+      const ultimateDiscount = ledgerRows.some(
+        (row) =>
+          row.action === "question_pack_ultimate" &&
+          row.description === `題目包轉轉樂：${name}第 ${packNumber} 包` &&
+          row.createdAt >= new Date(`${taipeiDate()}T00:00:00+08:00`) &&
+          (!row.availableUntil || row.availableUntil.getTime() > now),
+      );
       const latest = [...matches].sort(
         (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
       )[0];
@@ -280,6 +287,7 @@ export default async function MedtechChapters({
         hasHistory,
         hasDiscountChoice,
         purchased,
+        ultimateDiscount,
         canStart,
         needsUnlock,
         label,
@@ -289,17 +297,12 @@ export default async function MedtechChapters({
     });
     return { name, description, index, questionCount, packs };
   });
-  const ultimateTarget = cards
+  const ultimateTargets = cards
     .flatMap((card) =>
       card.packs.map((pack) => ({ ...pack, packageName: card.name })),
     )
-    .find(
-      (pack) =>
-        !pack.active &&
-        pack.packNumber > 1 &&
-        pack.canStart &&
-        pack.questionTotal >= PACKAGE_SIZE,
-    );
+    .filter((pack) => !pack.active && !pack.purchased && !pack.ultimateDiscount)
+    .map((pack) => ({ packageName: pack.packageName, packNumber: pack.packNumber, questionTotal: pack.questionTotal }));
   const todayStart = new Date(`${taipeiDate()}T00:00:00+08:00`);
   const dailyUltimate = sessionRows.find(
     (row) =>
@@ -353,16 +356,16 @@ export default async function MedtechChapters({
             章節刷題不跨章節；完成前一關後，可挑戰上一關隨機 10 題，每題限時 5
             秒，每個題目包最多 2
             次答題挑戰。答對率越高、平均作答越快，折扣越優惠，兩次取最佳結果；另有一次限時轉轉樂，最高五折。另可每天挑戰一次
-            30 題 1 折終極挑戰，3 分鐘內全對即可用 NT$3
-            購買下一關。每一關完成後，系統保存作答時間、答對率、錯題與需加強觀念。
+            30 題 1 折終極挑戰，先任選一個未購題包，3 分鐘內全對即可在今日 23:59 前用 LINE Pay NT$3
+            購買。失敗後完成 10 題補救複習，明日可再取得一次挑戰資格。每一關完成後，系統保存作答時間、答對率、錯題與需加強觀念。
           </span>
         </div>
-        {ultimateTarget && (
+        {ultimateTargets.length > 0 && (
           <MedtechUltimateChallenge
-            packageName={ultimateTarget.packageName}
-            packNumber={ultimateTarget.packNumber}
+            packageName={ultimateTargets[0].packageName}
+            packNumber={ultimateTargets[0].packNumber}
+            targets={ultimateTargets}
             dailyStatus={dailyUltimateStatus}
-            href={`/medtech/practice?topic=${encodeURIComponent(ultimateTarget.packageName)}&pack=${ultimateTarget.packNumber}`}
           />
         )}
         <div className="medtech-chapter-list">
@@ -391,7 +394,14 @@ export default async function MedtechChapters({
                       className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}`}
                       key={pack.packNumber}
                     >
-                      {pack.active && pack.completed ? (
+                      {pack.ultimateDiscount && !pack.active && !pack.purchased ? (
+                        <div className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}>
+                          <span>第 {pack.packNumber} 關</span>
+                          <b>{pack.questionTotal} 題</b>
+                          <small>1 折挑戰成功・優惠至今日 23:59</small>
+                          <LinePayPurchaseButton packageName={card.name} packNumber={pack.packNumber} amount={3} />
+                        </div>
+                      ) : pack.active && pack.completed ? (
                         <MedtechRetakeOptions
                           href={practiceHref}
                           packNumber={pack.packNumber}

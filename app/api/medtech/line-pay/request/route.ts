@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { medtechPaymentOrders } from "../../../../../db/schema";
 import { requireMedtechMember } from "../../../../../lib/member-auth";
 import { linePayConfig, linePayPost } from "../../../../../lib/line-pay";
+import { getMedtechPackDiscountReward } from "../../../../../lib/medtech-usage";
 
 const PACKAGE_PRICE = 30;
 const allowedPackages = new Set([
@@ -26,6 +27,16 @@ export async function POST(request: Request) {
       return Response.json({ error: "題目包資料不正確" }, { status: 400 });
     }
 
+    const reward = await getMedtechPackDiscountReward(
+      auth.db,
+      auth.userKey,
+      packageName,
+      packNumber,
+    );
+    const packagePrice =
+      reward.status === "revealed" && reward.percent === 10 && reward.cost === 3
+        ? 3
+        : PACKAGE_PRICE;
     const config = await linePayConfig();
     if (!config.channelId || !config.channelSecret) {
       return Response.json(
@@ -42,25 +53,25 @@ export async function POST(request: Request) {
       environment: config.environment,
       packageName,
       packNumber,
-      amount: PACKAGE_PRICE,
+      amount: packagePrice,
       currency: "TWD",
       status: "pending",
     });
 
     const result = await linePayPost("/v3/payments/request", {
-      amount: PACKAGE_PRICE,
+      amount: packagePrice,
       currency: "TWD",
       orderId,
       packages: [
         {
           id: `${packageName}-${packNumber}`,
-          amount: PACKAGE_PRICE,
+          amount: packagePrice,
           products: [
             {
               id: `medtech-${packNumber}`,
               name: `醫檢師題目包｜${packageName}第 ${packNumber} 關`,
               quantity: 1,
-              price: PACKAGE_PRICE,
+              price: packagePrice,
             },
           ],
         },

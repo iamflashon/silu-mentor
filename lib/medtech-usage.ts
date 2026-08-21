@@ -62,6 +62,7 @@ export type MedtechPackDiscountReward = {
   retryAt?: string | null;
   quizAttemptsUsed?: number;
   quizAttemptsRemaining?: number;
+  availableUntil?: string | null;
 };
 
 export function medtechPackDescription(
@@ -110,6 +111,7 @@ export async function getMedtechPackDiscountReward(
     .select({
       action: medtechPointLedger.action,
       sourceDetail: medtechPointLedger.sourceDetail,
+      availableUntil: medtechPointLedger.availableUntil,
       createdAt: medtechPointLedger.createdAt,
     })
     .from(medtechPointLedger)
@@ -135,12 +137,14 @@ export async function getMedtechPackDiscountReward(
     MEDTECH_PACK_QUIZ_ATTEMPT_LIMIT - quizAttemptsUsed,
   );
   const attemptMeta = { quizAttemptsUsed, quizAttemptsRemaining };
-  // 一折終極挑戰只保留到台北時間當日 00:00；過期後重新回到可挑戰狀態，
+  // 一折終極挑戰只保留到台北時間當日 23:59；過期後重新回到原價狀態，
   // 不會把昨天的一折結果和今天的轉轉樂折扣疊在一起。
   const todayStart = new Date(`${taipeiDate()}T00:00:00+08:00`);
   const validRewardRows = rewardRows.filter(
     (row) =>
-      row.action !== "question_pack_ultimate" || row.createdAt >= todayStart,
+      row.action !== "question_pack_ultimate" ||
+      (row.createdAt >= todayStart &&
+        (!row.availableUntil || row.availableUntil.getTime() > Date.now())),
   );
   const reward = validRewardRows[0];
   if (!reward)
@@ -151,6 +155,7 @@ export async function getMedtechPackDiscountReward(
       cost: MEDTECH_QUESTION_PACKAGE_COST,
       baseCost: MEDTECH_QUESTION_PACKAGE_COST,
       retryAt: null,
+      availableUntil: null,
       ...attemptMeta,
     };
   if (reward.action === "question_pack_spin_abandoned") {
@@ -210,6 +215,7 @@ export async function getMedtechPackDiscountReward(
       cost: best.parsed.cost,
       baseCost: MEDTECH_QUESTION_PACKAGE_COST,
       retryAt: null,
+      availableUntil: null,
       ...attemptMeta,
     };
   }
@@ -228,6 +234,7 @@ export async function getMedtechPackDiscountReward(
       cost: MEDTECH_QUESTION_PACKAGE_COST,
       baseCost: MEDTECH_QUESTION_PACKAGE_COST,
       retryAt: null,
+      availableUntil: best.row.availableUntil?.toISOString() ?? null,
       ...attemptMeta,
     };
   }
@@ -237,7 +244,8 @@ export async function getMedtechPackDiscountReward(
     percent: best.parsed.percent,
     cost: best.parsed.cost,
     baseCost: MEDTECH_QUESTION_PACKAGE_COST,
-    retryAt: retryAt?.toISOString() ?? null,
+      retryAt: retryAt?.toISOString() ?? null,
+      availableUntil: best.row.availableUntil?.toISOString() ?? null,
     ...attemptMeta,
   };
 }
@@ -275,6 +283,11 @@ export async function createMedtechUltimateChallengeReward(
     action: "question_pack_ultimate",
     description: medtechPackDiscountDescription(packageName, packageNumber),
     sourceDetail: `1 折終極挑戰：${normalizedTotal} 題答對 ${normalizedScore} 題；作答時間 ${normalizedDuration} 秒；折扣：10折；優惠價 ${MEDTECH_ULTIMATE_CHALLENGE_COST} 點；每日限一次。`,
+    availableUntil: new Date(
+      new Date(`${taipeiDate()}T00:00:00+08:00`).getTime() +
+        24 * 60 * 60 * 1000 -
+        1,
+    ),
   });
   return await getMedtechPackDiscountReward(
     db,

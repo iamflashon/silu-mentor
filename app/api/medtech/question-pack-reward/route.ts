@@ -18,6 +18,7 @@ function readPackNumber(input: unknown) {
 
 const QUIZ_SIZE = 10;
 const ULTIMATE_SESSION_NAME = "醫檢師1折終極挑戰";
+const ULTIMATE_RESCUE_SIZE = 10;
 
 function parseQuestionIds(value: string) {
   try {
@@ -104,7 +105,7 @@ async function challengeQuestions(auth: { db: Awaited<ReturnType<typeof import("
     .from(examQuestions)
     .where(inArray(examQuestions.id, ids));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => Boolean(row)).map((row) => ({ id: row.id, stem: row.stem, options: parseOptions(row.optionsJson) }));
+  return ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => Boolean(row)).map((row) => ({ id: row.id, stem: row.stem, options: parseOptions(row.optionsJson || "{}") }));
 }
 
 function canUseChallenge(reward: { status: string; percent?: number | null; quizAttemptsUsed?: number; quizAttemptsRemaining?: number }) {
@@ -146,18 +147,56 @@ async function findDailyUltimateSession(auth: { db: Awaited<ReturnType<typeof im
   return session ?? null;
 }
 
-async function ultimateQuestionIds(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, packageName: string, packageNumber: number) {
-  const sourcePack = packageNumber > 1 ? packageNumber - 1 : packageNumber;
-  const sessions = await auth.db.select({ questionIdsJson: medtechPracticeSessions.questionIdsJson, completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status, answeredQuestions: medtechPracticeSessions.answeredQuestions, totalQuestions: medtechPracticeSessions.totalQuestions })
+async function completedLearningQuestionIds(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const rows = await auth.db.select({ questionIdsJson: medtechPracticeSessions.questionIdsJson, completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status, answeredQuestions: medtechPracticeSessions.answeredQuestions, totalQuestions: medtechPracticeSessions.totalQuestions })
+    .from(medtechPracticeSessions)
+    .where(eq(medtechPracticeSessions.userKey, auth.userKey));
+  return [...new Set(rows.filter((row) => completedSession(row)).flatMap((row) => parseQuestionIds(row.questionIdsJson)))];
+}
+
+async function hasUltimateQualification(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const learnedIds = await completedLearningQuestionIds(auth);
+  if (!learnedIds.length) return false;
+  const sessions = await auth.db.select({ packageType: medtechPracticeSessions.packageType, status: medtechPracticeSessions.status, completedAt: medtechPracticeSessions.completedAt })
     .from(medtechPracticeSessions)
     .where(and(
       eq(medtechPracticeSessions.userKey, auth.userKey),
-      eq(medtechPracticeSessions.packageName, packageName),
-      eq(medtechPracticeSessions.packNumber, sourcePack),
+      inArray(medtechPracticeSessions.packageType, ["ultimate_challenge", "ultimate_rescue"]),
     ))
     .orderBy(desc(medtechPracticeSessions.startedAt));
-  const prior = sessions.find(completedSession);
-  let ids = prior ? parseQuestionIds(prior.questionIdsJson) : [];
+  const latestChallenge = sessions.find((row) => row.packageType === "ultimate_challenge");
+  if (!latestChallenge) return true;
+  const todayStart = dayBounds().start;
+  return sessions.some((row) =>
+    row.packageType === "ultimate_rescue" &&
+    row.status === "completed" &&
+    Boolean(row.completedAt && latestChallenge.completedAt && row.completedAt > latestChallenge.completedAt) &&
+    Boolean(row.completedAt && row.completedAt < todayStart),
+  );
+}
+
+async function findDailyRescueSession(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const { start, end } = dayBounds();
+  const [session] = await auth.db.select().from(medtechPracticeSessions).where(and(
+    eq(medtechPracticeSessions.userKey, auth.userKey),
+    eq(medtechPracticeSessions.packageName, ULTIMATE_SESSION_NAME),
+    eq(medtechPracticeSessions.packageType, "ultimate_rescue"),
+    gte(medtechPracticeSessions.startedAt, start),
+    lt(medtechPracticeSessions.startedAt, end),
+  )).orderBy(desc(medtechPracticeSessions.startedAt)).limit(1);
+  return session ?? null;
+}
+
+async function rescueQuestions(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, session: typeof medtechPracticeSessions.$inferSelect) {
+  const ids = parseQuestionIds(session.questionIdsJson);
+  const rows = ids.length ? await auth.db.select({ id: examQuestions.id, stem: examQuestions.stem, optionsJson: examQuestions.optionsJson })
+    .from(examQuestions).where(inArray(examQuestions.id, ids)) : [];
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => Boolean(row)).map((row) => ({ id: row.id, stem: row.stem, options: parseOptions(row.optionsJson || "{}") }));
+}
+
+async function ultimateQuestionIds(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  let ids = shuffle(await completedLearningQuestionIds(auth));
   if (ids.length < MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT) {
     const published = await auth.db.select({ id: examQuestions.id }).from(examQuestions).where(and(
       eq(examQuestions.examCategory, "medtech"),
@@ -183,7 +222,7 @@ async function ultimateQuestions(
   return ids.map((id) => {
     const row = byId.get(id);
     if (!row) return null;
-    const originalOptions = parseOptions(row.optionsJson);
+    const originalOptions = parseOptions(row.optionsJson || "{}");
     const savedMap = payload.optionMaps[String(id)];
     const optionMap = savedMap && typeof savedMap === "object" && !Array.isArray(savedMap)
       ? Object.fromEntries(Object.entries(savedMap).map(([key, value]) => [key, String(value)]))
@@ -211,13 +250,35 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const packageName = readPackage(url.searchParams.get("packageName"));
   const packageNumber = readPackNumber(url.searchParams.get("pack"));
+  if (url.searchParams.get("challenge") === "ultimate-rescue") {
+    const dailyChallenge = await findDailyUltimateSession(auth);
+    if (!dailyChallenge || dailyChallenge.status !== "failed") return Response.json({ error: "正式挑戰失敗後，才能進行補救複習。" }, { status: 403 });
+    let rescue = await findDailyRescueSession(auth);
+    if (!rescue) {
+      const ids = shuffle(await completedLearningQuestionIds(auth)).slice(0, ULTIMATE_RESCUE_SIZE);
+      if (ids.length < ULTIMATE_RESCUE_SIZE) return Response.json({ error: "已學題目不足 10 題，暫時無法建立補救任務。" }, { status: 409 });
+      rescue = (await auth.db.insert(medtechPracticeSessions).values({
+        userKey: auth.userKey,
+        packageName: ULTIMATE_SESSION_NAME,
+        packageType: "ultimate_rescue",
+        packNumber: dailyChallenge.packNumber,
+        questionIdsJson: JSON.stringify(ids),
+        answerDetailsJson: JSON.stringify({ correctIds: [] }),
+        totalQuestions: ULTIMATE_RESCUE_SIZE,
+        status: "in_progress",
+      }).returning())[0] ?? null;
+    }
+    if (!rescue) return Response.json({ error: "補救任務建立失敗。" }, { status: 500 });
+    return Response.json({ status: rescue.status, currentIndex: Math.min(rescue.lastQuestionIndex, ULTIMATE_RESCUE_SIZE - 1), questions: await rescueQuestions(auth, rescue), completed: rescue.status === "completed" });
+  }
   if (url.searchParams.get("challenge") === "ultimate") {
     const currentReward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
     const dailySession = await findDailyUltimateSession(auth);
     if (dailySession) {
+      const dailyTarget = ultimatePayload(dailySession.answerDetailsJson);
       return Response.json({
-        packageName,
-        packageNumber,
+        packageName: dailyTarget.targetPackageName || packageName,
+        packageNumber: dailyTarget.targetPackNumber || packageNumber,
         challenge: "ultimate",
         status: dailySession.status,
         startedAt: dailySession.startedAt.toISOString(),
@@ -229,9 +290,9 @@ export async function GET(request: Request) {
         questions: dailySession.status === "in_progress" ? await ultimateQuestions(auth, dailySession) : [],
       });
     }
-    if (currentReward.status !== "available") return Response.json({ error: "這一關已經有折扣結果，請先使用目前折扣解鎖。" }, { status: 409 });
-    if (!(await canSpinForPackage(auth, packageName, packageNumber))) return Response.json({ error: "完成上一關後，才可開始 1 折終極挑戰。" }, { status: 403 });
-    const ids = await ultimateQuestionIds(auth, packageName, packageNumber);
+    if (currentReward.status !== "available") return Response.json({ error: "這個題目包已有優惠，請先使用目前優惠。" }, { status: 409 });
+    if (!(await hasUltimateQualification(auth))) return Response.json({ error: "目前沒有挑戰資格；完成題包或完成前次補救任務後，隔日可再挑戰。" }, { status: 403 });
+    const ids = await ultimateQuestionIds(auth);
     if (ids.length < MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT) return Response.json({ error: "目前可用題目不足 30 題，請稍後再試。" }, { status: 409 });
     const rows = await auth.db.select({ id: examQuestions.id, optionsJson: examQuestions.optionsJson }).from(examQuestions).where(inArray(examQuestions.id, ids));
     const byId = new Map(rows.map((row) => [row.id, row]));
@@ -272,6 +333,30 @@ export async function POST(request: Request) {
   }
   const packageName = readPackage(body.packageName);
   const packageNumber = readPackNumber(body.pack);
+  if (body.action === "ultimate-rescue-answer") {
+    const rescue = await findDailyRescueSession(auth);
+    if (!rescue || rescue.status !== "in_progress") return Response.json({ error: "今天沒有進行中的補救任務。" }, { status: 409 });
+    const ids = parseQuestionIds(rescue.questionIdsJson);
+    const index = Math.max(0, Math.min(ids.length - 1, rescue.lastQuestionIndex));
+    const questionId = Number(body.questionId);
+    const answer = typeof body.answer === "string" && /^[A-D]$/.test(body.answer) ? body.answer : "";
+    if (questionId !== ids[index]) return Response.json({ error: "補救題目順序已變更，請重新開啟。" }, { status: 409 });
+    const [row] = await auth.db.select({ correctAnswer: examQuestions.correctAnswer, teacherAnswer: examQuestions.teacherAnswer, simulatedAnswer: examQuestions.simulatedAnswer }).from(examQuestions).where(eq(examQuestions.id, questionId)).limit(1);
+    const correct = Boolean(row && answer === (row.teacherAnswer || row.correctAnswer || row.simulatedAnswer || ""));
+    if (!correct) return Response.json({ status: "in_progress", correct: false, currentIndex: index, message: "再想一次；答對後才會進入下一題。" });
+    const nextIndex = index + 1;
+    const completed = nextIndex >= ids.length;
+    await auth.db.update(medtechPracticeSessions).set({
+      status: completed ? "completed" : "in_progress",
+      completedAt: completed ? new Date() : null,
+      lastActiveAt: new Date(),
+      lastQuestionIndex: nextIndex,
+      answeredQuestions: nextIndex,
+      correctQuestions: nextIndex,
+      answerDetailsJson: JSON.stringify({ correctIds: ids.slice(0, nextIndex) }),
+    }).where(eq(medtechPracticeSessions.id, rescue.id));
+    return Response.json({ status: completed ? "completed" : "in_progress", correct: true, currentIndex: Math.min(nextIndex, ids.length - 1), completed, message: completed ? "補救完成，明日取得一次正式挑戰資格。" : undefined });
+  }
   if (body.action === "ultimate-answer" || body.action === "ultimate-abandon") {
     const dailySession = await findDailyUltimateSession(auth);
     if (!dailySession || dailySession.status !== "in_progress") return Response.json({ error: "今天的 1 折終極挑戰已使用或已結束。" }, { status: 409 });
