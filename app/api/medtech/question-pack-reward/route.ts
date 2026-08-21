@@ -274,12 +274,13 @@ export async function GET(request: Request) {
   if (url.searchParams.get("challenge") === "ultimate") {
     const currentReward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
     let dailySession = await findDailyUltimateSession(auth);
-    if (dailySession && dailySession.status === "failed" && dailySession.answeredQuestions === 0) {
+    if (dailySession && dailySession.status === "failed") {
       const failedPayload = parseJsonObject(dailySession.answerDetailsJson);
       // Repair sessions created by the earlier build that started its timer
       // before the browser had finished loading the first question.
-      if (!failedPayload.readyAt) {
+      if (failedPayload.attemptLimit !== 2) {
         const now = new Date();
+        const repairedPayload = { ...failedPayload, answers: [], endedBy: undefined, readyAt: undefined, attemptLimit: 2 };
         await auth.db.update(medtechPracticeSessions).set({
           status: "in_progress",
           completedAt: null,
@@ -287,9 +288,12 @@ export async function GET(request: Request) {
           lastActiveAt: now,
           durationSeconds: 0,
           lastQuestionIndex: 0,
-          answerDetailsJson: JSON.stringify({ ...failedPayload, endedBy: undefined }),
+          answeredQuestions: 0,
+          correctQuestions: 0,
+          incorrectQuestionIdsJson: "[]",
+          answerDetailsJson: JSON.stringify(repairedPayload),
         }).where(eq(medtechPracticeSessions.id, dailySession.id));
-        dailySession = { ...dailySession, status: "in_progress", completedAt: null, startedAt: now, lastActiveAt: now, durationSeconds: 0, lastQuestionIndex: 0 };
+        dailySession = { ...dailySession, status: "in_progress", completedAt: null, startedAt: now, lastActiveAt: now, durationSeconds: 0, lastQuestionIndex: 0, answeredQuestions: 0, correctQuestions: 0, incorrectQuestionIdsJson: "[]", answerDetailsJson: JSON.stringify(repairedPayload) };
       }
     }
     if (dailySession) {
@@ -361,7 +365,7 @@ export async function POST(request: Request) {
       await auth.db.update(medtechPracticeSessions).set({
         startedAt: now,
         lastActiveAt: now,
-        answerDetailsJson: JSON.stringify({ ...payload, readyAt: now.toISOString() }),
+        answerDetailsJson: JSON.stringify({ ...payload, readyAt: now.toISOString(), attemptLimit: 2 }),
       }).where(eq(medtechPracticeSessions.id, dailySession.id));
       return Response.json({ startedAt: now.toISOString(), lastActiveAt: now.toISOString() });
     }
@@ -418,12 +422,26 @@ export async function POST(request: Request) {
       : answer || "";
     const timedOut = totalElapsedSeconds > MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS || questionElapsedSeconds > 5;
     const correct = !isAbandon && !timedOut && Boolean(answer) && originalAnswer === correctById.get(questionId);
-    const previousAnswers = Array.isArray(payload.answers) ? payload.answers.filter((item): item is { questionId: number; order: number; answer: string | null; correct: boolean } => Boolean(item && typeof item === "object" && Number.isInteger((item as { questionId?: unknown }).questionId))).filter((item, index, items) => items.findIndex((candidate) => candidate.questionId === item.questionId) === index) : [];
-    const currentAnswer = !isAbandon && Number.isInteger(questionId) ? { questionId, order: currentIndex, answer, correct } : null;
+    const previousAnswers = Array.isArray(payload.answers) ? payload.answers.filter((item): item is { questionId: number; order: number; answer: string | null; correct: boolean; attempts?: number } => Boolean(item && typeof item === "object" && Number.isInteger((item as { questionId?: unknown }).questionId))).filter((item, index, items) => items.findIndex((candidate) => candidate.questionId === item.questionId) === index) : [];
+    const priorCurrent = previousAnswers.find((item) => item.questionId === questionId);
+    const attempts = isAbandon ? 2 : Math.min(2, Math.max(0, priorCurrent?.attempts ?? 0) + 1);
+    const currentAnswer = !isAbandon && Number.isInteger(questionId) ? { questionId, order: currentIndex, answer, correct, attempts } : null;
     const answerDetails = currentAnswer ? [...previousAnswers.filter((item) => item.questionId !== questionId), currentAnswer].sort((left, right) => left.order - right.order) : previousAnswers;
-    const nextPayload = { ...payload, answers: answerDetails, endedBy: correct ? undefined : (isAbandon ? "abandoned" : timedOut ? "time_limit" : "wrong_answer") };
+    const canRetry = !correct && !isAbandon && totalElapsedSeconds <= MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS && attempts < 2;
+    const nextPayload = { ...payload, answers: answerDetails, endedBy: correct || canRetry ? undefined : (isAbandon ? "abandoned" : timedOut ? "time_limit" : "wrong_answer") };
     const answeredQuestions = answerDetails.filter((item) => Boolean(item.answer)).length;
     const correctQuestions = answerDetails.filter((item) => item.correct).length;
+    if (canRetry) {
+      await auth.db.update(medtechPracticeSessions).set({
+        status: "in_progress",
+        lastActiveAt: now,
+        answeredQuestions,
+        correctQuestions,
+        incorrectQuestionIdsJson: JSON.stringify(answerDetails.filter((item) => !item.correct).map((item) => item.questionId)),
+        answerDetailsJson: JSON.stringify(nextPayload),
+      }).where(eq(medtechPracticeSessions.id, dailySession.id));
+      return Response.json({ packageName, packageNumber, challenge: "ultimate", status: "in_progress", correct: false, retry: true, attemptsRemaining: 2 - attempts, nextIndex: currentIndex, score: correctQuestions, total: questionIds.length, durationSeconds: Math.min(MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS, totalElapsedSeconds), passed: false, message: "第一次未答對，還有一次機會。" });
+    }
     if (!correct) {
       await auth.db.update(medtechPracticeSessions).set({
         status: "failed",

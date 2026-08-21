@@ -46,6 +46,8 @@ export default function MedtechUltimateChallenge({
   );
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
+  const [selectedAnswer, setSelectedAnswer] = useState("");
+  const [answerFeedback, setAnswerFeedback] = useState("");
   const [selectedTarget, setSelectedTarget] = useState(() =>
     targets.find((target) => target.packageName === packageName && target.packNumber === packNumber) ?? targets[0] ?? { packageName, packNumber, questionTotal: 30 },
   );
@@ -69,6 +71,8 @@ export default function MedtechUltimateChallenge({
     setResult(null);
     setQuestions([]);
     setAnswers({});
+    setSelectedAnswer("");
+    setAnswerFeedback("");
     answersRef.current = {};
     questionStartedAtRef.current = 0;
     setIndex(0);
@@ -214,6 +218,9 @@ export default function MedtechUltimateChallenge({
         durationSeconds?: number;
         passed?: boolean;
         reward?: Reward;
+        retry?: boolean;
+        attemptsRemaining?: number;
+        message?: string;
         error?: string;
       };
       if (!response.ok)
@@ -227,6 +234,10 @@ export default function MedtechUltimateChallenge({
           reward: data.reward,
         });
         setQuestions([]);
+      } else if (data.retry) {
+        setAnswerFeedback(data.message || `還有 ${data.attemptsRemaining ?? 1} 次機會。`);
+        questionStartedAtRef.current = Date.now();
+        setQuestionSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
       } else if (data.correct) {
         if (question && answer) {
           const next = { ...answersRef.current, [question.id]: answer };
@@ -234,6 +245,8 @@ export default function MedtechUltimateChallenge({
           setAnswers(next);
         }
         setIndex(data.nextIndex ?? index + 1);
+        setSelectedAnswer("");
+        setAnswerFeedback("");
         questionStartedAtRef.current = Date.now();
         setQuestionSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
       }
@@ -259,6 +272,8 @@ export default function MedtechUltimateChallenge({
       secondsLeft <= 0
     )
       return;
+    setSelectedAnswer(answer);
+    setAnswerFeedback("答案送出中…");
     void sendAnswer(answer, "answer");
   }
 
@@ -409,7 +424,7 @@ export default function MedtechUltimateChallenge({
                       key={letter}
                       disabled={busy}
                       className={
-                        answers[question.id] === letter ? "selected" : ""
+                        selectedAnswer === letter || answers[question.id] === letter ? "selected" : ""
                       }
                       onClick={() => chooseAnswer(letter)}
                     >
@@ -418,6 +433,7 @@ export default function MedtechUltimateChallenge({
                     </button>
                   ))}
                 </div>
+                {answerFeedback && <p className="medtech-ultimate-answer-feedback" role="status">{answerFeedback}</p>}
                 <button
                   type="button"
                   className="medtech-challenge-abandon"

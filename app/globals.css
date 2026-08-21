@@ -40923,6 +40923,15 @@ button[aria-busy="true"] {
   font-size: 21px;
   line-height: 1.55;
 }
+.medtech-ultimate-answer-feedback {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff6da;
+  color: #805d17;
+  font-size: 12px;
+  font-weight: 850;
+}
 .medtech-ultimate-result {
   display: grid;
   gap: 9px;
