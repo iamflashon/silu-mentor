@@ -31,15 +31,23 @@ export async function PUT(request: Request) {
     const file = form.get("file");
     if (!Number.isInteger(id) || id < 1 || !(file instanceof File) || !isSupportedDocument(file.name, file.type)) return Response.json({ error: "請選擇正確的 PDF、HTML 或 Word 原稿" }, { status: 400 });
     if (file.size > MAX_DOCUMENT_BYTES) return Response.json({ error: "文件不可超過 55MB" }, { status: 413 });
-    const db = await getDb();
+    const db = await getDb("primary");
     const [current] = await db.select().from(documents).where(and(eq(documents.id, id), eq(documents.examCategory, "medtech"))).limit(1);
-    if (!current) return Response.json({ error: "找不到醫檢師文件" }, { status: 404 });
+    const linkedQuestions = current ? [] : await db.select({ id: examQuestions.id, subject: examQuestions.subject }).from(examQuestions).where(and(eq(examQuestions.examCategory, "medtech"), eq(examQuestions.sourceUrl, `document:${id}`)));
+    if (!current && !linkedQuestions.length) return Response.json({ error: "找不到醫檢師文件或其既有題目" }, { status: 404 });
     const { env } = await import("cloudflare:workers");
     if (!env.BUCKET) return Response.json({ error: "文件儲存空間尚未就緒" }, { status: 503 });
     const safeName = file.name.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
     const newKey = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-    await env.BUCKET.put(newKey, file.stream(), { httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) }, customMetadata: { subject: current.subject, documentType: current.documentType, bookTitle: current.bookTitle, originalName: file.name } });
+    const fallbackSubject = linkedQuestions[0]?.subject || "未分類";
+    await env.BUCKET.put(newKey, file.stream(), { httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) }, customMetadata: { subject: current?.subject || fallbackSubject, documentType: current?.documentType || "題庫", bookTitle: current?.bookTitle || file.name, originalName: file.name } });
     try {
+      if (!current) {
+        await db.insert(documents).values({ id, storageKey: newKey, fileName: file.name, contentType: contentTypeForDocument(file.name, file.type), sizeBytes: file.size, examCategory: "medtech", bookTitle: file.name.replace(/\.[^.]+$/u, ""), subject: fallbackSubject, documentType: "題庫", status: "completed", processingStage: "completed", processingMessage: "已由既有題目補回 PDF 原稿文件紀錄", questionCount: linkedQuestions.length, processingResultJson: JSON.stringify({ sourceVariants: [] }) });
+        const [verified] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName }).from(documents).where(eq(documents.id, id)).limit(1);
+        if (!verified || verified.storageKey !== newKey || verified.fileName !== file.name) throw new Error("PDF 已上傳，但文件紀錄寫入後無法讀回");
+        return Response.json({ replaced: true, repaired: true, persisted: true, variant: documentExtension(file.name) ?? "other", id, name: file.name });
+      }
       let parsedResult: Record<string, unknown> = {};
       try { parsedResult = JSON.parse(current.processingResultJson) as Record<string, unknown>; } catch { parsedResult = {}; }
       const variants = Array.isArray(parsedResult.sourceVariants)
@@ -53,7 +61,9 @@ export async function PUT(request: Request) {
       // HTML rendering can therefore coexist and be switched in the workspace.
       nextVariants.push({ kind: currentKind === "pdf" ? "pdf" : currentKind === "html" ? "html" : currentKind ?? "other", storageKey: current.storageKey, fileName: current.fileName, contentType: current.contentType, sizeBytes: current.sizeBytes, createdAt: new Date().toISOString() });
       await db.update(documents).set({ storageKey: newKey, fileName: file.name, contentType: contentTypeForDocument(file.name, file.type), sizeBytes: file.size, processingMessage: `已新增${variantKind === "html" ? " HTML" : variantKind === "pdf" ? " PDF" : "原稿版本"}；既有題目、解析與順序均保留，未重新拆題`, processingResultJson: JSON.stringify({ ...parsedResult, sourceVariants: nextVariants }), indexError: null }).where(eq(documents.id, id));
-      return Response.json({ replaced: true, variant: variantKind, id, name: file.name, variants: nextVariants.map((item) => ({ kind: item.kind, fileName: item.fileName })) });
+      const [verified] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName }).from(documents).where(eq(documents.id, id)).limit(1);
+      if (!verified || verified.storageKey !== newKey || verified.fileName !== file.name) throw new Error("PDF 已上傳，但文件紀錄更新後無法讀回");
+      return Response.json({ replaced: true, persisted: true, variant: variantKind, id, name: file.name, variants: nextVariants.map((item) => ({ kind: item.kind, fileName: item.fileName })) });
     } catch (error) {
       await env.BUCKET.delete(newKey).catch(() => undefined);
       throw error;

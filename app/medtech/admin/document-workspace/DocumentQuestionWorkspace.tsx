@@ -89,6 +89,20 @@ async function importQuestions(id:number,materializeOnly=false,forceReparse=fals
   setImporting(documentId);
   try{
    const contentType=file.type||(/\.pdf$/i.test(file.name)?"application/pdf":/\.docx$/i.test(file.name)?"application/vnd.openxmlformats-officedocument.wordprocessingml.document":"application/octet-stream");
+   if(category==="medtech"){
+    setNotice("正在上傳並驗證 PDF 原稿…");
+    const form=new FormData();form.set("id",String(documentId));form.set("file",file);
+    const response=await fetch(paths.docs,{method:"PUT",body:form});
+    const result=await response.json().catch(()=>({})) as {error?:string;variant?:string;name?:string;persisted?:boolean};
+    if(!response.ok||!result.persisted)throw new Error(result.error||"PDF 上傳後未通過持久化驗證");
+    const verifyResponse=await fetch(`${paths.docs}?id=${documentId}&verify=${Date.now()}`,{cache:"no-store"});
+    const verified=await verifyResponse.json().catch(()=>({})) as {documents?:Doc[]};
+    const verifiedDocument=verified.documents?.find(item=>item.id===documentId);
+    if(!verifyResponse.ok||verifiedDocument?.name!==file.name)throw new Error("PDF 已送達伺服器，但重新讀回的文件名稱不一致");
+    await load(documentId);setSourceRevision(value=>value+1);setDocName(file.name);
+    const variant=result.variant==="html"?"html":"pdf";setContentType(variant);setSourceMode("primary");
+    setNotice(`PDF 原稿已寫入並重新讀回驗證成功；${questions.length} 題未重新拆解。`);return;
+   }
    setNotice("正在準備上傳原稿…");
    const initResponse=await fetch("/api/documents/multipart",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"init",fileName:file.name,contentType})});
    const init=await initResponse.json().catch(()=>({})) as {key?:string;uploadId?:string;error?:string};
