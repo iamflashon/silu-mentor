@@ -17,6 +17,11 @@ import {
   MEDTECH_ALL_ACCESS_NAME,
 } from "../../../lib/medtech-usage";
 
+// This route is member-specific and reads live D1 state. Keep it out of ISR so
+// the server HTML and client RSC payload always describe the same member data.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const PACKAGE_SIZE = 30;
 const PACKAGE_HOURS = 7 * 24;
 const chapterNames = new Set(["臨床病毒學總論", "DNA 病毒", "RNA 病毒"]);

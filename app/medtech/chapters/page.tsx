@@ -17,6 +17,12 @@ import {
   MEDTECH_ALL_ACCESS_NAME,
 } from "../../../lib/medtech-usage";
 
+// This route is member-specific and reads live D1 state. It must never be
+// prerendered or reused through ISR, otherwise Vinext can hydrate one member's
+// cached RSC payload against another request and fall through to global-error.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const topics = [
   ["臨床病毒學總論", "病毒結構、分類、複製與基礎培養"],
   ["DNA 病毒", "依 DNA 病毒教材整理的歷屆題目"],
