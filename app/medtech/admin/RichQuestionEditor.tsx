@@ -31,6 +31,10 @@ function normalizeDoubleUnderlines(root:ParentNode){
   });
 }
 
+function cropStructureDiagrams(root:ParentNode){
+  root.querySelectorAll<SVGSVGElement>("figure[data-structure-diagram=true] svg").forEach(svg=>{const circles=[...svg.querySelectorAll("circle")].map(circle=>({x:Number(circle.getAttribute("cx")),y:Number(circle.getAttribute("cy"))})).filter(point=>Number.isFinite(point.x)&&Number.isFinite(point.y));if(!circles.length)return;const minX=Math.min(...circles.map(point=>point.x))-48,maxX=Math.max(...circles.map(point=>point.x))+48,minY=Math.min(...circles.map(point=>point.y))-48,maxY=Math.max(...circles.map(point=>point.y))+48,width=Math.max(180,maxX-minX),height=Math.max(140,maxY-minY);svg.setAttribute("viewBox",`${minX} ${minY} ${width} ${height}`);svg.style.width=`min(100%, ${Math.min(800,Math.max(300,width))}px)`;svg.style.height="auto"})
+}
+
 function TableSizeControl({label,value,min,max,onChange}:{label:string;value:number;min:number;max:number;onChange:(value:number)=>void}){
   const [current,setCurrent]=useState(value);
   useEffect(()=>setCurrent(value),[value]);
@@ -55,7 +59,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     return "left";
   }
   function refreshFormatState(){try{setFormatState({bold:document.queryCommandState("bold"),italic:document.queryCommandState("italic"),underline:document.queryCommandState("underline"),unorderedList:document.queryCommandState("insertUnorderedList"),alignment:currentAlignment()})}catch{setFormatState({bold:false,italic:false,underline:false,unorderedList:false,alignment:"left"})}}
-  useEffect(()=>{const normalized=normalizeTemperature(value||"");if(ref.current&&ref.current.innerHTML!==normalized)ref.current.innerHTML=normalized},[value]);
+  useEffect(()=>{const normalized=normalizeTemperature(value||"");if(ref.current&&ref.current.innerHTML!==normalized)ref.current.innerHTML=normalized;if(ref.current)cropStructureDiagrams(ref.current)},[value]);
   function sync(){const normalized=normalizeTemperature(ref.current?.innerHTML??"");if(ref.current&&ref.current.innerHTML!==normalized)ref.current.innerHTML=normalized;onChange(normalized);rememberSelection()}
   function command(name:string,arg?:string){restoreSelection();const before=ref.current?.innerHTML??"";document.execCommand(name,false,arg);if(name==="insertUnorderedList"&&ref.current&&ref.current.innerHTML===before){document.execCommand("insertHTML",false,"<ul><li><br></li></ul>")}rememberSelection();sync();refreshFormatState()}
   function doubleUnderline(){
