@@ -21,6 +21,16 @@ function removeBackgroundColors(root:ParentNode){
   });
 }
 
+function normalizeDoubleUnderlines(root:ParentNode){
+  root.querySelectorAll<HTMLElement>("span,[style]").forEach(element=>{
+    if(element.style.textDecorationStyle!=="double"&&!element.dataset.doubleUnderline)return;
+    element.dataset.doubleUnderline="true";
+    element.style.textDecoration="none";
+    element.style.borderBottom="3px double currentColor";
+    element.style.paddingBottom="1px";
+  });
+}
+
 function TableSizeControl({label,value,min,max,onChange}:{label:string;value:number;min:number;max:number;onChange:(value:number)=>void}){
   const [current,setCurrent]=useState(value);
   useEffect(()=>setCurrent(value),[value]);
@@ -55,7 +65,8 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     const range=selection.getRangeAt(0);
     if(!ref.current?.contains(range.commonAncestorContainer))return;
     const wrapper=document.createElement("span");
-    wrapper.setAttribute("style","text-decoration-line: underline; text-decoration-style: double; text-underline-offset: 2px;");
+    wrapper.dataset.doubleUnderline="true";
+    wrapper.setAttribute("style","text-decoration:none; border-bottom:3px double currentColor; padding-bottom:1px;");
     wrapper.append(range.extractContents());
     range.insertNode(wrapper);
     selection.removeAllRanges();
@@ -67,7 +78,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     const form=new FormData();form.set("file",file);const response=await fetch(category==="accounting"?"/api/accounting/admin/question-assets":"/api/medtech/admin/question-assets",{method:"POST",body:form});const data=await response.json() as {url?:string;error?:string};
     if(response.ok&&data.url){imageFiles.current.set(data.url,file);command("insertImage",data.url)}else alert(data.error||"圖片上傳失敗");setUploading(false);
   }
-  async function convertSelectedImage(){const image=selectedImage;if(!image||!ref.current)return;let file=imageFiles.current.get(image.getAttribute("src")||"");if(!file){try{const response=await fetch(image.src);const blob=await response.blob();file=new File([blob],"pasted-table.png",{type:blob.type||"image/png"})}catch{file=undefined}}if(!file){alert("找不到這張圖片的原始檔，請重新貼上圖片後再試。");return}setConvertingTable(true);const form=new FormData();form.set("file",file);try{const response=await fetch(category==="accounting"?"/api/accounting/admin/table-from-image":"/api/medtech/admin/table-from-image",{method:"POST",body:form});const data=await response.json() as {html?:string;error?:string;confidence?:string};if(!response.ok||!data.html)throw new Error(data.error||"圖片表格辨識失敗");const holder=document.createElement("div");holder.innerHTML=data.html;removeBackgroundColors(holder);image.replaceWith(...Array.from(holder.childNodes));sync();setSelectedImage(null);alert(`已轉成可編輯 HTML 表格（${data.confidence||"medium"} 信心度）。請核對欄列內容。`)}catch(error){alert(error instanceof Error?error.message:"圖片表格辨識失敗")}finally{setConvertingTable(false)}}
+  async function convertSelectedImage(){const image=selectedImage;if(!image||!ref.current)return;let file=imageFiles.current.get(image.getAttribute("src")||"");if(!file){try{const response=await fetch(image.src);const blob=await response.blob();file=new File([blob],"pasted-table.png",{type:blob.type||"image/png"})}catch{file=undefined}}if(!file){alert("找不到這張圖片的原始檔，請重新貼上圖片後再試。");return}setConvertingTable(true);const form=new FormData();form.set("file",file);try{const response=await fetch(category==="accounting"?"/api/accounting/admin/table-from-image":"/api/medtech/admin/table-from-image",{method:"POST",body:form});const data=await response.json() as {html?:string;error?:string;confidence?:string};if(!response.ok||!data.html)throw new Error(data.error||"圖片表格辨識失敗");const holder=document.createElement("div");holder.innerHTML=data.html;removeBackgroundColors(holder);normalizeDoubleUnderlines(holder);image.replaceWith(...Array.from(holder.childNodes));sync();setSelectedImage(null);alert(`已轉成可編輯 HTML 表格（${data.confidence||"medium"} 信心度）。請核對欄列內容。`)}catch(error){alert(error instanceof Error?error.message:"圖片表格辨識失敗")}finally{setConvertingTable(false)}}
   function clearBackgroundColors(){if(!ref.current)return;removeBackgroundColors(ref.current);sync()}
   async function paste(event:React.ClipboardEvent<HTMLDivElement>){
     const image=[...event.clipboardData.items].find(item=>item.type.startsWith("image/"))?.getAsFile();
@@ -120,7 +131,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     table.style.tableLayout="fixed";sync();
   }
   return <label className={`rich-field ${compact?"compact":""}`}><span>{label}</span><div className="rich-toolbar" role="toolbar" aria-label={`${label}格式工具`} onMouseDown={event=>{if((event.target as HTMLElement).closest("button")){rememberSelection();event.preventDefault()}}}>
-    <button type="button" title="粗體" aria-pressed={formatState.bold} className={formatState.bold?"active":""} onClick={()=>command("bold")}><b>B</b></button><button type="button" title="斜體" aria-pressed={formatState.italic} className={formatState.italic?"active":""} onClick={()=>command("italic")}><i>I</i></button><button type="button" title="底線" aria-pressed={formatState.underline} className={formatState.underline?"active":""} onClick={()=>command("underline")}><u>U</u></button><button type="button" title="會計數字雙底線" aria-label="雙底線" onClick={doubleUnderline}><span style={{textDecorationLine:"underline",textDecorationStyle:"double",textUnderlineOffset:"2px"}}>U</span></button>
+    <button type="button" title="粗體" aria-pressed={formatState.bold} className={formatState.bold?"active":""} onClick={()=>command("bold")}><b>B</b></button><button type="button" title="斜體" aria-pressed={formatState.italic} className={formatState.italic?"active":""} onClick={()=>command("italic")}><i>I</i></button><button type="button" title="底線" aria-pressed={formatState.underline} className={formatState.underline?"active":""} onClick={()=>command("underline")}><u>U</u></button><button type="button" title="會計數字雙底線" aria-label="雙底線" onClick={doubleUnderline}><span style={{borderBottom:"3px double currentColor",paddingBottom:"1px"}}>U</span></button>
     <button type="button" title="上標" onClick={()=>command("superscript")}>x²</button><button type="button" title="下標" onClick={()=>command("subscript")}>x₂</button><button type="button" title="靠左對齊" aria-label="靠左對齊" aria-pressed={formatState.alignment==="left"} className={`rich-align-button ${formatState.alignment==="left"?"active":""}`} onClick={()=>command("justifyLeft")}>靠左</button><button type="button" title="置中對齊" aria-label="置中對齊" aria-pressed={formatState.alignment==="center"} className={`rich-align-button ${formatState.alignment==="center"?"active":""}`} onClick={()=>command("justifyCenter")}>置中</button><button type="button" title="靠右對齊" aria-label="靠右對齊" aria-pressed={formatState.alignment==="right"} className={`rich-align-button ${formatState.alignment==="right"?"active":""}`} onClick={()=>command("justifyRight")}>靠右</button><button type="button" title="插入項目符號（選取多段文字可轉換）" aria-pressed={formatState.unorderedList} className={formatState.unorderedList?"active":""} onClick={()=>command("insertUnorderedList")}>• 項目</button>
     <div className="font-color-tools" aria-label="字體顏色"><span>字色</span>{[["#174b47","黑"],["#c62828","紅"],["#1565c0","藍"],["#18815f","綠"]].map(([color,name])=><button key={color} type="button" title={`${name}色文字`} aria-label={`${name}色文字`} style={{backgroundColor:color}} onClick={()=>command("foreColor",color)}/>) }<label title="自選字體顏色"><input type="color" defaultValue="#174b47" onMouseDown={rememberSelection} onChange={event=>command("foreColor",event.currentTarget.value)}/></label></div><button type="button" title="新增表格" className={showTableGrid?"active":""} onClick={()=>{setShowTableGrid(!showTableGrid);setShowSymbols(false)}}>▦ 表格</button><button type="button" title="特殊符號" onClick={()=>{setShowSymbols(!showSymbols);setShowTableGrid(false)}}>Ω 符號</button><button type="button" title="插入圖片" onClick={()=>fileRef.current?.click()}>{uploading?"上傳中…":"▧ 圖片"}</button><button type="button" title="先點選編輯器內的圖片，再轉成 HTML 表格" disabled={!selectedImage||convertingTable} onClick={()=>void convertSelectedImage()}>{convertingTable?"辨識中…":"圖片轉表格"}</button>
     <button type="button" title="移除辨識內容或貼上內容的背景色" onClick={clearBackgroundColors}>清除底色</button><button type="button" title="復原" onClick={()=>command("undo")}>↶</button><button type="button" title="重做" onClick={()=>command("redo")}>↷</button><input ref={fileRef} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={e=>{const f=e.target.files?.[0];if(f)void upload(f);e.target.value=""}}/>
