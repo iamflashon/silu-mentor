@@ -5,11 +5,13 @@ import MedtechHeaderActions from "../MedtechHeaderActions";
 import MedtechRetakeOptions from "../MedtechRetakeOptions";
 import MedtechPackDiscount from "../MedtechPackDiscount";
 import MedtechUltimateChallenge from "../MedtechUltimateChallenge";
+import LinePayPurchaseButton from "../LinePayPurchaseButton";
 import { memberLoginPath } from "../../../lib/member-login-path";
 import {
   documents,
   examQuestions,
   medtechPointLedger,
+  medtechPaymentOrders,
   medtechPracticeSessions,
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
@@ -51,7 +53,11 @@ function remainingText(until: Date | null, now: number) {
     : `剩餘 ${hours} 小時 ${minutes % 60} 分`;
 }
 
-export default async function MedtechChapters() {
+export default async function MedtechChapters({
+  searchParams,
+}: {
+  searchParams?: Promise<{ payment?: string }>;
+}) {
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(
     new Request("https://medtech.local/medtech/chapters", {
@@ -73,8 +79,8 @@ export default async function MedtechChapters() {
     );
   }
 
-  const [sourceRows, questionRows, ledgerRows, sessionRows] = await Promise.all(
-    [
+  const [sourceRows, questionRows, ledgerRows, sessionRows, paymentRows] =
+    await Promise.all([
       auth.db
         .select({
           id: documents.id,
@@ -121,8 +127,15 @@ export default async function MedtechChapters() {
         })
         .from(medtechPracticeSessions)
         .where(eq(medtechPracticeSessions.userKey, auth.userKey)),
-    ],
-  );
+      auth.db
+        .select({
+          packageName: medtechPaymentOrders.packageName,
+          packNumber: medtechPaymentOrders.packNumber,
+          status: medtechPaymentOrders.status,
+        })
+        .from(medtechPaymentOrders)
+        .where(eq(medtechPaymentOrders.userKey, auth.userKey)),
+    ]);
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
   const sourceByAlias = new Map(
     sourceRows.flatMap(
@@ -218,32 +231,46 @@ export default async function MedtechChapters() {
           (isCompleted(row) || row.answeredQuestions > 0),
       );
       const canStart = previousCompleted;
+      const purchased = paymentRows.some(
+        (row) =>
+          row.packageName === name &&
+          row.packNumber === packNumber &&
+          row.status === "paid",
+      );
       const needsUnlock =
-        !active && (freePackageUsed || packNumber > 1 || hasHistory);
+        !active &&
+        !purchased &&
+        (freePackageUsed || packNumber > 1 || hasHistory);
       const label = active
         ? completed
           ? "已完成 · 可重做"
           : "進行中"
         : !canStart
-          ? "完成上一關後開放"
-          : !freePackageUsed
-            ? "任選一包免費"
-            : !hasDiscountChoice
-              ? "可抽一次折扣"
-              : "NT$30 購買";
+          ? purchased
+            ? "已付款・完成上一關後開放"
+            : "可提前購買・完成上一關後開放"
+          : purchased
+            ? "LINE Pay 已付款・可開始"
+            : !freePackageUsed
+              ? "任選一包免費"
+              : !hasDiscountChoice
+                ? "可抽一次折扣"
+                : "NT$30 購買";
       const action = active
         ? completed
           ? "再次挑戰"
           : "繼續闖關"
         : !canStart
           ? "尚未開放"
-          : !freePackageUsed
-            ? "免費開始"
-            : !hasDiscountChoice
-              ? "🎡 抽轉轉樂"
-              : hasHistory
-                ? "NT$30 再次購買"
-                : "NT$30 購買";
+          : purchased
+            ? "啟用並開始"
+            : !freePackageUsed
+              ? "免費開始"
+              : !hasDiscountChoice
+                ? "🎡 抽轉轉樂"
+                : hasHistory
+                  ? "NT$30 再次購買"
+                  : "NT$30 購買";
       return {
         packNumber,
         questionTotal,
@@ -252,6 +279,7 @@ export default async function MedtechChapters() {
         completed,
         hasHistory,
         hasDiscountChoice,
+        purchased,
         canStart,
         needsUnlock,
         label,
@@ -282,6 +310,7 @@ export default async function MedtechChapters() {
       ? "in_progress"
       : "finished"
     : "available";
+  const payment = (await searchParams)?.payment;
 
   return (
     <main className="medtech-practice">
@@ -299,6 +328,21 @@ export default async function MedtechChapters() {
       <section className="medtech-chapter-page">
         <span>CHAPTER PRACTICE</span>
         <h1>選擇本次練習章節</h1>
+        {payment === "success" && (
+          <div className="medtech-line-pay-notice success">
+            LINE Pay Sandbox 付款成功；題目包已記入帳號，完成上一關後即可開始。
+          </div>
+        )}
+        {payment === "cancelled" && (
+          <div className="medtech-line-pay-notice">
+            您已取消 LINE Pay 付款，題目包未購買。
+          </div>
+        )}
+        {payment && !["success", "cancelled"].includes(payment) && (
+          <div className="medtech-line-pay-notice failed">
+            LINE Pay 付款尚未完成，請稍後再試。
+          </div>
+        )}
         <p>
           每包 30 題；任選一包首次免費，使用一次後其他題目包皆為 NT$30。 購買後
           7 天內不限次數重做，最後不足 30 題的尾包也依同一規則計算。
@@ -339,6 +383,7 @@ export default async function MedtechChapters() {
                   const practiceHref = `/medtech/practice?topic=${encodeURIComponent(card.name)}&pack=${pack.packNumber}`;
                   const spinAvailable =
                     !pack.active &&
+                    !pack.purchased &&
                     pack.canStart &&
                     (pack.packNumber > 1 || pack.hasHistory);
                   return (
@@ -392,6 +437,13 @@ export default async function MedtechChapters() {
                             {pack.action} {pack.canStart ? "→" : ""}
                           </strong>
                         </a>
+                      )}
+                      {!pack.active && !pack.canStart && (
+                        <LinePayPurchaseButton
+                          packageName={card.name}
+                          packNumber={pack.packNumber}
+                          purchased={pack.purchased}
+                        />
                       )}
                       {pack.hasHistory && (
                         <a

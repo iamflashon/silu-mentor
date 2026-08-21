@@ -108,10 +108,18 @@ export async function PUT(request: Request) {
       const nextVariants = variants.filter((item) => item.kind !== variantKind);
       // Keep the existing primary object instead of deleting it. A PDF and an
       // HTML rendering can therefore coexist and be switched in the workspace.
-      nextVariants.push({ kind: currentKind === "pdf" ? "pdf" : currentKind === "html" ? "html" : currentKind ?? "other", storageKey: current.storageKey, fileName: current.fileName, contentType: current.contentType, sizeBytes: current.sizeBytes, createdAt: new Date().toISOString() });
+      // Re-uploading the same kind is a replacement, not another source
+      // variant. This prevents repeated PDF uploads from accumulating duplicate
+      // originals while still allowing one PDF and one HTML source to coexist.
+      if (currentKind !== variantKind) {
+        nextVariants.push({ kind: currentKind === "pdf" ? "pdf" : currentKind === "html" ? "html" : currentKind ?? "other", storageKey: current.storageKey, fileName: current.fileName, contentType: current.contentType, sizeBytes: current.sizeBytes, createdAt: new Date().toISOString() });
+      }
       await db.update(documents).set({ storageKey: newKey, fileName: file.name, contentType: contentTypeForDocument(file.name, file.type), sizeBytes: file.size, processingMessage: `已新增${variantKind === "html" ? " HTML" : variantKind === "pdf" ? " PDF" : "原稿版本"}；既有題目、解析與順序均保留，未重新拆題`, processingResultJson: JSON.stringify({ ...parsedResult, sourceVariants: nextVariants }), indexError: null }).where(eq(documents.id, id));
       const [verified] = await db.select({ storageKey: documents.storageKey, fileName: documents.fileName }).from(documents).where(eq(documents.id, id)).limit(1);
       if (!verified || verified.storageKey !== newKey || verified.fileName !== file.name) throw new Error("PDF 已上傳，但文件紀錄更新後無法讀回");
+      if (currentKind === variantKind && current.storageKey !== newKey) {
+        await env.BUCKET.delete(current.storageKey).catch(() => undefined);
+      }
       return Response.json({ replaced: true, persisted: true, variant: variantKind, id, name: file.name, variants: nextVariants.map((item) => ({ kind: item.kind, fileName: item.fileName })) });
     } catch (error) {
       await env.BUCKET.delete(newKey).catch(() => undefined);
