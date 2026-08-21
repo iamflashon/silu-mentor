@@ -8,8 +8,57 @@ import { DELETE as deleteDocuments, GET as getDocuments, PATCH as patchDocument,
 export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const url = new URL(request.url); url.searchParams.set("category", "medtech");
-  return getDocuments(new Request(url, { headers: request.headers }));
+  const url = new URL(request.url);
+  const requestedId = Number(url.searchParams.get("id"));
+  if (!Number.isInteger(requestedId) || requestedId < 1) {
+    url.searchParams.set("category", "medtech");
+    return getDocuments(new Request(url, { headers: request.headers }));
+  }
+
+  // The workspace needs one document and its source variants only. Avoid the
+  // company dashboard query here: it also touches optional analytics/index
+  // tables, so one pending Dev migration could hide an otherwise valid PDF.
+  try {
+    const db = await getDb("primary");
+    const [row] = await db.select({
+      id: documents.id,
+      fileName: documents.fileName,
+      subject: documents.subject,
+      documentType: documents.documentType,
+      processingStage: documents.processingStage,
+      questionCount: documents.questionCount,
+      processingResultJson: documents.processingResultJson,
+    }).from(documents).where(and(eq(documents.id, requestedId), eq(documents.examCategory, "medtech"))).limit(1);
+    if (!row) return Response.json({ documents: [] }, { headers: { "Cache-Control": "no-store" } });
+
+    let result: Record<string, unknown> = {};
+    try { result = JSON.parse(row.processingResultJson) as Record<string, unknown>; } catch { result = {}; }
+    const sourceVariants = Array.isArray(result.sourceVariants)
+      ? result.sourceVariants
+          .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && typeof (item as Record<string, unknown>).storageKey === "string"))
+          .map((item) => ({
+            kind: typeof item.kind === "string" ? item.kind : "other",
+            storageKey: String(item.storageKey),
+            fileName: typeof item.fileName === "string" ? item.fileName : "原稿版本",
+            contentType: typeof item.contentType === "string" ? item.contentType : "application/octet-stream",
+            sizeBytes: Number(item.sizeBytes ?? 0),
+          }))
+      : [];
+    return Response.json({ documents: [{
+      id: row.id,
+      name: row.fileName,
+      subject: row.subject,
+      type: row.documentType,
+      processingStage: row.processingStage,
+      questionCount: Number(row.questionCount ?? 0),
+      indexedQuestionCount: Number(row.questionCount ?? 0),
+      sourceVariants,
+    }] }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message.slice(0, 300) : "未知資料庫錯誤";
+    console.error("medtech document workspace lookup failed", { requestedId, detail });
+    return Response.json({ error: `原稿文件讀取失敗：${detail}` }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
 }
 
 export async function POST(request: Request) {
