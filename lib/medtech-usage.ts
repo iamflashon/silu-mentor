@@ -32,6 +32,9 @@ export const MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT = 30;
 export const MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS = 3 * 60;
 export const MEDTECH_ULTIMATE_CHALLENGE_COST = 3;
 export const MEDTECH_QUESTION_PACKAGE_HOURS = 7 * 24;
+export const MEDTECH_ALL_ACCESS_NAME = "全庫通行證";
+export const MEDTECH_ALL_ACCESS_PRICE = 199;
+export const MEDTECH_ALL_ACCESS_DAYS = 30;
 export const MEDTECH_CHAPTER_PACKAGE_COST = MEDTECH_QUESTION_PACKAGE_COST;
 export const MEDTECH_CHAPTER_PACKAGE_HOURS = MEDTECH_QUESTION_PACKAGE_HOURS;
 const MEDTECH_OWNER_USER_KEY = "iamflashon@gmail.com";
@@ -39,6 +42,36 @@ const MEDTECH_SCREENSHOT_SERVICE_USER_KEY =
   "sites-screenshot-service-noreply@chatgpt.com";
 // 保留舊名稱，讓既有頁面與資料相容；平台語意統一稱為「點數」。
 export const MEDTECH_STARTING_AI_CREDITS = MEDTECH_STARTING_POINTS;
+
+export async function getActiveMedtechAllAccess(
+  db: Awaited<ReturnType<typeof getDb>>,
+  userKey: string,
+) {
+  const cutoff = new Date(
+    Date.now() - MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
+  );
+  const [order] = await db
+    .select()
+    .from(medtechPaymentOrders)
+    .where(
+      and(
+        eq(medtechPaymentOrders.userKey, userKey),
+        eq(medtechPaymentOrders.packageName, MEDTECH_ALL_ACCESS_NAME),
+        eq(medtechPaymentOrders.status, "paid"),
+        gte(medtechPaymentOrders.paidAt, cutoff),
+      ),
+    )
+    .orderBy(desc(medtechPaymentOrders.paidAt))
+    .limit(1);
+  if (!order?.paidAt) return null;
+  return {
+    order,
+    availableUntil: new Date(
+      order.paidAt.getTime() +
+        MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
+    ),
+  };
+}
 
 export const MEDTECH_ULTIMATE_DISCOUNT = {
   percent: 10,
@@ -692,6 +725,15 @@ export async function grantMedtechQuestionAccess(
   ];
   const usage = await getOrCreateMedtechUsage(db, userKey);
   if (!uniqueIds.length) return { usage, allowedIds: [], limited: false };
+  const allAccess = await getActiveMedtechAllAccess(db, userKey);
+  if (allAccess)
+    return {
+      usage,
+      allowedIds: uniqueIds,
+      limited: false,
+      allAccess: true,
+      availableUntil: allAccess.availableUntil,
+    };
   const cutoff = new Date(
     Date.now() - MEDTECH_QUESTION_ACCESS_HOURS * 60 * 60 * 1000,
   );
@@ -767,6 +809,24 @@ export async function grantMedtechQuestionPackageAccess(
     ...new Set(questionIds.filter((id) => Number.isInteger(id) && id > 0)),
   ].slice(0, MEDTECH_QUESTION_PACKAGE_SIZE);
   const usage = await getOrCreateMedtechUsage(db, userKey);
+  const allAccess = await getActiveMedtechAllAccess(db, userKey);
+  if (allAccess) {
+    return {
+      usage,
+      allowedIds: candidateIds,
+      packageQuestionIds: candidateIds,
+      limited: false,
+      hasAccess: true,
+      charged: false,
+      gifted: false,
+      allAccess: true,
+      packageCost: MEDTECH_ALL_ACCESS_PRICE,
+      discountReward: null,
+      availableUntil: allAccess.availableUntil,
+      packageNumber,
+      isBonusPack: candidateIds.length < MEDTECH_QUESTION_PACKAGE_SIZE,
+    };
+  }
   const description = medtechPackDescription(packageName, packageNumber);
   const legacyDescription = `${packageName}題目包（7 天內可隨意刷）`;
   const descriptions =
@@ -863,9 +923,21 @@ export async function grantMedtechQuestionPackageAccess(
     };
   }
 
-  // 闖關包依序開放：上一包必須完成，才可以解鎖下一包。
-  let previousCompleted = true;
-  if (packageNumber > 1) {
+  // 每個帳號可任選任一個 30 題單元作為首次免費體驗，因此免費資格尚未
+  // 使用前，不受單元順序限制；使用後才回到既有的順序相容規則。
+  const [freePackageUsed] = await db
+    .select({ id: medtechPointLedger.id })
+    .from(medtechPointLedger)
+    .where(
+      and(
+        eq(medtechPointLedger.userKey, userKey),
+        eq(medtechPointLedger.action, "question_pack_gift"),
+        like(medtechPointLedger.sourceDetail, "%首次體驗贈送%"),
+      ),
+    )
+    .limit(1);
+  let previousCompleted = packageNumber === 1 || !freePackageUsed;
+  if (freePackageUsed && packageNumber > 1) {
     const [prior] = await db
       .select({ id: medtechPracticeSessions.id })
       .from(medtechPracticeSessions)
@@ -955,17 +1027,6 @@ export async function grantMedtechQuestionPackageAccess(
 
   // 每個帳號只有一次免費題目包。學員可先選章節或隨機模考的一包，
   // 免費資格使用後，其餘題目包（包含不足 30 題的尾包）都依 30 點解鎖。
-  const [freePackageUsed] = await db
-    .select({ id: medtechPointLedger.id })
-    .from(medtechPointLedger)
-    .where(
-      and(
-        eq(medtechPointLedger.userKey, userKey),
-        eq(medtechPointLedger.action, "question_pack_gift"),
-        like(medtechPointLedger.sourceDetail, "%首次體驗贈送%"),
-      ),
-    )
-    .limit(1);
   const discountReward = freePackageUsed
     ? await getMedtechPackDiscountReward(
         db,

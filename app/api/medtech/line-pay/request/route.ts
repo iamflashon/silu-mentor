@@ -2,15 +2,13 @@ import { eq } from "drizzle-orm";
 import { medtechPaymentOrders } from "../../../../../db/schema";
 import { requireMedtechMember } from "../../../../../lib/member-auth";
 import { linePayConfig, linePayPost } from "../../../../../lib/line-pay";
-import { getMedtechPackDiscountReward } from "../../../../../lib/medtech-usage";
+import {
+  MEDTECH_ALL_ACCESS_NAME,
+  MEDTECH_ALL_ACCESS_PRICE,
+} from "../../../../../lib/medtech-usage";
 
-const PACKAGE_PRICE = 30;
 const allowedPackages = new Set([
-  "臨床病毒學總論",
-  "DNA 病毒",
-  "RNA 病毒",
-  "全真模擬試題",
-  "隨機模考",
+  MEDTECH_ALL_ACCESS_NAME,
 ]);
 
 export async function POST(request: Request) {
@@ -27,16 +25,10 @@ export async function POST(request: Request) {
       return Response.json({ error: "題目包資料不正確" }, { status: 400 });
     }
 
-    const reward = await getMedtechPackDiscountReward(
-      auth.db,
-      auth.userKey,
-      packageName,
-      packNumber,
-    );
-    const packagePrice =
-      reward.status === "revealed" && reward.percent === 10 && reward.cost === 3
-        ? 3
-        : PACKAGE_PRICE;
+    if (packageName !== MEDTECH_ALL_ACCESS_NAME) {
+      return Response.json({ error: "單包購買已停止，請改用全庫通行證" }, { status: 400 });
+    }
+    const packagePrice = MEDTECH_ALL_ACCESS_PRICE;
     const config = await linePayConfig();
     if (!config.channelId || !config.channelSecret) {
       return Response.json(
@@ -69,7 +61,9 @@ export async function POST(request: Request) {
           products: [
             {
               id: `medtech-${packNumber}`,
-              name: `醫檢師題目包｜${packageName}第 ${packNumber} 關`,
+              name: packageName === MEDTECH_ALL_ACCESS_NAME
+                ? `醫檢師備考｜${MEDTECH_ALL_ACCESS_NAME} 30 天`
+                : `醫檢師題目包｜${packageName}第 ${packNumber} 關`,
               quantity: 1,
               price: packagePrice,
             },

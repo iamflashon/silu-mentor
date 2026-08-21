@@ -205,7 +205,7 @@ export default function MedtechAiStudy() {
         setPaywall({
           kind: "credits",
           title: "請先選擇題目包",
-          text: "即時 AI 追問已暫停；解題提示、選項比較、完整解析與老師語音會隨題目包提供。",
+          text: "即時 AI 追問已暫停；判斷提示、選項比較、完整解析與老師語音均包含在全庫通行證內。",
           url: "/medtech/chapters",
         });
         throw new Error("請先選擇可使用的題目包。");
@@ -415,7 +415,7 @@ export default function MedtechAiStudy() {
         <aside className="medtech-ai-settings">
           <span>醫檢解題引導</span>
           <h1>從一道題，真正弄懂一個觀念</h1>
-          <p>先看已整理的解題提示，再作答並比較選項；完整解析與康情老師語音隨題目包提供。</p>
+          <p>先看已整理的判斷提示，再作答並比較四個選項；完整解析與康情老師語音均包含在全庫通行證內。</p>
           <label>
             我的程度
             <div>

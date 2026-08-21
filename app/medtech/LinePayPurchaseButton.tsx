@@ -7,11 +7,13 @@ export default function LinePayPurchaseButton({
   packNumber,
   amount = 30,
   purchased = false,
+  label,
 }: {
   packageName: string;
   packNumber: number;
   amount?: number;
   purchased?: boolean;
+  label?: string;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -52,7 +54,7 @@ export default function LinePayPurchaseButton({
           ? "已付款・立即開始"
           : loading
             ? "正在前往 LINE Pay…"
-            : `LINE Pay NT$${amount} 提前購買`}
+            : label || `LINE Pay NT$${amount} 購買`}
       </button>
       {error && <small role="alert">{error}</small>}
     </div>

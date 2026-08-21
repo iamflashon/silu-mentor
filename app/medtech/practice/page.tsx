@@ -62,6 +62,7 @@ type ApiResult = {
     locked: boolean;
     gifted?: boolean;
     charged?: boolean;
+    allAccess?: boolean;
     discountReward?: {
       status: "available" | "revealed" | "abandoned" | "used";
       label: string | null;
@@ -1142,7 +1143,7 @@ export default function MedtechPractice() {
               {packageAccess.blockedByPrevious
                 ? "完成上一關後，下一關會自動開放。"
                 : packageAccess.locked
-                  ? `原價 NT$${packageAccess.baseCost ?? 30}；購買後 ${packageAccess.days} 天內不限次數重做。`
+                  ? "首次免費體驗已使用；開通全庫通行證後即可練習全部單元。"
                   : packageRemaining !== null
                     ? `剩餘 ${formatRemaining(packageRemaining)}；請把握時間完成練習。`
                     : `${packageAccess.days} 天內不限次數重做。`}
@@ -1159,7 +1160,7 @@ export default function MedtechPractice() {
                 </small>
               )}
           </div>
-          {packageAccess.locked &&
+          {false && packageAccess.locked &&
             !packageAccess.blockedByPrevious &&
             packageAccess.discountReward &&
             packageAccess.discountReward.status !== "available" && (
@@ -1172,7 +1173,7 @@ export default function MedtechPractice() {
                 {unlockingPackage ? "處理中…" : `NT$${packageAccess.cost} 購買`}
               </button>
             )}
-          {packageAccess.locked &&
+          {false && packageAccess.locked &&
             !packageAccess.blockedByPrevious &&
             packageAccess.discountReward?.status === "available" && (
               <div className="medtech-pack-discount-box">
@@ -1215,7 +1216,7 @@ export default function MedtechPractice() {
                 </div>
               </div>
             )}
-          {packageAccess.locked &&
+          {false && packageAccess.locked &&
             !packageAccess.blockedByPrevious &&
             packageAccess.discountReward?.status === "revealed" && (
               <div className="medtech-pack-discount-box revealed">
@@ -1230,7 +1231,7 @@ export default function MedtechPractice() {
                 </div>
               </div>
             )}
-          {packageAccess.locked &&
+          {false && packageAccess.locked &&
             !packageAccess.blockedByPrevious &&
             packageAccess.discountReward?.status === "abandoned" && (
               <div className="medtech-pack-discount-box abandoned">
@@ -1363,7 +1364,7 @@ export default function MedtechPractice() {
             </button>
             <span>
               {q.locked
-                ? `本題屬於題目包；售價 NT$${packageAccess?.cost ?? 30}`
+                ? "本題需開通 NT$199／30 天全庫通行證"
                 : "答案在完成前不顯示"}
             </span>
             <button
@@ -1387,13 +1388,13 @@ export default function MedtechPractice() {
             aria-modal="true"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <span>醫檢師題目包</span>
-            <h2>購買第 {packageAccess?.packageNumber ?? pack} 關</h2>
+            <span>醫檢師全庫通行證</span>
+            <h2>NT$199 開通完整題庫 30 天</h2>
             <p>
-              這一關共 {packageAccess?.questionCount ?? 30} 題。購買後 7
-              天內不限次數重做，並會保存完成時間、答題時間、錯題與需要加強的觀念。
+              30 題是學習進度單元，不再逐包計價。開通後 30 天內可不限次練習全部
+              1,400+ 題、章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與老師語音。
             </p>
-            {packageAccess?.discountReward?.status === "available" && (
+            {false && packageAccess?.discountReward?.status === "available" && (
               <div className="medtech-paywall-wheel">
                 <b>🎡 這一關可抽一次折扣，最高五折</b>
                 <span>
@@ -1421,13 +1422,13 @@ export default function MedtechPractice() {
                 </div>
               </div>
             )}
-            {packageAccess?.discountReward?.status === "revealed" && (
+            {false && packageAccess?.discountReward?.status === "revealed" && (
               <p className="medtech-paywall-result">
                 已抽到{packageAccess.discountReward.label}：NT${"$"}
                 {packageAccess.discountReward.cost}。
               </p>
             )}
-            {packageAccess?.discountReward &&
+            {false && packageAccess?.discountReward &&
               (packageAccess.discountReward.status === "revealed" ||
                 packageAccess.discountReward.status === "abandoned") && (
                 <button
@@ -1445,8 +1446,8 @@ export default function MedtechPractice() {
               <button type="button" onClick={() => setPaywallOpen(false)}>
                 稍後再說
               </button>
-              <Link href="/medtech/upgrade?reason=question-pack">
-                查看購買方式
+              <Link href="/medtech/pricing">
+                查看並開通全庫方案
               </Link>
             </div>
           </section>

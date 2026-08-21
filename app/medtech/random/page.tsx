@@ -3,8 +3,6 @@ import { and, eq } from "drizzle-orm";
 import MedtechTabs from "../MedtechTabs";
 import MedtechHeaderActions from "../MedtechHeaderActions";
 import MedtechRetakeOptions from "../MedtechRetakeOptions";
-import MedtechUltimateChallenge from "../MedtechUltimateChallenge";
-import LinePayPurchaseButton from "../LinePayPurchaseButton";
 import { memberLoginPath } from "../../../lib/member-login-path";
 import {
   documents,
@@ -14,7 +12,7 @@ import {
   medtechPracticeSessions,
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
-import { taipeiDate } from "../../../lib/taipei-time";
+import { getActiveMedtechAllAccess } from "../../../lib/medtech-usage";
 
 const PACKAGE_SIZE = 30;
 const PACKAGE_HOURS = 7 * 24;
@@ -126,6 +124,7 @@ export default async function MedtechRandomPackages({
     ],
   );
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
+  const allAccess = await getActiveMedtechAllAccess(auth.db, auth.userKey);
   const sourceByAlias = new Map(
     sourceRows.flatMap(
       (row) =>
@@ -163,13 +162,7 @@ export default async function MedtechRandomPackages({
           row.action === "question_pack_gift") &&
         descriptions(packNumber).includes(row.description),
     );
-    const ultimateDiscount = ledgerRows.some(
-      (row) =>
-        row.action === "question_pack_ultimate" &&
-        row.description === `題目包轉轉樂：隨機模考第 ${packNumber} 包` &&
-        row.createdAt >= new Date(`${taipeiDate()}T00:00:00+08:00`) &&
-        (!row.availableUntil || row.availableUntil.getTime() > now),
-    );
+    const ultimateDiscount = false;
     const latest = [...matches].sort(
       (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
     )[0];
@@ -177,7 +170,8 @@ export default async function MedtechRandomPackages({
       ? (latest.availableUntil ??
         new Date(latest.createdAt.getTime() + PACKAGE_HOURS * 60 * 60 * 1000))
       : null;
-    const active = Boolean(availableUntil && availableUntil.getTime() > now);
+    const effectiveUntil = allAccess?.availableUntil ?? availableUntil;
+    const active = Boolean(allAccess || (availableUntil && availableUntil.getTime() > now));
     const isCompleted = (row: { completedAt: Date | null; status: string; answeredQuestions: number; totalQuestions: number }) =>
       Boolean(
         row.completedAt ||
@@ -214,7 +208,7 @@ export default async function MedtechRandomPackages({
         ? "LINE Pay 已付款・可開始"
         : !freePackageUsed
           ? "任選一包免費"
-          : "NT$30 購買";
+          : "需開通全庫通行證";
     const action = active
       ? completed
         ? "再次挑戰"
@@ -223,9 +217,7 @@ export default async function MedtechRandomPackages({
         ? "啟用並開始"
         : !freePackageUsed
           ? "免費開始"
-          : hasHistory
-            ? "NT$30 再次購買"
-            : "NT$30 購買";
+          : "查看全庫方案";
     return {
       packNumber,
       questionTotal,
@@ -239,7 +231,7 @@ export default async function MedtechRandomPackages({
       needsUnlock,
       label,
       action,
-      availableUntil,
+      availableUntil: effectiveUntil,
     };
   });
   const ultimateTargets = packs
@@ -288,7 +280,7 @@ export default async function MedtechRandomPackages({
         <span>RANDOM MOCK</span>
         <h1>跨章節隨機模考</h1>
         {payment === "success" && (
-          <div className="medtech-line-pay-notice success">LINE Pay 付款成功；題目包已解鎖，可立即開始。</div>
+          <div className="medtech-line-pay-notice success">LINE Pay 付款成功；全庫通行證已開通，可使用 30 天。</div>
         )}
         {payment === "cancelled" && (
           <div className="medtech-line-pay-notice">您已取消 LINE Pay 付款，題目包未購買。</div>
@@ -298,24 +290,15 @@ export default async function MedtechRandomPackages({
         )}
         <p>
           從臨床病毒學總論、DNA 病毒與 RNA 病毒題庫跨章節抽題。每 30
-          題是一關，任選一包首次免費；使用一次後其他題目包皆為 NT$30。
+          題是一個練習單元。首次任選一個單元免費；NT$199 開通後全庫 30 天不限次練習。
         </p>
         <div className="medtech-pack-rule">
-          <b>解題闖關 × 每日 1 折挑戰</b>
+          <b>跨章節模考 × 全庫通行證</b>
           <span>
-            共 {questionCount} 題 · {packageCount} 關；每關開通後 7
-            天內不限次數重做；已付款的題目包可立即開始，不必等待上一關。每天可挑戰一次 30 題 1 折終極挑戰，3 分鐘內全對即可在今日 23:59 前用 LINE Pay NT$3 購買。失敗後可完成 10 題補救複習，每題 10 秒且僅能作答一次，答對至少 8 題即可取得明日一次挑戰資格。
+            共 {questionCount} 題 · {packageCount} 個練習單元；通行證有效期間內可不限次重做，
+            所有單元立即開放，並保存成績、錯題與練習進度。
           </span>
         </div>
-        {ultimateTargets.length > 0 && (
-          <MedtechUltimateChallenge
-            packageName={ultimateTargets[0].packageName}
-            packNumber={ultimateTargets[0].packNumber}
-            targets={ultimateTargets}
-            dailyStatus={dailyUltimateStatus}
-            rescueDue={rescueDue}
-          />
-        )}
         <div className="medtech-random-pack-grid">
           {packs.map((pack) => {
             const practiceHref = `/medtech/practice?pack=${pack.packNumber}`;
@@ -324,14 +307,7 @@ export default async function MedtechRandomPackages({
                 className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}`}
                 key={pack.packNumber}
               >
-                {pack.ultimateDiscount && !pack.active && !pack.purchased ? (
-                  <div className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}>
-                    <span>第 {pack.packNumber} 關</span>
-                    <b>{pack.questionTotal} 題</b>
-                    <small>1 折挑戰成功・優惠至今日 23:59</small>
-                    <LinePayPurchaseButton packageName="隨機模考" packNumber={pack.packNumber} amount={3} />
-                  </div>
-                ) : pack.active && pack.completed ? (
+                {pack.active && pack.completed ? (
                   <MedtechRetakeOptions
                     href={practiceHref}
                     packNumber={pack.packNumber}
@@ -348,12 +324,12 @@ export default async function MedtechRandomPackages({
                     <span>第 {pack.packNumber} 關</span>
                     <b>{pack.questionTotal} 題</b>
                     <small>{pack.label} <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i></small>
-                    <LinePayPurchaseButton packageName="隨機模考" packNumber={pack.packNumber} purchased={pack.purchased} />
+                    <a className="medtech-pack-plan-link" href="/medtech/pricing">NT$199 開通全庫 30 天</a>
                   </div>
                 ) : (
                   <a
                     className={`${pack.active ? "active " : ""}${!pack.canStart ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`}
-                    href={pack.canStart ? practiceHref : "#"}
+                    href={pack.canStart && !pack.needsUnlock ? practiceHref : "/medtech/pricing"}
                     aria-disabled={!pack.canStart}
                   >
                     <span>第 {pack.packNumber} 關</span>

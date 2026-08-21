@@ -11,7 +11,7 @@ export default function MedtechHeaderActions({
         className={`medtech-points-link${activePoints ? " active" : ""}`}
         href="/medtech/pricing"
       >
-        題目包價格
+        全庫方案
       </a>
       <a className="medtech-member-link" href="/medtech/account">
         {accountLabel}

@@ -20,7 +20,7 @@ export async function GET(request: Request) {
       ),
     )
     .limit(1);
-  const destination = order?.packageName === "隨機模考" ? "/medtech/random" : "/medtech/chapters";
+  const destination = "/medtech/chapters";
   if (!order)
     return Response.redirect(`${url.origin}/medtech/chapters?payment=missing`);
   if (order.status === "paid")

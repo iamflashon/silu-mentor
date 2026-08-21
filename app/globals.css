@@ -43261,3 +43261,4 @@ html.frontend-costs-disabled .student-summary-meta > span {
     width: 100%;
   }
 }
+.medtech-pack-plan-link{display:flex;align-items:center;justify-content:center;min-height:36px;padding:8px 12px;border-radius:8px;background:#00c853;color:#fff!important;font-size:12px;font-weight:900;text-align:center;text-decoration:none}

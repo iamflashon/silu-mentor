@@ -3,9 +3,6 @@ import { and, eq } from "drizzle-orm";
 import MedtechTabs from "../MedtechTabs";
 import MedtechHeaderActions from "../MedtechHeaderActions";
 import MedtechRetakeOptions from "../MedtechRetakeOptions";
-import MedtechPackDiscount from "../MedtechPackDiscount";
-import MedtechUltimateChallenge from "../MedtechUltimateChallenge";
-import LinePayPurchaseButton from "../LinePayPurchaseButton";
 import { memberLoginPath } from "../../../lib/member-login-path";
 import {
   documents,
@@ -15,7 +12,7 @@ import {
   medtechPracticeSessions,
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
-import { taipeiDate } from "../../../lib/taipei-time";
+import { getActiveMedtechAllAccess } from "../../../lib/medtech-usage";
 
 const topics = [
   ["臨床病毒學總論", "病毒結構、分類、複製與基礎培養"],
@@ -137,6 +134,7 @@ export default async function MedtechChapters({
         .where(eq(medtechPaymentOrders.userKey, auth.userKey)),
     ]);
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
+  const allAccess = await getActiveMedtechAllAccess(auth.db, auth.userKey);
   const sourceByAlias = new Map(
     sourceRows.flatMap(
       (row) =>
@@ -188,13 +186,7 @@ export default async function MedtechChapters({
             row.action === "question_pack_spin_abandoned") &&
           row.description === `題目包轉轉樂：${name}第 ${packNumber} 包`,
       );
-      const ultimateDiscount = ledgerRows.some(
-        (row) =>
-          row.action === "question_pack_ultimate" &&
-          row.description === `題目包轉轉樂：${name}第 ${packNumber} 包` &&
-          row.createdAt >= new Date(`${taipeiDate()}T00:00:00+08:00`) &&
-          (!row.availableUntil || row.availableUntil.getTime() > now),
-      );
+      const ultimateDiscount = false;
       const latest = [...matches].sort(
         (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
       )[0];
@@ -202,7 +194,8 @@ export default async function MedtechChapters({
         ? (latest.availableUntil ??
           new Date(latest.createdAt.getTime() + PACKAGE_HOURS * 60 * 60 * 1000))
         : null;
-      const active = Boolean(availableUntil && availableUntil.getTime() > now);
+      const effectiveUntil = allAccess?.availableUntil ?? availableUntil;
+      const active = Boolean(allAccess || (availableUntil && availableUntil.getTime() > now));
       const isCompleted = (row: {
         completedAt: Date | null;
         status: string;
@@ -245,11 +238,9 @@ export default async function MedtechChapters({
       );
       // A confirmed LINE Pay order grants immediate access. Paid packs do not
       // depend on the sequential chapter gate.
-      const canStart = previousCompleted || purchased;
+      const canStart = Boolean(allAccess || previousCompleted || purchased || !freePackageUsed);
       const needsUnlock =
-        !active &&
-        !purchased &&
-        (freePackageUsed || packNumber > 1 || hasHistory);
+        !active && !purchased && freePackageUsed;
       const label = active
         ? completed
           ? "已完成 · 可重做"
@@ -259,10 +250,8 @@ export default async function MedtechChapters({
           : purchased
             ? "LINE Pay 已付款・可開始"
             : !freePackageUsed
-              ? "任選一包免費"
-              : !hasDiscountChoice
-                ? "可抽一次折扣"
-                : "NT$30 購買";
+              ? "首次免費體驗"
+              : "需開通全庫通行證";
       const action = active
         ? completed
           ? "再次挑戰"
@@ -273,11 +262,7 @@ export default async function MedtechChapters({
             ? "啟用並開始"
             : !freePackageUsed
               ? "免費開始"
-              : !hasDiscountChoice
-                ? "🎡 抽轉轉樂"
-                : hasHistory
-                  ? "NT$30 再次購買"
-                  : "NT$30 購買";
+              : "查看全庫方案";
       return {
         packNumber,
         questionTotal,
@@ -292,7 +277,7 @@ export default async function MedtechChapters({
         needsUnlock,
         label,
         action,
-        availableUntil,
+        availableUntil: effectiveUntil,
       };
     });
     return { name, description, index, questionCount, packs };
@@ -358,12 +343,12 @@ export default async function MedtechChapters({
         <h1>選擇本次練習章節</h1>
         {payment === "success" && (
           <div className="medtech-line-pay-notice success">
-            LINE Pay Sandbox 付款成功；題目包已記入帳號，完成上一關後即可開始。
+            LINE Pay 付款成功；全庫通行證已開通，可使用 30 天。
           </div>
         )}
         {payment === "cancelled" && (
           <div className="medtech-line-pay-notice">
-            您已取消 LINE Pay 付款，題目包未購買。
+            您已取消 LINE Pay 付款，全庫通行證尚未開通。
           </div>
         )}
         {payment && !["success", "cancelled"].includes(payment) && (
@@ -372,28 +357,17 @@ export default async function MedtechChapters({
           </div>
         )}
         <p>
-          每包 30 題；任選一包首次免費，使用一次後其他題目包皆為 NT$30。 購買後
-          7 天內不限次數重做，最後不足 30 題的尾包也依同一規則計算。
+          每 30 題是一個練習單元，方便掌握進度，不是計價單位。首次可任選一個
+          30 題單元免費體驗；NT$199 一次開通全庫，30 天不限次練習。
         </p>
         <div className="medtech-pack-rule">
-          <b>解題闖關 × 限時轉轉樂</b>
+          <b>全庫通行證 × 清楚學習進度</b>
           <span>
-            章節刷題不跨章節；完成前一關後，可挑戰上一關隨機 10 題，每題限時 5
-            秒，每個題目包最多 2
-            次答題挑戰。答對率越高、平均作答越快，折扣越優惠，兩次取最佳結果；另有一次限時轉轉樂，最高五折。另可每天挑戰一次
-            30 題 1 折終極挑戰，先任選一個未購題包，3 分鐘內全對即可在今日 23:59 前用 LINE Pay NT$3
-            購買。失敗後可進行 10 題補救複習：每題 10 秒、僅能作答一次，答對至少 8 題即可在明日取得一次挑戰資格；每題作答後會顯示正確答案與解析。每一關完成後，系統保存作答時間、答對率、錯題與需加強觀念。
+            章節刷題不跨章節；開通後所有單元立即解鎖，不必等待上一關。
+            系統保存每個單元的作答時間、答對率、錯題與需加強觀念，並提供判斷提示、
+            四個選項比較、完整解析與康情老師語音。
           </span>
         </div>
-        {ultimateTargets.length > 0 && (
-          <MedtechUltimateChallenge
-            packageName={ultimateTargets[0].packageName}
-            packNumber={ultimateTargets[0].packNumber}
-            targets={ultimateTargets}
-            dailyStatus={dailyUltimateStatus}
-            rescueDue={rescueDue}
-          />
-        )}
         <div className="medtech-chapter-list">
           {cards.map((card) => (
             <section className="medtech-chapter-card" key={card.name}>
@@ -410,24 +384,13 @@ export default async function MedtechChapters({
               <div className="medtech-pack-grid">
                 {card.packs.map((pack) => {
                   const practiceHref = `/medtech/practice?topic=${encodeURIComponent(card.name)}&pack=${pack.packNumber}`;
-                  const spinAvailable =
-                    !pack.active &&
-                    !pack.purchased &&
-                    pack.canStart &&
-                    (pack.packNumber > 1 || pack.hasHistory);
+                  const spinAvailable = false;
                   return (
                     <div
                       className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}`}
                       key={pack.packNumber}
                     >
-                      {pack.ultimateDiscount && !pack.active && !pack.purchased ? (
-                        <div className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}>
-                          <span>第 {pack.packNumber} 關</span>
-                          <b>{pack.questionTotal} 題</b>
-                          <small>1 折挑戰成功・優惠至今日 23:59</small>
-                          <LinePayPurchaseButton packageName={card.name} packNumber={pack.packNumber} amount={3} />
-                        </div>
-                      ) : pack.active && pack.completed ? (
+                      {pack.active && pack.completed ? (
                         <MedtechRetakeOptions
                           href={practiceHref}
                           packNumber={pack.packNumber}
@@ -439,31 +402,19 @@ export default async function MedtechChapters({
                               : ""
                           }
                         />
-                      ) : spinAvailable ? (
-                        <MedtechPackDiscount
-                          packageName={card.name}
-                          packNumber={pack.packNumber}
-                          questionTotal={pack.questionTotal}
-                          label={pack.label}
-                          href={practiceHref}
-                        />
-                      ) : !pack.active && !pack.canStart ? (
+                      ) : !pack.active && pack.needsUnlock ? (
                         <div
                           className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}
                         >
                           <span>第 {pack.packNumber} 關</span>
                           <b>{pack.questionTotal} 題</b>
                           <small>{pack.label} <i className="medtech-pack-lock" aria-label="尚未解鎖">🔒</i></small>
-                          <LinePayPurchaseButton
-                            packageName={card.name}
-                            packNumber={pack.packNumber}
-                            purchased={pack.purchased}
-                          />
+                          <a className="medtech-pack-plan-link" href="/medtech/pricing">NT$199 開通全庫 30 天</a>
                         </div>
                       ) : (
                         <a
                           className={`${pack.active ? "active " : ""}${!pack.canStart || pack.needsUnlock ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`}
-                          href={pack.canStart ? practiceHref : "#"}
+                          href={pack.canStart && !pack.needsUnlock ? practiceHref : "/medtech/pricing"}
                           aria-disabled={!pack.canStart}
                         >
                           <span>第 {pack.packNumber} 關</span>

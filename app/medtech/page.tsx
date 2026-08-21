@@ -27,8 +27,8 @@ export default async function MedtechHome() {
           <span>醫檢師備考平台</span>
           <h1>登入後開始學習</h1>
           <p>
-            登入後才能進入章節刷題、隨機模考、錯題複習與 AI
-            引導學習，系統也會替你保存已購題目包與學習紀錄。
+            登入後才能進入章節刷題、隨機模考、錯題複習與引導學習，
+            系統也會替你保存免費體驗、通行證與學習紀錄。
           </p>
           <a className="primary" href={memberLoginPath("/medtech")}>
             登入會員帳號
@@ -65,18 +65,16 @@ export default async function MedtechHome() {
             全真模擬試題 × 康情老師逐題語音解析 × 預先整理的解題引導
           </p>
           <p className="medtech-hero-offer">
-            任選一包 30 題免費｜其他題目包每包 NT$30｜答題挑戰每包最多兩次｜每日
-            1 折終極挑戰｜轉轉樂最高五折
+            首次任選 30 題免費｜全庫通行證 NT$199／30 天｜不限次練習
           </p>
           <p className="medtech-hero-suboffer">
-            不用訂閱、不用儲值點數；完成前一關後，可挑戰上一關隨機 10
-            題、參加一次限時轉轉樂，或每天挑戰一次 30 題終極挑戰。3
-            分鐘內全對可用 NT$3 解鎖下一關，題目與選項每次都會重新打亂。
+            一次付清、不自動續訂。30 題是清楚的學習進度單元，不再逐包計價；
+            開通後可使用全部章節、跨章節模考、全真模擬、錯題重練與完整解析。
           </p>
           <div className="medtech-hero-actions" data-no-navigation-feedback>
             <MedtechPracticeEntry />
             <a href="/medtech/ai-study">進入引導學習</a>
-            <a href="/medtech/pricing">查看題目包價格</a>
+            <a href="/medtech/pricing">查看 NT$199 全庫方案</a>
           </div>
         </div>
         <aside>
@@ -88,11 +86,11 @@ export default async function MedtechHome() {
           <dl>
             <div>
               <dt>免費入口</dt>
-              <dd>任選一包</dd>
+              <dd>任選 30 題</dd>
             </div>
             <div>
-              <dt>闖關誘因</dt>
-              <dd>答題挑戰＋轉轉樂</dd>
+              <dt>完整題庫</dt>
+              <dd>1,400+ 題</dd>
             </div>
             <div>
               <dt>深度解析</dt>
@@ -121,13 +119,13 @@ export default async function MedtechHome() {
         <article>
           <span>02 · 再理解</span>
           <h2>康情老師完整語音解析</h2>
-          <p>用老師的口吻逐題說明正確理由與選項差異，已包含在題目包內。</p>
+          <p>用老師的口吻逐題說明正確理由與選項差異，已包含在全庫通行證內。</p>
         </article>
         <article>
           <span>03 · 持續學</span>
           <h2>依老師邏輯引導</h2>
           <p>
-            提示、選項比較與完整解析隨題目包提供；即時 AI 自由追問暫停開放。
+            判斷提示、四個選項比較與完整解析均包含；即時 AI 自由追問暫停開放。
           </p>
         </article>
         <article>
@@ -153,19 +151,16 @@ export default async function MedtechHome() {
       </section>
       <section className="medtech-home-points">
         <div>
-          <span>題目包制｜先體驗再決定</span>
-          <h2>便宜刷題，想再刷再購買</h2>
+          <span>全庫通行證｜先體驗再決定</span>
+          <h2>NT$199，一次開通完整 30 天</h2>
           <p>
-            任選一包 30 題免費，使用一次後其他題目包以 NT$30 開通，7
-            天內不限次數重做。完成前一關後，每包最多可挑戰兩次，每次隨機 10
-            題、每題 5
-            秒，依答對率與平均速度計算折扣，兩次取最佳結果；另有一次限時轉轉樂，最高五折；每天再有一次
-            30 題終極挑戰，3 分鐘內全對即可用 3
-            元解鎖下一關。系統會提醒到期日，並保存刷題時間、答對率、錯題與需要加強的觀念；提示、選項比較、完整解析與老師語音均包含在題目包內，即時
-            AI 自由追問暫停開放。
+            首次登入可任選一個 30 題單元免費體驗。開通後 30 天內可不限次使用
+            1,400+ 題臨床病毒學題庫、章節刷題、跨章節模考、全真模擬、錯題重練、
+            判斷提示、四個選項比較、完整解題解析與康情老師語音。30 題只作為進度單元，
+            不再逐包收費；系統會持續保存刷題時間、答對率、錯題與需要加強的觀念。
           </p>
         </div>
-        <a href="/medtech/pricing">查看題目包方式 →</a>
+        <a href="/medtech/pricing">查看全庫方案 →</a>
       </section>
       <section className="medtech-home-close">
         <strong>名師內容 × AI 引導 × 學習資料</strong>
