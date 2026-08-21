@@ -322,9 +322,21 @@ export default async function MedtechChapters({
         .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())[0]
     : undefined;
   const rescueDue = Boolean(
-    !dailyUltimate &&
     latestUltimate?.status === "failed" &&
-    latestRescueAfterUltimate?.status !== "completed",
+    latestRescueAfterUltimate?.status !== "completed" &&
+    (
+      !latestRescueAfterUltimate ||
+      latestRescueAfterUltimate.status === "in_progress" ||
+      (
+        latestRescueAfterUltimate.status === "failed" &&
+        latestRescueAfterUltimate.answeredQuestions <
+          (latestRescueAfterUltimate.totalQuestions || 10)
+      ) ||
+      (
+        latestRescueAfterUltimate.status === "failed" &&
+        latestRescueAfterUltimate.startedAt < todayStart
+      )
+    ),
   );
   const payment = (await searchParams)?.payment;
 

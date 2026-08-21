@@ -296,6 +296,30 @@ export async function GET(request: Request) {
       }).returning())[0] ?? null;
     }
     if (!rescue) return Response.json({ error: "補救任務建立失敗。" }, { status: 500 });
+    // Repair rescue sessions that an earlier build ended immediately on the
+    // first wrong answer. Under the current 8/10 rule, all ten questions must
+    // be completed before the result can be decided.
+    if (
+      rescue.status === "failed" &&
+      rescue.answeredQuestions < (rescue.totalQuestions || ULTIMATE_RESCUE_SIZE)
+    ) {
+      const nextIndex = Math.max(0, Math.min(
+        rescue.answeredQuestions,
+        (rescue.totalQuestions || ULTIMATE_RESCUE_SIZE) - 1,
+      ));
+      await auth.db.update(medtechPracticeSessions).set({
+        status: "in_progress",
+        completedAt: null,
+        lastQuestionIndex: nextIndex,
+        lastActiveAt: new Date(),
+      }).where(eq(medtechPracticeSessions.id, rescue.id));
+      rescue = {
+        ...rescue,
+        status: "in_progress",
+        completedAt: null,
+        lastQuestionIndex: nextIndex,
+      };
+    }
     return Response.json({
       status: rescue.status,
       currentIndex: Math.min(rescue.lastQuestionIndex, ULTIMATE_RESCUE_SIZE - 1),

@@ -56,7 +56,7 @@ export default function MedtechUltimateChallenge({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [loadingMode, setLoadingMode] = useState<"challenge" | "rescue" | null>(null);
+  const [loadingMode, setLoadingMode] = useState<"challenge" | "rescue" | "result" | null>(null);
   const [busy, setBusy] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
@@ -93,13 +93,13 @@ export default function MedtechUltimateChallenge({
   function openChallenge() {
     setOpen(true);
     setError("");
-    if (rescueDue && dailyStatus === "available") void startRescue();
+    if (rescueDue) void startRescue();
     else if (dailyStatus !== "available") void startChallenge();
   }
 
   async function startChallenge() {
     setLoading(true);
-    setLoadingMode("challenge");
+    setLoadingMode(dailyStatus === "finished" ? "result" : "challenge");
     setError("");
     setResult(null);
     setQuestions([]);
@@ -461,6 +461,8 @@ export default function MedtechUltimateChallenge({
                 <span className="medtech-loading-spinner" />
                 {loadingMode === "rescue"
                   ? "10 題補救複習準備中…"
+                  : loadingMode === "result"
+                    ? "正在讀取今天的挑戰結果…"
                   : "30 題正式挑戰準備中，載入完成才開始計時…"}
               </div>
             ) : rescueQuestions[rescueIndex] ? (
