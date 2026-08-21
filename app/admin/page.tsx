@@ -3400,28 +3400,49 @@ export default function AdminPage() {
   return (
     <main className="admin-shell">
       <header className="topbar">
-        <a href="/law" className="brand">
-          <span className="brand-mark">律</span>
-          <span>司律備考</span>
+        <a href="/platform" className="brand">
+          <span className="brand-mark">智</span>
+          <span>iBrain AI</span>
         </a>
-        <a href="/law" className="back-link">
-          返回對話首頁 →
+        <a href="/platform" className="back-link">
+          返回平台入口 →
         </a>
       </header>
       <div className="admin-main">
         <div className="admin-title">
           <div>
-            <p>MANAGEMENT WORKSPACE</p>
-            <h1>司律備考管理後台</h1>
+            <p>COMPANY MANAGEMENT CENTER</p>
+            <h1>iBrain 總管理後台</h1>
+            <span>跨平台集中管理教材、會員、AI 模型與營運資料；類科專屬內容仍在各自工作區處理。</span>
           </div>
         </div>
+        <section className="admin-platform-switcher" aria-label="平台管理入口">
+          <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
+          <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>
+          <a href="/accounting/admin"><span className="accounting">會</span><div><strong>會計管理</strong><small>教材與課業答疑</small></div>→</a>
+          <a href="/data-structure/admin"><span className="data">資</span><div><strong>資料結構管理</strong><small>教材與圖形索引</small></div>→</a>
+        </section>
         <nav className="admin-tabs" aria-label="後台功能切換">
+          <span className="admin-nav-section">公司共用</span>
           <button
             className={activeTab === "documents" ? "active" : ""}
             onClick={() => setActiveTab("documents")}
           >
             中央教材資料庫
           </button>
+          <button
+            className={activeTab === "members" ? "active" : ""}
+            onClick={() => setActiveTab("members")}
+          >
+            會員與權限
+          </button>
+          <button
+            className={activeTab === "costs" ? "active" : ""}
+            onClick={() => setActiveTab("costs")}
+          >
+            模型與成本
+          </button>
+          <span className="admin-nav-section">內容與課程</span>
           <button
             className={activeTab === "resources" ? "active" : ""}
             onClick={() => setActiveTab("resources")}
@@ -3461,6 +3482,7 @@ export default function AdminPage() {
           <button className={activeTab === "external-index" ? "active" : ""} onClick={() => setActiveTab("external-index")}>
             資源同步
           </button>
+          <span className="admin-nav-section">司律專屬</span>
           <button
             className={activeTab === "legal" ? "active" : ""}
             onClick={() => setActiveTab("legal")}
@@ -3485,18 +3507,7 @@ export default function AdminPage() {
           >
             真題審核／編輯
           </button>
-          <button
-            className={activeTab === "costs" ? "active" : ""}
-            onClick={() => setActiveTab("costs")}
-          >
-            模型與成本
-          </button>
-          <button
-            className={activeTab === "members" ? "active" : ""}
-            onClick={() => setActiveTab("members")}
-          >
-            學員管理
-          </button>
+          <span className="admin-nav-section">品質與首頁</span>
           <button className={activeTab === "ai-feedback" ? "active" : ""} onClick={() => setActiveTab("ai-feedback")}>AI 回答覆核</button>
           <button
             className={activeTab === "homepage" ? "active" : ""}

@@ -5065,6 +5065,51 @@ a {
   font-size: 34px;
   color: var(--navy);
 }
+.admin-title > div > span {
+  display: block;
+  max-width: 720px;
+  margin-top: 9px;
+  color: #6c8090;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.admin-platform-switcher {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: -8px 0 24px;
+}
+.admin-platform-switcher a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d8e3e8;
+  border-radius: 14px;
+  background: #fff;
+  color: #315169;
+  text-decoration: none;
+  box-shadow: 0 6px 18px rgba(28, 58, 80, .05);
+}
+.admin-platform-switcher a > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 10px;
+  background: #1d4666;
+  color: #fff;
+  font-weight: 850;
+}
+.admin-platform-switcher a > span.medtech { background: #2c8479; }
+.admin-platform-switcher a > span.accounting { background: #87643d; }
+.admin-platform-switcher a > span.data { background: #4556a5; }
+.admin-platform-switcher a div { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.admin-platform-switcher strong { color: #183b57; font-size: 13px; }
+.admin-platform-switcher small { overflow: hidden; color: #7b8e9b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-platform-switcher a:hover { border-color: #8eb7c7; transform: translateY(-1px); }
 .admin-tabs {
   position: fixed;
   z-index: 20;
@@ -5081,6 +5126,13 @@ a {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #eaf1f5;
+}
+.admin-nav-section {
+  padding: 9px 12px 2px;
+  color: #7b909f;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .11em;
 }
 .admin-tabs button {
   flex: 0 0 auto;
@@ -5285,6 +5337,12 @@ a {
     padding: 9px 7px;
     font-size: 11px;
   }
+  .admin-nav-section { grid-column: 1 / -1; padding-top: 12px; }
+  .admin-platform-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .admin-platform-switcher { grid-template-columns: 1fr; }
 }
 
 /* Admin workspace: keep every tab panel aligned with the left navigation. */
