@@ -185,7 +185,7 @@ export default function MedtechUltimateChallenge({
         setRescueMessage("補救已通過，明日取得一次正式挑戰資格。");
       } else if (data.failed) {
         setRescueFailed(true);
-        setRescueMessage("補救答對 " + (data.score ?? 0) + "／10 題，未達 8 題；明天可重新挑戰。");
+        setRescueMessage("已完成 10 題，其中答對 " + (data.score ?? 0) + " 題；通過門檻為 8 題，明天可重新挑戰。");
       } else {
         setRescueFailed(false);
         setRescueQuestions(data.questions ?? []);
@@ -237,8 +237,8 @@ export default function MedtechUltimateChallenge({
       setRescueFailed(!rescueNext.passed);
       setRescueMessage(
         rescueNext.passed
-          ? "補救通過：答對 " + rescueNext.score + "／10 題，明日取得一次正式挑戰資格。"
-          : "補救未通過：答對 " + rescueNext.score + "／10 題，需達 8 題；明天可重新挑戰。",
+          ? "已完成 10 題，其中答對 " + rescueNext.score + " 題，補救通過；明日取得一次正式挑戰資格。"
+          : "已完成 10 題，其中答對 " + rescueNext.score + " 題；通過門檻為 8 題，本次補救未通過，明天可重新挑戰。",
       );
       router.refresh();
     } else {
@@ -487,7 +487,7 @@ export default function MedtechUltimateChallenge({
             ) : rescueFailed ? (
               <div className="medtech-ultimate-result failed">
                 <strong>本次補救未通過</strong>
-                <span>{rescueMessage || "10 題需答對至少 8 題；明天可重新挑戰一組新的 10 題。"}</span>
+                <span>{rescueMessage || "已完成 10 題；通過門檻為答對至少 8 題。明天可重新挑戰一組新的 10 題。"}</span>
               </div>
             ) : result ? (
               <div

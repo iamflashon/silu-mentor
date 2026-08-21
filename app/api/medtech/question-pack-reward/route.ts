@@ -501,7 +501,7 @@ export async function POST(request: Request) {
       total: ids.length,
       review,
       message: completed
-        ? (passed ? "補救通過：答對 " + correctQuestions + "／10 題，明日取得一次正式挑戰資格。" : "補救未通過：答對 " + correctQuestions + "／10 題，需達 8 題；明天可重新挑戰。")
+        ? (passed ? "已完成 10 題，其中答對 " + correctQuestions + " 題，補救通過；明日取得一次正式挑戰資格。" : "已完成 10 題，其中答對 " + correctQuestions + " 題；通過門檻為 8 題，本次補救未通過，明天可重新挑戰。")
         : undefined,
     });
   }
