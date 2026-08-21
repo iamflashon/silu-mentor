@@ -54,7 +54,7 @@ export default function LinePayPurchaseButton({
             ? "正在前往 LINE Pay…"
             : `LINE Pay NT$${amount} 提前購買`}
       </button>
-      {error && <small>{error}</small>}
+      {error && <small role="alert">{error}</small>}
     </div>
   );
 }

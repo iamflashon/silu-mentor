@@ -388,7 +388,7 @@ export default async function MedtechChapters({
                     (pack.packNumber > 1 || pack.hasHistory);
                   return (
                     <div
-                      className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}`}
+                      className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}${!pack.active && !pack.canStart ? " has-line-pay" : ""}`}
                       key={pack.packNumber}
                     >
                       {pack.active && pack.completed ? (

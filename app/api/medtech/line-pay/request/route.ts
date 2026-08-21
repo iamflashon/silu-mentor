@@ -86,9 +86,14 @@ export async function POST(request: Request) {
       })
       .where(eq(medtechPaymentOrders.orderId, orderId));
     if (result.returnCode !== "0000" || !paymentUrl) {
+      const invalidChannel = /X-LINE-ChannelId|Channel\s*ID/i.test(
+        result.returnMessage ?? "",
+      );
       return Response.json(
         {
-          error: `LINE Pay 建立付款失敗：${result.returnMessage || result.returnCode || "未知錯誤"}`,
+          error: invalidChannel
+            ? "LINE Pay Channel ID 無效；請確認使用 LINE Pay Sandbox 核發且與 Secret 配對的 Channel ID"
+            : `LINE Pay 建立付款失敗：${result.returnMessage || result.returnCode || "未知錯誤"}`,
         },
         { status: 502 },
       );

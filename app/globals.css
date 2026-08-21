@@ -9267,9 +9267,21 @@ a {
   gap: 5px;
   margin-top: 7px;
 }
+.medtech-pack-item.has-line-pay > a:not(.medtech-pack-history-link) {
+  padding-bottom: 43px !important;
+}
+.medtech-pack-item.has-line-pay > .medtech-line-pay-purchase {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  left: 7px;
+  z-index: 2;
+  margin: 0;
+}
 .medtech-line-pay-purchase button {
   width: 100%;
-  padding: 8px 9px;
+  min-height: 29px;
+  padding: 6px 7px;
   border: 1px solid #17a66d;
   border-radius: 8px;
   background: #06c755;
@@ -9286,9 +9298,19 @@ a {
   border-color: #c7d9d5;
 }
 .medtech-line-pay-purchase small {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 1000;
+  max-width: min(420px, calc(100vw - 44px));
+  padding: 10px 12px;
+  border: 1px solid #efc2bb;
+  border-radius: 9px;
+  background: #fff1ef;
   color: #a1493f;
-  font-size: 10px;
-  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(92, 45, 38, 0.16);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .medtech-line-pay-notice {
   margin: 12px 0;
