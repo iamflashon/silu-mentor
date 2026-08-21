@@ -5192,7 +5192,7 @@ a {
 }
 
 .central-admin-tabs a:last-child {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .admin-route-forward {
@@ -5255,6 +5255,29 @@ a {
 .library-admin-stack .document-list-heading > div:first-child { display: flex; align-items: end; justify-content: space-between; gap: 18px; width: 100%; }
 .library-document-search { min-width: min(380px, 48%); display: grid; gap: 5px; color: #637d8e; font-size: 11px; font-weight: 800; }
 .library-document-search input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #c7d9e1; border-radius: 9px; background: #fff; color: #173c5c; }
+
+/* The central library is a dedicated workspace: its tabs and active panel
+   should use the complete viewport width instead of inheriting the old
+   two-column subject-admin layout. */
+.library-admin-shell .admin-main {
+  width: calc(100% - 48px);
+  max-width: none;
+  margin: 0 auto;
+}
+
+.library-admin-shell .admin-grid.library-admin-stack {
+  display: block;
+  width: 100%;
+  grid-template-columns: none;
+}
+
+.library-admin-shell .admin-grid.library-admin-stack > .panel,
+.library-admin-shell .admin-grid.library-admin-stack .document-panel {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  box-sizing: border-box;
+}
 
 .external-index-admin { display: grid; gap: 20px; }
 .external-index-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
