@@ -230,13 +230,15 @@ export default async function MedtechChapters({
           row.packNumber === packNumber &&
           (isCompleted(row) || row.answeredQuestions > 0),
       );
-      const canStart = previousCompleted;
       const purchased = paymentRows.some(
         (row) =>
           row.packageName === name &&
           row.packNumber === packNumber &&
           row.status === "paid",
       );
+      // A confirmed LINE Pay order grants immediate access. Paid packs do not
+      // depend on the sequential chapter gate.
+      const canStart = previousCompleted || purchased;
       const needsUnlock =
         !active &&
         !purchased &&
@@ -246,9 +248,7 @@ export default async function MedtechChapters({
           ? "已完成 · 可重做"
           : "進行中"
         : !canStart
-          ? purchased
-            ? "已付款・完成上一關後開放"
-            : "可提前購買・完成上一關後開放"
+          ? "可提前購買・完成上一關後開放"
           : purchased
             ? "LINE Pay 已付款・可開始"
             : !freePackageUsed

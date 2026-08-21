@@ -867,31 +867,8 @@ export async function grantMedtechQuestionPackageAccess(
       .limit(1);
     previousCompleted = Boolean(prior);
   }
-  if (!previousCompleted) {
-    return {
-      usage,
-      allowedIds: candidateIds,
-      packageQuestionIds: candidateIds,
-      limited: true,
-      hasAccess: false,
-      charged: false,
-      gifted: false,
-      packageCost: MEDTECH_QUESTION_PACKAGE_COST,
-      discountReward: {
-        status: "available",
-        label: null,
-        percent: null,
-        cost: MEDTECH_QUESTION_PACKAGE_COST,
-        baseCost: MEDTECH_QUESTION_PACKAGE_COST,
-      } satisfies MedtechPackDiscountReward,
-      availableUntil: null,
-      packageNumber,
-      isBonusPack,
-      blockedByPrevious: true,
-    };
-  }
-
-  // LINE Pay 可先付款；只有完成上一關後，才從第一次進入起算 7 天使用期。
+  // LINE Pay 付款完成即取得使用權，不受上一關完成狀態限制；第一次進入
+  // 題包時才啟用訂單並起算 7 天使用期。
   const [paidOrder] = await db
     .select()
     .from(medtechPaymentOrders)
@@ -936,6 +913,30 @@ export async function grantMedtechQuestionPackageAccess(
       availableUntil: paidUntil,
       packageNumber,
       isBonusPack,
+    };
+  }
+
+  if (!previousCompleted) {
+    return {
+      usage,
+      allowedIds: candidateIds,
+      packageQuestionIds: candidateIds,
+      limited: true,
+      hasAccess: false,
+      charged: false,
+      gifted: false,
+      packageCost: MEDTECH_QUESTION_PACKAGE_COST,
+      discountReward: {
+        status: "available",
+        label: null,
+        percent: null,
+        cost: MEDTECH_QUESTION_PACKAGE_COST,
+        baseCost: MEDTECH_QUESTION_PACKAGE_COST,
+      } satisfies MedtechPackDiscountReward,
+      availableUntil: null,
+      packageNumber,
+      isBonusPack,
+      blockedByPrevious: true,
     };
   }
 
