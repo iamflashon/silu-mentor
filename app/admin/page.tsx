@@ -3169,7 +3169,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
   async function buildFineSearchIndex(file: Uploaded) {
     if (fineIndexingDocumentId) return;
     setFineIndexingDocumentId(file.id);
-    setNotice(`正在把「${file.bookTitle || file.name}」依 PDF 頁面拆成精準搜尋片段…`);
+    setNotice(`正在檢查「${file.bookTitle || file.name}」的精準搜尋片段，會從上次完成頁面接續…`);
     try {
       let restart = true;
       for (let attempt = 0; attempt < 500; attempt += 1) {
@@ -3186,7 +3186,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         if (result.done) break;
         await new Promise((resolve) => window.setTimeout(resolve, 120));
       }
-      setNotice(`「${file.bookTitle || file.name}」已完成頁面級精準索引；可立即在下方測試關鍵字與頁碼。`);
+      setNotice(`「${file.bookTitle || file.name}」已完成並保存頁面級精準索引；重新整理後仍會保留。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "精準搜尋索引建立失敗");
     } finally {
@@ -4385,7 +4385,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                                 <small>{file.fineSearchUnitCount ? `已建立 ${file.fineSearchUnitCount.toLocaleString()} 個頁面級片段` : "尚未建立細粒度片段；目前仍可使用全文向量搜尋"}</small>
                               </div>
                               <button type="button" onClick={() => void buildFineSearchIndex(file)} disabled={fineIndexingDocumentId !== null}>
-                                {fineIndexingDocumentId === file.id ? "逐頁拆解中…" : file.fineSearchUnitCount ? "重建精準索引" : "建立精準索引"}
+                                {fineIndexingDocumentId === file.id ? "逐頁拆解中…" : file.fineSearchUnitCount ? "檢查並補齊索引" : "建立精準索引"}
                               </button>
                             </div>
                           )}
