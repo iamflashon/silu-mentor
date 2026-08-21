@@ -3135,12 +3135,19 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
   }
 
   async function autoTestDocumentSearch(file: Uploaded) {
-    const candidates = [...new Set([
+    const metadataCandidates = [...new Set([
       ...(file.tags ?? []),
       ...(file.chapters ?? []).flatMap((chapter) => [chapter.title, chapter.path]),
       ...(file.questions ?? []).map((question) => question.title),
       file.subject,
-    ].map((value) => String(value ?? "").replace(/^(?:第.{1,10}[章節篇]|\d+(?:\.\d+)*[、.\s]*)/u, "").trim()).filter((value) => value.length >= 2))].slice(0, 6);
+    ].map((value) => String(value ?? "").replace(/^(?:第.{1,10}[章節篇]|\d+(?:\.\d+)*[、.\s]*)/u, "").trim()).filter((value) => value.length >= 2))];
+    let aiCandidates: string[] = [];
+    try {
+      const candidateResponse = await fetch("/api/documents/search-test-candidates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id }) });
+      const candidateResult = await candidateResponse.json() as { queries?: string[] };
+      if (candidateResponse.ok) aiCandidates = candidateResult.queries ?? [];
+    } catch { /* metadata fallback below */ }
+    const candidates = [...new Set([...aiCandidates, ...metadataCandidates])].slice(0, 10);
     if (!candidates.length) {
       setNotice("這份教材尚未產生可用的章節或標籤，請先完成 AI 結構分析。");
       return;
