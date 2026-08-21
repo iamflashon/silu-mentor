@@ -3817,7 +3817,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             <div className="question-bank-files">
               <header><div><h3>文件清單</h3><p>原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{filteredQuestionBankFiles.length} 份文件</span></header>
               {filteredQuestionBankFiles.map((file) => {
-                const workspace = file.examCategory === 'medtech' || file.examCategory === 'accounting' ? `/admin/question-bank/workspace?category=${file.examCategory}&id=${file.id}` : `/admin/question-bank?view=questions&category=${file.examCategory}&documentId=${file.id}`;
+                const workspace = `/admin/question-bank/workspace?category=${file.examCategory}&id=${file.id}`;
                 return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>拆題與總編輯</a></article>;
               })}
               {!filteredQuestionBankFiles.length && <p className="usage-empty">沒有符合條件的文件。</p>}

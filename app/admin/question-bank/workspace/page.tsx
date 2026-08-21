@@ -6,6 +6,6 @@ export default async function CentralQuestionWorkspacePage({
   searchParams: Promise<{ category?: string }>;
 }) {
   const { category } = await searchParams;
-  const supportedCategory = category === "accounting" ? "accounting" : "medtech";
+  const supportedCategory = category === "accounting" ? "accounting" : category === "data-structure" ? "data-structure" : "medtech";
   return <DocumentQuestionWorkspace category={supportedCategory} central />;
 }
