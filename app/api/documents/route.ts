@@ -1,4 +1,4 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { chatMessages, documentAssignments, documentSearchUnits, documents, examQuestions } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
@@ -30,7 +30,10 @@ function safeName(value: string) {
 export async function GET(request: Request) {
   try {
     const db = await getDb("primary");
-    const category = new URL(request.url).searchParams.get("category")?.trim();
+    const params = new URL(request.url).searchParams;
+    const category = params.get("category")?.trim();
+    const requestedId = Number(params.get("id"));
+    const documentId = Number.isInteger(requestedId) && requestedId > 0 ? requestedId : null;
     // Do not pull an unbounded processingResultJson into every admin list
     // request. Older HTML imports may contain a very large serialized result;
     // selecting that column for 50 documents can exceed the Worker memory
@@ -64,7 +67,7 @@ export async function GET(request: Request) {
       assignmentCategories: sql<string>`coalesce((select group_concat(${documentAssignments.examCategory}, ',') from ${documentAssignments} where ${documentAssignments.documentId} = ${documents.id}), '')`,
       processedAt: documents.processedAt,
       createdAt: documents.createdAt,
-    }).from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
+    }).from(documents).where(category && documentId ? and(eq(documents.examCategory, category), eq(documents.id, documentId)) : category ? eq(documents.examCategory, category) : documentId ? eq(documents.id, documentId) : undefined).orderBy(desc(documents.createdAt)).limit(documentId ? 1 : 50);
     // D1 can return a stale value for a correlated count subquery even when the
     // same primary-anchored session sees every row in a direct aggregate. Read
     // the fine-index totals explicitly and merge them by document id.
