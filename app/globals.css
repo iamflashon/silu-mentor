@@ -6617,6 +6617,12 @@ a {
   opacity: .45;
   cursor: default;
 }
+.document-search-test-controls button.auto-test { border-color: #69a99f; background: #daf1ec; color: #176b61; }
+.document-auto-test-results { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+.document-auto-test-results li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 6px; border-radius: 6px; background: rgba(255,255,255,.65); }
+.document-auto-test-results li b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-auto-test-results li span { flex: 0 0 auto; font-size: 9px; }
+.document-auto-test-results li.fail { color: #9b4a3d; }
 .document-search-test-error {
   color: #a04f46 !important;
   overflow-wrap: anywhere;

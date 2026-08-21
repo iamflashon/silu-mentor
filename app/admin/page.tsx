@@ -178,6 +178,7 @@ type DocumentSearchTest = {
   query: string;
   selectedFileWasSearched?: boolean;
   hits?: Array<{ fileName: string; score: number | null; text: string; pageStart: number | null; pageEnd: number | null }>;
+  autoResults?: Array<{ query: string; hit: boolean; hits: number; page: number | null; excerpt: string }>;
   error?: string;
 };
 type LearningResource = {
@@ -3131,6 +3132,40 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     }
   }
 
+  async function autoTestDocumentSearch(file: Uploaded) {
+    const candidates = [...new Set([
+      ...(file.tags ?? []),
+      ...(file.chapters ?? []).flatMap((chapter) => [chapter.title, chapter.path]),
+      ...(file.questions ?? []).map((question) => question.title),
+      file.subject,
+    ].map((value) => String(value ?? "").replace(/^(?:第.{1,10}[章節篇]|\d+(?:\.\d+)*[、.\s]*)/u, "").trim()).filter((value) => value.length >= 2))].slice(0, 6);
+    if (!candidates.length) {
+      setNotice("這份教材尚未產生可用的章節或標籤，請先完成 AI 結構分析。");
+      return;
+    }
+    setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: "AI 自動模擬測試" } }));
+    const results: NonNullable<DocumentSearchTest["autoResults"]> = [];
+    try {
+      for (const query of candidates) {
+        const response = await fetch("/api/documents/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, query }) });
+        const result = await response.json() as DocumentSearchTest & { error?: string };
+        if (!response.ok) {
+          results.push({ query, hit: false, hits: 0, page: null, excerpt: result.error ?? "測試失敗" });
+          continue;
+        }
+        const first = result.hits?.[0];
+        results.push({ query, hit: Boolean(result.selectedFileWasSearched && result.hits?.length), hits: result.hits?.length ?? 0, page: first?.pageStart ?? null, excerpt: first?.text?.slice(0, 120) ?? "" });
+      }
+      const passed = results.filter((item) => item.hit).length;
+      setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "success", query: "AI 自動模擬測試", selectedFileWasSearched: passed > 0, autoResults: results } }));
+      setNotice(`「${file.bookTitle || file.name}」自動測試完成：${passed} / ${results.length} 組查詢命中。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI 自動模擬測試失敗";
+      setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "error", query: "AI 自動模擬測試", error: message, autoResults: results } }));
+      setNotice(message);
+    }
+  }
+
   async function buildFineSearchIndex(file: Uploaded) {
     if (fineIndexingDocumentId) return;
     setFineIndexingDocumentId(file.id);
@@ -4409,13 +4444,16 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                                 <button type="button" onClick={() => void testDocumentSearch(file)} disabled={documentSearchTests[file.id]?.status === "testing" || !file.vectorIndexed}>
                                   {documentSearchTests[file.id]?.status === "testing" ? "測試中…" : "測試命中"}
                                 </button>
+                                <button type="button" className="auto-test" onClick={() => void autoTestDocumentSearch(file)} disabled={documentSearchTests[file.id]?.status === "testing" || !file.vectorIndexed}>
+                                  {documentSearchTests[file.id]?.status === "testing" ? "測試中…" : "AI 自動測試"}
+                                </button>
                               </div>
                               {documentSearchTests[file.id]?.status === "error" && (
                                 <small className="document-search-test-error">{documentSearchTests[file.id]?.error}</small>
                               )}
                               {documentSearchTests[file.id]?.status === "success" && (
                                 <div className={`document-search-test-result ${documentSearchTests[file.id]?.selectedFileWasSearched ? "hit" : "miss"}`}>
-                                  <strong>{documentSearchTests[file.id]?.selectedFileWasSearched ? `已命中 ${documentSearchTests[file.id]?.hits?.length ?? 0} 個片段` : "未命中這份指定教材"}</strong>
+                                  {documentSearchTests[file.id]?.autoResults?.length ? <><strong>自動測試通過 {documentSearchTests[file.id]?.autoResults?.filter((item) => item.hit).length} / {documentSearchTests[file.id]?.autoResults?.length} 組</strong><ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} {item.query}</b><span>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}` : item.excerpt || "未命中"}</span></li>)}</ul></> : <strong>{documentSearchTests[file.id]?.selectedFileWasSearched ? `已命中 ${documentSearchTests[file.id]?.hits?.length ?? 0} 個片段` : "未命中這份指定教材"}</strong>}
                                   {!!documentSearchTests[file.id]?.hits?.length && (
                                     <ul>
                                       {documentSearchTests[file.id]?.hits?.slice(0, 3).map((hit, index) => (
