@@ -16,6 +16,7 @@ import {
   MEDTECH_ALL_ACCESS_DAYS,
   MEDTECH_ALL_ACCESS_NAME,
 } from "../../../lib/medtech-usage";
+import { taipeiDate } from "../../../lib/taipei-time";
 
 // This route is member-specific and reads live D1 state. It must never be
 // prerendered or reused through ISR, otherwise Vinext can hydrate one member's

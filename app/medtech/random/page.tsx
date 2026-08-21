@@ -16,6 +16,7 @@ import {
   MEDTECH_ALL_ACCESS_DAYS,
   MEDTECH_ALL_ACCESS_NAME,
 } from "../../../lib/medtech-usage";
+import { taipeiDate } from "../../../lib/taipei-time";
 
 // This route is member-specific and reads live D1 state. Keep it out of ISR so
 // the server HTML and client RSC payload always describe the same member data.
