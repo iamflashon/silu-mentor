@@ -1,5 +1,5 @@
-import AdminPage from "../admin/page";
+import { redirect } from "next/navigation";
 
 export default function LibraryAdminPage() {
-  return <AdminPage workspaceMode="library" />;
+  redirect("/admin/library");
 }

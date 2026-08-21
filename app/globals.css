@@ -5164,6 +5164,37 @@ a {
   margin-bottom: 22px;
 }
 
+.central-admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin: -4px 0 22px;
+  padding: 7px;
+  overflow-x: auto;
+  border: 1px solid #d5e2e8;
+  border-radius: 14px;
+  background: #edf3f6;
+}
+
+.central-admin-tabs a {
+  flex: 0 0 auto;
+  padding: 10px 17px;
+  border-radius: 10px;
+  color: #587285;
+  font-size: 13px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.central-admin-tabs a.active {
+  background: #193b58;
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(25,59,88,.16);
+}
+
+.central-admin-tabs a:last-child {
+  margin-left: auto;
+}
+
 .library-storage-architecture {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
@@ -5373,6 +5404,7 @@ a {
   }
   .independent-admin-shell .admin-main { width: calc(100% - 28px); }
   .library-storage-architecture { grid-template-columns: 1fr; }
+  .central-admin-tabs a:last-child { margin-left: 0; }
   .admin-nav-section { grid-column: 1 / -1; padding-top: 12px; }
   .admin-platform-switcher { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

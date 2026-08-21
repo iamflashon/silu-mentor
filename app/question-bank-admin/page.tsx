@@ -1,5 +1,5 @@
-import AdminPage from "../admin/page";
+import { redirect } from "next/navigation";
 
 export default function QuestionBankAdminPage() {
-  return <AdminPage workspaceMode="question-bank" />;
+  redirect("/admin/question-bank");
 }

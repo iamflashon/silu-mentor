@@ -1041,7 +1041,7 @@ export function LawHome() {
           <a href="/issues" className="admin-link">找爭點</a>
           <a href="/summaries" className="admin-link">整摘要</a>
           <a href="/law/guide" className="admin-link">使用說明</a>
-          {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
+          {currentMember?.canAdmin && <a href="/admin/library" className="admin-link">管理後台</a>}
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
           {currentMember ? <div className={`member-menu-wrap ${memberMenuOpen ? "is-open" : ""}`}>
             <button type="button" className="member-chip" title={currentMember.email} aria-haspopup="menu" aria-expanded={memberMenuOpen} onClick={() => setMemberMenuOpen((open) => !open)}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>帳號</small><i aria-hidden="true">⌄</i></button>
@@ -1276,8 +1276,8 @@ export default function MainEntryGate() {
           <a className="main-entry-law" href="/law">進入司律備考</a>
           <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
         </div>
-        <a className="main-entry-signin" href="/admin">管理後台</a>
-      </> : adminEntryState === "anonymous" ? <a className="main-entry-signin" href="/admin-login?return_to=/">管理員登入</a> : null}
+        <a className="main-entry-signin" href="/admin/library">管理後台</a>
+      </> : adminEntryState === "anonymous" ? <a className="main-entry-signin" href="/admin-login?return_to=/admin/library">管理員登入</a> : null}
     </section>
   </main>;
 }

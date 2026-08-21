@@ -530,10 +530,11 @@ function splitLegalEntries(entries: BrowserLegalEntry[], maxJsonBytes = 1_500_00
   return batches;
 }
 
-export default function AdminPage({ workspaceMode = "management" }: { workspaceMode?: "management" | "library" | "question-bank" } = {}) {
+export default function AdminPage({ workspaceMode = "management" }: { workspaceMode?: "management" | "library" | "question-bank" | "members" } = {}) {
   const libraryMode = workspaceMode === "library";
   const questionBankMode = workspaceMode === "question-bank";
-  const independentMode = libraryMode || questionBankMode;
+  const memberMode = workspaceMode === "members";
+  const independentMode = libraryMode || questionBankMode || memberMode;
   const [activeTab, setActiveTab] = useState<
     | "documents"
     | "resources"
@@ -552,7 +553,7 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
     | "homepage"
     | "ai-feedback"
     | "external-index"
-  >(questionBankMode ? "question-bank" : "documents");
+  >(questionBankMode ? "question-bank" : memberMode ? "members" : "documents");
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [questionBankSummary, setQuestionBankSummary] = useState<QuestionBankSummary | null>(null);
   const [questionBankLoading, setQuestionBankLoading] = useState(false);
@@ -3441,11 +3442,17 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
       <div className="admin-main">
         <div className="admin-title">
           <div>
-            <p>{libraryMode ? "CENTRAL KNOWLEDGE INFRASTRUCTURE" : questionBankMode ? "CENTRAL QUESTION BANK" : "COMPANY MANAGEMENT CENTER"}</p>
-            <h1>{libraryMode ? "中央教材向量資料庫" : questionBankMode ? "跨類科總題庫管理" : "iBrain 總管理後台"}</h1>
-            <span>{libraryMode ? "獨立處理公司教材的文字抽取、最小單位切片、全文索引、向量索引與檢索驗證。" : questionBankMode ? "以共用資料庫集中管理全部類科的文件題庫、網址題庫、拆題、校對、版本與發布狀態。" : "跨平台集中管理教材、會員、AI 模型與營運資料；類科專屬內容仍在各自工作區處理。"}</span>
+            <p>{libraryMode ? "CENTRAL KNOWLEDGE INFRASTRUCTURE" : questionBankMode ? "CENTRAL QUESTION BANK" : memberMode ? "CENTRAL MEMBER DIRECTORY" : "COMPANY MANAGEMENT CENTER"}</p>
+            <h1>{libraryMode ? "中央教材向量資料庫" : questionBankMode ? "跨類科總題庫管理" : memberMode ? "全平台會員總管理" : "iBrain 總管理後台"}</h1>
+            <span>{libraryMode ? "獨立處理公司教材的文字抽取、最小單位切片、全文索引、向量索引與檢索驗證。" : questionBankMode ? "以共用資料庫集中管理全部類科的文件題庫、網址題庫、拆題、校對、版本與發布狀態。" : memberMode ? "集中查看全部會員、所屬類科、班級、帳號狀態與管理權限。" : "跨平台集中管理教材、會員、AI 模型與營運資料；類科專屬內容仍在各自工作區處理。"}</span>
           </div>
         </div>
+        {independentMode && <nav className="central-admin-tabs" aria-label="中央管理功能切換">
+          <a className={libraryMode ? "active" : ""} href="/admin/library">教材向量庫</a>
+          <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
+          <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
+          <a href="/admin">其他管理功能</a>
+        </nav>}
         {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
           <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
           <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>
@@ -3454,18 +3461,15 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
         </section>}
         {!independentMode && <nav className="admin-tabs" aria-label="後台功能切換">
           <span className="admin-nav-section">公司共用</span>
-          <a className="active" href="/library-admin">
+          <a className="active" href="/admin/library">
             中央教材資料庫
           </a>
-          <a href="/question-bank-admin">
+          <a href="/admin/question-bank">
             總題庫管理
           </a>
-          <button
-            className={activeTab === "members" ? "active" : ""}
-            onClick={() => setActiveTab("members")}
-          >
+          <a href="/admin/members">
             會員與權限
-          </button>
+          </a>
           <button
             className={activeTab === "costs" ? "active" : ""}
             onClick={() => setActiveTab("costs")}
@@ -3568,14 +3572,14 @@ export default function AdminPage({ workspaceMode = "management" }: { workspaceM
             <div className="question-bank-files">
               <header><div><h3>文件上傳模式</h3><p>PDF、Word、HTML 等原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).length} 份文件</span></header>
               {(questionBankSummary?.files ?? []).filter((file) => questionBankCategory === 'all' || file.examCategory === questionBankCategory).map((file) => {
-                const workspace = questionBankMode ? `/question-bank-admin?documentId=${file.id}` : file.examCategory === 'medtech' ? `/medtech/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'accounting' ? `/accounting/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'law' ? '/admin?tab=questions' : '/data-structure/admin';
+                const workspace = questionBankMode ? `/admin/question-bank?documentId=${file.id}` : file.examCategory === 'medtech' ? `/medtech/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'accounting' ? `/accounting/admin/document-workspace?documentId=${file.id}` : file.examCategory === 'law' ? '/admin?tab=questions' : '/data-structure/admin';
                 return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>{questionBankMode ? '中央管理' : '開啟對照工作區'}</a></article>;
               })}
               {!questionBankSummary?.files.length && <p className="usage-empty">目前沒有已拆出題目的原始文件。</p>}
             </div>
             {(questionBankCategory === 'all' || questionBankCategory === 'law') && <div className="question-bank-files question-bank-url-sources">
               <header><div><h3>網址擷取模式</h3><p>司律選擇題與申論題可由公開來源網址擷取；中央保留來源、題型、處理進度與錯誤狀態。</p></div><span>{questionBankSummary?.urlSources?.length ?? 0} 個來源</span></header>
-              {(questionBankSummary?.urlSources ?? []).map((source) => <article key={source.id}><span className="question-bank-file-mark law">網</span><div><small>司律 · {source.examType === 'essay' ? '申論題' : '選擇題'} · {source.sourceKind === 'exam' ? '歷屆真題' : source.sourceKind}</small><strong>{source.label}</strong><a className="question-bank-source-url" href={source.url} target="_blank" rel="noreferrer">{source.url}</a>{source.lastError && <em>{source.lastError}</em>}</div><b>{source.questionCount.toLocaleString()}<small> 題</small></b><a href={questionBankMode ? `/question-bank-admin?sourceId=${source.id}` : "/admin?tab=sources"}>中央管理</a></article>)}
+              {(questionBankSummary?.urlSources ?? []).map((source) => <article key={source.id}><span className="question-bank-file-mark law">網</span><div><small>司律 · {source.examType === 'essay' ? '申論題' : '選擇題'} · {source.sourceKind === 'exam' ? '歷屆真題' : source.sourceKind}</small><strong>{source.label}</strong><a className="question-bank-source-url" href={source.url} target="_blank" rel="noreferrer">{source.url}</a>{source.lastError && <em>{source.lastError}</em>}</div><b>{source.questionCount.toLocaleString()}<small> 題</small></b><a href={questionBankMode ? `/admin/question-bank?sourceId=${source.id}` : "/admin?tab=sources"}>中央管理</a></article>)}
               {!questionBankSummary?.urlSources?.length && <p className="usage-empty">尚未建立網址題庫來源。</p>}
             </div>}
           </>}
