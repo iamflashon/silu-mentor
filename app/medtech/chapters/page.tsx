@@ -388,7 +388,7 @@ export default async function MedtechChapters({
                     (pack.packNumber > 1 || pack.hasHistory);
                   return (
                     <div
-                      className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}${!pack.active && !pack.canStart ? " has-line-pay" : ""}`}
+                      className={`medtech-pack-item${pack.hasHistory ? " has-history" : ""}`}
                       key={pack.packNumber}
                     >
                       {pack.active && pack.completed ? (
@@ -411,6 +411,22 @@ export default async function MedtechChapters({
                           label={pack.label}
                           href={practiceHref}
                         />
+                      ) : !pack.active && !pack.canStart ? (
+                        <div
+                          className={`medtech-pack-purchase-card locked${pack.isBonus ? " bonus" : ""}`}
+                        >
+                          <span>第 {pack.packNumber} 關</span>
+                          <i className="medtech-pack-lock" aria-label="尚未解鎖">
+                            🔒
+                          </i>
+                          <b>{pack.questionTotal} 題</b>
+                          <small>{pack.label}</small>
+                          <LinePayPurchaseButton
+                            packageName={card.name}
+                            packNumber={pack.packNumber}
+                            purchased={pack.purchased}
+                          />
+                        </div>
                       ) : (
                         <a
                           className={`${pack.active ? "active " : ""}${!pack.canStart || pack.needsUnlock ? "locked " : ""}${pack.isBonus ? "bonus" : ""}`}
@@ -437,13 +453,6 @@ export default async function MedtechChapters({
                             {pack.action} {pack.canStart ? "→" : ""}
                           </strong>
                         </a>
-                      )}
-                      {!pack.active && !pack.canStart && (
-                        <LinePayPurchaseButton
-                          packageName={card.name}
-                          packNumber={pack.packNumber}
-                          purchased={pack.purchased}
-                        />
                       )}
                       {pack.hasHistory && (
                         <a

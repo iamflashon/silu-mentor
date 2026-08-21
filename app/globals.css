@@ -9267,16 +9267,49 @@ a {
   gap: 5px;
   margin-top: 7px;
 }
-.medtech-pack-item.has-line-pay > a:not(.medtech-pack-history-link) {
-  padding-bottom: 43px !important;
+.medtech-pack-purchase-card {
+  position: relative;
+  box-sizing: border-box;
+  height: 128px;
+  min-height: 128px;
+  padding: 10px;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border: 1px solid #d9e7e4;
+  border-radius: 9px;
+  background: #f4f7f6;
+  color: #315c57;
+  opacity: 0.72;
 }
-.medtech-pack-item.has-line-pay > .medtech-line-pay-purchase {
+.medtech-pack-purchase-card > span {
+  color: #7d9893;
+  font-size: 10px;
+}
+.medtech-pack-purchase-card > b {
+  margin: 5px 0 0;
+  color: #176b64;
+  font-size: 19px;
+}
+.medtech-pack-purchase-card > small {
+  overflow: hidden;
+  color: #718683;
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.medtech-pack-purchase-card > .medtech-pack-lock {
   position: absolute;
-  right: 7px;
-  bottom: 7px;
-  left: 7px;
-  z-index: 2;
-  margin: 0;
+  top: 8px;
+  right: 8px;
+}
+.medtech-pack-purchase-card > .medtech-line-pay-purchase {
+  margin-top: auto;
+}
+.medtech-pack-purchase-card.bonus {
+  border-color: #ead79d;
+  background: #fffaf0;
 }
 .medtech-line-pay-purchase button {
   width: 100%;
@@ -9330,6 +9363,21 @@ a {
   border-color: #efc2bb;
   background: #fff1ef;
   color: #8b4038;
+}
+@media (max-width: 600px) {
+  .medtech-pack-purchase-card {
+    height: 100px;
+    min-height: 100px;
+    padding: 7px;
+  }
+  .medtech-pack-purchase-card > small {
+    display: none;
+  }
+  .medtech-line-pay-purchase button {
+    min-height: 25px;
+    padding: 4px 5px;
+    font-size: 9px;
+  }
 }
 
 .company-question-bank {
