@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { memberAccountDeletionAudits, memberExamAccess, members } from "../../../../db/schema";
+import { memberAccountDeletionAudits, memberExamAccess, medtechPaymentOrders, members } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 import { hashMemberPassword } from "../../../../lib/member-session-auth";
 
@@ -8,8 +8,9 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
   const rows = await auth.db.select({ id: members.id, email: members.email, displayName: members.displayName, role: members.role, canAdmin: members.canAdmin, status: members.status, className: members.className, lastSeenAt: members.lastSeenAt, createdAt: members.createdAt }).from(members).orderBy(desc(members.lastSeenAt), desc(members.createdAt));
   const accessRows = await auth.db.select({ memberId: memberExamAccess.memberId, examCategory: memberExamAccess.examCategory, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, className: memberExamAccess.className }).from(memberExamAccess);
+  const paymentRows = await auth.db.select({ userKey: medtechPaymentOrders.userKey, orderId: medtechPaymentOrders.orderId, transactionId: medtechPaymentOrders.transactionId, packageName: medtechPaymentOrders.packageName, amount: medtechPaymentOrders.amount, currency: medtechPaymentOrders.currency, status: medtechPaymentOrders.status, environment: medtechPaymentOrders.environment, paidAt: medtechPaymentOrders.paidAt, activatedAt: medtechPaymentOrders.activatedAt, createdAt: medtechPaymentOrders.createdAt }).from(medtechPaymentOrders).orderBy(desc(medtechPaymentOrders.createdAt));
   const deletionAudits = await auth.db.select().from(memberAccountDeletionAudits).orderBy(desc(memberAccountDeletionAudits.requestedAt)).limit(100);
-  return Response.json({ members: rows.map((member) => ({ ...member, accesses: accessRows.filter((access) => access.memberId === member.id) })), deletionAudits });
+  return Response.json({ members: rows.map((member) => ({ ...member, accesses: accessRows.filter((access) => access.memberId === member.id), paymentOrders: paymentRows.filter((order) => order.userKey.trim().toLowerCase() === member.email.trim().toLowerCase()) })), deletionAudits, retainedPaymentOrders: paymentRows.filter((order) => order.userKey.startsWith("deleted:")) });
 }
 
 export async function POST(request: Request) {

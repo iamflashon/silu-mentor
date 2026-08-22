@@ -9,6 +9,18 @@ type Member = {
   canAdmin: boolean;
   permissions: string[];
   entitlement?: { status: string; expiresAt: string; source: string; note: string } | null;
+  paymentOrders?: Array<{
+    orderId: string;
+    transactionId: string | null;
+    packageName: string;
+    amount: number;
+    currency: string;
+    status: string;
+    environment: string;
+    paidAt: string | null;
+    activatedAt: string | null;
+    createdAt: string;
+  }>;
 };
 
 const permissionOptions = [
@@ -53,6 +65,17 @@ export default function CommercialMemberControls({ members, onReload }: { member
           <label><input type="checkbox" checked={member.canAdmin} onChange={(event) => void patchMember(member.id, { canAdmin: event.target.checked })}/>可進管理後台</label>
           {permissionOptions.map(([value, label]) => <label key={value}><input type="checkbox" disabled={!member.canAdmin} checked={member.permissions.includes(value)} onChange={(event) => void patchMember(member.id, { permissions: event.target.checked ? [...new Set([...member.permissions, value])] : member.permissions.filter((item) => item !== value) })}/>{label}</label>)}
         </div>
+        <details className="medtech-admin-payment-history">
+          <summary>購買紀錄（{member.paymentOrders?.length ?? 0} 筆）</summary>
+          {member.paymentOrders?.length ? <div>
+            {member.paymentOrders.map((order) => <article key={order.orderId}>
+              <strong>{order.packageName}</strong>
+              <span>{order.currency} {order.amount} · {order.status === "paid" ? "已付款" : order.status === "pending" ? "待付款" : order.status}</span>
+              <small>訂單 {order.orderId}{order.transactionId ? ` · 交易 ${order.transactionId}` : ""}</small>
+              <small>{order.paidAt ? `付款：${new Date(order.paidAt).toLocaleString("zh-TW")}` : `建立：${new Date(order.createdAt).toLocaleString("zh-TW")}`}{order.activatedAt ? ` · 開通：${new Date(order.activatedAt).toLocaleString("zh-TW")}` : ""}</small>
+            </article>)}
+          </div> : <p>目前沒有付款訂單。</p>}
+        </details>
       </article>)}
     </div>
   </section>;
