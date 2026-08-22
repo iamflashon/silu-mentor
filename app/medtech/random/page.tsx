@@ -246,7 +246,7 @@ export default async function MedtechRandomPackages({
       : purchased
         ? "啟用並開始"
         : !freePackageUsed
-          ? "免費開始"
+          ? "選這包免費體驗"
           : "查看全庫方案";
     return {
       packNumber,

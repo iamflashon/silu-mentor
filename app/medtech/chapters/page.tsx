@@ -13,8 +13,7 @@ import {
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
 import {
-  MEDTECH_ALL_ACCESS_DAYS,
-  MEDTECH_ALL_ACCESS_NAME,
+  getActiveMedtechAllAccess,
 } from "../../../lib/medtech-usage";
 import { taipeiDate } from "../../../lib/taipei-time";
 
@@ -145,27 +144,7 @@ export default async function MedtechChapters({
         .where(eq(medtechPaymentOrders.userKey, auth.userKey)),
     ]);
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
-  const allAccessOrder = paymentRows
-    .filter(
-      (row) =>
-        row.packageName === MEDTECH_ALL_ACCESS_NAME &&
-        row.status === "paid" &&
-        row.paidAt,
-    )
-    .sort(
-      (left, right) =>
-        (right.paidAt?.getTime() ?? 0) - (left.paidAt?.getTime() ?? 0),
-    )[0];
-  const allAccessUntil = allAccessOrder?.paidAt
-    ? new Date(
-        allAccessOrder.paidAt.getTime() +
-          MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
-      )
-    : null;
-  const allAccess =
-    allAccessUntil && allAccessUntil.getTime() > Date.now()
-      ? { availableUntil: allAccessUntil }
-      : null;
+  const allAccess = await getActiveMedtechAllAccess(auth.db, auth.userKey);
   const sourceByAlias = new Map(
     sourceRows.flatMap(
       (row) =>
@@ -281,7 +260,7 @@ export default async function MedtechChapters({
           : purchased
             ? "LINE Pay 已付款・可開始"
             : !freePackageUsed
-              ? "首次免費體驗"
+              ? "尚未選定免費單元"
               : "需開通全庫通行證";
       const action = active
         ? completed
@@ -292,7 +271,7 @@ export default async function MedtechChapters({
           : purchased
             ? "啟用並開始"
             : !freePackageUsed
-              ? "免費開始"
+              ? "選這包免費體驗"
               : "查看全庫方案";
       return {
         packNumber,

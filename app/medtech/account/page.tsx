@@ -3,7 +3,9 @@ import { desc, eq } from "drizzle-orm";
 import { memberLoginPath } from "../../../lib/member-login-path";
 import { examQuestions, medtechPracticeSessions } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
+import { getActiveMedtechAllAccess } from "../../../lib/medtech-usage";
 import MemberLogoutButton from "../MemberLogoutButton";
+import DeleteMemberAccountButton from "../DeleteMemberAccountButton";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +51,7 @@ export default async function MedtechAccountPage() {
       </main>
     );
   const { member, access } = auth;
+  const entitlement = await getActiveMedtechAllAccess(auth.db, member.email);
   const practiceSessions = await auth.db
     .select()
     .from(medtechPracticeSessions)
@@ -176,7 +179,11 @@ export default async function MedtechAccountPage() {
         <dl>
           <div>
             <dt>類科資格</dt>
-            <dd>醫檢師 · 已開通</dd>
+            <dd>
+              {entitlement
+                ? `本書已付費開通 · 至 ${new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(entitlement.availableUntil)}`
+                : "尚未購買 · 可任選一包免費體驗"}
+            </dd>
           </div>
           <div>
             <dt>會員身分</dt>
@@ -254,6 +261,7 @@ export default async function MedtechAccountPage() {
             </p>
           )}
         </section>
+        {!member.canAdmin && <DeleteMemberAccountButton email={member.email} />}
       </section>
     </main>
   );
