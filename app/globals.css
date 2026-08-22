@@ -60,6 +60,15 @@
 .medtech-featured-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .medtech-featured-actions a { padding: 13px 20px; border: 1px solid #0a776d; border-radius: 12px; color: #08675f; font-weight: 900; text-decoration: none; }
 .medtech-featured-actions a.primary { color: #fff; background: #087d71; }
+.medtech-book-trial { display: grid; gap: 4px; margin: 22px 0 4px; padding: 13px 16px; border-left: 4px solid #d4aa35; border-radius: 4px 12px 12px 4px; background: #fff8df; color: #645c3f; }
+.medtech-book-trial b { color: #8b6410; font-size: 17px; }
+.medtech-book-trial span { font-size: 13px; }
+.medtech-featured-actions .medtech-line-pay-purchase { min-width: 238px; margin: 0; }
+.medtech-featured-actions .medtech-line-pay-purchase button { min-height: 48px; padding: 0 18px; border-radius: 12px; font-size: 14px; }
+.medtech-featured-actions a.primary.trial { background: #087d71; }
+.medtech-account-logout { min-height: 42px; padding: 0 16px; border: 1px solid #b8d6d1; border-radius: 10px; background: #fff; color: #176b64; font: inherit; font-weight: 800; cursor: pointer; }
+.medtech-account-logout:disabled { cursor: wait; opacity: .65; }
+.member-login-switched { padding: 10px 12px; border: 1px solid #b9ded7; border-radius: 9px; background: #eaf7f4; color: #176b64 !important; font-weight: 750; }
 
 .medtech-series-preview { max-width: 1180px; margin: 68px auto 90px; }
 .medtech-section-heading { max-width: 720px; margin-bottom: 26px; }

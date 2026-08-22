@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { requireMedtechMember } from "../../lib/member-auth";
 import MedtechHeaderActions from "./MedtechHeaderActions";
 import MedtechPlanDialog from "./MedtechPlanDialog";
+import LinePayPurchaseButton from "./LinePayPurchaseButton";
 import { memberLoginPath } from "../../lib/member-login-path";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
@@ -86,9 +87,11 @@ export default async function MedtechHome() {
           <h2 id="featured-book-title">醫檢師國考題詳解（Ⅲ）<br />臨床病毒學（下）</h2>
           <p className="medtech-book-author">陳連城・康情老師</p>
           <p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>
-          <div className="medtech-book-price"><strong>NT$199</strong><span>30 天不限次練習<br />一次付清・不自動續訂</span></div>
+          <div className="medtech-book-trial"><b>首次免費體驗 30 題</b><span>任選一個 30 題單元，先完整體驗再決定是否開通。</span></div>
+          <div className="medtech-book-price"><strong>NT$199</strong><span>開通本書全部內容 30 天<br />一次付清・不自動續訂</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>
-            <a className="primary" href="/medtech/chapters">進入本書題庫</a>
+            <a className="primary trial" href="/medtech/chapters">免費體驗 30 題</a>
+            <LinePayPurchaseButton packageName="醫檢師國考題詳解（Ⅲ）臨床病毒學（下）" packNumber={1} amount={199} label="LINE Pay NT$199 開通本書" />
             <MedtechPlanDialog />
           </div>
         </div>

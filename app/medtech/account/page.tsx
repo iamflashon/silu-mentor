@@ -3,11 +3,9 @@ import { desc, eq } from "drizzle-orm";
 import { memberLoginPath } from "../../../lib/member-login-path";
 import { examQuestions, medtechPracticeSessions } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
+import MemberLogoutButton from "../MemberLogoutButton";
 
 export const dynamic = "force-dynamic";
-
-const chatGPTSignOutPath = (returnTo = "/") =>
-  `/api/member/logout?return_to=${encodeURIComponent(returnTo)}`;
 
 export default async function MedtechAccountPage() {
   const requestHeaders = await headers();
@@ -173,7 +171,7 @@ export default async function MedtechAccountPage() {
           </a>
           <a href="/medtech/upgrade">選購題目包</a>
           {access.canAdmin && <a href="/medtech/admin">醫檢師管理後台</a>}
-          <a href={chatGPTSignOutPath("/medtech")}>登出</a>
+          <MemberLogoutButton />
         </div>
         <dl>
           <div>
