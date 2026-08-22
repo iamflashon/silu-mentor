@@ -2,6 +2,7 @@ import { getChatGPTUser } from "../chatgpt-auth";
 import { headers } from "next/headers";
 import { requireMedtechMember } from "../../lib/member-auth";
 import MedtechHeaderActions from "./MedtechHeaderActions";
+import MedtechPlanDialog from "./MedtechPlanDialog";
 import { memberLoginPath } from "../../lib/member-login-path";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
@@ -37,11 +38,15 @@ export default async function MedtechHome() {
   const user = await getChatGPTUser();
   const upcomingBooks = [
     { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
+    { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
     { volume: "Ⅱ", title: "微生物學與臨床微生物學（上）", cover: "/medtech-books/clinical-microbiology-upper.jpg" },
-    { volume: "Ⅲ", title: "臨床血清免疫學（上）" },
-    { volume: "Ⅳ", title: "生物化學與臨床生化學" },
-    { volume: "Ⅴ", title: "臨床生理學（上）／臨床病理學（下）" },
-    { volume: "Ⅵ・Ⅶ", title: "醫學分子檢驗／臨床鏡檢學" },
+    { volume: "Ⅱ", title: "微生物學與臨床微生物學（含黴菌）（下）", cover: "/medtech-books/clinical-microbiology-lower.png" },
+    { volume: "Ⅲ", title: "臨床血清免疫學（上）", cover: "/medtech-books/clinical-serum-immunology-upper.png" },
+    { volume: "Ⅳ", title: "生物化學與臨床生化學", cover: "/medtech-books/biochemistry-clinical-biochemistry.png" },
+    { volume: "Ⅴ", title: "臨床生理學（上）", cover: "/medtech-books/clinical-physiology-upper.png" },
+    { volume: "Ⅴ", title: "臨床病理學（下）", cover: "/medtech-books/clinical-pathology-lower.png" },
+    { volume: "Ⅵ", title: "醫學分子檢驗學", cover: "/medtech-books/molecular-diagnostics.png" },
+    { volume: "Ⅶ", title: "臨床鏡檢學（含寄生蟲學）", cover: "/medtech-books/clinical-microscopy-parasitology.png" },
   ];
   return (
     <main className="medtech-home">
@@ -67,7 +72,7 @@ export default async function MedtechHome() {
           <span>康情老師・醫檢國考系列</span>
           <h1>醫檢師國考題詳解</h1>
           <p>一本書就是一套完整的數位練習課程。先選書，再進入章節刷題、模考、錯題重練與老師解析。</p>
-          <div className="medtech-library-stats"><b>目前開放 1 本</b><span>系列預告 6 類</span><span>首次免費體驗 30 題</span></div>
+          <div className="medtech-library-stats"><b>目前開放 1 本</b><span>系列書單持續擴充</span><span>首次免費體驗 30 題</span></div>
         </div>
       </section>
 
@@ -84,7 +89,7 @@ export default async function MedtechHome() {
           <div className="medtech-book-price"><strong>NT$199</strong><span>30 天不限次練習<br />一次付清・不自動續訂</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>
             <a className="primary" href="/medtech/chapters">進入本書題庫</a>
-            <a href="/medtech/pricing">查看方案內容</a>
+            <MedtechPlanDialog />
           </div>
         </div>
       </section>

@@ -1,3 +1,5 @@
+import MedtechPlanDialog from "./MedtechPlanDialog";
+
 export default function MedtechHeaderActions({
   activePoints = false,
   accountLabel = "我的帳號",
@@ -7,12 +9,7 @@ export default function MedtechHeaderActions({
 }) {
   return (
     <div className="medtech-top-actions">
-      <a
-        className={`medtech-points-link${activePoints ? " active" : ""}`}
-        href="/medtech/pricing"
-      >
-        全庫方案
-      </a>
+      <MedtechPlanDialog label="本書方案" compact />
       <a className="medtech-member-link" href="/medtech/account">
         {accountLabel}
       </a>
