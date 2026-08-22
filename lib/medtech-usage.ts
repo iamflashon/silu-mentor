@@ -20,10 +20,10 @@ import {
 import { taipeiDate } from "./taipei-time";
 import { getMedtechProductSettings, getMemberProductEntitlement } from "./medtech-product-settings";
 
-// 醫檢師平台統一使用點數：首次登入贈 10 點，提示與比較選項走快取，
-// 語音完整解析與 AI 追問各自按次扣 1 點。保留舊欄位讀取僅為相容既有資料。
+// 醫檢師平台目前採方案／開通期限，不再贈送或收取點數。
+// 保留舊欄位讀取僅為相容既有資料，避免舊紀錄影響新會員流程。
 export const MEDTECH_AUDIO_TRIAL_LIMIT = 0;
-export const MEDTECH_STARTING_POINTS = 10;
+export const MEDTECH_STARTING_POINTS = 0;
 export const MEDTECH_QUESTION_ACCESS_HOURS = 7 * 24;
 export const MEDTECH_AUDIO_ACCESS_HOURS = 24;
 export const MEDTECH_QUESTION_PACKAGE_COST = 30;
@@ -600,13 +600,6 @@ export async function getOrCreateMedtechUsage(
     .insert(medtechUsage)
     .values({ userKey: normalizedKey, aiCredits: MEDTECH_STARTING_POINTS })
     .returning();
-  await db.insert(medtechPointLedger).values({
-    userKey: normalizedKey,
-    delta: MEDTECH_STARTING_POINTS,
-    balanceAfter: MEDTECH_STARTING_POINTS,
-    action: "welcome_gift",
-    description: "首次登入贈送 10 點",
-  });
   return created;
 }
 
