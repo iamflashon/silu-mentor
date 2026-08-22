@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
 
-export async function getDb() {
+export async function getDb(consistency: "default" | "primary" = "default") {
   const { env } = await import("cloudflare:workers");
   if (!env.DB) {
     throw new Error(
@@ -9,5 +9,9 @@ export async function getDb() {
     );
   }
 
-  return drizzle(env.DB, { schema });
+  // D1 replicas can lag behind a recent multi-request indexing job. Admin
+  // counters and resumable writers use a primary-anchored session so a page
+  // refresh cannot appear to roll completed work back.
+  const client = consistency === "primary" ? env.DB.withSession("first-primary") : env.DB;
+  return drizzle(client as unknown as D1Database, { schema });
 }

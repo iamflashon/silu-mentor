@@ -2,11 +2,10 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import "../entry-gate.css";
 
 function returnToFromLocation() {
   if (typeof window === "undefined") return "/";
-  const value = new URLSearchParams(window.location.search).get("return_to") ?? "/";
+  const value = new URLSearchParams(window.location.search).get("return_to") ?? "/admin/library";
   return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") ? value : "/";
 }
 
@@ -42,7 +41,7 @@ export default function AdminLoginPage() {
       <span>ADMINISTRATOR ACCESS</span>
       <div className="main-entry-logo" aria-hidden="true">智</div>
       <h1>管理員登入</h1>
-      <p>請輸入管理員帳號與密碼，驗證後才能進入司律備考與醫檢師平台。</p>
+      <p>請輸入管理員帳號與密碼，驗證後進入中央管理工作區。</p>
       <form className="admin-login-form" onSubmit={submit}>
         <label htmlFor="admin-entry-email">管理員帳號</label>
         <input id="admin-entry-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus />

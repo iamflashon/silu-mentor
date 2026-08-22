@@ -16,6 +16,7 @@ import { IssuePractice } from "./issue-practice";
 import { LegalResearchTabs } from "./legal-research-tabs";
 import { taipeiDate, taipeiMonth } from "../../lib/taipei-time";
 import { formatTwd } from "../../lib/currency";
+import { useSimulationToolsEnabled } from "../../lib/use-simulation-tools";
 import { coreExamPoints } from "../../lib/core-exam-points";
 import type { YoutubePlaylistItem } from "../../lib/youtube-playlist";
 
@@ -601,6 +602,7 @@ type StudyPlanPageProps = {
 type CurrentMember = { canAdmin: boolean };
 
 export default function StudyPlanPage({ initialTab = "calendar", standalone = false }: StudyPlanPageProps = {}) {
+  const simulationToolsEnabled = useSimulationToolsEnabled();
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const [month, setMonth] = useState(monthValue());
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(taipeiDate());
@@ -4339,7 +4341,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                               </section>
                             )}
                             <div ref={bookDialogueMessagesRef} className="book-dialogue-messages">
-                              {bookMessages.map((message, index) => (
+                              {bookMessages.filter((message) => simulationToolsEnabled || message.role !== "scholar").map((message, index) => (
                                 <div
                                   key={`${message.role}-${index}`}
                                   className={`book-dialogue-message ${message.role}`}
@@ -4389,11 +4391,11 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                                               ? message.teachingEvidence.basis === "teacher_solution"
                                                 ? `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜老師答案為主要依據`
                                                 : `${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}`
-                                              : `${message.teachingEvidence.fileName}｜${message.teachingEvidence.resourceTitle}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
+                                              : `${message.teachingEvidence.resourceTitle || "未設定教材名稱"}｜${message.teachingEvidence.segmentTitle}｜${message.teachingEvidence.pageStart ? `第 ${message.teachingEvidence.pageStart}${message.teachingEvidence.pageEnd && message.teachingEvidence.pageEnd !== message.teachingEvidence.pageStart ? `–${message.teachingEvidence.pageEnd}` : ""} 頁` : "頁碼待核對"}`
                                             : message.teachingEvidence.message}
                                         </span>
                                         {message.teachingEvidence.excerpt && !selectedBookIsProblemSolving && (
-                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}<small>上方章節頁碼是本教材 PDF 的位置；原文註腳中的其他頁碼屬引用書目頁碼。</small>{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
+                                          <details className="book-evidence-excerpt"><summary>查看教材原文與判定依據</summary><p>{message.teachingEvidence.excerpt}</p>{message.teachingEvidence.matchedTerms?.length ? <small>命中關鍵：{message.teachingEvidence.matchedTerms.join("、")}</small> : null}<small>上方章節頁碼依教材檔案頁序標示；原文註腳中的其他頁碼屬引用書目頁碼。</small>{message.teachingEvidence.status === "applied_inference" ? <small>教材提供抽象判準；具體罪名或事實判斷由 AI 依判準完成。</small> : null}</details>
                                         )}
                                       </div>
                                     )}
@@ -4418,7 +4420,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                               )}
                             </div>
                             <div className="book-dialogue-composer-wrap">
-                              {currentMember?.canAdmin && <section className={`book-ai-controls model-mode-switch ${bookSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
+                              {currentMember?.canAdmin && simulationToolsEnabled && <section className={`book-ai-controls model-mode-switch ${bookSettingsOpen ? "" : "is-collapsed"}`} aria-label="AI 學習設定">
                                 <div className="model-mode-heading">
                                   <strong>AI 學習設定</strong>
                                   <span className="model-mode-summary">{bookTeachingLevelLabels[bookTeachingLevel ?? "general"]} · {bookModelMode.startsWith("compare-") ? bookModelMode.slice("compare-".length).split("-").map((item) => item === "luna" ? "Luna" : item === "sonnet" ? "Sonnet" : "DeepSeek").join("＋") : bookModelMode === "luna" ? "Luna" : bookModelMode === "sonnet" ? "Claude Sonnet" : "DeepSeek V4-Pro"}</span>
@@ -4455,18 +4457,18 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                                     跳過追問，進入完整解題
                                   </button>
                                 )}
-                                <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || (!bookInput.trim() && !bookMessages.some((message) => message.role === "mentor"))}>送出訊息</button>
+                                <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || (!bookInput.trim() && (!simulationToolsEnabled || !bookMessages.some((message) => message.role === "mentor")))}>送出訊息</button>
                               </div>
                               <form className="book-dialogue-form" onSubmit={sendBookMessage}>
                                 <textarea
                                   value={bookInput}
                                   onChange={(event) => setBookInput(event.target.value)}
-                                  placeholder={bookSelectedMessageIndex === null ? "回答 AI 導師的問題……（留白由 AI 學霸直接回答）" : "回答指定的 AI 導師問題……（留白由 AI 學霸直接回答）"}
+                                  placeholder={simulationToolsEnabled ? (bookSelectedMessageIndex === null ? "回答 AI 導師的問題……（留白由 AI 學霸直接回答）" : "回答指定的 AI 導師問題……（留白由 AI 學霸直接回答）") : "回答 AI 導師的問題……"}
                                   disabled={bookChatLoading}
                                   rows={1}
                                   onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitBookMessage(); } }}
                                 />
-                                <button type="submit" aria-label="送出訊息" disabled={bookChatLoading || (!bookInput.trim() && !bookMessages.some((message) => message.role === "mentor"))}>↑</button>
+                                <button type="submit" aria-label="送出訊息" disabled={bookChatLoading || (!bookInput.trim() && (!simulationToolsEnabled || !bookMessages.some((message) => message.role === "mentor")))}>↑</button>
                               </form>
                             </div>
                           </div>
@@ -4481,7 +4483,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                             <p>
                               {selectedBookIsProblemSolving
                                 ? "點選後，這裡會先直接顯示原書完整題目，不先上課或分析。"
-                                : "這裡不顯示 PDF。AI 會依教材內容先教你抓本章重點，再用問題帶你思考。"}
+                                : "這裡不開啟原始教材檔案。AI 會依教材內容先教你抓本章重點，再用問題帶你思考。"}
                             </p>
                           </div>
                         )}

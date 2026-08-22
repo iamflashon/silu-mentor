@@ -18,6 +18,7 @@ function readPackNumber(input: unknown) {
 
 const QUIZ_SIZE = 10;
 const ULTIMATE_SESSION_NAME = "醫檢師1折終極挑戰";
+const ULTIMATE_RESCUE_SIZE = 10;
 
 function parseQuestionIds(value: string) {
   try {
@@ -45,6 +46,21 @@ function parseJsonObject(value: string) {
   } catch {
     return {};
   }
+}
+
+function plainText(value: unknown) {
+  return String(value ?? "")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .trim();
 }
 
 function shuffle<T>(items: T[]) {
@@ -104,7 +120,7 @@ async function challengeQuestions(auth: { db: Awaited<ReturnType<typeof import("
     .from(examQuestions)
     .where(inArray(examQuestions.id, ids));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => Boolean(row)).map((row) => ({ id: row.id, stem: row.stem, options: parseOptions(row.optionsJson) }));
+  return ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => Boolean(row)).map((row) => ({ id: row.id, stem: row.stem, options: parseOptions(row.optionsJson || "{}") }));
 }
 
 function canUseChallenge(reward: { status: string; percent?: number | null; quizAttemptsUsed?: number; quizAttemptsRemaining?: number }) {
@@ -146,18 +162,66 @@ async function findDailyUltimateSession(auth: { db: Awaited<ReturnType<typeof im
   return session ?? null;
 }
 
-async function ultimateQuestionIds(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, packageName: string, packageNumber: number) {
-  const sourcePack = packageNumber > 1 ? packageNumber - 1 : packageNumber;
-  const sessions = await auth.db.select({ questionIdsJson: medtechPracticeSessions.questionIdsJson, completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status, answeredQuestions: medtechPracticeSessions.answeredQuestions, totalQuestions: medtechPracticeSessions.totalQuestions })
+async function findLatestFailedUltimateSession(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const [session] = await auth.db.select().from(medtechPracticeSessions).where(and(
+    eq(medtechPracticeSessions.userKey, auth.userKey),
+    eq(medtechPracticeSessions.packageName, ULTIMATE_SESSION_NAME),
+    eq(medtechPracticeSessions.packageType, "ultimate_challenge"),
+    eq(medtechPracticeSessions.status, "failed"),
+  )).orderBy(desc(medtechPracticeSessions.startedAt)).limit(1);
+  return session ?? null;
+}
+
+async function completedLearningQuestionIds(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const rows = await auth.db.select({ questionIdsJson: medtechPracticeSessions.questionIdsJson, completedAt: medtechPracticeSessions.completedAt, status: medtechPracticeSessions.status, answeredQuestions: medtechPracticeSessions.answeredQuestions, totalQuestions: medtechPracticeSessions.totalQuestions })
+    .from(medtechPracticeSessions)
+    .where(eq(medtechPracticeSessions.userKey, auth.userKey));
+  return [...new Set(rows.filter((row) => completedSession(row)).flatMap((row) => parseQuestionIds(row.questionIdsJson)))];
+}
+
+async function hasUltimateQualification(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const learnedIds = await completedLearningQuestionIds(auth);
+  if (!learnedIds.length) return false;
+  const sessions = await auth.db.select({ packageType: medtechPracticeSessions.packageType, status: medtechPracticeSessions.status, completedAt: medtechPracticeSessions.completedAt })
     .from(medtechPracticeSessions)
     .where(and(
       eq(medtechPracticeSessions.userKey, auth.userKey),
-      eq(medtechPracticeSessions.packageName, packageName),
-      eq(medtechPracticeSessions.packNumber, sourcePack),
+      inArray(medtechPracticeSessions.packageType, ["ultimate_challenge", "ultimate_rescue"]),
     ))
     .orderBy(desc(medtechPracticeSessions.startedAt));
-  const prior = sessions.find(completedSession);
-  let ids = prior ? parseQuestionIds(prior.questionIdsJson) : [];
+  const latestChallenge = sessions.find((row) => row.packageType === "ultimate_challenge");
+  if (!latestChallenge) return true;
+  const todayStart = dayBounds().start;
+  return sessions.some((row) =>
+    row.packageType === "ultimate_rescue" &&
+    row.status === "completed" &&
+    Boolean(row.completedAt && latestChallenge.completedAt && row.completedAt > latestChallenge.completedAt) &&
+    Boolean(row.completedAt && row.completedAt < todayStart),
+  );
+}
+
+async function findDailyRescueSession(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  const { start, end } = dayBounds();
+  const [session] = await auth.db.select().from(medtechPracticeSessions).where(and(
+    eq(medtechPracticeSessions.userKey, auth.userKey),
+    eq(medtechPracticeSessions.packageName, ULTIMATE_SESSION_NAME),
+    eq(medtechPracticeSessions.packageType, "ultimate_rescue"),
+    gte(medtechPracticeSessions.startedAt, start),
+    lt(medtechPracticeSessions.startedAt, end),
+  )).orderBy(desc(medtechPracticeSessions.startedAt)).limit(1);
+  return session ?? null;
+}
+
+async function rescueQuestions(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }, session: typeof medtechPracticeSessions.$inferSelect) {
+  const ids = parseQuestionIds(session.questionIdsJson);
+  const rows = ids.length ? await auth.db.select({ id: examQuestions.id, stem: examQuestions.stem, optionsJson: examQuestions.optionsJson })
+    .from(examQuestions).where(inArray(examQuestions.id, ids)) : [];
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => Boolean(row)).map((row) => ({ id: row.id, stem: row.stem, options: parseOptions(row.optionsJson || "{}") }));
+}
+
+async function ultimateQuestionIds(auth: { db: Awaited<ReturnType<typeof import("../../../../db").getDb>>; userKey: string }) {
+  let ids = shuffle(await completedLearningQuestionIds(auth));
   if (ids.length < MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT) {
     const published = await auth.db.select({ id: examQuestions.id }).from(examQuestions).where(and(
       eq(examQuestions.examCategory, "medtech"),
@@ -183,7 +247,7 @@ async function ultimateQuestions(
   return ids.map((id) => {
     const row = byId.get(id);
     if (!row) return null;
-    const originalOptions = parseOptions(row.optionsJson);
+    const originalOptions = parseOptions(row.optionsJson || "{}");
     const savedMap = payload.optionMaps[String(id)];
     const optionMap = savedMap && typeof savedMap === "object" && !Array.isArray(savedMap)
       ? Object.fromEntries(Object.entries(savedMap).map(([key, value]) => [key, String(value)]))
@@ -202,6 +266,7 @@ function ultimateResult(session: typeof medtechPracticeSessions.$inferSelect) {
     passed: session.status === "completed" && (session.correctQuestions || 0) === (session.totalQuestions || MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT),
     targetPackageName: String(payload.targetPackageName || ""),
     targetPackNumber: Math.max(1, Math.floor(Number(payload.targetPackNumber) || session.packNumber || 1)),
+    wrongAnswer: payload.wrongAnswer && typeof payload.wrongAnswer === "object" && !Array.isArray(payload.wrongAnswer) ? payload.wrongAnswer : undefined,
   };
 }
 
@@ -211,13 +276,90 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const packageName = readPackage(url.searchParams.get("packageName"));
   const packageNumber = readPackNumber(url.searchParams.get("pack"));
+  if (url.searchParams.get("challenge") === "ultimate-rescue") {
+    const dailyChallenge = await findDailyUltimateSession(auth);
+    const failedChallenge = dailyChallenge?.status === "failed" ? dailyChallenge : await findLatestFailedUltimateSession(auth);
+    if (!failedChallenge) return Response.json({ error: "正式挑戰失敗後，才能進行補救複習。" }, { status: 403 });
+    let rescue = await findDailyRescueSession(auth);
+    if (!rescue) {
+      const ids = shuffle(await completedLearningQuestionIds(auth)).slice(0, ULTIMATE_RESCUE_SIZE);
+      if (ids.length < ULTIMATE_RESCUE_SIZE) return Response.json({ error: "已學題目不足 10 題，暫時無法建立補救任務。" }, { status: 409 });
+      rescue = (await auth.db.insert(medtechPracticeSessions).values({
+        userKey: auth.userKey,
+        packageName: ULTIMATE_SESSION_NAME,
+        packageType: "ultimate_rescue",
+        packNumber: failedChallenge.packNumber,
+        questionIdsJson: JSON.stringify(ids),
+        answerDetailsJson: JSON.stringify({ correctIds: [] }),
+        totalQuestions: ULTIMATE_RESCUE_SIZE,
+        status: "in_progress",
+      }).returning())[0] ?? null;
+    }
+    if (!rescue) return Response.json({ error: "補救任務建立失敗。" }, { status: 500 });
+    // Repair rescue sessions that an earlier build ended immediately on the
+    // first wrong answer. Under the current 8/10 rule, all ten questions must
+    // be completed before the result can be decided.
+    if (
+      rescue.status === "failed" &&
+      rescue.answeredQuestions < (rescue.totalQuestions || ULTIMATE_RESCUE_SIZE)
+    ) {
+      const nextIndex = Math.max(0, Math.min(
+        rescue.answeredQuestions,
+        (rescue.totalQuestions || ULTIMATE_RESCUE_SIZE) - 1,
+      ));
+      await auth.db.update(medtechPracticeSessions).set({
+        status: "in_progress",
+        completedAt: null,
+        lastQuestionIndex: nextIndex,
+        lastActiveAt: new Date(),
+      }).where(eq(medtechPracticeSessions.id, rescue.id));
+      rescue = {
+        ...rescue,
+        status: "in_progress",
+        completedAt: null,
+        lastQuestionIndex: nextIndex,
+      };
+    }
+    return Response.json({
+      status: rescue.status,
+      currentIndex: Math.min(rescue.lastQuestionIndex, ULTIMATE_RESCUE_SIZE - 1),
+      questions: rescue.status === "in_progress" ? await rescueQuestions(auth, rescue) : [],
+      completed: rescue.status === "completed",
+      failed: rescue.status === "failed",
+      score: rescue.correctQuestions || 0,
+      total: rescue.totalQuestions || ULTIMATE_RESCUE_SIZE,
+    });
+  }
   if (url.searchParams.get("challenge") === "ultimate") {
     const currentReward = await getMedtechPackDiscountReward(auth.db, auth.userKey, packageName, packageNumber);
-    const dailySession = await findDailyUltimateSession(auth);
+    let dailySession = await findDailyUltimateSession(auth);
+    if (dailySession && dailySession.status === "failed") {
+      const failedPayload = parseJsonObject(dailySession.answerDetailsJson);
+      // Repair sessions created by the earlier build that started its timer
+      // before the browser had finished loading the first question.
+      if (failedPayload.challengeRule !== "perfect-v1") {
+        const now = new Date();
+        const repairedPayload = { ...failedPayload, answers: [], endedBy: undefined, wrongAnswer: undefined, readyAt: undefined, challengeRule: "perfect-v1" };
+        await auth.db.update(medtechPracticeSessions).set({
+          status: "in_progress",
+          completedAt: null,
+          startedAt: now,
+          lastActiveAt: now,
+          durationSeconds: 0,
+          lastQuestionIndex: 0,
+          answeredQuestions: 0,
+          correctQuestions: 0,
+          incorrectQuestionIdsJson: "[]",
+          answerDetailsJson: JSON.stringify(repairedPayload),
+        }).where(eq(medtechPracticeSessions.id, dailySession.id));
+        dailySession = { ...dailySession, status: "in_progress", completedAt: null, startedAt: now, lastActiveAt: now, durationSeconds: 0, lastQuestionIndex: 0, answeredQuestions: 0, correctQuestions: 0, incorrectQuestionIdsJson: "[]", answerDetailsJson: JSON.stringify(repairedPayload) };
+      }
+    }
     if (dailySession) {
+      const dailyTarget = ultimatePayload(dailySession.answerDetailsJson);
       return Response.json({
-        packageName,
-        packageNumber,
+        packageName: dailyTarget.targetPackageName || packageName,
+        packageNumber: dailyTarget.targetPackNumber || packageNumber,
         challenge: "ultimate",
         status: dailySession.status,
         startedAt: dailySession.startedAt.toISOString(),
@@ -229,9 +371,9 @@ export async function GET(request: Request) {
         questions: dailySession.status === "in_progress" ? await ultimateQuestions(auth, dailySession) : [],
       });
     }
-    if (currentReward.status !== "available") return Response.json({ error: "這一關已經有折扣結果，請先使用目前折扣解鎖。" }, { status: 409 });
-    if (!(await canSpinForPackage(auth, packageName, packageNumber))) return Response.json({ error: "完成上一關後，才可開始 1 折終極挑戰。" }, { status: 403 });
-    const ids = await ultimateQuestionIds(auth, packageName, packageNumber);
+    if (currentReward.status !== "available") return Response.json({ error: "這個題目包已有優惠，請先使用目前優惠。" }, { status: 409 });
+    if (!(await hasUltimateQualification(auth))) return Response.json({ error: "目前沒有挑戰資格；完成題包或完成前次補救任務後，隔日可再挑戰。" }, { status: 403 });
+    const ids = await ultimateQuestionIds(auth);
     if (ids.length < MEDTECH_ULTIMATE_CHALLENGE_QUESTION_COUNT) return Response.json({ error: "目前可用題目不足 30 題，請稍後再試。" }, { status: 409 });
     const rows = await auth.db.select({ id: examQuestions.id, optionsJson: examQuestions.optionsJson }).from(examQuestions).where(inArray(examQuestions.id, ids));
     const byId = new Map(rows.map((row) => [row.id, row]));
@@ -272,6 +414,97 @@ export async function POST(request: Request) {
   }
   const packageName = readPackage(body.packageName);
   const packageNumber = readPackNumber(body.pack);
+  if (body.action === "ultimate-ready") {
+    const dailySession = await findDailyUltimateSession(auth);
+    if (!dailySession || dailySession.status !== "in_progress") return Response.json({ error: "今天沒有等待開始的正式挑戰。" }, { status: 409 });
+    const payload = parseJsonObject(dailySession.answerDetailsJson);
+    const readyAt = typeof payload.readyAt === "string" ? payload.readyAt : "";
+    if (!readyAt && dailySession.lastQuestionIndex === 0 && dailySession.answeredQuestions === 0) {
+      const now = new Date();
+      await auth.db.update(medtechPracticeSessions).set({
+        startedAt: now,
+        lastActiveAt: now,
+        answerDetailsJson: JSON.stringify({ ...payload, readyAt: now.toISOString(), challengeRule: "perfect-v1" }),
+      }).where(eq(medtechPracticeSessions.id, dailySession.id));
+      return Response.json({ startedAt: now.toISOString(), lastActiveAt: now.toISOString() });
+    }
+    return Response.json({ startedAt: dailySession.startedAt.toISOString(), lastActiveAt: dailySession.lastActiveAt.toISOString() });
+  }
+  if (body.action === "ultimate-rescue-answer") {
+    const rescue = await findDailyRescueSession(auth);
+    if (!rescue || rescue.status !== "in_progress") return Response.json({ error: "今天沒有進行中的補救任務。" }, { status: 409 });
+    const ids = parseQuestionIds(rescue.questionIdsJson);
+    const index = Math.max(0, Math.min(ids.length - 1, rescue.lastQuestionIndex));
+    const questionId = Number(body.questionId);
+    const answer = typeof body.answer === "string" && /^[A-D]$/.test(body.answer) ? body.answer : "";
+    if (questionId !== ids[index]) return Response.json({ error: "補救題目順序已變更，請重新開啟。" }, { status: 409 });
+    const [row] = await auth.db.select({
+      stem: examQuestions.stem,
+      optionsJson: examQuestions.optionsJson,
+      correctAnswer: examQuestions.correctAnswer,
+      teacherAnswer: examQuestions.teacherAnswer,
+      simulatedAnswer: examQuestions.simulatedAnswer,
+      explanation: examQuestions.explanation,
+      completeExplanation: examQuestions.completeExplanation,
+      aiCompleteExplanation: examQuestions.aiCompleteExplanation,
+      teacherCompleteExplanation: examQuestions.teacherCompleteExplanation,
+      simulatedExplanation: examQuestions.simulatedExplanation,
+      simulatedCompleteExplanation: examQuestions.simulatedCompleteExplanation,
+    }).from(examQuestions).where(eq(examQuestions.id, questionId)).limit(1);
+    const correctAnswer = row?.teacherAnswer || row?.correctAnswer || row?.simulatedAnswer || "";
+    const correct = Boolean(row && answer && answer === correctAnswer);
+    const options = parseOptions(row?.optionsJson || "{}");
+    const payload = parseJsonObject(rescue.answerDetailsJson);
+    const priorAnswers = Array.isArray(payload.answers) ? payload.answers.filter((item) => item && typeof item === "object") : [];
+    const answers = [...priorAnswers, { questionId, order: index, answer: answer || null, correct }];
+    const nextIndex = index + 1;
+    const completed = nextIndex >= ids.length;
+    const correctQuestions = Math.max(0, rescue.correctQuestions || 0) + (correct ? 1 : 0);
+    const passed = completed && correctQuestions >= 8;
+    const incorrectIds = answers.filter((item) => !(item as { correct?: boolean }).correct).map((item) => Number((item as { questionId?: unknown }).questionId)).filter(Number.isInteger);
+    const explanation = plainText(
+      row?.teacherCompleteExplanation ||
+      row?.completeExplanation ||
+      row?.aiCompleteExplanation ||
+      row?.simulatedCompleteExplanation ||
+      row?.explanation ||
+      row?.simulatedExplanation ||
+      "本題尚未附文字解析，請依正確答案回到教材複習。",
+    );
+    const review = {
+      questionNumber: index + 1,
+      correct,
+      selectedAnswer: answer || "未作答",
+      selectedText: answer ? plainText(options[answer]) : "",
+      correctAnswer,
+      correctText: plainText(options[correctAnswer]),
+      explanation,
+      reason: answer ? (correct ? "作答正確。" : "你的答案與本題正確答案不同。") : "本題超過 10 秒作答時間。",
+    };
+    await auth.db.update(medtechPracticeSessions).set({
+      status: completed ? (passed ? "completed" : "failed") : "in_progress",
+      completedAt: completed ? new Date() : null,
+      lastActiveAt: new Date(),
+      lastQuestionIndex: nextIndex,
+      answeredQuestions: nextIndex,
+      correctQuestions,
+      incorrectQuestionIdsJson: JSON.stringify(incorrectIds),
+      answerDetailsJson: JSON.stringify({ answers, rescueRule: "score-8-of-10-v1" }),
+    }).where(eq(medtechPracticeSessions.id, rescue.id));
+    return Response.json({
+      status: completed ? (passed ? "completed" : "failed") : "in_progress",
+      correct,
+      currentIndex: Math.min(nextIndex, ids.length - 1),
+      completed,
+      passed,
+      score: correctQuestions,
+      total: ids.length,
+      review,
+      message: completed
+        ? (passed ? "已完成 10 題，其中答對 " + correctQuestions + " 題，補救通過；明日取得一次正式挑戰資格。" : "已完成 10 題，其中答對 " + correctQuestions + " 題；通過門檻為 8 題，本次補救未通過，明天可重新挑戰。")
+        : undefined,
+    });
+  }
   if (body.action === "ultimate-answer" || body.action === "ultimate-abandon") {
     const dailySession = await findDailyUltimateSession(auth);
     if (!dailySession || dailySession.status !== "in_progress") return Response.json({ error: "今天的 1 折終極挑戰已使用或已結束。" }, { status: 409 });
@@ -290,7 +523,20 @@ export async function POST(request: Request) {
     const totalElapsedSeconds = Math.max(0, Math.ceil((now.getTime() - dailySession.startedAt.getTime()) / 1000));
     const questionElapsedSeconds = Math.max(0, (now.getTime() - dailySession.lastActiveAt.getTime()) / 1000);
     const answer = typeof body.answer === "string" && /^[A-D]$/.test(body.answer) ? body.answer : null;
-    const rows = questionIds.length ? await auth.db.select({ id: examQuestions.id, correctAnswer: examQuestions.correctAnswer, teacherAnswer: examQuestions.teacherAnswer, simulatedAnswer: examQuestions.simulatedAnswer }).from(examQuestions).where(inArray(examQuestions.id, questionIds)) : [];
+    const rows = questionIds.length ? await auth.db.select({
+      id: examQuestions.id,
+      stem: examQuestions.stem,
+      optionsJson: examQuestions.optionsJson,
+      correctAnswer: examQuestions.correctAnswer,
+      teacherAnswer: examQuestions.teacherAnswer,
+      simulatedAnswer: examQuestions.simulatedAnswer,
+      explanation: examQuestions.explanation,
+      completeExplanation: examQuestions.completeExplanation,
+      aiCompleteExplanation: examQuestions.aiCompleteExplanation,
+      teacherCompleteExplanation: examQuestions.teacherCompleteExplanation,
+      simulatedExplanation: examQuestions.simulatedExplanation,
+      simulatedCompleteExplanation: examQuestions.simulatedCompleteExplanation,
+    }).from(examQuestions).where(inArray(examQuestions.id, questionIds)) : [];
     const correctById = new Map(rows.map((row) => [row.id, row.teacherAnswer || row.correctAnswer || row.simulatedAnswer || ""]));
     const optionMaps = payload.optionMaps && typeof payload.optionMaps === "object" && !Array.isArray(payload.optionMaps) ? payload.optionMaps as Record<string, unknown> : {};
     const optionMap = optionMaps[String(questionId)];
@@ -302,7 +548,32 @@ export async function POST(request: Request) {
     const previousAnswers = Array.isArray(payload.answers) ? payload.answers.filter((item): item is { questionId: number; order: number; answer: string | null; correct: boolean } => Boolean(item && typeof item === "object" && Number.isInteger((item as { questionId?: unknown }).questionId))).filter((item, index, items) => items.findIndex((candidate) => candidate.questionId === item.questionId) === index) : [];
     const currentAnswer = !isAbandon && Number.isInteger(questionId) ? { questionId, order: currentIndex, answer, correct } : null;
     const answerDetails = currentAnswer ? [...previousAnswers.filter((item) => item.questionId !== questionId), currentAnswer].sort((left, right) => left.order - right.order) : previousAnswers;
-    const nextPayload = { ...payload, answers: answerDetails, endedBy: correct ? undefined : (isAbandon ? "abandoned" : timedOut ? "time_limit" : "wrong_answer") };
+    const questionRow = rows.find((row) => row.id === questionId);
+    const originalOptions = parseOptions(questionRow?.optionsJson || "{}");
+    const correctOriginal = correctById.get(questionId) || "";
+    const presentedCorrect = optionMap && typeof optionMap === "object" && !Array.isArray(optionMap)
+      ? Object.entries(optionMap as Record<string, unknown>).find(([, original]) => String(original) === correctOriginal)?.[0] || correctOriginal
+      : correctOriginal;
+    const explanation = plainText(
+      questionRow?.teacherCompleteExplanation ||
+      questionRow?.completeExplanation ||
+      questionRow?.aiCompleteExplanation ||
+      questionRow?.simulatedCompleteExplanation ||
+      questionRow?.explanation ||
+      questionRow?.simulatedExplanation ||
+      "本題尚未附文字解析，請依正確答案回到教材複習。",
+    );
+    const wrongAnswer = !correct && !isAbandon && questionRow ? {
+      questionNumber: currentIndex + 1,
+      stem: plainText(questionRow.stem),
+      selectedAnswer: answer || "未作答",
+      selectedText: originalAnswer ? plainText(originalOptions[originalAnswer]) : "",
+      correctAnswer: presentedCorrect,
+      correctText: correctOriginal ? plainText(originalOptions[correctOriginal]) : "",
+      explanation,
+      reason: timedOut ? "本題超過 5 秒作答時間。" : "你的答案與本題正確答案不同。",
+    } : undefined;
+    const nextPayload = { ...payload, challengeRule: "perfect-v1", answers: answerDetails, wrongAnswer, endedBy: correct ? undefined : (isAbandon ? "abandoned" : timedOut ? "time_limit" : "wrong_answer") };
     const answeredQuestions = answerDetails.filter((item) => Boolean(item.answer)).length;
     const correctQuestions = answerDetails.filter((item) => item.correct).length;
     if (!correct) {
@@ -316,7 +587,7 @@ export async function POST(request: Request) {
         incorrectQuestionIdsJson: JSON.stringify(answerDetails.filter((item) => !item.correct).map((item) => item.questionId)),
         answerDetailsJson: JSON.stringify(nextPayload),
       }).where(eq(medtechPracticeSessions.id, dailySession.id));
-      return Response.json({ packageName, packageNumber, challenge: "ultimate", status: "failed", correct: false, score: correctQuestions, total: questionIds.length, durationSeconds: Math.min(MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS, totalElapsedSeconds), passed: false, reason: nextPayload.endedBy });
+      return Response.json({ packageName, packageNumber, challenge: "ultimate", status: "failed", correct: false, score: correctQuestions, total: questionIds.length, durationSeconds: Math.min(MEDTECH_ULTIMATE_CHALLENGE_TIME_LIMIT_SECONDS, totalElapsedSeconds), passed: false, reason: nextPayload.endedBy, wrongAnswer });
     }
     const nextIndex = currentIndex + 1;
     if (nextIndex >= questionIds.length) {

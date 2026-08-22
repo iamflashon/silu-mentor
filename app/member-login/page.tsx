@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import "../entry-gate.css";
+import { FormEvent, useEffect, useState } from "react";
 
 function returnToFromLocation() {
   if (typeof window === "undefined") return "/";
@@ -15,6 +14,11 @@ export default function MemberLoginPage() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [loggedOut, setLoggedOut] = useState(false);
+
+  useEffect(() => {
+    setLoggedOut(new URLSearchParams(window.location.search).get("logged_out") === "1");
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,6 +47,7 @@ export default function MemberLoginPage() {
       <div className="main-entry-logo" aria-hidden="true">智</div>
       <h1>會員登入</h1>
       <p>請使用管理員建立的會員帳號與密碼，登入後即可使用司律或醫檢師學習功能。</p>
+      {loggedOut ? <p className="member-login-switched" role="status">已完成登出，現在可以輸入另一個會員帳號。</p> : null}
       <form className="admin-login-form" onSubmit={submit}>
         <label htmlFor="member-login-email">會員帳號</label>
         <input id="member-login-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus />
@@ -51,7 +56,8 @@ export default function MemberLoginPage() {
         {error ? <p className="admin-login-error" role="alert">{error}</p> : null}
         <button type="submit" disabled={busy}>{busy ? "驗證中…" : "登入會員平台"}</button>
       </form>
-      <p className="member-login-help">尚未有會員帳號？請聯絡管理員建立帳號並提供初始密碼。</p>
+      <p className="member-login-help">尚未有會員帳號？註冊後即可免費體驗 30 題。</p>
+      <Link className="main-entry-medtech member-register-link" href={`/member-register?return_to=${encodeURIComponent(returnToFromLocation())}`}>立即註冊</Link>
       <Link className="admin-login-back" href="/">回入口頁</Link>
     </section>
   </main>;

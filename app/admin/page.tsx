@@ -6,9 +6,10 @@ import { unzip, unzipSync } from "fflate";
 import { formatMagazineAnalysis, parseMagazineAnalysis } from "../../lib/magazine";
 import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, type LegalArchiveEntry } from "../../lib/legal-parser";
 import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
+import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document-title";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
-type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string };
+type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }> };
 type ExternalBookData = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
 type ExternalIndexSource = { id: number; key: "lawdata" | "angle_books" | "angle_media" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: Array<{ label: string; url: string }>; book?: ExternalBookData }> };
 type ExternalRetrievalMatch = { id: number; source: string; title: string; summary: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; excerpt: string };
@@ -17,6 +18,7 @@ type ExternalRetrievalTest = { query: string; mode: "children" | "single"; found
 type Uploaded = {
   id: number;
   name: string;
+  bookTitle?: string;
   examCategory?: string;
   subject: string;
   size: string;
@@ -33,6 +35,60 @@ type Uploaded = {
   fullTextIndexed?: boolean;
   vectorIndexed?: boolean;
   homepageSearchEnabled?: boolean;
+  fineSearchUnitCount?: number;
+  assignmentCount?: number;
+  assignmentCategories?: string[];
+  summary?: string;
+  sourceFileName?: string;
+  indexedFileName?: string;
+  extractionNote?: string;
+  analysisStatus?: string;
+  chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
+  questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
+  error?: string | null;
+};
+type QuestionBankSummary = {
+  totals: Array<{ examCategory: string; total: number; published: number; draft: number; reviewed: number }>;
+  files: Array<{ id: number; examCategory: string; bookTitle: string; fileName: string; subject: string; documentType: string; status: string; pageCount: number; questionCount: number; processedAt: string | null }>;
+  urlSources: Array<{ id: number; examCategory: string; label: string; url: string; examType: string; sourceKind: string; status: string; discoveredCount: number; processedCount: number; questionCount: number; lastError: string | null }>;
+  questions?: Array<{ id: number; examCategory: string; examType: string; year: string; examName: string; subject: string; questionNumber: string; stem: string; status: string; reviewStatus: string }>;
+  subjects?: string[];
+  years?: string[];
+  packages?: Array<{ key: string; name: string; examCategory: string; description: string; questionIds: number[]; questionCount: number; status: string; createdAt: string }>;
+};
+
+function highlightQuestionText(text: string, query: string) {
+  const terms = [...new Set(query.trim().split(/\s+/).filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!terms.length) return text;
+  const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`(${escaped.join("|")})`, "gi");
+  return text.split(pattern).map((part, index) => terms.some((term) => part.toLowerCase() === term.toLowerCase())
+    ? <mark className="question-search-highlight" key={`${part}-${index}`}>{part}</mark>
+    : <Fragment key={`${part}-${index}`}>{part}</Fragment>);
+}
+type DocumentApiRow = {
+  id: number;
+  name: string;
+  bookTitle?: string;
+  examCategory?: string;
+  subject: string;
+  type: string;
+  sizeBytes: number;
+  status: string;
+  processingStage?: string;
+  processingMessage?: string;
+  pageCount?: number | null;
+  extractedChars?: number;
+  chapterCount?: number;
+  topicCount?: number;
+  questionCount?: number;
+  tags?: string[];
+  fullTextIndexed?: boolean;
+  vectorIndexed?: boolean;
+  homepageSearchEnabled?: boolean;
+  fineSearchUnitCount?: number;
+  assignmentCount?: number;
+  assignmentCategories?: string[];
   summary?: string;
   sourceFileName?: string;
   indexedFileName?: string;
@@ -86,6 +142,7 @@ type UsageData = {
   }>;
   showCosts: boolean;
   showEvidence: boolean;
+  essayGradingDualEnabled: boolean;
 };
 type ExamSource = {
   id: number;
@@ -110,11 +167,21 @@ type ExamProcessResult = {
 type DocumentStats = {
   total: number;
   ready: number;
+  vectorReady: number;
   indexedBytes: number;
   citations: number;
   misses: number;
   indexVersion: string;
 };
+type DocumentSearchTest = {
+  status: "testing" | "success" | "error";
+  query: string;
+  selectedFileWasSearched?: boolean;
+  hits?: Array<{ fileName: string; score: number | null; text: string; pageStart: number | null; pageEnd: number | null }>;
+  autoResults?: Array<{ query: string; hit: boolean; hits: number; page: number | null; excerpt: string; title?: string; retrievalMode?: string }>;
+  error?: string;
+};
+type DocumentSearchRun = { id: string; documentId: number; documentName: string; createdAt: string; passed: number; total: number; results: NonNullable<DocumentSearchTest["autoResults"]> };
 type LearningResource = {
   id: number;
   resourceType: string;
@@ -142,6 +209,11 @@ type LearningResource = {
   documentError?: string | null;
   documentProcessingStage?: string | null;
   documentProcessingMessage?: string | null;
+  documentFullTextIndexed?: boolean | null;
+  documentVectorIndexed?: boolean | null;
+  documentPageCount?: number | null;
+  documentFileName?: string | null;
+  documentExamCategory?: string | null;
   documentChapterCount?: number;
   documentTopicCount?: number;
   documentQuestionCount?: number;
@@ -201,6 +273,74 @@ function isProblemSolvingResource(resource: LearningResource) {
   return /解題|題庫|題型|案例演習|申論/.test(
     `${resource.title} ${resource.description}`,
   );
+}
+
+function documentSearchValue(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
+function uploadedDocument(item: DocumentApiRow): Uploaded {
+  return {
+    id: item.id,
+    name: item.name,
+    bookTitle: item.bookTitle ?? documentDisplayTitle(null, item.name),
+    examCategory: item.examCategory ?? "law",
+    subject: item.subject,
+    size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
+    status: item.status,
+    type: item.type,
+    processingStage: item.processingStage,
+    processingMessage: item.processingMessage,
+    pageCount: item.pageCount,
+    extractedChars: item.extractedChars,
+    chapterCount: item.chapterCount,
+    topicCount: item.topicCount,
+    questionCount: item.questionCount,
+    tags: item.tags,
+    fullTextIndexed: item.fullTextIndexed,
+    vectorIndexed: item.vectorIndexed,
+    homepageSearchEnabled: item.homepageSearchEnabled,
+    fineSearchUnitCount: item.fineSearchUnitCount,
+    assignmentCount: item.assignmentCount,
+    assignmentCategories: item.assignmentCategories,
+    summary: item.summary,
+    sourceFileName: item.sourceFileName,
+    indexedFileName: item.indexedFileName,
+    extractionNote: item.extractionNote,
+    analysisStatus: item.analysisStatus,
+    chapters: item.chapters,
+    questions: item.questions,
+    error: item.error,
+  };
+}
+
+function documentOptionLabel(file: Uploaded) {
+  const title = file.bookTitle || documentDisplayTitle(null, file.name);
+  const type = file.name.split(".").pop()?.toUpperCase() || file.type?.split("/").pop()?.toUpperCase() || "文件";
+  return `${title}｜${file.subject || "未分類"}｜${type}${file.pageCount ? `｜${file.pageCount}頁` : ""}`;
+}
+
+function documentSubjectMatches(file: Uploaded, subject: string) {
+  const expected = documentSearchValue(subject);
+  if (!expected) return true;
+  const actual = documentSearchValue(file.subject);
+  const title = documentSearchValue(file.bookTitle || "");
+  return actual === expected || actual.includes(expected) || expected.includes(actual) || title.includes(expected);
+}
+
+function searchableDocuments(files: Uploaded[], examCategory: string, subject: string, query: string, selectedId: number | null) {
+  const categoryFiles = files.filter((file) => (file.examCategory ?? "law") === examCategory);
+  const subjectFiles = categoryFiles.filter((file) => documentSubjectMatches(file, subject));
+  const candidates = subjectFiles.length ? subjectFiles : categoryFiles.filter((file) => file.id === selectedId);
+  const needle = documentSearchValue(query);
+  const filtered = needle
+    ? candidates.filter((file) => documentSearchValue(`${file.bookTitle || ""} ${file.name} ${file.subject} ${file.type || ""}`).includes(needle))
+    : candidates;
+  if (selectedId && !filtered.some((file) => file.id === selectedId)) {
+    const selected = categoryFiles.find((file) => file.id === selectedId);
+    return selected ? [selected, ...filtered] : filtered;
+  }
+  return filtered;
 }
 
 function problemContentSections(text: string) {
@@ -406,7 +546,14 @@ function splitLegalEntries(entries: BrowserLegalEntry[], maxJsonBytes = 1_500_00
   return batches;
 }
 
-export default function AdminPage() {
+export default function AdminPage({ workspaceMode = "management", questionBankSection = "questions" }: { workspaceMode?: "management" | "library" | "question-bank" | "members"; questionBankSection?: "questions" | "documents" | "sources" | "packages" } = {}) {
+  const libraryMode = workspaceMode === "library";
+  const questionBankMode = workspaceMode === "question-bank";
+  const memberMode = workspaceMode === "members";
+  const independentMode = libraryMode || questionBankMode || memberMode;
+  useEffect(() => {
+    if (workspaceMode === "management") window.location.replace("/admin/library");
+  }, [workspaceMode]);
   const [activeTab, setActiveTab] = useState<
     | "documents"
     | "resources"
@@ -419,13 +566,35 @@ export default function AdminPage() {
     | "judicial"
     | "sources"
     | "questions"
+    | "question-bank"
     | "costs"
     | "members"
     | "homepage"
     | "ai-feedback"
     | "external-index"
-  >("documents");
+  >(questionBankMode ? "question-bank" : memberMode ? "members" : "documents");
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [questionBankSummary, setQuestionBankSummary] = useState<QuestionBankSummary | null>(null);
+  const [questionBankLoading, setQuestionBankLoading] = useState(false);
+  const [questionBankCategory, setQuestionBankCategory] = useState("all");
+  const [questionBankDomain, setQuestionBankDomain] = useState("");
+  const [questionBankQuery, setQuestionBankQuery] = useState("");
+  const [questionBankSubject, setQuestionBankSubject] = useState("");
+  const [questionBankChapter, setQuestionBankChapter] = useState("");
+  const [questionBankYear, setQuestionBankYear] = useState("");
+  const [questionBankExamType, setQuestionBankExamType] = useState("");
+  const [questionBankStatus, setQuestionBankStatus] = useState("");
+  const [centralPdfLabel, setCentralPdfLabel] = useState("");
+  const [centralPdfUrl, setCentralPdfUrl] = useState("");
+  const [centralPdfExamType, setCentralPdfExamType] = useState("mcq");
+  const [centralPdfAdding, setCentralPdfAdding] = useState(false);
+  const [questionBankDocumentQuery, setQuestionBankDocumentQuery] = useState("");
+  const [questionBankDocumentSubject, setQuestionBankDocumentSubject] = useState("");
+  const [questionBankDocumentType, setQuestionBankDocumentType] = useState("");
+  const [questionBankDocumentStatus, setQuestionBankDocumentStatus] = useState("");
+  const [selectedQuestionBankIds, setSelectedQuestionBankIds] = useState<number[]>([]);
+  const [questionPackName, setQuestionPackName] = useState("");
+  const [questionPackNotice, setQuestionPackNotice] = useState("");
   const [aiFeedback, setAiFeedback] = useState<Array<{ id: number; userKey: string; feedbackType: string; messageText: string; rating: number; errorTypes: string[]; studentNote: string; model: string; originalPrompt: string; reviewStatus: string; solRequested: boolean; teacherDecision: string; teacherNote: string; correctedContent: string; createdAt: string }>>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -561,14 +730,22 @@ export default function AdminPage() {
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
   const [deletingDocuments, setDeletingDocuments] = useState(false);
   const [documentPage, setDocumentPage] = useState(1);
+  const [librarySection, setLibrarySection] = useState<"materials" | "upload">("materials");
+  const [librarySearch, setLibrarySearch] = useState("");
   const [documentStats, setDocumentStats] = useState<DocumentStats>({
     total: 0,
     ready: 0,
+    vectorReady: 0,
     indexedBytes: 0,
     citations: 0,
     misses: 0,
     indexVersion: "待建立",
   });
+  const [documentSearchQueries, setDocumentSearchQueries] = useState<Record<number, string>>({});
+  const [documentSearchTests, setDocumentSearchTests] = useState<Record<number, DocumentSearchTest>>({});
+  const [documentSearchHistory, setDocumentSearchHistory] = useState<Record<number, DocumentSearchRun[]>>({});
+  const [fineIndexingDocumentId, setFineIndexingDocumentId] = useState<number | null>(null);
+  const [resourceDocumentQueries, setResourceDocumentQueries] = useState<Record<number, string>>({});
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
@@ -716,6 +893,8 @@ export default function AdminPage() {
   const [battleAlerts, setBattleAlerts] = useState<BattleAlert[]>([]);
   const [learningCenterEnabled, setLearningCenterEnabled] = useState(true);
   const [savingLearningCenter, setSavingLearningCenter] = useState(false);
+  const [simulationToolsEnabled, setSimulationToolsEnabled] = useState(false);
+  const [savingSimulationTools, setSavingSimulationTools] = useState(false);
   const [homeWebSearchMode, setHomeWebSearchMode] = useState<"off" | "fallback" | "always">("off");
   const [savingWebSearchMode, setSavingWebSearchMode] = useState(false);
   const [savingHomepage, setSavingHomepage] = useState(false);
@@ -739,76 +918,30 @@ export default function AdminPage() {
     });
   }
 
+  async function loadDocumentCategory(category: "law" | "accounting" | "medtech" | "data-structure", replaceAll = false) {
+    try {
+      const response = await fetch(`/api/documents?category=${category}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { documents?: DocumentApiRow[]; stats?: DocumentStats };
+      const loaded = (result.documents ?? []).map(uploadedDocument);
+      setFiles((current) => replaceAll
+        ? loaded
+        : [...current.filter((file) => (file.examCategory ?? "law") !== category), ...loaded]);
+      if (result.stats) setDocumentStats(result.stats);
+      const resumable = (result.documents ?? [])
+        .filter((item) => ["queued", "uploaded", "extracting", "indexing", "analyzing", "in_progress"].includes(item.processingStage ?? item.status))
+        .map((item) => item.id);
+      if (resumable.length) window.setTimeout(() => { void Promise.all(resumable.slice(0, 3).map((id) => processDocument(id))); }, 250);
+    } catch {
+      // 保留目前畫面，稍後切換類科時可再次載入。
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/documents")
-      .then(async (response) => {
-        if (!response.ok) return;
-        const result = (await response.json()) as {
-          documents?: Array<{
-            id: number;
-            name: string;
-            examCategory?: string;
-            subject: string;
-            type: string;
-            sizeBytes: number;
-            status: string;
-            processingStage?: string;
-            processingMessage?: string;
-            pageCount?: number | null;
-            extractedChars?: number;
-            chapterCount?: number;
-            topicCount?: number;
-            questionCount?: number;
-            tags?: string[];
-            fullTextIndexed?: boolean;
-            vectorIndexed?: boolean;
-            homepageSearchEnabled?: boolean;
-            summary?: string;
-            sourceFileName?: string;
-            indexedFileName?: string;
-            extractionNote?: string;
-            analysisStatus?: string;
-            chapters?: Array<{ title?: string; path?: string; page_start?: number | null; page_end?: number | null }>;
-            questions?: Array<{ number?: string; title?: string; content_type?: string; chapter?: string }>;
-            error?: string | null;
-          }>;
-          stats?: DocumentStats;
-        };
-        setFiles(
-          (result.documents ?? []).map((item) => ({
-            id: item.id,
-            name: item.name,
-            examCategory: item.examCategory ?? "law",
-            subject: item.subject,
-            size: `${(item.sizeBytes / 1024 / 1024).toFixed(1)} MB · ${item.type}`,
-            status: item.status,
-            type: item.type,
-            processingStage: item.processingStage,
-            processingMessage: item.processingMessage,
-            pageCount: item.pageCount,
-            extractedChars: item.extractedChars,
-            chapterCount: item.chapterCount,
-            topicCount: item.topicCount,
-            questionCount: item.questionCount,
-            tags: item.tags,
-            fullTextIndexed: item.fullTextIndexed,
-            vectorIndexed: item.vectorIndexed,
-            homepageSearchEnabled: item.homepageSearchEnabled,
-            summary: item.summary,
-            sourceFileName: item.sourceFileName,
-            indexedFileName: item.indexedFileName,
-            extractionNote: item.extractionNote,
-            analysisStatus: item.analysisStatus,
-            chapters: item.chapters,
-            questions: item.questions,
-            error: item.error,
-          })),
-        );
-        if (result.stats) setDocumentStats(result.stats);
-        const resumable = (result.documents ?? []).filter((item) => ["queued", "uploaded", "extracting", "indexing", "analyzing", "in_progress"].includes(item.processingStage ?? item.status)).map((item) => item.id);
-        if (resumable.length) window.setTimeout(() => { void Promise.all(resumable.slice(0, 3).map((id) => processDocument(id))); }, 250);
-      })
-      .catch(() => undefined);
+    void (async () => {
+      await loadDocumentCategory("law", true);
+      await Promise.all([loadDocumentCategory("accounting"), loadDocumentCategory("medtech"), loadDocumentCategory("data-structure")]);
+    })();
     fetch("/api/usage")
       .then(async (response) => {
         if (response.ok) setUsage((await response.json()) as UsageData);
@@ -878,16 +1011,26 @@ export default function AdminPage() {
     fetch("/api/site-settings")
       .then(async (response) => {
         if (!response.ok) return;
-        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean; homeWebSearchMode?: "off" | "fallback" | "always" };
+        const result = (await response.json()) as { focusMusicUrl?: string; examCountdowns?: ExamCountdown[]; battleAlerts?: BattleAlert[]; learningCenterEnabled?: boolean; homeWebSearchMode?: "off" | "fallback" | "always"; simulationToolsEnabled?: boolean };
         setFocusMusicUrl(result.focusMusicUrl ?? "");
         setFocusMusicDraft(result.focusMusicUrl ?? "");
         setExamCountdowns(result.examCountdowns ?? []);
         setBattleAlerts(result.battleAlerts ?? []);
         setLearningCenterEnabled(result.learningCenterEnabled !== false);
+        setSimulationToolsEnabled(result.simulationToolsEnabled === true);
         setHomeWebSearchMode(result.homeWebSearchMode ?? "off");
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (requested === "questions" || requested === "question-bank" || requested === "documents") setActiveTab(requested);
+  }, []);
+
+  useEffect(() => {
+    if (examCategory !== "law") void loadDocumentCategory(examCategory);
+  }, [examCategory]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setJudicialClock(Date.now()), 1000);
@@ -1045,6 +1188,19 @@ export default function AdminPage() {
       setNotice(next ? "學習專區入口已重新開放。" : "學習專區入口已暫時隱藏；既有學習資料仍保留。");
     } else setNotice(result.error ?? "學習專區開關更新失敗");
     setSavingLearningCenter(false);
+  }
+
+  async function toggleSimulationTools() {
+    const next = !simulationToolsEnabled;
+    setSavingSimulationTools(true);
+    const response = await fetch("/api/site-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ simulationToolsEnabled: next }) });
+    const result = (await readJson(response)) as { simulationToolsEnabled?: boolean; error?: string };
+    if (response.ok) {
+      setSimulationToolsEnabled(result.simulationToolsEnabled === true);
+      window.dispatchEvent(new CustomEvent("simulation-tools-change", { detail: result.simulationToolsEnabled === true }));
+      setNotice(next ? "已開啟管理測試與模擬回答。" : "已關閉所有管理測試與模擬回答。一般學習功能不受影響。");
+    } else setNotice(result.error ?? "模擬回答設定更新失敗");
+    setSavingSimulationTools(false);
   }
 
   async function saveHomeWebSearchMode(mode: "off" | "fallback" | "always") {
@@ -2106,7 +2262,9 @@ export default function AdminPage() {
     try {
       const previous = chapterProgress[resource.id];
       setNotice(restart
-        ? `正在逐頁重新核對「${resource.title}」的題型；完成前會保留目前可用資料…`
+        ? isProblemSolvingResource(resource)
+          ? `正在逐頁重新核對「${resource.title}」的題型；完成前會保留目前可用資料…`
+          : `正在重新細分「${resource.title}」的篇、章、節與小節；完成前會保留目前可用資料…`
         : `正在從「${resource.title}」已建立的教材索引接續整理；不會重新上傳、刪除或重新拆解既有資料…`);
       setChapterProgress((current) => ({
         ...current,
@@ -2171,7 +2329,7 @@ export default function AdminPage() {
           ? `「${resource.title}」已有 ${count} 筆可用索引；這次沒有再次呼叫 AI。`
           : isProblemSolvingResource(resource)
             ? `「${resource.title}」已完成目錄整理，共 ${count} 筆真實題型。`
-            : `「${resource.title}」已建立好章節索引，共 ${count} 章；之後前台會直接讀取已保存內容。`);
+            : `「${resource.title}」已建立細分索引，共 ${count} 個節／細目；之後前台會直接讀取已保存內容。`);
         return;
       }
       setNotice("拆解進度已保存；系統下一次檢查會從目前主題接續，不會歸零。");
@@ -2814,7 +2972,10 @@ export default function AdminPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ showCosts: next }),
     });
-    if (response.ok) setUsage({ ...usage, showCosts: next });
+    if (response.ok) {
+      setUsage({ ...usage, showCosts: next });
+      window.dispatchEvent(new CustomEvent("frontend-costs-change", { detail: next }));
+    }
   }
 
   async function toggleTeachingEvidence() {
@@ -2822,6 +2983,13 @@ export default function AdminPage() {
     const next = !usage.showEvidence;
     const response = await fetch("/api/usage", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ showEvidence: next }) });
     if (response.ok) setUsage({ ...usage, showEvidence: next });
+  }
+
+  async function toggleEssayGradingDual() {
+    if (!usage) return;
+    const next = !usage.essayGradingDualEnabled;
+    const response = await fetch("/api/usage", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ essayGradingDualEnabled: next }) });
+    if (response.ok) setUsage({ ...usage, essayGradingDualEnabled: next });
   }
 
   async function testGlmConnection() {
@@ -2862,7 +3030,7 @@ export default function AdminPage() {
           if (refreshed.ok) {
             const data = await refreshed.json() as { documents?: Array<Record<string, unknown>>; stats?: DocumentStats };
             const current = (data.documents ?? []).find((item) => Number(item.id) === documentId);
-            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), topicCount: Number(current.topicCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
+            if (current) setFiles((items) => items.map((item) => item.id === documentId ? { ...item, bookTitle: typeof current.bookTitle === "string" && current.bookTitle.trim() ? current.bookTitle : item.bookTitle, status: String(current.status ?? "completed"), processingStage: String(current.processingStage ?? "completed"), processingMessage: String(current.processingMessage ?? "教材自動處理完成"), pageCount: Number(current.pageCount ?? 0) || null, extractedChars: Number(current.extractedChars ?? 0), chapterCount: Number(current.chapterCount ?? 0), topicCount: Number(current.topicCount ?? 0), questionCount: Number(current.questionCount ?? 0), tags: Array.isArray(current.tags) ? current.tags.map(String) : [], fullTextIndexed: Boolean(current.fullTextIndexed), vectorIndexed: Boolean(current.vectorIndexed), error: typeof current.error === "string" ? current.error : null } : item));
             if (data.stats) setDocumentStats(data.stats);
             const resourcesResponse = await fetch("/api/resources", { cache: "no-store" });
             if (resourcesResponse.ok) {
@@ -2914,6 +3082,165 @@ export default function AdminPage() {
     } catch (error) {
       setFiles((current) => current.map((item) => item.id === file.id ? { ...item, homepageSearchEnabled: !next } : item));
       setNotice(error instanceof Error ? error.message : "首頁搜尋設定更新失敗");
+    }
+  }
+
+  async function saveDocumentBookTitle(file: Uploaded) {
+    const bookTitle = normalizeDocumentTitle(file.bookTitle ?? "") || documentDisplayTitle(null, file.name);
+    setFiles((current) => current.map((item) => item.id === file.id ? { ...item, bookTitle } : item));
+    const response = await fetch("/api/documents", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: file.id, bookTitle }),
+    });
+    const result = await response.json() as { bookTitle?: string; error?: string };
+    if (!response.ok) {
+      setNotice(result.error ?? "教材顯示名稱儲存失敗");
+      return;
+    }
+    setFiles((current) => current.map((item) => item.id === file.id ? { ...item, bookTitle: result.bookTitle ?? bookTitle } : item));
+    setNotice(`前台教材名稱已更新為「${result.bookTitle ?? bookTitle}」。`);
+  }
+
+  async function testDocumentSearch(file: Uploaded) {
+    const query = (documentSearchQueries[file.id] ?? "").trim();
+    if (query.length < 2) {
+      setNotice("請先輸入至少兩個字的教材測試關鍵字，例如「未遂」或「第三章」。");
+      return;
+    }
+    setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query } }));
+    try {
+      const response = await fetch("/api/documents/search", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ documentId: file.id, query }),
+      });
+      const result = await response.json() as DocumentSearchTest & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "教材向量索引測試失敗");
+      setDocumentSearchTests((current) => ({
+        ...current,
+        [file.id]: {
+          status: "success",
+          query,
+          selectedFileWasSearched: Boolean(result.selectedFileWasSearched),
+          hits: result.hits ?? [],
+        },
+      }));
+      setNotice(result.selectedFileWasSearched ? `「${file.name}」已命中 ${result.hits?.length ?? 0} 個教材片段。` : `「${file.name}」這次沒有命中指定檔案片段。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "教材向量索引測試失敗";
+      setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "error", query, error: message } }));
+      setNotice(message);
+    }
+  }
+
+  async function autoTestDocumentSearch(file: Uploaded) {
+    const metadataCandidates = [...new Set([
+      ...(file.tags ?? []),
+      ...(file.chapters ?? []).flatMap((chapter) => [chapter.title, chapter.path]),
+      ...(file.questions ?? []).map((question) => question.title),
+      file.subject,
+    ].map((value) => String(value ?? "").replace(/^(?:第.{1,10}[章節篇]|\d+(?:\.\d+)*[、.\s]*)/u, "").trim()).filter((value) => value.length >= 2))];
+    let aiCandidates: string[] = [];
+    try {
+      const candidateResponse = await fetch("/api/documents/search-test-candidates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id }) });
+      const candidateResult = await candidateResponse.json() as { queries?: string[] };
+      if (candidateResponse.ok) aiCandidates = candidateResult.queries ?? [];
+    } catch { /* metadata fallback below */ }
+    const candidates = [...new Set([...aiCandidates, ...metadataCandidates])].slice(0, 10);
+    if (!candidates.length) {
+      setNotice("這份教材尚未產生可用的章節或標籤，請先完成 AI 結構分析。");
+      return;
+    }
+    setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 0 / ${candidates.length}`, autoResults: [] } }));
+    const results: NonNullable<DocumentSearchTest["autoResults"]> = [];
+    try {
+      for (const query of candidates) {
+        const response = await fetch("/api/documents/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, query }) });
+        const result = await response.json() as DocumentSearchTest & { error?: string };
+        if (!response.ok) {
+          results.push({ query, hit: false, hits: 0, page: null, excerpt: result.error ?? "測試失敗" });
+          setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 ${results.length} / ${candidates.length}`, autoResults: [...results] } }));
+          continue;
+        }
+        const first = result.hits?.[0];
+        results.push({
+          query,
+          hit: Boolean(result.selectedFileWasSearched && result.hits?.length),
+          hits: result.hits?.length ?? 0,
+          page: first?.pageStart ?? null,
+          excerpt: first?.text?.slice(0, 260) ?? "",
+          title: (first as { title?: string } | undefined)?.title,
+          retrievalMode: (first as { retrievalMode?: string } | undefined)?.retrievalMode,
+        });
+        setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 ${results.length} / ${candidates.length}`, autoResults: [...results] } }));
+      }
+      const passed = results.filter((item) => item.hit).length;
+      setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "success", query: "AI 自動模擬測試", selectedFileWasSearched: passed > 0, autoResults: results } }));
+      const savedResponse = await fetch("/api/documents/search-tests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, documentName: file.bookTitle || file.name, results }) });
+      const saved = await savedResponse.json() as { run?: DocumentSearchRun };
+      if (saved.run) setDocumentSearchHistory((current) => ({ ...current, [file.id]: [saved.run!, ...(current[file.id] ?? [])].slice(0, 10) }));
+      setNotice(`「${file.bookTitle || file.name}」自動測試完成：${passed} / ${results.length} 組查詢命中。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI 自動模擬測試失敗";
+      setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "error", query: "AI 自動模擬測試", error: message, autoResults: results } }));
+      setNotice(message);
+    }
+  }
+
+  async function loadDocumentSearchHistory(documentId: number) {
+    const response = await fetch(`/api/documents/search-tests?documentId=${documentId}`, { cache: "no-store" });
+    const data = await response.json() as { runs?: DocumentSearchRun[] };
+    if (response.ok) setDocumentSearchHistory((current) => ({ ...current, [documentId]: data.runs ?? [] }));
+  }
+
+  async function buildFineSearchIndex(file: Uploaded) {
+    if (fineIndexingDocumentId) return;
+    setFineIndexingDocumentId(file.id);
+    setNotice(`正在檢查「${file.bookTitle || file.name}」的精準搜尋片段，會從上次完成頁面接續…`);
+    try {
+      let restart = true;
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const response = await fetch("/api/documents/fine-index", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ documentId: file.id, restart }),
+        });
+        const result = await response.json() as { done?: boolean; pagesDone?: number; totalPages?: number; units?: number; error?: string };
+        if (!response.ok) throw new Error(result.error ?? "精準搜尋索引建立失敗");
+        restart = false;
+        setFiles((current) => current.map((item) => item.id === file.id ? { ...item, fineSearchUnitCount: Number(result.units ?? 0) } : item));
+        setNotice(`精準索引進度：${result.pagesDone ?? 0} / ${result.totalPages ?? 0} 頁，已建立 ${result.units ?? 0} 個搜尋片段。`);
+        if (result.done) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+      setNotice(`「${file.bookTitle || file.name}」已完成並保存頁面級精準索引；重新整理後仍會保留。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "精準搜尋索引建立失敗");
+    } finally {
+      setFineIndexingDocumentId(null);
+    }
+  }
+
+  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "medtech" | "accounting") {
+    try {
+      const response = await fetch(`/api/documents/assignments?documentId=${file.id}`, { cache: "no-store" });
+      const loaded = await response.json() as { assignments?: Array<{ examCategory: string; subject: string; usageType?: string; visibility?: string; aiSearchEnabled?: boolean }>; error?: string };
+      if (!response.ok) throw new Error(loaded.error ?? "讀取教材平台失敗");
+      const current = loaded.assignments ?? [];
+      const exists = current.some((item) => item.examCategory === category);
+      const next = exists
+        ? current.filter((item) => item.examCategory !== category)
+        : [...current, { examCategory: category, subject: file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
+      if (!next.length) throw new Error("至少保留一個使用平台");
+      const savedResponse = await fetch("/api/documents/assignments", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, assignments: next }) });
+      const saved = await savedResponse.json() as { assignments?: Array<{ examCategory: string }>; error?: string };
+      if (!savedResponse.ok) throw new Error(saved.error ?? "教材平台儲存失敗");
+      const assignmentCategories = (saved.assignments ?? []).map((item) => item.examCategory);
+      setFiles((rows) => rows.map((item) => item.id === file.id ? { ...item, assignmentCategories, assignmentCount: assignmentCategories.length } : item));
+      setNotice(`「${file.bookTitle || file.name}」的平台關聯已更新。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "教材平台儲存失敗");
     }
   }
 
@@ -3078,6 +3405,7 @@ export default function AdminPage() {
       {
         id: newId,
         name: selected.name,
+        bookTitle: documentDisplayTitle(null, selected.name),
         examCategory,
         subject,
         size: `${(selected.size / 1024 / 1024).toFixed(1)} MB · ${documentContentType}`,
@@ -3123,13 +3451,16 @@ export default function AdminPage() {
         ? `批次處理完成：${pending.length - failed} 本成功，${failed} 本失敗，可按下方按鈕重試失敗項目。`
         : `${pending.length} 本 PDF 已依序上傳，索引服務正在處理。`,
     );
+    if (!failed && libraryMode) setLibrarySection("materials");
   }
 
+  const normalizedLibrarySearch = librarySearch.trim().toLowerCase();
+  const categoryFiles = files.filter((file) => !normalizedLibrarySearch || `${file.bookTitle ?? ""} ${file.name} ${file.subject} ${file.type ?? ""} ${(file.tags ?? []).join(" ")}`.toLowerCase().includes(normalizedLibrarySearch));
   const documentPageCount = Math.max(
     1,
-    Math.ceil(files.length / DOCUMENTS_PER_PAGE),
+    Math.ceil(categoryFiles.length / DOCUMENTS_PER_PAGE),
   );
-  const visibleFiles = files.slice(
+  const visibleFiles = categoryFiles.slice(
     (documentPage - 1) * DOCUMENTS_PER_PAGE,
     documentPage * DOCUMENTS_PER_PAGE,
   );
@@ -3145,6 +3476,16 @@ export default function AdminPage() {
   const activeChapter = chapterViewer?.rows.find((chapter) => chapter.id === selectedChapterId)
     ?? chapterViewer?.rows[0]
     ?? null;
+  const questionBankDocumentSubjects = [...new Set((questionBankSummary?.files ?? []).map((file) => file.subject).filter(Boolean))].sort();
+  const questionBankDocumentTypes = [...new Set((questionBankSummary?.files ?? []).map((file) => file.documentType).filter(Boolean))].sort();
+  const filteredQuestionBankFiles = (questionBankSummary?.files ?? []).filter((file) => {
+    if (questionBankCategory !== "all" && file.examCategory !== questionBankCategory) return false;
+    if (questionBankDocumentSubject && file.subject !== questionBankDocumentSubject) return false;
+    if (questionBankDocumentType && file.documentType !== questionBankDocumentType) return false;
+    if (questionBankDocumentStatus && file.status !== questionBankDocumentStatus) return false;
+    const query = questionBankDocumentQuery.trim().toLowerCase();
+    return !query || `${file.bookTitle} ${file.fileName} ${file.subject} ${file.documentType}`.toLowerCase().includes(query);
+  });
 
   useEffect(() => {
     if (activeTab !== "members") return;
@@ -3158,6 +3499,69 @@ export default function AdminPage() {
       .catch((error) => setMemberNotice(error instanceof Error ? error.message : "無法讀取學員名單"))
       .finally(() => setMembersLoading(false));
   }, [activeTab]);
+
+  async function loadQuestionBank() {
+    setQuestionBankLoading(true);
+    const params = new URLSearchParams();
+    if (questionBankCategory !== "all") params.set("category", questionBankCategory);
+    if (questionBankSubject) params.set("subject", questionBankSubject);
+    if (questionBankYear) params.set("year", questionBankYear);
+    if (questionBankExamType) params.set("examType", questionBankExamType);
+    if (questionBankStatus) params.set("status", questionBankStatus);
+    const combinedQuery = [questionBankQuery, questionBankChapter].filter(Boolean).join(" ");
+    if (combinedQuery) params.set("query", combinedQuery);
+    await fetch(`/api/admin/question-bank-summary?${params}`, { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as QuestionBankSummary & { error?: string };
+        if (!response.ok) throw new Error(data.error || "無法讀取總題庫");
+        setQuestionBankSummary(data);
+      })
+      .catch((error) => setNotice(error instanceof Error ? error.message : "無法讀取總題庫"))
+      .finally(() => setQuestionBankLoading(false));
+  }
+
+  useEffect(() => {
+    if (activeTab !== "question-bank") return;
+    const timer = window.setTimeout(() => void loadQuestionBank(), 150);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, questionBankCategory, questionBankSubject, questionBankYear, questionBankExamType, questionBankStatus]);
+
+  async function createQuestionPack() {
+    setQuestionPackNotice("正在建立組合包…");
+    const response = await fetch("/api/admin/question-bank-summary", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: questionPackName, examCategory: questionBankCategory, description: questionBankChapter ? `章節／主題：${questionBankChapter}` : "", questionIds: selectedQuestionBankIds }) });
+    const data = await response.json() as { package?: QuestionBankSummary["packages"] extends Array<infer T> ? T : never; error?: string };
+    if (!response.ok) { setQuestionPackNotice(data.error ?? "組合包建立失敗"); return; }
+    setQuestionPackName("");
+    setSelectedQuestionBankIds([]);
+    setQuestionPackNotice(`已建立「${data.package?.name}」，共 ${data.package?.questionCount ?? 0} 題，保留為草稿。`);
+    await loadQuestionBank();
+  }
+
+  async function addCentralPdfSource(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const url = centralPdfUrl.trim();
+    if (!/^https:\/\/[^\s]+\.pdf(?:\?[^\s]*)?$/i.test(url)) {
+      setQuestionPackNotice("請貼上完整的 HTTPS PDF 網址。");
+      return;
+    }
+    setCentralPdfAdding(true);
+    setQuestionPackNotice("正在加入 PDF 來源…");
+    const response = await fetch("/api/exam-sources", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url, label: centralPdfLabel.trim() || url.split("/").pop()?.replace(/\.pdf(?:\?.*)?$/i, "") || "直接 PDF 匯入", examType: centralPdfExamType, sourceKind: "exam" }) });
+    const data = await response.json() as { source?: { id: number }; error?: string };
+    if (!response.ok || !data.source) {
+      setQuestionPackNotice(data.error ?? "PDF 來源加入失敗");
+      setCentralPdfAdding(false);
+      return;
+    }
+    setQuestionPackNotice("PDF 來源已加入，正在直接辨識並建立題庫項目…");
+    const processResponse = await fetch("/api/exam-sources/process", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId: data.source.id }) });
+    const processed = await processResponse.json() as { message?: string; error?: string };
+    setQuestionPackNotice(processResponse.ok ? processed.message ?? "PDF 已完成拆題" : processed.error ?? "PDF 已加入，但拆題失敗");
+    setCentralPdfLabel("");
+    setCentralPdfUrl("");
+    await loadQuestionBank();
+    setCentralPdfAdding(false);
+  }
 
   async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { password?: string }) {
     setMemberNotice("儲存中…");
@@ -3186,31 +3590,58 @@ export default function AdminPage() {
     }
   }
 
+  if (workspaceMode === "management") {
+    return <main className="admin-route-forward"><span>正在進入中央教材庫…</span></main>;
+  }
+
   return (
-    <main className="admin-shell">
+    <main className={`admin-shell ${independentMode ? "independent-admin-shell" : ""} ${libraryMode ? "library-admin-shell" : ""} ${questionBankMode ? "question-bank-admin-shell" : ""}`}>
       <header className="topbar">
-        <a href="/law" className="brand">
-          <span className="brand-mark">律</span>
-          <span>司律備考</span>
+        <a href="/platform" className="brand">
+          <span className="brand-mark">智</span>
+          <span>iBrain AI</span>
         </a>
-        <a href="/law" className="back-link">
-          返回對話首頁 →
+        <a href={independentMode ? "/admin" : "/platform"} className="back-link">
+          {independentMode ? "返回總管理後台 →" : "返回平台入口 →"}
         </a>
       </header>
       <div className="admin-main">
         <div className="admin-title">
           <div>
-            <p>MANAGEMENT WORKSPACE</p>
-            <h1>司律備考管理後台</h1>
+            <p>{libraryMode ? "CENTRAL KNOWLEDGE INFRASTRUCTURE" : questionBankMode ? "CENTRAL QUESTION BANK" : memberMode ? "CENTRAL MEMBER DIRECTORY" : "COMPANY MANAGEMENT CENTER"}</p>
+            <h1>{libraryMode ? "中央教材向量資料庫" : questionBankMode ? "跨類科總題庫管理" : memberMode ? "全平台會員總管理" : "iBrain 總管理後台"}</h1>
+            <span>{libraryMode ? "獨立處理公司教材的文字抽取、最小單位切片、全文索引、向量索引與檢索驗證。" : questionBankMode ? "以共用資料庫集中管理全部類科的文件題庫、網址題庫、拆題、校對、版本與發布狀態。" : memberMode ? "集中查看全部會員、所屬類科、班級、帳號狀態與管理權限。" : "跨平台集中管理教材、會員、AI 模型與營運資料；類科專屬內容仍在各自工作區處理。"}</span>
           </div>
         </div>
-        <nav className="admin-tabs" aria-label="後台功能切換">
+        {independentMode && <nav className="central-admin-tabs" aria-label="中央管理功能切換">
+          <a className={libraryMode ? "active" : ""} href="/admin/library">教材向量庫</a>
+          <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
+          <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
+        </nav>}
+        {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
+          <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
+          <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>
+          <a href="/accounting/admin"><span className="accounting">會</span><div><strong>會計管理</strong><small>教材與課業答疑</small></div>→</a>
+          <a href="/data-structure/admin"><span className="data">資</span><div><strong>資料結構管理</strong><small>教材與圖形索引</small></div>→</a>
+        </section>}
+        {!independentMode && <nav className="admin-tabs" aria-label="後台功能切換">
+          <span className="admin-nav-section">公司共用</span>
+          <a className="active" href="/admin/library">
+            中央教材資料庫
+          </a>
+          <a href="/admin/question-bank">
+            總題庫管理
+          </a>
+          <a href="/admin/members">
+            會員與權限
+          </a>
           <button
-            className={activeTab === "documents" ? "active" : ""}
-            onClick={() => setActiveTab("documents")}
+            className={activeTab === "costs" ? "active" : ""}
+            onClick={() => setActiveTab("costs")}
           >
-            教材知識庫
+            模型與成本
           </button>
+          <span className="admin-nav-section">內容與課程</span>
           <button
             className={activeTab === "resources" ? "active" : ""}
             onClick={() => setActiveTab("resources")}
@@ -3250,6 +3681,7 @@ export default function AdminPage() {
           <button className={activeTab === "external-index" ? "active" : ""} onClick={() => setActiveTab("external-index")}>
             資源同步
           </button>
+          <span className="admin-nav-section">司律專屬</span>
           <button
             className={activeTab === "legal" ? "active" : ""}
             onClick={() => setActiveTab("legal")}
@@ -3274,18 +3706,7 @@ export default function AdminPage() {
           >
             真題審核／編輯
           </button>
-          <button
-            className={activeTab === "costs" ? "active" : ""}
-            onClick={() => setActiveTab("costs")}
-          >
-            模型與成本
-          </button>
-          <button
-            className={activeTab === "members" ? "active" : ""}
-            onClick={() => setActiveTab("members")}
-          >
-            學員管理
-          </button>
+          <span className="admin-nav-section">品質與首頁</span>
           <button className={activeTab === "ai-feedback" ? "active" : ""} onClick={() => setActiveTab("ai-feedback")}>AI 回答覆核</button>
           <button
             className={activeTab === "homepage" ? "active" : ""}
@@ -3293,7 +3714,117 @@ export default function AdminPage() {
           >
             首頁與播放
           </button>
-        </nav>
+        </nav>}
+        {activeTab === "question-bank" && <section className="panel company-question-bank">
+          <header className="company-question-bank-heading">
+            <div><p>COMPANY QUESTION BANK</p><h2>總題庫管理</h2><span>各類科可自行上傳與處理；中央集中查看全部文件題庫、網址題庫、校對與發布狀態。</span></div>
+            <strong>{questionBankSummary?.totals.reduce((sum, item) => sum + item.total, 0).toLocaleString() ?? "—"}<small> 題</small></strong>
+          </header>
+          {questionBankLoading ? <p className="usage-empty">正在彙整各平台題庫…</p> : <>
+            <section className="question-bank-control-center" aria-label="中央題庫作業台">
+              <div>
+                <span>CENTRAL EDITING WORKSPACE</span>
+                <h3>通用中央題庫工作流程</h3>
+                <p>以完整題庫流程為母版，統一文件上傳、原稿對照、重新拆題、分類、逐題編輯、老師審題與發布；各類科只保留特殊屬性及學生端呈現。</p>
+              </div>
+              <nav className="question-bank-control-actions" aria-label="中央題庫主要頁面">
+                <a className={questionBankSection === "questions" ? "active" : ""} href="/admin/question-bank/questions"><b>題目搜尋</b><small>分類、關鍵字、高亮與逐題管理</small></a>
+                <a className={questionBankSection === "documents" ? "active" : ""} href="/admin/question-bank/documents"><b>文件管理</b><small>PDF、Word、HTML 分類與搜尋</small></a>
+                <a className={questionBankSection === "sources" ? "active" : ""} href="/admin/question-bank/sources"><b>網址／PDF 擷取</b><small>直接網址、錯誤與左右對照</small></a>
+                <a className={questionBankSection === "packages" ? "active" : ""} href="/admin/question-bank/packages"><b>組合包管理</b><small>勾選題目、建立與分派題包</small></a>
+              </nav>
+              <div className="question-bank-platform-editor-links">
+                <strong>中央分類檢視</strong>
+                <button type="button" onClick={() => { setQuestionBankCategory("law"); setQuestionBankSubject(""); }}>司律</button>
+                <button type="button" onClick={() => { setQuestionBankCategory("medtech"); setQuestionBankSubject(""); }}>醫檢師</button>
+                <button type="button" onClick={() => { setQuestionBankCategory("accounting"); setQuestionBankSubject(""); }}>會計</button>
+                <button type="button" onClick={() => { setQuestionBankCategory("data-structure"); setQuestionBankSubject(""); }}>資料結構</button>
+              </div>
+            </section>
+            <nav className="question-bank-platforms" aria-label="題庫類科篩選">
+              {([['all', '全部題庫', '/admin?tab=question-bank'], ['law', '司律', '/admin?tab=questions'], ['medtech', '醫檢師', '/medtech/admin'], ['accounting', '會計', '/accounting/admin/questions'], ['data-structure', '資料結構', '/data-structure/admin']] as const).map(([value, label, href]) => {
+                const total = value === 'all' ? questionBankSummary?.totals.reduce((sum, item) => sum + item.total, 0) ?? 0 : questionBankSummary?.totals.find((item) => item.examCategory === value)?.total ?? 0;
+                return <article className={questionBankCategory === value ? "active" : ""} key={value}><button type="button" onClick={() => { setQuestionBankCategory(value); setQuestionBankSubject(""); }}><span>{label}</span><strong>{total.toLocaleString()} 題</strong></button>{!questionBankMode && value !== 'all' && <a href={href}>類科後台 →</a>}</article>;
+              })}
+            </nav>
+            {(questionBankSection === "questions" || questionBankSection === "packages") && <><section className="central-question-search">
+              <header>
+                <div><h3>{questionBankSection === "packages" ? "搜尋題目並建立組合包" : "搜尋與分類題庫"}</h3><p>{questionBankSection === "packages" ? "先縮小題目範圍，再勾選單題建立及分派新的題目包。" : "依領域、考試項目、科目、章節／主題、年份、題型與狀態查找題目。"}</p></div>
+                <span>{questionBankSummary?.questions?.length ?? 0} 筆結果 · 最多顯示 100 題</span>
+              </header>
+              <div className="central-question-filters">
+                <label>領域<select value={questionBankDomain} onChange={(event) => { const value = event.target.value; setQuestionBankDomain(value); setQuestionBankSubject(""); setQuestionBankCategory(value === "law" ? "law" : value === "medical" ? "medtech" : value === "business" ? "accounting" : value === "information" ? "data-structure" : "all"); }}><option value="">全部領域</option><option value="law">法律</option><option value="medical">醫療</option><option value="business">商管／會計</option><option value="information">資訊</option></select></label>
+                <label>考試項目<select value={questionBankCategory} onChange={(event) => { setQuestionBankCategory(event.target.value); setQuestionBankSubject(""); }}><option value="all">全部考試項目</option><option value="law">司律</option><option value="medtech">醫檢師</option><option value="accounting">會計類考試</option><option value="data-structure">資訊類考試</option></select></label>
+                <label>關鍵字<input value={questionBankQuery} onChange={(event) => setQuestionBankQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void loadQuestionBank(); } }} placeholder="輸入後按 Enter，例如：甲農場" /></label>
+                <label>科目<select value={questionBankSubject} onChange={(event) => setQuestionBankSubject(event.target.value)}><option value="">全部科目</option>{(questionBankSummary?.subjects ?? []).map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label>章節／主題<input value={questionBankChapter} onChange={(event) => setQuestionBankChapter(event.target.value)} placeholder="例如：未遂犯、RNA 病毒" /></label>
+                <label>年份<select value={questionBankYear} onChange={(event) => setQuestionBankYear(event.target.value)}><option value="">全部年份</option>{(questionBankSummary?.years ?? []).map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label>題型<select value={questionBankExamType} onChange={(event) => setQuestionBankExamType(event.target.value)}><option value="">全部題型</option><option value="mcq">選擇題</option><option value="essay">申論題</option></select></label>
+                <label>狀態<select value={questionBankStatus} onChange={(event) => setQuestionBankStatus(event.target.value)}><option value="">全部狀態</option><option value="published">已發布</option><option value="draft">草稿</option><option value="disabled">已停用</option></select></label>
+                <button type="button" onClick={() => void loadQuestionBank()}>搜尋題庫</button>
+              </div>
+              {questionBankSection === "packages" && <div className="central-question-package-bar">
+                <label><input type="checkbox" checked={Boolean(questionBankSummary?.questions?.length) && selectedQuestionBankIds.length === questionBankSummary?.questions?.length} onChange={(event) => setSelectedQuestionBankIds(event.target.checked ? (questionBankSummary?.questions ?? []).map((item) => item.id) : [])} />全選目前結果</label>
+                <strong>已選 {selectedQuestionBankIds.length} 題</strong>
+                <input value={questionPackName} onChange={(event) => setQuestionPackName(event.target.value)} placeholder="組合包名稱（不是搜尋欄）" aria-label="組合包名稱，不是搜尋欄" />
+                <button type="button" disabled={!selectedQuestionBankIds.length || !questionPackName.trim() || questionBankCategory === "all"} onClick={() => void createQuestionPack()}>建立組合包</button>
+                {questionBankCategory === "all" && <small>請先選定一個類科，才能建立並分派組合包。</small>}
+              </div>}
+              {questionPackNotice && <p className="central-question-notice">{questionPackNotice}</p>}
+              <div className="central-question-results">
+                {(questionBankSummary?.questions ?? []).map((question) => <article className={questionBankSection === "questions" ? "without-selection" : ""} key={question.id}>
+                  {questionBankSection === "packages" && <input type="checkbox" checked={selectedQuestionBankIds.includes(question.id)} onChange={(event) => setSelectedQuestionBankIds((current) => event.target.checked ? [...new Set([...current, question.id])] : current.filter((id) => id !== question.id))} aria-label={`選取第 ${question.questionNumber} 題`} />}
+                  <div><small>{question.examCategory === "law" ? "司律" : question.examCategory === "medtech" ? "醫檢師" : question.examCategory === "accounting" ? "會計" : "資料結構"} · {question.subject} · {question.year} · {question.examType === "essay" ? "申論題" : "選擇題"}</small><strong>{highlightQuestionText(question.stem.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(), [questionBankQuery, questionBankChapter].filter(Boolean).join(" "))}</strong><span>{highlightQuestionText(`${question.examName} · 第 ${question.questionNumber} 題`, [questionBankQuery, questionBankChapter].filter(Boolean).join(" "))}</span></div>
+                  <em className={question.status}>{question.status === "published" ? "已發布" : question.status === "draft" ? "草稿" : "已停用"}</em>
+                </article>)}
+                {!questionBankSummary?.questions?.length && <p className="usage-empty">沒有符合條件的題目。</p>}
+              </div>
+              {questionBankSection === "packages" && !!questionBankSummary?.packages?.length && <details className="central-question-packages"><summary>查看已建立組合包（{questionBankSummary.packages.length}）</summary>{questionBankSummary.packages.map((item) => <article key={item.key}><div><b>{item.name}</b><span>{item.examCategory} · {item.status === "draft" ? "草稿" : item.status}</span></div><strong>{item.questionCount} 題</strong></article>)}</details>}
+            </section>
+            {questionBankSection === "questions" && <div className="question-bank-overview">
+              {(questionBankSummary?.totals ?? []).filter((item) => questionBankCategory === 'all' || item.examCategory === questionBankCategory).map((item) => <article key={item.examCategory}>
+                <span>{item.examCategory === 'law' ? '司律' : item.examCategory === 'medtech' ? '醫檢師' : item.examCategory === 'accounting' ? '會計' : item.examCategory === 'data-structure' ? '資料結構' : item.examCategory}</span>
+                <strong>{item.total.toLocaleString()}</strong>
+                <small>已發布 {item.published.toLocaleString()} · 待處理 {item.draft.toLocaleString()}</small>
+              </article>)}
+            </div>}</>}
+            {questionBankSection === "sources" && <>
+            <form className="central-pdf-source-form" onSubmit={addCentralPdfSource}>
+              <header><div><h3>直接加入 PDF 網址</h3><p>貼上已知 PDF 網址，系統直接建立來源、下載並拆題，不必先搜尋目錄頁。</p></div></header>
+              <label>題型<select value={centralPdfExamType} onChange={(event) => setCentralPdfExamType(event.target.value)}><option value="mcq">選擇題</option><option value="essay">申論題</option></select></label>
+              <label>來源名稱<input value={centralPdfLabel} onChange={(event) => setCentralPdfLabel(event.target.value)} placeholder="例如：114 年司律二試刑法" /></label>
+              <label className="pdf-url">PDF 網址<input type="url" value={centralPdfUrl} onChange={(event) => setCentralPdfUrl(event.target.value)} placeholder="https://fd.get.com.tw/.../128455.pdf" /></label>
+              <button type="submit" disabled={centralPdfAdding || !centralPdfUrl.trim()}>{centralPdfAdding ? "加入並拆題中…" : "加入 PDF 並拆題"}</button>
+            </form>
+            {questionPackNotice && <p className="central-question-notice">{questionPackNotice}</p>}
+            {(questionBankCategory === 'all' || questionBankCategory === 'law') && <div className="question-bank-files question-bank-url-sources">
+              <header><div><h3>網址擷取來源</h3><p>選擇題與申論題來源集中在這裡，保留處理進度、錯誤與 PDF／題目左右對照。</p></div><span>{questionBankSummary?.urlSources?.length ?? 0} 個來源</span></header>
+              {(questionBankSummary?.urlSources ?? []).map((source) => <article key={source.id}><span className="question-bank-file-mark law">網</span><div><small>司律 · {source.examType === 'essay' ? '申論題' : '選擇題'} · {source.sourceKind === 'exam' ? '歷屆真題' : source.sourceKind}</small><strong>{source.label}</strong><a className="question-bank-source-url" href={source.url} target="_blank" rel="noreferrer">{source.url}</a>{source.lastError && <em>{source.lastError}</em>}</div><b>{source.questionCount.toLocaleString()}<small> 題</small></b><a href={source.sourceKind === "exam" ? `/admin/question-bank/source-workspace?sourceId=${source.id}` : "/admin?tab=sources"}>{source.examType === "essay" ? "申論題管理" : source.examType === "mcq" ? "選擇題管理" : "中央管理"}</a></article>)}
+              {!questionBankSummary?.urlSources?.length && <p className="usage-empty">尚未建立網址題庫來源。</p>}
+            </div>}
+            </>}
+            {questionBankSection === "documents" && <>
+            <section className="question-bank-document-search">
+              <header><div><h3>文件分類與搜尋</h3><p>只搜尋 PDF、Word、HTML 等原始文件，不會混入題目或網址來源。</p></div><span>{filteredQuestionBankFiles.length} 份文件</span></header>
+              <div>
+                <label>關鍵字<input value={questionBankDocumentQuery} onChange={(event) => setQuestionBankDocumentQuery(event.target.value)} placeholder="搜尋書名、檔名、科目" /></label>
+                <label>科目<select value={questionBankDocumentSubject} onChange={(event) => setQuestionBankDocumentSubject(event.target.value)}><option value="">全部科目</option>{questionBankDocumentSubjects.map((subject) => <option key={subject}>{subject}</option>)}</select></label>
+                <label>文件格式<select value={questionBankDocumentType} onChange={(event) => setQuestionBankDocumentType(event.target.value)}><option value="">全部格式</option>{questionBankDocumentTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
+                <label>處理狀態<select value={questionBankDocumentStatus} onChange={(event) => setQuestionBankDocumentStatus(event.target.value)}><option value="">全部狀態</option><option value="ready">已完成</option><option value="processing">處理中</option><option value="failed">處理失敗</option></select></label>
+                <button type="button" onClick={() => { setQuestionBankDocumentQuery(""); setQuestionBankDocumentSubject(""); setQuestionBankDocumentType(""); setQuestionBankDocumentStatus(""); }}>清除條件</button>
+              </div>
+            </section>
+            <div className="question-bank-files">
+              <header><div><h3>文件清單</h3><p>原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{filteredQuestionBankFiles.length} 份文件</span></header>
+              {filteredQuestionBankFiles.map((file) => {
+                const workspace = `/admin/question-bank/workspace?category=${file.examCategory}&id=${file.id}`;
+                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>拆題與總編輯</a></article>;
+              })}
+              {!filteredQuestionBankFiles.length && <p className="usage-empty">沒有符合條件的文件。</p>}
+            </div>
+            </>}
+          </>}
+        </section>}
         {activeTab === "external-index" && <section className="panel external-index-admin">
           <div className="external-index-heading"><div><p>PUBLIC INDEX DEMO</p><h2>跨網站資源同步</h2><span>按一次同步即會由主目錄自動逐層探索；不下載付費文章、教材或影片全文。</span></div><label className="external-index-search"><span>搜尋目前網站資源</span><input value={externalQuery} onChange={(event) => { setExternalQuery(event.target.value); setExternalPage(1); }} placeholder="篇名、書名、課程或來源" /></label></div>
           <div className="external-source-tabs" role="tablist" aria-label="資源網站">{(["lawdata", "angle_books", "angle_media", "get", "ibrain"] as const).map((key) => { const config = key === "lawdata" ? { label: "元照雜誌", note: "雜誌種類、各期目錄、作者與公開試讀" } : key === "angle_books" ? { label: "元照圖書", note: "圖書分類、書單與單本書介紹" } : key === "angle_media" ? { label: "品評家", note: "公開文章、影音、作者與講者" } : key === "get" ? { label: "高點文化", note: "圖書目錄、考試分類、書單與單本書介紹" } : { label: "iBrain 知識達", note: "司律課程與試聽" }; const source = externalSources.find((item) => item.key === key); return <button type="button" role="tab" aria-selected={externalSourceTab === key} className={externalSourceTab === key ? "active" : ""} key={key} onClick={() => { setExternalSourceTab(key); setExternalPage(1); setExternalSelectedItemId(null); setExternalQuery(""); }}><span><b>{config.label}</b><small>{config.note}</small></span><strong>{source?.items.length ?? 0}<small> 筆</small></strong></button>; })}</div>
@@ -3346,7 +3877,7 @@ export default function AdminPage() {
         {activeTab === "ai-feedback" && <section className="panel ai-feedback-admin"><div className="cost-heading"><div><h2>AI 回答覆核</h2><p className="panel-sub">學生回報先由 Sol 協助檢查，最後仍由老師確認是否有誤及是否寫回標準解析。</p></div><span className="source-count configured">{aiFeedback.length} 筆</span></div>{feedbackLoading ? <p>讀取回饋中…</p> : <div className="ai-feedback-list">{aiFeedback.map((item) => <article key={item.id}><header><div><b>{item.model || "AI 助教"}</b><span>{item.userKey} · {item.rating ? `${item.rating} 分` : "未評分"}</span></div><em>{item.reviewStatus === "pending" ? "待檢查" : item.reviewStatus === "ai_review_requested" ? "等待 Sol 覆核" : item.reviewStatus === "ai_reviewed" ? "AI 已覆核" : item.reviewStatus === "teacher_confirmed" ? "老師已確認" : item.reviewStatus === "corrected" ? "已修正" : "無需修正"}</em></header>{item.originalPrompt && <details><summary>學生原問題</summary><p>{item.originalPrompt}</p></details>}<details><summary>被回報的回答</summary><p>{item.messageText}</p></details><p className="student-feedback-note"><b>學生回饋：</b>{item.studentNote || "未補充說明"}</p><small>{item.errorTypes.join("、") || "未選錯誤類型"}</small><label>老師判斷<select value={item.teacherDecision} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherDecision: event.target.value } : row))}><option value="">待確認</option><option value="confirmed_error">確認有誤</option><option value="no_error">確認無誤</option><option value="partly_correct">部分需修正</option></select></label><label>老師說明<textarea rows={3} value={item.teacherNote} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, teacherNote: event.target.value } : row))} /></label><label>修正後內容<textarea rows={5} value={item.correctedContent} onChange={(event) => setAiFeedback((current) => current.map((row) => row.id === item.id ? { ...row, correctedContent: event.target.value } : row))} /></label><div className="ai-feedback-actions"><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "teacher_confirmed", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>老師確認</button><button disabled={!item.correctedContent.trim()} onClick={() => void updateAiFeedback(item.id, { reviewStatus: "corrected", teacherDecision: item.teacherDecision, teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>標記已修正</button><button onClick={() => void updateAiFeedback(item.id, { reviewStatus: "dismissed", teacherDecision: "no_error", teacherNote: item.teacherNote, correctedContent: item.correctedContent })}>確認無誤</button></div></article>)}</div>}</section>}
         {activeTab === "members" && (
           <section className="panel member-admin-panel">
-            <div className="cost-heading"><div><h2>學員與權限管理</h2><p className="panel-sub">每位登入者都有獨立的對話、角色、智能書進度、練題與批改紀錄。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
+            <div className="cost-heading"><div><h2>全平台會員總管理</h2><p className="panel-sub">中央顯示全部會員及其可使用類科；各類科後台仍只會看到自己的會員。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
             <form className="member-create-form" onSubmit={createMember}>
               <div className="member-create-heading"><div><h3>新增學員</h3><p>先建立帳號；學員日後以相同 Email 登入，即會接上自己的學習平台。</p></div><button type="submit" disabled={memberCreating}>{memberCreating ? "新增中…" : "＋ 新增學員"}</button></div>
               <div className="member-create-fields">
@@ -3361,7 +3892,7 @@ export default function AdminPage() {
             {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
-                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small></div></div>
+                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small><div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
                 <label><span>學習身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
                 <label><span>管理權限</span><select value={member.canAdmin ? "enabled" : "disabled"} onChange={(event) => void updateMember(member.id, { canAdmin: event.target.value === "enabled" })}><option value="disabled">無</option><option value="enabled">管理員</option></select></label>
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
@@ -3375,6 +3906,20 @@ export default function AdminPage() {
         )}
         {activeTab === "homepage" && (
           <section className="panel site-settings-panel">
+            <div className="setting-block">
+              <div className="setting-block-head simulation-master-setting">
+                <div>
+                  <h3>管理測試與模擬回答</h3>
+                  <p>一鍵隱藏首頁、智能書、申論引導、爭點辨識、讀書會與會計答疑中的模擬學生、測試擬答、程度與模型測試工具；一般學生作答與正式 AI 回覆不受影響。</p>
+                  <strong className={`simulation-master-status ${simulationToolsEnabled ? "is-on" : "is-off"}`}>
+                    模擬功能目前：{simulationToolsEnabled ? "開啟" : "關閉"}
+                  </strong>
+                </div>
+                <button type="button" className={`simulation-master-button ${simulationToolsEnabled ? "turn-off" : "turn-on"}`} disabled={savingSimulationTools} onClick={() => void toggleSimulationTools()}>
+                  {savingSimulationTools ? "正在更新…" : simulationToolsEnabled ? "一鍵關閉全部模擬" : "重新開啟模擬功能"}
+                </button>
+              </div>
+            </div>
             <div className="setting-block">
               <div className="setting-block-head"><div><h3>學習專區入口</h3><p>可先隱藏首頁的「學習專區」按鈕；再次開啟時，會員原有進度與紀錄仍會保留。</p></div><label className="cost-toggle"><input type="checkbox" checked={learningCenterEnabled} disabled={savingLearningCenter} onChange={() => void toggleLearningCenter()} /><span>{savingLearningCenter ? "更新中…" : learningCenterEnabled ? "目前開放" : "目前關閉"}</span></label></div>
             </div>
@@ -3466,6 +4011,19 @@ export default function AdminPage() {
         )}
         {activeTab === "costs" && (
           <section className="cost-panel panel">
+            <div className="homepage-setting-block">
+              <div className="setting-block-head">
+                <div>
+                  <h3>正式申論批改｜進階模型比較</h3>
+                  <p>目前關閉時一律由 Luna 進行初步批改，再交由老師確認；需要測試時可開啟 Sol、Luna 與雙模型分頁／分割比較。</p>
+                </div>
+                <label className="cost-toggle">
+                  <input type="checkbox" checked={usage?.essayGradingDualEnabled ?? false} onChange={toggleEssayGradingDual} />
+                  <span />
+                  {usage?.essayGradingDualEnabled ?? false ? "目前開放" : "目前關閉"}
+                </label>
+              </div>
+            </div>
             <div className="homepage-setting-block">
               <div className="setting-block-head">
                 <div>
@@ -3622,7 +4180,17 @@ export default function AdminPage() {
           </section>
         )}
         {activeTab === "documents" && (
-          <div className="admin-grid">
+          <>
+          {libraryMode && <section className="library-storage-architecture panel">
+            <div><p>PRIVATE SOURCE STORAGE</p><h2>原始 PDF 留在公司本機</h2><span>RTX 4090 24GB／64GB RAM 可先擔任私有教材節點；雲端平台只接收必要的文字切片、索引識別碼與檢索結果，不必保存原始 PDF。</span></div>
+            <div className="library-node-status"><strong>本機節點</strong><span>尚未連線</span><small>下一階段安裝本機處理服務與安全連線後啟用</small></div>
+          </section>}
+          {libraryMode && <nav className="library-section-tabs" aria-label="教材資料庫操作切換">
+            <button type="button" className={librarySection === "materials" ? "active" : ""} onClick={() => setLibrarySection("materials")}><strong>教材列表</strong><span>搜尋、索引狀態與細部資料</span></button>
+            <button type="button" className={librarySection === "upload" ? "active" : ""} onClick={() => setLibrarySection("upload")}><strong>上傳教材</strong><span>新增檔案與查看處理進度</span></button>
+          </nav>}
+          <div className={`admin-grid ${libraryMode ? "library-admin-stack" : ""}`}>
+            {(!libraryMode || librarySection === "upload") && (
             <form className="panel" onSubmit={submit}>
               <h2>上傳教材</h2>
               <p className="panel-sub">
@@ -3704,7 +4272,7 @@ export default function AdminPage() {
               <div className="meta-fields">
                 <label className="field">
                   類科
-                  <select value={examCategory} onChange={(e) => { const next = e.target.value as "law" | "accounting" | "medtech"; setExamCategory(next); setSubject(next === "law" ? "刑法" : next === "accounting" ? "中級會計學" : "臨床病毒學"); }}>
+                  <select value={examCategory} onChange={(e) => { const next = e.target.value as "law" | "accounting" | "medtech"; setExamCategory(next); setSubject(next === "law" ? "刑法" : next === "accounting" ? "中級會計學" : "臨床病毒學"); setDocumentPage(1); setSelectedDocumentIds([]); }}>
                     <option value="law">司律</option>
                     <option value="accounting">會計</option>
                     <option value="medtech">醫檢師</option>
@@ -3751,16 +4319,18 @@ export default function AdminPage() {
               </button>
               {notice && <div className="notice">{notice}</div>}
             </form>
+            )}
+            {(!libraryMode || librarySection === "materials") && (
             <section className="panel document-panel">
               <div className="document-list-heading">
-                <h2>文件處理狀態</h2>
-                {files.length > 0 && (
+                <div><h2>公司教材與索引狀態</h2><label className="library-document-search"><span>搜尋教材</span><input type="search" value={librarySearch} onChange={(event) => { setLibrarySearch(event.target.value); setDocumentPage(1); }} placeholder="書名、檔名、科目、標籤…" /></label></div>
+                {categoryFiles.length > 0 && (
                   <div className="document-batch-actions">
                     <label>
                       <input
                         type="checkbox"
-                        checked={files.length > 0 && selectedDocumentIds.length === files.length}
-                        onChange={(event) => setSelectedDocumentIds(event.target.checked ? files.map((file) => file.id) : [])}
+                        checked={categoryFiles.length > 0 && selectedDocumentIds.length === categoryFiles.length}
+                        onChange={(event) => setSelectedDocumentIds(event.target.checked ? categoryFiles.map((file) => file.id) : [])}
                       />
                       全選
                     </label>
@@ -3771,11 +4341,11 @@ export default function AdminPage() {
                 )}
               </div>
               <p className="panel-sub">
-                上傳後會自動完成檔案檢查、文字擷取、分類、章節／題目整理與全文／向量索引；不需要另外按處理。
+                每本書只上傳一次；可同時關聯司律、醫檢師與會計平台。系統保留 PDF 原始頁碼，並可再拆成約 760 字的重疊片段，兼顧精準命中與上下文完整。
               </p>
-              {files.length === 0 ? (
+              {categoryFiles.length === 0 ? (
                 <div className="empty-state">
-                  尚未上傳教材
+                  公司教材資料庫目前尚未上傳文件
                   <br />
                   第一份教材會顯示在這裡
                 </div>
@@ -3805,11 +4375,29 @@ export default function AdminPage() {
                         />
                         <span className="file-type">{file.name.split(".").pop()?.toUpperCase() ?? "FILE"}</span>
                         <div className="file-info">
-                          <strong>{file.name}</strong>
+                          <strong className="document-file-name" title={file.name}>{file.name}</strong>
+                          <label className="document-display-name">
+                            <span>前台教材名稱</span>
+                            <input
+                              value={file.bookTitle ?? ""}
+                              placeholder={documentDisplayTitle(null, file.name)}
+                              aria-label={`${file.name}的前台教材名稱`}
+                              onChange={(event) => setFiles((current) => current.map((item) => item.id === file.id ? { ...item, bookTitle: event.target.value } : item))}
+                              onBlur={() => void saveDocumentBookTitle(file)}
+                              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }}
+                            />
+                            <small>離開欄位會自動儲存；學生端只顯示這個名稱。</small>
+                          </label>
+                          <small className="document-source-name">完整原始檔名：{file.name}</small>
                           <span>
                             {(file.examCategory === "medtech" ? "醫檢師" : file.examCategory === "accounting" ? "會計" : "司律")} · {file.subject} · {file.size}
                           </span>
                           <small>{stageLabel}{file.error ? ` · ${file.error}` : ""}</small>
+                          {ready && (
+                            <small className="document-index-summary">
+                              {file.fullTextIndexed ? "✓ 全文索引完成" : "○ 全文索引待確認"} · {file.vectorIndexed ? "✓ 向量索引完成" : "⚠ 向量索引待確認"}
+                            </small>
+                          )}
                           {(ready || file.processingStage === "analyzing") && (
                             <small className="document-facts">
                               {file.pageCount ? `${file.pageCount} 頁 · ` : ""}
@@ -3817,6 +4405,27 @@ export default function AdminPage() {
                               {file.chapterCount ?? 0} 章 · {file.questionCount ?? 0} 題
                               {file.tags?.length ? ` · ${file.tags.slice(0, 5).join("、")}` : ""}
                             </small>
+                          )}
+                          {ready && (
+                            <div className="document-granular-index">
+                              <div>
+                                <strong>精準搜尋索引</strong>
+                                <small>{file.fineSearchUnitCount ? `已建立 ${file.fineSearchUnitCount.toLocaleString()} 個頁面級片段` : "尚未建立細粒度片段；目前仍可使用全文向量搜尋"}</small>
+                              </div>
+                              <button type="button" onClick={() => void buildFineSearchIndex(file)} disabled={fineIndexingDocumentId !== null}>
+                                {fineIndexingDocumentId === file.id ? "逐頁拆解中…" : file.fineSearchUnitCount ? "檢查並補齊索引" : "建立精準索引"}
+                              </button>
+                            </div>
+                          )}
+                          {ready && (
+                            <div className="document-platform-links">
+                              <strong>使用平台</strong>
+                              {([['law', '司律'], ['medtech', '醫檢師'], ['accounting', '會計']] as const).map(([value, label]) => {
+                                const enabled = (file.assignmentCategories?.length ? file.assignmentCategories : [file.examCategory ?? 'law']).includes(value);
+                                return <button key={value} type="button" className={enabled ? "active" : ""} onClick={() => void toggleDocumentAssignment(file, value)}>{enabled ? "✓ " : "+ "}{label}</button>;
+                              })}
+                              <small>可跨平台共用檔案，但搜尋時只會進入已勾選的平台。</small>
+                            </div>
                           )}
                           {ready && (file.summary || file.chapters?.length || file.questions?.length) && (
                             <details className="document-result">
@@ -3845,6 +4454,58 @@ export default function AdminPage() {
                               <div className="document-index-badges"><span>{file.fullTextIndexed ? "✓ 全文索引" : "○ 全文索引"}</span><span>{file.vectorIndexed ? "✓ 向量索引" : "○ 向量索引"}</span><span>{file.analysisStatus === "completed" ? "✓ AI 結構分析" : "已完成技術索引"}</span></div>
                             </details>
                           )}
+                          {ready && (
+                            <div className="document-search-test">
+                              <div className="document-search-test-heading">
+                                <strong>內部向量檢索測試</strong>
+                                <small>只測這一份教材，不影響學生端設定</small>
+                              </div>
+                              <div className="document-search-test-controls">
+                                <input
+                                  type="search"
+                                  value={documentSearchQueries[file.id] ?? ""}
+                                  placeholder="例如：未遂、第三章、構成要件"
+                                  aria-label={`${file.name}的向量索引測試關鍵字`}
+                                  onChange={(event) => setDocumentSearchQueries((current) => ({ ...current, [file.id]: event.target.value }))}
+                                  onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void testDocumentSearch(file); } }}
+                                />
+                                <button type="button" onClick={() => void testDocumentSearch(file)} disabled={documentSearchTests[file.id]?.status === "testing" || !file.vectorIndexed}>
+                                  {documentSearchTests[file.id]?.status === "testing" ? "測試中…" : "測試命中"}
+                                </button>
+                                <button type="button" className="auto-test" onClick={() => void autoTestDocumentSearch(file)} disabled={documentSearchTests[file.id]?.status === "testing" || !file.vectorIndexed}>
+                                  {documentSearchTests[file.id]?.status === "testing" ? "測試中…" : "AI 自動測試"}
+                                </button>
+                              </div>
+                              {documentSearchTests[file.id]?.status === "error" && (
+                                <small className="document-search-test-error">{documentSearchTests[file.id]?.error}</small>
+                              )}
+                              {documentSearchTests[file.id]?.status === "testing" && !!documentSearchTests[file.id]?.autoResults?.length && (
+                                <div className="document-search-test-result testing">
+                                  <strong>{documentSearchTests[file.id]?.query}</strong>
+                                  <ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} 測試：「{item.query}」</b><span>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}${item.retrievalMode ? ` · ${item.retrievalMode === "fine_lexical" ? "頁面索引" : "向量索引"}` : ""}` : "未命中"}</span>{item.title && <small>命中標題：{item.title}</small>}{item.excerpt && <small className="document-test-excerpt">命中原文：{item.excerpt}</small>}</li>)}</ul>
+                                </div>
+                              )}
+                              {documentSearchTests[file.id]?.status === "success" && (
+                                <div className={`document-search-test-result ${documentSearchTests[file.id]?.selectedFileWasSearched ? "hit" : "miss"}`}>
+                                  {documentSearchTests[file.id]?.autoResults?.length ? <><strong>自動測試通過 {documentSearchTests[file.id]?.autoResults?.filter((item) => item.hit).length} / {documentSearchTests[file.id]?.autoResults?.length} 組</strong><small>下方逐組列出實際測試詞、命中頁碼、索引方式與教材原文。</small><ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} 測試：「{item.query}」</b><span>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}${item.retrievalMode ? ` · ${item.retrievalMode === "fine_lexical" ? "頁面索引" : "向量索引"}` : ""}` : "未命中"}</span>{item.title && <small>命中標題：{item.title}</small>}{item.excerpt && <small className="document-test-excerpt">命中原文：{item.excerpt}</small>}</li>)}</ul></> : <strong>{documentSearchTests[file.id]?.selectedFileWasSearched ? `已命中 ${documentSearchTests[file.id]?.hits?.length ?? 0} 個片段` : "未命中這份指定教材"}</strong>}
+                                  {!!documentSearchTests[file.id]?.hits?.length && (
+                                    <ul>
+                                      {documentSearchTests[file.id]?.hits?.slice(0, 3).map((hit, index) => (
+                                        <li key={`${hit.fileName}-${index}`}>
+                                          {hit.pageStart ? `第 ${hit.pageStart}${hit.pageEnd && hit.pageEnd !== hit.pageStart ? `–${hit.pageEnd}` : ""} 頁｜` : ""}{hit.text}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
+                              <details className="document-search-history" onToggle={(event) => { if (event.currentTarget.open) void loadDocumentSearchHistory(file.id); }}>
+                                <summary>查看最近測試紀錄</summary>
+                                {(documentSearchHistory[file.id] ?? []).map((run) => <article key={run.id}><header><b>{new Date(run.createdAt).toLocaleString("zh-TW")}</b><strong>{run.passed} / {run.total} 組通過</strong></header><ul>{run.results.map((item) => <li key={`${run.id}-${item.query}`}><span>{item.hit ? "✓" : "✕"} 測試：「{item.query}」</span><small>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}${item.retrievalMode ? ` · ${item.retrievalMode === "fine_lexical" ? "頁面索引" : "向量索引"}` : ""}` : "未命中"}</small>{item.excerpt && <small className="document-test-excerpt">命中原文：{item.excerpt}</small>}</li>)}</ul></article>)}
+                                {!documentSearchHistory[file.id]?.length && <small>尚無已保存的自動測試紀錄。</small>}
+                              </details>
+                            </div>
+                          )}
                         </div>
                         <div className="file-card-actions">
                           {ready && (
@@ -3868,9 +4529,9 @@ export default function AdminPage() {
               )}
               <div className="index-metrics" aria-label="教材索引即時統計">
                 <div>
-                  <span>可搜尋</span>
+                  <span>全公司向量可搜尋</span>
                   <strong>
-                    {documentStats.ready} / {documentStats.total}
+                    {categoryFiles.filter((file) => file.vectorIndexed).length} / {categoryFiles.length}
                   </strong>
                 </div>
                 <div>
@@ -3892,7 +4553,7 @@ export default function AdminPage() {
                   <strong>{documentStats.indexVersion}</strong>
                 </div>
               </div>
-              {files.length > DOCUMENTS_PER_PAGE && (
+              {categoryFiles.length > DOCUMENTS_PER_PAGE && (
                 <nav className="document-pagination" aria-label="文件清單分頁">
                   <button
                     type="button"
@@ -3920,7 +4581,9 @@ export default function AdminPage() {
                 </nav>
               )}
             </section>
+            )}
           </div>
+          </>
         )}
         {(activeTab === "resources" || activeTab === "courses" || activeTab === "trials") && (
           <section className="panel resource-manager">
@@ -4034,7 +4697,7 @@ export default function AdminPage() {
                         {resource.resourceType === "book"
                           ? resource.documentId
                             ? resource.documentStatus === "completed"
-                              ? `已完成教材解析與索引（${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"}／${resource.documentQuestionCount ?? 0} 題）`
+                              ? `技術索引：全文${resource.documentFullTextIndexed ? "✓" : "待確認"}、向量${resource.documentVectorIndexed ? "✓" : "待確認"}；AI 結構：${resource.documentTopicCount ?? resource.documentChapterCount ?? 0} ${isProblemSolvingResource(resource) ? "個主題" : "章"}／${resource.documentQuestionCount ?? 0} 題`
                               : "教材已綁定，正在自動解析與建立索引"
                             : "尚未綁定教材文件"
                           : resource.sourceUrl
@@ -4052,20 +4715,47 @@ export default function AdminPage() {
                       </div>
                       {resource.resourceType === "book" && (
                         <>
-                          <select
-                            aria-label={`${resource.title}綁定教材文件`}
-                            value={resource.documentId ?? ""}
-                            onChange={(e) =>
-                              bindBookDocument(resource, e.target.value)
-                            }
-                          >
-                            <option value="">選擇教材文件</option>
-                            {files.map((file) => (
-                              <option key={file.id} value={file.id}>
-                                {file.name}
-                              </option>
-                            ))}
-                          </select>
+                          {(() => {
+                            const query = resourceDocumentQueries[resource.id] ?? "";
+                            const candidateFiles = searchableDocuments(files, "law", resource.subject, query, resource.documentId);
+                            const selectedFile = files.find((file) => file.id === resource.documentId);
+                            return (
+                              <div className="resource-document-picker">
+                                <label>
+                                  <span>搜尋教材文件</span>
+                                  <input
+                                    type="search"
+                                    value={query}
+                                    placeholder={`搜尋「${resource.subject || "教材"}」名稱、檔名或關鍵字`}
+                                    aria-label={`${resource.title}搜尋教材文件`}
+                                    onChange={(event) => setResourceDocumentQueries((current) => ({ ...current, [resource.id]: event.target.value }))}
+                                  />
+                                </label>
+                                <label>
+                                  <span>綁定教材文件</span>
+                                  <select
+                                    aria-label={`${resource.title}綁定教材文件`}
+                                    value={resource.documentId ?? ""}
+                                    onChange={(event) => bindBookDocument(resource, event.target.value)}
+                                  >
+                                    <option value="">選擇教材文件</option>
+                                    {candidateFiles.map((file) => (
+                                      <option key={file.id} value={file.id} title={file.name}>
+                                        {documentOptionLabel(file)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <small>
+                                  {candidateFiles.length
+                                    ? `目前顯示 ${candidateFiles.length} 份「${resource.subject || "相符"}」司律教材`
+                                    : `找不到「${resource.subject || "這本書"}」的司律教材文件；請先到教材知識庫確認類科與科目。`}
+                                </small>
+                                {selectedFile && (selectedFile.examCategory ?? "law") !== "law" && <small className="resource-document-warning">⚠ 目前綁定的是非司律文件，請重新選擇司律教材。</small>}
+                                {selectedFile && (selectedFile.examCategory ?? "law") === "law" && <small className="resource-document-source">目前完整檔名：{selectedFile.name}</small>}
+                              </div>
+                            );
+                          })()}
                           <details className="resource-manage-details">
                             <summary>
                               <span>教材處理與管理</span>
@@ -4081,9 +4771,13 @@ export default function AdminPage() {
                             </summary>
                             <div className="resource-manage-content">
                           {resource.documentId && (
-                            <div className="chapter-progress-panel completed" role="status">
+                            <div className={`chapter-progress-panel ${resource.documentVectorIndexed ? "completed" : "paused"}`} role="status">
                               <div className="chapter-progress-heading">
-                                <strong>{resource.documentStatus === "completed" ? "教材檔案已完成檢查、全文／向量索引" : resource.documentProcessingMessage ?? "教材正在自動處理"}</strong>
+                                <strong>
+                                  {resource.documentStatus === "completed"
+                                    ? `技術索引：全文${resource.documentFullTextIndexed ? "已完成" : "待確認"}／向量${resource.documentVectorIndexed ? "已完成" : "待確認"}`
+                                    : resource.documentProcessingMessage ?? "教材正在自動處理"}
+                                </strong>
                               </div>
                               <div className="chapter-progress-meta">
                                 <span>
@@ -4096,11 +4790,14 @@ export default function AdminPage() {
                                         const questions = storedQuestions || (progress?.foundQuestions ?? 0);
                                         const running = progress && progress.state !== "completed" && progress.totalTopics;
                                         return running
-                                          ? `檔案分析已整理 ${progress.completedTopics ?? 0}／${progress.totalTopics} 個主題 · 已找到 ${questions} 題`
-                                          : `檔案分析已整理 ${topics} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${questions} 題`;
+                                          ? `AI 結構分析：${progress.completedTopics ?? 0}／${progress.totalTopics} 個主題 · ${questions} 題`
+                                          : topics || questions
+                                            ? `AI 結構分析：${topics} ${isProblemSolvingResource(resource) ? "個主題" : "章"} · ${questions} 題`
+                                            : "AI 結構分析：尚未整理出章／題；不影響已完成的全文與向量搜尋";
                                       })()
                                     : "完成後會自動更新章節、題目與分類結果"}
                                 </span>
+                                {resource.documentPageCount ? <small>原始文件：{resource.documentPageCount} 頁</small> : null}
                                 {!!resource.documentTags?.length && <small>標籤：{resource.documentTags.slice(0, 8).join("、")}</small>}
                               </div>
                             </div>
@@ -4194,9 +4891,19 @@ export default function AdminPage() {
                             );
                           })()}
                           {Number(resource.chapterCount ?? 0) > 0 && !isProblemSolvingResource(resource) && (
-                            <span className="chapter-index-complete" role="status">
-                              ✓ 已建立好章節索引（{Number(resource.chapterCount)} 章）
-                            </span>
+                            <>
+                              <span className="chapter-index-complete" role="status">
+                                ✓ 已建立章節索引（{Number(resource.chapterCount)} 筆）
+                              </span>
+                              <button
+                                type="button"
+                                className="chapter-view-open"
+                                disabled={!resource.documentId || chapterBuildRunningRef.current.has(resource.id)}
+                                onClick={() => void buildBookChapters(resource, true)}
+                              >
+                                重新細分章節索引
+                              </button>
+                            </>
                           )}
                             </div>
                           </details>

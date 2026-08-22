@@ -1,10 +1,11 @@
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { examAttempts, examQuestions, studyRecords, usageLogs } from "../../../db/schema";
+import { appSettings, examAttempts, examQuestions, studyRecords, usageLogs } from "../../../db/schema";
 import { taipeiDate } from "../../../lib/taipei-time";
 import {
   getAnthropicKey,
   getAnthropicModel,
+  getOpenAIModel,
   getEssayOpenAIModel,
   getOpenAIKey,
 } from "../../../lib/openai";
@@ -48,7 +49,7 @@ type ModelRun = {
 };
 
 type ModelFailure = {
-  model: "sol" | "claude";
+  model: "sol" | "luna" | "claude";
   label: string;
   message: string;
   retryable: boolean;
@@ -58,7 +59,7 @@ class EssayModelError extends Error {
   constructor(
     message: string,
     public status = 502,
-    public model: "sol" | "claude" = "sol",
+    public model: "sol" | "luna" | "claude" = "sol",
     public retryable = false,
   ) {
     super(message);
@@ -221,19 +222,19 @@ function isRetryableModelFailure(status: number, message: string) {
   return status === 408 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 529 || /overloaded|rate.?limit|temporarily unavailable|service unavailable/i.test(message);
 }
 
-function modelFailure(error: unknown, fallbackModel: "sol" | "claude"): ModelFailure {
+function modelFailure(error: unknown, fallbackModel: "sol" | "luna" | "claude"): ModelFailure {
   if (error instanceof EssayModelError) {
     return {
       model: error.model,
-      label: error.model === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
+      label: error.model === "claude" ? "Claude Opus 5" : error.model === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol",
       message: error.message,
       retryable: error.retryable,
     };
   }
   return {
     model: fallbackModel,
-    label: fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
-    message: (fallbackModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna") + "：批改暫時失敗，請稍後重試。",
+    label: fallbackModel === "claude" ? "Claude Opus 5" : fallbackModel === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol",
+    message: (fallbackModel === "claude" ? "Claude Opus 5" : fallbackModel === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol") + "：批改暫時失敗，請稍後重試。",
     retryable: true,
   };
 }
@@ -289,12 +290,14 @@ function normalizeGradingScale(grading: EssayGrading, question: { stem: string; 
   return { ...grading, score: Math.min(maxScore, dimensionScore), max_score: maxScore } as EssayGrading & { max_score: number };
 }
 
-async function runSol(
+async function runOpenAIGrading(
   apiKey: string,
   model: string,
+  modelKey: "sol" | "luna",
   question: Parameters<typeof gradingInput>[0],
   answer: string,
 ): Promise<ModelRun> {
+  const modelLabel = modelKey === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
@@ -313,11 +316,11 @@ async function runSol(
   };
   if (!response.ok) {
     const detail = modelErrorMessage(payload, "申論批改失敗");
-    throw new EssayModelError(`GPT-5.6 Luna：${detail}`, response.status, "sol", isRetryableModelFailure(response.status, detail));
+    throw new EssayModelError(`${modelLabel}：${detail}`, response.status, modelKey, isRetryableModelFailure(response.status, detail));
   }
   return {
     model,
-    grading: parseModelGrading("GPT-5.6 Luna", responseText(payload)),
+    grading: parseModelGrading(modelLabel, responseText(payload)),
     inputTokens: Number(payload.usage?.input_tokens ?? 0),
     outputTokens: Number(payload.usage?.output_tokens ?? 0),
     cachedTokens: Number(payload.usage?.input_tokens_details?.cached_tokens ?? 0),
@@ -382,22 +385,22 @@ async function runClaude(
   };
 }
 
-function compareGradings(sol: EssayGrading, claude: EssayGrading) {
+function compareGradings(sol: EssayGrading, luna: EssayGrading) {
   const solByCriterion = new Map(sol.dimensions.map((item) => [item.criterion, item]));
   const agreements: string[] = [];
-  const differences: Array<{ criterion: string; sol: number; claude: number }> = [];
-  for (const item of claude.dimensions) {
+  const differences: Array<{ criterion: string; sol: number; luna: number }> = [];
+  for (const item of luna.dimensions) {
     const solItem = solByCriterion.get(item.criterion);
     if (!solItem) {
-      differences.push({ criterion: item.criterion, sol: 0, claude: item.score });
+      differences.push({ criterion: item.criterion, sol: 0, luna: item.score });
     } else if (solItem.score === item.score) {
       agreements.push(`${item.criterion}（${item.score}/${item.max_score}）`);
     } else {
-      differences.push({ criterion: item.criterion, sol: solItem.score, claude: item.score });
+      differences.push({ criterion: item.criterion, sol: solItem.score, luna: item.score });
     }
   }
   return {
-    scoreDifference: Math.abs(sol.score - claude.score),
+    scoreDifference: Math.abs(sol.score - luna.score),
     agreements,
     differences,
   };
@@ -410,11 +413,13 @@ function parseStoredGrading(raw: string) {
       model?: string;
       grading?: EssayGrading;
       sol?: EssayGrading;
+      luna?: EssayGrading;
       claude?: EssayGrading;
       comparison?: ReturnType<typeof compareGradings> | null;
       failures?: ModelFailure[];
       usage?: Array<Pick<ModelRun, "model" | "inputTokens" | "cachedTokens" | "outputTokens" | "estimatedCostUsdMicros">>;
       solUsage?: Pick<ModelRun, "model" | "inputTokens" | "cachedTokens" | "outputTokens" | "estimatedCostUsdMicros">;
+      lunaUsage?: Pick<ModelRun, "model" | "inputTokens" | "cachedTokens" | "outputTokens" | "estimatedCostUsdMicros">;
       claudeUsage?: Pick<ModelRun, "model" | "inputTokens" | "cachedTokens" | "outputTokens" | "estimatedCostUsdMicros">;
     };
   } catch {
@@ -425,6 +430,15 @@ function parseStoredGrading(raw: string) {
 export async function GET(request: Request) {
   try {
     const db = await getDb();
+    const dualSetting = await db
+      .select({ value: appSettings.value })
+      .from(appSettings)
+      .where(eq(appSettings.key, "essay_grading_dual_enabled"))
+      .limit(1);
+    const dualEnabled = dualSetting[0]?.value === "true";
+    if (new URL(request.url).searchParams.get("config") === "1") {
+      return Response.json({ dualEnabled });
+    }
     const rows = await db
       .select({
         attemptId: examAttempts.id,
@@ -433,6 +447,8 @@ export async function GET(request: Request) {
         subject: examQuestions.subject,
         questionNumber: examQuestions.questionNumber,
         stem: examQuestions.stem,
+        teacherAnswer: examQuestions.teacherAnswer,
+        answerSource: examQuestions.answerSource,
         answerText: examAttempts.answerText,
         gradingJson: examAttempts.gradingJson,
         createdAt: examAttempts.createdAt,
@@ -459,20 +475,22 @@ export async function GET(request: Request) {
         subject: row.subject,
         questionNumber: row.questionNumber,
         stem: row.stem,
+        teacherAnswer: row.teacherAnswer,
+        answerSource: row.answerSource,
         answer: row.answerText ?? "",
         savedAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt ?? ""),
         mode: stored.mode ?? "sol",
         model: stored.model,
         grading: stored.grading,
-        reviews: stored.mode === "dual" ? { sol: stored.sol, claude: stored.claude } : undefined,
+        reviews: stored.mode === "dual" ? { sol: stored.sol, luna: stored.luna ?? stored.claude } : undefined,
         comparison: stored.comparison ?? null,
         modelFailures: stored.failures ?? [],
         usage: stored.usage ?? (stored.mode === "dual"
-          ? [stored.solUsage, stored.claudeUsage].filter(Boolean)
+          ? [stored.solUsage, stored.lunaUsage ?? stored.claudeUsage].filter(Boolean)
           : stored.usage ? [stored.usage] : []),
       }];
     });
-    return Response.json({ attempts });
+    return Response.json({ attempts, dualEnabled });
   } catch {
     return Response.json({ error: "申論批改紀錄暫時無法讀取" }, { status: 503 });
   }
@@ -502,15 +520,22 @@ export async function POST(request: Request) {
     const body = await request.json() as { questionId?: number; answer?: string; mode?: EssayModelMode };
     const questionId = Number(body.questionId);
     const answer = String(body.answer ?? "").trim();
-    // 正式申論批改固定使用 Luna。即使舊頁面或舊快取仍送出 sol／dual，
-    // 也只執行一次 Luna，避免額外模型成本。
-    const mode: EssayModelMode = "luna";
+    const requestedMode: "sol" | "luna" | "dual" = body.mode === "sol" || body.mode === "dual" ? body.mode : "luna";
     if (!Number.isInteger(questionId) || !answer) return Response.json({ error: "請提供題目與申論作答內容" }, { status: 400 });
 
     const openAIKey = await getOpenAIKey();
     if (!openAIKey) return Response.json({ error: "OPENAI_API_KEY 尚未設定" }, { status: 503 });
 
     const db = await getDb();
+    const dualSetting = await db
+      .select({ value: appSettings.value })
+      .from(appSettings)
+      .where(eq(appSettings.key, "essay_grading_dual_enabled"))
+      .limit(1);
+    const dualEnabled = dualSetting[0]?.value === "true";
+    // 目前正式申論先由 Luna 完成初步診斷，再交由老師確認。
+    // Sol 與雙模型程式保留，日後可由後台重新開放。
+    const mode: "sol" | "luna" | "dual" = dualEnabled ? requestedMode : "luna";
     const [question] = await db
       .select()
       .from(examQuestions)
@@ -519,21 +544,40 @@ export async function POST(request: Request) {
     if (!question) return Response.json({ error: "找不到已發布的二試申論題" }, { status: 404 });
     if (!question.teacherAnswer.trim()) return Response.json({ error: "這題尚未完成老師擬答核對，暫不能進行依擬答批改。" }, { status: 409 });
 
-    const solModel = await getEssayOpenAIModel("gpt-5.6-luna");
+    const solModel = await getEssayOpenAIModel("gpt-5.6-sol");
+    const lunaModel = await getOpenAIModel("gpt-5.6-luna");
     const runs: ModelRun[] = [];
     const failures: ModelFailure[] = [];
-    runs.push(await runSol(openAIKey, solModel, question, answer));
-
-    const solRun = runs.find((run) => run.model === solModel) ?? (mode === "claude" ? undefined : runs[0]);
-    const claudeRun = undefined;
-    const primary = solRun;
+    async function runOne(modelKey: "sol" | "luna", model: string) {
+      try {
+        const run = await runOpenAIGrading(openAIKey, model, modelKey, question, answer);
+        runs.push(run);
+        return run;
+      } catch (error) {
+        failures.push(modelFailure(error, modelKey));
+        return undefined;
+      }
+    }
+    let solRun: ModelRun | undefined;
+    let lunaRun: ModelRun | undefined;
+    if (mode === "dual") {
+      [solRun, lunaRun] = await Promise.all([
+        runOne("sol", solModel),
+        runOne("luna", lunaModel),
+      ]);
+    } else if (mode === "luna") {
+      lunaRun = await runOne("luna", lunaModel);
+    } else {
+      solRun = await runOne("sol", solModel);
+    }
+    const primary = solRun ?? lunaRun;
     if (!primary) {
       const failure = failures[0];
       if (failure) throw new EssayModelError(failure.message, failure.retryable ? 503 : 502, failure.model, failure.retryable);
       throw new Error("沒有取得申論批改結果");
     }
     for (const run of runs) run.grading = normalizeGradingScale(run.grading, question);
-    const comparison = mode === "dual" && solRun && claudeRun ? compareGradings(solRun.grading, claudeRun.grading) : null;
+    const comparison = mode === "dual" && solRun && lunaRun ? compareGradings(solRun.grading, lunaRun.grading) : null;
     const usage = runs.map((run) => ({
       model: run.model,
       inputTokens: run.inputTokens,
@@ -542,7 +586,7 @@ export async function POST(request: Request) {
       estimatedCostUsdMicros: run.estimatedCostUsdMicros,
     }));
     const storedGrading = mode === "dual"
-      ? { mode, sol: solRun?.grading, claude: claudeRun?.grading, comparison, failures, usage, solUsage: solRun && usage.find((item) => item.model === solRun.model), claudeUsage: claudeRun && usage.find((item) => item.model === claudeRun.model) }
+      ? { mode, sol: solRun?.grading, luna: lunaRun?.grading, comparison, failures, usage, solUsage: solRun && usage.find((item) => item.model === solRun.model), lunaUsage: lunaRun && usage.find((item) => item.model === lunaRun.model) }
       : { mode, model: primary.model, grading: primary.grading, usage };
 
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId, selectedAnswer: null, correct: null, answerText: answer, gradingJson: JSON.stringify(storedGrading) });
@@ -551,7 +595,7 @@ export async function POST(request: Request) {
     for (const run of runs) {
       await db.insert(usageLogs).values({
         model: run.model,
-        source: "二試申論批改（Luna）",
+        source: `二試申論批改（${run.model === lunaModel ? "Luna" : "Sol"}）`,
         inputTokens: run.inputTokens,
         cachedTokens: run.cachedTokens,
         outputTokens: run.outputTokens,
@@ -564,11 +608,12 @@ export async function POST(request: Request) {
       mode,
       saved: true,
       grading: primary.grading,
-      reviews: mode === "dual" ? { sol: solRun?.grading, claude: claudeRun?.grading } : undefined,
+      reviews: mode === "dual" ? { sol: solRun?.grading, luna: lunaRun?.grading } : undefined,
       comparison,
       usage,
       modelFailures: failures,
-      models: { sol: solRun?.model ?? solModel, claude: claudeRun?.model ?? claudeModel },
+      models: { sol: solRun?.model ?? solModel, luna: lunaRun?.model ?? lunaModel },
+      dualEnabled,
       source: { label: question.answerSource || "高點名師參考擬答", status: question.answerStatus },
     });
   } catch (error) {

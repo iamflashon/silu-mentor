@@ -39,13 +39,15 @@ type EssayAttempt = {
   stem: string;
   answer: string;
   savedAt: string;
-  mode: "sol" | "claude" | "dual";
+  mode: "sol" | "luna" | "claude" | "dual";
+  teacherAnswer?: string;
+  answerSource?: string;
   grading?: EssayGrading;
-  reviews?: { sol?: EssayGrading; claude?: EssayGrading };
+  reviews?: { sol?: EssayGrading; luna?: EssayGrading; claude?: EssayGrading };
   comparison?: {
     scoreDifference: number;
     agreements: string[];
-    differences: Array<{ criterion: string; sol: number; claude: number }>;
+    differences: Array<{ criterion: string; sol: number; luna?: number; claude?: number }>;
   } | null;
   usage?: Array<{ model: string; inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsdMicros: number }>;
 };
@@ -106,13 +108,21 @@ function normalizeGrading(value: unknown): EssayGrading | null {
 }
 
 function modeLabel(mode: EssayAttempt["mode"], model?: string) {
-  return mode === "dual" ? "Sol＋Claude 雙模型覆核" : mode === "claude" ? "Claude Opus 5" : model?.includes("luna") ? "GPT-5.6 Luna" : "GPT-5.6 Sol";
+  return mode === "dual" ? "Sol＋Luna 雙模型批改" : mode === "claude" ? "Claude Opus 5" : mode === "luna" || model?.includes("luna") ? "GPT-5.6 Luna" : "GPT-5.6 Sol";
 }
 
 function dateLabel(value: string) {
   if (!value) return "時間未標示";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function teacherAnswerBody(answer: string, source?: string) {
+  const sourceLabel = (source || "老師參考擬答").trim();
+  const text = answer.trim();
+  return sourceLabel && text.startsWith(sourceLabel)
+    ? text.slice(sourceLabel.length).replace(/^[\s：:｜|—-]+/, "").trimStart()
+    : answer;
 }
 
 function GradingView({ grading, title }: { grading: EssayGrading; title?: string }) {
@@ -222,11 +232,11 @@ export function EssayHistory({ onBack }: { onBack: () => void }) {
         <div className="essay-history-list">
           {visibleAttempts.map((attempt) => {
             const solGrading = normalizeGrading(attempt.reviews?.sol);
-            const claudeGrading = normalizeGrading(attempt.reviews?.claude);
+            const lunaGrading = normalizeGrading(attempt.reviews?.luna ?? attempt.reviews?.claude);
             const primary = attempt.mode === "dual"
-              ? solGrading ?? claudeGrading
+              ? solGrading ?? lunaGrading
               : normalizeGrading(attempt.grading);
-            const hasDualReviews = attempt.mode === "dual" && solGrading && claudeGrading;
+            const hasDualReviews = attempt.mode === "dual" && solGrading && lunaGrading;
             return (
               <details className="essay-history-card" key={attempt.id}>
                 <summary>
@@ -239,12 +249,13 @@ export function EssayHistory({ onBack }: { onBack: () => void }) {
                   {hasDualReviews ? (
                     <section className="essay-history-dual">
                       <div className="essay-history-dual-head"><strong>雙模型覆核結果</strong>{attempt.comparison && <span>總分差距 {attempt.comparison.scoreDifference} 分</span>}</div>
-                      <div className="essay-history-dual-grid"><GradingView grading={solGrading} title="GPT-5.6 Sol" /><GradingView grading={claudeGrading} title="Claude Opus 5" /></div>
-                      {attempt.comparison && <div className="essay-history-comparison"><b>覆核摘要</b>{attempt.comparison.agreements.length > 0 && <p>配分一致：{attempt.comparison.agreements.join("、")}</p>}{attempt.comparison.differences.length > 0 && <p>配分差異：{attempt.comparison.differences.map((item) => `${item.criterion}（Sol ${item.sol}／Claude ${item.claude}）`).join("、")}</p>}</div>}
+                      <div className="essay-history-dual-grid"><GradingView grading={solGrading} title="GPT-5.6 Sol" /><GradingView grading={lunaGrading} title="GPT-5.6 Luna" /></div>
+                      {attempt.comparison && <div className="essay-history-comparison"><b>覆核摘要</b>{attempt.comparison.agreements.length > 0 && <p>配分一致：{attempt.comparison.agreements.join("、")}</p>}{attempt.comparison.differences.length > 0 && <p>配分差異：{attempt.comparison.differences.map((item) => `${item.criterion}（Sol ${item.sol}／Luna ${item.luna ?? item.claude ?? 0}）`).join("、")}</p>}</div>}
                     </section>
                   ) : primary ? <GradingView grading={primary} title={attempt.mode === "dual" ? "可用的模型批改結果" : modeLabel(attempt.mode, attempt.model ?? attempt.usage?.[0]?.model)} /> : (
                     <div className="essay-history-empty is-error">這筆紀錄只有作答內容，批改欄位格式較舊；請回到練真題重新批改。</div>
                   )}
+                  {attempt.teacherAnswer && <details className="essay-teacher-answer essay-history-teacher-answer"><summary>查看老師擬答</summary><div><strong>{attempt.answerSource || "老師參考擬答"}</strong><p>{teacherAnswerBody(attempt.teacherAnswer, attempt.answerSource)}</p><small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small></div></details>}
                 </div>
               </details>
             );

@@ -1,20 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./entry-gate.css";
 import "./plan/selection-tools.css";
 import GlobalSelectionTools from "./global-selection-tools";
 import StudyBreakReminder from "./study-break-reminder";
 import NavigationFeedback from "./navigation-feedback";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import SimulationToolsVisibility from "./simulation-tools-visibility";
+import FrontendCostVisibility from "./frontend-cost-visibility";
 
 export const metadata: Metadata = {
   title: { default: "iBrain AI 學習平台", template: "%s｜iBrain AI 學習平台" },
@@ -40,9 +32,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-Hant">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
+        <SimulationToolsVisibility />
+        <FrontendCostVisibility />
         {children}
         <NavigationFeedback />
         <GlobalSelectionTools />

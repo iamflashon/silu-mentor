@@ -6,7 +6,7 @@ import { ListeningPlayer, ListeningFeed } from "./listening-player";
 import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
 import { formatTwd } from "../lib/currency";
 import { coreExamPoints, type CoreExamPoint } from "../lib/core-exam-points";
-import "./entry-gate.css";
+import { useSimulationToolsEnabled } from "../lib/use-simulation-tools";
 
 type ComparisonResponse = {
   id: number;
@@ -32,7 +32,20 @@ const teachingLevelLabels: Record<TeachingLevel, string> = {
 type TeachingRound = { level: TeachingLevel; label: string; reply: string; teacherA: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null }; teacherB?: { label?: string; model: string; text: string; usage: EvaluationUsage; stopReason: string | null } };
 type TeachingEvidence = { status: "verified" | "applied_inference" | "full_text_search" | "unavailable"; retrieval: string; resourceTitle: string; segmentTitle: string; lessonLabel: string; pageStart: number | null; pageEnd: number | null; fileName: string; excerpt: string; message: string; matchedTerms?: string[]; basis?: "teacher_solution" | "chapter" };
 type ChallengeThread = { targetLabel: string; targetExcerpt: string; challengeText: string; challengeUsage: ReplyUsage; replyText: string; replyUsage: ReplyUsage; version: number; applied: boolean };
-type Message = { role: "mentor" | "student"; text: string; source?: string | null; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread; practiceQuestion?: PracticeQuestion | null };
+type PracticeHistoryState = { questionId: number; selectedAnswer: string | null; correct: boolean | null; correctAnswer: string | null; completed: boolean; readyToComplete: boolean; discussion: boolean };
+type Message = { role: "mentor" | "student"; text: string; source?: string | null; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; model?: string; usage?: ReplyUsage; comparison?: ModelComparison; challengeThread?: ChallengeThread; practiceQuestion?: PracticeQuestion | null; practiceState?: PracticeHistoryState | null };
+
+function examPointSubject(subject: string) {
+  const normalized = subject.replace(/\s/g, "");
+  if (/刑事訴訟|刑訴/.test(normalized)) return "刑事訴訟法";
+  if (/民事訴訟|民訴/.test(normalized)) return "民事訴訟法";
+  if (/刑法/.test(normalized)) return "刑法";
+  if (/民法/.test(normalized)) return "民法";
+  if (/憲法/.test(normalized)) return "憲法";
+  if (/行政/.test(normalized)) return "行政法";
+  if (/商|公司|證券|保險|票據/.test(normalized)) return "商事法";
+  return "";
+}
 type FollowUpSelection = { key: string; label: string; model: string; text: string; prompt: string; excerpt?: string };
 type AnswerAction = "plain" | "detailed" | "follow-up";
 type ReplyUsage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; fileSearchCalls: number; webSearchCalls?: number; modelTokenCostUsd?: number; fileSearchCostUsd?: number; webSearchCostUsd?: number; estimatedCostUsd: number; durationMs: number };
@@ -102,6 +115,7 @@ function sourceDisplayName(source: string) {
   return source
     .replace(/｜https?:\/\/\S+$/i, "")
     .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "")
     .trim();
 }
 function visibleSourceNames(sources?: string[]) {
@@ -112,7 +126,7 @@ function TeachingEvidenceDetails({ evidence }: { evidence?: TeachingEvidence | n
   const pages = evidence.pageStart ? `第 ${evidence.pageStart}${evidence.pageEnd && evidence.pageEnd !== evidence.pageStart ? `–${evidence.pageEnd}` : ""} 頁` : "頁碼尚未核對";
   const isTeacherSolution = evidence.basis === "teacher_solution";
   const label = isTeacherSolution ? "🟢 已鎖定本題老師解析／擬答" : evidence.status === "verified" ? "🟢 教材原文直接支持本次教學內容" : evidence.status === "applied_inference" ? "🔵 教材提供判準，AI 依原文涵攝" : evidence.status === "full_text_search" ? (evidence.retrieval === "full_text_search" ? "🟡 僅命中全文索引，尚不足以核對本次內容" : "🟡 找到相關教材，但不足以核對本次內容") : "⚪ 未取得教材原文";
-  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>{isTeacherSolution ? "查看老師完整原文" : "展開驗證證據"}</span></summary><div><dl><div><dt>書籍／檔案</dt><dd>{evidence.resourceTitle || evidence.fileName || "未提供"}</dd></div><div><dt>實際位置</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("｜")}</dd></div><div><dt>資料身分</dt><dd>{isTeacherSolution ? "同一題的老師爭點解析／擬答" : evidence.retrieval === "chapter_segment" ? "章節內文比對" : evidence.retrieval === "stored_analysis" ? "教材解析結果比對" : evidence.retrieval === "full_text_search" ? "全文索引搜尋" : "未使用教材"}</dd></div><div><dt>核對狀態</dt><dd>{evidence.message}</dd></div></dl>{!isTeacherSolution && evidence.matchedTerms?.length ? <p className="evidence-keywords"><b>命中關鍵：</b>{evidence.matchedTerms.join("、")}</p> : null}{evidence.excerpt ? <><b className="evidence-section-label">{isTeacherSolution ? "老師解析／擬答完整原文" : "教材原文"}</b><blockquote>{evidence.excerpt}</blockquote><small>{isTeacherSolution ? "上方精簡整理以此原文為準；AI 額外補充會另標示為「AI 延伸檢查」。" : "章節頁碼是本教材 PDF 的位置；原文註腳中的其他頁碼屬引用書目頁碼。"}</small></> : null}{evidence.status === "applied_inference" ? <p className="evidence-application"><b>AI 涵攝：</b>原文負責提供抽象判準；本次回答中的具體罪名或事實判斷由 AI 依該判準完成。</p> : null}{!isTeacherSolution ? <small>綠色＝教材直接支持回答或依原文出題；藍色＝教材提供判準、AI 正常涵攝；黃色＝只有相關內容，仍不足以支持回答。</small> : null}</div></details>;
+  return <details className={`teaching-evidence ${evidence.status}`}><summary>{label}<span>{isTeacherSolution ? "查看老師完整原文" : "展開驗證證據"}</span></summary><div><dl><div><dt>教材</dt><dd>{evidence.resourceTitle || "未設定教材名稱"}</dd></div><div><dt>實際位置</dt><dd>{[evidence.segmentTitle, evidence.lessonLabel, pages].filter(Boolean).join("｜")}</dd></div><div><dt>資料身分</dt><dd>{isTeacherSolution ? "同一題的老師爭點解析／擬答" : evidence.retrieval === "chapter_segment" ? "章節內文比對" : evidence.retrieval === "stored_analysis" ? "教材解析結果比對" : evidence.retrieval === "full_text_search" ? "全文索引搜尋" : "未使用教材"}</dd></div><div><dt>核對狀態</dt><dd>{evidence.message}</dd></div></dl>{!isTeacherSolution && evidence.matchedTerms?.length ? <p className="evidence-keywords"><b>命中關鍵：</b>{evidence.matchedTerms.join("、")}</p> : null}{evidence.excerpt ? <><b className="evidence-section-label">{isTeacherSolution ? "老師解析／擬答完整原文" : "教材原文"}</b><blockquote>{evidence.excerpt}</blockquote><small>{isTeacherSolution ? "上方精簡整理以此原文為準；AI 額外補充會另標示為「AI 延伸檢查」。" : "章節頁碼依教材檔案頁序標示；原文註腳中的其他頁碼屬引用書目頁碼。"}</small></> : null}{evidence.status === "applied_inference" ? <p className="evidence-application"><b>AI 涵攝：</b>原文負責提供抽象判準；本次回答中的具體罪名或事實判斷由 AI 依該判準完成。</p> : null}{!isTeacherSolution ? <small>綠色＝教材直接支持回答或依原文出題；藍色＝教材提供判準、AI 正常涵攝；黃色＝只有相關內容，仍不足以支持回答。</small> : null}</div></details>;
 }
 function answerParagraphs(text: string) {
   const clean = cleanMessageText(text).trim();
@@ -142,7 +156,7 @@ function PracticeQuestionBubble({ question, answer, onAnswer, onEssayStart }: { 
     {question.examType === "mcq" && question.options ? <div className="option-grid single-column-options">{["A", "B", "C", "D"].filter((key) => question.options?.[key]).map((key) => <button className={answer?.selected === key ? "selected" : ""} disabled={Boolean(answer)} onClick={() => onAnswer(key)} key={key}><b>{key}</b><span>{question.options?.[key]}</span></button>)}</div> : <button className="essay-start" onClick={onEssayStart}>開始學審題</button>}
   </section>;
 }
-function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedKeys, onRate, onToggleFollowUp, onAnswerAction, thinking }: { comparison: ModelComparison; messageIndex: number; pairedPrompt: string; selectedKeys: string[]; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void>; onToggleFollowUp: (selection: FollowUpSelection) => void; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; thinking?: boolean }) {
+function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedKeys, onRate, onToggleFollowUp, onAnswerAction, thinking, showCosts }: { comparison: ModelComparison; messageIndex: number; pairedPrompt: string; selectedKeys: string[]; onRate: (responseId: number, feedbackType: "preferred" | "rated", score: number) => Promise<void>; onToggleFollowUp: (selection: FollowUpSelection) => void; onAnswerAction: (action: AnswerAction, selection: { label: string; model: string; text: string; prompt: string; excerpts: string[] }) => void; thinking?: boolean; showCosts: boolean }) {
   const [scores, setScores] = useState<Record<number, number>>({});
   const [saved, setSaved] = useState<number | null>(null);
   return <section className="model-comparison-card" aria-label="AI 模型測試比較">
@@ -153,7 +167,7 @@ function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedK
         {response.error ? <p className="model-comparison-error">{response.error}</p> : <MentorAnswerText text={response.text} label={response.label} model={response.model} prompt={pairedPrompt} onAnswerAction={onAnswerAction} disabled={thinking} />}
         {response.stopReason === "max_tokens" && <small className="model-comparison-truncated">⚠ Claude 回答達到輸出上限，這次內容可能不完整</small>}
         {visibleSourceNames(response.sources).length > 0 && <small className="model-comparison-sources">查證來源：{visibleSourceNames(response.sources).join("、")}</small>}
-        <div className="model-comparison-meta"><span>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms</span><span>US$ {response.usage.estimatedCostUsd.toFixed(5)} · NT$ {(response.usage.estimatedCostUsd * 32.5).toFixed(3)}</span></div>
+        {showCosts && <div className="model-comparison-meta"><span>{response.usage.inputTokens + response.usage.outputTokens} tokens · {response.usage.durationMs.toLocaleString()} ms</span><span>US$ {response.usage.estimatedCostUsd.toFixed(5)} · NT$ {(response.usage.estimatedCostUsd * 32.5).toFixed(3)}</span></div>}
         {!response.error && <label className={`follow-up-check ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`)} onChange={() => onToggleFollowUp({ key: `teacher:${messageIndex}:${response.id}:${response.label}`, label: response.label, model: response.model, text: response.text, prompt: pairedPrompt })} /><span>回覆此訊息</span></label>}
         {!response.error && <div className="model-comparison-actions"><label>測試評分<select value={scores[response.id] ?? 0} onChange={(event) => setScores((current) => ({ ...current, [response.id]: Number(event.target.value) }))}><option value={0}>請評分</option>{[1, 2, 3, 4, 5].map((score) => <option value={score} key={score}>{score} 分</option>)}</select></label><button type="button" disabled={!scores[response.id] || saved === response.id} onClick={async () => { await onRate(response.id, "rated", scores[response.id]); setSaved(response.id); }}>送出評分</button><button type="button" className="comparison-preferred" onClick={async () => { await onRate(response.id, "preferred", 5); setSaved(response.id); }}>選這個比較好</button></div>}
         {saved === response.id && <small className="model-comparison-saved">已記錄測試回饋</small>}
@@ -177,6 +191,7 @@ export function LawHome() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [railSide, setRailSide] = useState<"left" | "right">("right");
   const [railCollapsed, setRailCollapsed] = useState(true);
+  const [chatFocusMode, setChatFocusMode] = useState(false);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
   const [input, setInput] = useState("");
@@ -230,7 +245,18 @@ export function LawHome() {
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [terraChallenging, setTerraChallenging] = useState(false);
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
+  const simulationToolsEnabled = useSimulationToolsEnabled();
   const [memberMenuOpen, setMemberMenuOpen] = useState(false);
+  const activeStudySubject = useMemo(() => examPointSubject(
+    practiceQuestion?.subject
+      || todayTasks.find((task) => task.id === selectedTodayTaskId)?.subject
+      || todayTasks.find((task) => task.status !== "completed")?.subject
+      || "",
+  ), [practiceQuestion?.subject, selectedTodayTaskId, todayTasks]);
+  const subjectExamPoints = useMemo(
+    () => coreExamPoints.filter((point) => point.subject === activeStudySubject),
+    [activeStudySubject],
+  );
   const handoffHandled = useRef(false);
   useEffect(() => {
     fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
@@ -274,8 +300,18 @@ export function LawHome() {
   }, []);
 
   useEffect(() => {
-    setHomeExamPoint(coreExamPoints[Math.floor(Math.random() * coreExamPoints.length)] ?? coreExamPoints[0]);
-  }, []);
+    if (!chatFocusMode) return;
+    const exitFocusMode = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setChatFocusMode(false);
+    };
+    window.addEventListener("keydown", exitFocusMode);
+    return () => window.removeEventListener("keydown", exitFocusMode);
+  }, [chatFocusMode]);
+
+  useEffect(() => {
+    if (!subjectExamPoints.length) return;
+    setHomeExamPoint(subjectExamPoints[Math.floor(Math.random() * subjectExamPoints.length)] ?? subjectExamPoints[0]);
+  }, [subjectExamPoints]);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -308,6 +344,21 @@ export function LawHome() {
         const restoredQuestion = [...restored].reverse().find((message) => message.practiceQuestion)?.practiceQuestion ?? null;
         setPracticeQuestion(restoredQuestion);
         if (restoredQuestion) {
+          const restoredState = [...restored].reverse().find((message) => message.practiceState?.questionId === restoredQuestion.id)?.practiceState ?? null;
+          if (restoredState) {
+            setPracticeAnswer(restoredState.selectedAnswer && restoredState.correctAnswer && typeof restoredState.correct === "boolean" ? { selected: restoredState.selectedAnswer, correct: restoredState.correct, correctAnswer: restoredState.correctAnswer } : null);
+            setPracticeCompleted(restoredState.completed);
+            setPracticeReadyToComplete(restoredState.readyToComplete);
+            setPracticeDiscussion(restoredState.discussion);
+          } else {
+            const practiceMessages = restored.slice(restored.findIndex((message) => message.practiceQuestion?.id === restoredQuestion.id) + 1).filter((message) => message.source === "真題練習");
+            const lastStudentText = [...practiceMessages].reverse().find((message) => message.role === "student")?.text ?? "";
+            const lastMentorText = [...practiceMessages].reverse().find((message) => message.role === "mentor")?.text ?? "";
+            const selectedAnswer = [...lastStudentText.matchAll(/(?:我選|改選|選擇)\s*([A-D])/gi)].at(-1)?.[1]?.toUpperCase() ?? null;
+            const correctAnswer = lastMentorText.match(/正確答案(?:是|為)\s*([A-D])/i)?.[1]?.toUpperCase() ?? null;
+            if (selectedAnswer && correctAnswer) setPracticeAnswer({ selected: selectedAnswer, correct: selectedAnswer === correctAnswer, correctAnswer });
+            if (/正確答案(?:是|為)|判定答[對錯]|法律分析已正確|判斷已正確/.test(lastMentorText)) setPracticeReadyToComplete(true);
+          }
           const questionIndex = restored.findIndex((message) => message.practiceQuestion?.id === restoredQuestion.id);
           setPracticeCoachMessages(restored.slice(questionIndex + 1).filter((message) => message.source === "真題練習").map((message) => ({ role: message.role, text: message.text })));
         }
@@ -350,7 +401,11 @@ export function LawHome() {
 
   useEffect(() => { fetch("/api/home-feed").then(async (response) => { if (response.ok) setHomeFeed(await response.json() as HomeFeed); }).catch(() => undefined); }, []);
   useEffect(() => { if (magazineArticles.length && !magazineArticles.some((article) => article.id === selectedMagazineArticleId)) setSelectedMagazineArticleId(magazineArticles[0].id); }, [magazineArticles, selectedMagazineArticleId]);
-  useEffect(() => { fetch("/api/legal-learning").then(async (response) => { if (response.ok) setLegalLesson(((await response.json()) as { article?: LegalLesson | null }).article ?? null); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!activeStudySubject) { setLegalLesson(null); return; }
+    setLegalLesson(null);
+    fetch(`/api/legal-learning?subject=${encodeURIComponent(activeStudySubject)}`).then(async (response) => { if (response.ok) setLegalLesson(((await response.json()) as { article?: LegalLesson | null }).article ?? null); }).catch(() => undefined);
+  }, [activeStudySubject]);
   useEffect(() => { fetch("/api/legal-dictionary?random=1").then(async (response) => { if (response.ok) setDictionaryFeatured(await response.json() as DictionaryResult); }).catch(() => undefined); }, []);
   useEffect(() => {
     fetch("/api/dashboard").then(async (response) => {
@@ -481,8 +536,8 @@ export function LawHome() {
 
   function swapHomeExamPoint() {
     setHomeExamPoint((current) => {
-      if (coreExamPoints.length < 2) return current;
-      const candidates = coreExamPoints.filter((point) => point.title !== current.title || point.subject !== current.subject);
+      if (subjectExamPoints.length < 2) return current;
+      const candidates = subjectExamPoints.filter((point) => point.title !== current.title);
       return candidates[Math.floor(Math.random() * candidates.length)] ?? current;
     });
   }
@@ -492,7 +547,8 @@ export function LawHome() {
   }
 
   async function loadRandomLegalLesson() {
-    const response = await fetch("/api/legal-learning?random=1");
+    if (!activeStudySubject) return;
+    const response = await fetch(`/api/legal-learning?random=1&subject=${encodeURIComponent(activeStudySubject)}`);
     if (!response.ok) return;
     const result = await response.json() as { article?: LegalLesson | null };
     if (result.article) setLegalLesson(result.article);
@@ -538,7 +594,7 @@ export function LawHome() {
     void send(`請用司律考生能理解的方式教我法律名詞「${dictionaryFeatured.term}」。\n司法院裁判書用語辭典內容：\n${dictionaryFeatured.content}\n請先說明白話意思，再補充它常出現在哪一科、容易和什麼概念混淆，最後問我一個判斷題。`);
   }
 
-  async function askPracticeCoach(text: string, modeOverride?: "answer_reason" | "discussion" | "complete_confirm") {
+  async function askPracticeCoach(text: string, modeOverride?: "answer_reason" | "discussion" | "complete_confirm", afterCompletion?: "learning" | "next") {
     if (!practiceQuestion || practiceCoaching || !text.trim()) return;
     const studentMessage = { role: "student" as const, text: text.trim() };
     const messagesForRequest = [...practiceCoachMessages, studentMessage];
@@ -553,16 +609,30 @@ export function LawHome() {
       const mentorMessage = { role: "mentor" as const, text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" };
       setPracticeCoachMessages((current) => [...current, mentorMessage]);
       setMessages((current) => [...current, { ...mentorMessage, source: "真題練習" }]);
-      if (dialogueMode === "complete_confirm" && result.completed) {
+      const nextCompleted = dialogueMode === "complete_confirm" && Boolean(result.completed);
+      const nextReadyToComplete = !nextCompleted && Boolean(result.completed);
+      const nextDiscussion = !nextCompleted && (dialogueMode === "discussion" || practiceDiscussion);
+      if (nextCompleted) {
         setPracticeCompleted(true);
         setPracticeReadyToComplete(false);
-      } else if (result.completed) {
+      } else if (nextReadyToComplete) {
         setPracticeReadyToComplete(true);
         setPracticeCompleted(false);
       } else {
         setPracticeReadyToComplete(false);
       }
-      if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: [studentMessage, mentorMessage] }) });
+      if (sessionId) await fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: [studentMessage, mentorMessage], state: { questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, correct: practiceAnswer?.correct ?? null, correctAnswer: practiceAnswer?.correctAnswer ?? null, completed: nextCompleted, readyToComplete: nextReadyToComplete, discussion: nextDiscussion } satisfies PracticeHistoryState }) });
+      if (afterCompletion && nextCompleted) {
+        setPracticeQuestion(null);
+        setPracticeAnswer(null);
+        setPracticeCoachMessages([]);
+        setPracticeCompleted(false);
+        setPracticeReadyToComplete(false);
+        setPracticeDiscussion(false);
+        if (afterCompletion === "next") await startPractice("mcq");
+        else await send("這題已理解並完成。請依我目前的學習進度繼續教下一個內容；不要再出練習題，也不要延續本題討論。");
+        return;
+      }
       if (/本題引導結束|本次對話已結束/.test(mentorMessage.text)) setPracticeQuestion(null);
     } finally {
       setPracticeCoaching(false);
@@ -588,7 +658,7 @@ export function LawHome() {
     ];
     setPracticeCoachMessages(turns);
     setMessages((current) => [...current, ...turns.map((turn) => ({ ...turn, source: "真題練習" }))]);
-    if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: turns }) });
+    if (sessionId) void fetch("/api/chat/practice-turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId, messages: turns, state: { questionId: practiceQuestion.id, selectedAnswer: answer, correct: result.correct, correctAnswer: result.correctAnswer, completed: false, readyToComplete: false, discussion: false } satisfies PracticeHistoryState }) });
   }
 
   function chooseQuestionImage(file: File | undefined) {
@@ -961,7 +1031,7 @@ export function LawHome() {
   }
 
   return (
-    <main className="coach-shell">
+    <main className={`coach-shell ${chatFocusMode ? "chat-focus-mode" : ""}`}>
       <header className="topbar">
         <div className="brand-zone"><a href="/law" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
@@ -970,7 +1040,7 @@ export function LawHome() {
           <a href="/issues" className="admin-link">找爭點</a>
           <a href="/summaries" className="admin-link">整摘要</a>
           <a href="/law/guide" className="admin-link">使用說明</a>
-          {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
+          {currentMember?.canAdmin && <a href="/admin/library" className="admin-link">管理後台</a>}
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
           {currentMember ? <div className={`member-menu-wrap ${memberMenuOpen ? "is-open" : ""}`}>
             <button type="button" className="member-chip" title={currentMember.email} aria-haspopup="menu" aria-expanded={memberMenuOpen} onClick={() => setMemberMenuOpen((open) => !open)}><span>{currentMember.displayName.slice(0, 1)}</span><b>{currentMember.displayName}</b><small>帳號</small><i aria-hidden="true">⌄</i></button>
@@ -987,7 +1057,7 @@ export function LawHome() {
         <a href="/law/guide">使用說明</a>
       </nav>
 
-      <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>法條學習</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>法條學習</b><span>全國法規匯入後，點擊隨機學習</span></span>}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button></div></section></div>
+      <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{activeStudySubject && (legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>{activeStudySubject}法條</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>{activeStudySubject}法條</b><span>正在依今日考科推薦</span></span>)}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button></div></section></div>
 
       {practiceQuestion && <button
         type="button"
@@ -1006,11 +1076,11 @@ export function LawHome() {
         <div className="conversation-heading">
           <p>AI 司律作戰中心</p>
           <h1>今天，照計畫前進。</h1>
-          <div className="home-exam-point" aria-label="今日熱考點推薦">
+          {activeStudySubject && subjectExamPoints.length > 0 && <div className="home-exam-point" aria-label={`${activeStudySubject}今日熱考點推薦`}>
             <span>今日熱考點</span>
             <button type="button" className="home-exam-point-title" onClick={learnHomeExamPoint}><b>{homeExamPoint.subject}</b>{homeExamPoint.title}</button>
             <button type="button" className="home-exam-point-swap" onClick={swapHomeExamPoint}>換一個</button>
-          </div>
+          </div>}
           <div className="home-calendar-entry">
             <span>我會讀取你的計畫、進度與教材，接著上次的地方帶你學。</span>
             <a href="/calendar" aria-label="開啟我的行事曆">行事曆</a>
@@ -1036,29 +1106,30 @@ export function LawHome() {
           {messages.map((message, index) => (
             <div className={`message-row ${message.role}`} key={`${message.role}-${index}`}>
               {message.role === "mentor" && <span className="mentor-avatar">律</span>}
-              <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} onAnswerAction={runAnswerAction} disabled={thinking} showLearningActions={false} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>Token 成本 US$ {(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd).toFixed(5)} · 約 NT$ {formatTwd(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd)}</span>{message.usage.webSearchCalls ? <span>外網查證 {message.usage.webSearchCalls} 次 · 搜尋成本 US$ {(message.usage.webSearchCostUsd ?? 0).toFixed(5)} · 約 NT$ {formatTwd(message.usage.webSearchCostUsd ?? 0)}</span> : null}<span>本次合計 US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)} · 耗時 {message.usage.durationMs.toLocaleString()} ms</span></small> : null}{message.role === "mentor" && visibleSourceNames(message.sources).length ? <small className="message-sources">{message.citationStatus === "web_search" ? "查證來源" : "教材來源"}：{visibleSourceNames(message.sources).join("、")}{citationStatusLabel(message.citationStatus) ? ` · ${citationStatusLabel(message.citationStatus)}` : ""}</small> : message.role === "mentor" && message.citationStatus && citationStatusLabel(message.citationStatus) ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{!message.comparison && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}`, label: modelLabel(message.model ?? "gpt-5.6-luna"), model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>回覆此訊息</span></label>}{isLearningNote(message.text) && <button type="button" className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}{/luna/i.test(message.model ?? "luna") && <button type="button" className="ask-sol-button" disabled={thinking || solReviewingIndex !== null || solReviewedIndexes.includes(index)} onClick={() => void requestSolReview(message, index)}>{solReviewingIndex === index ? "Sol 覆核中…" : solReviewedIndexes.includes(index) ? "Sol 已覆核 ✓" : "✦ 請 Sol 學霸覆核"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已送老師 ✓" : /sol/i.test(message.model ?? "") ? "回饋並請老師確認" : "回饋"}</summary><div><button type="button" onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button type="button" onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button type="button" onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button type="button" onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+            <div className="message-bubble">{message.comparison ? <ModelComparisonCard comparison={message.comparison} messageIndex={index} pairedPrompt={pairedStudentPrompt(messages, index)} selectedKeys={selectedFollowUpKeys} onRate={rateComparison} onToggleFollowUp={toggleFollowUpSelection} onAnswerAction={runAnswerAction} thinking={thinking} showCosts={showCosts} /> : <>{message.role === "mentor" ? <MentorAnswerText text={message.text} label={modelLabel(message.model ?? "gpt-5.6-luna")} model={message.model ?? "gpt-5.6-luna"} prompt={pairedStudentPrompt(messages, index)} onAnswerAction={runAnswerAction} disabled={thinking} showLearningActions={false} /> : <span className="message-text">{cleanMessageText(message.text)}</span>}{message.role === "mentor" && message.usage && showCosts ? <small className="message-usage"><b>{message.usage.model.replace("gpt-5.6-", "")}</b><span>輸入 {message.usage.inputTokens.toLocaleString()} · 輸出 {message.usage.outputTokens.toLocaleString()} · 合計 {(message.usage.inputTokens + message.usage.outputTokens).toLocaleString()} tokens</span><span>Token 成本 US$ {(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd).toFixed(5)} · 約 NT$ {formatTwd(message.usage.modelTokenCostUsd ?? message.usage.estimatedCostUsd)}</span>{message.usage.webSearchCalls ? <span>外網查證 {message.usage.webSearchCalls} 次 · 搜尋成本 US$ {(message.usage.webSearchCostUsd ?? 0).toFixed(5)} · 約 NT$ {formatTwd(message.usage.webSearchCostUsd ?? 0)}</span> : null}<span>本次合計 US$ {message.usage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(message.usage.estimatedCostUsd)} · 耗時 {message.usage.durationMs.toLocaleString()} ms</span></small> : null}{message.role === "mentor" && visibleSourceNames(message.sources).length ? <small className="message-sources">{message.citationStatus === "web_search" ? "查證來源" : "教材來源"}：{visibleSourceNames(message.sources).join("、")}{citationStatusLabel(message.citationStatus) ? ` · ${citationStatusLabel(message.citationStatus)}` : ""}</small> : message.role === "mentor" && message.citationStatus && citationStatusLabel(message.citationStatus) ? <small className="message-sources">{citationStatusLabel(message.citationStatus)}</small> : null}</>}{message.role === "mentor" && <div className="message-actions">{!message.comparison && <label className={`follow-up-check message-follow-up-check ${selectedFollowUpKeys.includes(`teacher:${index}`) ? "follow-up-selected" : ""}`}><input type="checkbox" checked={selectedFollowUpKeys.includes(`teacher:${index}`)} onChange={() => toggleFollowUpSelection({ key: `teacher:${index}`, label: modelLabel(message.model ?? "gpt-5.6-luna"), model: message.model ?? "gpt-5.6-luna", text: message.text, prompt: pairedStudentPrompt(messages, index) })} /><span>回覆此訊息</span></label>}{isLearningNote(message.text) && <button type="button" className="save-note-button" onClick={() => saveMessageNote(message, index)}>{savedMessage === index ? "已收藏 ✓" : "收藏筆記"}</button>}{/luna/i.test(message.model ?? "luna") && <button type="button" className="ask-sol-button" disabled={thinking || solReviewingIndex !== null || solReviewedIndexes.includes(index)} onClick={() => void requestSolReview(message, index)}>{solReviewingIndex === index ? "Sol 覆核中…" : solReviewedIndexes.includes(index) ? "Sol 已覆核 ✓" : "✦ 請 Sol 學霸覆核"}</button>}<details className="feedback-menu"><summary>{feedbackMessage === index ? "已送老師 ✓" : /sol/i.test(message.model ?? "") ? "回饋並請老師確認" : "回饋"}</summary><div><button type="button" onClick={() => sendFeedback(message, index, "helpful")}>有幫助</button><button type="button" onClick={() => sendFeedback(message, index, "incorrect")}>內容有誤</button><button type="button" onClick={() => sendFeedback(message, index, "unclear")}>不夠清楚</button><button type="button" onClick={() => sendFeedback(message, index, "not_learning")}>非學習內容</button></div></details></div>}</div>
+              {message.role === "mentor" && index === messages.length - 1 && !practiceQuestion && source && <small className="message-answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}</small>}
               {message.role === "mentor" && message.practiceQuestion && <PracticeQuestionBubble question={message.practiceQuestion} answer={practiceAnswer} onAnswer={(key) => void answerMcq(key)} onEssayStart={beginEssayCoach} />}
               {message.role === "mentor" && message.challengeThread && <section className="message-challenge-thread" aria-label={`Terra 對 ${message.challengeThread.targetLabel} 的局部質疑`}>
                 <header><span>局部質疑串</span><b>質疑對象：{message.challengeThread.targetLabel} 原評論</b><small>第 {message.challengeThread.version - 1} 版 → 第 {message.challengeThread.version} 版</small></header>
                 <blockquote><b>被質疑段落</b><p>{message.challengeThread.targetExcerpt}</p></blockquote>
-                <article className="terra"><b>Terra 質疑／吐槽</b><p>{message.challengeThread.challengeText}</p><small>{message.challengeThread.challengeUsage.inputTokens + message.challengeThread.challengeUsage.outputTokens} tokens · 約 NT$ {formatTwd(message.challengeThread.challengeUsage.estimatedCostUsd)}</small></article>
-                <article className="model-reply"><b>{message.challengeThread.targetLabel} 回應並修正</b><p>{message.challengeThread.replyText}</p><small>{message.challengeThread.replyUsage.inputTokens + message.challengeThread.replyUsage.outputTokens} tokens · 約 NT$ {formatTwd(message.challengeThread.replyUsage.estimatedCostUsd)}</small></article>
+                <article className="terra"><b>Terra 質疑／吐槽</b><p>{message.challengeThread.challengeText}</p>{showCosts && <small>{message.challengeThread.challengeUsage.inputTokens + message.challengeThread.challengeUsage.outputTokens} tokens · 約 NT$ {formatTwd(message.challengeThread.challengeUsage.estimatedCostUsd)}</small>}</article>
+                <article className="model-reply"><b>{message.challengeThread.targetLabel} 回應並修正</b><p>{message.challengeThread.replyText}</p>{showCosts && <small>{message.challengeThread.replyUsage.inputTokens + message.challengeThread.replyUsage.outputTokens} tokens · 約 NT$ {formatTwd(message.challengeThread.replyUsage.estimatedCostUsd)}</small>}</article>
                 <footer><button type="button" disabled={message.challengeThread.applied} onClick={() => applyChallengeRevision(index)}>{message.challengeThread.applied ? "已套用至原評論 ✓" : `套用至 ${message.challengeThread.targetLabel} 原評論`}</button><span>未按套用前，原評論不會被改動。</span></footer>
               </section>}
               {message.role === "mentor" && showEvidence && <TeachingEvidenceDetails evidence={message.teachingEvidence} />}
             </div>
           ))}
           {practiceQuestion && practiceReadyToComplete && !practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-understanding-actions" aria-label="解析後由學生決定是否完成">
-            <div><b>這題要先收尾嗎？</b><span>你仍可繼續追問；只有你確認理解後，系統才會完成本題。</span></div>
-            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我懂了，請幫我完成本題。", "complete_confirm"); }}>我懂了，完成本題</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); void askPracticeCoach("請再用白話解釋這題最關鍵的判斷。", "discussion"); }}>再白話解釋</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); void askPracticeCoach("請比較我選的選項與正確選項，說明兩者差在哪裡。", "discussion"); }}>比較兩個選項</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>我還想問</button></div>
+            <div><b>這題理解了嗎？</b><span>想繼續發問，可直接在下方輸入框打字。</span></div>
+            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成並進入下一題。", "complete_confirm", "next"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成並繼續帶我學習。", "complete_confirm", "learning"); }}>繼續學習</button></div>
           </section>}
           {practiceQuestion && practiceDiscussion && !practiceReadyToComplete && !practiceCompleted && !practiceCoaching && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-discussion-actions" aria-label="本題持續討論中的選擇">
             <div><b>還在討論這一題</b><span>可以繼續輸入問題；理解後再由你親自完成。</span></div>
-            <div><button type="button" onClick={() => void askPracticeCoach("我懂了，請幫我完成本題。", "complete_confirm")}>我懂了，完成本題</button><button type="button" className="secondary" onClick={() => requestAnimationFrame(() => composerInputRef.current?.focus())}>繼續提問</button></div>
+            <div><button type="button" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成並進入下一題。", "complete_confirm", "next")}>下一題</button><button type="button" className="secondary" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成並繼續帶我學習。", "complete_confirm", "learning")}>繼續學習</button></div>
           </section>}
           {practiceQuestion && practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions" aria-label="本題完成後的選擇">
             <div><b>本題完成</b><span>由你決定下一步，AI 不會自動延伸新爭點。</span></div>
-            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(true); requestAnimationFrame(() => composerInputRef.current?.focus()); }}>繼續討論本題</button></div>
+            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void send("這題已完成。請依我目前的學習進度繼續帶我學習下一個內容；不要再出練習題，也不要延續本題討論。"); }}>繼續學習</button></div>
           </section>}
           {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="昨日學習接續選擇">
             <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
@@ -1078,8 +1149,6 @@ export function LawHome() {
         </div>
 
         {feedbackTarget && <div className="feedback-dialog-backdrop" onMouseDown={() => !feedbackSaving && setFeedbackTarget(null)}><section className="feedback-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="feedback-dialog-close" onClick={() => setFeedbackTarget(null)} aria-label="關閉">×</button><span>協助老師一起把答案修得更好</span><h2>這則 AI 助教回答錯在哪裡？</h2><label className="feedback-stars">評分<div>{[1,2,3,4,5].map((score) => <button type="button" className={score <= feedbackRating ? "selected" : ""} onClick={() => setFeedbackRating(score)} key={score}>★</button>)}</div></label><fieldset><legend>可複選錯誤類型</legend>{[["missing_issue","漏掉重要爭點"],["wrong_law","法條或罪名錯誤"],["wrong_application","涵攝不符合題目事實"],["unclear_conclusion","結論不明確"],["conflicts_source","與教材／老師擬答不一致"],["hard_to_understand","說明太難或不夠清楚"],["other","其他錯誤"]].map(([value,label]) => <label key={value}><input type="checkbox" checked={feedbackTypes.includes(value)} onChange={() => setFeedbackTypes((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])} />{label}</label>)}</fieldset><label className="feedback-note">補充說明<textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} rows={4} placeholder="請告訴我們 AI 助教錯在哪裡，或貼上你認為正確的理由。" /></label><div className="feedback-dialog-actions"><button disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, feedbackTypes.includes("hard_to_understand") && feedbackTypes.length === 1 ? "unclear" : "incorrect")}>只送給老師確認</button>{/luna/i.test(feedbackTarget.message.model ?? "luna") && <button className="ask-sol-button" disabled={feedbackSaving} onClick={() => void sendFeedback(feedbackTarget.message, feedbackTarget.index, "incorrect", true)}>✦ 請 Sol 學霸立即評斷</button>}</div><small>送出後進入待檢查；Sol 覆核不能取代老師的最終確認。</small></section></div>}
-
-        {!practiceQuestion && source && <div className="answer-source">本次回答：{source === "教材" ? "依平台教材整理" : "平台教材未命中，使用 AI 一般知識補充"}{showCosts && lastUsage ? <span className="frontend-cost"> · {lastUsage.model.replace("gpt-5.6-", "")} · {lastUsage.inputTokens + lastUsage.outputTokens} tokens · US$ {lastUsage.estimatedCostUsd.toFixed(5)} · 約 NT$ {formatTwd(lastUsage.estimatedCostUsd)}</span> : null}</div>}
 
       </section>
 
@@ -1133,8 +1202,8 @@ export function LawHome() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-          {currentMember?.canAdmin && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
-          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button><button type="button" className="new-topic-button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button></div>
+          {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
+          <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button></div>
           {!settingsCollapsed && <>
           <div className="model-mode-fields">
             <label><span>學生</span><select value={pendingTeachingLevel ?? "general"} onChange={(event) => selectTeachingLevel(event.target.value)} disabled={settingsPinned || thinking || generatingStudentReply || evaluatingTeaching}>
@@ -1168,8 +1237,11 @@ export function LawHome() {
             rows={1}
           />
           <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
+          <div className="composer-actions">
+            <button className="composer-focus-button" type="button" onClick={() => setChatFocusMode((current) => !current)} aria-pressed={chatFocusMode} aria-label={chatFocusMode ? "還原對話視窗" : "放大對話視窗"}>{chatFocusMode ? "還原" : "放大"}</button>
+            {currentMember?.canAdmin && <button className="composer-topic-button" type="button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
+          </div>
         </form>
-        <p>{practiceQuestion ? "真題作答、理由與教練回饋都保存在這一串對話" : "教材優先檢索 · 找不到時由 AI 補充並清楚標示"}</p>
       </div>
 
       {imageDraft && editingImage && <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="編輯題目圖片"><section className="image-editor"><div className="image-editor-head"><div><strong>調整題目圖片</strong><span>拖曳方框四角或四邊調整範圍；拖曳框內可整體移動</span></div><button onClick={() => setImageDraft(null)} aria-label="關閉">×</button></div><div className={`crop-stage ${imageDraft.enhance ? "enhanced" : ""}`} ref={editorRef}><img src={imageDraft.url} alt="圖片裁切預覽" className={Math.abs(imageDraft.rotation / 90) % 2 === 1 ? "quarter-turn" : ""} style={{ "--image-rotation": `${imageDraft.rotation}deg` } as React.CSSProperties} />{(() => { const bounds = cropBounds(imageDraft.points); const handles: Array<{ name: CropHandle; x: number; y: number }> = [{ name: "nw", x: bounds.left, y: bounds.top }, { name: "n", x: (bounds.left + bounds.right) / 2, y: bounds.top }, { name: "ne", x: bounds.right, y: bounds.top }, { name: "e", x: bounds.right, y: (bounds.top + bounds.bottom) / 2 }, { name: "se", x: bounds.right, y: bounds.bottom }, { name: "s", x: (bounds.left + bounds.right) / 2, y: bounds.bottom }, { name: "sw", x: bounds.left, y: bounds.bottom }, { name: "w", x: bounds.left, y: (bounds.top + bounds.bottom) / 2 }]; return <><div className="crop-frame" style={{ left: `${bounds.left}%`, top: `${bounds.top}%`, width: `${bounds.right - bounds.left}%`, height: `${bounds.bottom - bounds.top}%` }} onPointerDown={(event) => { cropFrameDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, points: imageDraft.points.map((point) => ({ ...point })) }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropFrame(event.clientX, event.clientY); }} onPointerUp={() => { cropFrameDragRef.current = null; }}><span>保留範圍</span></div>{handles.map((handle) => <button key={handle.name} className={`crop-handle crop-handle-${handle.name}`} style={{ left: `${handle.x}%`, top: `${handle.y}%` }} aria-label={`調整裁切框 ${handle.name}`} onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropHandle(handle.name, event.clientX, event.clientY); }} />)}</>; })()}</div><div className="image-tools"><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation - 90 } : current)}>↶ 左轉</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation + 90 } : current)}>↷ 右轉</button><button className={imageDraft.enhance ? "active" : ""} onClick={() => setImageDraft((current) => current ? { ...current, enhance: !current.enhance } : current)}>✦ 加強圖片</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: 0, enhance: false, points: [{ x: 6, y: 6 }, { x: 94, y: 6 }, { x: 94, y: 94 }, { x: 6, y: 94 }] } : current)}>重設</button></div><div className="image-editor-actions"><button className="secondary" onClick={() => setImageDraft(null)}>取消</button><button onClick={() => setEditingImage(false)}>使用這張圖片</button></div><p>線框內為實際保留範圍；送出時自動縮至最長邊 1600px，並壓縮為 JPEG。</p></section></div>}
@@ -1178,18 +1250,33 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
+  const [adminEntryState, setAdminEntryState] = useState<"loading" | "authenticated" | "anonymous">("loading");
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/admin-entry/session", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : { authenticated: false })
+      .then((result: { authenticated?: boolean }) => {
+        if (active) setAdminEntryState(result.authenticated ? "authenticated" : "anonymous");
+      })
+      .catch(() => {
+        if (active) setAdminEntryState("anonymous");
+      });
+    return () => { active = false; };
+  }, []);
+
   return <main className="main-entry-gate">
     <section>
       <span>iBRAIN AI LEARNING</span>
       <div className="main-entry-logo" aria-hidden="true">智</div>
       <h1>iBrain AI 學習平台</h1>
-      <p>首頁公開瀏覽；選擇學習平台後，系統會要求會員登入才能開始使用功能。</p>
-      <small>會員帳號由管理員建立；管理員請由後台入口登入。</small>
-      <div className="main-entry-actions">
-        <a className="main-entry-law" href="/law">進入司律備考</a>
-        <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
-      </div>
-      <a className="main-entry-signin" href="/admin-login?return_to=/admin">管理員登入</a>
+      {adminEntryState === "authenticated" ? <>
+        <div className="main-entry-actions">
+          <a className="main-entry-law" href="/law">進入司律備考</a>
+          <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
+        </div>
+        <a className="main-entry-signin" href="/admin/library">管理後台</a>
+      </> : adminEntryState === "anonymous" ? <a className="main-entry-signin" href="/admin-login?return_to=/admin/library">管理員登入</a> : null}
     </section>
   </main>;
 }

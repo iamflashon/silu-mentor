@@ -1,29 +1,116 @@
-import MedtechTabs from "./MedtechTabs";
 import { getChatGPTUser } from "../chatgpt-auth";
 import { headers } from "next/headers";
 import { requireMedtechMember } from "../../lib/member-auth";
 import MedtechHeaderActions from "./MedtechHeaderActions";
-import MedtechPracticeEntry from "./MedtechPracticeEntry";
+import MedtechPlanDialog from "./MedtechPlanDialog";
+import LinePayPurchaseButton from "./LinePayPurchaseButton";
 import { memberLoginPath } from "../../lib/member-login-path";
+import { getDb } from "../../db";
+import { getMedtechProductSettings } from "../../lib/medtech-product-settings";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
-    const requestHeaders = await headers();
-  const auth = await requireMedtechMember(new Request("https://medtech.local/medtech", { headers: requestHeaders }));
-  if ("error" in auth) return <main className="medtech-member-page"><header><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEDICAL TECHNOLOGIST</small></div></a></header><section className="medtech-member-card login"><span>醫檢師備考平台</span><h1>登入後開始學習</h1><p>登入後才能進入章節刷題、隨機模考、錯題複習與 AI 引導學習，系統也會替你保存點數與學習紀錄。</p><a className="primary" href={memberLoginPath("/medtech")}>登入會員帳號</a></section></main>;
+  const requestHeaders = await headers();
+  const auth = await requireMedtechMember(
+    new Request("https://medtech.local/medtech", { headers: requestHeaders }),
+  );
+  if ("error" in auth)
+    return (
+      <main className="medtech-member-page">
+        <header>
+          <a href="/medtech" className="medtech-brand">
+            <span>醫</span>
+            <div>
+              <b>醫檢師備考</b>
+              <small>MEDICAL TECHNOLOGIST</small>
+            </div>
+          </a>
+        </header>
+        <section className="medtech-member-card login">
+          <span>醫檢師備考平台</span>
+          <h1>登入後開始學習</h1>
+          <p>
+            登入後才能進入章節刷題、隨機模考、錯題複習與引導學習，
+            系統也會替你保存免費體驗、通行證與學習紀錄。
+          </p>
+          <a className="primary" href={memberLoginPath("/medtech")}>
+            登入會員帳號
+          </a>
+        </section>
+      </main>
+    );
   const user = await getChatGPTUser();
-  return <main className="medtech-home">
-    <header className="medtech-top" data-no-navigation-feedback><a href="/medtech" className="medtech-brand"><span>醫</span><div><b>醫檢師備考</b><small>MEDICAL TECHNOLOGIST</small></div></a><MedtechHeaderActions accountLabel={user ? "我的帳號" : "會員登入"}/><nav><a href="/medtech" className="active">首頁</a><a href="/medtech/random">隨機模考</a><a href="/platform">切換類科</a></nav></header>
-    <MedtechTabs active="random" />
-    <section className="medtech-hero"><div><span>不只刷題｜把題目真正學會</span><h1>不只刷題，而是讓老師帶你真正把題目學會</h1><p className="medtech-hero-description">全真模擬試題 × 康情老師逐題語音解析 × AI 引導學習</p><p className="medtech-hero-offer">首次登入贈送 10 點｜任選一包 30 題免費｜答題挑戰每包最多兩次｜每日 1 折終極挑戰｜轉轉樂最高五折</p><p className="medtech-hero-suboffer">不用訂閱，依照使用方式簡單扣點；完成前一關後，可挑戰上一關隨機 10 題、參加一次限時轉轉樂，或每天挑戰一次 30 題終極挑戰。3 分鐘內全對可用 3 點解鎖下一關，題目與選項每次都會重新打亂。</p><div className="medtech-hero-actions" data-no-navigation-feedback><MedtechPracticeEntry/><a href="/medtech/ai-study">進入引導學習</a><a href="/medtech/pricing">查看點數方式</a></div></div><aside><small>平台核心</small><b>名師 <em>×</em> AI</b><span>讓每一次作答都更接近學會</span><dl><div><dt>免費入口</dt><dd>任選一包</dd></div><div><dt>闖關誘因</dt><dd>答題挑戰＋轉轉樂</dd></div><div><dt>深度解析</dt><dd>老師語音</dd></div><div><dt>持續進步</dt><dd>學習紀錄</dd></div></dl></aside></section>
-    <section className="medtech-home-message"><span>為什麼不只是題庫</span><h2>刷題練習手感、老師語音解惑，AI 引導學會</h2><p>答錯不只看到答案，而是知道為什麼錯、其他選項錯在哪，以及老師會怎麼教。</p></section>
-    <section className="medtech-home-values" aria-label="平台核心優勢">
-      <article><span>01 · 先思考</span><h2>先給提示，再作答</h2><p>AI 不急著公布完整解析，先讓你抓住關鍵、自己判斷，建立真正的理解。</p></article>
-      <article><span>02 · 再理解</span><h2>康情老師完整語音解析</h2><p>用老師的口吻逐題說明正確理由與選項差異，深度解析每次使用 1 點。</p></article>
-      <article><span>03 · 持續學</span><h2>AI 依老師邏輯引導</h2><p>提示與比較免費；想繼續追問，每題 1 點，點數與學習紀錄完整保存。</p></article>
-      <article><span>04 · 再鞏固</span><h2>錯題複習鞏固</h2><p>重新練習答錯的題目，確認真正學會，不讓錯題只停留在紀錄裡。</p></article>
-    </section>
-    <section className="medtech-home-flow"><div><span>一題的學習路徑</span><h2>先想、再答、再比較，最後聽懂完整解析</h2></div><div className="medtech-home-flow-steps"><b>提示</b><i>→</i><b>作答</b><i>→</i><b>比較</b><i>→</i><b>老師語音</b></div></section>
-    <section className="medtech-home-points"><div><span>題目包制｜先體驗再決定</span><h2>便宜刷題，想再刷再購買</h2><p>首次登入贈 10 點；任選一包 30 題免費，使用一次後其他題目包以 30 點開通，7 天內不限次數重做。完成前一關後，每包最多可挑戰兩次，每次隨機 10 題、每題 5 秒，依答對率與平均速度計算折扣，兩次取最佳結果；另有一次限時轉轉樂，最高五折；每天再有一次 30 題終極挑戰，3 分鐘內全對即可用 3 點解鎖下一關。系統會提醒到期日，並保存刷題時間、答對率、錯題與需要加強的觀念；語音解析 1 點／24 小時，AI 追問 1 點。</p></div><a href="/medtech/pricing">查看題目包方式 →</a></section>
-    <section className="medtech-home-close"><strong>名師內容 × AI 引導 × 學習資料</strong><span>免費題目是入口，深度解析才是價值。</span></section>
-  </main>;
+  const product = await getMedtechProductSettings(await getDb());
+  const upcomingBooks = [
+    { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
+    { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
+    { volume: "Ⅱ", title: "微生物學與臨床微生物學（上）", cover: "/medtech-books/clinical-microbiology-upper.jpg" },
+    { volume: "Ⅱ", title: "微生物學與臨床微生物學（含黴菌）（下）", cover: "/medtech-books/clinical-microbiology-lower.png" },
+    { volume: "Ⅲ", title: "臨床血清免疫學（上）", cover: "/medtech-books/clinical-serum-immunology-upper.png" },
+    { volume: "Ⅳ", title: "生物化學與臨床生化學", cover: "/medtech-books/biochemistry-clinical-biochemistry.png" },
+    { volume: "Ⅴ", title: "臨床生理學（上）", cover: "/medtech-books/clinical-physiology-upper.png" },
+    { volume: "Ⅴ", title: "臨床病理學（下）", cover: "/medtech-books/clinical-pathology-lower.png" },
+    { volume: "Ⅵ", title: "醫學分子檢驗學", cover: "/medtech-books/molecular-diagnostics.png" },
+    { volume: "Ⅶ", title: "臨床鏡檢學（含寄生蟲學）", cover: "/medtech-books/clinical-microscopy-parasitology.png" },
+  ];
+  return (
+    <main className="medtech-home">
+      <header className="medtech-top" data-no-navigation-feedback>
+        <a href="/medtech" className="medtech-brand">
+          <span>醫</span>
+          <div>
+            <b>醫檢師備考</b>
+            <small>MEDICAL TECHNOLOGIST</small>
+          </div>
+        </a>
+        <MedtechHeaderActions accountLabel={user ? "我的帳號" : "會員登入"} />
+        <nav>
+          <a href="/medtech" className="active">
+            首頁
+          </a>
+          <a href="/medtech/random">隨機模考</a>
+          <a href="/platform">切換類科</a>
+        </nav>
+      </header>
+      <section className="medtech-library-hero">
+        <div>
+          <span>康情老師・醫檢國考系列</span>
+          <h1>醫檢師國考題詳解</h1>
+          <p>一本書就是一套完整的數位練習課程。先選書，再進入章節刷題、模考、錯題重練與老師解析。</p>
+          <div className="medtech-library-stats"><b>目前開放 1 本</b><span>系列書單持續擴充</span><span>首次免費體驗 {product.trialQuestions} 題</span></div>
+        </div>
+      </section>
+
+      <section className="medtech-featured-book" aria-labelledby="featured-book-title">
+        <div className="medtech-book-cover-wrap">
+          <img src="/medtech-books/clinical-virology-lower.jpg" alt="醫檢師國考題詳解（Ⅲ）臨床病毒學（下）書封" />
+          <span>目前開放</span>
+        </div>
+        <div className="medtech-featured-copy">
+          <span>第一本數位題庫</span>
+          <h2 id="featured-book-title">醫檢師國考題詳解（Ⅲ）<br />臨床病毒學（下）</h2>
+          <p className="medtech-book-author">陳連城・康情老師</p>
+          <p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>
+          <div className="medtech-book-trial"><b>首次免費體驗 {product.trialQuestions} 題</b><span>任選一個練習單元，先完整體驗再決定是否開通。</span></div>
+          <div className="medtech-book-price"><strong>NT${product.effectivePrice}</strong><span>開通本書全部內容 {product.accessDays} 天<br />一次付清・不自動續訂</span></div>
+          <div className="medtech-featured-actions" data-no-navigation-feedback>
+            <a className="primary trial" href="/medtech/chapters">免費體驗 {product.trialQuestions} 題</a>
+            <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />
+            <MedtechPlanDialog price={product.effectivePrice} accessDays={product.accessDays} trialQuestions={product.trialQuestions} />
+          </div>
+        </div>
+      </section>
+
+      <section className="medtech-series-preview">
+        <div className="medtech-section-heading"><span>系列書單</span><h2>接下來會加入的醫檢國考科目</h2><p>以下先作為出版系列預告；尚未開放的書不會收費。</p></div>
+        <div className="medtech-book-grid">
+          {upcomingBooks.map((book) => (
+            <article className="medtech-preview-book" key={`${book.volume}-${book.title}`}>
+              {book.cover ? <img src={book.cover} alt={`醫檢師國考題詳解（${book.volume}）${book.title}書封`} /> : <div className="medtech-cover-placeholder"><small>醫檢師</small><b>國考題詳解</b><em>{book.volume}</em><span>{book.title}</span></div>}
+              <div><span>醫檢師國考題詳解（{book.volume}）</span><h3>{book.title}</h3><p>陳連城・康情老師</p><b className="coming-soon">即將推出</b></div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
 }

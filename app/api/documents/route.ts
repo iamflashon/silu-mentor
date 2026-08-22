@@ -1,9 +1,10 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { chatMessages, documents, examQuestions } from "../../../db/schema";
+import { chatMessages, documentAssignments, documentSearchUnits, documents, examQuestions } from "../../../db/schema";
 import { appSettings } from "../../../db/schema";
 import { contentTypeForDocument, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../lib/document-processing";
 import { storedDocumentAnalysis, storedDocumentStats } from "../../../lib/document-analysis";
+import { documentDisplayTitle, normalizeDocumentTitle } from "../../../lib/document-title";
 import { openAIJson } from "../../../lib/openai";
 
 function processingResult(value: string) {
@@ -28,8 +29,11 @@ function safeName(value: string) {
 
 export async function GET(request: Request) {
   try {
-    const db = await getDb();
-    const category = new URL(request.url).searchParams.get("category")?.trim();
+    const db = await getDb("primary");
+    const params = new URL(request.url).searchParams;
+    const category = params.get("category")?.trim();
+    const requestedId = Number(params.get("id"));
+    const documentId = Number.isInteger(requestedId) && requestedId > 0 ? requestedId : null;
     // Do not pull an unbounded processingResultJson into every admin list
     // request. Older HTML imports may contain a very large serialized result;
     // selecting that column for 50 documents can exceed the Worker memory
@@ -59,15 +63,25 @@ export async function GET(request: Request) {
       fullTextIndexed: documents.fullTextIndexed,
       vectorIndexed: documents.vectorIndexed,
       homepageSearchEnabled: documents.homepageSearchEnabled,
+      assignmentCount: sql<number>`(select count(*) from ${documentAssignments} where ${documentAssignments.documentId} = ${documents.id})`,
+      assignmentCategories: sql<string>`coalesce((select group_concat(${documentAssignments.examCategory}, ',') from ${documentAssignments} where ${documentAssignments.documentId} = ${documents.id}), '')`,
       processedAt: documents.processedAt,
       createdAt: documents.createdAt,
-    }).from(documents).where(category ? eq(documents.examCategory, category) : undefined).orderBy(desc(documents.createdAt)).limit(50);
+    }).from(documents).where(category && documentId ? and(eq(documents.examCategory, category), eq(documents.id, documentId)) : category ? eq(documents.examCategory, category) : documentId ? eq(documents.id, documentId) : undefined).orderBy(desc(documents.createdAt)).limit(documentId ? 1 : 50);
+    // D1 can return a stale value for a correlated count subquery even when the
+    // same primary-anchored session sees every row in a direct aggregate. Read
+    // the fine-index totals explicitly and merge them by document id.
+    const fineIndexCounts = rows.length ? await db.select({
+      documentId: documentSearchUnits.documentId,
+      total: sql<number>`count(*)`,
+    }).from(documentSearchUnits).where(inArray(documentSearchUnits.documentId, rows.map((row) => row.id))).groupBy(documentSearchUnits.documentId) : [];
+    const fineIndexCountByDocument = new Map(fineIndexCounts.map((row) => [row.documentId, Number(row.total)]));
     const questionCounts = await db.select({
       sourceUrl: examQuestions.sourceUrl,
       subject: examQuestions.subject,
       total: sql<number>`count(*)`,
       draftTotal: sql<number>`coalesce(sum(case when ${examQuestions.status} = 'draft' then 1 else 0 end), 0)`,
-    }).from(examQuestions).groupBy(examQuestions.sourceUrl, examQuestions.subject);
+    }).from(examQuestions).where(category ? eq(examQuestions.examCategory, category) : undefined).groupBy(examQuestions.sourceUrl, examQuestions.subject);
     const questionStats = (row: typeof rows[number]) => {
       const aliases = new Set([`document:${row.id}`, row.storageKey, row.fileName]);
       const exact = questionCounts.find((item) => aliases.has(item.sourceUrl));
@@ -80,8 +94,9 @@ export async function GET(request: Request) {
     const [documentStats] = await db.select({
       total: sql<number>`count(*)`,
       ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
+      vectorReady: sql<number>`coalesce(sum(case when ${documents.vectorIndexed} = true then 1 else 0 end), 0)`,
       indexedBytes: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then ${documents.sizeBytes} else 0 end), 0)`,
-    }).from(documents);
+    }).from(documents).where(category ? eq(documents.examCategory, category) : undefined);
     const [usageStats] = await db.select({
       citations: sql<number>`coalesce(sum(case when ${chatMessages.source} = '教材' then 1 else 0 end), 0)`,
       misses: sql<number>`coalesce(sum(case when ${chatMessages.source} = 'AI 補充' then 1 else 0 end), 0)`,
@@ -116,6 +131,9 @@ export async function GET(request: Request) {
         fullTextIndexed: row.fullTextIndexed,
         vectorIndexed: row.vectorIndexed,
         homepageSearchEnabled: row.homepageSearchEnabled,
+        fineSearchUnitCount: fineIndexCountByDocument.get(row.id) ?? 0,
+        assignmentCount: Math.max(1, Number(row.assignmentCount ?? 0)),
+        assignmentCategories: row.assignmentCategories ? [...new Set(row.assignmentCategories.split(",").filter(Boolean))] : [row.examCategory],
         summary: typeof result.summary === "string" ? result.summary : "",
         sourceFileName: typeof result.sourceFileName === "string" ? result.sourceFileName : row.fileName,
         indexedFileName: typeof result.indexedFileName === "string" ? result.indexedFileName : row.fileName,
@@ -136,13 +154,15 @@ export async function GET(request: Request) {
     }), stats: {
       total: Number(documentStats?.total ?? 0),
       ready: Number(documentStats?.ready ?? 0),
+      vectorReady: Number(documentStats?.vectorReady ?? 0),
       indexedBytes: Number(documentStats?.indexedBytes ?? 0),
       citations: Number(usageStats?.citations ?? 0),
       misses: Number(usageStats?.misses ?? 0),
       indexVersion: indexSetting ? `VS-${new Date(indexSetting.updatedAt).toISOString().slice(0, 10).replaceAll("-", "")}` : "待建立",
-    } });
-  } catch {
-    return Response.json({ error: "教材資料庫尚未就緒" }, { status: 503 });
+    } }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", "Expires": "0" } });
+  } catch (error) {
+    console.error("documents.get.failed", error);
+    return Response.json({ error: "教材資料讀取失敗，請稍後重試" }, { status: 503 });
   }
 }
 
@@ -153,8 +173,7 @@ export async function POST(request: Request) {
     const subject = String(form.get("subject") ?? "").trim();
     const requestedExamCategory = String(form.get("examCategory") ?? "law").trim();
     const examCategory = ["law", "accounting", "medtech"].includes(requestedExamCategory) ? requestedExamCategory : "law";
-    const bookTitle = String(form.get("bookTitle") ?? "").replace(/\s+/gu, " ").trim().slice(0, 200)
-      || (examCategory === "medtech" ? "醫檢師國考題詳解（Ⅲ）臨床病毒學（下）" : "");
+    const requestedBookTitle = normalizeDocumentTitle(String(form.get("bookTitle") ?? ""));
     const documentType = String(form.get("documentType") ?? "").trim();
 
     if (!(file instanceof File) || !isSupportedDocument(file.name, file.type)) {
@@ -174,7 +193,7 @@ export async function POST(request: Request) {
     const key = `documents/${Date.now()}-${crypto.randomUUID()}-${safeName(file.name)}`;
     await bucket.put(key, file.stream(), {
       httpMetadata: { contentType: contentTypeForDocument(file.name, file.type) },
-      customMetadata: { subject, documentType, bookTitle, originalName: file.name },
+      customMetadata: { subject, documentType, bookTitle: requestedBookTitle || documentDisplayTitle(null, file.name), originalName: file.name },
     });
     const stored = await bucket.head(key);
     if (!stored || stored.size !== file.size || stored.size < 1) {
@@ -190,7 +209,7 @@ export async function POST(request: Request) {
         contentType: contentTypeForDocument(file.name, file.type),
         sizeBytes: file.size,
         examCategory,
-        bookTitle,
+        bookTitle: requestedBookTitle || documentDisplayTitle(null, file.name),
         subject,
         documentType,
         status: "uploaded",
@@ -243,17 +262,19 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; bookTitle?: string };
     const id = Number(body.id);
-    if (!Number.isInteger(id) || id < 1 || typeof body.homepageSearchEnabled !== "boolean") {
-      return Response.json({ error: "首頁搜尋設定不正確" }, { status: 400 });
+    const hasBookTitle = typeof body.bookTitle === "string";
+    const hasHomepageSearchSetting = typeof body.homepageSearchEnabled === "boolean";
+    if (!Number.isInteger(id) || id < 1 || (!hasBookTitle && !hasHomepageSearchSetting)) {
+      return Response.json({ error: "教材設定資料不正確" }, { status: 400 });
     }
     const db = await getDb();
     const [document] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
     if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
-    if (typeof body.bookTitle === "string") {
-      const bookTitle = body.bookTitle.replace(/\s+/gu, " ").trim().slice(0, 200);
+    if (hasBookTitle) {
+      const bookTitle = normalizeDocumentTitle(String(body.bookTitle ?? ""));
       if (!bookTitle) return Response.json({ error: "請輸入書籍名稱" }, { status: 400 });
       await db.update(documents).set({ bookTitle }).where(eq(documents.id, id));
-      return Response.json({ id, bookTitle });
+      if (!hasHomepageSearchSetting) return Response.json({ id, bookTitle });
     }
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     if (body.homepageSearchEnabled && document.status !== "completed") {

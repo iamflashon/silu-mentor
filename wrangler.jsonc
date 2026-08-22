@@ -1,27 +1,38 @@
 {
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "silu-mentor",
-  "main": "./worker/index.ts",
-  "compatibility_date": "2026-08-18",
-  "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": true,
-  "triggers": {
-    "crons": ["30-59/5 16 * * *", "*/5 17-21 * * *"]
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "silu-mentor-db",
-      "database_id": "4287afc6-3404-4086-b961-0fe035841493"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "BUCKET",
-      "bucket_name": "silu-mentor-r2"
-    }
-  ],
-  "images": {
-    "binding": "IMAGES"
-  }
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "silu-mentor",
+	"main": "./worker/index.ts",
+	"compatibility_date": "2026-08-18",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": true,
+	"triggers": {
+		"crons": [
+			"30-59/5 16 * * *",
+			"*/5 17-21 * * *"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "silu-mentor-db",
+			"database_id": "4287afc6-3404-4086-b961-0fe035841493"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "BUCKET",
+			"bucket_name": "silu-mentor-r2"
+		}
+	],
+	"images": {
+		"binding": "IMAGES"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "VINEXT_KV_CACHE",
+			"id": "cacb7c806b944159925a8af4f2d025e2"
+		}
+	]
 }

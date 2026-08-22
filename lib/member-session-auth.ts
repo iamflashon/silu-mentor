@@ -1,6 +1,6 @@
 export const MEMBER_SESSION_COOKIE = "silu_member_session";
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
-const PASSWORD_ITERATIONS = 120_000;
+const PASSWORD_ITERATIONS = 100_000;
 
 export type MemberSessionEnv = {
   MEMBER_SESSION_SECRET?: string;

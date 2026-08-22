@@ -1,4 +1,10 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const members = sqliteTable("members", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -18,52 +24,136 @@ export const members = sqliteTable("members", {
     .$defaultFn(() => new Date()),
 });
 
-export const medtechDeviceSessions = sqliteTable("medtech_device_sessions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userKey: text("user_key").notNull(),
-  deviceKey: text("device_key").notNull(),
-  deviceLabel: text("device_label").notNull().default("未知裝置"),
-  ipHash: text("ip_hash").notNull().default(""),
-  userAgentHash: text("user_agent_hash").notNull().default(""),
-  lastPath: text("last_path").notNull().default(""),
-  status: text("status").notNull().default("active"),
-  firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  lastSeenAt: integer("last_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  uniqueIndex("medtech_device_sessions_user_device_unique").on(table.userKey, table.deviceKey),
-  index("medtech_device_sessions_user_status_idx").on(table.userKey, table.status),
-  index("medtech_device_sessions_last_seen_idx").on(table.lastSeenAt),
-]);
+export const medtechDeviceSessions = sqliteTable(
+  "medtech_device_sessions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    deviceKey: text("device_key").notNull(),
+    deviceLabel: text("device_label").notNull().default("未知裝置"),
+    ipHash: text("ip_hash").notNull().default(""),
+    userAgentHash: text("user_agent_hash").notNull().default(""),
+    lastPath: text("last_path").notNull().default(""),
+    status: text("status").notNull().default("active"),
+    firstSeenAt: integer("first_seen_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("medtech_device_sessions_user_device_unique").on(
+      table.userKey,
+      table.deviceKey,
+    ),
+    index("medtech_device_sessions_user_status_idx").on(
+      table.userKey,
+      table.status,
+    ),
+    index("medtech_device_sessions_last_seen_idx").on(table.lastSeenAt),
+  ],
+);
 
-export const medtechSecurityEvents = sqliteTable("medtech_security_events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userKey: text("user_key").notNull(),
-  eventType: text("event_type").notNull(),
-  outcome: text("outcome").notNull(),
-  deviceKey: text("device_key").notNull().default(""),
-  deviceLabel: text("device_label").notNull().default("未知裝置"),
-  ipHash: text("ip_hash").notNull().default(""),
-  metadataJson: text("metadata_json").notNull().default("{}"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  index("medtech_security_events_user_created_idx").on(table.userKey, table.createdAt),
-  index("medtech_security_events_type_created_idx").on(table.eventType, table.createdAt),
-]);
+export const medtechSecurityEvents = sqliteTable(
+  "medtech_security_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    eventType: text("event_type").notNull(),
+    outcome: text("outcome").notNull(),
+    deviceKey: text("device_key").notNull().default(""),
+    deviceLabel: text("device_label").notNull().default("未知裝置"),
+    ipHash: text("ip_hash").notNull().default(""),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("medtech_security_events_user_created_idx").on(
+      table.userKey,
+      table.createdAt,
+    ),
+    index("medtech_security_events_type_created_idx").on(
+      table.eventType,
+      table.createdAt,
+    ),
+  ],
+);
 
-export const memberExamAccess = sqliteTable("member_exam_access", {
+export const memberExamAccess = sqliteTable(
+  "member_exam_access",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    examCategory: text("exam_category").notNull(),
+    status: text("status").notNull().default("active"),
+    canAdmin: integer("can_admin", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    permissionsJson: text("permissions_json").notNull().default("[]"),
+    className: text("class_name").notNull().default("未分班"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("member_exam_access_member_category_unique").on(
+      table.memberId,
+      table.examCategory,
+    ),
+    index("member_exam_access_category_status_idx").on(
+      table.examCategory,
+      table.status,
+    ),
+  ],
+);
+
+export const medtechProducts = sqliteTable("medtech_products", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
-  examCategory: text("exam_category").notNull(),
+  productKey: text("product_key").notNull().unique(),
+  title: text("title").notNull(),
+  listPrice: integer("list_price").notNull().default(199),
+  salePrice: integer("sale_price"),
+  saleLabel: text("sale_label").notNull().default(""),
+  saleStartsAt: integer("sale_starts_at", { mode: "timestamp" }),
+  saleEndsAt: integer("sale_ends_at", { mode: "timestamp" }),
+  accessDays: integer("access_days").notNull().default(30),
+  trialQuestions: integer("trial_questions").notNull().default(30),
   status: text("status").notNull().default("active"),
-  canAdmin: integer("can_admin", { mode: "boolean" }).notNull().default(false),
-  className: text("class_name").notNull().default("未分班"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  uniqueIndex("member_exam_access_member_category_unique").on(table.memberId, table.examCategory),
-  index("member_exam_access_category_status_idx").on(table.examCategory, table.status),
-]);
+});
+
+export const medtechMemberEntitlements = sqliteTable(
+  "medtech_member_entitlements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    productKey: text("product_key").notNull(),
+    status: text("status").notNull().default("active"),
+    source: text("source").notNull().default("manual"),
+    startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    note: text("note").notNull().default(""),
+    updatedBy: text("updated_by").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("medtech_member_entitlements_member_product_unique").on(table.memberId, table.productKey),
+    index("medtech_member_entitlements_product_expiry_idx").on(table.productKey, table.expiresAt),
+  ],
+);
 
 export const documents = sqliteTable("documents", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -79,7 +169,9 @@ export const documents = sqliteTable("documents", {
   openaiFileId: text("openai_file_id"),
   indexError: text("index_error"),
   processingStage: text("processing_stage").notNull().default("queued"),
-  processingMessage: text("processing_message").notNull().default("等待自動處理"),
+  processingMessage: text("processing_message")
+    .notNull()
+    .default("等待自動處理"),
   fileSha256: text("file_sha256"),
   pageCount: integer("page_count"),
   extractedChars: integer("extracted_chars").notNull().default(0),
@@ -87,62 +179,210 @@ export const documents = sqliteTable("documents", {
   questionCount: integer("question_count").notNull().default(0),
   tagsJson: text("tags_json").notNull().default("[]"),
   processingResultJson: text("processing_result_json").notNull().default("{}"),
-  fullTextIndexed: integer("full_text_indexed", { mode: "boolean" }).notNull().default(false),
-  vectorIndexed: integer("vector_indexed", { mode: "boolean" }).notNull().default(false),
-  homepageSearchEnabled: integer("homepage_search_enabled", { mode: "boolean" }).notNull().default(false),
+  fullTextIndexed: integer("full_text_indexed", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  vectorIndexed: integer("vector_indexed", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  homepageSearchEnabled: integer("homepage_search_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
   processedAt: integer("processed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
 });
 
+// A company document is stored once, then assigned to any number of learning
+// platforms/subjects.  Legacy examCategory/subject columns remain as the
+// primary assignment so existing documents continue to work unchanged.
+export const documentAssignments = sqliteTable(
+  "document_assignments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    documentId: integer("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    examCategory: text("exam_category").notNull(),
+    subject: text("subject").notNull().default("綜合"),
+    usageType: text("usage_type").notNull().default("教材檢索"),
+    visibility: text("visibility").notNull().default("members"),
+    aiSearchEnabled: integer("ai_search_enabled", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("document_assignments_document_category_subject_unique").on(
+      table.documentId,
+      table.examCategory,
+      table.subject,
+    ),
+    index("document_assignments_category_subject_idx").on(
+      table.examCategory,
+      table.subject,
+    ),
+  ],
+);
+
+// Fine-grained, page-authoritative retrieval units.  Each unit is small enough
+// for precise matching but retains its page and hierarchy path for citations.
+export const documentSearchUnits = sqliteTable(
+  "document_search_units",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    documentId: integer("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    unitType: text("unit_type").notNull().default("paragraph_window"),
+    hierarchyPath: text("hierarchy_path").notNull().default(""),
+    title: text("title").notNull().default(""),
+    pageStart: integer("page_start"),
+    pageEnd: integer("page_end"),
+    sequence: integer("sequence").notNull().default(0),
+    text: text("text").notNull(),
+    normalizedText: text("normalized_text").notNull().default(""),
+    keywordsJson: text("keywords_json").notNull().default("[]"),
+    contentHash: text("content_hash").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("document_search_units_document_sequence_unique").on(
+      table.documentId,
+      table.sequence,
+    ),
+    index("document_search_units_document_page_idx").on(
+      table.documentId,
+      table.pageStart,
+    ),
+  ],
+);
+
 export const medtechUsage = sqliteTable("medtech_usage", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull().unique(),
-  audioTrialQuestionIdsJson: text("audio_trial_question_ids_json").notNull().default("[]"),
+  audioTrialQuestionIdsJson: text("audio_trial_question_ids_json")
+    .notNull()
+    .default("[]"),
   aiCredits: integer("ai_credits").notNull().default(10),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
-export const medtechPointLedger = sqliteTable("medtech_point_ledger", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userKey: text("user_key").notNull(),
-  delta: integer("delta").notNull(),
-  balanceAfter: integer("balance_after").notNull(),
-  action: text("action").notNull(),
-  description: text("description").notNull(),
-  questionId: integer("question_id"),
-  sourceDetail: text("source_detail"),
-  availableUntil: integer("available_until", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  index("medtech_point_ledger_user_created_idx").on(table.userKey, table.createdAt),
-]);
+export const medtechPointLedger = sqliteTable(
+  "medtech_point_ledger",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    delta: integer("delta").notNull(),
+    balanceAfter: integer("balance_after").notNull(),
+    action: text("action").notNull(),
+    description: text("description").notNull(),
+    questionId: integer("question_id"),
+    sourceDetail: text("source_detail"),
+    availableUntil: integer("available_until", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("medtech_point_ledger_user_created_idx").on(
+      table.userKey,
+      table.createdAt,
+    ),
+  ],
+);
 
-export const medtechPracticeSessions = sqliteTable("medtech_practice_sessions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userKey: text("user_key").notNull(),
-  packageName: text("package_name").notNull(),
-  packNumber: integer("pack_number").notNull().default(1),
-  packageType: text("package_type").notNull().default("chapter"),
-  questionIdsJson: text("question_ids_json").notNull().default("[]"),
-  startedAt: integer("started_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  completedAt: integer("completed_at", { mode: "timestamp" }),
-  status: text("status").notNull().default("in_progress"),
-  lastActiveAt: integer("last_active_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  lastQuestionIndex: integer("last_question_index").notNull().default(0),
-  answerDetailsJson: text("answer_details_json").notNull().default("[]"),
-  durationSeconds: integer("duration_seconds").notNull().default(0),
-  totalQuestions: integer("total_questions").notNull().default(0),
-  answeredQuestions: integer("answered_questions").notNull().default(0),
-  correctQuestions: integer("correct_questions").notNull().default(0),
-  incorrectQuestionIdsJson: text("incorrect_question_ids_json").notNull().default("[]"),
-  repeatedWrongQuestionIdsJson: text("repeated_wrong_question_ids_json").notNull().default("[]"),
-  weaknessesJson: text("weaknesses_json").notNull().default("[]"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  index("medtech_practice_sessions_user_created_idx").on(table.userKey, table.createdAt),
-]);
+export const medtechPaymentOrders = sqliteTable(
+  "medtech_payment_orders",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    orderId: text("order_id").notNull().unique(),
+    transactionId: text("transaction_id").unique(),
+    provider: text("provider").notNull().default("line_pay"),
+    environment: text("environment").notNull().default("sandbox"),
+    packageName: text("package_name").notNull(),
+    packNumber: integer("pack_number").notNull(),
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull().default("TWD"),
+    status: text("status").notNull().default("pending"),
+    returnCode: text("return_code"),
+    returnMessage: text("return_message"),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    activatedAt: integer("activated_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("medtech_payment_orders_user_created_idx").on(
+      table.userKey,
+      table.createdAt,
+    ),
+    index("medtech_payment_orders_package_status_idx").on(
+      table.userKey,
+      table.packageName,
+      table.packNumber,
+      table.status,
+    ),
+  ],
+);
+
+export const medtechPracticeSessions = sqliteTable(
+  "medtech_practice_sessions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    packageName: text("package_name").notNull(),
+    packNumber: integer("pack_number").notNull().default(1),
+    packageType: text("package_type").notNull().default("chapter"),
+    questionIdsJson: text("question_ids_json").notNull().default("[]"),
+    startedAt: integer("started_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    status: text("status").notNull().default("in_progress"),
+    lastActiveAt: integer("last_active_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    lastQuestionIndex: integer("last_question_index").notNull().default(0),
+    answerDetailsJson: text("answer_details_json").notNull().default("[]"),
+    durationSeconds: integer("duration_seconds").notNull().default(0),
+    totalQuestions: integer("total_questions").notNull().default(0),
+    answeredQuestions: integer("answered_questions").notNull().default(0),
+    correctQuestions: integer("correct_questions").notNull().default(0),
+    incorrectQuestionIdsJson: text("incorrect_question_ids_json")
+      .notNull()
+      .default("[]"),
+    repeatedWrongQuestionIdsJson: text("repeated_wrong_question_ids_json")
+      .notNull()
+      .default("[]"),
+    weaknessesJson: text("weaknesses_json").notNull().default("[]"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("medtech_practice_sessions_user_created_idx").on(
+      table.userKey,
+      table.createdAt,
+    ),
+  ],
+);
 
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
@@ -187,8 +427,12 @@ export const organizedNoteCache = sqliteTable("organized_note_cache", {
   cacheKey: text("cache_key").notNull().unique(),
   model: text("model").notNull(),
   noteJson: text("note_json").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  lastUsedAt: integer("last_used_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export const studyPlans = sqliteTable("study_plans", {
@@ -265,9 +509,12 @@ export const learningPreferences = sqliteTable("learning_preferences", {
     .default(false),
   lastBookResourceId: integer("last_book_resource_id"),
   lastBookSegmentId: integer("last_book_segment_id"),
-  lastBookSessionId: integer("last_book_session_id").references(() => chatSessions.id, {
-    onDelete: "set null",
-  }),
+  lastBookSessionId: integer("last_book_session_id").references(
+    () => chatSessions.id,
+    {
+      onDelete: "set null",
+    },
+  ),
   updatedAt: integer("updated_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -304,58 +551,96 @@ export const studyRecords = sqliteTable("study_records", {
     .$defaultFn(() => new Date()),
 });
 
-export const issuePracticeRecords = sqliteTable("issue_practice_records", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userKey: text("user_key").notNull(),
-  questionId: integer("question_id")
-    .notNull()
-    .references(() => examQuestions.id, { onDelete: "cascade" }),
-  studentIssues: text("student_issues").notNull().default(""),
-  studentSupplement: text("student_supplement").notNull().default(""),
-  sampleLevel: text("sample_level"),
-  lunaResultJson: text("luna_result_json"),
-  solResultJson: text("sol_result_json"),
-  challengeWorkflowJson: text("challenge_workflow_json"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-}, (table) => [
-  uniqueIndex("issue_practice_records_user_question_unique").on(table.userKey, table.questionId),
-]);
+export const issuePracticeRecords = sqliteTable(
+  "issue_practice_records",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    questionId: integer("question_id")
+      .notNull()
+      .references(() => examQuestions.id, { onDelete: "cascade" }),
+    studentIssues: text("student_issues").notNull().default(""),
+    studentSupplement: text("student_supplement").notNull().default(""),
+    sampleLevel: text("sample_level"),
+    lunaResultJson: text("luna_result_json"),
+    solResultJson: text("sol_result_json"),
+    challengeWorkflowJson: text("challenge_workflow_json"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("issue_practice_records_user_question_unique").on(
+      table.userKey,
+      table.questionId,
+    ),
+  ],
+);
 
-export const personalIssueQuestions = sqliteTable("personal_issue_questions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userKey: text("user_key").notNull(),
-  title: text("title").notNull(),
-  subject: text("subject").notNull().default("未分類"),
-  sourceLabel: text("source_label").notNull().default("我的書籍"),
-  questionText: text("question_text").notNull(),
-  imageStorageKey: text("image_storage_key"),
-  imageContentType: text("image_content_type"),
-  imageStorageKeysJson: text("image_storage_keys_json").notNull().default("[]"),
-  imageContentTypesJson: text("image_content_types_json").notNull().default("[]"),
-  ocrPartsJson: text("ocr_parts_json").notNull().default("[]"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  index("personal_issue_questions_user_updated_idx").on(table.userKey, table.updatedAt),
-  index("personal_issue_questions_user_subject_idx").on(table.userKey, table.subject),
-]);
+export const personalIssueQuestions = sqliteTable(
+  "personal_issue_questions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    title: text("title").notNull(),
+    subject: text("subject").notNull().default("未分類"),
+    sourceLabel: text("source_label").notNull().default("我的書籍"),
+    questionText: text("question_text").notNull(),
+    imageStorageKey: text("image_storage_key"),
+    imageContentType: text("image_content_type"),
+    imageStorageKeysJson: text("image_storage_keys_json")
+      .notNull()
+      .default("[]"),
+    imageContentTypesJson: text("image_content_types_json")
+      .notNull()
+      .default("[]"),
+    ocrPartsJson: text("ocr_parts_json").notNull().default("[]"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("personal_issue_questions_user_updated_idx").on(
+      table.userKey,
+      table.updatedAt,
+    ),
+    index("personal_issue_questions_user_subject_idx").on(
+      table.userKey,
+      table.subject,
+    ),
+  ],
+);
 
-export const personalIssuePracticeRecords = sqliteTable("personal_issue_practice_records", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userKey: text("user_key").notNull(),
-  personalQuestionId: integer("personal_question_id").notNull().references(() => personalIssueQuestions.id, { onDelete: "cascade" }),
-  studentIssues: text("student_issues").notNull().default(""),
-  aiResultJson: text("ai_result_json"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  uniqueIndex("personal_issue_records_user_question_unique").on(table.userKey, table.personalQuestionId),
-]);
+export const personalIssuePracticeRecords = sqliteTable(
+  "personal_issue_practice_records",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userKey: text("user_key").notNull(),
+    personalQuestionId: integer("personal_question_id")
+      .notNull()
+      .references(() => personalIssueQuestions.id, { onDelete: "cascade" }),
+    studentIssues: text("student_issues").notNull().default(""),
+    aiResultJson: text("ai_result_json"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("personal_issue_records_user_question_unique").on(
+      table.userKey,
+      table.personalQuestionId,
+    ),
+  ],
+);
 
 export const learningAnalyses = sqliteTable("learning_analyses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -371,14 +656,16 @@ export const learningAnalyses = sqliteTable("learning_analyses", {
   model: text("model").notNull(),
   inputTokens: integer("input_tokens").notNull().default(0),
   outputTokens: integer("output_tokens").notNull().default(0),
-  estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
+  estimatedCostUsdMicros: integer("estimated_cost_usd_micros")
+    .notNull()
+    .default(0),
   generatedAt: integer("generated_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
- });
+});
 
 export const savedNotes = sqliteTable("saved_notes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -431,7 +718,9 @@ export const examQuestions = sqliteTable("exam_questions", {
   explanation: text("explanation").notNull().default(""),
   completeExplanation: text("complete_explanation").notNull().default(""),
   aiCompleteExplanation: text("ai_complete_explanation").notNull().default(""),
-  teacherCompleteExplanation: text("teacher_complete_explanation").notNull().default(""),
+  teacherCompleteExplanation: text("teacher_complete_explanation")
+    .notNull()
+    .default(""),
   voiceScript: text("voice_script").notNull().default(""),
   teacherAnswer: text("teacher_answer").notNull().default(""),
   teacherNotes: text("teacher_notes").notNull().default(""),
@@ -440,9 +729,13 @@ export const examQuestions = sqliteTable("exam_questions", {
   answerStatus: text("answer_status").notNull().default("missing"),
   simulatedAnswer: text("simulated_answer").notNull().default(""),
   simulatedExplanation: text("simulated_explanation").notNull().default(""),
-  simulatedCompleteExplanation: text("simulated_complete_explanation").notNull().default(""),
+  simulatedCompleteExplanation: text("simulated_complete_explanation")
+    .notNull()
+    .default(""),
   simulatedSource: text("simulated_source").notNull().default(""),
-  simulatedAnswerStatus: text("simulated_answer_status").notNull().default("missing"),
+  simulatedAnswerStatus: text("simulated_answer_status")
+    .notNull()
+    .default("missing"),
   simulatedTeacherNote: text("simulated_teacher_note").notNull().default(""),
   sourceUrl: text("source_url").notNull().default(""),
   sourceOrder: integer("source_order"),
@@ -454,32 +747,48 @@ export const examQuestions = sqliteTable("exam_questions", {
     .$defaultFn(() => new Date()),
 });
 
-export const medtechQuestionEvidenceReviews = sqliteTable("medtech_question_evidence_reviews", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  questionId: integer("question_id")
-    .notNull()
-    .references(() => examQuestions.id, { onDelete: "cascade" }),
-  reviewer: text("reviewer").notNull().default(""),
-  provider: text("provider").notNull().default("openai_web_search"),
-  queryText: text("query_text").notNull().default(""),
-  resultJson: text("result_json").notNull().default("{}"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-}, (table) => [
-  index("medtech_question_evidence_reviews_question_idx").on(table.questionId, table.createdAt),
-]);
+export const medtechQuestionEvidenceReviews = sqliteTable(
+  "medtech_question_evidence_reviews",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    questionId: integer("question_id")
+      .notNull()
+      .references(() => examQuestions.id, { onDelete: "cascade" }),
+    reviewer: text("reviewer").notNull().default(""),
+    provider: text("provider").notNull().default("openai_web_search"),
+    queryText: text("query_text").notNull().default(""),
+    resultJson: text("result_json").notNull().default("{}"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("medtech_question_evidence_reviews_question_idx").on(
+      table.questionId,
+      table.createdAt,
+    ),
+  ],
+);
 
-export const medtechAiExplanationCache = sqliteTable("medtech_ai_explanation_cache", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  cacheKey: text("cache_key").notNull().unique(),
-  questionId: integer("question_id").notNull().references(() => examQuestions.id, { onDelete: "cascade" }),
-  answer: text("answer").notNull().default(""),
-  level: text("level").notNull().default("入門"),
-  reply: text("reply").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  lastUsedAt: integer("last_used_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-});
+export const medtechAiExplanationCache = sqliteTable(
+  "medtech_ai_explanation_cache",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    cacheKey: text("cache_key").notNull().unique(),
+    questionId: integer("question_id")
+      .notNull()
+      .references(() => examQuestions.id, { onDelete: "cascade" }),
+    answer: text("answer").notNull().default(""),
+    level: text("level").notNull().default("入門"),
+    reply: text("reply").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+);
 
 export const examAttempts = sqliteTable("exam_attempts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -691,12 +1000,16 @@ export const messageFeedback = sqliteTable("message_feedback", {
   model: text("model").notNull().default(""),
   originalPrompt: text("original_prompt").notNull().default(""),
   reviewStatus: text("review_status").notNull().default("pending"),
-  solRequested: integer("sol_requested", { mode: "boolean" }).notNull().default(false),
+  solRequested: integer("sol_requested", { mode: "boolean" })
+    .notNull()
+    .default(false),
   solReview: text("sol_review").notNull().default(""),
   teacherDecision: text("teacher_decision").notNull().default(""),
   teacherNote: text("teacher_note").notNull().default(""),
   correctedContent: text("corrected_content").notNull().default(""),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -717,27 +1030,32 @@ export const chatComparisons = sqliteTable("chat_comparisons", {
     .$defaultFn(() => new Date()),
 });
 
-export const chatComparisonResponses = sqliteTable("chat_comparison_responses", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  comparisonId: integer("comparison_id")
-    .notNull()
-    .references(() => chatComparisons.id, { onDelete: "cascade" }),
-  provider: text("provider").notNull(),
-  model: text("model").notNull(),
-  label: text("label").notNull(),
-  text: text("text").notNull().default(""),
-  source: text("source").notNull().default("AI 補充"),
-  citationsJson: text("citations_json"),
-  inputTokens: integer("input_tokens").notNull().default(0),
-  cachedTokens: integer("cached_tokens").notNull().default(0),
-  outputTokens: integer("output_tokens").notNull().default(0),
-  estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
-  durationMs: integer("duration_ms").notNull().default(0),
-  error: text("error"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
+export const chatComparisonResponses = sqliteTable(
+  "chat_comparison_responses",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    comparisonId: integer("comparison_id")
+      .notNull()
+      .references(() => chatComparisons.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    label: text("label").notNull(),
+    text: text("text").notNull().default(""),
+    source: text("source").notNull().default("AI 補充"),
+    citationsJson: text("citations_json"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    cachedTokens: integer("cached_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    estimatedCostUsdMicros: integer("estimated_cost_usd_micros")
+      .notNull()
+      .default(0),
+    durationMs: integer("duration_ms").notNull().default(0),
+    error: text("error"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+);
 
 export const chatComparisonRatings = sqliteTable("chat_comparison_ratings", {
   id: integer("id").primaryKey({ autoIncrement: true }),

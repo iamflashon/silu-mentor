@@ -1,10 +1,12 @@
 import { desc, inArray, sql } from "drizzle-orm";
-import { getDb } from "../../../db";
 import { appSettings, chatComparisonRatings, chatComparisonResponses, chatComparisons, usageLogs } from "../../../db/schema";
+import { requireAdmin } from "../../../lib/member-auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const db = await getDb();
+    const auth = await requireAdmin(request);
+    if ("error" in auth) return auth.error;
+    const db = auth.db;
     // 司律後台的模型與成本頁只呈現司律／共用平台用量。
     // 醫檢功能共用 usage_logs，但其成本由醫檢自己的點數與使用紀錄管理，
     // 因此在此頁排除所有以「醫檢」標記的來源，不刪除原始紀錄。
@@ -34,11 +36,13 @@ export async function GET() {
     const settings = await db.select().from(appSettings);
     const showCosts = settings.find((item) => item.key === "show_frontend_costs")?.value === "true";
     const showEvidence = settings.find((item) => item.key === "show_teaching_evidence")?.value === "true";
+    const essayGradingDualEnabled = settings.find((item) => item.key === "essay_grading_dual_enabled")?.value === "true";
     return Response.json({
       totals,
       recent,
       showCosts,
       showEvidence,
+      essayGradingDualEnabled,
       comparisonStats: {
         comparisons: comparisons.length,
         ratedResponses: simpleRatings.length,
@@ -74,11 +78,19 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { showCosts?: boolean; showEvidence?: boolean };
-    const db = await getDb();
+    const body = await request.json() as { showCosts?: boolean; showEvidence?: boolean; essayGradingDualEnabled?: boolean };
+    const auth = await requireAdmin(request);
+    if ("error" in auth) return auth.error;
+    const db = auth.db;
     if (typeof body.showCosts === "boolean") await db.insert(appSettings).values({ key: "show_frontend_costs", value: body.showCosts ? "true" : "false" }).onConflictDoUpdate({ target: appSettings.key, set: { value: body.showCosts ? "true" : "false", updatedAt: new Date() } });
     if (typeof body.showEvidence === "boolean") await db.insert(appSettings).values({ key: "show_teaching_evidence", value: body.showEvidence ? "true" : "false" }).onConflictDoUpdate({ target: appSettings.key, set: { value: body.showEvidence ? "true" : "false", updatedAt: new Date() } });
-    return Response.json({ showCosts: body.showCosts, showEvidence: body.showEvidence });
+    if (typeof body.essayGradingDualEnabled === "boolean") await db.insert(appSettings).values({ key: "essay_grading_dual_enabled", value: body.essayGradingDualEnabled ? "true" : "false" }).onConflictDoUpdate({ target: appSettings.key, set: { value: body.essayGradingDualEnabled ? "true" : "false", updatedAt: new Date() } });
+    const settings = await db.select().from(appSettings);
+    return Response.json({
+      showCosts: settings.find((item) => item.key === "show_frontend_costs")?.value === "true",
+      showEvidence: settings.find((item) => item.key === "show_teaching_evidence")?.value === "true",
+      essayGradingDualEnabled: settings.find((item) => item.key === "essay_grading_dual_enabled")?.value === "true",
+    });
   } catch {
     return Response.json({ error: "成本顯示設定無法更新" }, { status: 500 });
   }

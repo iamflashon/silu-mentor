@@ -257,6 +257,7 @@ async function getQuestions(request: Request) {
     // in-progress session is restored below before it is returned.
     if (packageMode && questionOrder === "random" && mapped.length > 1) mapped = shuffleRows(mapped);
     const packageCost = "packageCost" in access ? access.packageCost : 30;
+    const allAccess = "allAccess" in access && access.allAccess;
     const packageAvailableUntil = "availableUntil" in access && access.availableUntil instanceof Date ? access.availableUntil : null;
     let session: typeof medtechPracticeSessions.$inferSelect | null = null;
     if (mapped.length && "hasAccess" in access && access.hasAccess) {
@@ -303,15 +304,16 @@ async function getQuestions(request: Request) {
     return Response.json({ items: mapped, sessionId: session?.id ?? null, session: sessionProgress, points: access.usage.aiCredits, accessLimited: access.limited, packageAccess: packageMode ? {
       name: packageName,
       cost: packageCost,
-      baseCost: "discountReward" in access && access.discountReward ? access.discountReward.baseCost : 30,
+      baseCost: allAccess ? 199 : "discountReward" in access && access.discountReward ? access.discountReward.baseCost : 30,
       questionCount: mapped.length,
-      days: 7,
+      days: allAccess ? 30 : 7,
       packageNumber,
       packageCount,
       isBonus: "isBonusPack" in access && access.isBonusPack,
       locked: access.limited,
       gifted: "gifted" in access && access.gifted,
       charged: "charged" in access && access.charged,
+      allAccess,
       discountReward: "discountReward" in access ? access.discountReward : null,
       needsUnlock: "needsUnlock" in access && access.needsUnlock,
       blockedByPrevious: "blockedByPrevious" in access && access.blockedByPrevious,

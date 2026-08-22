@@ -32,8 +32,13 @@ function discoverRows(html: string, pageUrl: URL, examType: string) {
   return found;
 }
 
-async function discover(sourceUrl: string, examType: string) {
+async function discover(sourceUrl: string, examType: string, sourceLabel: string) {
   const base = assertAllowed(sourceUrl);
+  if (/\.pdf$/i.test(base.pathname)) {
+    const fileName = decodeURIComponent(base.pathname.split("/").pop() || sourceLabel).replace(/\.pdf$/i, "");
+    const year = base.pathname.match(/\/(\d{3})\//)?.[1] ?? fileName.match(/(?:^|\D)(\d{3})(?:\D|$)/)?.[1] ?? "";
+    return [{ fileUrl: base.toString(), title: sourceLabel || fileName, year, subject: "綜合", examName: sourceLabel || "直接 PDF 匯入" }];
+  }
   if (examType === "essay" && base.pathname.toLowerCase().endsWith("/exam/list.aspx")) {
     base.searchParams.set("sFilterType", "D");
     base.searchParams.set("sFilter", "律師、司法官第二試");
@@ -99,7 +104,7 @@ export async function POST(request: Request) {
     await db.update(examSources).set({ status: "discovering", lastError: null, updatedAt: new Date() }).where(eq(examSources.id, sourceId));
     const existing = await db.select().from(examSourceItems).where(eq(examSourceItems.sourceId, sourceId)).limit(1);
     if (!existing.length || body.rescan) {
-      const rows = await discover(source.url, source.examType);
+      const rows = await discover(source.url, source.examType, source.label);
       if (!rows.length) throw new Error("來源頁沒有找到可下載的 PDF");
       const discoveredUrls = rows.map((row) => row.fileUrl);
       const oldItems = await db.select().from(examSourceItems).where(eq(examSourceItems.sourceId, sourceId));

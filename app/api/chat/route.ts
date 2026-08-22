@@ -15,6 +15,7 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
+import { documentDisplayTitle } from "../../../lib/document-title";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -577,6 +578,21 @@ function extractFileSearchResultNames(payload: unknown) {
   return [...new Set(names)].slice(0, 5);
 }
 
+async function displayDocumentSourceNames(names: string[]) {
+  if (!names.length) return [] as string[];
+  try {
+    const db = await getDb();
+    const rows = await db.select({ fileName: documents.fileName, bookTitle: documents.bookTitle }).from(documents);
+    return [...new Set(names.map((name) => {
+      const baseName = name.split("/").pop() ?? name;
+      const row = rows.find((candidate) => candidate.fileName === name || candidate.fileName === baseName);
+      return row ? documentDisplayTitle(row.bookTitle, row.fileName) : name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "");
+    }).filter(Boolean))].slice(0, 5);
+  } catch {
+    return [...new Set(names.map((name) => name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "")).filter(Boolean))].slice(0, 5);
+  }
+}
+
 function chooseModel(messages: ClientMessage[]) {
   const latest = [...messages].reverse().find((message) => message.role === "student")?.text ?? "";
   if (/完整批改|申論批改|評分|逐段改寫|模擬閱卷/.test(latest)) return "gpt-5.6-sol";
@@ -1112,7 +1128,10 @@ export async function POST(request: Request) {
       type: "file_search",
       vector_store_ids: [vectorStoreId],
       max_num_results: 8,
-      ...(context.type === "home" ? { filters: { type: "eq", key: "homepage_enabled", value: true } } : {}),
+      ...(context.type === "home" ? { filters: { type: "and", filters: [
+        { type: "eq", key: "exam_category", value: "law" },
+        { type: "eq", key: "homepage_enabled", value: true },
+      ] } } : {}),
     });
     const allowWebSearch = needsOpenAi && context.type === "home" && homeWebSearchMode !== "off";
     if (allowWebSearch) tools.unshift({ type: "web_search" });
@@ -1251,6 +1270,7 @@ export async function POST(request: Request) {
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
     const allSearchSources = [...new Set([...citationSources, ...searchResultNames])];
+    const displaySearchSources = context.type === "home" && searchedFiles ? await displayDocumentSourceNames(allSearchSources) : allSearchSources;
     const sharedRetrievalContext = searchedFiles ? extractFileSearchContext(payload) : "";
     const comparisonClaudeModel = needsAnthropic ? await getAnthropicChatModel("claude-sonnet-5") : "";
     let claudeRun: { model: string; reply: string; inputTokens: number; outputTokens: number; durationMs: number; stopReason: string | null } | null = null;
@@ -1339,9 +1359,9 @@ export async function POST(request: Request) {
       ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "applied_inference"
         ? [`${effectiveTeachingEvidence.resourceTitle}｜${effectiveTeachingEvidence.segmentTitle}`]
       : effectiveTeachingEvidence?.status === "full_text_search"
-          ? [effectiveTeachingEvidence.fileName || "教材全文索引（章節待核對）"]
+          ? [effectiveTeachingEvidence.resourceTitle || "教材全文索引（章節待核對）"]
           : []
-      : [...new Set([...citationSources, ...searchResultNames, ...webSources])];
+      : [...new Set([...displaySearchSources, ...webSources])];
     const fromFiles = context.type === "book"
       ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "applied_inference" || effectiveTeachingEvidence?.status === "full_text_search"
       : searchedFiles && (citationSources.length > 0 || searchResultNames.length > 0);

@@ -18,16 +18,25 @@ function sessionDate(session: { sessionDate?: string | null; createdAt: Date; up
 }
 
 function mapMessage(message: typeof chatMessages.$inferSelect) {
+  const text = message.text;
   let sources: string[] = [];
   try { sources = message.citationsJson ? JSON.parse(message.citationsJson) as string[] : []; } catch { sources = []; }
   let comparison: unknown = undefined;
   try { comparison = message.comparisonJson ? JSON.parse(message.comparisonJson) : undefined; } catch { comparison = undefined; }
-  const marker = message.text.match(/\n\n<!--SILU_PRACTICE:([A-Za-z0-9_-]+)-->/);
+  const marker = text.match(/<!--\s*SILU_PRACTICE:([A-Za-z0-9_-]+)\s*-->/i);
   let practiceQuestion: unknown = undefined;
   if (marker) {
     try { practiceQuestion = JSON.parse(Buffer.from(marker[1], "base64url").toString("utf8")); } catch { practiceQuestion = undefined; }
   }
-  return { role: message.role, text: message.text.replace(/\n\n<!--SILU_PRACTICE:[A-Za-z0-9_-]+-->/g, ""), source: message.source, model: message.model, sources, citationStatus: message.citationStatus, comparison, practiceQuestion, createdAt: message.createdAt };
+  const stateMarker = text.match(/<!--\s*SILU_PRACTICE_STATE:([A-Za-z0-9_-]+)\s*-->/i);
+  let practiceState: unknown = undefined;
+  if (stateMarker) {
+    try { practiceState = JSON.parse(Buffer.from(stateMarker[1], "base64url").toString("utf8")); } catch { practiceState = undefined; }
+  }
+  const cleanedText = text
+    .replace(/(?:\r?\n|\s)*(?:<!--\s*)?SILU_PRACTICE_STATE:[A-Za-z0-9_-]+(?:\s*-->)?/gi, "")
+    .replace(/(?:\r?\n|\s)*(?:<!--\s*)?SILU_PRACTICE:[A-Za-z0-9_-]+(?:\s*-->)?/gi, "");
+  return { role: message.role, text: cleanedText, source: message.source, model: message.model, sources, citationStatus: message.citationStatus, comparison, practiceQuestion, practiceState, createdAt: message.createdAt };
 }
 
 function buildSummary(messages: Array<typeof chatMessages.$inferSelect>) {

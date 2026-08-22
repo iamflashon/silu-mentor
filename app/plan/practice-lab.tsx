@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { EssayHistory } from "./essay-history";
+import { useSimulationToolsEnabled } from "../../lib/use-simulation-tools";
 
 type PracticeQuestion = {
   id: number;
@@ -46,13 +47,14 @@ type EssayGrading = {
 };
 
 type EssayModelMode = "luna" | "sol" | "claude" | "dual";
+type EssayDisplayMode = "tabs" | "split";
 type EssayComparison = {
   scoreDifference: number;
   agreements: string[];
-  differences: Array<{ criterion: string; sol: number; claude: number }>;
+  differences: Array<{ criterion: string; sol: number; luna?: number; claude?: number }>;
 };
 type EssayModelFailure = {
-  model: "sol" | "claude";
+  model: "sol" | "luna" | "claude";
   label: string;
   message: string;
   retryable: boolean;
@@ -338,6 +340,7 @@ function EssayBatchGrading() {
 }
 
 export function PracticeLab({ initialType, standalone = false, canAdmin = false }: Props) {
+  const simulationToolsEnabled = useSimulationToolsEnabled();
   const [accountCanAdmin, setAccountCanAdmin] = useState(canAdmin);
   const [examType, setExamType] = useState<"mcq" | "essay">(initialType);
   const [question, setQuestion] = useState<PracticeQuestion | null>(null);
@@ -361,7 +364,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const [essayUsage, setEssayUsage] = useState<EssayUsage[]>([]);
   const [essayReviews, setEssayReviews] = useState<{
     sol: EssayGrading;
-    claude: EssayGrading;
+    luna: EssayGrading;
   } | null>(null);
   const [essayComparison, setEssayComparison] =
     useState<EssayComparison | null>(null);
@@ -370,6 +373,9 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     useState<EssayModelMode | null>("luna");
   const [essayResultMode, setEssayResultMode] =
     useState<EssayModelMode>("luna");
+  const [essayDualEnabled, setEssayDualEnabled] = useState(false);
+  const [essayDisplayMode, setEssayDisplayMode] = useState<EssayDisplayMode>("tabs");
+  const [essayVisibleModel, setEssayVisibleModel] = useState<"sol" | "luna">("sol");
   const [submitting, setSubmitting] = useState(false);
   const [gradingAnimationStep, setGradingAnimationStep] = useState(0);
   const [teacherAnswerOpen, setTeacherAnswerOpen] = useState(false);
@@ -585,7 +591,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
           if (typeof state.essayPickerSubject === "string") setEssayPickerSubject(state.essayPickerSubject);
           if (typeof state.essayPickerId === "string") setEssayPickerId(state.essayPickerId);
           if (typeof state.essayPickerOpen === "boolean") setEssayPickerOpen(state.essayPickerOpen);
-          setEssayModelMode("sol");
+          setEssayModelMode("luna");
           setDraftSavedAt(
             session?.updatedAt
               ? new Date(session.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })
@@ -712,7 +718,9 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setEssayReviews(null);
     setEssayComparison(null);
     setEssayModelFailures([]);
-    setEssayResultMode("sol");
+    setEssayResultMode("luna");
+    setEssayDisplayMode("tabs");
+    setEssayVisibleModel("sol");
     setEssayModelMode(null);
     setEssay("");
     setCoachInput("");
@@ -755,7 +763,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         // The essay grader currently has one fixed model and no visible picker.
         // Re-establish that mode after loading a new question so the submit
         // button never depends on stale picker state.
-        setEssayModelMode("sol");
+        setEssayModelMode("luna");
         await restoreGuidedSession(result.question.id);
       } else {
         setGuidedStateReady(false);
@@ -795,6 +803,15 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   useEffect(() => {
     if (examType !== "essay") return;
+    fetch("/api/essay-grading?config=1")
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = (await response.json()) as { dualEnabled?: boolean };
+        const enabled = result.dualEnabled !== false;
+        setEssayDualEnabled(enabled);
+        if (!enabled) setEssayModelMode("luna");
+      })
+      .catch(() => { setEssayDualEnabled(false); setEssayModelMode("luna"); });
     setEssayPickerLoading(true);
     fetch("/api/practice?type=essay&list=1")
       .then(async (response) => {
@@ -1168,7 +1185,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   async function submitEssay() {
     if (!question || !essay.trim() || submitting) return;
-    const selectedMode: EssayModelMode = "luna";
+    const selectedMode: "sol" | "luna" | "dual" = essayDualEnabled && (essayModelMode === "sol" || essayModelMode === "dual") ? essayModelMode : "luna";
     setSubmitting(true);
     setEssayFeedback("");
     try {
@@ -1185,23 +1202,26 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         mode?: EssayModelMode;
         saved?: boolean;
         grading?: EssayGrading;
-        reviews?: { sol?: EssayGrading; claude?: EssayGrading };
+        reviews?: { sol?: EssayGrading; luna?: EssayGrading; claude?: EssayGrading };
         comparison?: EssayComparison | null;
         modelFailures?: EssayModelFailure[];
         usage?: EssayUsage[];
         retryable?: boolean;
-        failedModel?: "sol" | "claude";
+        failedModel?: "sol" | "luna" | "claude";
         source?: { label?: string };
         error?: string;
       };
       if (response.ok && result.grading) {
-        const resultMode = result.mode ?? selectedMode;
+        const resultMode = result.mode === "claude" ? "sol" : result.mode ?? selectedMode;
         setEssayResultMode(resultMode);
+        setEssayDisplayMode("tabs");
+        setEssayVisibleModel("sol");
         setEssayGrading(result.grading);
         setEssayUsage(result.usage ?? []);
         setEssayModelFailures(result.modelFailures ?? []);
-        if (result.reviews?.sol && result.reviews.claude) {
-          setEssayReviews({ sol: result.reviews.sol, claude: result.reviews.claude });
+        const lunaReview = result.reviews?.luna ?? result.reviews?.claude;
+        if (result.reviews?.sol && lunaReview) {
+          setEssayReviews({ sol: result.reviews.sol, luna: lunaReview });
           setEssayComparison(result.comparison ?? null);
         } else {
           setEssayReviews(null);
@@ -1210,15 +1230,15 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
         const failures = result.modelFailures ?? [];
         setEssayFeedback(
           failures.length > 0
-            ? (resultMode === "dual" ? "Sol 批改已完成並保存；" : "批改尚未完成；") + failures.map((item) => item.message).join("；") + " 你的答案已保留，可重新選擇模型批改。"
+            ? (resultMode === "dual" ? "Sol 或 Luna 其中一個模型已完成並保存；" : "批改尚未完成；") + failures.map((item) => item.message).join("；") + " 你的答案已保留，可重新選擇模型批改。"
             : resultMode === "dual"
-              ? `已完成 GPT-5.6 Sol 與 Claude Opus 5 雙模型覆核。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
-              : `本次使用${resultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
+              ? `已完成 GPT-5.6 Sol 與 GPT-5.6 Luna 雙模型批改，請用上方分頁或分割檢視比較。本次依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`
+              : `本次使用${resultMode === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol"}，依${result.source?.label ?? "老師參考擬答"}批改，結果已自動保存。`,
         );
       } else {
         setEssayModelFailures(result.failedModel ? [{
           model: result.failedModel,
-          label: result.failedModel === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
+          label: result.failedModel === "claude" ? "Claude Opus 5" : result.failedModel === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol",
           message: result.error ?? "申論批改暫時無法使用",
           retryable: result.retryable ?? false,
         }] : []);
@@ -1236,10 +1256,61 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   }
 
   function essayModelPicker() {
-    return null;
+    const selectedMode = essayModelMode === "luna" || essayModelMode === "dual" ? essayModelMode : "sol";
+    if (!essayDualEnabled) {
+      return (
+        <fieldset className="essay-model-picker is-luna-only" aria-label="正式申論批改模型">
+          <legend>正式申論初步批改</legend>
+          <div>
+            <label className="selected">
+              <input type="radio" name="essay-model" checked readOnly disabled />
+              <span><strong>GPT-5.6 Luna</strong><small>先由 Luna 診斷漏點與修正方向，最後仍由老師確認與定稿。</small></span>
+            </label>
+          </div>
+        </fieldset>
+      );
+    }
+    return (
+      <fieldset className="essay-model-picker" aria-label="正式申論批改模型">
+        <legend>正式申論批改｜選擇模型</legend>
+        <div>
+          <label className={selectedMode === "sol" ? "selected" : ""}>
+            <input type="radio" name="essay-model" checked={selectedMode === "sol"} onChange={() => setEssayModelMode("sol")} disabled={submitting} />
+            <span><strong>GPT-5.6 Sol</strong><small>進階覆核模型，適合需要額外核對時使用。</small></span>
+          </label>
+          <label className={selectedMode === "luna" ? "selected" : ""}>
+            <input type="radio" name="essay-model" checked={selectedMode === "luna"} onChange={() => setEssayModelMode("luna")} disabled={submitting} />
+            <span><strong>GPT-5.6 Luna</strong><small>另一份獨立批改，方便比較不同判斷。</small></span>
+          </label>
+          <label className={`${selectedMode === "dual" ? "selected" : ""} ${!essayDualEnabled ? "is-disabled" : ""}`}>
+            <input type="radio" name="essay-model" checked={selectedMode === "dual"} onChange={() => setEssayModelMode("dual")} disabled={submitting || !essayDualEnabled} />
+            <span><strong>Sol＋Luna 比較</strong><small>{essayDualEnabled ? "一次取得兩份結果，送出後可分頁或分割查看。" : "目前由後台關閉比較功能。"}</small></span>
+          </label>
+        </div>
+        <p>一般教學功能維持使用 Luna；這裡是正式申論批改，可在送出前直接選擇 Sol、Luna 或雙模型比較。</p>
+      </fieldset>
+    );
   }
 
-  function renderEssayGrading(grading: EssayGrading, title?: string) {
+  function renderTeacherAnswer() {
+    if (!question?.teacherAnswer) return null;
+    const sourceLabel = question.answerSource || "老師參考擬答";
+    const answerText = question.teacherAnswer.trim().startsWith(sourceLabel.trim())
+      ? question.teacherAnswer.trim().slice(sourceLabel.trim().length).replace(/^[\s：:｜|—-]+/, "").trimStart()
+      : question.teacherAnswer;
+    return (
+      <details className="essay-teacher-answer" open={teacherAnswerOpen} onToggle={(event) => setTeacherAnswerOpen(event.currentTarget.open)}>
+        <summary>查看老師擬答</summary>
+        <div>
+          <strong>{sourceLabel}</strong>
+          <p>{answerText}</p>
+          <small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small>
+        </div>
+      </details>
+    );
+  }
+
+  function renderEssayGrading(grading: EssayGrading, title?: string, includeTeacherAnswer = true) {
     return (
       <div className="essay-grading-result">
         {title && (
@@ -1292,16 +1363,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
           <strong>下一步</strong>
           <p>{grading.next_step}</p>
         </div>
-        {question?.teacherAnswer ? (
-          <details className="essay-teacher-answer" open={teacherAnswerOpen} onToggle={(event) => setTeacherAnswerOpen(event.currentTarget.open)}>
-            <summary>查看老師擬答</summary>
-            <div>
-              <strong>{question.answerSource || "老師參考擬答"}</strong>
-              <p>{question.teacherAnswer}</p>
-              <small>老師擬答是本次批改基準；AI 診斷不取代老師採說。</small>
-            </div>
-          </details>
-        ) : null}
+        {includeTeacherAnswer && renderTeacherAnswer()}
       </div>
     );
   }
@@ -1338,23 +1400,36 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     if (!essayReviews || essayResultMode !== "dual") {
       return renderEssayGrading(
         essayGrading,
-        essayResultMode === "claude" ? "Claude Opus 5" : "GPT-5.6 Luna",
+        essayResultMode === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol",
       );
     }
+    const visibleGrading = essayVisibleModel === "luna" ? essayReviews.luna : essayReviews.sol;
     return (
       <section className="essay-dual-review" aria-label="雙模型申論覆核結果">
         <header>
           <div>
-            <strong>Sol＋Claude 雙模型覆核</strong>
-            <span>兩個模型獨立評分，先看各自判斷，再看採分差異。</span>
+            <strong>Sol＋Luna 雙模型批改</strong>
+            <span>可先用分頁查看各自判斷，也可切換分割畫面直接比較。</span>
           </div>
           {essayComparison && (
             <b>總分差距 {essayComparison.scoreDifference} 分</b>
           )}
         </header>
-        <div className="essay-dual-models">
-          {renderEssayGrading(essayReviews.sol, "GPT-5.6 Sol")}
-          {renderEssayGrading(essayReviews.claude, "Claude Opus 5")}
+        <div className="essay-result-controls" aria-label="批改結果檢視方式">
+          <div className="essay-result-tabs" role="tablist" aria-label="模型結果分頁">
+            <button type="button" className={essayVisibleModel === "sol" ? "active" : ""} onClick={() => { setEssayVisibleModel("sol"); setEssayDisplayMode("tabs"); }} role="tab" aria-selected={essayVisibleModel === "sol"}>Sol 結果</button>
+            <button type="button" className={essayVisibleModel === "luna" ? "active" : ""} onClick={() => { setEssayVisibleModel("luna"); setEssayDisplayMode("tabs"); }} role="tab" aria-selected={essayVisibleModel === "luna"}>Luna 結果</button>
+          </div>
+          <div className="essay-result-layout" role="group" aria-label="結果版面">
+            <button type="button" className={essayDisplayMode === "tabs" ? "active" : ""} onClick={() => setEssayDisplayMode("tabs")}>分頁比較</button>
+            <button type="button" className={essayDisplayMode === "split" ? "active" : ""} onClick={() => setEssayDisplayMode("split")}>分割比較</button>
+          </div>
+        </div>
+        <div className={`essay-dual-models ${essayDisplayMode === "split" ? "is-split" : "is-tabs"}`}>
+          {essayDisplayMode === "split" ? <>
+            {renderEssayGrading(essayReviews.sol, "GPT-5.6 Sol", false)}
+            {renderEssayGrading(essayReviews.luna, "GPT-5.6 Luna", false)}
+          </> : renderEssayGrading(visibleGrading, essayVisibleModel === "luna" ? "GPT-5.6 Luna" : "GPT-5.6 Sol", false)}
         </div>
         {essayComparison && (
           <div className="essay-comparison">
@@ -1368,7 +1443,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
               <p>
                 <b>配分差異：</b>
                 {essayComparison.differences
-                  .map((item) => `${item.criterion}（Sol ${item.sol}／Claude ${item.claude}）`)
+                  .map((item) => `${item.criterion}（Sol ${item.sol}／Luna ${item.luna ?? item.claude ?? 0}）`)
                   .join("、")}
               </p>
             ) : (
@@ -1376,6 +1451,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
             )}
           </div>
         )}
+        {renderTeacherAnswer()}
       </section>
     );
   }
@@ -2052,7 +2128,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                     </div>}
                     <div ref={coachMessagesRef} className="essay-chat-messages" aria-live="polite">
                       {!coachStarted && <div className="essay-chat-empty"><span className="mentor-avatar">律</span><div><strong>準備好了嗎？</strong><p>{accountCanAdmin ? "請在下方選好學生程度與回答模型，再按「開始對話」；之後會依這一題的科目自然追問，不會套用其他法科的流程。" : "按「開始對話」後，AI 導師會依這一題的科目自然追問，不會套用其他法科的流程。"}</p></div></div>}
-                      {coachMessages.map((message, index) => !accountCanAdmin && message.role === "scholar" ? null : <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
+                      {coachMessages.map((message, index) => (!accountCanAdmin || !simulationToolsEnabled) && message.role === "scholar" ? null : <div className={`essay-chat-message ${message.role}`} key={`${message.role}-${index}`}>
                         {message.role !== "student" && <span className={`mentor-avatar ${message.role === "scholar" ? "scholar-avatar" : ""}`}>{message.role === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span>}
                         <div className="essay-chat-message-content">
                           <div className="essay-chat-bubble">
@@ -2074,7 +2150,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                       {coaching && <div className={`essay-chat-message ${coachTypingRole}`}><span className={`mentor-avatar ${coachTypingRole === "scholar" ? "scholar-avatar" : ""}`}>{coachTypingRole === "scholar" ? coachTeachingLevelShortLabels[coachTeachingLevel] : "律"}</span><div className="essay-chat-bubble typing"><i /><i /><i /></div></div>}
                     </div>
                     <div className="essay-chat-composer-wrap">
-                      {accountCanAdmin && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="管理測試設定">
+                      {accountCanAdmin && simulationToolsEnabled && <div className={`essay-chat-settings model-mode-switch ${coachSettingsOpen ? "" : "is-collapsed"}`} aria-label="管理測試設定">
                         <div className="model-mode-heading">
                           <strong>管理測試設定</strong>
                           <span className="model-mode-summary">{coachTeachingLevel === "general" ? "一般學生" : coachTeachingLevel === "beginner" ? "法律小白" : coachTeachingLevel === "intermediate" ? "基礎考生" : coachTeachingLevel === "advanced" ? "進階考生" : "頂尖學霸"} · Luna</span>
@@ -2094,7 +2170,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                       {coachStarted && !coachEnded && <div className="essay-chat-guidance-actions" aria-label="回答引導">
                         <button type="button" onClick={() => sendGuidedCoachReply("hint")} disabled={coaching}>給我一點提示</button>
                         <button type="button" onClick={() => sendGuidedCoachReply("smaller_step")} disabled={coaching}>拆成更小一步</button>
-                        {accountCanAdmin && <button type="button" className="student-simulation" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "模擬學生回答" : "模擬學生回答這句"}</button>}
+                        {accountCanAdmin && simulationToolsEnabled && <button type="button" className="student-simulation" onClick={() => void generateScholarFollowUp()} disabled={coaching}>{selectedCoachMessageIndex === null ? "模擬學生回答" : "模擬學生回答這句"}</button>}
                       </div>}
                       <form className="essay-chat-composer" onSubmit={(event) => { event.preventDefault(); void askCoach(); }}><textarea ref={coachComposerInputRef} value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder={coachEnded ? "本次對話已結束" : coachStarted ? "回答 AI 導師的問題……" : "開始對話後，這裡會成為你的回答框……"} rows={1} disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void askCoach(); } }} /><button type="submit" aria-label="送出回答" disabled={coaching || !coachStarted || coachEnded || coachMessages.filter((message) => message.role === "student" || (accountCanAdmin && message.role === "scholar")).length >= coachRoundLimit || !coachInput.trim()}>↑</button></form>
                     </div>
