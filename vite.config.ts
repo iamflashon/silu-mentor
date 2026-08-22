@@ -2,6 +2,7 @@ import vinext from "vinext";
 import { defineConfig } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { kvDataAdapter } from "@vinext/cloudflare/cache/kv-data-adapter";
+import { existsSync } from "node:fs";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -9,6 +10,9 @@ const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
 
 const { d1, r2 } = hostingConfig;
+const hasWranglerConfig = ["wrangler.jsonc", "wrangler.json", "wrangler.toml"].some(
+  (path) => existsSync(path),
+);
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
@@ -60,7 +64,10 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: localBindingConfig,
+        // ChatGPT Sites has no Wrangler file, so it needs local placeholder
+        // bindings. A standalone Cloudflare checkout already declares the real
+        // resources in wrangler.jsonc; injecting both would duplicate DB/BUCKET.
+        ...(hasWranglerConfig ? {} : { config: localBindingConfig }),
       }),
     ],
   };
