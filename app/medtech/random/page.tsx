@@ -13,10 +13,10 @@ import {
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
 import {
-  MEDTECH_ALL_ACCESS_DAYS,
   MEDTECH_ALL_ACCESS_NAME,
 } from "../../../lib/medtech-usage";
 import { taipeiDate } from "../../../lib/taipei-time";
+import { getMedtechProductSettings } from "../../../lib/medtech-product-settings";
 
 // This route is member-specific and reads live D1 state. Keep it out of ISR so
 // the server HTML and client RSC payload always describe the same member data.
@@ -74,6 +74,8 @@ export default async function MedtechRandomPackages({
         </section>
       </main>
     );
+
+  const product = await getMedtechProductSettings(auth.db);
 
   const [sourceRows, questionRows, ledgerRows, sessionRows, paymentRows] = await Promise.all(
     [
@@ -148,7 +150,7 @@ export default async function MedtechRandomPackages({
   const allAccessUntil = allAccessOrder?.paidAt
     ? new Date(
         allAccessOrder.paidAt.getTime() +
-          MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
+          product.accessDays * 24 * 60 * 60 * 1000,
       )
     : null;
   const allAccess =
@@ -310,7 +312,7 @@ export default async function MedtechRandomPackages({
         <span>RANDOM MOCK</span>
         <h1>跨章節隨機模考</h1>
         {payment === "success" && (
-          <div className="medtech-line-pay-notice success">LINE Pay 付款成功；全庫通行證已開通，可使用 30 天。</div>
+          <div className="medtech-line-pay-notice success">LINE Pay 付款成功；全庫通行證已開通，可使用 {product.accessDays} 天。</div>
         )}
         {payment === "cancelled" && (
           <div className="medtech-line-pay-notice">您已取消 LINE Pay 付款，題目包未購買。</div>
@@ -320,7 +322,7 @@ export default async function MedtechRandomPackages({
         )}
         <p>
           從臨床病毒學總論、DNA 病毒與 RNA 病毒題庫跨章節抽題。每 30
-          題是一個練習單元。首次任選一個單元免費；NT$199 開通後全庫 30 天不限次練習。
+          題是一個練習單元。首次任選一個單元免費；NT${product.effectivePrice} 開通後全庫 {product.accessDays} 天不限次練習。
         </p>
         <div className="medtech-pack-rule">
           <b>跨章節模考 × 全庫通行證</b>

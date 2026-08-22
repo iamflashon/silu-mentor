@@ -5,6 +5,8 @@ import MedtechHeaderActions from "./MedtechHeaderActions";
 import MedtechPlanDialog from "./MedtechPlanDialog";
 import LinePayPurchaseButton from "./LinePayPurchaseButton";
 import { memberLoginPath } from "../../lib/member-login-path";
+import { getDb } from "../../db";
+import { getMedtechProductSettings } from "../../lib/medtech-product-settings";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
   const requestHeaders = await headers();
@@ -37,6 +39,7 @@ export default async function MedtechHome() {
       </main>
     );
   const user = await getChatGPTUser();
+  const product = await getMedtechProductSettings(await getDb());
   const upcomingBooks = [
     { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
     { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
@@ -73,7 +76,7 @@ export default async function MedtechHome() {
           <span>康情老師・醫檢國考系列</span>
           <h1>醫檢師國考題詳解</h1>
           <p>一本書就是一套完整的數位練習課程。先選書，再進入章節刷題、模考、錯題重練與老師解析。</p>
-          <div className="medtech-library-stats"><b>目前開放 1 本</b><span>系列書單持續擴充</span><span>首次免費體驗 30 題</span></div>
+          <div className="medtech-library-stats"><b>目前開放 1 本</b><span>系列書單持續擴充</span><span>首次免費體驗 {product.trialQuestions} 題</span></div>
         </div>
       </section>
 
@@ -87,12 +90,12 @@ export default async function MedtechHome() {
           <h2 id="featured-book-title">醫檢師國考題詳解（Ⅲ）<br />臨床病毒學（下）</h2>
           <p className="medtech-book-author">陳連城・康情老師</p>
           <p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>
-          <div className="medtech-book-trial"><b>首次免費體驗 30 題</b><span>任選一個 30 題單元，先完整體驗再決定是否開通。</span></div>
-          <div className="medtech-book-price"><strong>NT$199</strong><span>開通本書全部內容 30 天<br />一次付清・不自動續訂</span></div>
+          <div className="medtech-book-trial"><b>首次免費體驗 {product.trialQuestions} 題</b><span>任選一個練習單元，先完整體驗再決定是否開通。</span></div>
+          <div className="medtech-book-price"><strong>NT${product.effectivePrice}</strong><span>開通本書全部內容 {product.accessDays} 天<br />一次付清・不自動續訂</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>
-            <a className="primary trial" href="/medtech/chapters">免費體驗 30 題</a>
-            <LinePayPurchaseButton packageName="醫檢師國考題詳解（Ⅲ）臨床病毒學（下）" packNumber={1} amount={199} label="LINE Pay NT$199 開通本書" />
-            <MedtechPlanDialog />
+            <a className="primary trial" href="/medtech/chapters">免費體驗 {product.trialQuestions} 題</a>
+            <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />
+            <MedtechPlanDialog price={product.effectivePrice} accessDays={product.accessDays} trialQuestions={product.trialQuestions} />
           </div>
         </div>
       </section>

@@ -12,7 +12,7 @@ const features = [
   "判斷提示及四個選項比較",
   "完整解題解析",
   "康情老師語音解析",
-  "30 天不限次練習",
+  "方案開通期間不限次練習",
 ];
 
 export default async function MedtechPricingPage() {

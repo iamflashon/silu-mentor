@@ -16,6 +16,7 @@ import {
   getActiveMedtechAllAccess,
 } from "../../../lib/medtech-usage";
 import { taipeiDate } from "../../../lib/taipei-time";
+import { getMedtechProductSettings } from "../../../lib/medtech-product-settings";
 
 // This route is member-specific and reads live D1 state. It must never be
 // prerendered or reused through ISR, otherwise Vinext can hydrate one member's
@@ -84,6 +85,8 @@ export default async function MedtechChapters({
       </main>
     );
   }
+
+  const product = await getMedtechProductSettings(auth.db);
 
   const [sourceRows, questionRows, ledgerRows, sessionRows, paymentRows] =
     await Promise.all([
@@ -353,7 +356,7 @@ export default async function MedtechChapters({
         <h1>選擇本次練習章節</h1>
         {payment === "success" && (
           <div className="medtech-line-pay-notice success">
-            LINE Pay 付款成功；全庫通行證已開通，可使用 30 天。
+            LINE Pay 付款成功；全庫通行證已開通，可使用 {product.accessDays} 天。
           </div>
         )}
         {payment === "cancelled" && (
@@ -368,7 +371,7 @@ export default async function MedtechChapters({
         )}
         <p>
           每 30 題是一個練習單元，方便掌握進度，不是計價單位。首次可任選一個
-          30 題單元免費體驗；NT$199 一次開通全庫，30 天不限次練習。
+          {product.trialQuestions} 題單元免費體驗；NT${product.effectivePrice} 一次開通全庫，{product.accessDays} 天不限次練習。
         </p>
         <div className="medtech-pack-rule">
           <b>全庫通行證 × 清楚學習進度</b>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MedtechTabs from "../MedtechTabs";
 import MedtechHeaderActions from "../MedtechHeaderActions";
+import { useMedtechProductSettings } from "../useMedtechProductSettings";
 
 type Question = {
   id: number;
@@ -158,6 +159,7 @@ async function readJson(response: Response) {
 }
 
 export default function MedtechPractice() {
+  const product = useMedtechProductSettings();
   const [rows, setRows] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -1364,7 +1366,7 @@ export default function MedtechPractice() {
             </button>
             <span>
               {q.locked
-                ? "本題需開通 NT$199／30 天全庫通行證"
+                ? product ? `本題需開通 NT$${product.effectivePrice}／${product.accessDays} 天全庫通行證` : "方案讀取中…"
                 : "答案在完成前不顯示"}
             </span>
             <button
@@ -1389,9 +1391,9 @@ export default function MedtechPractice() {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <span>醫檢師全庫通行證</span>
-            <h2>NT$199 開通完整題庫 30 天</h2>
+            <h2>{product ? `NT$${product.effectivePrice} 開通完整題庫 ${product.accessDays} 天` : "方案讀取中…"}</h2>
             <p>
-              30 題是學習進度單元，不再逐包計價。開通後 30 天內可不限次練習全部
+              30 題是學習進度單元，不再逐包計價。開通後 {product?.accessDays ?? "—"} 天內可不限次練習全部
               1,400+ 題、章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與老師語音。
             </p>
             {false && packageAccess?.discountReward?.status === "available" && (
