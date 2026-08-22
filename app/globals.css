@@ -9,6 +9,91 @@
   --muted: #65798a;
 }
 
+/* Book-first medical technologist library */
+.medtech-library-hero {
+  max-width: 1180px;
+  margin: 28px auto 0;
+  padding: 54px 58px;
+  border-radius: 28px;
+  color: #fff;
+  background: linear-gradient(125deg, #073f3b 0%, #0d6a62 72%, #169084 100%);
+  box-shadow: 0 22px 60px rgba(6, 61, 57, .16);
+}
+.medtech-library-hero > div { max-width: 820px; }
+.medtech-library-hero > div > span,
+.medtech-section-heading > span,
+.medtech-featured-copy > span {
+  display: block;
+  margin-bottom: 12px;
+  color: #f2cf67;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+.medtech-library-hero h1 { margin: 0; font-size: clamp(38px, 6vw, 70px); line-height: 1.04; letter-spacing: -.05em; }
+.medtech-library-hero p { max-width: 700px; margin: 22px 0 0; color: rgba(255,255,255,.82); font-size: 17px; line-height: 1.85; }
+.medtech-library-stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.medtech-library-stats > * { padding: 9px 14px; border: 1px solid rgba(255,255,255,.28); border-radius: 999px; background: rgba(255,255,255,.08); font-size: 13px; }
+
+.medtech-featured-book {
+  max-width: 1180px;
+  margin: 28px auto 0;
+  padding: 42px;
+  display: grid;
+  grid-template-columns: minmax(230px, 350px) 1fr;
+  gap: 64px;
+  align-items: center;
+  border: 1px solid #c9dfdb;
+  border-radius: 28px;
+  background: #fff;
+}
+.medtech-book-cover-wrap { position: relative; width: min(100%, 320px); margin: auto; }
+.medtech-book-cover-wrap img { display: block; width: 100%; height: auto; border-radius: 4px 13px 13px 4px; box-shadow: 0 28px 55px rgba(22,58,54,.2); }
+.medtech-book-cover-wrap > span { position: absolute; top: 18px; right: -14px; padding: 8px 14px; border-radius: 999px; color: #fff; background: #087d71; font-size: 13px; font-weight: 900; box-shadow: 0 8px 20px rgba(8,125,113,.22); }
+.medtech-featured-copy > span { color: #087d71; }
+.medtech-featured-copy h2 { margin: 0; color: #073a37; font-size: clamp(30px, 4.2vw, 54px); line-height: 1.15; letter-spacing: -.04em; }
+.medtech-featured-copy > p { max-width: 650px; color: #486864; font-size: 16px; line-height: 1.85; }
+.medtech-featured-copy .medtech-book-author { color: #9a6b00; font-weight: 800; }
+.medtech-book-price { display: flex; align-items: center; gap: 18px; margin: 22px 0; }
+.medtech-book-price strong { color: #073f3b; font-size: 36px; }
+.medtech-book-price span { color: #66817d; font-size: 13px; line-height: 1.5; }
+.medtech-featured-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.medtech-featured-actions a { padding: 13px 20px; border: 1px solid #0a776d; border-radius: 12px; color: #08675f; font-weight: 900; text-decoration: none; }
+.medtech-featured-actions a.primary { color: #fff; background: #087d71; }
+
+.medtech-series-preview { max-width: 1180px; margin: 68px auto 90px; }
+.medtech-section-heading { max-width: 720px; margin-bottom: 26px; }
+.medtech-section-heading > span { color: #087d71; }
+.medtech-section-heading h2 { margin: 0; color: #073a37; font-size: clamp(28px, 3.5vw, 42px); letter-spacing: -.03em; }
+.medtech-section-heading p { color: #66817d; }
+.medtech-book-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.medtech-preview-book { min-width: 0; padding: 20px; display: grid; grid-template-columns: 110px 1fr; gap: 18px; align-items: center; border: 1px solid #d2e2df; border-radius: 18px; background: #fff; }
+.medtech-preview-book > img,
+.medtech-cover-placeholder { width: 110px; aspect-ratio: 600 / 836; object-fit: cover; border-radius: 3px 8px 8px 3px; box-shadow: 0 12px 25px rgba(15,61,56,.14); }
+.medtech-cover-placeholder { box-sizing: border-box; padding: 15px 10px; display: flex; flex-direction: column; color: #173f3b; background: linear-gradient(150deg,#fff 0 55%,#f5d96f 55%); }
+.medtech-cover-placeholder small { font-weight: 900; }
+.medtech-cover-placeholder b { margin-top: 6px; font-size: 14px; line-height: 1.2; }
+.medtech-cover-placeholder em { margin-top: 6px; color: #c9791d; font-size: 24px; font-style: normal; font-weight: 900; }
+.medtech-cover-placeholder span { margin-top: auto; font-size: 10px; font-weight: 800; line-height: 1.25; }
+.medtech-preview-book > div > span { color: #77908c; font-size: 11px; font-weight: 800; }
+.medtech-preview-book h3 { margin: 6px 0; color: #073a37; font-size: 17px; line-height: 1.35; }
+.medtech-preview-book p { margin: 0 0 12px; color: #78908c; font-size: 12px; }
+.coming-soon { display: inline-flex; padding: 6px 10px; border-radius: 999px; color: #7a5b00; background: #fff4ca; font-size: 11px; }
+
+@media (max-width: 900px) {
+  .medtech-library-hero, .medtech-featured-book, .medtech-series-preview { margin-left: 18px; margin-right: 18px; }
+  .medtech-featured-book { grid-template-columns: 250px 1fr; gap: 32px; padding: 30px; }
+  .medtech-book-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width: 640px) {
+  .medtech-library-hero { padding: 34px 24px; border-radius: 20px; }
+  .medtech-featured-book { grid-template-columns: 1fr; padding: 24px; }
+  .medtech-book-cover-wrap { width: min(74vw, 280px); }
+  .medtech-book-grid { grid-template-columns: 1fr; }
+  .medtech-preview-book { grid-template-columns: 92px 1fr; }
+  .medtech-preview-book > img, .medtech-cover-placeholder { width: 92px; }
+}
+
 .accounting-chapters-page,
 .accounting-admin-page {
   min-height: 100vh;
