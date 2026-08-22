@@ -85,6 +85,29 @@ export const medtechSecurityEvents = sqliteTable(
   ],
 );
 
+export const memberAccountDeletionAudits = sqliteTable(
+  "member_account_deletion_audits",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    deletionRef: text("deletion_ref").notNull().unique(),
+    actorType: text("actor_type").notNull().default("member_self_service"),
+    requestChannel: text("request_channel").notNull().default("authenticated_member_portal"),
+    authenticationMethod: text("authentication_method").notNull().default("session_password_confirmation_phrase"),
+    outcome: text("outcome").notNull().default("started"),
+    ipHash: text("ip_hash").notNull().default(""),
+    userAgentHash: text("user_agent_hash").notNull().default(""),
+    retainedPaymentOrders: integer("retained_payment_orders").notNull().default(0),
+    paymentDataAnonymized: integer("payment_data_anonymized", { mode: "boolean" }).notNull().default(false),
+    learningDataDeleted: integer("learning_data_deleted", { mode: "boolean" }).notNull().default(false),
+    requestedAt: integer("requested_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    uniqueIndex("member_account_deletion_audits_ref_unique").on(table.deletionRef),
+    index("member_account_deletion_audits_requested_idx").on(table.requestedAt),
+  ],
+);
+
 export const memberExamAccess = sqliteTable(
   "member_exam_access",
   {

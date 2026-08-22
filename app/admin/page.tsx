@@ -10,6 +10,7 @@ import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }> };
+type MemberDeletionAudit = { id: number; deletionRef: string; actorType: string; requestChannel: string; authenticationMethod: string; outcome: string; retainedPaymentOrders: number; paymentDataAnonymized: boolean; learningDataDeleted: boolean; requestedAt: string; completedAt: string | null };
 type ExternalBookData = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
 type ExternalIndexSource = { id: number; key: "lawdata" | "angle_books" | "angle_media" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: Array<{ label: string; url: string }>; book?: ExternalBookData }> };
 type ExternalRetrievalMatch = { id: number; source: string; title: string; summary: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; excerpt: string };
@@ -574,6 +575,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     | "external-index"
   >(questionBankMode ? "question-bank" : memberMode ? "members" : "documents");
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [memberDeletionAudits, setMemberDeletionAudits] = useState<MemberDeletionAudit[]>([]);
   const [questionBankSummary, setQuestionBankSummary] = useState<QuestionBankSummary | null>(null);
   const [questionBankLoading, setQuestionBankLoading] = useState(false);
   const [questionBankCategory, setQuestionBankCategory] = useState("all");
@@ -3495,6 +3497,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "無法讀取學員名單");
         setMembers(data.members ?? []);
+        setMemberDeletionAudits(data.deletionAudits ?? []);
       })
       .catch((error) => setMemberNotice(error instanceof Error ? error.message : "無法讀取學員名單"))
       .finally(() => setMembersLoading(false));
@@ -3902,6 +3905,8 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               </article>)}
               {!members.length && <p className="usage-empty">尚無會員。學生首次登入後會自動出現在這裡。</p>}
             </div>}
+            <div className="cost-heading"><div><h3>會員自助刪除稽核</h3><p className="panel-sub">不保留姓名、Email、IP 或裝置明文；付款資料僅以證明編號去識別化保留。</p></div><span className="source-count configured">{memberDeletionAudits.length} 筆</span></div>
+            <div className="member-admin-list">{memberDeletionAudits.map((audit) => <article className="member-admin-row" key={audit.id}><div className="member-identity"><span>刪</span><div><strong>{audit.deletionRef}</strong><small>{new Date(audit.requestedAt).toLocaleString("zh-TW")}</small></div></div><div className="member-last-seen"><span>執行方式</span><strong>會員自助／密碼再次驗證</strong></div><div className="member-last-seen"><span>結果</span><strong>{audit.outcome === "completed" ? "已完成" : audit.outcome === "failed" ? "未完成" : "處理中"}</strong></div><div className="member-last-seen"><span>付款紀錄</span><strong>{audit.retainedPaymentOrders} 筆（{audit.paymentDataAnonymized ? "已匿名" : "待處理"}）</strong></div></article>)}</div>
           </section>
         )}
         {activeTab === "homepage" && (
