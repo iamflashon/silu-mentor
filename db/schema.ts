@@ -97,6 +97,7 @@ export const memberExamAccess = sqliteTable(
     canAdmin: integer("can_admin", { mode: "boolean" })
       .notNull()
       .default(false),
+    permissionsJson: text("permissions_json").notNull().default("[]"),
     className: text("class_name").notNull().default("未分班"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -114,6 +115,43 @@ export const memberExamAccess = sqliteTable(
       table.examCategory,
       table.status,
     ),
+  ],
+);
+
+export const medtechProducts = sqliteTable("medtech_products", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  productKey: text("product_key").notNull().unique(),
+  title: text("title").notNull(),
+  listPrice: integer("list_price").notNull().default(199),
+  salePrice: integer("sale_price"),
+  saleLabel: text("sale_label").notNull().default(""),
+  saleStartsAt: integer("sale_starts_at", { mode: "timestamp" }),
+  saleEndsAt: integer("sale_ends_at", { mode: "timestamp" }),
+  accessDays: integer("access_days").notNull().default(30),
+  trialQuestions: integer("trial_questions").notNull().default(30),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const medtechMemberEntitlements = sqliteTable(
+  "medtech_member_entitlements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    productKey: text("product_key").notNull(),
+    status: text("status").notNull().default("active"),
+    source: text("source").notNull().default("manual"),
+    startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    note: text("note").notNull().default(""),
+    updatedBy: text("updated_by").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("medtech_member_entitlements_member_product_unique").on(table.memberId, table.productKey),
+    index("medtech_member_entitlements_product_expiry_idx").on(table.productKey, table.expiresAt),
   ],
 );
 

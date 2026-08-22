@@ -18,6 +18,7 @@ import {
   medtechUsage,
 } from "../db/schema";
 import { taipeiDate } from "./taipei-time";
+import { getMedtechProductSettings, getMemberProductEntitlement } from "./medtech-product-settings";
 
 // 醫檢師平台統一使用點數：首次登入贈 10 點，提示與比較選項走快取，
 // 語音完整解析與 AI 追問各自按次扣 1 點。保留舊欄位讀取僅為相容既有資料。
@@ -48,6 +49,9 @@ export async function getActiveMedtechAllAccess(
   userKey: string,
 ) {
   try {
+    const manualEntitlement = await getMemberProductEntitlement(db, userKey);
+    if (manualEntitlement) return { order: null, availableUntil: manualEntitlement.expiresAt };
+    const product = await getMedtechProductSettings(db);
     // Do not put the rolling cutoff in SQL. Older D1 rows and different
     // runtime adapters can expose timestamp values differently; filtering in
     // JavaScript keeps the chapter list usable across both old and new data.
@@ -73,7 +77,7 @@ export async function getActiveMedtechAllAccess(
     if (Number.isNaN(paidAt.getTime())) return null;
 
     const availableUntil = new Date(
-      paidAt.getTime() + MEDTECH_ALL_ACCESS_DAYS * 24 * 60 * 60 * 1000,
+      paidAt.getTime() + product.accessDays * 24 * 60 * 60 * 1000,
     );
     if (availableUntil.getTime() <= Date.now()) return null;
     return { order, availableUntil };

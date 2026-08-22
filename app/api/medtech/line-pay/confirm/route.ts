@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
-import { medtechPaymentOrders } from "../../../../../db/schema";
+import { medtechMemberEntitlements, medtechPaymentOrders } from "../../../../../db/schema";
 import { requireMedtechMember } from "../../../../../lib/member-auth";
 import { linePayPost } from "../../../../../lib/line-pay";
+import { getMedtechProductSettings, MEDTECH_DEFAULT_PRODUCT_KEY } from "../../../../../lib/medtech-product-settings";
 
 export async function GET(request: Request) {
   const auth = await requireMedtechMember(request);
@@ -51,6 +52,24 @@ export async function GET(request: Request) {
         updatedAt: new Date(),
       })
       .where(eq(medtechPaymentOrders.id, order.id));
+    if (paid) {
+      const product = await getMedtechProductSettings(auth.db);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + product.accessDays * 86400000);
+      await auth.db.insert(medtechMemberEntitlements).values({
+        memberId: auth.member.id,
+        productKey: MEDTECH_DEFAULT_PRODUCT_KEY,
+        status: "active",
+        source: "line_pay",
+        startsAt: now,
+        expiresAt,
+        note: `LINE Pay ${order.amount} 元開通 ${product.accessDays} 天`,
+        updatedBy: "line_pay",
+      }).onConflictDoUpdate({
+        target: [medtechMemberEntitlements.memberId, medtechMemberEntitlements.productKey],
+        set: { status: "active", source: "line_pay", startsAt: now, expiresAt, note: `LINE Pay ${order.amount} 元開通 ${product.accessDays} 天`, updatedBy: "line_pay", updatedAt: now },
+      });
+    }
     return Response.redirect(
       `${url.origin}${destination}?payment=${paid ? "success" : "failed"}&pack=${order.packNumber}`,
     );

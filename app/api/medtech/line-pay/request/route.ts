@@ -4,8 +4,8 @@ import { requireMedtechMember } from "../../../../../lib/member-auth";
 import { linePayConfig, linePayPost } from "../../../../../lib/line-pay";
 import {
   MEDTECH_ALL_ACCESS_NAME,
-  MEDTECH_ALL_ACCESS_PRICE,
 } from "../../../../../lib/medtech-usage";
+import { getMedtechProductSettings } from "../../../../../lib/medtech-product-settings";
 
 const allowedPackages = new Set([
   MEDTECH_ALL_ACCESS_NAME,
@@ -28,7 +28,9 @@ export async function POST(request: Request) {
     if (packageName !== MEDTECH_ALL_ACCESS_NAME) {
       return Response.json({ error: "單包購買已停止，請改用全庫通行證" }, { status: 400 });
     }
-    const packagePrice = MEDTECH_ALL_ACCESS_PRICE;
+    const product = await getMedtechProductSettings(auth.db);
+    if (product.status !== "active") return Response.json({ error: "此方案目前暫停銷售" }, { status: 409 });
+    const packagePrice = product.effectivePrice;
     const config = await linePayConfig();
     if (!config.channelId || !config.channelSecret) {
       return Response.json(
@@ -62,7 +64,7 @@ export async function POST(request: Request) {
             {
               id: `medtech-${packNumber}`,
               name: packageName === MEDTECH_ALL_ACCESS_NAME
-                ? `醫檢師備考｜${MEDTECH_ALL_ACCESS_NAME} 30 天`
+                ? `醫檢師備考｜${MEDTECH_ALL_ACCESS_NAME} ${product.accessDays} 天`
                 : `醫檢師題目包｜${packageName}第 ${packNumber} 關`,
               quantity: 1,
               price: packagePrice,

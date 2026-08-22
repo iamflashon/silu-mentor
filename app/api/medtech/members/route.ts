@@ -1,13 +1,16 @@
 import { and, desc, eq } from "drizzle-orm";
-import { examQuestions, memberExamAccess, members, medtechPracticeSessions } from "../../../../db/schema";
+import { examQuestions, memberExamAccess, members, medtechMemberEntitlements, medtechPracticeSessions } from "../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
 import { getOrCreateMedtechUsage, normalizeMedtechUserKey } from "../../../../lib/medtech-usage";
 import { hashMemberPassword } from "../../../../lib/member-session-auth";
+import { MEDTECH_DEFAULT_PRODUCT_KEY, parseMedtechPermissions } from "../../../../lib/medtech-product-settings";
+
+const OWNER_EMAIL = "iamflashon@gmail.com";
 
 export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const rows = await auth.db.select({ id: memberExamAccess.id, memberId: members.id, email: members.email, displayName: members.displayName, role: members.role, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, className: memberExamAccess.className, lastSeenAt: members.lastSeenAt, createdAt: memberExamAccess.createdAt })
+  const rows = await auth.db.select({ id: memberExamAccess.id, memberId: members.id, email: members.email, displayName: members.displayName, role: members.role, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, permissionsJson: memberExamAccess.permissionsJson, className: memberExamAccess.className, lastSeenAt: members.lastSeenAt, createdAt: memberExamAccess.createdAt })
     .from(memberExamAccess).innerJoin(members, eq(memberExamAccess.memberId, members.id))
     .where(eq(memberExamAccess.examCategory, "medtech")).orderBy(desc(memberExamAccess.createdAt));
   const usageRows = await Promise.all(rows.map(async (row) => {
@@ -38,12 +41,15 @@ export async function GET(request: Request) {
   const topQuestionIds = [...summaryByUser.values()].flatMap((summary) => [...summary.wrong.keys()]);
   const topQuestions = topQuestionIds.length ? await auth.db.select({ id: examQuestions.id, year: examQuestions.year, questionNumber: examQuestions.questionNumber, subject: examQuestions.subject }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech")) : [];
   const questionById = new Map(topQuestions.map((question) => [question.id, question]));
-  return Response.json({ members: rows.map((row) => {
+  const entitlementRows = await auth.db.select().from(medtechMemberEntitlements).where(eq(medtechMemberEntitlements.productKey, MEDTECH_DEFAULT_PRODUCT_KEY));
+  const entitlementByMember = new Map(entitlementRows.map((row) => [row.memberId, row]));
+  return Response.json({ canManageCommercial: auth.member.email === OWNER_EMAIL, members: rows.map((row) => {
     const summary = summaryByUser.get(row.email);
     const topWrong = summary ? [...summary.wrong.entries()].sort((left, right) => right[1] - left[1])[0] : undefined;
     const topQuestion = topWrong ? questionById.get(topWrong[0]) : undefined;
     const accuracy = summary?.answered ? Math.round((summary.correct / summary.answered) * 100) : 0;
-    return { ...row, points: pointsByEmail.get(normalizeMedtechUserKey(row.email)) ?? null, practiceStats: { sessions: summary?.sessions ?? 0, completed: summary?.completed ?? 0, answered: summary?.answered ?? 0, durationMinutes: Math.floor((summary?.durationSeconds ?? 0) / 60), accuracy, topWrong: topQuestion ? { ...topQuestion, count: topWrong?.[1] ?? 0 } : null, lastStartedAt: summary?.lastStartedAt?.toISOString() ?? null } };
+    const entitlement = entitlementByMember.get(row.memberId);
+    return { ...row, permissions: parseMedtechPermissions(row.permissionsJson), entitlement: entitlement ? { status: entitlement.status, expiresAt: entitlement.expiresAt.toISOString(), source: entitlement.source, note: entitlement.note } : null, points: pointsByEmail.get(normalizeMedtechUserKey(row.email)) ?? null, practiceStats: { sessions: summary?.sessions ?? 0, completed: summary?.completed ?? 0, answered: summary?.answered ?? 0, durationMinutes: Math.floor((summary?.durationSeconds ?? 0) / 60), accuracy, topWrong: topQuestion ? { ...topQuestion, count: topWrong?.[1] ?? 0 } : null, lastStartedAt: summary?.lastStartedAt?.toISOString() ?? null } };
   }) });
 }
 
@@ -71,12 +77,14 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { id?: number; status?: string; canAdmin?: boolean; className?: string };
+  const body = await request.json() as { id?: number; status?: string; canAdmin?: boolean; className?: string; permissions?: string[] };
   const id = Number(body.id);
   if (!id) return Response.json({ error: "缺少會員編號" }, { status: 400 });
   const status = ["active", "disabled"].includes(body.status ?? "") ? body.status : undefined;
   const canAdmin = typeof body.canAdmin === "boolean" ? body.canAdmin : undefined;
   const className = typeof body.className === "string" ? body.className.trim().slice(0, 80) || "未分班" : undefined;
-  const [updated] = await auth.db.update(memberExamAccess).set({ ...(status && { status }), ...(canAdmin !== undefined && { canAdmin }), ...(className && { className }), updatedAt: new Date() }).where(and(eq(memberExamAccess.id, id), eq(memberExamAccess.examCategory, "medtech"))).returning();
+  const permissions = Array.isArray(body.permissions) ? body.permissions.filter((value) => ["members","documents","questions","audio","security"].includes(value)) : undefined;
+  if ((canAdmin !== undefined || permissions !== undefined) && auth.member.email !== OWNER_EMAIL) return Response.json({ error: "只有總管理者可調整管理權限" }, { status: 403 });
+  const [updated] = await auth.db.update(memberExamAccess).set({ ...(status && { status }), ...(canAdmin !== undefined && { canAdmin }), ...(className && { className }), ...(permissions !== undefined && { permissionsJson: JSON.stringify(permissions) }), updatedAt: new Date() }).where(and(eq(memberExamAccess.id, id), eq(memberExamAccess.examCategory, "medtech"))).returning();
   return updated ? Response.json({ member: updated }) : Response.json({ error: "找不到醫檢師會員" }, { status: 404 });
 }
