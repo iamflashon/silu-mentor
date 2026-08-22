@@ -56,7 +56,8 @@ export default function MemberLoginPage() {
         {error ? <p className="admin-login-error" role="alert">{error}</p> : null}
         <button type="submit" disabled={busy}>{busy ? "驗證中…" : "登入會員平台"}</button>
       </form>
-      <p className="member-login-help">尚未有會員帳號？請聯絡管理員建立帳號並提供初始密碼。</p>
+      <p className="member-login-help">尚未有會員帳號？註冊後即可免費體驗 30 題。</p>
+      <Link className="main-entry-medtech member-register-link" href={`/member-register?return_to=${encodeURIComponent(returnToFromLocation())}`}>立即註冊</Link>
       <Link className="admin-login-back" href="/">回入口頁</Link>
     </section>
   </main>;
