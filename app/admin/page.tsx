@@ -198,8 +198,9 @@ type DocumentSearchTest = {
   status: "testing" | "success" | "error";
   query: string;
   selectedFileWasSearched?: boolean;
-  hits?: Array<{ fileName: string; score: number | null; text: string; pageStart: number | null; pageEnd: number | null }>;
-  autoResults?: Array<{ query: string; hit: boolean; hits: number; page: number | null; excerpt: string; title?: string; retrievalMode?: string }>;
+  hits?: Array<{ fileName: string; score: number | null; text: string; pageStart: number | null; pageEnd: number | null; evidenceMatched?: boolean; title?: string; retrievalMode?: string }>;
+  evidenceVerified?: boolean;
+  autoResults?: Array<{ query: string; hit: boolean; hits: number; page: number | null; excerpt: string; title?: string; retrievalMode?: string; reason?: string }>;
   error?: string;
 };
 type DocumentSearchRun = { id: string; documentId: number; documentName: string; createdAt: string; passed: number; total: number; results: NonNullable<DocumentSearchTest["autoResults"]> };
@@ -3201,15 +3202,17 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 ${results.length} / ${candidates.length}`, autoResults: [...results] } }));
           continue;
         }
-        const first = result.hits?.[0];
+        const first = result.hits?.find((item) => item.evidenceMatched) ?? result.hits?.[0];
+        const verified = Boolean(result.evidenceVerified && first?.evidenceMatched);
         results.push({
           query,
-          hit: Boolean(result.selectedFileWasSearched && result.hits?.length),
-          hits: result.hits?.length ?? 0,
+          hit: verified,
+          hits: result.hits?.filter((item) => item.evidenceMatched).length ?? 0,
           page: first?.pageStart ?? null,
           excerpt: first?.text?.slice(0, 260) ?? "",
           title: (first as { title?: string } | undefined)?.title,
           retrievalMode: (first as { retrievalMode?: string } | undefined)?.retrievalMode,
+          reason: verified ? "測試詞可在顯示原文中直接核對" : "只有語意相近片段，未找到可直接核對的測試詞",
         });
         setDocumentSearchTests((current) => ({ ...current, [file.id]: { status: "testing", query: `AI 自動模擬測試 ${results.length} / ${candidates.length}`, autoResults: [...results] } }));
       }
@@ -4540,12 +4543,12 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                               {documentSearchTests[file.id]?.status === "testing" && !!documentSearchTests[file.id]?.autoResults?.length && (
                                 <div className="document-search-test-result testing">
                                   <strong>{documentSearchTests[file.id]?.query}</strong>
-                                  <ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} 測試：「{item.query}」</b><span>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}${item.retrievalMode ? ` · ${item.retrievalMode === "fine_lexical" ? "頁面索引" : "向量索引"}` : ""}` : "未命中"}</span>{item.title && <small>命中標題：{item.title}</small>}{item.excerpt && <small className="document-test-excerpt">命中原文：{item.excerpt}</small>}</li>)}</ul>
+                                  <ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} 測試：「{item.query}」</b><span>{item.hit ? `${item.hits} 個可核對片段${item.page ? ` · 第 ${item.page} 頁` : ""}${item.retrievalMode ? ` · ${item.retrievalMode === "fine_lexical" ? "頁面索引" : "向量索引"}` : ""}` : "未通過實質核對"}</span>{item.title && <small>命中標題：{item.title}</small>}{item.reason && <small>判定依據：{item.reason}</small>}{item.excerpt && <small className="document-test-excerpt">關鍵詞附近原文：{item.excerpt}</small>}</li>)}</ul>
                                 </div>
                               )}
                               {documentSearchTests[file.id]?.status === "success" && (
                                 <div className={`document-search-test-result ${documentSearchTests[file.id]?.selectedFileWasSearched ? "hit" : "miss"}`}>
-                                  {documentSearchTests[file.id]?.autoResults?.length ? <><strong>自動測試通過 {documentSearchTests[file.id]?.autoResults?.filter((item) => item.hit).length} / {documentSearchTests[file.id]?.autoResults?.length} 組</strong><small>下方逐組列出實際測試詞、命中頁碼、索引方式與教材原文。</small><ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} 測試：「{item.query}」</b><span>{item.hit ? `${item.hits} 個片段${item.page ? ` · 第 ${item.page} 頁` : ""}${item.retrievalMode ? ` · ${item.retrievalMode === "fine_lexical" ? "頁面索引" : "向量索引"}` : ""}` : "未命中"}</span>{item.title && <small>命中標題：{item.title}</small>}{item.excerpt && <small className="document-test-excerpt">命中原文：{item.excerpt}</small>}</li>)}</ul></> : <strong>{documentSearchTests[file.id]?.selectedFileWasSearched ? `已命中 ${documentSearchTests[file.id]?.hits?.length ?? 0} 個片段` : "未命中這份指定教材"}</strong>}
+                                  {documentSearchTests[file.id]?.autoResults?.length ? <><strong>實質核對通過 {documentSearchTests[file.id]?.autoResults?.filter((item) => item.hit).length} / {documentSearchTests[file.id]?.autoResults?.length} 組</strong><small>只有測試詞能在顯示原文中直接核對，才計為通過。</small><ul className="document-auto-test-results">{documentSearchTests[file.id]?.autoResults?.map((item) => <li className={item.hit ? "pass" : "fail"} key={item.query}><b>{item.hit ? "✓" : "✕"} 測試：「{item.query}」</b><span>{item.hit ? `${item.hits} 個可核對片段${item.page ? ` · 第 ${item.page} 頁` : ""}${item.retrievalMode ? ` · ${item.retrievalMode === "fine_lexical" ? "頁面索引" : "向量索引"}` : ""}` : "未通過實質核對"}</span>{item.title && <small>命中標題：{item.title}</small>}{item.reason && <small>判定依據：{item.reason}</small>}{item.excerpt && <small className="document-test-excerpt">關鍵詞附近原文：{item.excerpt}</small>}</li>)}</ul></> : <strong>{documentSearchTests[file.id]?.selectedFileWasSearched ? `已命中 ${documentSearchTests[file.id]?.hits?.length ?? 0} 個片段` : "未命中這份指定教材"}</strong>}
                                   {!!documentSearchTests[file.id]?.hits?.length && (
                                     <ul>
                                       {documentSearchTests[file.id]?.hits?.slice(0, 3).map((hit, index) => (
