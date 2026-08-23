@@ -59,10 +59,8 @@ async function rowsForPage(documentId: number, page: number | null, text: string
   })));
 }
 
-export async function POST(request: Request) {
+export async function buildFineIndexStep(documentId: number, options: { restart?: boolean; forceReset?: boolean } = {}) {
   try {
-    const body = await request.json() as { documentId?: number; restart?: boolean; forceReset?: boolean };
-    const documentId = Number(body.documentId);
     if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "教材編號不正確" }, { status: 400 });
     const db = await getDb("primary");
     const [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
@@ -70,7 +68,7 @@ export async function POST(request: Request) {
     // Normal rebuild requests are resumable: never erase a usable index merely
     // because the browser refreshed or the client loop was interrupted.
     // A true destructive reset must be explicitly requested by a separate UI.
-    if (body.restart && body.forceReset) await db.delete(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
+    if (options.restart && options.forceReset) await db.delete(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
 
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
@@ -111,6 +109,11 @@ export async function POST(request: Request) {
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 300) : "精準搜尋索引建立失敗" }, { status: 500 });
   }
+}
+
+export async function POST(request: Request) {
+  const body = await request.json() as { documentId?: number; restart?: boolean; forceReset?: boolean };
+  return buildFineIndexStep(Number(body.documentId), body);
 }
 
 export async function GET(request: Request) {
