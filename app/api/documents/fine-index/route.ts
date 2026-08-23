@@ -3,7 +3,7 @@ import { getDb } from "../../../../db";
 import { documentSearchUnits, documents } from "../../../../db/schema";
 import { documentExtension, inspectDocumentBytes, resolveDocumentPayload } from "../../../../lib/document-processing";
 
-const PAGE_BATCH = 8;
+const PAGE_BATCH = 2;
 const TARGET_CHARS = 760;
 const OVERLAP_CHARS = 120;
 
