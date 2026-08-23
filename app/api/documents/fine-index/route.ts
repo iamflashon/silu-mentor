@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documentSearchUnits, documents } from "../../../../db/schema";
 import { documentExtension, inspectDocumentBytes, resolveDocumentPayload } from "../../../../lib/document-processing";
@@ -87,14 +87,17 @@ export async function buildFineIndexStep(documentId: number, options: { restart?
       // Older local-index builds treated the whole JSONL file as plain text,
       // producing null page numbers and visible JSON boundaries. Rebuild those
       // records once into page-aware clean units.
-      if (Number(existing) > 0 && Number(existingPages) < Number(existing)) await db.delete(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
-      else if (Number(existing) > 0) return Response.json({ done: true, pagesDone: records.length, totalPages: records.length, units: Number(existing), inserted: 0 });
+      const hasLegacyUnits = Number(existing) > 0 && Number(existingPages) < Number(existing);
+      if (Number(existing) > 0 && !hasLegacyUnits) return Response.json({ done: true, pagesDone: records.length, totalPages: records.length, units: Number(existing), inserted: 0 });
       let inserted = 0;
       for (const [recordIndex, record] of records.entries()) {
         const page = Number(record.page_start) || recordIndex + 1;
         const rows = await rowsForPage(documentId, page, cleanExtractedText(String(record.text)));
         if (rows.length) { await db.insert(documentSearchUnits).values(rows); inserted += rows.length; }
       }
+      // Keep the old fallback units available while the clean page-aware rows
+      // are being written. Remove only the invalid null-page rows afterwards.
+      if (hasLegacyUnits) await db.delete(documentSearchUnits).where(and(eq(documentSearchUnits.documentId, documentId), isNull(documentSearchUnits.pageStart)));
       const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
       return Response.json({ done: true, pagesDone: records.length, totalPages: records.length, units: Number(total), inserted });
     }
@@ -119,6 +122,10 @@ export async function buildFineIndexStep(documentId: number, options: { restart?
           if (rows.length) { await db.insert(documentSearchUnits).values(rows); inserted += rows.length; }
         }
         const done = endPage >= pdf.numPages;
+        // A legacy whole-document index may coexist during repair. It remains
+        // searchable until every PDF page is safely present, then only those
+        // obsolete null-page rows are removed.
+        if (done) await db.delete(documentSearchUnits).where(and(eq(documentSearchUnits.documentId, documentId), isNull(documentSearchUnits.pageStart)));
         const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
         return Response.json({ done, pagesDone: endPage, totalPages: pdf.numPages, units: Number(total), inserted });
       } finally { await pdf.cleanup(); }

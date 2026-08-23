@@ -10,6 +10,7 @@ import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 import SitesCloudflareSyncDownload from "./SitesCloudflareSyncDownload";
 import LocalNodeJobsPanel from "./LocalNodeJobsPanel";
+import DocumentIndexHealthPanel from "./DocumentIndexHealthPanel";
 
 type PaymentOrderRow = { orderId: string; transactionId: string | null; packageName: string; amount: number; currency: string; status: string; environment: string; paidAt: string | null; activatedAt: string | null; createdAt: string };
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; passwordResetRequestedAt?: string | null; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }>; paymentOrders?: PaymentOrderRow[] };
@@ -4246,6 +4247,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           </section>}
           {libraryMode && <LocalNodeJobsPanel />}
           {libraryMode && <SitesCloudflareSyncDownload />}
+          {libraryMode && <DocumentIndexHealthPanel />}
           {libraryMode && <nav className="library-section-tabs" aria-label="教材資料庫操作切換">
             <button type="button" className={librarySection === "materials" ? "active" : ""} onClick={() => setLibrarySection("materials")}><strong>教材列表</strong><span>搜尋、索引狀態與細部資料</span></button>
             <button type="button" className={librarySection === "upload" ? "active" : ""} onClick={() => setLibrarySection("upload")}><strong>上傳教材</strong><span>新增檔案與查看處理進度</span></button>
