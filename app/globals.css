@@ -6668,6 +6668,24 @@ a {
   font-size: 11px;
   font-weight: 900;
 }
+.library-node-status.connected {
+  border-color: #8cc9b2;
+  background: #f4fcf8;
+}
+.library-node-status.connected span {
+  background: #daf4e6;
+  color: #176a49;
+}
+.library-node-status.connected strong::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #25a56f;
+  box-shadow: 0 0 0 4px rgba(37, 165, 111, 0.12);
+}
 .library-node-status small {
   color: #728893;
   line-height: 1.55;

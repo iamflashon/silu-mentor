@@ -176,6 +176,23 @@ type DocumentStats = {
   misses: number;
   indexVersion: string;
 };
+type LocalNodeStatus = {
+  connected: boolean;
+  node: null | {
+    nodeId: string;
+    name: string;
+    status: "online" | "busy" | "error" | "offline";
+    lastSeenAt: string;
+    version: string;
+    gpu: string;
+    gpuMemoryGb: number | null;
+    ramGb: number | null;
+    models: string[];
+    queuedJobs: number;
+    activeJob: string;
+    message: string;
+  };
+};
 type DocumentSearchTest = {
   status: "testing" | "success" | "error";
   query: string;
@@ -745,11 +762,27 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     misses: 0,
     indexVersion: "待建立",
   });
+  const [localNodeStatus, setLocalNodeStatus] = useState<LocalNodeStatus>({ connected: false, node: null });
   const [documentSearchQueries, setDocumentSearchQueries] = useState<Record<number, string>>({});
   const [documentSearchTests, setDocumentSearchTests] = useState<Record<number, DocumentSearchTest>>({});
   const [documentSearchHistory, setDocumentSearchHistory] = useState<Record<number, DocumentSearchRun[]>>({});
   const [fineIndexingDocumentId, setFineIndexingDocumentId] = useState<number | null>(null);
   const [resourceDocumentQueries, setResourceDocumentQueries] = useState<Record<number, string>>({});
+  useEffect(() => {
+    if (!libraryMode) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/admin/local-node", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as LocalNodeStatus;
+        if (!cancelled) setLocalNodeStatus(data);
+      } catch { /* 保留離線狀態；下一輪會重試 */ }
+    };
+    void load();
+    const timer = window.setInterval(load, 30_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [libraryMode]);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState("");
@@ -4198,7 +4231,14 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <>
           {libraryMode && <section className="library-storage-architecture panel">
             <div><p>PRIVATE SOURCE STORAGE</p><h2>原始 PDF 留在公司本機</h2><span>RTX 4090 24GB／64GB RAM 可先擔任私有教材節點；雲端平台只接收必要的文字切片、索引識別碼與檢索結果，不必保存原始 PDF。</span></div>
-            <div className="library-node-status"><strong>本機節點</strong><span>尚未連線</span><small>下一階段安裝本機處理服務與安全連線後啟用</small></div>
+            <div className={`library-node-status ${localNodeStatus.connected ? "connected" : "offline"}`}>
+              <strong>{localNodeStatus.node?.name ?? "本機節點"}</strong>
+              <span>{localNodeStatus.connected ? localNodeStatus.node?.status === "busy" ? "處理中" : localNodeStatus.node?.status === "error" ? "需檢查" : "已連線" : "尚未連線"}</span>
+              <small>{localNodeStatus.node
+                ? `${localNodeStatus.node.gpu}${localNodeStatus.node.gpuMemoryGb ? ` ${localNodeStatus.node.gpuMemoryGb}GB` : ""}${localNodeStatus.node.ramGb ? `／RAM ${localNodeStatus.node.ramGb}GB` : ""} · ${localNodeStatus.node.models.length ? `模型 ${localNodeStatus.node.models.join("、")}` : "尚未回報模型"}`
+                : "安裝本機節點服務並設定專用金鑰後，狀態會自動更新。"}</small>
+              {localNodeStatus.node && <small>最後回報：{new Date(localNodeStatus.node.lastSeenAt).toLocaleString("zh-TW")} · 版本 {localNodeStatus.node.version}</small>}
+            </div>
           </section>}
           {libraryMode && <SitesCloudflareSyncDownload />}
           {libraryMode && <nav className="library-section-tabs" aria-label="教材資料庫操作切換">
