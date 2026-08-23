@@ -29,7 +29,7 @@ export default function LinePayPurchaseButton({
       });
       const session = (await sessionResponse.json().catch(() => ({}))) as { authenticated?: boolean };
       if (!sessionResponse.ok || session.authenticated !== true) {
-        window.location.assign(`/member-login?return_to=${encodeURIComponent("/medtech")}`);
+        window.location.assign(`/medtech/member-login?return_to=${encodeURIComponent("/medtech")}`);
         return;
       }
       const response = await fetch("/api/medtech/line-pay/request", {
