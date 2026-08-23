@@ -150,7 +150,7 @@ export default function LinePayPurchaseButton({
               <button type="submit" disabled={loginBusy}>{loginBusy ? "登入中…" : "登入並前往 LINE Pay"}</button>
             </form>}
             <div className="medtech-purchase-login-links">
-              <button type="button" onClick={() => { setResetOpen((value) => !value); setResetMessage(""); setLoginError(""); }}>{resetOpen ? "返回會員登入" : "申請管理員重設密碼"}</button>
+              <button type="button" onClick={() => { setResetOpen((value) => !value); setResetMessage(""); setLoginError(""); }}>{resetOpen ? "返回會員登入" : "忘記密碼？"}</button>
               {!resetOpen && <a href="/member-register?return_to=%2Fmedtech">註冊會員</a>}
             </div>
           </section>
