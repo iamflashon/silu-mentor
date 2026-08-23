@@ -100,9 +100,7 @@ export default async function MedtechHome() {
           <div className={`medtech-book-price${entitlement ? " purchased" : ""}`}><strong>{entitlement ? "已購買" : `NT$${product.effectivePrice}`}</strong><span>{entitlement ? `有效至 ${new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(entitlement.availableUntil)}` : `開通本書全部內容 ${product.accessDays} 天`}<br />{entitlement ? "全庫通行證使用中" : "一次付清・不自動續訂"}</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>
             <a className="primary trial" href="/medtech/chapters">{entitlement ? "進入已購買課程" : `免費體驗 ${product.trialQuestions} 題`}</a>
-            {!entitlement && (memberSession
-              ? <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />
-              : <a className="primary" href={memberLoginPath("/medtech")}>登入後購買</a>)}
+            {!entitlement && <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />}
             <MedtechPlanDialog price={product.effectivePrice} accessDays={product.accessDays} trialQuestions={product.trialQuestions} />
           </div>
         </div>
