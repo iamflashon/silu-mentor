@@ -3890,6 +3890,13 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               </div>
             </form>
             {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
+            {!membersLoading && members.some((member) => member.passwordResetRequestedAt) && <section className="member-reset-queue">
+              <header><div><span>待處理</span><h3>密碼重設申請</h3><p>目前採人工重設，不會寄信。確認會員身分後設定臨時密碼，再用既有聯絡方式通知會員。</p></div><strong>{members.filter((member) => member.passwordResetRequestedAt).length} 筆</strong></header>
+              <div>{members.filter((member) => member.passwordResetRequestedAt).map((member) => <article key={`reset-${member.id}`}>
+                <div><b>{member.displayName || "未設定姓名"}</b><span>{member.email}</span><small>申請時間：{new Date(member.passwordResetRequestedAt!).toLocaleString("zh-TW")}</small></div>
+                <button type="button" onClick={() => { const password = window.prompt(`設定 ${member.displayName || member.email} 的臨時密碼（至少 8 碼）`); if (password) void updateMember(member.id, { password }); }}>設定臨時密碼並完成</button>
+              </article>)}</div>
+            </section>}
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
                 <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small><div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>

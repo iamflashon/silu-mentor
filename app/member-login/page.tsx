@@ -15,13 +15,10 @@ export default function MemberLoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loggedOut, setLoggedOut] = useState(false);
-<<<<<<< HEAD
-=======
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotBusy, setForgotBusy] = useState(false);
   const [forgotMessage, setForgotMessage] = useState("");
   const [medtechEntry, setMedtechEntry] = useState(false);
->>>>>>> 6d3de7d9 (Use medtech login route before LINE Pay purchase)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -51,6 +48,26 @@ export default function MemberLoginPage() {
     }
   }
 
+  async function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (forgotBusy) return;
+    setForgotBusy(true);
+    setForgotMessage("");
+    try {
+      const response = await fetch("/api/member/password-reset/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = await response.json() as { message?: string };
+      setForgotMessage(result.message ?? "申請已送出。");
+    } catch {
+      setForgotMessage("目前無法送出申請，請稍後再試。");
+    } finally {
+      setForgotBusy(false);
+    }
+  }
+
   return <main className="main-entry-gate">
     <section className="admin-login-card">
       <span>{medtechEntry ? "MEDTECH MEMBER ACCESS" : "MEMBER ACCESS"}</span>
@@ -66,6 +83,15 @@ export default function MemberLoginPage() {
         {error ? <p className="admin-login-error" role="alert">{error}</p> : null}
         <button type="submit" disabled={busy}>{busy ? "驗證中…" : medtechEntry ? "登入醫檢師備考" : "登入會員平台"}</button>
       </form>
+      <button type="button" className="member-forgot-password-toggle" onClick={() => { setForgotOpen((value) => !value); setForgotMessage(""); }}>忘記密碼？</button>
+      {forgotOpen && <form className="member-forgot-password" onSubmit={requestPasswordReset}>
+        <h2>申請管理員協助重設</h2>
+        <p>輸入註冊 Email，申請會顯示在總管理處。目前採人工處理，不會寄送重設信；管理員確認身分後會設定臨時密碼並另行通知。</p>
+        <label htmlFor="member-reset-email">註冊 Email</label>
+        <input id="member-reset-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+        <button type="submit" disabled={forgotBusy}>{forgotBusy ? "送出中…" : "送出人工重設申請"}</button>
+        {forgotMessage && <p role="status" className="member-reset-message">{forgotMessage}</p>}
+      </form>}
       <p className="member-login-help">尚未有會員帳號？註冊後即可免費體驗 30 題。</p>
       <Link className="main-entry-medtech member-register-link" href={`/member-register?return_to=${encodeURIComponent(returnToFromLocation())}`}>立即註冊</Link>
       <Link className="admin-login-back" href={medtechEntry ? "/medtech" : "/"}>{medtechEntry ? "回醫檢師首頁" : "回入口頁"}</Link>
