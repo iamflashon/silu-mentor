@@ -6711,6 +6711,8 @@ a {
 .index-health-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 11px; background: #f4f9fa; }
 .index-health-toolbar label { color: #315a6b; font-size: 12px; font-weight: 800; }
 .index-health-toolbar > div { display: flex; gap: 8px; }
+.index-health-toolbar .index-health-actions { align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.index-health-toolbar .index-health-actions small { max-width: 310px; color: #657d89; font-size: 11px; }
 .index-health-toolbar button { padding: 8px 12px; border: 0; border-radius: 9px; background: #16796f; color: #fff; font-weight: 800; cursor: pointer; }
 .index-health-toolbar button.secondary { border: 1px solid #aac9cc; background: #fff; color: #315f69; }
 .index-health-toolbar button:disabled { opacity: .5; cursor: default; }

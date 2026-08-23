@@ -8,6 +8,7 @@ type HealthPayload = { scannedAt: string; total: number; summary: Partial<Record
 type HealthBatch = { scannedAt?: string; total?: number; nextOffset?: number; done?: boolean; items?: HealthItem[]; error?: string };
 
 const labels: Record<HealthStatus, string> = { healthy: "正常", repair_fine: "可補頁面索引", repair_full: "需補全文／向量", reocr: "建議重新 OCR", missing_source: "缺原始檔", processing: "處理中" };
+const REPAIR_BATCH_SIZE = 10;
 
 export default function DocumentIndexHealthPanel() {
   const [data, setData] = useState<HealthPayload | null>(null);
@@ -19,6 +20,7 @@ export default function DocumentIndexHealthPanel() {
   const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
   const stopRef = useRef(false);
   const visible = useMemo(() => (data?.items ?? []).filter((item) => filter === "all" || item.healthStatus === filter), [data, filter]);
+  const selectedRepairableCount = useMemo(() => (data?.items ?? []).filter((item) => selected.includes(item.id) && item.repairable).length, [data, selected]);
 
   async function scan(preserveProgress = false) {
     setScanning(true); setScanProgress({ done: 0, total: 0 }); if (!preserveProgress) setProgress([]);
@@ -78,7 +80,7 @@ export default function DocumentIndexHealthPanel() {
 
   async function repairSelected() {
     if (!data || repairing) return;
-    const targets = data.items.filter((item) => selected.includes(item.id) && item.repairable);
+    const targets = data.items.filter((item) => selected.includes(item.id) && item.repairable).slice(0, REPAIR_BATCH_SIZE);
     if (!targets.length) { setProgress(["目前沒有選取可自動修復的教材。"]); return; }
     setRepairing(true); stopRef.current = false; setProgress([]);
     let completed = 0;
@@ -100,7 +102,7 @@ export default function DocumentIndexHealthPanel() {
   return <section className="panel index-health-panel">
     <header><div><p>INDEX HEALTH & REPAIR</p><h2>批次索引健檢與修復</h2><span>先檢查全部教材；修復完成前保留既有可用索引，只對可安全處理的項目接續補建。</span></div><button className="primary-btn" onClick={() => void scan()} disabled={scanning || repairing}>{scanning ? `掃描中 ${scanProgress.done}${scanProgress.total ? ` / ${scanProgress.total}` : ""}…` : data ? "重新掃描全部教材" : "掃描全部教材"}</button></header>
     {data && <><div className="index-health-summary"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><span>全部教材</span><strong>{data.total}</strong></button>{statuses.map((status) => <button key={status} className={`${filter === status ? "active" : ""} health-${status}`} onClick={() => setFilter(status)}><span>{labels[status]}</span><strong>{data.summary[status] || 0}</strong></button>)}</div>
-      <div className="index-health-toolbar"><label><input type="checkbox" checked={visible.filter((item) => item.repairable).length > 0 && visible.filter((item) => item.repairable).every((item) => selected.includes(item.id))} onChange={(event) => { const ids = visible.filter((item) => item.repairable).map((item) => item.id); setSelected((current) => event.target.checked ? [...new Set([...current, ...ids])] : current.filter((id) => !ids.includes(id))); }} />選取目前可修復項目</label><div><button onClick={() => void repairSelected()} disabled={repairing || !selected.length}>{repairing ? "批次修復中…" : `修復已選取（${selected.length}）`}</button>{repairing && <button className="secondary" onClick={() => { stopRef.current = true; }}>完成目前教材後停止</button>}</div></div>
+      <div className="index-health-toolbar"><label><input type="checkbox" checked={visible.filter((item) => item.repairable).length > 0 && visible.filter((item) => item.repairable).every((item) => selected.includes(item.id))} onChange={(event) => { const ids = visible.filter((item) => item.repairable).map((item) => item.id); setSelected((current) => event.target.checked ? [...new Set([...current, ...ids])] : current.filter((id) => !ids.includes(id))); }} />選取目前可修復項目</label><div className="index-health-actions"><small>為避免瀏覽器中斷，每次最多處理 {REPAIR_BATCH_SIZE} 份；完成後可繼續下一批。</small><button onClick={() => void repairSelected()} disabled={repairing || !selectedRepairableCount}>{repairing ? "本批修復中…" : `修復下一批（${Math.min(REPAIR_BATCH_SIZE, selectedRepairableCount)} / 待處理 ${selectedRepairableCount}）`}</button>{repairing && <button className="secondary" onClick={() => { stopRef.current = true; }}>完成目前教材後停止</button>}</div></div>
       <div className="index-health-list">{visible.map((item) => <article key={item.id} className={`health-${item.healthStatus}`}><input type="checkbox" disabled={!item.repairable || repairing} checked={selected.includes(item.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><div><strong>{item.bookTitle || item.fileName}</strong><small>{item.subject} · {item.pageCount ? `${item.pageCount} 頁` : "頁數待確認"} · {item.fineSearchUnitCount} 個頁面片段</small><span>{item.healthReason}</span></div><b>{labels[item.healthStatus]}</b></article>)}</div>
     </>}
     {!!progress.length && <div className="index-health-progress" aria-live="polite">{progress.slice(-12).map((line, index) => <span key={`${line}-${index}`}>{line}</span>)}</div>}
