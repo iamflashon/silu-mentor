@@ -8,6 +8,7 @@ import { collectLawObjects, compactLegalRecord, legalCategory, parseLegalXml, ty
 import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document-title";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
+import SitesCloudflareSyncDownload from "./SitesCloudflareSyncDownload";
 
 type PaymentOrderRow = { orderId: string; transactionId: string | null; packageName: string; amount: number; currency: string; status: string; environment: string; paidAt: string | null; activatedAt: string | null; createdAt: string };
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; passwordResetRequestedAt?: string | null; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }>; paymentOrders?: PaymentOrderRow[] };
@@ -4199,6 +4200,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             <div><p>PRIVATE SOURCE STORAGE</p><h2>原始 PDF 留在公司本機</h2><span>RTX 4090 24GB／64GB RAM 可先擔任私有教材節點；雲端平台只接收必要的文字切片、索引識別碼與檢索結果，不必保存原始 PDF。</span></div>
             <div className="library-node-status"><strong>本機節點</strong><span>尚未連線</span><small>下一階段安裝本機處理服務與安全連線後啟用</small></div>
           </section>}
+          {libraryMode && <SitesCloudflareSyncDownload />}
           {libraryMode && <nav className="library-section-tabs" aria-label="教材資料庫操作切換">
             <button type="button" className={librarySection === "materials" ? "active" : ""} onClick={() => setLibrarySection("materials")}><strong>教材列表</strong><span>搜尋、索引狀態與細部資料</span></button>
             <button type="button" className={librarySection === "upload" ? "active" : ""} onClick={() => setLibrarySection("upload")}><strong>上傳教材</strong><span>新增檔案與查看處理進度</span></button>
