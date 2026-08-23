@@ -108,7 +108,7 @@ export default function LinePayPurchaseButton({
       {loginOpen && (
         <div className="medtech-purchase-login-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setLoginOpen(false)}>
           <section className="medtech-purchase-login" role="dialog" aria-modal="true" aria-labelledby="medtech-purchase-login-title">
-            <button className="medtech-plan-close" type="button" aria-label="關閉登入視窗" onClick={() => setLoginOpen(false)}>×</button>
+            <button className="medtech-purchase-login-close" type="button" aria-label="關閉登入視窗" onClick={() => setLoginOpen(false)}>×</button>
             <span>MEDTECH MEMBER ACCESS</span>
             <div className="medtech-purchase-login-logo" aria-hidden="true">醫</div>
             <h2 id="medtech-purchase-login-title">登入後接續 LINE Pay</h2>
