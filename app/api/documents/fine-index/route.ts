@@ -63,6 +63,18 @@ async function rowsForPage(documentId: number, page: number | null, text: string
   })));
 }
 
+async function insertRowsSafely(db: Awaited<ReturnType<typeof getDb>>, rows: Awaited<ReturnType<typeof rowsForPage>>) {
+  let attempted = 0;
+  // D1 has a bounded SQL-variable count. Fine-index rows have many columns,
+  // so large textbook pages must be inserted in small idempotent groups.
+  for (let index = 0; index < rows.length; index += 5) {
+    const batch = rows.slice(index, index + 5);
+    await db.insert(documentSearchUnits).values(batch).onConflictDoNothing();
+    attempted += batch.length;
+  }
+  return attempted;
+}
+
 export async function buildFineIndexStep(documentId: number, options: { restart?: boolean; forceReset?: boolean } = {}) {
   try {
     if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "教材編號不正確" }, { status: 400 });
@@ -93,7 +105,7 @@ export async function buildFineIndexStep(documentId: number, options: { restart?
       for (const [recordIndex, record] of records.entries()) {
         const page = Number(record.page_start) || recordIndex + 1;
         const rows = await rowsForPage(documentId, page, cleanExtractedText(String(record.text)));
-        if (rows.length) { await db.insert(documentSearchUnits).values(rows); inserted += rows.length; }
+        if (rows.length) inserted += await insertRowsSafely(db, rows);
       }
       // Keep the old fallback units available while the clean page-aware rows
       // are being written. Remove only the invalid null-page rows afterwards.
@@ -119,7 +131,7 @@ export async function buildFineIndexStep(documentId: number, options: { restart?
           const text = (content.items as Array<Record<string, unknown>>).map((item) => typeof item.str === "string" ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
           page.cleanup();
           const rows = await rowsForPage(documentId, pageNumber, text);
-          if (rows.length) { await db.insert(documentSearchUnits).values(rows); inserted += rows.length; }
+          if (rows.length) inserted += await insertRowsSafely(db, rows);
         }
         const done = endPage >= pdf.numPages;
         // A legacy whole-document index may coexist during repair. It remains
@@ -135,7 +147,7 @@ export async function buildFineIndexStep(documentId: number, options: { restart?
     if (Number(total) > 0) return Response.json({ done: true, pagesDone: 1, totalPages: 1, units: Number(total), inserted: 0 });
     const inspected = await inspectDocumentBytes(source.fileName, source.bytes);
     const rows = await rowsForPage(documentId, null, inspected.text);
-    for (let index = 0; index < rows.length; index += 60) await db.insert(documentSearchUnits).values(rows.slice(index, index + 60));
+    await insertRowsSafely(db, rows);
     return Response.json({ done: true, pagesDone: 1, totalPages: 1, units: rows.length, inserted: rows.length });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 300) : "精準搜尋索引建立失敗" }, { status: 500 });

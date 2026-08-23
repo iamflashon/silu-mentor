@@ -3,17 +3,19 @@ import { getDb } from "../../../../db";
 import { documentSearchUnits, documents } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 
-type HealthStatus = "healthy" | "repair_fine" | "repair_full" | "reocr" | "missing_source" | "processing";
+type HealthStatus = "healthy" | "repair_fine" | "repair_full" | "reocr" | "missing_source" | "processing" | "unsupported";
 
 function suggestedStatus(row: {
   status: string;
   fileName: string;
+  contentType: string;
   fullTextIndexed: boolean;
   vectorIndexed: boolean;
   pageCount: number | null;
   extractedChars: number;
 }, sourceExists: boolean, units: { total: number; pageUnits: number; distinctPages: number; nullPages: number; textChars: number; shortUnits: number }) : { status: HealthStatus; reason: string; repairable: boolean } {
   if (!sourceExists) return { status: "missing_source", reason: "雲端找不到原始檔，需先由 Sites／R2 補檔", repairable: false };
+  if (!/\.(?:pdf|html?|jsonl?|md|txt|docx|zip)$/iu.test(row.fileName)) return { status: "unsupported", reason: "圖片或其他附件不建立教材全文／頁面索引，已從批次修復排除", repairable: false };
   if (row.status !== "completed" && row.status !== "failed") return { status: "processing", reason: "教材仍在處理中，本次健檢不會介入", repairable: false };
   if (!row.fullTextIndexed || !row.vectorIndexed || row.status === "failed") return { status: "repair_full", reason: "全文或向量索引未完成，可由原稿接續重建", repairable: true };
   if (!units.total) return { status: "repair_fine", reason: "尚未建立頁面級精準索引", repairable: true };
@@ -36,6 +38,7 @@ export async function GET(request: Request) {
   const rows = await db.select({
     id: documents.id,
     fileName: documents.fileName,
+    contentType: documents.contentType,
     bookTitle: documents.bookTitle,
     storageKey: documents.storageKey,
     examCategory: documents.examCategory,

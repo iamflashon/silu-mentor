@@ -6704,7 +6704,7 @@ a {
 .index-health-panel > header p { margin: 0; color: #087d75; font-size: 11px; font-weight: 900; letter-spacing: .12em; }
 .index-health-panel > header h2 { margin: 0; color: #173c5c; }
 .index-health-panel > header span, .index-health-empty { color: #667f8d; font-size: 13px; }
-.index-health-summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.index-health-summary { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
 .index-health-summary button { display: grid; gap: 3px; padding: 10px; border: 1px solid #d4e2e7; border-radius: 11px; background: #fff; color: #5c7482; cursor: pointer; text-align: left; }
 .index-health-summary button strong { color: #173c5c; font-size: 20px; }
 .index-health-summary button.active { border-color: #148177; box-shadow: 0 0 0 2px rgba(20,129,119,.12); }
@@ -6725,6 +6725,7 @@ a {
 .index-health-list article.health-healthy > b { background: #dff4e8; color: #176a49; }
 .index-health-list article.health-repair_fine > b, .index-health-list article.health-repair_full > b { background: #fff0d8; color: #93601d; }
 .index-health-list article.health-reocr > b, .index-health-list article.health-missing_source > b { background: #ffe2e1; color: #a13c3c; }
+.index-health-list article.health-unsupported > b { background: #eef0f3; color: #697582; }
 .index-health-progress { display: grid; gap: 3px; padding: 10px 12px; border: 1px dashed #a9cfd0; border-radius: 10px; background: #f3fbfa; color: #315f69; font-size: 11px; }
 @media (max-width: 900px) { .index-health-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .index-health-panel > header, .index-health-toolbar { align-items: stretch; flex-direction: column; } .index-health-toolbar > div { flex-wrap: wrap; } }
 

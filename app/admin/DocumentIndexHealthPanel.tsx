@@ -2,12 +2,12 @@
 
 import { useMemo, useRef, useState } from "react";
 
-type HealthStatus = "healthy" | "repair_fine" | "repair_full" | "reocr" | "missing_source" | "processing";
+type HealthStatus = "healthy" | "repair_fine" | "repair_full" | "reocr" | "missing_source" | "processing" | "unsupported";
 type HealthItem = { id: number; fileName: string; bookTitle: string; examCategory: string; subject: string; documentType: string; pageCount: number | null; extractedChars: number; fullTextIndexed: boolean; vectorIndexed: boolean; sourceExists: boolean; fineSearchUnitCount: number; indexedPages: number; indexedTextChars: number; healthStatus: HealthStatus; healthReason: string; repairable: boolean };
 type HealthPayload = { scannedAt: string; total: number; summary: Partial<Record<HealthStatus, number>>; items: HealthItem[]; error?: string };
 type HealthBatch = { scannedAt?: string; total?: number; nextOffset?: number; done?: boolean; items?: HealthItem[]; error?: string };
 
-const labels: Record<HealthStatus, string> = { healthy: "正常", repair_fine: "可補頁面索引", repair_full: "需補全文／向量", reocr: "建議重新 OCR", missing_source: "缺原始檔", processing: "處理中" };
+const labels: Record<HealthStatus, string> = { healthy: "正常", repair_fine: "可補頁面索引", repair_full: "需補全文／向量", reocr: "建議重新 OCR", missing_source: "缺原始檔", processing: "處理中", unsupported: "非教材格式" };
 const REPAIR_BATCH_SIZE = 10;
 
 export default function DocumentIndexHealthPanel() {
@@ -98,7 +98,7 @@ export default function DocumentIndexHealthPanel() {
     setRepairing(false); await scan(true);
   }
 
-  const statuses: HealthStatus[] = ["healthy", "repair_fine", "repair_full", "reocr", "missing_source", "processing"];
+  const statuses: HealthStatus[] = ["healthy", "repair_fine", "repair_full", "reocr", "missing_source", "processing", "unsupported"];
   return <section className="panel index-health-panel">
     <header><div><p>INDEX HEALTH & REPAIR</p><h2>批次索引健檢與修復</h2><span>先檢查全部教材；修復完成前保留既有可用索引，只對可安全處理的項目接續補建。</span></div><button className="primary-btn" onClick={() => void scan()} disabled={scanning || repairing}>{scanning ? `掃描中 ${scanProgress.done}${scanProgress.total ? ` / ${scanProgress.total}` : ""}…` : data ? "重新掃描全部教材" : "掃描全部教材"}</button></header>
     {data && <><div className="index-health-summary"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><span>全部教材</span><strong>{data.total}</strong></button>{statuses.map((status) => <button key={status} className={`${filter === status ? "active" : ""} health-${status}`} onClick={() => setFilter(status)}><span>{labels[status]}</span><strong>{data.summary[status] || 0}</strong></button>)}</div>
