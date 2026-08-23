@@ -9,7 +9,9 @@ import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document-title";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 
-type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }> };
+type PaymentOrderRow = { orderId: string; transactionId: string | null; packageName: string; amount: number; currency: string; status: string; environment: string; paidAt: string | null; activatedAt: string | null; createdAt: string };
+type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; passwordResetRequestedAt?: string | null; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }>; paymentOrders?: PaymentOrderRow[] };
+type MemberDeletionAudit = { id: number; deletionRef: string; actorType: string; requestChannel: string; authenticationMethod: string; outcome: string; retainedPaymentOrders: number; paymentDataAnonymized: boolean; learningDataDeleted: boolean; requestedAt: string; completedAt: string | null };
 type ExternalBookData = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
 type ExternalIndexSource = { id: number; key: "lawdata" | "angle_books" | "angle_media" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: Array<{ label: string; url: string }>; book?: ExternalBookData }> };
 type ExternalRetrievalMatch = { id: number; source: string; title: string; summary: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; excerpt: string };
@@ -574,6 +576,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     | "external-index"
   >(questionBankMode ? "question-bank" : memberMode ? "members" : "documents");
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [memberDeletionAudits, setMemberDeletionAudits] = useState<MemberDeletionAudit[]>([]);
   const [questionBankSummary, setQuestionBankSummary] = useState<QuestionBankSummary | null>(null);
   const [questionBankLoading, setQuestionBankLoading] = useState(false);
   const [questionBankCategory, setQuestionBankCategory] = useState("all");
@@ -3495,6 +3498,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "無法讀取學員名單");
         setMembers(data.members ?? []);
+        setMemberDeletionAudits(data.deletionAudits ?? []);
       })
       .catch((error) => setMemberNotice(error instanceof Error ? error.message : "無法讀取學員名單"))
       .finally(() => setMembersLoading(false));
@@ -3568,7 +3572,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     const data = await response.json();
     if (!response.ok) { setMemberNotice(data.error || "儲存失敗"); return; }
-    setMembers((rows) => rows.map((row) => row.id === id ? data.member : row));
+    setMembers((rows) => rows.map((row) => row.id === id ? { ...row, ...data.member, ...(patch.password ? { passwordResetRequestedAt: null } : {}) } : row));
     setMemberNotice("學員設定已儲存");
   }
 
@@ -3899,16 +3903,19 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             </section>}
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
-                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small><div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
+                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small>{member.passwordResetRequestedAt && <b className="member-password-reset-alert">申請重設密碼 · {new Date(member.passwordResetRequestedAt).toLocaleString("zh-TW")}</b>}<div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
                 <label><span>學習身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
                 <label><span>管理權限</span><select value={member.canAdmin ? "enabled" : "disabled"} onChange={(event) => void updateMember(member.id, { canAdmin: event.target.value === "enabled" })}><option value="disabled">無</option><option value="enabled">管理員</option></select></label>
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
                 <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
                 <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未登入"}</strong></div>
                 <button type="button" className="member-reset-password" onClick={() => { const password = window.prompt(`設定 ${member.displayName || member.email} 的新密碼（至少 8 碼）`); if (password) void updateMember(member.id, { password }); }}>重設密碼</button>
+                <details className="member-payment-history"><summary>購買紀錄（{member.paymentOrders?.length ?? 0} 筆）</summary>{member.paymentOrders?.length ? <div>{member.paymentOrders.map((order) => <article key={order.orderId}><strong>{order.packageName}</strong><span>{order.currency} {order.amount} · {order.status === "paid" ? "已付款" : order.status === "pending" ? "待付款" : order.status === "authorized" ? "已授權" : order.status}</span><small>訂單 {order.orderId}{order.transactionId ? ` · 交易 ${order.transactionId}` : ""}</small><small>{order.paidAt ? `付款：${new Date(order.paidAt).toLocaleString("zh-TW")}` : `建立：${new Date(order.createdAt).toLocaleString("zh-TW")}`}{order.activatedAt ? ` · 開通：${new Date(order.activatedAt).toLocaleString("zh-TW")}` : ""}</small></article>)}</div> : <p>目前沒有付款訂單。</p>}</details>
               </article>)}
               {!members.length && <p className="usage-empty">尚無會員。學生首次登入後會自動出現在這裡。</p>}
             </div>}
+            <div className="cost-heading"><div><h3>會員自助刪除稽核</h3><p className="panel-sub">不保留姓名、Email、IP 或裝置明文；付款資料僅以證明編號去識別化保留。</p></div><span className="source-count configured">{memberDeletionAudits.length} 筆</span></div>
+            <div className="member-admin-list">{memberDeletionAudits.map((audit) => <article className="member-admin-row" key={audit.id}><div className="member-identity"><span>刪</span><div><strong>{audit.deletionRef}</strong><small>{new Date(audit.requestedAt).toLocaleString("zh-TW")}</small></div></div><div className="member-last-seen"><span>執行方式</span><strong>會員自助／密碼再次驗證</strong></div><div className="member-last-seen"><span>結果</span><strong>{audit.outcome === "completed" ? "已完成" : audit.outcome === "failed" ? "未完成" : "處理中"}</strong></div><div className="member-last-seen"><span>付款紀錄</span><strong>{audit.retainedPaymentOrders} 筆（{audit.paymentDataAnonymized ? "已匿名" : "待處理"}）</strong></div></article>)}</div>
           </section>
         )}
         {activeTab === "homepage" && (
