@@ -23,6 +23,15 @@ export default function LinePayPurchaseButton({
     setLoading(true);
     setError("");
     try {
+      const sessionResponse = await fetch("/api/member/session", {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const session = (await sessionResponse.json().catch(() => ({}))) as { authenticated?: boolean };
+      if (!sessionResponse.ok || session.authenticated !== true) {
+        window.location.assign(`/member-login?return_to=${encodeURIComponent("/medtech")}`);
+        return;
+      }
       const response = await fetch("/api/medtech/line-pay/request", {
         method: "POST",
         headers: { "content-type": "application/json" },

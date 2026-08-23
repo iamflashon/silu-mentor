@@ -6,14 +6,22 @@ import {
   MEDTECH_ALL_ACCESS_NAME,
 } from "../../../../../lib/medtech-usage";
 import { getMedtechProductSettings } from "../../../../../lib/medtech-product-settings";
+import { getMemberSession } from "../../../../../lib/member-session-auth";
 
 const allowedPackages = new Set([
   MEDTECH_ALL_ACCESS_NAME,
 ]);
 
 export async function POST(request: Request) {
+  const memberSession = await getMemberSession(request);
+  if (!memberSession) {
+    return Response.json({ error: "請先登入會員帳號後再購買" }, { status: 401 });
+  }
   const auth = await requireMedtechMember(request);
   if ("error" in auth) return auth.error;
+  if (memberSession.memberId !== auth.member.id || memberSession.email !== auth.member.email.trim().toLowerCase()) {
+    return Response.json({ error: "會員登入狀態無效，請重新登入後再購買" }, { status: 401 });
+  }
   try {
     const body = (await request.json()) as {
       packageName?: string;
