@@ -16,33 +16,8 @@ export default async function MedtechHome() {
     requireMedtechMember(memberRequest),
     getMemberSession(memberRequest),
   ]);
-  if ("error" in auth)
-    return (
-      <main className="medtech-member-page">
-        <header>
-          <a href="/medtech" className="medtech-brand">
-            <span>醫</span>
-            <div>
-              <b>醫檢師備考</b>
-              <small>MEDICAL TECHNOLOGIST</small>
-            </div>
-          </a>
-        </header>
-        <section className="medtech-member-card login">
-          <span>醫檢師備考平台</span>
-          <h1>登入後開始學習</h1>
-          <p>
-            登入後才能進入章節刷題、隨機模考、錯題複習與引導學習，
-            系統也會替你保存免費體驗、通行證與學習紀錄。
-          </p>
-          <a className="primary" href={memberLoginPath("/medtech")}>
-            登入會員帳號
-          </a>
-        </section>
-      </main>
-    );
   const product = await getMedtechProductSettings(await getDb());
-  const entitlement = memberSession ? await getActiveMedtechAllAccess(auth.db, auth.userKey) : null;
+  const entitlement = !("error" in auth) && memberSession ? await getActiveMedtechAllAccess(auth.db, auth.userKey) : null;
   const upcomingBooks = [
     { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
     { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
