@@ -49,7 +49,12 @@ export async function getActiveMedtechAllAccess(
 ) {
   try {
     const manualEntitlement = await getMemberProductEntitlement(db, userKey);
-    if (manualEntitlement) return { order: null, availableUntil: manualEntitlement.expiresAt };
+    if (manualEntitlement)
+      return {
+        order: null,
+        startedAt: manualEntitlement.startsAt,
+        availableUntil: manualEntitlement.expiresAt,
+      };
     const product = await getMedtechProductSettings(db);
     // Do not put the rolling cutoff in SQL. Older D1 rows and different
     // runtime adapters can expose timestamp values differently; filtering in
@@ -79,7 +84,7 @@ export async function getActiveMedtechAllAccess(
       paidAt.getTime() + product.accessDays * 24 * 60 * 60 * 1000,
     );
     if (availableUntil.getTime() <= Date.now()) return null;
-    return { order, availableUntil };
+    return { order, startedAt: paidAt, availableUntil };
   } catch (error) {
     // A pricing lookup must never take down the whole practice catalogue.
     // Treat an unavailable legacy payment table as no active pass and keep

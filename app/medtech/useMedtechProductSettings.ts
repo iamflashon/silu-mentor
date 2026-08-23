@@ -9,6 +9,11 @@ export type MedtechPublicProduct = {
   trialQuestions: number;
   saleActive: boolean;
   saleLabel: string;
+  entitlement: {
+    purchased: true;
+    startedAt: string;
+    availableUntil: string;
+  } | null;
 };
 
 export function useMedtechProductSettings() {

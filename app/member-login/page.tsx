@@ -15,6 +15,9 @@ export default function MemberLoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loggedOut, setLoggedOut] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState("");
 
   useEffect(() => {
     setLoggedOut(new URLSearchParams(window.location.search).get("logged_out") === "1");
@@ -41,6 +44,26 @@ export default function MemberLoginPage() {
     }
   }
 
+  async function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (forgotBusy) return;
+    setForgotBusy(true);
+    setForgotMessage("");
+    try {
+      const response = await fetch("/api/member/password-reset/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = await response.json() as { message?: string };
+      setForgotMessage(result.message ?? "申請已送出。");
+    } catch {
+      setForgotMessage("目前無法送出申請，請稍後再試。");
+    } finally {
+      setForgotBusy(false);
+    }
+  }
+
   return <main className="main-entry-gate">
     <section className="admin-login-card">
       <span>MEMBER ACCESS</span>
@@ -56,6 +79,15 @@ export default function MemberLoginPage() {
         {error ? <p className="admin-login-error" role="alert">{error}</p> : null}
         <button type="submit" disabled={busy}>{busy ? "驗證中…" : "登入會員平台"}</button>
       </form>
+      <button type="button" className="member-forgot-password-toggle" onClick={() => { setForgotOpen((value) => !value); setForgotMessage(""); }}>忘記密碼？</button>
+      {forgotOpen && <form className="member-forgot-password" onSubmit={requestPasswordReset}>
+        <h2>申請重設密碼</h2>
+        <p>輸入註冊 Email。為保護帳號安全，畫面不會透露此 Email 是否存在；管理員確認後會協助重設。</p>
+        <label htmlFor="member-reset-email">註冊 Email</label>
+        <input id="member-reset-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+        <button type="submit" disabled={forgotBusy}>{forgotBusy ? "送出中…" : "送出重設申請"}</button>
+        {forgotMessage && <p role="status" className="member-reset-message">{forgotMessage}</p>}
+      </form>}
       <p className="member-login-help">尚未有會員帳號？註冊後即可免費體驗 30 題。</p>
       <Link className="main-entry-medtech member-register-link" href={`/member-register?return_to=${encodeURIComponent(returnToFromLocation())}`}>立即註冊</Link>
       <Link className="admin-login-back" href="/">回入口頁</Link>

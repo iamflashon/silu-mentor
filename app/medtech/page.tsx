@@ -7,6 +7,7 @@ import LinePayPurchaseButton from "./LinePayPurchaseButton";
 import { memberLoginPath } from "../../lib/member-login-path";
 import { getDb } from "../../db";
 import { getMedtechProductSettings } from "../../lib/medtech-product-settings";
+import { getActiveMedtechAllAccess } from "../../lib/medtech-usage";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
   const requestHeaders = await headers();
@@ -40,6 +41,7 @@ export default async function MedtechHome() {
     );
   const user = await getChatGPTUser();
   const product = await getMedtechProductSettings(await getDb());
+  const entitlement = await getActiveMedtechAllAccess(auth.db, auth.userKey);
   const upcomingBooks = [
     { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
     { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
@@ -91,10 +93,10 @@ export default async function MedtechHome() {
           <p className="medtech-book-author">陳連城・康情老師</p>
           <p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>
           <div className="medtech-book-trial"><b>首次免費體驗 {product.trialQuestions} 題</b><span>任選一個練習單元，先完整體驗再決定是否開通。</span></div>
-          <div className="medtech-book-price"><strong>NT${product.effectivePrice}</strong><span>開通本書全部內容 {product.accessDays} 天<br />一次付清・不自動續訂</span></div>
+          <div className={`medtech-book-price${entitlement ? " purchased" : ""}`}><strong>{entitlement ? "已購買" : `NT$${product.effectivePrice}`}</strong><span>{entitlement ? `有效至 ${new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(entitlement.availableUntil)}` : `開通本書全部內容 ${product.accessDays} 天`}<br />{entitlement ? "全庫通行證使用中" : "一次付清・不自動續訂"}</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>
-            <a className="primary trial" href="/medtech/chapters">免費體驗 {product.trialQuestions} 題</a>
-            <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />
+            <a className="primary trial" href="/medtech/chapters">{entitlement ? "進入已購買課程" : `免費體驗 ${product.trialQuestions} 題`}</a>
+            {!entitlement && <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />}
             <MedtechPlanDialog price={product.effectivePrice} accessDays={product.accessDays} trialQuestions={product.trialQuestions} />
           </div>
         </div>

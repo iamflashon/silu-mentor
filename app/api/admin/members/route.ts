@@ -1,5 +1,5 @@
-import { desc, eq } from "drizzle-orm";
-import { memberAccountDeletionAudits, memberExamAccess, medtechPaymentOrders, members } from "../../../../db/schema";
+import { and, desc, eq } from "drizzle-orm";
+import { memberAccountDeletionAudits, memberExamAccess, memberPasswordResetRequests, medtechPaymentOrders, members } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 import { hashMemberPassword } from "../../../../lib/member-session-auth";
 
@@ -10,7 +10,8 @@ export async function GET(request: Request) {
   const accessRows = await auth.db.select({ memberId: memberExamAccess.memberId, examCategory: memberExamAccess.examCategory, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, className: memberExamAccess.className }).from(memberExamAccess);
   const paymentRows = await auth.db.select({ userKey: medtechPaymentOrders.userKey, orderId: medtechPaymentOrders.orderId, transactionId: medtechPaymentOrders.transactionId, packageName: medtechPaymentOrders.packageName, amount: medtechPaymentOrders.amount, currency: medtechPaymentOrders.currency, status: medtechPaymentOrders.status, environment: medtechPaymentOrders.environment, paidAt: medtechPaymentOrders.paidAt, activatedAt: medtechPaymentOrders.activatedAt, createdAt: medtechPaymentOrders.createdAt }).from(medtechPaymentOrders).orderBy(desc(medtechPaymentOrders.createdAt));
   const deletionAudits = await auth.db.select().from(memberAccountDeletionAudits).orderBy(desc(memberAccountDeletionAudits.requestedAt)).limit(100);
-  return Response.json({ members: rows.map((member) => ({ ...member, accesses: accessRows.filter((access) => access.memberId === member.id), paymentOrders: paymentRows.filter((order) => order.userKey.trim().toLowerCase() === member.email.trim().toLowerCase()) })), deletionAudits, retainedPaymentOrders: paymentRows.filter((order) => order.userKey.startsWith("deleted:")) });
+  const resetRequests = await auth.db.select().from(memberPasswordResetRequests).where(eq(memberPasswordResetRequests.status, "pending")).orderBy(desc(memberPasswordResetRequests.requestedAt));
+  return Response.json({ members: rows.map((member) => ({ ...member, passwordResetRequestedAt: resetRequests.find((item) => item.memberId === member.id)?.requestedAt ?? null, accesses: accessRows.filter((access) => access.memberId === member.id), paymentOrders: paymentRows.filter((order) => order.userKey.trim().toLowerCase() === member.email.trim().toLowerCase()) })), deletionAudits, retainedPaymentOrders: paymentRows.filter((order) => order.userKey.startsWith("deleted:")) });
 }
 
 export async function POST(request: Request) {
@@ -50,6 +51,9 @@ export async function PATCH(request: Request) {
   const passwordHash = password ? await hashMemberPassword(password) : undefined;
   const [updated] = await auth.db.update(members).set({ ...(passwordHash && { passwordHash }), ...(role && { role }), ...(canAdmin !== undefined && { canAdmin }), ...(status && { status }), ...(className && { className }), updatedAt: new Date() }).where(eq(members.id, id)).returning();
   if (!updated) return Response.json({ error: "找不到會員" }, { status: 404 });
+  if (passwordHash) {
+    await auth.db.update(memberPasswordResetRequests).set({ status: "completed", completedAt: new Date(), completedBy: auth.member.email }).where(and(eq(memberPasswordResetRequests.memberId, id), eq(memberPasswordResetRequests.status, "pending")));
+  }
   const { passwordHash: _passwordHash, ...publicMember } = updated;
   return Response.json({ member: publicMember });
 }

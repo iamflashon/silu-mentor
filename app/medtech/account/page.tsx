@@ -148,6 +148,17 @@ export default async function MedtechAccountPage() {
     ? Math.round((totalCorrect / totalAnswered) * 100)
     : 0;
   const totalMinutes = Math.floor(totalDurationSeconds / 60);
+  const accessDate = (value: Date) => new Intl.DateTimeFormat("zh-TW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Taipei",
+  }).format(value);
+  const remainingHours = entitlement
+    ? Math.max(0, Math.ceil((entitlement.availableUntil.getTime() - Date.now()) / 3600000))
+    : 0;
+  const remainingLabel = remainingHours >= 24
+    ? `剩餘 ${Math.floor(remainingHours / 24)} 天 ${remainingHours % 24} 小時`
+    : `剩餘 ${remainingHours} 小時`;
   return (
     <main className="medtech-member-page">
       <header>
@@ -172,7 +183,7 @@ export default async function MedtechAccountPage() {
           <a className="primary" href="/medtech">
             進入學習首頁
           </a>
-          <a href="/medtech/upgrade">選購題目包</a>
+          <a href={entitlement ? "/medtech/chapters" : "/medtech/upgrade"}>{entitlement ? "我已購買課程" : "選購題目包"}</a>
           {access.canAdmin && <a href="/medtech/admin">醫檢師管理後台</a>}
           <MemberLogoutButton />
         </div>
@@ -198,6 +209,17 @@ export default async function MedtechAccountPage() {
             <dd>{access.canAdmin ? "醫檢師管理員" : "一般會員"}</dd>
           </div>
         </dl>
+        {entitlement && (
+          <section className="medtech-purchased-course" aria-label="我已購買課程">
+            <header><small>我已購買課程</small><h2>醫檢師國考題詳解（Ⅲ）臨床病毒學（下）</h2></header>
+            <dl>
+              <div><dt>開通時間</dt><dd>{accessDate(entitlement.startedAt)}</dd></div>
+              <div><dt>有效期限</dt><dd>{accessDate(entitlement.availableUntil)}</dd></div>
+              <div><dt>目前狀態</dt><dd>使用中・{remainingLabel}</dd></div>
+            </dl>
+            <a className="primary" href="/medtech/chapters">進入已購買課程</a>
+          </section>
+        )}
         <section className="medtech-study-statistics">
           <header>
             <div>

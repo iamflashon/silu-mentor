@@ -60,6 +60,14 @@ function remainingText(until: Date | null, now: number) {
     : `剩餘 ${hours} 小時 ${minutes % 60} 分`;
 }
 
+function accessDate(value: Date) {
+  return new Intl.DateTimeFormat("zh-TW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Taipei",
+  }).format(value);
+}
+
 export default async function MedtechChapters({
   searchParams,
 }: {
@@ -369,10 +377,19 @@ export default async function MedtechChapters({
             LINE Pay 付款尚未完成，請稍後再試。
           </div>
         )}
-        <p>
-          每 30 題是一個練習單元，方便掌握進度，不是計價單位。首次可任選一個
-          {product.trialQuestions} 題單元免費體驗；NT${product.effectivePrice} 一次開通全庫，{product.accessDays} 天不限次練習。
-        </p>
+        {allAccess ? (
+          <div className="medtech-active-pass" role="status">
+            <b>本書已購買・全庫通行證使用中</b>
+            <span>開通時間：{accessDate(allAccess.startedAt)}</span>
+            <span>有效期限：{accessDate(allAccess.availableUntil)}</span>
+            <strong>{remainingText(allAccess.availableUntil, now)}</strong>
+          </div>
+        ) : (
+          <p>
+            每 30 題是一個練習單元，方便掌握進度，不是計價單位。首次可任選一個
+            {product.trialQuestions} 題單元免費體驗；NT${product.effectivePrice} 一次開通全庫，{product.accessDays} 天不限次練習。
+          </p>
+        )}
         <div className="medtech-pack-rule">
           <b>全庫通行證 × 清楚學習進度</b>
           <span>
