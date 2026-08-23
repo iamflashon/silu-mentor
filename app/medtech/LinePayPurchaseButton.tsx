@@ -22,6 +22,9 @@ export default function LinePayPurchaseButton({
   const [password, setPassword] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
 
   async function createPayment() {
     const response = await fetch("/api/medtech/line-pay/request", {
@@ -91,6 +94,26 @@ export default function LinePayPurchaseButton({
     }
   }
 
+  async function requestPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (resetBusy) return;
+    setResetBusy(true);
+    setResetMessage("");
+    try {
+      const response = await fetch("/api/member/password-reset/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { message?: string };
+      setResetMessage(result.message || "申請已送出，管理員會在後台協助處理。");
+    } catch {
+      setResetMessage("目前無法送出申請，請稍後再試。");
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
   return (
     <div className="medtech-line-pay-purchase">
       <button
@@ -109,21 +132,26 @@ export default function LinePayPurchaseButton({
         <div className="medtech-purchase-login-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setLoginOpen(false)}>
           <section className="medtech-purchase-login" role="dialog" aria-modal="true" aria-labelledby="medtech-purchase-login-title">
             <button className="medtech-purchase-login-close" type="button" aria-label="關閉登入視窗" onClick={() => setLoginOpen(false)}>×</button>
-            <span>MEDTECH MEMBER ACCESS</span>
+            <span>{resetOpen ? "PASSWORD RESET REQUEST" : "MEDTECH MEMBER ACCESS"}</span>
             <div className="medtech-purchase-login-logo" aria-hidden="true">醫</div>
-            <h2 id="medtech-purchase-login-title">登入後接續 LINE Pay</h2>
-            <p>請先登入醫檢師會員帳號，付款完成後方案會自動綁定此帳號。</p>
-            <form onSubmit={loginAndPurchase}>
+            <h2 id="medtech-purchase-login-title">{resetOpen ? "申請管理員協助重設" : "登入後接續 LINE Pay"}</h2>
+            <p>{resetOpen ? "輸入註冊 Email，申請會顯示在總管理處。目前不會寄送 Email；管理員確認身分後會設定臨時密碼並另行通知。" : "請先登入醫檢師會員帳號，付款完成後方案會自動綁定此帳號。"}</p>
+            {resetOpen ? <form onSubmit={requestPasswordReset}>
+              <label htmlFor="medtech-reset-email">註冊 Email</label>
+              <input id="medtech-reset-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus />
+              {resetMessage && <p className="member-reset-message" role="status">{resetMessage}</p>}
+              <button type="submit" disabled={resetBusy}>{resetBusy ? "送出中…" : "送出人工重設申請"}</button>
+            </form> : <form onSubmit={loginAndPurchase}>
               <label htmlFor="medtech-purchase-email">會員帳號</label>
               <input id="medtech-purchase-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus />
               <label htmlFor="medtech-purchase-password">會員密碼</label>
               <input id="medtech-purchase-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
               {loginError && <p className="admin-login-error" role="alert">{loginError}</p>}
               <button type="submit" disabled={loginBusy}>{loginBusy ? "登入中…" : "登入並前往 LINE Pay"}</button>
-            </form>
+            </form>}
             <div className="medtech-purchase-login-links">
-              <a href="/medtech/member-login?return_to=%2Fmedtech">申請管理員重設密碼</a>
-              <a href="/member-register?return_to=%2Fmedtech">註冊會員</a>
+              <button type="button" onClick={() => { setResetOpen((value) => !value); setResetMessage(""); setLoginError(""); }}>{resetOpen ? "返回會員登入" : "申請管理員重設密碼"}</button>
+              {!resetOpen && <a href="/member-register?return_to=%2Fmedtech">註冊會員</a>}
             </div>
           </section>
         </div>
