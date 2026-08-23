@@ -93,7 +93,10 @@ export default async function MedtechHome() {
         </div>
         <div className="medtech-featured-copy">
           <span>第一本數位題庫</span>
-          <h2 id="featured-book-title">醫檢師國考題詳解（Ⅲ）<br />臨床病毒學（下）</h2>
+          <h2 id="featured-book-title">
+            <span>醫檢師國考題詳解（Ⅲ）</span>
+            <span>臨床病毒學（下）</span>
+          </h2>
           <p className="medtech-book-author">陳連城・康情老師</p>
           <p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>
           <div className="medtech-book-trial"><b>首次免費體驗 {product.trialQuestions} 題</b><span>任選一個練習單元，先完整體驗再決定是否開通。</span></div>

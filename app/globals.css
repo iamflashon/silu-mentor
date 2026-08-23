@@ -52,8 +52,16 @@
 .medtech-book-cover-wrap > span { position: absolute; top: 18px; right: -14px; padding: 8px 14px; border-radius: 999px; color: #fff; background: #087d71; font-size: 13px; font-weight: 900; box-shadow: 0 8px 20px rgba(8,125,113,.22); }
 .medtech-featured-copy > span { color: #087d71; }
 .medtech-featured-copy h2 { margin: 0; color: #073a37; font-size: clamp(30px, 4.2vw, 54px); line-height: 1.15; letter-spacing: -.04em; }
+.medtech-featured-copy h2 span { display: block; white-space: nowrap; }
 .medtech-featured-copy > p { max-width: 650px; color: #486864; font-size: 16px; line-height: 1.85; }
 .medtech-featured-copy .medtech-book-author { color: #9a6b00; font-weight: 800; }
+
+@media (max-width: 640px) {
+  .medtech-featured-copy h2 {
+    font-size: clamp(28px, 8vw, 36px);
+    letter-spacing: -.055em;
+  }
+}
 .medtech-book-price { display: flex; align-items: center; gap: 18px; margin: 22px 0; }
 .medtech-book-price strong { color: #073f3b; font-size: 36px; }
 .medtech-book-price span { color: #66817d; font-size: 13px; line-height: 1.5; }
