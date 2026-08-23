@@ -49,34 +49,56 @@ export default function MedtechGuidedContentBatch() {
   }
 
   async function generateContinuously() {
-    if (!confirm("系統會每批處理 10 題並自動繼續。請保持本頁開啟；可隨時按「暫停」。確定開始？")) return;
+    if (!confirm("系統會每批處理 10 題並自動繼續。單題失敗會自動重試 2 次，仍失敗則記錄並跳過。請保持本頁開啟；可隨時按「暫停」。確定開始？")) return;
     stopRequested.current = false;
     setBusy(true);
     setContinuous(true);
     let completed = 0;
+    let skipped = 0;
+    let lastError = "";
+    const skippedIds = new Set<number>();
+    const wait = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
     try {
       while (!stopRequested.current) {
         const status = await load();
-        const targets = (status.pending || []).slice(0, 10);
+        const available = (status.pending || []).filter((question) => !skippedIds.has(question.id));
+        const targets = available.slice(0, 10);
         if (!targets.length) {
-          setNotice(`全部可產生題目已完成；本次共新增 ${completed} 題。`);
+          setNotice(
+            status.pending?.length && skipped
+              ? `本次處理完成：成功 ${completed} 題，跳過 ${skipped} 題。最後錯誤：${lastError}；稍後可再次啟動重試。`
+              : `全部可產生題目已完成；本次共新增 ${completed} 題。`,
+          );
           break;
         }
         for (const question of targets) {
           if (stopRequested.current) break;
-          setNotice(`自動產生中：本次已完成 ${completed} 題；目前處理第 ${question.questionNumber} 題…`);
-          try {
-            await generate(question);
-            completed += 1;
-          } catch (error) {
-            stopRequested.current = true;
-            throw error;
+          let generated = false;
+          for (let attempt = 1; attempt <= 3 && !stopRequested.current; attempt += 1) {
+            setNotice(`自動產生中：成功 ${completed} 題、跳過 ${skipped} 題；目前第 ${question.questionNumber} 題${attempt > 1 ? `（第 ${attempt} 次嘗試）` : ""}…`);
+            try {
+              await generate(question);
+              completed += 1;
+              generated = true;
+              break;
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : "產生失敗";
+              if (attempt < 3) await wait(attempt * 1200);
+            }
+          }
+          if (!generated && !stopRequested.current) {
+            skipped += 1;
+            skippedIds.add(question.id);
           }
         }
+        if (!stopRequested.current) {
+          setNotice(`本批完成：成功 ${completed} 題、跳過 ${skipped} 題；稍候繼續下一批…`);
+          await wait(2500);
+        }
       }
-      if (stopRequested.current) setNotice((current) => current.includes("失敗") ? current : `已暫停；本次完成 ${completed} 題，可稍後繼續。`);
+      if (stopRequested.current) setNotice(`已暫停；本次成功 ${completed} 題、跳過 ${skipped} 題，可稍後繼續。`);
     } catch (error) {
-      setNotice(`自動產生已停止：本次完成 ${completed} 題；${error instanceof Error ? error.message : "產生失敗"}`);
+      setNotice(`自動流程暫停：成功 ${completed} 題、跳過 ${skipped} 題；${error instanceof Error ? error.message : "狀態讀取失敗"}`);
     } finally {
       setBusy(false);
       setContinuous(false);
