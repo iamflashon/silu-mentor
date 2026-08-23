@@ -15,7 +15,7 @@ export default function MemberLogoutButton() {
         cache: "no-store",
       });
     } finally {
-      window.location.replace(`/member-login?return_to=${encodeURIComponent("/medtech")}&logged_out=1&t=${Date.now()}`);
+      window.location.replace(`/medtech?logged_out=1&t=${Date.now()}`);
     }
   }
 
