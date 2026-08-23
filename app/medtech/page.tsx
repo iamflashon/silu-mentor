@@ -9,6 +9,7 @@ import { getMedtechProductSettings } from "../../lib/medtech-product-settings";
 import { getActiveMedtechAllAccess } from "../../lib/medtech-usage";
 import { getMemberSession } from "../../lib/member-session-auth";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export default async function MedtechHome() {
   const requestHeaders = await headers();
   const memberRequest = new Request("https://medtech.local/medtech", { headers: requestHeaders });
