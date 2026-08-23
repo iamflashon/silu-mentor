@@ -1,0 +1,30 @@
+.medtech-guided-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0 14px;
+}
+
+.medtech-guided-actions button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid #14766e;
+  border-radius: 9px;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.medtech-guided-actions .primary { background: #14766e; color: #fff; box-shadow: 0 2px 5px rgba(14, 98, 93, .16); }
+.medtech-guided-actions .secondary { background: #fff; color: #126b64; }
+.medtech-guided-actions .pause { background: #fff6e8; border-color: #d6a24a; color: #8a5b0b; }
+.medtech-guided-actions .refresh { min-height: auto; padding: 8px 4px; border-color: transparent; background: transparent; color: #315f5b; font-weight: 700; }
+.medtech-guided-actions button:hover:not(:disabled) { filter: brightness(.94); }
+.medtech-guided-actions button:focus-visible { outline: 3px solid #d2a833; outline-offset: 2px; }
+.medtech-guided-actions button:disabled { cursor: wait; opacity: .58; }
