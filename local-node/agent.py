@@ -13,14 +13,15 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 
 
 def run_text(command: list[str]) -> str:
     try:
-        return subprocess.run(command, capture_output=True, text=True, timeout=8, check=False).stdout.strip()
+        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+        return subprocess.run(command, capture_output=True, text=True, timeout=8, check=False, creationflags=creationflags).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
 
@@ -174,6 +175,8 @@ def extract_pages(path: Path) -> tuple[list[str], str]:
 
 
 def text_chunks(text: str, size: int = 6000, overlap: int = 300) -> list[str]:
+    text = text.replace("\uf06c", "•").replace("\uf0e0", "→")
+    text = "".join(" " if 0xE000 <= ord(char) <= 0xF8FF else char for char in text)
     cleaned = "\n".join(line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")).strip()
     if not cleaned:
         return []

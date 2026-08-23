@@ -11,6 +11,10 @@ function normalize(value: string) {
   return value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("zh-Hant");
 }
 
+function cleanExtractedText(value: string) {
+  return value.replace(/\uF06C/gu, "•").replace(/\uF0E0/gu, "→").replace(/[\uE000-\uF8FF]/gu, " ").replace(/\\n/gu, "\n");
+}
+
 function titleFromText(text: string, page: number | null, index: number) {
   const heading = text.split(/\n+/).map((line) => line.trim()).find((line) => /^(?:第.{1,12}[篇章節款目]|[一二三四五六七八九十百]+、|\d+(?:\.\d+){0,3}\s+\S)/u.test(line));
   return (heading || `${page ? `第 ${page} 頁` : "全文"}片段 ${index + 1}`).slice(0, 160);
@@ -74,6 +78,26 @@ export async function buildFineIndexStep(documentId: number, options: { restart?
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
     const bytes = await object.arrayBuffer();
+    if (/\.local-index\.jsonl$/iu.test(document.fileName)) {
+      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes).replace(/^\uFEFF/u, "");
+      const records = decoded.split(/\r?\n/u).map((line) => {
+        try { return JSON.parse(line) as Record<string, unknown>; } catch { return null; }
+      }).filter((item): item is Record<string, unknown> => Boolean(item && typeof item.text === "string"));
+      const [{ total: existing, pages: existingPages }] = await db.select({ total: sql<number>`count(*)`, pages: sql<number>`count(${documentSearchUnits.pageStart})` }).from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
+      // Older local-index builds treated the whole JSONL file as plain text,
+      // producing null page numbers and visible JSON boundaries. Rebuild those
+      // records once into page-aware clean units.
+      if (Number(existing) > 0 && Number(existingPages) < Number(existing)) await db.delete(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
+      else if (Number(existing) > 0) return Response.json({ done: true, pagesDone: records.length, totalPages: records.length, units: Number(existing), inserted: 0 });
+      let inserted = 0;
+      for (const [recordIndex, record] of records.entries()) {
+        const page = Number(record.page_start) || recordIndex + 1;
+        const rows = await rowsForPage(documentId, page, cleanExtractedText(String(record.text)));
+        if (rows.length) { await db.insert(documentSearchUnits).values(rows); inserted += rows.length; }
+      }
+      const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
+      return Response.json({ done: true, pagesDone: records.length, totalPages: records.length, units: Number(total), inserted });
+    }
     const source = resolveDocumentPayload(document.fileName, document.contentType, bytes);
     const extension = documentExtension(source.fileName);
 
