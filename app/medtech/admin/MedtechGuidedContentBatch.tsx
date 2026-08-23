@@ -1,5 +1,7 @@
 "use client";
 
+import "./guided-content.css";
+
 import { useEffect, useRef, useState } from "react";
 
 type PendingQuestion = { id: number; year: string; subject: string; questionNumber: string; stem: string };
@@ -86,7 +88,7 @@ export default function MedtechGuidedContentBatch() {
     <h2>引導學習預先產生</h2>
     <p className="medtech-admin-help">AI 僅在後台產生一次並存入資料庫。學生取得提示或比較選項時直接讀取，不會即時呼叫 AI。</p>
     <div className="simulation-accuracy-summary"><span>公開題目 <b>{published}</b></span><span>資料完整、可產生 <b>{eligible}</b></span><span>已完成 <b>{ready}</b></span><span>待產生 <b>{Math.max(0, eligible - ready)}</b></span><span>缺答案或選項 <b>{unavailable}</b></span></div>
-    <div className="medtech-commercial-actions"><button type="button" className="medtech-save-product-button" disabled={busy || !pending.length} onClick={() => void generateBatch()}>{busy && !continuous ? "AI 批次產生中…" : pending.length ? `產生下一批 ${Math.min(10, pending.length)} 題` : "全部引導內容已完成"}</button><button type="button" className="medtech-save-product-button" disabled={busy || !pending.length} onClick={() => void generateContinuously()}>自動連續產生</button>{continuous&&<button type="button" onClick={() => { stopRequested.current = true; setNotice("收到暫停要求；目前題目完成後停止…"); }}>暫停</button>}<button type="button" disabled={busy} onClick={() => void load()}>重新整理</button></div>
+    <div className="medtech-guided-actions"><button type="button" className="primary" disabled={busy || !pending.length} onClick={() => void generateBatch()}>{busy && !continuous ? "AI 批次產生中…" : pending.length ? `產生下一批 ${Math.min(10, pending.length)} 題` : "全部引導內容已完成"}</button><button type="button" className="secondary" disabled={busy || !pending.length} onClick={() => void generateContinuously()}>自動連續產生</button>{continuous&&<button type="button" className="pause" onClick={() => { stopRequested.current = true; setNotice("收到暫停要求；目前題目完成後停止…"); }}>暫停</button>}<button type="button" className="refresh" disabled={busy} onClick={() => void load()}>重新整理</button></div>
     {notice && <p className="medtech-admin-notice">{notice}</p>}
     <div className="explanation-question-list">{pending.map((question) => <article key={question.id}><div><b>{question.subject} · {question.year} · 第 {question.questionNumber} 題</b><small>q{question.id} · {question.stem.replace(/<[^>]+>/g, " ").slice(0, 150)}</small></div><button type="button" disabled={busy} onClick={async () => { setBusy(true); setNotice(`正在產生第 ${question.questionNumber} 題…`); try { await generate(question, true); setNotice("本題提示與比較選項已寫入資料庫。"); await load(); } catch (error) { setNotice(error instanceof Error ? error.message : "產生失敗"); } finally { setBusy(false); } }}>產生本題</button></article>)}</div>
   </section>;
