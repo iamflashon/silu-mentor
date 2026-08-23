@@ -9,6 +9,7 @@ import { USD_TO_TWD_RATE, formatTwd } from "../../lib/currency";
 import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document-title";
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 import SitesCloudflareSyncDownload from "./SitesCloudflareSyncDownload";
+import LocalNodeJobsPanel from "./LocalNodeJobsPanel";
 
 type PaymentOrderRow = { orderId: string; transactionId: string | null; packageName: string; amount: number; currency: string; status: string; environment: string; paidAt: string | null; activatedAt: string | null; createdAt: string };
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; passwordResetRequestedAt?: string | null; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }>; paymentOrders?: PaymentOrderRow[] };
@@ -4240,6 +4241,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               {localNodeStatus.node && <small>最後回報：{new Date(localNodeStatus.node.lastSeenAt).toLocaleString("zh-TW")} · 版本 {localNodeStatus.node.version}</small>}
             </div>
           </section>}
+          {libraryMode && <LocalNodeJobsPanel />}
           {libraryMode && <SitesCloudflareSyncDownload />}
           {libraryMode && <nav className="library-section-tabs" aria-label="教材資料庫操作切換">
             <button type="button" className={librarySection === "materials" ? "active" : ""} onClick={() => setLibrarySection("materials")}><strong>教材列表</strong><span>搜尋、索引狀態與細部資料</span></button>

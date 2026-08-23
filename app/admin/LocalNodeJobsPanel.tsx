@@ -1,0 +1,11 @@
+"use client";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+type Job = { id:string; sourceFile:string; status:string; message?:string; extractedChars?:number; chunkCount?:number; pageCount?:number|null };
+const labels:Record<string,string>={queued:"排隊中",claimed:"本機處理中",completed:"已完成",failed:"失敗",cancelled:"已取消"};
+export default function LocalNodeJobsPanel(){
+ const [jobs,setJobs]=useState<Job[]>([]),[sourceFile,setSourceFile]=useState(""),[message,setMessage]=useState(""),[submitting,setSubmitting]=useState(false);
+ const load=useCallback(async()=>{const response=await fetch("/api/admin/local-node/jobs",{cache:"no-store"});if(response.ok)setJobs(((await response.json()) as {jobs?:Job[]}).jobs??[])},[]);
+ useEffect(()=>{void load();const timer=window.setInterval(()=>void load(),15000);return()=>window.clearInterval(timer)},[load]);
+ async function submit(event:FormEvent){event.preventDefault();setSubmitting(true);setMessage("");try{const response=await fetch("/api/admin/local-node/jobs",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({sourceFile})});const result=await response.json() as {error?:string};if(!response.ok)throw new Error(result.error??"無法建立本機工作");setSourceFile("");setMessage("已送入公司本機佇列");await load()}catch(error){setMessage(error instanceof Error?error.message:"無法建立本機工作")}finally{setSubmitting(false)}}
+ return <section className="panel local-node-jobs-panel"><div><p>PRIVATE PROCESSING QUEUE</p><h2>公司本機處理佇列</h2><span>先將 PDF／Word／文字檔放入 C:\iBrain-local-node\inbox，再輸入完整檔名。雲端只接收擷取後的文字切片，不接收原始檔。</span></div><form onSubmit={submit}><input value={sourceFile} onChange={event=>setSourceFile(event.target.value)} placeholder="例如：刑法教材.pdf" aria-label="本機 inbox 檔名"/><button type="submit" disabled={submitting||!sourceFile.trim()}>{submitting?"送出中…":"交給 RTX 4090"}</button></form>{message&&<p className="local-node-job-message">{message}</p>}<div className="local-node-job-list">{jobs.length?jobs.slice(0,8).map(job=><div key={job.id}><strong>{job.sourceFile}</strong><span className={`job-${job.status}`}>{labels[job.status]??job.status}</span><small>{job.message??""}{job.status==="completed"?` · ${(job.extractedChars??0).toLocaleString()} 字／${job.chunkCount??0} 切片${job.pageCount?`／${job.pageCount} 頁`:""}`:""}</small></div>):<p>目前沒有本機工作。</p>}</div></section>
+}
