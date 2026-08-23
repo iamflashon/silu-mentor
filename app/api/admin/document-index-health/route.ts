@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm";
+import { asc, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documentSearchUnits, documents } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
@@ -29,6 +29,10 @@ export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
   const db = await getDb("primary");
+  const params = new URL(request.url).searchParams;
+  const offset = Math.max(0, Number(params.get("offset")) || 0);
+  const limit = Math.min(20, Math.max(1, Number(params.get("limit")) || 12));
+  const [{ total: allTotal }] = await db.select({ total: sql<number>`count(*)` }).from(documents);
   const rows = await db.select({
     id: documents.id,
     fileName: documents.fileName,
@@ -43,7 +47,7 @@ export async function GET(request: Request) {
     extractedChars: documents.extractedChars,
     fullTextIndexed: documents.fullTextIndexed,
     vectorIndexed: documents.vectorIndexed,
-  }).from(documents);
+  }).from(documents).orderBy(asc(documents.id)).limit(limit).offset(offset);
   const unitRows = rows.length ? await db.select({
     documentId: documentSearchUnits.documentId,
     total: sql<number>`count(*)`,
@@ -67,6 +71,5 @@ export async function GET(request: Request) {
     const health = suggestedStatus(row, Boolean(sourceMap.get(row.id)), units);
     return { ...row, sourceExists: Boolean(sourceMap.get(row.id)), fineSearchUnitCount: units.total, indexedPages: units.distinctPages, indexedTextChars: units.textChars, healthStatus: health.status, healthReason: health.reason, repairable: health.repairable };
   });
-  const summary = items.reduce((result, item) => { result[item.healthStatus] = (result[item.healthStatus] || 0) + 1; return result; }, {} as Record<HealthStatus, number>);
-  return Response.json({ scannedAt: new Date().toISOString(), total: items.length, summary, items }, { headers: { "cache-control": "no-store" } });
+  return Response.json({ scannedAt: new Date().toISOString(), total: Number(allTotal), offset, nextOffset: offset + items.length, done: offset + items.length >= Number(allTotal), items }, { headers: { "cache-control": "no-store" } });
 }
