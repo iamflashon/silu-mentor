@@ -1239,7 +1239,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         status = result.status ?? "importing";
         progress = result.next ?? progress + (result.processed ?? 0);
         nextRestart = false;
-        if (status !== "ready") await new Promise((resolve) => window.setTimeout(resolve, 120));
+        if (status !== "ready") await new Promise((resolve) => window.setTimeout(resolve, 3000));
       }
       setNotice(status === "ready" ? "官方資料、分類與內容已完成索引，現在可以進入查看。" : "資料已部分處理，請稍後再按重新同步繼續。");
     } catch (error) {
@@ -3215,7 +3215,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         setFiles((current) => current.map((item) => item.id === file.id ? { ...item, fineSearchUnitCount: Number(result.units ?? 0) } : item));
         setNotice(`精準索引進度：${result.pagesDone ?? 0} / ${result.totalPages ?? 0} 頁，已建立 ${result.units ?? 0} 個搜尋片段。`);
         if (result.done) break;
-        await new Promise((resolve) => window.setTimeout(resolve, 120));
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
       }
       setNotice(`「${file.bookTitle || file.name}」已完成並保存頁面級精準索引；重新整理後仍會保留。`);
     } catch (error) {
