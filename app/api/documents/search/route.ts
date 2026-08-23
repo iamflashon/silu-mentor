@@ -55,7 +55,7 @@ function decodeIndexedText(raw: string) {
 
 function evidenceSnippet(raw: string, query: string) {
   const decoded = decodeIndexedText(raw);
-  const text = decoded.text.replace(/\s+/gu, " ").trim();
+  const text = decoded.text.replace(/\uF06C/gu, "•").replace(/\uF0E0/gu, "→").replace(/[\uE000-\uF8FF]/gu, " ").replace(/\\n/gu, " ").replace(/\s+/gu, " ").trim();
   const normalizedText = normalizeEvidence(text);
   const normalizedQuery = normalizeEvidence(query);
   const matched = Boolean(normalizedQuery && normalizedText.includes(normalizedQuery));
@@ -167,7 +167,7 @@ export async function POST(request: Request) {
       .slice(0, 8);
     const hits = [...lexicalHits, ...vectorHits.map((hit) => ({ ...hit, retrievalMode: "vector" }))]
       .filter((hit, index, rows) => rows.findIndex((candidate) => candidate.pageStart === hit.pageStart && candidate.text.slice(0, 100) === hit.text.slice(0, 100)) === index)
-      .sort((left, right) => Number(right.evidenceMatched) - Number(left.evidenceMatched) || Number(right.score ?? 0) - Number(left.score ?? 0))
+      .sort((left, right) => Number(right.evidenceMatched) - Number(left.evidenceMatched) || Number(right.retrievalMode === "fine_lexical") - Number(left.retrievalMode === "fine_lexical") || Number(right.score ?? 0) - Number(left.score ?? 0))
       .slice(0, 8);
     const usage = payload.usage && typeof payload.usage === "object"
       ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
