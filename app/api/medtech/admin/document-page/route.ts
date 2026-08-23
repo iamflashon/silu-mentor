@@ -1,12 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions } from "../../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 
 function normalize(value:string){return value.replace(/<[^>]*>/gu," ").replace(/[\s，。；：、（）()？?．·\-]/gu,"").toLowerCase()}
 
 export async function GET(request:Request){
- const auth=await requireMedtechAdmin(request);if("error" in auth)return auth.error;
+ const auth=await requireMedtechQuestionEditor(request);if("error" in auth)return auth.error;
  const url=new URL(request.url),documentId=Number(url.searchParams.get("documentId")),questionId=Number(url.searchParams.get("questionId"));
  const db=await getDb();
  const [[document],[question]]=await Promise.all([

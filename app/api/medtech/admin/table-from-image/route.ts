@@ -1,4 +1,4 @@
-import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
@@ -12,7 +12,7 @@ function outputText(payload: Record<string, unknown>) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   if (!await getOpenAIKey()) return Response.json({ error: "醫檢 AI 模型尚未設定。" }, { status: 503 });
   const form = await request.formData();

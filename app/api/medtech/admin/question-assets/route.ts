@@ -1,8 +1,8 @@
-import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 
 const allowed=/^image\/(?:png|jpeg|webp|gif)$/;
 export async function POST(request:Request){
-  const auth=await requireMedtechAdmin(request);if("error" in auth)return auth.error;
+  const auth=await requireMedtechQuestionEditor(request);if("error" in auth)return auth.error;
   const form=await request.formData();const file=form.get("file");
   if(!(file instanceof File)||!allowed.test(file.type))return Response.json({error:"請上傳 PNG、JPG、WebP 或 GIF 圖片"},{status:400});
   if(file.size>8*1024*1024)return Response.json({error:"圖片不可超過 8MB"},{status:413});

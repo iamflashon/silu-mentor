@@ -107,6 +107,33 @@ export async function requireMedtechAdmin(request: Request) {
   return auth;
 }
 
+export function hasMedtechPermission(permissionsJson: string, permission: string) {
+  try {
+    const permissions = JSON.parse(permissionsJson || "[]") as unknown;
+    return Array.isArray(permissions) && permissions.includes(permission);
+  } catch {
+    return false;
+  }
+}
+
+export async function requireMedtechBackoffice(request: Request) {
+  const auth = await requireMedtechMember(request);
+  if (!("access" in auth)) return auth;
+  if (!auth.access.canAdmin && !hasMedtechPermission(auth.access.permissionsJson, "questions")) {
+    return { error: Response.json({ error: "需要醫檢師後台權限" }, { status: 403 }) } as const;
+  }
+  return auth;
+}
+
+export async function requireMedtechQuestionEditor(request: Request) {
+  const auth = await requireMedtechMember(request);
+  if (!("access" in auth)) return auth;
+  if (!auth.access.canAdmin && !hasMedtechPermission(auth.access.permissionsJson, "questions")) {
+    return { error: Response.json({ error: "需要文件題庫編修權限" }, { status: 403 }) } as const;
+  }
+  return auth;
+}
+
 export async function requireAccountingMember(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth;

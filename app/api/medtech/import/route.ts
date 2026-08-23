@@ -3,7 +3,7 @@ import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
 import { inspectDocumentBytes } from "../../../../lib/document-processing";
 import { storedDocumentAnalysis } from "../../../../lib/document-analysis";
-import { requireMedtechAdmin } from "../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../lib/member-auth";
 
 type ParsedQuestion = { year: string; number: string; stem: string; options: Record<string, string>; answer: string; explanation: string };
 
@@ -204,7 +204,7 @@ function parseQuestions(text: string): ParsedQuestion[] {
 
 export async function POST(request: Request) {
   try {
-    const auth = await requireMedtechAdmin(request);
+    const auth = await requireMedtechQuestionEditor(request);
     if ("error" in auth) return auth.error;
     const body = await request.json() as { documentId?: number; offset?: number; limit?: number; materializeOnly?: boolean; forceReparse?: boolean; repairMissing?: boolean };
     const documentId = Number(body.documentId);

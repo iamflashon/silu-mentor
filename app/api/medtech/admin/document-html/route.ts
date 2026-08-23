@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents } from "../../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { extractPdfTableGrid, plainPdfPageText, renderPdfPageHtml } from "../../../../../lib/pdf-html";
 
 type SourceVariant = { kind?: string; storageKey?: string; fileName?: string; contentType?: string };
@@ -33,7 +33,7 @@ function variants(value: string) {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const id = Number(new URL(request.url).searchParams.get("id"));
   if (!Number.isInteger(id) || id < 1) return new Response("缺少文件編號", { status: 400 });

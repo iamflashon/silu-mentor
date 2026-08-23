@@ -26,7 +26,7 @@ type Member = {
 const permissionOptions = [
   ["members", "會員管理"],
   ["documents", "文件上傳"],
-  ["questions", "題庫管理"],
+  ["questions", "文件題庫編修"],
   ["audio", "語音管理"],
   ["security", "登入安全"],
 ] as const;
@@ -63,7 +63,7 @@ export default function CommercialMemberControls({ members, onReload }: { member
         </div>
         <div className="medtech-commercial-permissions">
           <label><input type="checkbox" checked={member.canAdmin} onChange={(event) => void patchMember(member.id, { canAdmin: event.target.checked })}/>可進管理後台</label>
-          {permissionOptions.map(([value, label]) => <label key={value}><input type="checkbox" disabled={!member.canAdmin} checked={member.permissions.includes(value)} onChange={(event) => void patchMember(member.id, { permissions: event.target.checked ? [...new Set([...member.permissions, value])] : member.permissions.filter((item) => item !== value) })}/>{label}</label>)}
+          {permissionOptions.map(([value, label]) => <label key={value}><input type="checkbox" disabled={value !== "questions" && !member.canAdmin} checked={member.permissions.includes(value)} onChange={(event) => void patchMember(member.id, { permissions: event.target.checked ? [...new Set([...member.permissions, value])] : member.permissions.filter((item) => item !== value) })}/>{label}</label>)}
         </div>
         <details className="medtech-admin-payment-history">
           <summary>購買紀錄（{member.paymentOrders?.length ?? 0} 筆）</summary>
