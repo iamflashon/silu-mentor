@@ -20,4 +20,6 @@ PDF 文字擷取需先安裝：
 python -m pip install pypdf
 ```
 
+掃描型 PDF 的 OCR 另需 PyMuPDF、PaddlePaddle 與 PaddleOCR。節點會先使用 PDF 內建文字層，只有文字不足的頁面才啟動 OCR，避免浪費 GPU 時間。
+
 將待處理檔案放入 `C:\iBrain-local-node\inbox`，再由總管理後台輸入相同檔名建立工作。掃描型 PDF 若沒有文字層，會標示需要 OCR，不會假裝成功。

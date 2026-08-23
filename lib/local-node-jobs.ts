@@ -18,6 +18,12 @@ export type LocalNodeJob = {
   extractedChars?: number;
   chunkCount?: number;
   pageCount?: number | null;
+  examCategory: "law" | "accounting" | "medtech" | "data-structure";
+  subject: string;
+  documentType: string;
+  bookTitle: string;
+  documentId?: number;
+  indexStatus?: "queued" | "indexing" | "completed" | "failed";
 };
 
 export async function readLocalNodeJobs() {

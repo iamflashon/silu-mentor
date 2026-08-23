@@ -13,8 +13,9 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
+_OCR_ENGINE = None
 
 
 def run_text(command: list[str]) -> str:
@@ -89,24 +90,86 @@ def heartbeat(endpoint: str, token: str, active_job: str = "") -> None:
         raise RuntimeError(f"heartbeat failed: HTTP {status}")
 
 
-def extract_text(path: Path) -> tuple[str, int | None]:
+def _ocr_strings(value) -> list[str]:
+    found: list[str] = []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, dict):
+        for key in ("rec_texts", "texts", "text"):
+            if key in value:
+                found.extend(_ocr_strings(value[key]))
+        if found:
+            return found
+        for item in value.values():
+            found.extend(_ocr_strings(item))
+    elif isinstance(value, (list, tuple)):
+        # PaddleOCR v2 rows commonly end with (text, confidence).
+        if len(value) == 2 and isinstance(value[0], str) and isinstance(value[1], (int, float)):
+            return [value[0].strip()] if value[0].strip() else []
+        for item in value:
+            found.extend(_ocr_strings(item))
+    elif hasattr(value, "json"):
+        try:
+            found.extend(_ocr_strings(value.json))
+        except Exception:
+            pass
+    return found
+
+
+def ocr_pdf_page(page) -> str:
+    global _OCR_ENGINE
+    try:
+        import fitz  # type: ignore
+        import numpy as np  # type: ignore
+        from paddleocr import PaddleOCR  # type: ignore
+    except ImportError as error:
+        raise RuntimeError("掃描 PDF 需要安裝 PyMuPDF、PaddlePaddle 與 PaddleOCR") from error
+    if _OCR_ENGINE is None:
+        try:
+            _OCR_ENGINE = PaddleOCR(lang="ch", device="gpu", use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=False)
+        except Exception:
+            try:
+                _OCR_ENGINE = PaddleOCR(lang="ch", use_gpu=True, show_log=False)
+            except Exception:
+                _OCR_ENGINE = PaddleOCR(lang="ch")
+    pixmap = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
+    image = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(pixmap.height, pixmap.width, pixmap.n)
+    try:
+        result = _OCR_ENGINE.predict(image)
+    except (AttributeError, TypeError):
+        result = _OCR_ENGINE.ocr(image, cls=True)
+    return "\n".join(dict.fromkeys(_ocr_strings(result)))
+
+
+def extract_pages(path: Path) -> tuple[list[str], str]:
     suffix = path.suffix.lower()
     if suffix in {".txt", ".md", ".json", ".jsonl", ".html", ".htm", ".csv"}:
-        return path.read_text(encoding="utf-8", errors="replace"), None
+        return [path.read_text(encoding="utf-8", errors="replace")], "native_text"
     if suffix == ".docx":
         with zipfile.ZipFile(path) as archive:
             root = ET.fromstring(archive.read("word/document.xml"))
         paragraphs = []
         for paragraph in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
             paragraphs.append("".join(node.text or "" for node in paragraph.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")))
-        return "\n".join(paragraphs), None
+        return ["\n".join(paragraphs)], "native_text"
     if suffix == ".pdf":
         try:
             from pypdf import PdfReader  # type: ignore
             reader = PdfReader(str(path))
-            return "\n\n".join(page.extract_text() or "" for page in reader.pages), len(reader.pages)
+            pages = [page.extract_text() or "" for page in reader.pages]
         except ImportError as error:
             raise RuntimeError("尚未安裝 PDF 文字擷取套件 pypdf") from error
+        weak_pages = [index for index, text in enumerate(pages) if len(text.strip()) < 40]
+        if weak_pages and os.getenv("LOCAL_NODE_OCR", "auto").lower() != "off":
+            try:
+                import fitz  # type: ignore
+                document = fitz.open(path)
+                for index in weak_pages:
+                    pages[index] = ocr_pdf_page(document[index])
+            except ImportError as error:
+                raise RuntimeError("偵測到掃描頁；請安裝 PyMuPDF、PaddlePaddle 與 PaddleOCR") from error
+        mode = "ocr" if weak_pages and all(index in weak_pages for index in range(len(pages))) else "mixed" if weak_pages else "native_text"
+        return pages, mode
     raise RuntimeError(f"目前不支援 {suffix or '無副檔名'} 文件")
 
 
@@ -124,6 +187,16 @@ def text_chunks(text: str, size: int = 6000, overlap: int = 300) -> list[str]:
     return chunks
 
 
+def page_chunks(pages: list[str]) -> list[dict]:
+    result: list[dict] = []
+    for page_number, text in enumerate(pages, 1):
+        for chunk in text_chunks(text):
+            result.append({"text": chunk, "sequence": len(result) + 1, "pageStart": page_number, "pageEnd": page_number})
+            if len(result) >= 500:
+                return result
+    return result
+
+
 def process_next_job(jobs_url: str, token: str, inbox: Path, node_id: str) -> str:
     status, response = request_json(jobs_url, token)
     if status == 204 or not response or not isinstance(response.get("job"), dict):
@@ -137,12 +210,13 @@ def process_next_job(jobs_url: str, token: str, inbox: Path, node_id: str) -> st
     try:
         if not path.is_file():
             raise RuntimeError(f"inbox 找不到檔案：{source_file}")
-        text, page_count = extract_text(path)
-        chunks = text_chunks(text)
+        pages, extraction_mode = extract_pages(path)
+        chunks = page_chunks(pages)
+        text_length = sum(len(page) for page in pages)
         if not chunks:
             raise RuntimeError("沒有擷取到可索引文字；掃描 PDF 需要下一階段 OCR")
         sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-        request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": f"已擷取 {len(text):,} 字，原始檔未上傳", "sha256": sha256, "pageCount": page_count, "chunks": chunks})
+        request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": f"已擷取 {text_length:,} 字，原始檔未上傳", "sha256": sha256, "pageCount": len(pages), "extractionMode": extraction_mode, "chunks": chunks})
     except Exception as error:
         request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "failed", "message": str(error)[:240]})
     return source_file
