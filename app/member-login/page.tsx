@@ -85,11 +85,11 @@ export default function MemberLoginPage() {
       </form>
       <button type="button" className="member-forgot-password-toggle" onClick={() => { setForgotOpen((value) => !value); setForgotMessage(""); }}>忘記密碼？</button>
       {forgotOpen && <form className="member-forgot-password" onSubmit={requestPasswordReset}>
-        <h2>申請重設密碼</h2>
-        <p>輸入註冊 Email。為保護帳號安全，畫面不會透露此 Email 是否存在；管理員確認後會協助重設。</p>
+        <h2>申請管理員協助重設</h2>
+        <p>輸入註冊 Email，申請會顯示在總管理處。目前採人工處理，不會寄送重設信；管理員確認身分後會設定臨時密碼並另行通知。</p>
         <label htmlFor="member-reset-email">註冊 Email</label>
         <input id="member-reset-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-        <button type="submit" disabled={forgotBusy}>{forgotBusy ? "送出中…" : "送出重設申請"}</button>
+        <button type="submit" disabled={forgotBusy}>{forgotBusy ? "送出中…" : "送出人工重設申請"}</button>
         {forgotMessage && <p role="status" className="member-reset-message">{forgotMessage}</p>}
       </form>}
       <p className="member-login-help">尚未有會員帳號？註冊後即可免費體驗 30 題。</p>

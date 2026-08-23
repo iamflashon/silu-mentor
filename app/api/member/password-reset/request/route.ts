@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { memberPasswordResetRequests, members } from "../../../../../db/schema";
 
-const GENERIC_MESSAGE = "若此 Email 已註冊，管理員會收到重設密碼申請並與你聯絡。";
+const GENERIC_MESSAGE = "申請已送出。若此 Email 已註冊，管理員會在後台看到申請並協助設定臨時密碼；目前不會寄送 Email。";
 
 export async function POST(request: Request) {
   let body: { email?: string } = {};
