@@ -24,6 +24,28 @@ export const members = sqliteTable("members", {
     .$defaultFn(() => new Date()),
 });
 
+export const memberPasswordResetRequests = sqliteTable(
+  "member_password_reset_requests",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    requestedAt: integer("requested_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    completedBy: text("completed_by").notNull().default(""),
+  },
+  (table) => [
+    index("member_password_reset_requests_member_status_idx").on(
+      table.memberId,
+      table.status,
+    ),
+    index("member_password_reset_requests_requested_idx").on(table.requestedAt),
+  ],
+);
 export const medtechDeviceSessions = sqliteTable(
   "medtech_device_sessions",
   {

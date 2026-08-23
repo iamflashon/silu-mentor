@@ -1,5 +1,5 @@
-import { desc, eq } from "drizzle-orm";
-import { memberExamAccess, members } from "../../../../db/schema";
+import { and, desc, eq } from "drizzle-orm";
+import { memberExamAccess, memberPasswordResetRequests, members } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 import { hashMemberPassword } from "../../../../lib/member-session-auth";
 
@@ -8,7 +8,8 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
   const rows = await auth.db.select({ id: members.id, email: members.email, displayName: members.displayName, role: members.role, canAdmin: members.canAdmin, status: members.status, className: members.className, lastSeenAt: members.lastSeenAt, createdAt: members.createdAt }).from(members).orderBy(desc(members.lastSeenAt), desc(members.createdAt));
   const accessRows = await auth.db.select({ memberId: memberExamAccess.memberId, examCategory: memberExamAccess.examCategory, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, className: memberExamAccess.className }).from(memberExamAccess);
-  return Response.json({ members: rows.map((member) => ({ ...member, accesses: accessRows.filter((access) => access.memberId === member.id) })) });
+  const resetRequests = await auth.db.select().from(memberPasswordResetRequests).where(eq(memberPasswordResetRequests.status, "pending")).orderBy(desc(memberPasswordResetRequests.requestedAt));
+  return Response.json({ members: rows.map((member) => ({ ...member, passwordResetRequestedAt: resetRequests.find((item) => item.memberId === member.id)?.requestedAt ?? null, accesses: accessRows.filter((access) => access.memberId === member.id) })) });
 }
 
 export async function POST(request: Request) {
@@ -48,6 +49,9 @@ export async function PATCH(request: Request) {
   const passwordHash = password ? await hashMemberPassword(password) : undefined;
   const [updated] = await auth.db.update(members).set({ ...(passwordHash && { passwordHash }), ...(role && { role }), ...(canAdmin !== undefined && { canAdmin }), ...(status && { status }), ...(className && { className }), updatedAt: new Date() }).where(eq(members.id, id)).returning();
   if (!updated) return Response.json({ error: "找不到會員" }, { status: 404 });
+  if (passwordHash) {
+    await auth.db.update(memberPasswordResetRequests).set({ status: "completed", completedAt: new Date(), completedBy: auth.member.email }).where(and(eq(memberPasswordResetRequests.memberId, id), eq(memberPasswordResetRequests.status, "pending")));
+  }
   const { passwordHash: _passwordHash, ...publicMember } = updated;
   return Response.json({ member: publicMember });
 }
