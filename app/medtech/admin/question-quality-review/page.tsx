@@ -154,6 +154,11 @@ export default function QuestionQualityReviewPage() {
       setItems(unique);
       setSummary(data.summary ?? EMPTY_SUMMARY);
       setDocuments(data.documents ?? []);
+      if (!documentId && data.documents?.length) {
+        setNotice("已載入文件清單，接著只掃描第一份文件，避免大型 PDF 與全題庫同時占用資源。");
+        setDocumentId(data.documents[0].id);
+        return;
+      }
       setSelectedIds((current) => current.filter((id) => unique.some((item) => item.id === id)));
       const nextId = preferredId && unique.some((item) => item.id === preferredId)
         ? preferredId
@@ -372,7 +377,7 @@ export default function QuestionQualityReviewPage() {
         <label>
           <span>文件</span>
           <select value={documentId} onChange={(event) => setDocumentId(Number(event.target.value))}>
-            <option value={0}>全部醫檢文件</option>
+            <option value={0}>請選擇一份文件</option>
             {documents.map((document) => <option key={document.id} value={document.id}>{document.fileName}（{document.questionCount} 題）</option>)}
           </select>
         </label>
