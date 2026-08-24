@@ -15,7 +15,7 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
-import { documentDisplayTitle } from "../../../lib/document-title";
+import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
 import { finishAiUse, prepareAiUse } from "../../../lib/ai-access-gate";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
@@ -583,11 +583,13 @@ async function displayDocumentSourceNames(names: string[]) {
   if (!names.length) return [] as string[];
   try {
     const db = await getDb();
-    const rows = await db.select({ fileName: documents.fileName, bookTitle: documents.bookTitle }).from(documents);
+    const rows = await db.select({ fileName: documents.fileName, bookTitle: documents.bookTitle, processingResultJson: documents.processingResultJson }).from(documents);
+    const comparable = (value: string) => (value.split("/").pop() ?? value).replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/iu, "").replace(/[\s._-]+/gu, "").toLowerCase();
     return [...new Set(names.map((name) => {
       const baseName = name.split("/").pop() ?? name;
-      const row = rows.find((candidate) => candidate.fileName === name || candidate.fileName === baseName);
-      return row ? documentDisplayTitle(row.bookTitle, row.fileName) : name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "");
+      const normalized = comparable(name);
+      const row = rows.find((candidate) => candidate.fileName === name || candidate.fileName === baseName || comparable(candidate.fileName) === normalized);
+      return row ? documentDisplayTitleFromMetadata(row) : name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "");
     }).filter(Boolean))].slice(0, 5);
   } catch {
     return [...new Set(names.map((name) => name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "")).filter(Boolean))].slice(0, 5);
