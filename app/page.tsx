@@ -1209,7 +1209,7 @@ export function LawHome() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-          {currentMember&&aiMeter?.active&&<a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a>}
+          {currentMember&&aiMeter?.active&&<div className="ai-meter-row"><a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{practiceCoaching||thinking?"AI 回覆完成後計入本輪":aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a><button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || practiceCoaching || !input.trim()} title={input.trim()?"使用目前輸入的問題進行官方來源查證":"請先輸入要查證的問題"}>查證最新資料</button></div>}
           {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button></div>
           {!settingsCollapsed && <>
@@ -1246,7 +1246,6 @@ export function LawHome() {
           />
           <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
           <div className="composer-actions">
-            <button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || !input.trim()}>查證最新資料</button>
             <button className="composer-focus-button" type="button" onClick={() => setChatFocusMode((current) => !current)} aria-pressed={chatFocusMode} aria-label={chatFocusMode ? "還原對話視窗" : "放大對話視窗"}>{chatFocusMode ? "還原" : "放大"}</button>
             {currentMember?.canAdmin && <button className="composer-topic-button" type="button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
           </div>
