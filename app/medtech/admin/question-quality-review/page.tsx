@@ -272,6 +272,46 @@ export default function QuestionQualityReviewPage() {
     }
   }
 
+  async function applyCurrentPreview() {
+    if (!question || !activeItem) return;
+    setBusy(true);
+    try {
+      let currentPreview = preview?.id === activeItem.id ? preview : null;
+      if (!currentPreview) {
+        const response = await fetch("/api/medtech/admin/content-quality", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ questionIds: [activeItem.id], dryRun: true }),
+        });
+        const data = (await response.json()) as { previews?: Preview[]; error?: string };
+        if (!response.ok) throw new Error(data.error || "修復預覽失敗");
+        currentPreview = data.previews?.[0] ?? null;
+      }
+      if (!currentPreview) {
+        setNotice("本題沒有可安全自動套用的修改，請依 PDF 原稿人工校對。");
+        return;
+      }
+      const after = parsePreview(currentPreview.after);
+      setPreview(currentPreview);
+      setQuestion((current) => current ? {
+        ...current,
+        stem: typeof after.stem === "string" ? after.stem : current.stem,
+        options: after.options && typeof after.options === "object"
+          ? after.options as Record<string, string>
+          : current.options,
+        explanation: typeof after.explanation === "string" ? after.explanation : current.explanation,
+        completeExplanation: typeof after.completeExplanation === "string" ? after.completeExplanation : current.completeExplanation,
+        teacherCompleteExplanation: typeof after.teacherCompleteExplanation === "string" ? after.teacherCompleteExplanation : current.teacherCompleteExplanation,
+        aiCompleteExplanation: typeof after.aiCompleteExplanation === "string" ? after.aiCompleteExplanation : current.aiCompleteExplanation,
+      } : current);
+      setNotice("已將修復建議套用到下方欄位，尚未寫入資料庫；請核對 PDF 後按「儲存本題」。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "套用本題建議失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveQuestion() {
     if (!question) return;
     setSaving(true);
@@ -406,7 +446,7 @@ export default function QuestionQualityReviewPage() {
                 </div>
                 <div>
                   {activeItem.issues.some((issue) => issue.autoFixable) && <button type="button" className="secondary" disabled={busy} onClick={() => void previewFix([activeItem.id])}>預覽自動修復</button>}
-                  {activeItem.issues.some((issue) => issue.autoFixable) && <button type="button" disabled={busy} onClick={() => void applyFix([activeItem.id])}>套用本題建議</button>}
+                  {activeItem.issues.some((issue) => issue.autoFixable) && <button type="button" disabled={busy} onClick={() => void applyCurrentPreview()}>套用本題建議</button>}
                 </div>
               </header>
 
