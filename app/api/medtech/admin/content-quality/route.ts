@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
@@ -20,7 +20,8 @@ export async function GET(request:Request){
     const sourceId=Number(String(row.sourceUrl||"").replace(/^document:/,""));
     return {id:row.id,documentId:sourceId,documentName:docById.get(sourceId)?.fileName||row.sourceUrl,year:row.year,subject:row.subject,questionNumber:row.questionNumber,issues};
   }).filter(item=>item.issues.length>0);
-  const summary={questionsScanned:rows.length,questionsWithIssues:items.length,p0:items.flatMap(i=>i.issues).filter(i=>i.severity==="P0").length,p1:items.flatMap(i=>i.issues).filter(i=>i.severity==="P1").length,autoFixable:items.flatMap(i=>i.issues).filter(i=>i.autoFixable).length};
+  const allIssues=items.flatMap(i=>i.issues);
+  const summary={questionsScanned:rows.length,questionsWithIssues:items.length,p0:allIssues.filter(i=>i.severity==="P0").length,p1:allIssues.filter(i=>i.severity==="P1").length,autoFixable:allIssues.filter(i=>i.autoFixable).length};
   return Response.json({summary,items,documents:docs});
 }
 
@@ -39,7 +40,7 @@ export async function POST(request:Request){
     const after=JSON.stringify({stem:nextStem,options:nextOptions,explanation:nextExplanation,completeExplanation:nextComplete,teacherCompleteExplanation:nextTeacher,aiCompleteExplanation:nextAi});
     if(before===after)continue; changed+=1; previews.push({id:row.id,before,after});
     if(body.dryRun===true)continue;
-    await db.update(examQuestions).set({stem:nextStem,optionsJson:JSON.stringify(nextOptions),explanation:nextExplanation,completeExplanation:nextComplete,teacherCompleteExplanation:nextTeacher,aiCompleteExplanation:nextAi,updatedAt:sql`CURRENT_TIMESTAMP`}).where(eq(examQuestions.id,row.id));
+    await db.update(examQuestions).set({stem:nextStem,optionsJson:JSON.stringify(nextOptions),explanation:nextExplanation,completeExplanation:nextComplete,teacherCompleteExplanation:nextTeacher,aiCompleteExplanation:nextAi}).where(eq(examQuestions.id,row.id));
   }
   return Response.json({changed,dryRun:body.dryRun===true,previews:previews.slice(0,30)});
 }
