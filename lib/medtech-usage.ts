@@ -863,9 +863,9 @@ export async function grantMedtechQuestionPackageAccess(
         inArray(medtechPointLedger.action, [
           "question_pack",
           "question_pack_gift",
+          "question_pack_voucher",
         ]),
         inArray(medtechPointLedger.description, descriptions),
-        gte(medtechPointLedger.createdAt, cutoff),
         or(
           gte(medtechPointLedger.availableUntil, new Date()),
           and(
@@ -907,7 +907,7 @@ export async function grantMedtechQuestionPackageAccess(
       limited: false,
       hasAccess: true,
       charged: false,
-      gifted: activePackage.action === "question_pack_gift",
+      gifted: activePackage.action === "question_pack_gift" || activePackage.action === "question_pack_voucher",
       packageCost: MEDTECH_QUESTION_PACKAGE_COST,
       discountReward: {
         status: "used",

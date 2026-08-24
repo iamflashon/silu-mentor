@@ -6,7 +6,7 @@ import { requireMedtechMember } from "../../../../lib/member-auth";
 async function lastPackage(db: Awaited<ReturnType<typeof import("../../../../db").getDb>>, userKey: string) {
   const [grant] = await db.select({ description: medtechPointLedger.description, availableUntil: medtechPointLedger.availableUntil })
     .from(medtechPointLedger)
-    .where(and(eq(medtechPointLedger.userKey, userKey), inArray(medtechPointLedger.action, ["question_pack", "question_pack_gift"]), isNotNull(medtechPointLedger.availableUntil)))
+    .where(and(eq(medtechPointLedger.userKey, userKey), inArray(medtechPointLedger.action, ["question_pack", "question_pack_gift", "question_pack_voucher"]), isNotNull(medtechPointLedger.availableUntil)))
     .orderBy(desc(medtechPointLedger.createdAt)).limit(1);
   return grant ? { description: grant.description, availableUntil: grant.availableUntil } : null;
 }

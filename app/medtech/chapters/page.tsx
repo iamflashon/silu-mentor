@@ -196,7 +196,8 @@ export default async function MedtechChapters({
         .filter(
           (row) =>
             row.action === "question_pack" ||
-            row.action === "question_pack_gift",
+            row.action === "question_pack_gift" ||
+            row.action === "question_pack_voucher",
         )
         .filter((row) =>
           packageDescriptions(name, packNumber).includes(row.description),

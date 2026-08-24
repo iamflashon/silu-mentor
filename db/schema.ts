@@ -245,6 +245,7 @@ export const activationCodes = sqliteTable(
   "activation_codes",
   {
     id: text("id").primaryKey(),
+    batchId: text("batch_id"),
     codeHash: text("code_hash").notNull().unique(),
     last4: text("last4").notNull(),
     label: text("label").notNull(),
@@ -257,7 +258,12 @@ export const activationCodes = sqliteTable(
     redeemBy: integer("redeem_by", { mode: "timestamp" }),
     redeemedAt: integer("redeemed_at", { mode: "timestamp" }),
     redeemedByMemberId: integer("redeemed_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    selectedUnitKey: text("selected_unit_key").notNull().default(""),
+    selectedUnitLabel: text("selected_unit_label").notNull().default(""),
     createdBy: text("created_by").notNull().default(""),
+    createdByMemberId: integer("created_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    disabledBy: text("disabled_by").notNull().default(""),
+    disabledReason: text("disabled_reason").notNull().default(""),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   },
@@ -266,6 +272,30 @@ export const activationCodes = sqliteTable(
     index("activation_codes_redeemed_member_idx").on(table.redeemedByMemberId),
   ],
 );
+
+export const activationCodeBatches = sqliteTable("activation_code_batches", {
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  purpose: text("purpose").notNull(),
+  benefitType: text("benefit_type").notNull(),
+  quantity: integer("quantity").notNull(),
+  createdByMemberId: integer("created_by_member_id").references(() => members.id, { onDelete: "set null" }),
+  createdByEmail: text("created_by_email").notNull(),
+  dailyLimit: integer("daily_limit").notNull(),
+  monthlyLimit: integer("monthly_limit").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("activation_code_batches_creator_created_idx").on(table.createdByMemberId, table.createdAt)]);
+
+export const activationCodeAuditLogs = sqliteTable("activation_code_audit_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  codeId: text("code_id").references(() => activationCodes.id, { onDelete: "set null" }),
+  batchId: text("batch_id").references(() => activationCodeBatches.id, { onDelete: "set null" }),
+  actorMemberId: integer("actor_member_id").references(() => members.id, { onDelete: "set null" }),
+  actorEmail: text("actor_email").notNull(),
+  action: text("action").notNull(),
+  detailsJson: text("details_json").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("activation_code_audit_code_created_idx").on(table.codeId, table.createdAt), index("activation_code_audit_actor_created_idx").on(table.actorMemberId, table.createdAt)]);
 
 export const aiPaymentOrders = sqliteTable(
   "ai_payment_orders",
