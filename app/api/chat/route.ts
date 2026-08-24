@@ -16,7 +16,7 @@ import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, ch
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
-import { finishAiCoachRound, finishAiUse, prepareAiUse } from "../../../lib/ai-access-gate";
+import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -513,6 +513,13 @@ function usedWebSearch(payload: unknown) {
   if (!payload || typeof payload !== "object") return false;
   const output = (payload as { output?: unknown[] }).output;
   return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "web_search_call");
+}
+
+function shouldOfferHomeWebSearch(text:string,mode:"off"|"fallback"|"always"){
+  if(mode==="off")return false;
+  if(mode==="always")return true;
+  const normalized=text.replace(/\s+/g,"");
+  return /(查外網|查網路|上網查|外部查證|最新|目前現行|現行法|最近|今日|今年|修法|修正草案|新判決|最新裁判|新聞|網址|網站|官方公告|是否已經變更)/u.test(normalized);
 }
 
 function extractWebSources(payload: unknown) {
@@ -1138,7 +1145,9 @@ export async function POST(request: Request) {
         { type: "eq", key: "homepage_enabled", value: true },
       ] } } : {}),
     });
-    const allowWebSearch = needsOpenAi && context.type === "home" && homeWebSearchMode !== "off";
+    // fallback 模式只有在問題明確涉及時效性或學生要求查證時才提供
+    // 外網工具；一般問答優先使用平台教材與法規索引。
+    const allowWebSearch = needsOpenAi && context.type === "home" && shouldOfferHomeWebSearch(latestStudent?.text??"",homeWebSearchMode) && await coachWebSearchAvailable(aiGate);
     if (allowWebSearch) tools.unshift({ type: "web_search" });
     let payload: unknown = {};
     let openAiPayload: unknown = {};
@@ -1271,6 +1280,7 @@ export async function POST(request: Request) {
 
     const searchedFiles = needsOpenAi && usedFileSearch(payload);
     const searchedWeb = needsOpenAi && usedWebSearch(payload);
+    if(searchedWeb&&context.type==="home")await markCoachWebSearchUsed(aiGate);
     const webSources = searchedWeb ? extractWebSources(payload) : [];
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];

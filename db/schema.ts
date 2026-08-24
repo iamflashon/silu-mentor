@@ -211,6 +211,7 @@ export const aiAccessEntitlements = sqliteTable(
     quotaTotal: integer("quota_total").notNull().default(30),
     quotaUsed: integer("quota_used").notNull().default(0),
     coachRoundsUsed: integer("coach_rounds_used").notNull().default(0),
+    coachWebSearchUsed: integer("coach_web_search_used").notNull().default(0),
     startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     referenceId: text("reference_id").notNull().default(""),
