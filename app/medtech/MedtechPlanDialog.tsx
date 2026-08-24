@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import LinePayPurchaseButton from "./LinePayPurchaseButton";
 import { useMedtechProductSettings } from "./useMedtechProductSettings";
 
 const features = [
@@ -50,7 +49,7 @@ export default function MedtechPlanDialog({ label = "查看方案內容", compac
             <ul>{features.map((feature) => <li key={feature}>✓ {feature}</li>)}</ul>
             <div className="medtech-plan-note"><b>先體驗再決定</b><span>免費體驗與正式方案都會保存進度、錯題及學習紀錄。</span></div>
             <div className="medtech-plan-actions">
-              {entitlement ? null : price === null ? <button type="button" disabled>讀取方案中…</button> : <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={price} label={`LINE Pay NT$${price} 開通本書`} />}
+              {!entitlement && <a className="medtech-plan-purchase-link" href="/medtech/upgrade" onClick={() => setOpen(false)}>{price === null ? "查看開通方案" : `前往開通 NT$${price}`}</a>}
               <a href="/medtech/chapters" onClick={() => setOpen(false)}>{entitlement ? "進入已購買課程" : trialQuestions === null ? "免費體驗" : `先免費體驗 ${trialQuestions} 題`}</a>
             </div>
           </section>

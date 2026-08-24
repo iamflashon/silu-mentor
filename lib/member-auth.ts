@@ -8,8 +8,41 @@ export type MemberRole = "teacher" | "student";
 
 const OWNER_EMAIL = "iamflashon@gmail.com";
 
+function accessJwtFromCookie(request: Request) {
+  const cookie = request.headers.get("cookie") ?? "";
+  const match = cookie.match(/(?:^|;\s*)CF_Authorization=([^;]+)/i);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function emailFromAccessJwt(token: string) {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return "";
+    const normalized = payload.replaceAll("-", "+").replaceAll("_", "/");
+    const decoded = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+    const claims = JSON.parse(decoded) as { email?: unknown };
+    return typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+  } catch {
+    return "";
+  }
+}
+
 export function authenticatedEmail(request: Request) {
-  return request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() ?? "";
+  const sitesEmail = request.headers
+    .get("oai-authenticated-user-email")
+    ?.trim()
+    .toLowerCase();
+  if (sitesEmail) return sitesEmail;
+
+  const accessEmail = request.headers
+    .get("cf-access-authenticated-user-email")
+    ?.trim()
+    .toLowerCase();
+  const accessJwt = request.headers.get("cf-access-jwt-assertion") || accessJwtFromCookie(request);
+  if (!accessJwt) return "";
+  // Access validates the assertion before this request reaches the Worker.
+  // Browser API fetches may retain only the CF_Authorization cookie.
+  return accessEmail || emailFromAccessJwt(accessJwt);
 }
 
 export async function requireMember(request: Request) {
@@ -31,6 +64,10 @@ export async function requireMember(request: Request) {
     const patch = {
       lastSeenAt: new Date(),
       updatedAt: new Date(),
+      // Google-only accounts do not use this value for sign-in. Keep a private,
+      // random server-side secret so short-lived purchase authorizations can be
+      // signed without introducing another environment secret.
+      ...(!member.passwordHash ? { passwordHash: `google$${crypto.randomUUID()}${crypto.randomUUID()}` } : {}),
       ...(ownerNeedsRepair || legacyAdminNeedsRepair ? { canAdmin: true, role: "student" } : {}),
     };
     await db.update(members).set(patch).where(eq(members.id, member.id));

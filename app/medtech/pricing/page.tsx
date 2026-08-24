@@ -6,6 +6,10 @@ import { getMedtechProductSettings } from "../../../lib/medtech-product-settings
 import { headers } from "next/headers";
 import { requireMedtechMember } from "../../../lib/member-auth";
 import { getActiveMedtechAllAccess } from "../../../lib/medtech-usage";
+import { createMedtechPurchaseProof } from "../../../lib/medtech-purchase-proof";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const features = [
   "1,400+ 題臨床病毒學題庫",
@@ -24,6 +28,7 @@ export default async function MedtechPricingPage() {
   const requestHeaders = await headers();
   const auth = await requireMedtechMember(new Request("https://medtech.local/medtech/pricing", { headers: requestHeaders }));
   const entitlement = "error" in auth ? null : await getActiveMedtechAllAccess(auth.db, auth.userKey);
+  const purchaseAuthorization = "error" in auth ? null : await createMedtechPurchaseProof(auth.member);
   const priceLabel = product.saleActive ? `活動價 NT$${product.effectivePrice}` : `NT$${product.effectivePrice}`;
   const dateLabel = (value: Date) => new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Taipei" }).format(value);
   const remainingHours = entitlement ? Math.max(0, Math.ceil((entitlement.availableUntil.getTime() - Date.now()) / 3600000)) : 0;
@@ -57,7 +62,7 @@ export default async function MedtechPricingPage() {
           <span>登入後可任選一個練習單元免費體驗；滿意後再一次開通全庫。免費體驗及正式通行證均保存進度、錯題與學習紀錄。</span>
         </div>}
         <div className="medtech-pricing-actions">
-          {!entitlement && <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通 ${product.accessDays} 天`} />}
+          {!entitlement && purchaseAuthorization && <LinePayPurchaseButton {...purchaseAuthorization} packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通 ${product.accessDays} 天`} />}
           <a href="/medtech/chapters">{entitlement ? "進入已購買課程" : `先免費體驗 ${product.trialQuestions} 題`}</a>
         </div>
       </section>

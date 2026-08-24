@@ -19,7 +19,15 @@ const CALLBACK_PATH = "/callback";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
-  const email = requestHeaders.get(USER_EMAIL_HEADER);
+  const accessEmail = requestHeaders
+    .get("cf-access-authenticated-user-email")
+    ?.trim()
+    .toLowerCase();
+  const accessJwt = requestHeaders.get("cf-access-jwt-assertion");
+  const cloudflareGoogle = Boolean(accessEmail && accessJwt);
+  const email =
+    requestHeaders.get(USER_EMAIL_HEADER)?.trim().toLowerCase() ??
+    (cloudflareGoogle ? accessEmail : null);
   if (!email) return null;
 
   const encodedFullName = requestHeaders.get(USER_FULL_NAME_HEADER);
@@ -34,6 +42,7 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
     email,
     fullName,
     provider:
+      cloudflareGoogle ||
       requestHeaders.get("x-silu-identity-provider") === "cloudflare-google"
         ? "cloudflare-google"
         : "chatgpt",

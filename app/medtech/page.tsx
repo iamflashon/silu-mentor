@@ -7,6 +7,7 @@ import { memberLoginPath } from "../../lib/member-login-path";
 import { getDb } from "../../db";
 import { getMedtechProductSettings } from "../../lib/medtech-product-settings";
 import { getActiveMedtechAllAccess } from "../../lib/medtech-usage";
+import { createMedtechPurchaseProof } from "../../lib/medtech-purchase-proof";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
   const requestHeaders = await headers();
@@ -39,6 +40,7 @@ export default async function MedtechHome() {
     );
   const product = await getMedtechProductSettings(await getDb());
   const entitlement = await getActiveMedtechAllAccess(auth.db, auth.userKey);
+  const purchaseAuthorization = await createMedtechPurchaseProof(auth.member);
   const upcomingBooks = [
     { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
     { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
@@ -99,7 +101,7 @@ export default async function MedtechHome() {
           <div className={`medtech-book-price${entitlement ? " purchased" : ""}`}><strong>{entitlement ? "已購買" : `NT$${product.effectivePrice}`}</strong><span>{entitlement ? `有效至 ${new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(entitlement.availableUntil)}` : `開通本書全部內容 ${product.accessDays} 天`}<br />{entitlement ? "全庫通行證使用中" : "一次付清・不自動續訂"}</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>
             <a className="primary trial" href="/medtech/chapters">{entitlement ? "進入已購買課程" : `免費體驗 ${product.trialQuestions} 題`}</a>
-            {!entitlement && <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />}
+            {!entitlement && <LinePayPurchaseButton {...purchaseAuthorization} packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />}
             <MedtechPlanDialog price={product.effectivePrice} accessDays={product.accessDays} trialQuestions={product.trialQuestions} />
           </div>
         </div>
