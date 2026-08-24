@@ -5,6 +5,7 @@ export type ChatGPTUser = {
   displayName: string;
   email: string;
   fullName: string | null;
+  provider: "chatgpt" | "cloudflare-google";
 };
 
 const USER_EMAIL_HEADER = "oai-authenticated-user-email";
@@ -32,6 +33,10 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
     displayName: fullName ?? email,
     email,
     fullName,
+    provider:
+      requestHeaders.get("x-silu-identity-provider") === "cloudflare-google"
+        ? "cloudflare-google"
+        : "chatgpt",
   };
 }
 

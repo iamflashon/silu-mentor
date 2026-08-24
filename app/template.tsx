@@ -13,7 +13,8 @@ export default async function IdentityGate({ children }:{ children:React.ReactNo
   const requestHeaders = await headers();
   const auth = await requireMember(new Request("https://silu-mentor.invalid/", { headers: requestHeaders }));
   if ("error" in auth) {
-    return <main className="main-entry-gate"><section className="admin-login-card"><span>MEMBERSHIP REQUIRED</span><div className="main-entry-logo" aria-hidden="true">智</div><h1>此帳號尚未開通</h1><p>已確認 ChatGPT 帳號：<strong>{user.email}</strong></p><p>ChatGPT 登入只用來確認身分；平台教材、AI 次數與類科權限仍須由管理員開通。</p><a className="main-entry-medtech" href={chatGPTSignOutPath("/")}>改用其他 ChatGPT 帳號</a></section></main>;
+    const cloudflareGoogle = user.provider === "cloudflare-google";
+    return <main className="main-entry-gate"><section className="admin-login-card"><span>MEMBERSHIP REQUIRED</span><div className="main-entry-logo" aria-hidden="true">智</div><h1>此帳號尚未開通</h1><p>已確認{cloudflareGoogle ? " Google" : " ChatGPT"}帳號：<strong>{user.email}</strong></p><p>{cloudflareGoogle ? "Google" : "ChatGPT"} 登入只用來確認身分；平台教材、AI 次數與類科權限仍須由管理員開通。</p><a className="main-entry-medtech" href={cloudflareGoogle ? "/cdn-cgi/access/logout" : chatGPTSignOutPath("/")}>改用其他{cloudflareGoogle ? " Google" : " ChatGPT"}帳號</a></section></main>;
   }
   return children;
 }
