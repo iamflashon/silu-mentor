@@ -635,7 +635,7 @@ export function LawHome() {
         setPracticeReadyToComplete(false);
         setPracticeDiscussion(false);
         if (afterCompletion === "next") await startPractice("mcq");
-        else await send("這題已理解並完成。請依我目前的學習進度繼續教下一個內容；不要再出練習題，也不要延續本題討論。");
+        else await send("這一題先告一段落。請回到目前正在學習的主題，接著說明下一個相關觀念或判斷步驟；現在先不要立刻抽新題，但之後仍可安排練題。這只是暫時離開練題，不得解讀或表述成『今天不出題』，也不要延續剛才題目的個別事實。");
         return;
       }
       if (/本題引導結束|本次對話已結束/.test(mentorMessage.text)) setPracticeQuestion(null);
@@ -1127,16 +1127,16 @@ export function LawHome() {
             </div>
           ))}
           {practiceQuestion && practiceReadyToComplete && !practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-understanding-actions" aria-label="解析後由學生決定是否完成">
-            <div><b>這題理解了嗎？</b><span>想繼續發問，可直接在下方輸入框打字。</span></div>
-            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成並進入下一題。", "complete_confirm", "next"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成並繼續帶我學習。", "complete_confirm", "learning"); }}>繼續學習</button></div>
+            <div><b>這一題接下來怎麼走？</b><span>想繼續問本題，可直接在下方輸入；理解後再選下一步。</span></div>
+            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成；接著我想再練一題。", "complete_confirm", "next"); }}>再練一題</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成；接著先回到目前主題教學，不要立刻抽下一題。", "complete_confirm", "learning"); }}>回到主題教學</button></div>
           </section>}
           {practiceQuestion && practiceDiscussion && !practiceReadyToComplete && !practiceCompleted && !practiceCoaching && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-discussion-actions" aria-label="本題持續討論中的選擇">
             <div><b>還在討論這一題</b><span>可以繼續輸入問題；理解後再由你親自完成。</span></div>
-            <div><button type="button" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成並進入下一題。", "complete_confirm", "next")}>下一題</button><button type="button" className="secondary" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成並繼續帶我學習。", "complete_confirm", "learning")}>繼續學習</button></div>
+            <div><button type="button" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成；接著我想再練一題。", "complete_confirm", "next")}>再練一題</button><button type="button" className="secondary" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成；接著先回到目前主題教學，不要立刻抽下一題。", "complete_confirm", "learning")}>回到主題教學</button></div>
           </section>}
           {practiceQuestion && practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions" aria-label="本題完成後的選擇">
-            <div><b>本題完成</b><span>由你決定下一步，AI 不會自動延伸新爭點。</span></div>
-            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void send("這題已完成。請依我目前的學習進度繼續帶我學習下一個內容；不要再出練習題，也不要延續本題討論。"); }}>繼續學習</button></div>
+            <div><b>本題完成</b><span>可接著練題，或暫時回到目前主題的觀念教學。</span></div>
+            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>再練一題</button><button type="button" className="secondary" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void send("這一題先告一段落。請回到目前正在學習的主題，接著說明下一個相關觀念或判斷步驟；現在先不要立刻抽新題，但之後仍可安排練題。這只是暫時離開練題，不得解讀或表述成『今天不出題』，也不要延續剛才題目的個別事實。"); }}>回到主題教學</button></div>
           </section>}
           {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="昨日學習接續選擇">
             <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
