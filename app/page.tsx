@@ -70,6 +70,7 @@ type DictionaryResult = { term: string; content: string; sourceUrl: string; sour
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
 type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
 type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string; className?: string };
+type AiMeter = { active:boolean; remaining:number; quotaTotal:number; coachRoundsUsed:number; coachRoundsTarget:number; expiresAt:string|null };
 
 const trustPrincipleStudentTest = "我理解信賴原則是，駕駛人可以相信行人會遵守交通規則。可是如果行人只是站在路邊等紅綠燈，駕駛人應該可以信賴他不會突然衝出來；但如果行人已經有明顯要違規的樣子，例如一直往車道靠近，駕駛人就不能再主張信賴原則。那本題中，要怎麼判斷這個行人的動作已經達到「顯然即將違規」的程度？如果我主張駕駛人仍可相信行人不會衝出來，這樣的論證有機會成立嗎？";
 function sourceNameFromLink(label: string, url = "") {
@@ -245,6 +246,7 @@ export function LawHome() {
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [terraChallenging, setTerraChallenging] = useState(false);
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
+  const [aiMeter,setAiMeter]=useState<AiMeter|null>(null);
   const simulationToolsEnabled = useSimulationToolsEnabled();
   const [memberMenuOpen, setMemberMenuOpen] = useState(false);
   const activeStudySubject = useMemo(() => examPointSubject(
@@ -260,6 +262,7 @@ export function LawHome() {
   const handoffHandled = useRef(false);
   useEffect(() => {
     fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
+    fetch("/api/ai-access",{cache:"no-store"}).then(async response=>response.ok?(await response.json()).aiAccess:null).then(setAiMeter).catch(()=>setAiMeter(null));
   }, []);
   const nextExam = useMemo(() => {
     const todayValue = Date.parse(`${today}T00:00:00Z`);
@@ -604,11 +607,12 @@ export function LawHome() {
     setPracticeCoaching(true);
     try {
       const dialogueMode = modeOverride ?? (practiceDiscussion ? "discussion" : "answer_reason");
-      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode }) });
-      const result = await response.json() as { reply?: string; error?: string; completed?: boolean };
+      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode,requestKey:crypto.randomUUID() }) });
+      const result = await response.json() as { reply?: string; error?: string; completed?: boolean;aiAccess?:Partial<AiMeter>&{charged?:boolean} };
       const mentorMessage = { role: "mentor" as const, text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" };
       setPracticeCoachMessages((current) => [...current, mentorMessage]);
       setMessages((current) => [...current, { ...mentorMessage, source: "真題練習" }]);
+      if(result.aiAccess?.remaining!==null)setAiMeter(current=>current?{...current,...result.aiAccess}:current);
       const nextCompleted = dialogueMode === "complete_confirm" && Boolean(result.completed);
       const nextReadyToComplete = !nextCompleted && Boolean(result.completed);
       const nextDiscussion = !nextCompleted && (dialogueMode === "discussion" || practiceDiscussion);
@@ -761,12 +765,13 @@ export function LawHome() {
     }
     setThinking(true);
     try {
+      const requestKey=crypto.randomUUID();
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage }),
+        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage, requestKey }),
       });
-      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null; practiceQuestion?: PracticeQuestion | null };
+      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null; practiceQuestion?: PracticeQuestion | null; aiAccess?:AiMeter&{charged?:boolean} };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
       setMessages((current) => [...current, { role: "mentor", text: result.reply!, model: result.usage?.model, usage: result.usage, sources: result.sources ?? [], citationStatus: result.citationStatus, teachingEvidence: result.teachingEvidence, comparison: result.comparison ?? undefined, practiceQuestion: result.practiceQuestion ?? undefined, source: result.practiceQuestion ? "真題庫" : result.source }]);
       if (result.practiceQuestion) {
@@ -794,6 +799,7 @@ export function LawHome() {
         setTeachingUsage((current) => [...current, ...(result.comparison?.responses ?? []).map((item) => ({ model: item.model, inputTokens: item.usage.inputTokens, cachedTokens: item.usage.cachedTokens, outputTokens: item.usage.outputTokens, durationMs: item.usage.durationMs, estimatedCostUsd: item.usage.estimatedCostUsd }))]);
       }
       if (result.sessionId) setSessionId(result.sessionId);
+      if(result.aiAccess?.remaining!==null)setAiMeter(current=>current?{...current,...result.aiAccess!,active:true}:current);
     } catch (error) {
       setMessages((current) => [...current, {
         role: "mentor",
@@ -1202,6 +1208,7 @@ export function LawHome() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
+          {currentMember&&aiMeter?.active&&<a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a>}
           {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button></div>
           {!settingsCollapsed && <>

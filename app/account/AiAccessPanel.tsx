@@ -1,7 +1,7 @@
 "use client";
 import { useEffect,useState } from "react";
 type Unit={key:string;packageName:string;packNumber:number;questionCount:number;label:string};
-type State={plan:{enabled:boolean;name:string;price:number;quota:number;durationDays:number;coachRounds:number};aiAccess:{active:boolean;quotaTotal:number;quotaUsed:number;remaining:number;startsAt:string|null;expiresAt:string|null};medtechAccess:{active:boolean;productKey?:string;expiresAt?:string};medtechPackAccess?:Array<{label:string;createdAt:string}>};
+type State={plan:{enabled:boolean;name:string;price:number;quota:number;durationDays:number;coachRounds:number};aiAccess:{active:boolean;quotaTotal:number;quotaUsed:number;remaining:number;coachRoundsUsed:number;coachRoundsTarget:number;startsAt:string|null;expiresAt:string|null};medtechAccess:{active:boolean;productKey?:string;expiresAt?:string};medtechPackAccess?:Array<{label:string;createdAt:string}>};
 export default function AiAccessPanel(){
  const[state,setState]=useState<State|null>(null),[code,setCode]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false),[units,setUnits]=useState<Unit[]>([]),[unitKey,setUnitKey]=useState("");
  async function load(){const response=await fetch("/api/ai-access",{cache:"no-store"});if(response.ok)setState(await response.json()as State)}

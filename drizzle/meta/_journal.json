@@ -505,6 +505,13 @@
       "when": 1787543404923,
       "tag": "0071_certain_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1787545057907,
+      "tag": "0072_awesome_typhoid_mary",
+      "breakpoints": true
     }
   ]
 }

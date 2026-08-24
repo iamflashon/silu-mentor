@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { getActiveAiEntitlement, getAiPlan, consumeAiAccess } from "./ai-access";
+import { getActiveAiEntitlement, getAiPlan, consumeAiAccess, progressAiCoach } from "./ai-access";
 import { requireMember } from "./member-auth";
 
 export type AiUseGate =
@@ -28,5 +28,12 @@ export async function finishAiUse(gate: AiUseGate, input: { action: string; desc
   if (!gate.metered || !gate.memberId) return { charged: false, remaining: null };
   const result = await consumeAiAccess(gate.db, { memberId: gate.memberId, ...input });
   if (!result.charged && !result.idempotent) throw new Error("AI 額度已用完，請購買新一期方案或輸入啟用碼。");
+  return result;
+}
+
+export async function finishAiCoachRound(gate:AiUseGate,input:{action:string;description:string;requestKey?:string}){
+  if(!gate.metered||!gate.memberId){const plan=await getAiPlan(gate.db);return{charged:false,remaining:null,coachRoundsUsed:null,coachRoundsTarget:plan.coachRounds}}
+  const plan=await getAiPlan(gate.db),result=await progressAiCoach(gate.db,{memberId:gate.memberId,roundTarget:plan.coachRounds,...input});
+  if(!result.idempotent&&result.remaining===0&&!result.charged)throw new Error("AI 額度已用完，請購買新一期方案或輸入啟用碼。");
   return result;
 }

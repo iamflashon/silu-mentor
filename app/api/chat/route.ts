@@ -16,7 +16,7 @@ import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, ch
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
-import { finishAiUse, prepareAiUse } from "../../../lib/ai-access-gate";
+import { finishAiCoachRound, finishAiUse, prepareAiUse } from "../../../lib/ai-access-gate";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -871,7 +871,7 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean; requestKey?:string };
     const requestedMode = String(body.modelMode ?? "auto");
     const allowedModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     let modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "auto";
@@ -1560,7 +1560,9 @@ export async function POST(request: Request) {
       }
     } catch { /* usage logging must not block the learner */ }
 
-    const aiAccess = await finishAiUse(aiGate, { action: "law_ask", description: context.type === "book" ? "司律智能書 AI 試問" : "司律 AI 試問" });
+    const aiAccess = context.type === "home"
+      ? await finishAiCoachRound(aiGate,{action:"law_coach",description:"司律首頁 AI 教練引導",requestKey:body.requestKey})
+      : await finishAiUse(aiGate, { action: "law_ask", description: "司律教材 AI 試問", requestKey:body.requestKey });
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
