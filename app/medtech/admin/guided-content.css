@@ -28,3 +28,19 @@
 .medtech-guided-actions button:hover:not(:disabled) { filter: brightness(.94); }
 .medtech-guided-actions button:focus-visible { outline: 3px solid #d2a833; outline-offset: 2px; }
 .medtech-guided-actions button:disabled { cursor: wait; opacity: .58; }
+
+.medtech-guided-documents { display:grid; gap:12px; margin:18px 0 22px; }
+.medtech-guided-documents article { display:grid; grid-template-columns:minmax(240px,1fr) auto auto; gap:16px; align-items:center; padding:16px; border:1px solid #c8ddda; border-radius:12px; background:#fbfefd; }
+.medtech-guided-documents h3 { margin:3px 0; font-size:17px; color:#073f3b; }
+.medtech-guided-documents span,.medtech-guided-documents small { color:#55736f; }
+.medtech-guided-documents dl { display:flex; gap:8px; margin:0; }
+.medtech-guided-documents dl div { min-width:72px; padding:8px 10px; text-align:center; border-radius:8px; background:#edf7f5; }
+.medtech-guided-documents dt { font-size:12px; color:#58736f; }
+.medtech-guided-documents dd { margin:2px 0 0; font-weight:900; color:#075d56; }
+.medtech-guided-documents strong { justify-self:end; padding:7px 10px; border-radius:999px; color:#895b0d; background:#fff3d8; white-space:nowrap; }
+.medtech-guided-documents .state-引導完成 { color:#0b6a43; background:#e5f6eb; }
+.medtech-guided-documents .document-actions { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:8px; padding-top:12px; border-top:1px solid #d9e7e5; }
+.medtech-guided-documents .document-actions a,.medtech-guided-documents .document-actions button { display:inline-flex; align-items:center; min-height:38px; padding:0 13px; border:1px solid #168178; border-radius:8px; background:#fff; color:#09665f; font:inherit; font-weight:800; text-decoration:none; cursor:pointer; }
+.medtech-guided-documents .document-actions button:last-child { background:#168178; color:#fff; }
+.medtech-guided-documents .document-actions button:disabled { opacity:.55; cursor:wait; }
+@media(max-width:850px){.medtech-guided-documents article{grid-template-columns:1fr}.medtech-guided-documents strong{justify-self:start}.medtech-guided-documents dl{flex-wrap:wrap}}

@@ -5,7 +5,8 @@ import "./guided-content.css";
 import { useEffect, useRef, useState } from "react";
 
 type PendingQuestion = { id: number; year: string; subject: string; questionNumber: string; stem: string };
-type GuidedStatus = { published?: number; eligible?: number; unavailable?: number; ready?: number; pending?: PendingQuestion[]; error?: string };
+type GuidedDocument = { id:number; name:string; fileName:string; subject:string; processingStage:string; total:number; draft:number; published:number; eligible:number; ready:number; unavailable:number; state:string };
+type GuidedStatus = { published?: number; eligible?: number; unavailable?: number; ready?: number; pending?: PendingQuestion[]; documents?: GuidedDocument[]; error?: string };
 
 export default function MedtechGuidedContentBatch() {
   const [published, setPublished] = useState(0);
@@ -13,17 +14,46 @@ export default function MedtechGuidedContentBatch() {
   const [unavailable, setUnavailable] = useState(0);
   const [ready, setReady] = useState(0);
   const [pending, setPending] = useState<PendingQuestion[]>([]);
+  const [documents, setDocuments] = useState<GuidedDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [continuous, setContinuous] = useState(false);
   const [notice, setNotice] = useState("");
   const stopRequested = useRef(false);
 
-  async function load() {
-    const response = await fetch("/api/medtech/admin/guided-content", { cache: "no-store" });
+  async function load(documentId = 0) {
+    const response = await fetch(`/api/medtech/admin/guided-content${documentId ? `?documentId=${documentId}` : ""}`, { cache: "no-store" });
     const data = await response.json() as GuidedStatus;
     if (!response.ok) throw new Error(data.error || "引導內容狀態讀取失敗");
-    setPublished(data.published || 0); setEligible(data.eligible || 0); setUnavailable(data.unavailable || 0); setReady(data.ready || 0); setPending(data.pending || []);
+    setPublished(data.published || 0); setEligible(data.eligible || 0); setUnavailable(data.unavailable || 0); setReady(data.ready || 0); setPending(data.pending || []); setDocuments(data.documents || []);
     return data;
+  }
+
+  async function publishDocument(document: GuidedDocument) {
+    if (!document.draft) return;
+    if (!confirm(`確定發布「${document.name}」中可用的草稿題目？缺答案的題目會保留草稿。`)) return;
+    setBusy(true); setNotice(`正在發布「${document.name}」…`);
+    try {
+      const response = await fetch("/api/medtech/admin/questions", { method:"PATCH", headers:{"content-type":"application/json"}, body:JSON.stringify({publishAllDrafts:true, documentId:document.id}) });
+      const data = await response.json() as {updated?:number; skippedUnanswered?:number; error?:string};
+      if (!response.ok) throw new Error(data.error || "發布失敗");
+      setNotice(`已發布 ${Number(data.updated || 0).toLocaleString()} 題${data.skippedUnanswered ? `；${data.skippedUnanswered} 題因缺答案保留草稿` : ""}。接著可產生引導內容。`);
+      await load();
+    } catch (error) { setNotice(error instanceof Error ? error.message : "發布失敗"); }
+    finally { setBusy(false); }
+  }
+
+  async function generateDocument(document: GuidedDocument) {
+    const status = await load(document.id);
+    const targets = (status.pending || []).slice(0, 10);
+    if (!targets.length) { setNotice(`「${document.name}」目前沒有可產生的題目；請先確認題目已發布且答案、A～D 選項完整。`); return; }
+    if (!confirm(`將先為「${document.name}」產生 ${targets.length} 題引導內容。確定開始？`)) return;
+    setBusy(true); let success=0; let failed=0;
+    for (const question of targets) {
+      setNotice(`「${document.name}」引導內容 ${success+failed+1}/${targets.length}…`);
+      try { await generate(question); success += 1; } catch { failed += 1; }
+    }
+    setNotice(`「${document.name}」本批完成：成功 ${success} 題${failed ? `，失敗 ${failed} 題` : ""}。`);
+    setBusy(false); await load();
   }
 
   useEffect(() => { void load().catch((error) => setNotice(error instanceof Error ? error.message : "引導內容狀態讀取失敗")); }, []);
@@ -106,12 +136,14 @@ export default function MedtechGuidedContentBatch() {
     }
   }
 
+  const allComplete = eligible > 0 && ready >= eligible;
   return <section className="medtech-admin-panel">
     <h2>引導學習預先產生</h2>
     <p className="medtech-admin-help">AI 僅在後台產生一次並存入資料庫。學生取得提示或比較選項時直接讀取，不會即時呼叫 AI。</p>
     <div className="simulation-accuracy-summary"><span>公開題目 <b>{published}</b></span><span>資料完整、可產生 <b>{eligible}</b></span><span>已完成 <b>{ready}</b></span><span>待產生 <b>{Math.max(0, eligible - ready)}</b></span><span>缺答案或選項 <b>{unavailable}</b></span></div>
-    <div className="medtech-guided-actions"><button type="button" className="primary" disabled={busy || !pending.length} onClick={() => void generateBatch()}>{busy && !continuous ? "AI 批次產生中…" : pending.length ? `產生下一批 ${Math.min(10, pending.length)} 題` : "全部引導內容已完成"}</button><button type="button" className="secondary" disabled={busy || !pending.length} onClick={() => void generateContinuously()}>自動連續產生</button>{continuous&&<button type="button" className="pause" onClick={() => { stopRequested.current = true; setNotice("收到暫停要求；目前題目完成後停止…"); }}>暫停</button>}<button type="button" className="refresh" disabled={busy} onClick={() => void load()}>重新整理</button></div>
+    <div className="medtech-guided-actions"><button type="button" className="primary" disabled={busy || !pending.length} onClick={() => void generateBatch()}>{busy && !continuous ? "AI 批次產生中…" : pending.length ? `產生下一批 ${Math.min(10, pending.length)} 題` : allComplete ? "全部引導內容已完成" : published ? "尚無可產生題目" : "請先發布文件題目"}</button><button type="button" className="secondary" disabled={busy || !pending.length} onClick={() => void generateContinuously()}>自動連續產生</button>{continuous&&<button type="button" className="pause" onClick={() => { stopRequested.current = true; setNotice("收到暫停要求；目前題目完成後停止…"); }}>暫停</button>}<button type="button" className="refresh" disabled={busy} onClick={() => void load()}>重新整理</button></div>
     {notice && <p className="medtech-admin-notice">{notice}</p>}
+    <div className="medtech-guided-documents">{documents.map(document=><article key={document.id}><div><span>{document.subject}</span><h3>{document.name}</h3><small>{document.fileName}</small></div><dl><div><dt>拆題</dt><dd>{document.total}</dd></div><div><dt>已發布</dt><dd>{document.published}</dd></div><div><dt>引導完成</dt><dd>{document.ready}/{document.eligible}</dd></div></dl><strong className={`state-${document.state}`}>{document.state}</strong><div className="document-actions"><a href={`/medtech/admin/document-workspace?id=${document.id}`}>開啟文件題庫</a>{document.draft>0&&<button type="button" disabled={busy} onClick={()=>void publishDocument(document)}>發布可用題目</button>}{document.eligible>document.ready&&<button type="button" disabled={busy} onClick={()=>void generateDocument(document)}>產生此文件引導</button>}</div></article>)}</div>
     <div className="explanation-question-list">{pending.map((question) => <article key={question.id}><div><b>{question.subject} · {question.year} · 第 {question.questionNumber} 題</b><small>q{question.id} · {question.stem.replace(/<[^>]+>/g, " ").slice(0, 150)}</small></div><button type="button" disabled={busy} onClick={async () => { setBusy(true); setNotice(`正在產生第 ${question.questionNumber} 題…`); try { await generate(question, true); setNotice("本題提示與比較選項已寫入資料庫。"); await load(); } catch (error) { setNotice(error instanceof Error ? error.message : "產生失敗"); } finally { setBusy(false); } }}>產生本題</button></article>)}</div>
   </section>;
 }
