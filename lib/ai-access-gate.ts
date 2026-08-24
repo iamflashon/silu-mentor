@@ -1,0 +1,32 @@
+import { getDb } from "../db";
+import { getActiveAiEntitlement, getAiPlan, consumeAiAccess } from "./ai-access";
+import { requireMember } from "./member-auth";
+
+export type AiUseGate =
+  | { metered: false; memberId: null; db: Awaited<ReturnType<typeof getDb>> }
+  | { metered: true; memberId: number; db: Awaited<ReturnType<typeof getDb>> };
+
+export async function prepareAiUse(request: Request, category: string): Promise<AiUseGate | Response> {
+  const db = await getDb();
+  const plan = await getAiPlan(db);
+  if (!plan.enabled || !plan.categories.includes(category)) return { metered: false, memberId: null, db };
+  const auth = await requireMember(request);
+  if ("error" in auth) return auth.error;
+  if (auth.member.canAdmin) return { metered: false, memberId: auth.member.id, db: auth.db };
+  const entitlement = await getActiveAiEntitlement(auth.db, auth.member.id);
+  if (!entitlement) {
+    return Response.json({
+      error: "本次 AI 試問方案尚未啟用、已到期或次數已用完，請購買新一期方案或輸入啟用碼。",
+      code: "AI_ACCESS_REQUIRED",
+      purchaseUrl: "/account#ai-access",
+    }, { status: 402 });
+  }
+  return { metered: true, memberId: auth.member.id, db: auth.db };
+}
+
+export async function finishAiUse(gate: AiUseGate, input: { action: string; description: string; requestKey?: string }) {
+  if (!gate.metered || !gate.memberId) return { charged: false, remaining: null };
+  const result = await consumeAiAccess(gate.db, { memberId: gate.memberId, ...input });
+  if (!result.charged && !result.idempotent) throw new Error("AI 額度已用完，請購買新一期方案或輸入啟用碼。");
+  return result;
+}

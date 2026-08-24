@@ -16,6 +16,7 @@ import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, ch
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
 import { documentDisplayTitle } from "../../../lib/document-title";
+import { finishAiUse, prepareAiUse } from "../../../lib/ai-access-gate";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -918,6 +919,8 @@ export async function POST(request: Request) {
       return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank" });
     }
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
+    const aiGate = await prepareAiUse(request, "law");
+    if (aiGate instanceof Response) return aiGate;
     const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "") : "";
     const route = modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
     if (route) modelMode = route.provider;
@@ -1555,6 +1558,7 @@ export async function POST(request: Request) {
       }
     } catch { /* usage logging must not block the learner */ }
 
+    const aiAccess = await finishAiUse(aiGate, { action: "law_ask", description: context.type === "book" ? "司律智能書 AI 試問" : "司律 AI 試問" });
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
@@ -1569,6 +1573,7 @@ export async function POST(request: Request) {
       comparison,
       sessionId: session.id,
       bookLearningRecord,
+      aiAccess,
     });
   } catch {
     return Response.json({ error: "對話處理失敗" }, { status: 500 });

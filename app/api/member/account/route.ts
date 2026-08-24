@@ -15,6 +15,7 @@ import {
   memberExamAccess,
   members,
   savedNotes,
+  aiPaymentOrders,
 } from "../../../../db/schema";
 import { requireMember } from "../../../../lib/member-auth";
 import { clearMemberSessionCookie, verifyMemberPassword } from "../../../../lib/member-session-auth";
@@ -42,7 +43,8 @@ export async function DELETE(request: Request) {
   const digest = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))).map((byte) => byte.toString(16).padStart(2, "0")).join("");
   const forwardedIp = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
   const [paymentCount] = await auth.db.select({ value: count() }).from(medtechPaymentOrders).where(eq(medtechPaymentOrders.userKey, email));
-  await auth.db.insert(memberAccountDeletionAudits).values({ deletionRef, ipHash: forwardedIp ? await digest(forwardedIp) : "", userAgentHash: await digest(request.headers.get("user-agent") ?? ""), retainedPaymentOrders: paymentCount?.value ?? 0 });
+  const [aiPaymentCount] = await auth.db.select({ value: count() }).from(aiPaymentOrders).where(eq(aiPaymentOrders.memberId, auth.member.id));
+  await auth.db.insert(memberAccountDeletionAudits).values({ deletionRef, ipHash: forwardedIp ? await digest(forwardedIp) : "", userAgentHash: await digest(request.headers.get("user-agent") ?? ""), retainedPaymentOrders: (paymentCount?.value ?? 0) + (aiPaymentCount?.value ?? 0) });
   try {
     // Remove learning and identity-linked records first. The member row is
     // deleted last so an interrupted request can safely be retried.
@@ -59,6 +61,7 @@ export async function DELETE(request: Request) {
     // Payment rows are retained without the member's email for accounting and
     // dispute handling. They can no longer grant access to a new registration.
     await auth.db.update(medtechPaymentOrders).set({ userKey: deletedUserKey, updatedAt: new Date() }).where(eq(medtechPaymentOrders.userKey, email));
+    await auth.db.update(aiPaymentOrders).set({ memberId: null, updatedAt: new Date() }).where(eq(aiPaymentOrders.memberId, auth.member.id));
     await auth.db.delete(medtechMemberEntitlements).where(eq(medtechMemberEntitlements.memberId, auth.member.id));
     await auth.db.delete(memberExamAccess).where(eq(memberExamAccess.memberId, auth.member.id));
     await auth.db.delete(members).where(eq(members.id, auth.member.id));
