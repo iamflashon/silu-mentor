@@ -46,6 +46,11 @@ export async function POST(request: Request) {
   const models = Array.isArray(body.models)
     ? body.models.map((item) => cleanText(item, "", 100)).filter(Boolean).slice(0, 20)
     : [];
+  const inboxFiles = Array.isArray(body.inboxFiles) ? body.inboxFiles.map((item) => {
+    const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const name = cleanText(row.name, "", 180);
+    return name ? { name, sizeBytes: Math.floor(cleanNumber(row.sizeBytes) ?? 0), modifiedAt: Math.floor(cleanNumber(row.modifiedAt) ?? 0) } : null;
+  }).filter((item): item is { name: string; sizeBytes: number; modifiedAt: number } => Boolean(item)).slice(0, 200) : [];
   const value = JSON.stringify({
     nodeId: cleanText(body.nodeId, "company-rtx4090", 80),
     name: cleanText(body.name, "公司 RTX 4090", 80),
@@ -58,6 +63,7 @@ export async function POST(request: Request) {
     models,
     queuedJobs: Math.floor(cleanNumber(body.queuedJobs) ?? 0),
     activeJob: cleanText(body.activeJob, "", 160),
+    inboxFiles,
     message: cleanText(body.message, "節點運作正常", 240),
   });
   const db = await getDb("primary");

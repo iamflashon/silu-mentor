@@ -13,9 +13,10 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
+SUPPORTED_INBOX_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".json", ".jsonl", ".html", ".htm", ".csv"}
 
 
 def run_text(command: list[str]) -> str:
@@ -71,7 +72,21 @@ def request_json(url: str, token: str, payload: dict | None = None) -> tuple[int
         raise
 
 
-def heartbeat(endpoint: str, token: str, active_job: str = "") -> None:
+def inbox_inventory(inbox: Path) -> list[dict]:
+    files: list[dict] = []
+    for path in inbox.iterdir():
+        try:
+            if not path.is_file() or path.suffix.lower() not in SUPPORTED_INBOX_SUFFIXES:
+                continue
+            stat = path.stat()
+            files.append({"name": path.name, "sizeBytes": stat.st_size, "modifiedAt": int(stat.st_mtime * 1000)})
+        except OSError:
+            continue
+    files.sort(key=lambda item: (-int(item["modifiedAt"]), str(item["name"]).lower()))
+    return files[:200]
+
+
+def heartbeat(endpoint: str, token: str, inbox: Path, active_job: str = "") -> None:
     gpu, gpu_memory = gpu_info()
     payload = {
         "nodeId": os.getenv("LOCAL_NODE_ID", "company-rtx4090"),
@@ -84,6 +99,7 @@ def heartbeat(endpoint: str, token: str, active_job: str = "") -> None:
         "models": ollama_models(),
         "queuedJobs": 1 if active_job else 0,
         "activeJob": active_job,
+        "inboxFiles": inbox_inventory(inbox),
         "message": "本機節點已連線；原始教材保留於公司本機。",
     }
     status, _ = request_json(endpoint, token, payload)
@@ -239,7 +255,7 @@ def main() -> None:
     while True:
         try:
             active = process_next_job(jobs_url, token, inbox, node_id)
-            heartbeat(endpoint, token, active)
+            heartbeat(endpoint, token, inbox, active)
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "心跳成功")
         except (urllib.error.URLError, RuntimeError, TimeoutError) as error:
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "心跳失敗:", error)
