@@ -70,7 +70,7 @@ type DictionaryResult = { term: string; content: string; sourceUrl: string; sour
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
 type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
 type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string; className?: string };
-type AiMeter = { active:boolean; remaining:number; quotaTotal:number; coachRoundsUsed:number; coachRoundsTarget:number; expiresAt:string|null };
+type AiMeter = { active:boolean; remaining:number; quotaTotal:number; coachRoundsUsed:number; coachWebSearchUsed:number; coachRoundsTarget:number; expiresAt:string|null };
 
 const trustPrincipleStudentTest = "我理解信賴原則是，駕駛人可以相信行人會遵守交通規則。可是如果行人只是站在路邊等紅綠燈，駕駛人應該可以信賴他不會突然衝出來；但如果行人已經有明顯要違規的樣子，例如一直往車道靠近，駕駛人就不能再主張信賴原則。那本題中，要怎麼判斷這個行人的動作已經達到「顯然即將違規」的程度？如果我主張駕駛人仍可相信行人不會衝出來，這樣的論證有機會成立嗎？";
 function sourceNameFromLink(label: string, url = "") {
@@ -89,7 +89,7 @@ function hideExternalUrls(text: string) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/[ \t]{2,}/g, " ");
 }
-function cleanMessageText(text: string) { return hideExternalUrls(text).replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
+function cleanMessageText(text: string) { return hideExternalUrls(text).replace(/(?:\r?\n|\s)*(?:<!--\s*)?SILU_(?:PRACTICE_STATE|PRACTICE):[A-Za-z0-9_-]+(?:\s*-->)?/gi, "").replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
 function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/尚未匯入|尚未準備|暫時無法|沒有連上|API|錯誤|請稍後|管理者/.test(clean)) return false; return /法條|爭點|要件|涵攝|解題|判斷|原則|例外|學說|實務|教材|刑法|民法|訴訟法|憲法|行政法/.test(clean); }
 function pairedStudentPrompt(messages: Message[], teacherIndex: number) {
   return [...messages.slice(0, teacherIndex)].reverse().find((message) => message.role === "student" && message.text.trim())?.text ?? "";
@@ -1209,7 +1209,7 @@ export function LawHome() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-          {currentMember&&aiMeter?.active&&<div className="ai-meter-row"><a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{practiceCoaching||thinking?"AI 回覆完成後計入本輪":aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a><button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || practiceCoaching || !input.trim()} title={input.trim()?"使用目前輸入的問題進行官方來源查證":"請先輸入要查證的問題"}>查證最新資料</button></div>}
+          {currentMember&&aiMeter?.active&&<div className="ai-meter-row"><a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{practiceCoaching||thinking?"AI 回覆完成後計入本輪":aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a><button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || practiceCoaching || !input.trim() || aiMeter.coachWebSearchUsed>=1} title={aiMeter.coachWebSearchUsed>=1?"本組專業查證已使用，下一組重新提供":input.trim()?"使用目前輸入的問題進行官方來源查證":"請先輸入要查證的問題"}>{aiMeter.coachWebSearchUsed>=1?"本組已查證":"查證最新資料"}</button></div>}
           {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button></div>
           {!settingsCollapsed && <>

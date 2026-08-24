@@ -3,6 +3,8 @@ import { getDb } from "../../../../db";
 import { chatMessages, chatSessions } from "../../../../db/schema";
 import { taipeiDate, taipeiGreeting } from "../../../../lib/taipei-time";
 
+function visibleConversationText(text:string){return text.replace(/(?:\r?\n|\s)*(?:<!--\s*)?SILU_(?:PRACTICE_STATE|PRACTICE):[A-Za-z0-9_-]+(?:\s*-->)?/gi,"").replace(/\s+/g," ").trim()}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({})) as { sessionId?: number | null; continueConversation?: boolean };
@@ -15,7 +17,7 @@ export async function POST(request: Request) {
       if (current?.userKey === key) {
         if (body.continueConversation) {
           const previous = await db.select().from(chatMessages).where(eq(chatMessages.sessionId, currentId)).orderBy(asc(chatMessages.id)).limit(100);
-          const recent = previous.slice(-10).map((message) => `${message.role === "student" ? "學生" : "AI 導師"}：${message.text.replace(/\s+/g, " ").slice(0, 240)}`);
+          const recent = previous.slice(-10).map((message) => `${message.role === "student" ? "學生" : "AI 導師"}：${visibleConversationText(message.text).slice(0, 240)}`).filter((line)=>!/[：:]\s*$/.test(line));
           carryoverSummary = recent.join("\n").slice(0, 1800);
         }
         await db.update(chatSessions).set({ progressStatus: "completed", summary: carryoverSummary || current.summary, updatedAt: new Date() }).where(eq(chatSessions.id, currentId));

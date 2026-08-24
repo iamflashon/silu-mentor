@@ -1145,7 +1145,11 @@ export async function POST(request: Request) {
     });
     // 一般 AI 教練不會自動查外網。只有學生從獨立的「AI 專業法學查證」
     // 入口確認後才提供工具；每 5 輪仍最多使用一次，避免成本失控。
-    const allowWebSearch = needsOpenAi && context.type === "home" && body.professionalVerification === true && homeWebSearchMode !== "off" && await coachWebSearchAvailable(aiGate);
+    const professionalVerificationRequested = context.type === "home" && body.professionalVerification === true;
+    const professionalVerificationAvailable = professionalVerificationRequested ? await coachWebSearchAvailable(aiGate) : false;
+    if (professionalVerificationRequested && homeWebSearchMode === "off") return Response.json({ error:"AI 專業法學查證目前未開放，請改用一般教材回答。",code:"PROFESSIONAL_VERIFICATION_DISABLED" },{status:403});
+    if (professionalVerificationRequested && !professionalVerificationAvailable) return Response.json({ error:"本組 5 輪的專業查證已使用；下一組開始後會重新提供 1 次。",code:"PROFESSIONAL_VERIFICATION_USED" },{status:429});
+    const allowWebSearch = needsOpenAi && professionalVerificationRequested && professionalVerificationAvailable;
     if (allowWebSearch) tools.unshift({ type: "web_search" });
     let payload: unknown = {};
     let openAiPayload: unknown = {};
@@ -1278,6 +1282,7 @@ export async function POST(request: Request) {
 
     const searchedFiles = needsOpenAi && usedFileSearch(payload);
     const searchedWeb = needsOpenAi && usedWebSearch(payload);
+    if(professionalVerificationRequested&&!searchedWeb)return Response.json({error:"本次未取得可核對的外網查證結果，因此不計入 AI 輪次；請稍後再試。",code:"PROFESSIONAL_VERIFICATION_FAILED"},{status:502});
     if(searchedWeb&&context.type==="home")await markCoachWebSearchUsed(aiGate);
     const webSources = searchedWeb ? extractWebSources(payload) : [];
     const citationSources = searchedFiles ? extractSources(payload) : [];
