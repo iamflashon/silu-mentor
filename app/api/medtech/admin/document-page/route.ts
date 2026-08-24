@@ -1,9 +1,12 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documents, examQuestions } from "../../../../../db/schema";
+import { documentSearchUnits, documents, examQuestions } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
 
-function normalize(value:string){return value.replace(/<[^>]*>/gu," ").replace(/[\s，。；：、（）()？?．·\-]/gu,"").toLowerCase()}
+function searchFragments(value:string){
+ const plain=value.normalize("NFKC").replace(/<[^>]*>/gu," ").replace(/\s+/gu," ").trim().toLocaleLowerCase("zh-Hant");
+ return [...new Set(plain.split(/[，。；：、（）()？?．·]/gu).map(item=>item.trim()).filter(item=>item.length>=8).map(item=>item.slice(0,24)))].slice(0,4);
+}
 
 export async function GET(request:Request){
  const auth=await requireMedtechAdmin(request);if("error" in auth)return auth.error;
@@ -15,10 +18,13 @@ export async function GET(request:Request){
  ]);
  if(!document||!question||question.sourceUrl!==`document:${documentId}`)return Response.json({error:"找不到題目或原稿"},{status:404});
  if(!/\.pdf$/iu.test(document.fileName))return Response.json({page:1,matched:false});
- const {env}=await import("cloudflare:workers");const object=await env.BUCKET?.get(document.storageKey);if(!object)return Response.json({error:"找不到原稿"},{status:404});
- const {extractText}=await import("unpdf");const extracted=await extractText(new Uint8Array(await object.arrayBuffer()),{mergePages:false});
- const pages=Array.isArray(extracted.text)?extracted.text:[extracted.text];const needle=normalize(question.stem).slice(0,36);
- let page=pages.findIndex(text=>normalize(text).includes(needle));
- if(page<0){const fragments=normalize(question.stem).match(/.{10,18}/gu)??[];page=pages.findIndex(text=>{const haystack=normalize(text);return fragments.some(fragment=>haystack.includes(fragment))})}
- return Response.json({page:page<0?1:page+1,matched:page>=0});
+ // Never parse the whole PDF during an interactive request. Large PDFs can
+ // exceed the Worker's CPU/memory limits. Reuse the resumable page index and
+ // fall back to page 1 when the document has not been indexed yet.
+ for(const fragment of searchFragments(question.stem)){
+  const [unit]=await db.select({page:documentSearchUnits.pageStart}).from(documentSearchUnits)
+   .where(and(eq(documentSearchUnits.documentId,documentId),like(documentSearchUnits.normalizedText,`%${fragment}%`))).limit(1);
+  const page=Number(unit?.page||0);if(page>0)return Response.json({page,matched:true});
+ }
+ return Response.json({page:1,matched:false});
 }
