@@ -7,15 +7,11 @@ import { memberLoginPath } from "../../lib/member-login-path";
 import { getDb } from "../../db";
 import { getMedtechProductSettings } from "../../lib/medtech-product-settings";
 import { getActiveMedtechAllAccess } from "../../lib/medtech-usage";
-import { getMemberSession } from "../../lib/member-session-auth";
 export const dynamic = "force-dynamic";
 export default async function MedtechHome() {
   const requestHeaders = await headers();
   const memberRequest = new Request("https://medtech.local/medtech", { headers: requestHeaders });
-  const [auth, memberSession] = await Promise.all([
-    requireMedtechMember(memberRequest),
-    getMemberSession(memberRequest),
-  ]);
+  const auth = await requireMedtechMember(memberRequest);
   if ("error" in auth)
     return (
       <main className="medtech-member-page">
@@ -42,7 +38,7 @@ export default async function MedtechHome() {
       </main>
     );
   const product = await getMedtechProductSettings(await getDb());
-  const entitlement = memberSession ? await getActiveMedtechAllAccess(auth.db, auth.userKey) : null;
+  const entitlement = await getActiveMedtechAllAccess(auth.db, auth.userKey);
   const upcomingBooks = [
     { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
     { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
@@ -66,8 +62,8 @@ export default async function MedtechHome() {
           </div>
         </a>
         <MedtechHeaderActions
-          accountLabel={memberSession ? "我的帳號" : "會員登入"}
-          accountHref={memberSession ? "/medtech/account" : memberLoginPath("/medtech")}
+          accountLabel="我的帳號"
+          accountHref="/medtech/account"
         />
         <nav>
           <a href="/medtech" className="active">

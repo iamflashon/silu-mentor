@@ -3,44 +3,28 @@ import { getDb } from "../db";
 import { memberExamAccess, members } from "../db/schema";
 import { getOrCreateMedtechUsage } from "./medtech-usage";
 import { getMedtechDeviceStatus } from "./medtech-device-session";
-import { ADMIN_ENTRY_OWNER_EMAIL, isAdminEntryAuthenticated } from "./admin-entry-auth";
-import { getMemberSession } from "./member-session-auth";
 
 export type MemberRole = "teacher" | "student";
 
 const OWNER_EMAIL = "iamflashon@gmail.com";
-
-function decodeName(request: Request) {
-  const encoded = request.headers.get("oai-authenticated-user-full-name");
-  if (!encoded || request.headers.get("oai-authenticated-user-full-name-encoding") !== "percent-encoded-utf-8") return "";
-  try { return decodeURIComponent(encoded); } catch { return ""; }
-}
 
 export function authenticatedEmail(request: Request) {
   return request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() ?? "";
 }
 
 export async function requireMember(request: Request) {
-  const trustedMemberId = Number(request.headers.get("x-silu-member-id"));
-  const session = await getMemberSession(request);
-  const email = session?.email || authenticatedEmail(request) || (await isAdminEntryAuthenticated(request) ? ADMIN_ENTRY_OWNER_EMAIL : "");
-  if (!email) return { error: Response.json({ error: "請先登入自己的學習帳號" }, { status: 401 }) } as const;
+  // ChatGPT is the sole identity provider. Never trust an app-owned session,
+  // caller-supplied member id, or legacy administrator cookie here.
+  const email = authenticatedEmail(request);
+  if (!email) return { error: Response.json({ error: "請使用 ChatGPT 帳號登入" }, { status: 401 }) } as const;
   const db = await getDb();
-  let [member] = Number.isSafeInteger(trustedMemberId) && trustedMemberId > 0
-    ? await db.select().from(members).where(eq(members.id, trustedMemberId)).limit(1)
-    : session
-      ? await db.select().from(members).where(eq(members.id, session.memberId)).limit(1)
-      : await db.select().from(members).where(eq(members.email, email)).limit(1);
-  if (member && member.email.trim().toLowerCase() !== email) return { error: Response.json({ error: "登入工作階段無效，請重新登入" }, { status: 401 }) } as const;
+  let [member] = await db.select().from(members).where(eq(members.email, email)).limit(1);
   if (!member) {
-    [member] = await db.insert(members).values({
-      email,
-      displayName: decodeName(request) || email.split("@")[0],
-      role: "student",
-      canAdmin: email === OWNER_EMAIL,
-      status: "active",
-      lastSeenAt: new Date(),
-    }).returning();
+    // ChatGPT authentication proves identity, not platform membership.
+    return { error: Response.json({
+      error: "此 ChatGPT 帳號尚未由平台開通，請聯絡管理員。",
+      code: "MEMBER_NOT_PROVISIONED",
+    }, { status: 403 }) } as const;
   } else {
     const ownerNeedsRepair = email === OWNER_EMAIL && (!member.canAdmin || member.role === "admin");
     const legacyAdminNeedsRepair = member.role === "admin";
