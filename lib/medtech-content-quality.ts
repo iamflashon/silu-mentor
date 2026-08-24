@@ -12,6 +12,7 @@ export function normalizeKnownPdfSymbols(value:string){
   let output=String(value??"");
   for(const [source,target] of Object.entries(PUA_REPLACEMENTS)) output=output.split(source).join(target);
   return output
+    .replace(/(pH\s*)\uf020(\s*6\.6)/gi,"$1<$2")
     .replace(/(pH\s*)[□▢▯](\s*6\.6)/gi,"$1<$2")
     .replace(/([−-]?\d+(?:\.\d+)?)\s*[□▢▯]\s*C\b/g,"$1°C")
     .replace(/([\s(])□(70\s*°?C\b)/g,"$1−$2")
@@ -22,7 +23,7 @@ export function scanMedtechField(field:string,rawValue:unknown):MedtechQualityIs
   const text=stripHtml(rawValue); if(!text)return [];
   const issues:MedtechQualityIssue[]=[];
   for(const match of text.matchAll(/[\uE000-\uF8FF]/gu)){
-    const char=match[0]; issues.push({field,kind:"private-use",severity:"P0",message:`PDF 私人字元 U+${char.codePointAt(0)!.toString(16).toUpperCase()} 尚未標準化`,excerpt:excerpt(text,match.index??0),autoFixable:Boolean(PUA_REPLACEMENTS[char])});
+    const char=match[0]; const sample=excerpt(text,match.index??0); issues.push({field,kind:"private-use",severity:"P0",message:`PDF 私人字元 U+${char.codePointAt(0)!.toString(16).toUpperCase()} 尚未標準化`,excerpt:sample,autoFixable:Boolean(PUA_REPLACEMENTS[char])||normalizeKnownPdfSymbols(sample)!==sample});
   }
   for(const match of text.matchAll(/[□▢▯�]/gu)){
     const sample=excerpt(text,match.index??0); issues.push({field,kind:"replacement",severity:"P0",message:"偵測到遺失／替代字元，需與 PDF 原稿核對",excerpt:sample,autoFixable:normalizeKnownPdfSymbols(sample)!==sample});
