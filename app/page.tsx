@@ -197,6 +197,7 @@ export function LawHome() {
   const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [verificationOpen, setVerificationOpen] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
   const [showCosts, setShowCosts] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
@@ -721,7 +722,7 @@ export function LawHome() {
     return rotated.toDataURL("image/jpeg", .78);
   }
 
-  async function send(text: string, overrideMode?: ChatModelMode, options?: { hideStudentMessage?: boolean }) {
+  async function send(text: string, overrideMode?: ChatModelMode, options?: { hideStudentMessage?: boolean; professionalVerification?: boolean }) {
     composerInputRef.current?.blur();
     const value = text.trim();
     if ((!value && !imageDraft) || thinking) return;
@@ -769,7 +770,7 @@ export function LawHome() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage, requestKey }),
+        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage, professionalVerification: options?.professionalVerification === true, requestKey }),
       });
       const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null; practiceQuestion?: PracticeQuestion | null; aiAccess?:AiMeter&{charged?:boolean} };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
@@ -1245,11 +1246,14 @@ export function LawHome() {
           />
           <button className="send-button" type="submit" aria-label="送出" disabled={(!input.trim() && !imageDraft) || thinking}>↑</button>
           <div className="composer-actions">
+            <button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || !input.trim()}>查證最新資料</button>
             <button className="composer-focus-button" type="button" onClick={() => setChatFocusMode((current) => !current)} aria-pressed={chatFocusMode} aria-label={chatFocusMode ? "還原對話視窗" : "放大對話視窗"}>{chatFocusMode ? "還原" : "放大"}</button>
             {currentMember?.canAdmin && <button className="composer-topic-button" type="button" onClick={() => void startNewTopic()} disabled={thinking || generatingStudentReply || evaluatingTeaching}>另開主題</button>}
           </div>
         </form>
       </div>
+
+      {verificationOpen && <div className="professional-verification-backdrop" role="dialog" aria-modal="true" aria-labelledby="professional-verification-title"><section className="professional-verification-dialog"><div className="professional-verification-heading"><span>PROFESSIONAL LEGAL VERIFICATION</span><h2 id="professional-verification-title">AI 專業法學查證</h2><p>不是代替 Google，而是把最新官方資料整理成可用於考試的答案。</p></div><div className="professional-verification-value"><article><b>① 官方來源優先</b><span>司法院、憲法法庭、全國法規資料庫及政府機關</span></article><article><b>② 教材版本比對</b><span>標示一致、已有修正或可能過時</span></article><article><b>③ 考試化整理</b><span>轉成爭點、法條、判準與答題提醒</span></article><article><b>④ 可追溯結果</b><span>顯示來源名稱、連結、資料日期與查證時間</span></article></div><div className="professional-verification-notice"><strong>本組 5 輪最多使用 1 次專業查證</strong><span>只有按下確認才會搜尋外網；一般 AI 教練始終只使用平台教材。</span></div><div className="professional-verification-actions"><button type="button" className="secondary" onClick={() => setVerificationOpen(false)}>回到一般教材回答</button><button type="button" onClick={() => { const question=input.trim(); setVerificationOpen(false); if(question) void send(question,undefined,{professionalVerification:true}); }} disabled={!input.trim() || thinking}>確認並進行專業查證</button></div></section></div>}
 
       {imageDraft && editingImage && <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="編輯題目圖片"><section className="image-editor"><div className="image-editor-head"><div><strong>調整題目圖片</strong><span>拖曳方框四角或四邊調整範圍；拖曳框內可整體移動</span></div><button onClick={() => setImageDraft(null)} aria-label="關閉">×</button></div><div className={`crop-stage ${imageDraft.enhance ? "enhanced" : ""}`} ref={editorRef}><img src={imageDraft.url} alt="圖片裁切預覽" className={Math.abs(imageDraft.rotation / 90) % 2 === 1 ? "quarter-turn" : ""} style={{ "--image-rotation": `${imageDraft.rotation}deg` } as React.CSSProperties} />{(() => { const bounds = cropBounds(imageDraft.points); const handles: Array<{ name: CropHandle; x: number; y: number }> = [{ name: "nw", x: bounds.left, y: bounds.top }, { name: "n", x: (bounds.left + bounds.right) / 2, y: bounds.top }, { name: "ne", x: bounds.right, y: bounds.top }, { name: "e", x: bounds.right, y: (bounds.top + bounds.bottom) / 2 }, { name: "se", x: bounds.right, y: bounds.bottom }, { name: "s", x: (bounds.left + bounds.right) / 2, y: bounds.bottom }, { name: "sw", x: bounds.left, y: bounds.bottom }, { name: "w", x: bounds.left, y: (bounds.top + bounds.bottom) / 2 }]; return <><div className="crop-frame" style={{ left: `${bounds.left}%`, top: `${bounds.top}%`, width: `${bounds.right - bounds.left}%`, height: `${bounds.bottom - bounds.top}%` }} onPointerDown={(event) => { cropFrameDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, points: imageDraft.points.map((point) => ({ ...point })) }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropFrame(event.clientX, event.clientY); }} onPointerUp={() => { cropFrameDragRef.current = null; }}><span>保留範圍</span></div>{handles.map((handle) => <button key={handle.name} className={`crop-handle crop-handle-${handle.name}`} style={{ left: `${handle.x}%`, top: `${handle.y}%` }} aria-label={`調整裁切框 ${handle.name}`} onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropHandle(handle.name, event.clientX, event.clientY); }} />)}</>; })()}</div><div className="image-tools"><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation - 90 } : current)}>↶ 左轉</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation + 90 } : current)}>↷ 右轉</button><button className={imageDraft.enhance ? "active" : ""} onClick={() => setImageDraft((current) => current ? { ...current, enhance: !current.enhance } : current)}>✦ 加強圖片</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: 0, enhance: false, points: [{ x: 6, y: 6 }, { x: 94, y: 6 }, { x: 94, y: 94 }, { x: 6, y: 94 }] } : current)}>重設</button></div><div className="image-editor-actions"><button className="secondary" onClick={() => setImageDraft(null)}>取消</button><button onClick={() => setEditingImage(false)}>使用這張圖片</button></div><p>線框內為實際保留範圍；送出時自動縮至最長邊 1600px，並壓縮為 JPEG。</p></section></div>}
     </main>
