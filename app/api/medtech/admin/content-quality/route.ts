@@ -13,6 +13,7 @@ export async function GET(request:Request){
   const db=await getDb();
   const docs=await db.select({id:documents.id,fileName:documents.fileName,subject:documents.subject,questionCount:documents.questionCount}).from(documents).where(eq(documents.examCategory,"medtech"));
   const docById=new Map(docs.map(doc=>[doc.id,doc]));
+  if(!Number.isInteger(documentId)||documentId<1)return Response.json({summary:{questionsScanned:0,questionsWithIssues:0,p0:0,p1:0,autoFixable:0},items:[],documents:docs});
   const rows=await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory,"medtech"),...(Number.isInteger(documentId)&&documentId>0?[eq(examQuestions.sourceUrl,`document:${documentId}`)]:[]))).limit(4000);
   const items=rows.map(row=>{
     const options=safeOptions(row.optionsJson);
