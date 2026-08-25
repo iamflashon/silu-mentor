@@ -58,7 +58,7 @@
 @media(max-width:430px){.main-entry-gate.main-portal::after{height:360px}.main-entry-gate .main-portal-grid{margin-top:185px}}
 
 /* Compact category launchers, fully below the space hero. */
-.main-entry-gate .main-portal-grid{grid-template-columns:repeat(2,minmax(0,280px));justify-content:center;gap:22px;margin-top:310px}
+.main-entry-gate .main-portal-grid{grid-template-columns:repeat(auto-fit,minmax(220px,250px));justify-content:center;gap:22px;margin-top:310px}
 .main-entry-gate .main-portal-card{grid-template-columns:52px 1fr;grid-template-rows:auto 1fr auto;gap:13px 15px;min-height:190px;padding:18px 19px;border-radius:18px}
 .main-entry-gate .main-portal-card-top{font-size:7px;letter-spacing:.14em}.main-entry-gate .main-portal-card-top i{font-size:9px}
 .main-entry-gate .main-portal-card-icon{width:52px;height:52px;border-radius:15px}.main-entry-gate .main-portal-card-icon svg{width:34px;height:34px;stroke-width:2.1}
@@ -71,3 +71,7 @@
 /* Subtle cyan touch watermark behind the compact category launchers. */
 .main-entry-gate .main-portal-grid{position:relative;isolation:isolate}
 .main-entry-gate .main-portal-grid::before{content:none}
+.main-entry-gate .main-portal-grid.is-loading{min-height:190px;visibility:hidden}
+.main-entry-gate .main-portal-grid.is-ready{animation:portal-cards-reveal .22s ease-out both}
+@keyframes portal-cards-reveal{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.main-entry-gate .main-portal-grid.is-ready{animation:none}}
