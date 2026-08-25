@@ -1271,24 +1271,25 @@ export default function MainEntryGate() {
     <div className="main-portal-orb main-portal-orb-two" aria-hidden="true" />
     <section className="main-portal-shell">
       <header className="main-portal-head">
-        <div className="main-entry-logo" aria-hidden="true">智</div>
-        <div>
-          <span>iBRAIN PEDIA X</span>
-          <h1>智學百科・智慧學習</h1>
-          <p>選擇你的學習領域，開啟專屬的備考與智慧學習空間。</p>
-        </div>
+        <span><i aria-hidden="true" /> AI KNOWLEDGE LEARNING</span>
+        <h1>iBrain Pedia <em>X</em></h1>
+        <h2>智學百科｜智慧學習</h2>
+        <p>選擇你的學習領域，開啟專屬的備考與智慧學習空間。</p>
       </header>
-      <div className="main-portal-status"><i aria-hidden="true" /><span>LEARNING NETWORK</span><b>系統運作中</b></div>
       <div className="main-portal-grid">
         <a className="main-portal-card law" href="/law">
           <div className="main-portal-card-top"><span>LEGAL INTELLIGENCE</span><i>01</i></div>
-          <div className="main-portal-card-icon" aria-hidden="true">法</div>
+          <div className="main-portal-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img"><path d="M32 10v42M18 16h28M12 52h40M21 16l-9 18h18L21 16Zm22 0-9 18h18L43 16Z"/><path d="M10 34c1.5 5 5 8 11 8s9.5-3 11-8M32 34c1.5 5 5 8 11 8s9.5-3 11-8"/></svg>
+          </div>
           <div className="main-portal-card-copy"><small>律師・司法官國考</small><h2>司律備考</h2><p>爭點學習、真題演練與申論解題，建立完整法律思考路徑。</p></div>
           <div className="main-portal-card-enter"><span>進入學習平台</span><b aria-hidden="true">↗</b></div>
         </a>
         <a className="main-portal-card medtech" href="/medtech">
           <div className="main-portal-card-top"><span>MEDICAL LAB SCIENCE</span><i>02</i></div>
-          <div className="main-portal-card-icon" aria-hidden="true">醫</div>
+          <div className="main-portal-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img"><path d="M27 10h13v8H27zM32 18v10l-9 9M39 24l8 8M18 37c0 9 7 16 16 16h15M42 52h10M21 34l17 17"/><circle cx="39" cy="34" r="6"/><path d="M13 54h42"/></svg>
+          </div>
           <div className="main-portal-card-copy"><small>醫事檢驗師國考</small><h2>醫檢國考</h2><p>章節刷題、完整解析與老師語音，讓國考準備更有方向。</p></div>
           <div className="main-portal-card-enter"><span>進入學習平台</span><b aria-hidden="true">↗</b></div>
         </a>
