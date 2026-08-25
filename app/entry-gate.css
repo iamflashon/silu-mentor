@@ -67,3 +67,8 @@
 .main-entry-gate .main-portal-footer{margin-top:42px}
 @media(max-width:760px){.main-entry-gate .main-portal-grid{grid-template-columns:minmax(0,320px);margin-top:255px}.main-entry-gate .main-portal-card{min-height:184px}}
 @media(max-width:430px){.main-entry-gate .main-portal-grid{margin-top:235px}}
+
+/* Subtle cyan touch watermark behind the compact category launchers. */
+.main-entry-gate .main-portal-grid{position:relative;isolation:isolate}
+.main-entry-gate .main-portal-grid::before{content:"";position:absolute;z-index:-1;left:50%;top:50%;width:min(760px,88vw);height:270px;transform:translate(-50%,-48%);background:linear-gradient(110deg,#62bfff,#27d8e3);opacity:.075;pointer-events:none;-webkit-mask:url('/portal-touch-watermark.png') center/cover no-repeat;mask:url('/portal-touch-watermark.png') center/cover no-repeat;filter:blur(.15px)}
+@media(max-width:760px){.main-entry-gate .main-portal-grid::before{width:390px;height:230px;opacity:.055}}
