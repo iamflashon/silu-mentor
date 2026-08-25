@@ -1271,10 +1271,9 @@ export default function MainEntryGate() {
     <div className="main-portal-orb main-portal-orb-two" aria-hidden="true" />
     <section className="main-portal-shell">
       <header className="main-portal-head">
-        <span><i aria-hidden="true" /> AI KNOWLEDGE LEARNING</span>
+        <span><i aria-hidden="true" /> AI KNOWLEDGE SEARCH</span>
         <h1>iBrain Pedia <em>X</em></h1>
         <h2>智學百科｜智慧學習</h2>
-        <p>選擇你的學習領域，開啟專屬的備考與智慧學習空間。</p>
       </header>
       <div className="main-portal-grid">
         <a className="main-portal-card law" href="/law">
@@ -1295,8 +1294,14 @@ export default function MainEntryGate() {
         </a>
       </div>
       <footer className="main-portal-footer">
-        <span>iBrain Pedia X・智學百科</span>
-        {adminEntryState === "authenticated" ? <a href="/admin/library">進入總管理後台</a> : adminEntryState === "loading" ? <span className="main-portal-loading">權限確認中</span> : <span>SECURE LEARNING GATEWAY</span>}
+        <span>高點學習服務</span>
+        <nav aria-label="高點學習服務">
+          <a href="https://www.get.com.tw/">高點知識達</a>
+          <a href="https://publish.get.com.tw/">高點文化</a>
+          <a href="https://www.ibrain.com.tw/">知識達</a>
+        </nav>
+        <strong>iBrain Pedia X・智學百科</strong>
+        {adminEntryState === "authenticated" ? <a className="main-portal-admin-link" href="/admin/library">進入總管理後台</a> : adminEntryState === "loading" ? <span className="main-portal-loading">權限確認中</span> : null}
       </footer>
     </section>
   </main>;
