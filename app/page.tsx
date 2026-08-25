@@ -1269,6 +1269,7 @@ export default function MainEntryGate() {
   return <main className="main-entry-gate main-portal">
     <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
     <div className="main-portal-orb main-portal-orb-two" aria-hidden="true" />
+    <div className="main-portal-hand" aria-hidden="true" />
     <section className="main-portal-shell">
       <header className="main-portal-head">
         <span><i aria-hidden="true" /> AI KNOWLEDGE SEARCH</span>
