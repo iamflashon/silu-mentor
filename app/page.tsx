@@ -1292,11 +1292,17 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
-  const [portalCards, setPortalCards] = useState<Array<{ id: "law" | "medtech"; enabled: boolean; order: number }>>([
+  const defaultPortalCards: Array<{ id: "law" | "medtech"; enabled: boolean; order: number }> = [
     { id: "law", enabled: true, order: 1 },
     { id: "medtech", enabled: true, order: 2 },
-  ]);
-  useEffect(() => { void fetch("/api/portal-cards", { cache: "no-store" }).then((response) => response.json()).then((data) => { if (Array.isArray(data.cards)) setPortalCards(data.cards); }).catch(() => undefined); }, []);
+  ];
+  const [portalCards, setPortalCards] = useState<typeof defaultPortalCards | null>(null);
+  useEffect(() => {
+    void fetch("/api/portal-cards", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => setPortalCards(Array.isArray(data.cards) ? data.cards : defaultPortalCards))
+      .catch(() => setPortalCards(defaultPortalCards));
+  }, []);
   const cardDefinitions = {
     law: { className: "law", href: "/law", eyebrow: "LEGAL INTELLIGENCE", number: "01", small: "律師・司法官國考", title: "司律備考", description: "爭點學習、真題演練與申論解題，建立完整法律思考路徑。" },
     medtech: { className: "medtech", href: "/medtech", eyebrow: "MEDICAL LAB SCIENCE", number: "02", small: "醫事檢驗師國考", title: "醫檢國考", description: "章節刷題、完整解析與老師語音，讓國考準備更有方向。" },
@@ -1310,8 +1316,8 @@ export default function MainEntryGate() {
         <h1>iBrain Pedia <em>X</em></h1>
         <h2>智學百科｜智慧學習</h2>
       </header>
-      <div className="main-portal-grid">
-        {portalCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => { const item = cardDefinitions[card.id]; return <a className={`main-portal-card ${item.className}`} href={item.href} key={card.id}>
+      <div className={`main-portal-grid ${portalCards ? "is-ready" : "is-loading"}`} aria-busy={!portalCards}>
+        {(portalCards ?? []).filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => { const item = cardDefinitions[card.id]; return <a className={`main-portal-card ${item.className}`} href={item.href} key={card.id}>
           <div className="main-portal-card-top"><span>{item.eyebrow}</span><i>{item.number}</i></div>
           <div className="main-portal-card-icon" aria-hidden="true">
             {card.id === "law" ? <svg viewBox="0 0 64 64" role="img"><path d="M32 10v42M18 16h28M12 52h40M21 16l-9 18h18L21 16Zm22 0-9 18h18L43 16Z"/><path d="M10 34c1.5 5 5 8 11 8s9.5-3 11-8M32 34c1.5 5 5 8 11 8s9.5-3 11-8"/></svg> : <svg viewBox="0 0 64 64" role="img"><path d="M27 10h13v8H27zM32 18v10l-9 9M39 24l8 8M18 37c0 9 7 16 16 16h15M42 52h10M21 34l17 17"/><circle cx="39" cy="34" r="6"/><path d="M13 54h42"/></svg>}
