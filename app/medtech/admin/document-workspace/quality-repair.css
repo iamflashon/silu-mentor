@@ -1,0 +1,7 @@
+.quality-repair-filters{display:grid;gap:8px;padding:12px;border-bottom:1px solid #d8e7e3;background:#f3f8f6}
+.quality-repair-filters>b{font-size:13px;color:#315f58}
+.quality-repair-filters button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:8px 10px;border:1px solid #b9d5cf;border-radius:8px;background:#fff;color:#205e56;font-weight:700;cursor:pointer}
+.quality-repair-filters button:hover,.quality-repair-filters button.active{border-color:#147d70;background:#147d70;color:#fff}
+.quality-repair-filters button span{min-width:27px;padding:2px 7px;border-radius:999px;background:rgba(20,125,112,.12);text-align:center}
+.quality-repair-filters button.active span{background:rgba(255,255,255,.2)}
+@media(max-width:900px){.quality-repair-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.quality-repair-filters>b{grid-column:1/-1}}
