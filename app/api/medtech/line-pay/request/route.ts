@@ -1,32 +1,44 @@
 import { eq } from "drizzle-orm";
-import { medtechPaymentOrders } from "../../../../../db/schema";
+import { medtechPaymentOrders, members } from "../../../../../db/schema";
 import { requireMedtechMember } from "../../../../../lib/member-auth";
+import { getDb } from "../../../../../db";
+import { verifyMedtechPurchaseProof } from "../../../../../lib/medtech-purchase-proof";
 import { linePayConfig, linePayPost } from "../../../../../lib/line-pay";
 import {
   MEDTECH_ALL_ACCESS_NAME,
 } from "../../../../../lib/medtech-usage";
 import { getMedtechProductSettings } from "../../../../../lib/medtech-product-settings";
-import { getMemberSession } from "../../../../../lib/member-session-auth";
 
 const allowedPackages = new Set([
   MEDTECH_ALL_ACCESS_NAME,
 ]);
 
 export async function POST(request: Request) {
-  const memberSession = await getMemberSession(request);
-  if (!memberSession) {
-    return Response.json({ error: "請先登入會員帳號後再購買" }, { status: 401 });
-  }
-  const auth = await requireMedtechMember(request);
-  if ("error" in auth) return auth.error;
-  if (memberSession.memberId !== auth.member.id || memberSession.email !== auth.member.email.trim().toLowerCase()) {
-    return Response.json({ error: "會員登入狀態無效，請重新登入後再購買" }, { status: 401 });
-  }
   try {
     const body = (await request.json()) as {
       packageName?: string;
       packNumber?: number;
+      memberEmail?: string;
+      purchaseExpiresAt?: number;
+      purchaseProof?: string;
     };
+    let auth = await requireMedtechMember(request);
+    if ("error" in auth) {
+      const email = String(body.memberEmail ?? "").trim().toLowerCase();
+      const expiresAt = Number(body.purchaseExpiresAt);
+      const proof = String(body.purchaseProof ?? "");
+      const db = await getDb();
+      const [member] = await db.select().from(members).where(eq(members.email, email)).limit(1);
+      if (!member || !(await verifyMedtechPurchaseProof(member, expiresAt, proof)))
+        return Response.json({ error: "付款授權已過期，請重新整理頁面" }, { status: 401 });
+      // The signed proof was issued during a server-rendered, Access-protected
+      // member request. Re-enter the existing membership checks with that
+      // verified identity; never trust an unsigned email from the browser.
+      auth = await requireMedtechMember(new Request(request.url, {
+        headers: { "oai-authenticated-user-email": member.email },
+      }));
+      if ("error" in auth) return auth.error;
+    }
     const packageName = String(body.packageName ?? "").trim();
     const packNumber = Math.max(1, Math.floor(Number(body.packNumber)));
     if (!allowedPackages.has(packageName) || !Number.isInteger(packNumber)) {

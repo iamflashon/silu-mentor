@@ -11,6 +11,24 @@ function outputText(payload: Record<string, unknown>) {
     .map((item) => typeof item.text === "string" ? item.text : "").join("").trim();
 }
 
+function normalized(value: string) {
+  return value.normalize("NFKC").replace(/[\s「」『』、，。；：,.;:()（）]+/gu, "").toLocaleLowerCase("zh-Hant");
+}
+
+function literalFallbacks(samples: Array<{ text: string }>) {
+  const phrases: string[] = [];
+  for (const sample of samples) {
+    for (const rawLine of sample.text.split(/\r?\n/u)) {
+      const line = rawLine.replace(/^[\s\d一二三四五六七八九十百、.()（）-]+/u, "").trim();
+      for (const part of line.split(/[：:；;。]/u)) {
+        const phrase = part.trim().replace(/[「」『』]/gu, "");
+        if (phrase.length >= 4 && phrase.length <= 16 && !/^(?:本章|第一章|參考書目|民法總則)$/u.test(phrase)) phrases.push(phrase);
+      }
+    }
+  }
+  return [...new Set(phrases)];
+}
+
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
@@ -27,7 +45,7 @@ export async function POST(request: Request) {
     method: "POST",
     body: JSON.stringify({
       model: process.env.OPENAI_EXTRACTION_MODEL || process.env.OPENAI_MODEL || "gpt-5.6-luna",
-      instructions: "你是教材檢索品質測試員。只能根據提供的跨頁教材片段，產生10個彼此不同、可直接搜尋且具有辨識度的繁體中文考點詞。不要只用科目名稱，不要使用頁碼，不得補造教材沒有的概念。每個查詢2至16字。",
+      instructions: "你是教材檢索品質測試員。只能從提供的教材原文逐字複製10個彼此不同、連續出現且具有辨識度的繁體中文考點短語；不得改寫、縮寫、增字、把§改成民法第X條或補造同義詞。不要只用科目名稱，不要使用頁碼。每個查詢2至16字。",
       input: `教材：${document.fileName}\n科目：${document.subject}\n\n跨頁抽樣原文：\n${source}`,
       text: { format: { type: "json_schema", name: "search_test_candidates", strict: true, schema: { type: "object", additionalProperties: false, properties: { queries: { type: "array", minItems: 10, maxItems: 10, items: { type: "string", minLength: 2, maxLength: 16 } } }, required: ["queries"] } } },
       max_output_tokens: 500,
@@ -35,6 +53,9 @@ export async function POST(request: Request) {
   }) as Record<string, unknown>;
   let queries: string[] = [];
   try { queries = (JSON.parse(outputText(payload)) as { queries?: unknown[] }).queries?.map(String) ?? []; } catch { queries = []; }
-  queries = [...new Set(queries.map((item) => item.replace(/[「」『』]/gu, "").trim()).filter((item) => item.length >= 2))].slice(0, 10);
+  const corpus = normalized(samples.map((item) => item.text).join("\n"));
+  const literalAi = queries.map((item) => item.replace(/[「」『』]/gu, "").trim()).filter((item) => item.length >= 2 && corpus.includes(normalized(item)));
+  const literalRules = literalFallbacks(samples).filter((item) => corpus.includes(normalized(item)));
+  queries = [...new Set([...literalAi, ...literalRules])].slice(0, 10);
   return Response.json({ documentId, queries, sampledPages: samples.map((item) => item.page).filter(Boolean) }, { headers: { "Cache-Control": "no-store" } });
 }

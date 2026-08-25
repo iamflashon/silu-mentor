@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents } from "../../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { POST as processDocument } from "../../../documents/process/route";
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as { documentId?: number; retry?: boolean };
   const documentId = Number(body.documentId);

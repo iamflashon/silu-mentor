@@ -13,8 +13,7 @@ import {
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
 import {
-
-  MEDTECH_ALL_ACCESS_NAME,
+  getActiveMedtechAllAccess,
 } from "../../../lib/medtech-usage";
 import { taipeiDate } from "../../../lib/taipei-time";
 import { getMedtechProductSettings } from "../../../lib/medtech-product-settings";
@@ -49,6 +48,14 @@ function remainingText(until: Date | null, now: number) {
   return days > 0
     ? `剩餘 ${days} 天 ${hours} 小時`
     : `剩餘 ${hours} 小時 ${minutes % 60} 分`;
+}
+
+function accessDate(value: Date) {
+  return new Intl.DateTimeFormat("zh-TW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Taipei",
+  }).format(value);
 }
 
 export default async function MedtechRandomPackages({
@@ -137,27 +144,7 @@ export default async function MedtechRandomPackages({
     ],
   );
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
-  const allAccessOrder = paymentRows
-    .filter(
-      (row) =>
-        row.packageName === MEDTECH_ALL_ACCESS_NAME &&
-        row.status === "paid" &&
-        row.paidAt,
-    )
-    .sort(
-      (left, right) =>
-        (right.paidAt?.getTime() ?? 0) - (left.paidAt?.getTime() ?? 0),
-    )[0];
-  const allAccessUntil = allAccessOrder?.paidAt
-    ? new Date(
-        allAccessOrder.paidAt.getTime() +
-          product.accessDays * 24 * 60 * 60 * 1000,
-      )
-    : null;
-  const allAccess =
-    allAccessUntil && allAccessUntil.getTime() > Date.now()
-      ? { availableUntil: allAccessUntil }
-      : null;
+  const allAccess = await getActiveMedtechAllAccess(auth.db, auth.userKey);
   const sourceByAlias = new Map(
     sourceRows.flatMap(
       (row) =>
@@ -249,7 +236,7 @@ export default async function MedtechRandomPackages({
       : purchased
         ? "啟用並開始"
         : !freePackageUsed
-          ? "免費開始"
+          ? "選這包免費體驗"
           : "查看全庫方案";
     return {
       packNumber,
@@ -321,10 +308,19 @@ export default async function MedtechRandomPackages({
         {payment && !["success", "cancelled"].includes(payment) && (
           <div className="medtech-line-pay-notice failed">LINE Pay 付款尚未完成，請稍後再試。</div>
         )}
-        <p>
-          從臨床病毒學總論、DNA 病毒與 RNA 病毒題庫跨章節抽題。每 30
-          題是一個練習單元。首次任選一個單元免費；NT${product.effectivePrice} 開通後全庫 {product.accessDays} 天不限次練習。
-        </p>
+        {allAccess ? (
+          <div className="medtech-active-pass" role="status">
+            <b>本書已購買・全庫通行證使用中</b>
+            <span>開通時間：{accessDate(allAccess.startedAt)}</span>
+            <span>有效期限：{accessDate(allAccess.availableUntil)}</span>
+            <strong>{remainingText(allAccess.availableUntil, now)}</strong>
+          </div>
+        ) : (
+          <p>
+            從臨床病毒學總論、DNA 病毒與 RNA 病毒題庫跨章節抽題。每 30
+            題是一個練習單元。首次任選一個單元免費；NT${product.effectivePrice} 開通後全庫 {product.accessDays} 天不限次練習。
+          </p>
+        )}
         <div className="medtech-pack-rule">
           <b>跨章節模考 × 全庫通行證</b>
           <span>

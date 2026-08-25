@@ -1,12 +1,12 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../lib/member-auth";
+import { requireMedtechAdmin, requireMedtechQuestionEditor } from "../../../../lib/member-auth";
 import { contentTypeForDocument, documentExtension, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
 import { DELETE as deleteDocuments, GET as getDocuments, PATCH as patchDocument, POST as postDocument } from "../../documents/route";
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const requestedId = Number(url.searchParams.get("id"));
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   try {
     const form = await request.formData();

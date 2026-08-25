@@ -1,0 +1,1 @@
+ALTER TABLE `ai_access_entitlements` ADD `coach_rounds_used` integer DEFAULT 0 NOT NULL;

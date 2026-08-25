@@ -15,7 +15,8 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
-import { documentDisplayTitle } from "../../../lib/document-title";
+import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
+import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -514,6 +515,13 @@ function usedWebSearch(payload: unknown) {
   return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "web_search_call");
 }
 
+function shouldOfferHomeWebSearch(text:string,mode:"off"|"fallback"|"always"){
+  if(mode==="off")return false;
+  if(mode==="always")return true;
+  const normalized=text.replace(/\s+/g,"");
+  return /(查外網|查網路|上網查|外部查證|最新|目前現行|現行法|最近|今日|今年|修法|修正草案|新判決|最新裁判|新聞|網址|網站|官方公告|是否已經變更)/u.test(normalized);
+}
+
 function extractWebSources(payload: unknown) {
   if (!payload || typeof payload !== "object") return [] as string[];
   const output = (payload as { output?: unknown[] }).output;
@@ -582,11 +590,13 @@ async function displayDocumentSourceNames(names: string[]) {
   if (!names.length) return [] as string[];
   try {
     const db = await getDb();
-    const rows = await db.select({ fileName: documents.fileName, bookTitle: documents.bookTitle }).from(documents);
+    const rows = await db.select({ fileName: documents.fileName, bookTitle: documents.bookTitle, processingResultJson: documents.processingResultJson }).from(documents);
+    const comparable = (value: string) => (value.split("/").pop() ?? value).replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/iu, "").replace(/[\s._-]+/gu, "").toLowerCase();
     return [...new Set(names.map((name) => {
       const baseName = name.split("/").pop() ?? name;
-      const row = rows.find((candidate) => candidate.fileName === name || candidate.fileName === baseName);
-      return row ? documentDisplayTitle(row.bookTitle, row.fileName) : name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "");
+      const normalized = comparable(name);
+      const row = rows.find((candidate) => candidate.fileName === name || candidate.fileName === baseName || comparable(candidate.fileName) === normalized);
+      return row ? documentDisplayTitleFromMetadata(row) : name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "");
     }).filter(Boolean))].slice(0, 5);
   } catch {
     return [...new Set(names.map((name) => name.replace(/\.(?:pdf|jsonl|md|txt|docx|zip)$/i, "")).filter(Boolean))].slice(0, 5);
@@ -868,7 +878,7 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean; requestKey?:string; professionalVerification?: boolean };
     const requestedMode = String(body.modelMode ?? "auto");
     const allowedModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     let modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "auto";
@@ -918,6 +928,8 @@ export async function POST(request: Request) {
       return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank" });
     }
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
+    const aiGate = await prepareAiUse(request, "law");
+    if (aiGate instanceof Response) return aiGate;
     const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "") : "";
     const route = modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
     if (route) modelMode = route.provider;
@@ -1060,10 +1072,8 @@ export async function POST(request: Request) {
         : context.type === "my-course" || context.type === "public-course"
           ? `${baseInstructions}\n\n這是「${context.type === "public-course" ? "開放課" : "我的課"}」的課程提問，不是平台已上傳字幕的課程。平台沒有讀取 YouTube 影片聲音、畫面或 SRT；你只能依課程名稱、集數名稱、學生提供的截圖、學生自行輸入的文字，以及可靠的一般法律知識回答。絕對不要說你看過影片、聽過老師講解或知道該影片的特定內容。你正在接續同一段課程對話：必須先閱讀前面 AI 的回答與學生回覆，再直接承接學生現在的追問，不要重新開一個主題。若學生問的是老師在影片中的特定說法，而問題沒有提供原文、截圖或足夠描述，請明確請學生貼上老師說法或畫面後再判斷。回答聚焦學生當下問題，不要建立、修改或刪除行事曆。`
       : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`) + teachingLevelInstruction;
-    if (context.type === "home" && homeWebSearchMode !== "off") {
-      instructions += homeWebSearchMode === "always"
-        ? "\n\n【外網查證已開啟】本次必須搜尋外網後再回答。優先採用司法院、全國法規資料庫、考選部、政府機關、大學、出版社與作者官方頁面；清楚區分判決原文、作者主張與 AI 整理，不得用搜尋摘要冒充原文。"
-        : "\n\n【外網查證備援已開啟】先使用站內教材、真題、法規與索引；只有站內資料不足、問題涉及特定作者／著作／判決，或需要最新資訊時才搜尋外網。優先採用司法院、全國法規資料庫、考選部、政府機關、大學、出版社與作者官方頁面；無法確認時不得猜測。";
+    if (context.type === "home" && body.professionalVerification === true) {
+      instructions += "\n\n【AI 專業法學查證】學生已主動確認使用本功能，本次必須搜尋外網後再回答。第一順位只採司法院、全國法規資料庫、憲法法庭、考選部及政府機關；必要時才補充大學、出版社或作者官方頁面。回答必須完成四件事：列明官方來源與資料日期、整理查證結果、對照平台教材指出一致／已修正／可能過時、轉成考試可用的爭點／法條／判準／答題提醒。清楚區分法源原文、作者主張與 AI 整理，不得用搜尋摘要冒充原文。";
     }
     // 「Luna」是明確的單模型選擇，不得被環境變數或問題長度偷偷切換
     // 成 Terra／Sol；只有使用者選擇雙模型比較時，才另外呼叫 Claude。
@@ -1133,7 +1143,13 @@ export async function POST(request: Request) {
         { type: "eq", key: "homepage_enabled", value: true },
       ] } } : {}),
     });
-    const allowWebSearch = needsOpenAi && context.type === "home" && homeWebSearchMode !== "off";
+    // 一般 AI 教練不會自動查外網。只有學生從獨立的「AI 專業法學查證」
+    // 入口確認後才提供工具；每 5 輪仍最多使用一次，避免成本失控。
+    const professionalVerificationRequested = context.type === "home" && body.professionalVerification === true;
+    const professionalVerificationAvailable = professionalVerificationRequested ? await coachWebSearchAvailable(aiGate) : false;
+    if (professionalVerificationRequested && homeWebSearchMode === "off") return Response.json({ error:"AI 專業法學查證目前未開放，請改用一般教材回答。",code:"PROFESSIONAL_VERIFICATION_DISABLED" },{status:403});
+    if (professionalVerificationRequested && !professionalVerificationAvailable) return Response.json({ error:"本組 5 輪的專業查證已使用；下一組開始後會重新提供 1 次。",code:"PROFESSIONAL_VERIFICATION_USED" },{status:429});
+    const allowWebSearch = needsOpenAi && professionalVerificationRequested && professionalVerificationAvailable;
     if (allowWebSearch) tools.unshift({ type: "web_search" });
     let payload: unknown = {};
     let openAiPayload: unknown = {};
@@ -1266,6 +1282,8 @@ export async function POST(request: Request) {
 
     const searchedFiles = needsOpenAi && usedFileSearch(payload);
     const searchedWeb = needsOpenAi && usedWebSearch(payload);
+    if(professionalVerificationRequested&&!searchedWeb)return Response.json({error:"本次未取得可核對的外網查證結果，因此不計入 AI 輪次；請稍後再試。",code:"PROFESSIONAL_VERIFICATION_FAILED"},{status:502});
+    if(searchedWeb&&context.type==="home")await markCoachWebSearchUsed(aiGate);
     const webSources = searchedWeb ? extractWebSources(payload) : [];
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
@@ -1555,6 +1573,9 @@ export async function POST(request: Request) {
       }
     } catch { /* usage logging must not block the learner */ }
 
+    const aiAccess = context.type === "home"
+      ? await finishAiCoachRound(aiGate,{action:"law_coach",description:"司律首頁 AI 教練引導",requestKey:body.requestKey})
+      : await finishAiUse(aiGate, { action: "law_ask", description: "司律教材 AI 試問", requestKey:body.requestKey });
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
@@ -1569,6 +1590,7 @@ export async function POST(request: Request) {
       comparison,
       sessionId: session.id,
       bookLearningRecord,
+      aiAccess,
     });
   } catch {
     return Response.json({ error: "對話處理失敗" }, { status: 500 });

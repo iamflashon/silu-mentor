@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../../../../db";
 import { examQuestions, medtechQuestionEvidenceReviews, usageLogs } from "../../../../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../../../lib/member-auth";
 import { getOpenAIKey, getOpenAIModel, openAIJson } from "../../../../../../../lib/openai";
 
 type Citation = { title: string; url: string };
@@ -138,7 +138,7 @@ async function attachmentHistory(db: Awaited<ReturnType<typeof getDb>>, question
 }
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const id = Number(new URL(request.url).searchParams.get("questionId"));
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
@@ -153,7 +153,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   type Body = { id?: number; mode?: "web" | "manual" | "save"; evidenceText?: string; review?: unknown; keepAttachmentIds?: string[] };
   let body: Body;

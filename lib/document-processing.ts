@@ -72,6 +72,13 @@ function toArrayBuffer(bytes: Uint8Array) {
  */
 export function resolveDocumentPayload(fileName: string, contentType: string, bytes: ArrayBuffer): ResolvedDocumentPayload {
   const extension = documentExtension(fileName);
+  // The platform accepts JSONL for structured ingestion, while OpenAI's file
+  // index currently accepts JSON or plain text but rejects the .jsonl suffix.
+  // Keep every JSONL record byte-for-byte and only present a supported suffix
+  // to the downstream index service.
+  if (extension === "jsonl") {
+    return { fileName: fileName.replace(/\.jsonl$/iu, ".txt"), contentType: "text/plain", bytes };
+  }
   if (extension !== "zip") {
     return { fileName, contentType: contentTypeForDocument(fileName, contentType), bytes };
   }

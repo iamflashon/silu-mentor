@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { examQuestions, medtechAiExplanationCache, usageLogs } from "../../../../../db/schema";
+import { documents, examQuestions, medtechAiExplanationCache, usageLogs } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
 import { getOpenAIKey, getOpenAIModel, openAIJson } from "../../../../../lib/openai";
 
@@ -30,18 +30,51 @@ const hasCompare = sql`exists (select 1 from medtech_ai_explanation_cache c wher
 export async function GET(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const [stats] = await auth.db.select({
-    published: sql<number>`count(*)`,
-    eligible: sql<number>`sum(case when ${hasUsableAnswer} and ${hasCompleteOptions} then 1 else 0 end)`,
-    ready: sql<number>`sum(case when ${hasUsableAnswer} and ${hasCompleteOptions} and ${hasHint} and ${hasCompare} then 1 else 0 end)`,
-  }).from(examQuestions).where(publishedMedtech);
-  const items = await auth.db.select({
+  const url = new URL(request.url);
+  const requestedDocumentId = Number(url.searchParams.get("documentId") || 0);
+  const documentRows = await auth.db.select({
+    id: documents.id, fileName: documents.fileName, bookTitle: documents.bookTitle,
+    storageKey: documents.storageKey, subject: documents.subject,
+    questionCount: documents.questionCount, processingStage: documents.processingStage,
+  }).from(documents).where(eq(documents.examCategory, "medtech")).orderBy(documents.id);
+  const questionRows = await auth.db.select({
     id: examQuestions.id, year: examQuestions.year, subject: examQuestions.subject,
     questionNumber: examQuestions.questionNumber, stem: examQuestions.stem,
-  }).from(examQuestions).where(and(eligibleMedtech, sql`not (${hasHint} and ${hasCompare})`)).orderBy(examQuestions.id).limit(50);
-  const published = Number(stats?.published ?? 0);
-  const eligible = Number(stats?.eligible ?? 0);
-  return Response.json({ published, eligible, unavailable: Math.max(0, published - eligible), ready: Number(stats?.ready ?? 0), pending: items });
+    sourceUrl: examQuestions.sourceUrl, status: examQuestions.status,
+    usable: sql<number>`case when ${hasUsableAnswer} and ${hasCompleteOptions} then 1 else 0 end`,
+    ready: sql<number>`case when ${hasUsableAnswer} and ${hasCompleteOptions} and ${hasHint} and ${hasCompare} then 1 else 0 end`,
+  }).from(examQuestions).where(eq(examQuestions.examCategory, "medtech")).orderBy(examQuestions.id);
+
+  const ownerByQuestion = new Map<number, number>();
+  for (const question of questionRows) {
+    const source = String(question.sourceUrl || "");
+    const owner = documentRows.find((document) => source === `document:${document.id}` || source === document.storageKey || source === document.fileName);
+    if (owner) ownerByQuestion.set(question.id, owner.id);
+  }
+  const documentStatus = documentRows.map((document) => {
+    const questions = questionRows.filter((question) => ownerByQuestion.get(question.id) === document.id);
+    const publishedQuestions = questions.filter((question) => question.status === "published");
+    const eligibleQuestions = publishedQuestions.filter((question) => Number(question.usable) === 1);
+    const readyQuestions = eligibleQuestions.filter((question) => Number(question.ready) === 1);
+    const draft = questions.filter((question) => question.status !== "published").length;
+    const state = !questions.length ? "尚未拆題" : draft && !publishedQuestions.length ? "待發布" : readyQuestions.length < eligibleQuestions.length ? "已發布待引導" : eligibleQuestions.length ? "引導完成" : "缺答案或選項";
+    return {
+      id: document.id, name: document.bookTitle || document.fileName, fileName: document.fileName,
+      subject: document.subject, processingStage: document.processingStage,
+      total: questions.length, draft, published: publishedQuestions.length,
+      eligible: eligibleQuestions.length, ready: readyQuestions.length,
+      unavailable: Math.max(0, publishedQuestions.length - eligibleQuestions.length), state,
+    };
+  });
+  const publishedQuestions = questionRows.filter((question) => question.status === "published");
+  const eligibleQuestions = publishedQuestions.filter((question) => Number(question.usable) === 1);
+  const readyQuestions = eligibleQuestions.filter((question) => Number(question.ready) === 1);
+  const pending = eligibleQuestions.filter((question) => Number(question.ready) !== 1 && (!requestedDocumentId || ownerByQuestion.get(question.id) === requestedDocumentId)).slice(0, 50).map(({ usable: _usable, ready: _ready, sourceUrl: _sourceUrl, status: _status, ...question }) => question);
+  return Response.json({
+    published: publishedQuestions.length, eligible: eligibleQuestions.length,
+    unavailable: Math.max(0, publishedQuestions.length - eligibleQuestions.length),
+    ready: readyQuestions.length, pending, documents: documentStatus,
+  });
 }
 
 export async function POST(request: Request) {

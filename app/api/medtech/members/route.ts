@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
-import { examQuestions, memberExamAccess, members, medtechMemberEntitlements, medtechPracticeSessions } from "../../../../db/schema";
+import { examQuestions, memberExamAccess, members, medtechMemberEntitlements, medtechPaymentOrders, medtechPracticeSessions } from "../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
-import { getOrCreateMedtechUsage, normalizeMedtechUserKey } from "../../../../lib/medtech-usage";
+import { normalizeMedtechUserKey } from "../../../../lib/medtech-usage";
 import { hashMemberPassword } from "../../../../lib/member-session-auth";
 import { MEDTECH_DEFAULT_PRODUCT_KEY, parseMedtechPermissions } from "../../../../lib/medtech-product-settings";
 
@@ -13,15 +13,6 @@ export async function GET(request: Request) {
   const rows = await auth.db.select({ id: memberExamAccess.id, memberId: members.id, email: members.email, displayName: members.displayName, role: members.role, status: memberExamAccess.status, canAdmin: memberExamAccess.canAdmin, permissionsJson: memberExamAccess.permissionsJson, className: memberExamAccess.className, lastSeenAt: members.lastSeenAt, createdAt: memberExamAccess.createdAt })
     .from(memberExamAccess).innerJoin(members, eq(memberExamAccess.memberId, members.id))
     .where(eq(memberExamAccess.examCategory, "medtech")).orderBy(desc(memberExamAccess.createdAt));
-  const usageRows = await Promise.all(rows.map(async (row) => {
-    const usage = await getOrCreateMedtechUsage(auth.db, row.email);
-    return { userKey: usage.userKey, points: usage.aiCredits, updatedAt: usage.updatedAt, id: usage.id };
-  }));
-  const pointsByEmail = new Map<string, number>();
-  for (const row of [...usageRows].sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime() || right.id - left.id)) {
-    const key = normalizeMedtechUserKey(row.userKey);
-    if (!pointsByEmail.has(key)) pointsByEmail.set(key, row.points);
-  }
   const sessions = await auth.db.select().from(medtechPracticeSessions).orderBy(desc(medtechPracticeSessions.startedAt));
   const parseIds = (value: string) => { try { const parsed = JSON.parse(value || "[]") as unknown; return Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isInteger(id) && id > 0) : []; } catch { return []; } };
   const summaryByUser = new Map<string, { sessions: number; completed: number; answered: number; correct: number; durationSeconds: number; wrong: Map<number, number>; lastStartedAt: Date | null }>();
@@ -43,13 +34,14 @@ export async function GET(request: Request) {
   const questionById = new Map(topQuestions.map((question) => [question.id, question]));
   const entitlementRows = await auth.db.select().from(medtechMemberEntitlements).where(eq(medtechMemberEntitlements.productKey, MEDTECH_DEFAULT_PRODUCT_KEY));
   const entitlementByMember = new Map(entitlementRows.map((row) => [row.memberId, row]));
+  const paymentRows = await auth.db.select({ userKey: medtechPaymentOrders.userKey, orderId: medtechPaymentOrders.orderId, transactionId: medtechPaymentOrders.transactionId, packageName: medtechPaymentOrders.packageName, amount: medtechPaymentOrders.amount, currency: medtechPaymentOrders.currency, status: medtechPaymentOrders.status, environment: medtechPaymentOrders.environment, paidAt: medtechPaymentOrders.paidAt, activatedAt: medtechPaymentOrders.activatedAt, createdAt: medtechPaymentOrders.createdAt }).from(medtechPaymentOrders).orderBy(desc(medtechPaymentOrders.createdAt));
   return Response.json({ canManageCommercial: auth.member.email === OWNER_EMAIL, members: rows.map((row) => {
     const summary = summaryByUser.get(row.email);
     const topWrong = summary ? [...summary.wrong.entries()].sort((left, right) => right[1] - left[1])[0] : undefined;
     const topQuestion = topWrong ? questionById.get(topWrong[0]) : undefined;
     const accuracy = summary?.answered ? Math.round((summary.correct / summary.answered) * 100) : 0;
     const entitlement = entitlementByMember.get(row.memberId);
-    return { ...row, permissions: parseMedtechPermissions(row.permissionsJson), entitlement: entitlement ? { status: entitlement.status, expiresAt: entitlement.expiresAt.toISOString(), source: entitlement.source, note: entitlement.note } : null, points: pointsByEmail.get(normalizeMedtechUserKey(row.email)) ?? null, practiceStats: { sessions: summary?.sessions ?? 0, completed: summary?.completed ?? 0, answered: summary?.answered ?? 0, durationMinutes: Math.floor((summary?.durationSeconds ?? 0) / 60), accuracy, topWrong: topQuestion ? { ...topQuestion, count: topWrong?.[1] ?? 0 } : null, lastStartedAt: summary?.lastStartedAt?.toISOString() ?? null } };
+    return { ...row, permissions: parseMedtechPermissions(row.permissionsJson), entitlement: entitlement ? { status: entitlement.status, expiresAt: entitlement.expiresAt.toISOString(), source: entitlement.source, note: entitlement.note } : null, paymentOrders: paymentRows.filter((order) => normalizeMedtechUserKey(order.userKey) === normalizeMedtechUserKey(row.email)), practiceStats: { sessions: summary?.sessions ?? 0, completed: summary?.completed ?? 0, answered: summary?.answered ?? 0, durationMinutes: Math.floor((summary?.durationSeconds ?? 0) / 60), accuracy, topWrong: topQuestion ? { ...topQuestion, count: topWrong?.[1] ?? 0 } : null, lastStartedAt: summary?.lastStartedAt?.toISOString() ?? null } };
   }) });
 }
 

@@ -70,6 +70,7 @@ type DictionaryResult = { term: string; content: string; sourceUrl: string; sour
 type PracticeCoachMessage = { role: "mentor" | "student"; text: string };
 type MobileRailTool = "dictionary" | "listening" | "magazine" | "music";
 type CurrentMember = { displayName: string; email: string; role: "teacher" | "student"; canAdmin: boolean; status: string; className?: string };
+type AiMeter = { active:boolean; remaining:number; quotaTotal:number; coachRoundsUsed:number; coachWebSearchUsed:number; coachRoundsTarget:number; expiresAt:string|null };
 
 const trustPrincipleStudentTest = "我理解信賴原則是，駕駛人可以相信行人會遵守交通規則。可是如果行人只是站在路邊等紅綠燈，駕駛人應該可以信賴他不會突然衝出來；但如果行人已經有明顯要違規的樣子，例如一直往車道靠近，駕駛人就不能再主張信賴原則。那本題中，要怎麼判斷這個行人的動作已經達到「顯然即將違規」的程度？如果我主張駕駛人仍可相信行人不會衝出來，這樣的論證有機會成立嗎？";
 function sourceNameFromLink(label: string, url = "") {
@@ -88,7 +89,7 @@ function hideExternalUrls(text: string) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/[ \t]{2,}/g, " ");
 }
-function cleanMessageText(text: string) { return hideExternalUrls(text).replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
+function cleanMessageText(text: string) { return hideExternalUrls(text).replace(/(?:\r?\n|\s)*(?:<!--\s*)?SILU_(?:PRACTICE_STATE|PRACTICE):[A-Za-z0-9_-]+(?:\s*-->)?/gi, "").replace(/\*\*(.*?)\*\*/gs, "$1").replace(/__(.*?)__/gs, "$1").replace(/^#{1,6}\s+/gm, "").replace(/`([^`]+)`/g, "$1"); }
 function isLearningNote(text: string) { const clean = cleanMessageText(text); if (clean.length < 80) return false; if (/尚未匯入|尚未準備|暫時無法|沒有連上|API|錯誤|請稍後|管理者/.test(clean)) return false; return /法條|爭點|要件|涵攝|解題|判斷|原則|例外|學說|實務|教材|刑法|民法|訴訟法|憲法|行政法/.test(clean); }
 function pairedStudentPrompt(messages: Message[], teacherIndex: number) {
   return [...messages.slice(0, teacherIndex)].reverse().find((message) => message.role === "student" && message.text.trim())?.text ?? "";
@@ -196,6 +197,7 @@ export function LawHome() {
   const [mobileRailTool, setMobileRailTool] = useState<MobileRailTool>("dictionary");
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [verificationOpen, setVerificationOpen] = useState(false);
   const [source, setSource] = useState<"教材" | "AI 補充" | null>(null);
   const [showCosts, setShowCosts] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
@@ -245,6 +247,7 @@ export function LawHome() {
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [terraChallenging, setTerraChallenging] = useState(false);
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
+  const [aiMeter,setAiMeter]=useState<AiMeter|null>(null);
   const simulationToolsEnabled = useSimulationToolsEnabled();
   const [memberMenuOpen, setMemberMenuOpen] = useState(false);
   const activeStudySubject = useMemo(() => examPointSubject(
@@ -260,6 +263,7 @@ export function LawHome() {
   const handoffHandled = useRef(false);
   useEffect(() => {
     fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
+    fetch("/api/ai-access",{cache:"no-store"}).then(async response=>response.ok?(await response.json()).aiAccess:null).then(setAiMeter).catch(()=>setAiMeter(null));
   }, []);
   const nextExam = useMemo(() => {
     const todayValue = Date.parse(`${today}T00:00:00Z`);
@@ -604,11 +608,12 @@ export function LawHome() {
     setPracticeCoaching(true);
     try {
       const dialogueMode = modeOverride ?? (practiceDiscussion ? "discussion" : "answer_reason");
-      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode }) });
-      const result = await response.json() as { reply?: string; error?: string; completed?: boolean };
+      const response = await fetch("/api/practice-coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ questionId: practiceQuestion.id, selectedAnswer: practiceAnswer?.selected ?? null, messages: messagesForRequest, teachingLevel: pendingTeachingLevel ?? "general", dialogueMode,requestKey:crypto.randomUUID() }) });
+      const result = await response.json() as { reply?: string; error?: string; completed?: boolean;aiAccess?:Partial<AiMeter>&{charged?:boolean} };
       const mentorMessage = { role: "mentor" as const, text: result.reply ?? result.error ?? "教練暫時無法接續，請稍後再試。" };
       setPracticeCoachMessages((current) => [...current, mentorMessage]);
       setMessages((current) => [...current, { ...mentorMessage, source: "真題練習" }]);
+      if(result.aiAccess?.remaining!==null)setAiMeter(current=>current?{...current,...result.aiAccess}:current);
       const nextCompleted = dialogueMode === "complete_confirm" && Boolean(result.completed);
       const nextReadyToComplete = !nextCompleted && Boolean(result.completed);
       const nextDiscussion = !nextCompleted && (dialogueMode === "discussion" || practiceDiscussion);
@@ -630,7 +635,7 @@ export function LawHome() {
         setPracticeReadyToComplete(false);
         setPracticeDiscussion(false);
         if (afterCompletion === "next") await startPractice("mcq");
-        else await send("這題已理解並完成。請依我目前的學習進度繼續教下一個內容；不要再出練習題，也不要延續本題討論。");
+        else await send("這一題先告一段落。請回到目前正在學習的主題，接著說明下一個相關觀念或判斷步驟；現在先不要立刻抽新題，但之後仍可安排練題。這只是暫時離開練題，不得解讀或表述成『今天不出題』，也不要延續剛才題目的個別事實。");
         return;
       }
       if (/本題引導結束|本次對話已結束/.test(mentorMessage.text)) setPracticeQuestion(null);
@@ -717,7 +722,7 @@ export function LawHome() {
     return rotated.toDataURL("image/jpeg", .78);
   }
 
-  async function send(text: string, overrideMode?: ChatModelMode, options?: { hideStudentMessage?: boolean }) {
+  async function send(text: string, overrideMode?: ChatModelMode, options?: { hideStudentMessage?: boolean; professionalVerification?: boolean }) {
     composerInputRef.current?.blur();
     const value = text.trim();
     if ((!value && !imageDraft) || thinking) return;
@@ -761,12 +766,13 @@ export function LawHome() {
     }
     setThinking(true);
     try {
+      const requestKey=crypto.randomUUID();
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage }),
+        body: JSON.stringify({ messages: requestMessages.slice(-12), sessionId: activeSessionId, imageDataUrl: attachedImage, modelMode: overrideMode ?? modelMode, teachingLevel: sentTeachingLevel, persistStudentMessage: !options?.hideStudentMessage, professionalVerification: options?.professionalVerification === true, requestKey }),
       });
-      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null; practiceQuestion?: PracticeQuestion | null };
+      const result = await response.json() as { reply?: string; source?: "教材" | "AI 補充"; sources?: string[]; citationStatus?: string; teachingEvidence?: TeachingEvidence | null; usage?: ReplyUsage; sessionId?: number; error?: string; comparison?: ModelComparison | null; practiceQuestion?: PracticeQuestion | null; aiAccess?:AiMeter&{charged?:boolean} };
       if (!response.ok || !result.reply) throw new Error(result.error ?? "對話暫時無法使用");
       setMessages((current) => [...current, { role: "mentor", text: result.reply!, model: result.usage?.model, usage: result.usage, sources: result.sources ?? [], citationStatus: result.citationStatus, teachingEvidence: result.teachingEvidence, comparison: result.comparison ?? undefined, practiceQuestion: result.practiceQuestion ?? undefined, source: result.practiceQuestion ? "真題庫" : result.source }]);
       if (result.practiceQuestion) {
@@ -794,6 +800,7 @@ export function LawHome() {
         setTeachingUsage((current) => [...current, ...(result.comparison?.responses ?? []).map((item) => ({ model: item.model, inputTokens: item.usage.inputTokens, cachedTokens: item.usage.cachedTokens, outputTokens: item.usage.outputTokens, durationMs: item.usage.durationMs, estimatedCostUsd: item.usage.estimatedCostUsd }))]);
       }
       if (result.sessionId) setSessionId(result.sessionId);
+      if(result.aiAccess?.remaining!==null)setAiMeter(current=>current?{...current,...result.aiAccess!,active:true}:current);
     } catch (error) {
       setMessages((current) => [...current, {
         role: "mentor",
@@ -1120,16 +1127,16 @@ export function LawHome() {
             </div>
           ))}
           {practiceQuestion && practiceReadyToComplete && !practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-understanding-actions" aria-label="解析後由學生決定是否完成">
-            <div><b>這題理解了嗎？</b><span>想繼續發問，可直接在下方輸入框打字。</span></div>
-            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成並進入下一題。", "complete_confirm", "next"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成並繼續帶我學習。", "complete_confirm", "learning"); }}>繼續學習</button></div>
+            <div><b>這一題接下來怎麼走？</b><span>想繼續問本題，可直接在下方輸入；理解後再選下一步。</span></div>
+            <div><button type="button" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成；接著我想再練一題。", "complete_confirm", "next"); }}>再練一題</button><button type="button" className="secondary" onClick={() => { setPracticeReadyToComplete(false); void askPracticeCoach("我已理解本題，請記錄完成；接著先回到目前主題教學，不要立刻抽下一題。", "complete_confirm", "learning"); }}>回到主題教學</button></div>
           </section>}
           {practiceQuestion && practiceDiscussion && !practiceReadyToComplete && !practiceCompleted && !practiceCoaching && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions practice-discussion-actions" aria-label="本題持續討論中的選擇">
             <div><b>還在討論這一題</b><span>可以繼續輸入問題；理解後再由你親自完成。</span></div>
-            <div><button type="button" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成並進入下一題。", "complete_confirm", "next")}>下一題</button><button type="button" className="secondary" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成並繼續帶我學習。", "complete_confirm", "learning")}>繼續學習</button></div>
+            <div><button type="button" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成；接著我想再練一題。", "complete_confirm", "next")}>再練一題</button><button type="button" className="secondary" onClick={() => void askPracticeCoach("我已理解本題，請記錄完成；接著先回到目前主題教學，不要立刻抽下一題。", "complete_confirm", "learning")}>回到主題教學</button></div>
           </section>}
           {practiceQuestion && practiceCompleted && messages.at(-1)?.role === "mentor" && <section className="practice-complete-actions" aria-label="本題完成後的選擇">
-            <div><b>本題完成</b><span>由你決定下一步，AI 不會自動延伸新爭點。</span></div>
-            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>下一題</button><button type="button" className="secondary" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void send("這題已完成。請依我目前的學習進度繼續帶我學習下一個內容；不要再出練習題，也不要延續本題討論。"); }}>繼續學習</button></div>
+            <div><b>本題完成</b><span>可接著練題，或暫時回到目前主題的觀念教學。</span></div>
+            <div><button type="button" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void startPractice("mcq"); }}>再練一題</button><button type="button" className="secondary" onClick={() => { setPracticeQuestion(null); setPracticeAnswer(null); setPracticeCoachMessages([]); setPracticeCompleted(false); setPracticeReadyToComplete(false); setPracticeDiscussion(false); void send("這一題先告一段落。請回到目前正在學習的主題，接著說明下一個相關觀念或判斷步驟；現在先不要立刻抽新題，但之後仍可安排練題。這只是暫時離開練題，不得解讀或表述成『今天不出題』，也不要延續剛才題目的個別事實。"); }}>回到主題教學</button></div>
           </section>}
           {!thinking && dailyChoiceVisible && yesterday && messages.at(-1)?.role === "mentor" && <section className="daily-handoff" aria-label="昨日學習接續選擇">
             <div><b>今天要怎麼接續？</b><span>{yesterday.incompleteTasks.length ? `昨天還有 ${yesterday.incompleteTasks.length} 項未完成` : "昨天的學習紀錄已保存"}</span></div>
@@ -1202,6 +1209,7 @@ export function LawHome() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
+          {currentMember&&aiMeter?.active&&<div className="ai-meter-row"><a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{practiceCoaching||thinking?"AI 回覆完成後計入本輪":aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a><button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || practiceCoaching || !input.trim() || aiMeter.coachWebSearchUsed>=1} title={aiMeter.coachWebSearchUsed>=1?"本組專業查證已使用，下一組重新提供":input.trim()?"使用目前輸入的問題進行官方來源查證":"請先輸入要查證的問題"}>{aiMeter.coachWebSearchUsed>=1?"本組已查證":"查證最新資料"}</button></div>}
           {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button></div>
           {!settingsCollapsed && <>
@@ -1243,6 +1251,8 @@ export function LawHome() {
           </div>
         </form>
       </div>
+
+      {verificationOpen && <div className="professional-verification-backdrop" role="dialog" aria-modal="true" aria-labelledby="professional-verification-title"><section className="professional-verification-dialog"><div className="professional-verification-heading"><span>PROFESSIONAL LEGAL VERIFICATION</span><h2 id="professional-verification-title">AI 專業法學查證</h2><p>不是代替 Google，而是把最新官方資料整理成可用於考試的答案。</p></div><div className="professional-verification-value"><article><b>① 官方來源優先</b><span>司法院、憲法法庭、全國法規資料庫及政府機關</span></article><article><b>② 教材版本比對</b><span>標示一致、已有修正或可能過時</span></article><article><b>③ 考試化整理</b><span>轉成爭點、法條、判準與答題提醒</span></article><article><b>④ 可追溯結果</b><span>顯示來源名稱、連結、資料日期與查證時間</span></article></div><div className="professional-verification-notice"><strong>AI 方案已內含：每組 5 輪可使用 1 次</strong><span>無須另外購買，也不會額外扣次；只有按下確認才會搜尋外網。使用後，要等下一組 5 輪才會重新取得 1 次。</span></div><div className="professional-verification-actions"><button type="button" className="secondary" onClick={() => setVerificationOpen(false)}>回到一般教材回答</button><button type="button" onClick={() => { const question=input.trim(); setVerificationOpen(false); if(question) void send(question,undefined,{professionalVerification:true}); }} disabled={!input.trim() || thinking}>使用本組內含查證</button></div></section></div>}
 
       {imageDraft && editingImage && <div className="image-editor-backdrop" role="dialog" aria-modal="true" aria-label="編輯題目圖片"><section className="image-editor"><div className="image-editor-head"><div><strong>調整題目圖片</strong><span>拖曳方框四角或四邊調整範圍；拖曳框內可整體移動</span></div><button onClick={() => setImageDraft(null)} aria-label="關閉">×</button></div><div className={`crop-stage ${imageDraft.enhance ? "enhanced" : ""}`} ref={editorRef}><img src={imageDraft.url} alt="圖片裁切預覽" className={Math.abs(imageDraft.rotation / 90) % 2 === 1 ? "quarter-turn" : ""} style={{ "--image-rotation": `${imageDraft.rotation}deg` } as React.CSSProperties} />{(() => { const bounds = cropBounds(imageDraft.points); const handles: Array<{ name: CropHandle; x: number; y: number }> = [{ name: "nw", x: bounds.left, y: bounds.top }, { name: "n", x: (bounds.left + bounds.right) / 2, y: bounds.top }, { name: "ne", x: bounds.right, y: bounds.top }, { name: "e", x: bounds.right, y: (bounds.top + bounds.bottom) / 2 }, { name: "se", x: bounds.right, y: bounds.bottom }, { name: "s", x: (bounds.left + bounds.right) / 2, y: bounds.bottom }, { name: "sw", x: bounds.left, y: bounds.bottom }, { name: "w", x: bounds.left, y: (bounds.top + bounds.bottom) / 2 }]; return <><div className="crop-frame" style={{ left: `${bounds.left}%`, top: `${bounds.top}%`, width: `${bounds.right - bounds.left}%`, height: `${bounds.bottom - bounds.top}%` }} onPointerDown={(event) => { cropFrameDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, points: imageDraft.points.map((point) => ({ ...point })) }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropFrame(event.clientX, event.clientY); }} onPointerUp={() => { cropFrameDragRef.current = null; }}><span>保留範圍</span></div>{handles.map((handle) => <button key={handle.name} className={`crop-handle crop-handle-${handle.name}`} style={{ left: `${handle.x}%`, top: `${handle.y}%` }} aria-label={`調整裁切框 ${handle.name}`} onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveCropHandle(handle.name, event.clientX, event.clientY); }} />)}</>; })()}</div><div className="image-tools"><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation - 90 } : current)}>↶ 左轉</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: current.rotation + 90 } : current)}>↷ 右轉</button><button className={imageDraft.enhance ? "active" : ""} onClick={() => setImageDraft((current) => current ? { ...current, enhance: !current.enhance } : current)}>✦ 加強圖片</button><button onClick={() => setImageDraft((current) => current ? { ...current, rotation: 0, enhance: false, points: [{ x: 6, y: 6 }, { x: 94, y: 6 }, { x: 94, y: 94 }, { x: 6, y: 94 }] } : current)}>重設</button></div><div className="image-editor-actions"><button className="secondary" onClick={() => setImageDraft(null)}>取消</button><button onClick={() => setEditingImage(false)}>使用這張圖片</button></div><p>線框內為實際保留範圍；送出時自動縮至最長邊 1600px，並壓縮為 JPEG。</p></section></div>}
     </main>

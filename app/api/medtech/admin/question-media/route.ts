@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { examQuestions, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
 import { decodeSubtitle, parseSrtCues } from "../../../../../lib/srt";
-import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 
 const MAX_AUDIO_BYTES = 120 * 1024 * 1024;
 const MAX_SRT_BYTES = 5 * 1024 * 1024;
@@ -52,7 +52,7 @@ async function questionFor(id: number) {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const questionId = Number(new URL(request.url).searchParams.get("questionId"));
   if (!Number.isInteger(questionId) || questionId < 1) return Response.json({ error: "缺少題目編號" }, { status: 400 });
@@ -73,7 +73,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const form = await request.formData();
   const questionId = Number(form.get("questionId"));

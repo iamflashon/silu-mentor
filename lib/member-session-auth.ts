@@ -1,5 +1,7 @@
 export const MEMBER_SESSION_COOKIE = "silu_member_session";
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+// Keep new registrations within the Workers Free CPU budget. Existing hashes
+// remain verifiable because the stored iteration count is read dynamically.
 const PASSWORD_ITERATIONS = 100_000;
 
 export type MemberSessionEnv = {

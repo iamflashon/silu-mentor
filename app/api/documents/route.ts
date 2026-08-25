@@ -81,7 +81,7 @@ export async function GET(request: Request) {
       subject: examQuestions.subject,
       total: sql<number>`count(*)`,
       draftTotal: sql<number>`coalesce(sum(case when ${examQuestions.status} = 'draft' then 1 else 0 end), 0)`,
-    }).from(examQuestions).where(category ? eq(examQuestions.examCategory, category) : undefined).groupBy(examQuestions.sourceUrl, examQuestions.subject);
+    }).from(examQuestions).groupBy(examQuestions.sourceUrl, examQuestions.subject);
     const questionStats = (row: typeof rows[number]) => {
       const aliases = new Set([`document:${row.id}`, row.storageKey, row.fileName]);
       const exact = questionCounts.find((item) => aliases.has(item.sourceUrl));
@@ -96,7 +96,7 @@ export async function GET(request: Request) {
       ready: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then 1 else 0 end), 0)`,
       vectorReady: sql<number>`coalesce(sum(case when ${documents.vectorIndexed} = true then 1 else 0 end), 0)`,
       indexedBytes: sql<number>`coalesce(sum(case when ${documents.status} = 'completed' then ${documents.sizeBytes} else 0 end), 0)`,
-    }).from(documents).where(category ? eq(documents.examCategory, category) : undefined);
+    }).from(documents);
     const [usageStats] = await db.select({
       citations: sql<number>`coalesce(sum(case when ${chatMessages.source} = '教材' then 1 else 0 end), 0)`,
       misses: sql<number>`coalesce(sum(case when ${chatMessages.source} = 'AI 補充' then 1 else 0 end), 0)`,
@@ -160,9 +160,8 @@ export async function GET(request: Request) {
       misses: Number(usageStats?.misses ?? 0),
       indexVersion: indexSetting ? `VS-${new Date(indexSetting.updatedAt).toISOString().slice(0, 10).replaceAll("-", "")}` : "待建立",
     } }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", "Expires": "0" } });
-  } catch (error) {
-    console.error("documents.get.failed", error);
-    return Response.json({ error: "教材資料讀取失敗，請稍後重試" }, { status: 503 });
+  } catch {
+    return Response.json({ error: "教材資料庫尚未就緒" }, { status: 503 });
   }
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE `ai_access_entitlements` ADD `coach_web_search_used` integer DEFAULT 0 NOT NULL;

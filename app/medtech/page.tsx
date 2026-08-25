@@ -7,18 +7,40 @@ import { memberLoginPath } from "../../lib/member-login-path";
 import { getDb } from "../../db";
 import { getMedtechProductSettings } from "../../lib/medtech-product-settings";
 import { getActiveMedtechAllAccess } from "../../lib/medtech-usage";
-import { getMemberSession } from "../../lib/member-session-auth";
+import { createMedtechPurchaseProof } from "../../lib/medtech-purchase-proof";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 export default async function MedtechHome() {
   const requestHeaders = await headers();
   const memberRequest = new Request("https://medtech.local/medtech", { headers: requestHeaders });
-  const [auth, memberSession] = await Promise.all([
-    requireMedtechMember(memberRequest),
-    getMemberSession(memberRequest),
-  ]);
+  const auth = await requireMedtechMember(memberRequest);
+  if ("error" in auth)
+    return (
+      <main className="medtech-member-page">
+        <header>
+          <a href="/medtech" className="medtech-brand">
+            <span>醫</span>
+            <div>
+              <b>醫檢師備考</b>
+              <small>MEDICAL TECHNOLOGIST</small>
+            </div>
+          </a>
+        </header>
+        <section className="medtech-member-card login">
+          <span>醫檢師備考平台</span>
+          <h1>登入後開始學習</h1>
+          <p>
+            登入後才能進入章節刷題、隨機模考、錯題複習與引導學習，
+            系統也會替你保存免費體驗、通行證與學習紀錄。
+          </p>
+          <a className="primary" href={memberLoginPath("/medtech")}>
+            登入會員帳號
+          </a>
+        </section>
+      </main>
+    );
   const product = await getMedtechProductSettings(await getDb());
-  const entitlement = !("error" in auth) && memberSession ? await getActiveMedtechAllAccess(auth.db, auth.userKey) : null;
+  const entitlement = await getActiveMedtechAllAccess(auth.db, auth.userKey);
+  const purchaseAuthorization = await createMedtechPurchaseProof(auth.member);
   const upcomingBooks = [
     { volume: "Ⅰ", title: "臨床血液學與血庫學（上）", cover: "/medtech-books/clinical-hematology-upper.jpg" },
     { volume: "Ⅰ", title: "臨床血液學與血庫學（下）", cover: "/medtech-books/clinical-hematology-lower.png" },
@@ -42,8 +64,13 @@ export default async function MedtechHome() {
           </div>
         </a>
         <MedtechHeaderActions
-          accountLabel={memberSession ? "我的帳號" : "會員登入"}
-          accountHref={memberSession ? "/medtech/account" : memberLoginPath("/medtech")}
+          accountLabel="我的帳號"
+          accountHref="/medtech/account"
+          entitlement={entitlement ? {
+            purchased: true,
+            startedAt: entitlement.startedAt.toISOString(),
+            availableUntil: entitlement.availableUntil.toISOString(),
+          } : null}
         />
         <nav>
           <a href="/medtech" className="active">
@@ -69,15 +96,27 @@ export default async function MedtechHome() {
         </div>
         <div className="medtech-featured-copy">
           <span>第一本數位題庫</span>
-          <h2 id="featured-book-title">醫檢師國考題詳解（Ⅲ）<br />臨床病毒學（下）</h2>
+          <h2 id="featured-book-title">
+            <span>醫檢師國考題詳解（Ⅲ）</span>
+            <span>臨床病毒學（下）</span>
+          </h2>
           <p className="medtech-book-author">陳連城・康情老師</p>
           <p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>
           <div className="medtech-book-trial"><b>首次免費體驗 {product.trialQuestions} 題</b><span>任選一個練習單元，先完整體驗再決定是否開通。</span></div>
           <div className={`medtech-book-price${entitlement ? " purchased" : ""}`}><strong>{entitlement ? "已購買" : `NT$${product.effectivePrice}`}</strong><span>{entitlement ? `有效至 ${new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(entitlement.availableUntil)}` : `開通本書全部內容 ${product.accessDays} 天`}<br />{entitlement ? "全庫通行證使用中" : "一次付清・不自動續訂"}</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>
             <a className="primary trial" href="/medtech/chapters">{entitlement ? "進入已購買課程" : `免費體驗 ${product.trialQuestions} 題`}</a>
-            {!entitlement && <LinePayPurchaseButton packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />}
-            <MedtechPlanDialog price={product.effectivePrice} accessDays={product.accessDays} trialQuestions={product.trialQuestions} />
+            {!entitlement && <LinePayPurchaseButton {...purchaseAuthorization} packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />}
+            <MedtechPlanDialog
+              price={product.effectivePrice}
+              accessDays={product.accessDays}
+              trialQuestions={product.trialQuestions}
+              entitlement={entitlement ? {
+                purchased: true,
+                startedAt: entitlement.startedAt.toISOString(),
+                availableUntil: entitlement.availableUntil.toISOString(),
+              } : null}
+            />
           </div>
         </div>
       </section>

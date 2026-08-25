@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { medtechQuestionEvidenceReviews } from "../../../../../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../../../../lib/member-auth";
 
 type StoredAttachment = { id?: string; storageKey?: string };
 
@@ -14,7 +14,7 @@ function storedAttachments(value: string) {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const questionId = Number(url.searchParams.get("questionId"));

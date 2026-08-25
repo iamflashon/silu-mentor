@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { examCoachMessages, examQuestions, learningResources, legalArticles, legalDocuments, resourceSegments, usageLogs } from "../../../db/schema";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIModel, openAIJson } from "../../../lib/openai";
 import { compactConversation, relevantSections } from "../../../lib/input-budget";
+import { finishAiCoachRound, prepareAiUse } from "../../../lib/ai-access-gate";
 
 type CoachMessage = { role: "mentor" | "student" | "scholar"; text: string };
 type CoachAction = "start" | "coach" | "variation_basic" | "variation_advanced" | "subquestion_summary" | "end_summary";
@@ -159,9 +160,11 @@ function canUseSimulatedStudent(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[]; modelMode?: string; teachingLevel?: string; dialogueMode?: "answer_reason" | "discussion"; roundLimit?: number; offTopicCount?: number; currentStage?: number; currentStageRetryCount?: number };
+    const body = await request.json() as { questionId?: number; selectedAnswer?: string; studentAnswer?: string; action?: CoachAction; messages?: CoachMessage[]; modelMode?: string; teachingLevel?: string; dialogueMode?: "answer_reason" | "discussion"; roundLimit?: number; offTopicCount?: number; currentStage?: number; currentStageRetryCount?: number; requestKey?:string };
     const questionId = Number(body.questionId);
     const action: CoachAction = ["start", "variation_basic", "variation_advanced", "subquestion_summary", "end_summary"].includes(String(body.action)) ? body.action as CoachAction : "coach";
+    const aiGate = await prepareAiUse(request, "law");
+    if (aiGate instanceof Response) return aiGate;
     if (!Number.isInteger(questionId)) return Response.json({ error: "缺少真題資料" }, { status: 400 });
     const db = await getDb();
     const [question] = await db.select().from(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.status, "published"))).limit(1);
@@ -319,7 +322,8 @@ export async function POST(request: Request) {
     const nextProgress = coachProgress(stagePassed ? currentStage + 1 : currentStage, question.subject);
     const nextStageRetryCount = stagePassed ? 0 : Math.min(currentStageRetryCount + 1, 3);
     const ended = action === "end_summary" || offTopicCount >= 3;
-    return Response.json({ reply: isVariation ? undefined : primary.text, variation, completed: isMcq ? Boolean(primary.completed) : undefined, relevance: primary.relevance, offTopicCount, ended, answerRevealed, currentStageRetryCount: nextStageRetryCount, diagnosedGap: stagePassed ? (answerRevealed ? "本階段由老師示範答案後繼續，未計為學生自行答對。" : "") : "尚未答中本階段關鍵，AI 導師會換一種方式繼續引導。", keyIssue: nextProgress.current, progress: nextProgress, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: parsedRuns.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })) });
+    const aiAccess = await finishAiCoachRound(aiGate,{action:"law_coach",description:"司律真題 AI 教練引導",requestKey:body.requestKey});
+    return Response.json({ reply: isVariation ? undefined : primary.text, variation, completed: isMcq ? Boolean(primary.completed) : undefined, relevance: primary.relevance, offTopicCount, ended, answerRevealed, currentStageRetryCount: nextStageRetryCount, diagnosedGap: stagePassed ? (answerRevealed ? "本階段由老師示範答案後繼續，未計為學生自行答對。" : "") : "尚未答中本階段關鍵，AI 導師會換一種方式繼續引導。", keyIssue: nextProgress.current, progress: nextProgress, recommendations: [...recommendedLaws, ...recommendedResources], comparisons: parsedRuns.map((run) => ({ label: run.label, model: run.model, text: run.text, inputTokens: run.inputTokens, outputTokens: run.outputTokens, estimatedCostUsd: 0 })), aiAccess });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 280) : "真題教練暫時無法回應" }, { status: 500 });
   }

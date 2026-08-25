@@ -46,6 +46,7 @@ export const memberPasswordResetRequests = sqliteTable(
     index("member_password_reset_requests_requested_idx").on(table.requestedAt),
   ],
 );
+
 export const medtechDeviceSessions = sqliteTable(
   "medtech_device_sessions",
   {
@@ -104,6 +105,29 @@ export const medtechSecurityEvents = sqliteTable(
       table.eventType,
       table.createdAt,
     ),
+  ],
+);
+
+export const memberAccountDeletionAudits = sqliteTable(
+  "member_account_deletion_audits",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    deletionRef: text("deletion_ref").notNull().unique(),
+    actorType: text("actor_type").notNull().default("member_self_service"),
+    requestChannel: text("request_channel").notNull().default("authenticated_member_portal"),
+    authenticationMethod: text("authentication_method").notNull().default("session_password_confirmation_phrase"),
+    outcome: text("outcome").notNull().default("started"),
+    ipHash: text("ip_hash").notNull().default(""),
+    userAgentHash: text("user_agent_hash").notNull().default(""),
+    retainedPaymentOrders: integer("retained_payment_orders").notNull().default(0),
+    paymentDataAnonymized: integer("payment_data_anonymized", { mode: "boolean" }).notNull().default(false),
+    learningDataDeleted: integer("learning_data_deleted", { mode: "boolean" }).notNull().default(false),
+    requestedAt: integer("requested_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    uniqueIndex("member_account_deletion_audits_ref_unique").on(table.deletionRef),
+    index("member_account_deletion_audits_requested_idx").on(table.requestedAt),
   ],
 );
 
@@ -174,6 +198,129 @@ export const medtechMemberEntitlements = sqliteTable(
   (table) => [
     uniqueIndex("medtech_member_entitlements_member_product_unique").on(table.memberId, table.productKey),
     index("medtech_member_entitlements_product_expiry_idx").on(table.productKey, table.expiresAt),
+  ],
+);
+
+export const aiAccessEntitlements = sqliteTable(
+  "ai_access_entitlements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("active"),
+    source: text("source").notNull().default("manual"),
+    quotaTotal: integer("quota_total").notNull().default(30),
+    quotaUsed: integer("quota_used").notNull().default(0),
+    coachRoundsUsed: integer("coach_rounds_used").notNull().default(0),
+    coachWebSearchUsed: integer("coach_web_search_used").notNull().default(0),
+    startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    referenceId: text("reference_id").notNull().default(""),
+    note: text("note").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("ai_access_entitlements_member_expiry_idx").on(table.memberId, table.expiresAt),
+  ],
+);
+
+export const aiAccessLedger = sqliteTable(
+  "ai_access_ledger",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    entitlementId: integer("entitlement_id").notNull().references(() => aiAccessEntitlements.id, { onDelete: "cascade" }),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    delta: integer("delta").notNull(),
+    balanceAfter: integer("balance_after").notNull(),
+    action: text("action").notNull(),
+    requestKey: text("request_key").notNull().default(""),
+    description: text("description").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("ai_access_ledger_request_unique").on(table.memberId, table.requestKey),
+    index("ai_access_ledger_member_created_idx").on(table.memberId, table.createdAt),
+  ],
+);
+
+export const activationCodes = sqliteTable(
+  "activation_codes",
+  {
+    id: text("id").primaryKey(),
+    batchId: text("batch_id"),
+    codeHash: text("code_hash").notNull().unique(),
+    last4: text("last4").notNull(),
+    label: text("label").notNull(),
+    benefitType: text("benefit_type").notNull(),
+    examCategory: text("exam_category").notNull().default(""),
+    productKey: text("product_key").notNull().default(""),
+    quota: integer("quota").notNull().default(0),
+    durationDays: integer("duration_days").notNull().default(30),
+    status: text("status").notNull().default("unused"),
+    redeemBy: integer("redeem_by", { mode: "timestamp" }),
+    redeemedAt: integer("redeemed_at", { mode: "timestamp" }),
+    redeemedByMemberId: integer("redeemed_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    selectedUnitKey: text("selected_unit_key").notNull().default(""),
+    selectedUnitLabel: text("selected_unit_label").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
+    createdByMemberId: integer("created_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    disabledBy: text("disabled_by").notNull().default(""),
+    disabledReason: text("disabled_reason").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("activation_codes_status_created_idx").on(table.status, table.createdAt),
+    index("activation_codes_redeemed_member_idx").on(table.redeemedByMemberId),
+  ],
+);
+
+export const activationCodeBatches = sqliteTable("activation_code_batches", {
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  purpose: text("purpose").notNull(),
+  benefitType: text("benefit_type").notNull(),
+  quantity: integer("quantity").notNull(),
+  createdByMemberId: integer("created_by_member_id").references(() => members.id, { onDelete: "set null" }),
+  createdByEmail: text("created_by_email").notNull(),
+  dailyLimit: integer("daily_limit").notNull(),
+  monthlyLimit: integer("monthly_limit").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("activation_code_batches_creator_created_idx").on(table.createdByMemberId, table.createdAt)]);
+
+export const activationCodeAuditLogs = sqliteTable("activation_code_audit_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  codeId: text("code_id").references(() => activationCodes.id, { onDelete: "set null" }),
+  batchId: text("batch_id").references(() => activationCodeBatches.id, { onDelete: "set null" }),
+  actorMemberId: integer("actor_member_id").references(() => members.id, { onDelete: "set null" }),
+  actorEmail: text("actor_email").notNull(),
+  action: text("action").notNull(),
+  detailsJson: text("details_json").notNull().default("{}"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("activation_code_audit_code_created_idx").on(table.codeId, table.createdAt), index("activation_code_audit_actor_created_idx").on(table.actorMemberId, table.createdAt)]);
+
+export const aiPaymentOrders = sqliteTable(
+  "ai_payment_orders",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id").references(() => members.id, { onDelete: "set null" }),
+    orderId: text("order_id").notNull().unique(),
+    transactionId: text("transaction_id"),
+    environment: text("environment").notNull(),
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull().default("TWD"),
+    quota: integer("quota").notNull(),
+    durationDays: integer("duration_days").notNull(),
+    status: text("status").notNull().default("pending"),
+    returnCode: text("return_code"),
+    returnMessage: text("return_message"),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("ai_payment_orders_member_created_idx").on(table.memberId, table.createdAt),
+    index("ai_payment_orders_status_created_idx").on(table.status, table.createdAt),
   ],
 );
 

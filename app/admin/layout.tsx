@@ -8,7 +8,7 @@ export default async function AdminLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const auth = await requireAdmin(new Request("https://admin.local/admin", { headers: await headers() }));
-  if ("error" in auth) return <main className="main-entry-gate"><section className="admin-login-card"><span>ADMINISTRATOR ACCESS</span><div className="main-entry-logo" aria-hidden="true">智</div><h1>管理員登入</h1><p>管理後台需要管理員帳號驗證。</p><a className="main-entry-medtech" href="/admin-login?return_to=%2Fadmin">登入管理員帳號</a><a className="admin-login-back" href="/">回入口頁</a></section></main>;
+  if ("error" in auth) return <main className="main-entry-gate"><section className="admin-login-card"><span>ADMINISTRATOR ACCESS</span><div className="main-entry-logo" aria-hidden="true">智</div><h1>此 Google 帳號沒有管理權限</h1><p>Google 身分已由 Cloudflare Access 驗證；只有會員後台已開啟管理權限的相同 Email 才能進入。</p><a className="main-entry-medtech" href="/cdn-cgi/access/logout">切換 Google 帳號</a><a className="admin-login-back" href="/">回入口頁</a></section></main>;
   const { member } = auth;
   const email = member.email;
 
@@ -23,7 +23,7 @@ export default async function AdminLayout({
           <p style={{ margin: "0 0 24px", color: "#536176", lineHeight: 1.7 }}>只有已啟用「管理權限」且帳號為使用中的會員可以進入。若需要權限，請由現有管理員在「學員管理」中設定。</p>
           <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
             <Link href="/law" style={{ padding: "11px 18px", borderRadius: "10px", color: "white", background: "#2d66b3", textDecoration: "none", fontWeight: 700 }}>回到學習平台</Link>
-            <a href="/admin-login?return_to=%2Fadmin" style={{ padding: "11px 18px", border: "1px solid #cdd7e5", borderRadius: "10px", color: "#34445d", textDecoration: "none", fontWeight: 700 }}>切換登入帳號</a>
+            <a href="/cdn-cgi/access/logout" style={{ padding: "11px 18px", border: "1px solid #cdd7e5", borderRadius: "10px", color: "#34445d", textDecoration: "none", fontWeight: 700 }}>切換 Google 帳號</a>
           </div>
         </section>
       </main>

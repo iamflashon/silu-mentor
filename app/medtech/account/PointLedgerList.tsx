@@ -52,7 +52,7 @@ export default function PointLedgerList({ history, questionSources }: { history:
 
   return <div className="medtech-point-history-list">{history.map((row) => {
     const source = row.questionId ? sourceMap.get(row.questionId) : undefined;
-    const inferredHours = row.action === "question_view" || row.action === "question_pack" || row.action === "question_pack_gift"
+    const inferredHours = row.action === "question_pack_voucher" ? 24 * 365 * 70 : row.action === "question_view" || row.action === "question_pack" || row.action === "question_pack_gift"
       ? row.description.includes("24 小時") ? 24 : 7 * 24
       : row.action === "audio_complete" || row.action === "complete_explanation" ? 24 : null;
     const inferredExpiry = inferredHours === null ? null : new Date(row.createdAt).getTime() + inferredHours * 60 * 60 * 1000;
@@ -60,7 +60,7 @@ export default function PointLedgerList({ history, questionSources }: { history:
     const expiryIso = row.availableUntil ?? (inferredExpiry === null ? null : new Date(inferredExpiry).toISOString());
     const active = expiry !== null && expiry > now;
     const isCharge = row.delta < 0;
-    const accessLabel = row.action === "question_view" || row.action === "question_pack" || row.action === "question_pack_gift" ? "7 天" : "24 小時";
+    const accessLabel = row.action === "question_pack_voucher" ? "永久開通" : row.action === "question_view" || row.action === "question_pack" || row.action === "question_pack_gift" ? "7 天" : "24 小時";
     return <article key={row.id}>
       <div>
         <b>{row.description}</b>

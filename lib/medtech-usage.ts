@@ -20,10 +20,10 @@ import {
 import { taipeiDate } from "./taipei-time";
 import { getMedtechProductSettings, getMemberProductEntitlement } from "./medtech-product-settings";
 
-// 醫檢師平台統一使用點數：首次登入贈 10 點，提示與比較選項走快取，
-// 語音完整解析與 AI 追問各自按次扣 1 點。保留舊欄位讀取僅為相容既有資料。
+// 醫檢師平台目前採方案／開通期限，不再贈送或收取點數。
+// 保留舊欄位讀取僅為相容既有資料，避免舊紀錄影響新會員流程。
 export const MEDTECH_AUDIO_TRIAL_LIMIT = 0;
-export const MEDTECH_STARTING_POINTS = 10;
+export const MEDTECH_STARTING_POINTS = 0;
 export const MEDTECH_QUESTION_ACCESS_HOURS = 7 * 24;
 export const MEDTECH_AUDIO_ACCESS_HOURS = 24;
 export const MEDTECH_QUESTION_PACKAGE_COST = 30;
@@ -49,7 +49,12 @@ export async function getActiveMedtechAllAccess(
 ) {
   try {
     const manualEntitlement = await getMemberProductEntitlement(db, userKey);
-    if (manualEntitlement) return { order: null, availableUntil: manualEntitlement.expiresAt };
+    if (manualEntitlement)
+      return {
+        order: null,
+        startedAt: manualEntitlement.startsAt,
+        availableUntil: manualEntitlement.expiresAt,
+      };
     const product = await getMedtechProductSettings(db);
     // Do not put the rolling cutoff in SQL. Older D1 rows and different
     // runtime adapters can expose timestamp values differently; filtering in
@@ -79,7 +84,7 @@ export async function getActiveMedtechAllAccess(
       paidAt.getTime() + product.accessDays * 24 * 60 * 60 * 1000,
     );
     if (availableUntil.getTime() <= Date.now()) return null;
-    return { order, availableUntil };
+    return { order, startedAt: paidAt, availableUntil };
   } catch (error) {
     // A pricing lookup must never take down the whole practice catalogue.
     // Treat an unavailable legacy payment table as no active pass and keep
@@ -599,13 +604,6 @@ export async function getOrCreateMedtechUsage(
     .insert(medtechUsage)
     .values({ userKey: normalizedKey, aiCredits: MEDTECH_STARTING_POINTS })
     .returning();
-  await db.insert(medtechPointLedger).values({
-    userKey: normalizedKey,
-    delta: MEDTECH_STARTING_POINTS,
-    balanceAfter: MEDTECH_STARTING_POINTS,
-    action: "welcome_gift",
-    description: "首次登入贈送 10 點",
-  });
   return created;
 }
 
@@ -865,9 +863,9 @@ export async function grantMedtechQuestionPackageAccess(
         inArray(medtechPointLedger.action, [
           "question_pack",
           "question_pack_gift",
+          "question_pack_voucher",
         ]),
         inArray(medtechPointLedger.description, descriptions),
-        gte(medtechPointLedger.createdAt, cutoff),
         or(
           gte(medtechPointLedger.availableUntil, new Date()),
           and(
@@ -909,7 +907,7 @@ export async function grantMedtechQuestionPackageAccess(
       limited: false,
       hasAccess: true,
       charged: false,
-      gifted: activePackage.action === "question_pack_gift",
+      gifted: activePackage.action === "question_pack_gift" || activePackage.action === "question_pack_voucher",
       packageCost: MEDTECH_QUESTION_PACKAGE_COST,
       discountReward: {
         status: "used",

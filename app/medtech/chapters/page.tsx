@@ -13,8 +13,7 @@ import {
 } from "../../../db/schema";
 import { requireMedtechMember } from "../../../lib/member-auth";
 import {
-
-  MEDTECH_ALL_ACCESS_NAME,
+  getActiveMedtechAllAccess,
 } from "../../../lib/medtech-usage";
 import { taipeiDate } from "../../../lib/taipei-time";
 import { getMedtechProductSettings } from "../../../lib/medtech-product-settings";
@@ -59,6 +58,14 @@ function remainingText(until: Date | null, now: number) {
   return days > 0
     ? `剩餘 ${days} 天 ${hours} 小時`
     : `剩餘 ${hours} 小時 ${minutes % 60} 分`;
+}
+
+function accessDate(value: Date) {
+  return new Intl.DateTimeFormat("zh-TW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Taipei",
+  }).format(value);
 }
 
 export default async function MedtechChapters({
@@ -148,27 +155,7 @@ export default async function MedtechChapters({
         .where(eq(medtechPaymentOrders.userKey, auth.userKey)),
     ]);
   const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
-  const allAccessOrder = paymentRows
-    .filter(
-      (row) =>
-        row.packageName === MEDTECH_ALL_ACCESS_NAME &&
-        row.status === "paid" &&
-        row.paidAt,
-    )
-    .sort(
-      (left, right) =>
-        (right.paidAt?.getTime() ?? 0) - (left.paidAt?.getTime() ?? 0),
-    )[0];
-  const allAccessUntil = allAccessOrder?.paidAt
-    ? new Date(
-        allAccessOrder.paidAt.getTime() +
-          product.accessDays * 24 * 60 * 60 * 1000,
-      )
-    : null;
-  const allAccess =
-    allAccessUntil && allAccessUntil.getTime() > Date.now()
-      ? { availableUntil: allAccessUntil }
-      : null;
+  const allAccess = await getActiveMedtechAllAccess(auth.db, auth.userKey);
   const sourceByAlias = new Map(
     sourceRows.flatMap(
       (row) =>
@@ -209,7 +196,8 @@ export default async function MedtechChapters({
         .filter(
           (row) =>
             row.action === "question_pack" ||
-            row.action === "question_pack_gift",
+            row.action === "question_pack_gift" ||
+            row.action === "question_pack_voucher",
         )
         .filter((row) =>
           packageDescriptions(name, packNumber).includes(row.description),
@@ -284,7 +272,7 @@ export default async function MedtechChapters({
           : purchased
             ? "LINE Pay 已付款・可開始"
             : !freePackageUsed
-              ? "首次免費體驗"
+              ? "尚未選定免費單元"
               : "需開通全庫通行證";
       const action = active
         ? completed
@@ -295,7 +283,7 @@ export default async function MedtechChapters({
           : purchased
             ? "啟用並開始"
             : !freePackageUsed
-              ? "免費開始"
+              ? "選這包免費體驗"
               : "查看全庫方案";
       return {
         packNumber,
@@ -390,10 +378,19 @@ export default async function MedtechChapters({
             LINE Pay 付款尚未完成，請稍後再試。
           </div>
         )}
-        <p>
-          每 30 題是一個練習單元，方便掌握進度，不是計價單位。首次可任選一個
-          {product.trialQuestions} 題單元免費體驗；NT${product.effectivePrice} 一次開通全庫，{product.accessDays} 天不限次練習。
-        </p>
+        {allAccess ? (
+          <div className="medtech-active-pass" role="status">
+            <b>本書已購買・全庫通行證使用中</b>
+            <span>開通時間：{accessDate(allAccess.startedAt)}</span>
+            <span>有效期限：{accessDate(allAccess.availableUntil)}</span>
+            <strong>{remainingText(allAccess.availableUntil, now)}</strong>
+          </div>
+        ) : (
+          <p>
+            每 30 題是一個練習單元，方便掌握進度，不是計價單位。首次可任選一個
+            {product.trialQuestions} 題單元免費體驗；NT${product.effectivePrice} 一次開通全庫，{product.accessDays} 天不限次練習。
+          </p>
+        )}
         <div className="medtech-pack-rule">
           <b>全庫通行證 × 清楚學習進度</b>
           <span>

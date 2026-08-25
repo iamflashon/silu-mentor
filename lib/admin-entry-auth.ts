@@ -13,7 +13,18 @@ export type AdminEntryEnv = {
 };
 
 function headerEmail(request: Request) {
-  return request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() ?? "";
+  const sitesEmail = request.headers
+    .get("oai-authenticated-user-email")
+    ?.trim()
+    .toLowerCase();
+  if (sitesEmail) return sitesEmail;
+  const accessEmail = request.headers
+    .get("cf-access-authenticated-user-email")
+    ?.trim()
+    .toLowerCase();
+  return accessEmail && request.headers.get("cf-access-jwt-assertion")
+    ? accessEmail
+    : "";
 }
 
 async function runtimeEnv(): Promise<AdminEntryEnv> {

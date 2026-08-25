@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions, listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
 async function shiftSourceOrders(db: Awaited<ReturnType<typeof getDb>>, sourceUrl: string, minimumOrder: number, exceptId?: number) {
@@ -66,7 +66,7 @@ function hasPublishableAnswer(question: { teacherAnswer?: string | null; correct
 }
 
 export async function GET(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const url = new URL(request.url);
   const requestedId = Number(url.searchParams.get("id"));
@@ -203,7 +203,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as Record<string, unknown>;
   if (body.repairSourceOrder === true) {
@@ -282,7 +282,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as Record<string, unknown>;
   const replaceFind = typeof body.replaceFind === "string" ? body.replaceFind : "";
@@ -441,7 +441,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const { id: rawId } = await request.json() as { id?: number };
   const id = Number(rawId);

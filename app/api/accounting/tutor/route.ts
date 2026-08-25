@@ -5,6 +5,7 @@ import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
 import { requireAdmin } from "../../../../lib/member-auth";
+import { finishAiUse, prepareAiUse } from "../../../../lib/ai-access-gate";
 
 type Turn = { role: "student" | "mentor"; text: string };
 function outputText(payload: Record<string, unknown>) { if (typeof payload.output_text === "string") return payload.output_text.trim(); const output = Array.isArray(payload.output) ? payload.output : []; return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []).map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim(); }
@@ -34,6 +35,8 @@ export async function POST(request: Request) {
       const auth = await requireAdmin(request);
       if ("error" in auth) return auth.error;
     }
+    const aiGate = await prepareAiUse(request, "accounting");
+    if (aiGate instanceof Response) return aiGate;
     const messages = (body.messages ?? []).filter((item) => item && ["student", "mentor"].includes(item.role) && typeof item.text === "string").slice(-10);
     const studentTurnCount = messages.filter((item) => item.role === "student").length;
     const latest = [...messages].reverse().find((item) => item.role === "student")?.text.trim();
@@ -110,6 +113,7 @@ export async function POST(request: Request) {
       recordId=session.id;
       await db.insert(chatMessages).values([{sessionId:session.id,role:"student",text:latest},{sessionId:session.id,role:"mentor",text:reply,source,model:"Luna",estimatedCostUsdMicros}]);
     }
-    return Response.json({ reply, source, recordId, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
+    const aiAccess = await finishAiUse(aiGate, { action: guided ? "accounting_coach" : "accounting_ask", description: guided ? "中級會計 AI 教練引導" : "中級會計 AI 試問" });
+    return Response.json({ reply, source, recordId, aiAccess, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Luna 助教 回答失敗" }, { status: 500 }); }
 }

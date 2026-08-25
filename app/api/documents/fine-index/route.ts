@@ -1,14 +1,18 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documentSearchUnits, documents } from "../../../../db/schema";
 import { documentExtension, inspectDocumentBytes, resolveDocumentPayload } from "../../../../lib/document-processing";
 
-const PAGE_BATCH = 1;
+const PAGE_BATCH = 8;
 const TARGET_CHARS = 760;
 const OVERLAP_CHARS = 120;
 
 function normalize(value: string) {
   return value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("zh-Hant");
+}
+
+function cleanExtractedText(value: string) {
+  return value.replace(/\uF06C/gu, "•").replace(/\uF0E0/gu, "→").replace(/[\uE000-\uF8FF]/gu, " ").replace(/\\n/gu, "\n");
 }
 
 function titleFromText(text: string, page: number | null, index: number) {
@@ -59,10 +63,20 @@ async function rowsForPage(documentId: number, page: number | null, text: string
   })));
 }
 
-export async function POST(request: Request) {
+async function insertRowsSafely(db: Awaited<ReturnType<typeof getDb>>, rows: Awaited<ReturnType<typeof rowsForPage>>) {
+  let attempted = 0;
+  // D1 has a bounded SQL-variable count. Fine-index rows have many columns,
+  // so large textbook pages must be inserted in small idempotent groups.
+  for (let index = 0; index < rows.length; index += 5) {
+    const batch = rows.slice(index, index + 5);
+    await db.insert(documentSearchUnits).values(batch).onConflictDoNothing();
+    attempted += batch.length;
+  }
+  return attempted;
+}
+
+export async function buildFineIndexStep(documentId: number, options: { restart?: boolean; forceReset?: boolean } = {}) {
   try {
-    const body = await request.json() as { documentId?: number; restart?: boolean; forceReset?: boolean };
-    const documentId = Number(body.documentId);
     if (!Number.isInteger(documentId) || documentId < 1) return Response.json({ error: "教材編號不正確" }, { status: 400 });
     const db = await getDb("primary");
     const [document] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
@@ -70,12 +84,35 @@ export async function POST(request: Request) {
     // Normal rebuild requests are resumable: never erase a usable index merely
     // because the browser refreshed or the client loop was interrupted.
     // A true destructive reset must be explicitly requested by a separate UI.
-    if (body.restart && body.forceReset) await db.delete(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
+    if (options.restart && options.forceReset) await db.delete(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
 
     const { env } = await import("cloudflare:workers");
     const object = await env.BUCKET?.get(document.storageKey);
     if (!object) return Response.json({ error: "找不到教材原始檔" }, { status: 404 });
     const bytes = await object.arrayBuffer();
+    if (/\.local-index\.jsonl$/iu.test(document.fileName)) {
+      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes).replace(/^\uFEFF/u, "");
+      const records = decoded.split(/\r?\n/u).map((line) => {
+        try { return JSON.parse(line) as Record<string, unknown>; } catch { return null; }
+      }).filter((item): item is Record<string, unknown> => Boolean(item && typeof item.text === "string"));
+      const [{ total: existing, pages: existingPages }] = await db.select({ total: sql<number>`count(*)`, pages: sql<number>`count(${documentSearchUnits.pageStart})` }).from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
+      // Older local-index builds treated the whole JSONL file as plain text,
+      // producing null page numbers and visible JSON boundaries. Rebuild those
+      // records once into page-aware clean units.
+      const hasLegacyUnits = Number(existing) > 0 && Number(existingPages) < Number(existing);
+      if (Number(existing) > 0 && !hasLegacyUnits) return Response.json({ done: true, pagesDone: records.length, totalPages: records.length, units: Number(existing), inserted: 0 });
+      let inserted = 0;
+      for (const [recordIndex, record] of records.entries()) {
+        const page = Number(record.page_start) || recordIndex + 1;
+        const rows = await rowsForPage(documentId, page, cleanExtractedText(String(record.text)));
+        if (rows.length) inserted += await insertRowsSafely(db, rows);
+      }
+      // Keep the old fallback units available while the clean page-aware rows
+      // are being written. Remove only the invalid null-page rows afterwards.
+      if (hasLegacyUnits) await db.delete(documentSearchUnits).where(and(eq(documentSearchUnits.documentId, documentId), isNull(documentSearchUnits.pageStart)));
+      const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
+      return Response.json({ done: true, pagesDone: records.length, totalPages: records.length, units: Number(total), inserted });
+    }
     const source = resolveDocumentPayload(document.fileName, document.contentType, bytes);
     const extension = documentExtension(source.fileName);
 
@@ -94,9 +131,13 @@ export async function POST(request: Request) {
           const text = (content.items as Array<Record<string, unknown>>).map((item) => typeof item.str === "string" ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
           page.cleanup();
           const rows = await rowsForPage(documentId, pageNumber, text);
-          if (rows.length) { await db.insert(documentSearchUnits).values(rows); inserted += rows.length; }
+          if (rows.length) inserted += await insertRowsSafely(db, rows);
         }
         const done = endPage >= pdf.numPages;
+        // A legacy whole-document index may coexist during repair. It remains
+        // searchable until every PDF page is safely present, then only those
+        // obsolete null-page rows are removed.
+        if (done) await db.delete(documentSearchUnits).where(and(eq(documentSearchUnits.documentId, documentId), isNull(documentSearchUnits.pageStart)));
         const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(documentSearchUnits).where(eq(documentSearchUnits.documentId, documentId));
         return Response.json({ done, pagesDone: endPage, totalPages: pdf.numPages, units: Number(total), inserted });
       } finally { await pdf.cleanup(); }
@@ -106,11 +147,16 @@ export async function POST(request: Request) {
     if (Number(total) > 0) return Response.json({ done: true, pagesDone: 1, totalPages: 1, units: Number(total), inserted: 0 });
     const inspected = await inspectDocumentBytes(source.fileName, source.bytes);
     const rows = await rowsForPage(documentId, null, inspected.text);
-    for (let index = 0; index < rows.length; index += 60) await db.insert(documentSearchUnits).values(rows.slice(index, index + 60));
+    await insertRowsSafely(db, rows);
     return Response.json({ done: true, pagesDone: 1, totalPages: 1, units: rows.length, inserted: rows.length });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message.slice(0, 300) : "精準搜尋索引建立失敗" }, { status: 500 });
   }
+}
+
+export async function POST(request: Request) {
+  const body = await request.json() as { documentId?: number; restart?: boolean; forceReset?: boolean };
+  return buildFineIndexStep(Number(body.documentId), body);
 }
 
 export async function GET(request: Request) {

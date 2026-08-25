@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../../db";
 import { examQuestions, usageLogs } from "../../../../../../db/schema";
-import { requireMedtechAdmin } from "../../../../../../lib/member-auth";
+import { requireMedtechQuestionEditor } from "../../../../../../lib/member-auth";
 import { getOpenAIModel, openAIJson } from "../../../../../../lib/openai";
 
 function outputText(payload: Record<string, unknown>) {
@@ -19,7 +19,7 @@ function plain(value: string) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireMedtechAdmin(request);
+  const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as { id?: number; force?: boolean; mode?: "ai" | "voiceScript" };
   const mode = body.mode === "voiceScript" ? "voiceScript" : "ai";

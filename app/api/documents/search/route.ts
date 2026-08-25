@@ -37,6 +37,48 @@ function resultPage(result: Record<string, unknown>, key: string) {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function normalizeEvidence(value: string) {
+  return value.normalize("NFKC").toLocaleLowerCase("zh-Hant").replace(/[\s、，。；：,.;:()（）「」『』]+/gu, "");
+}
+
+function decodeIndexedText(raw: string) {
+  for (const line of raw.split(/\r?\n/u)) {
+    const candidate = line.trim();
+    if (!candidate.startsWith("{") || !candidate.endsWith("}")) continue;
+    try {
+      const record = JSON.parse(candidate) as Record<string, unknown>;
+      if (typeof record.text === "string") return { text: record.text, title: typeof record.title === "string" ? record.title : "", pageStart: Number(record.page_start) || null, pageEnd: Number(record.page_end) || null };
+    } catch { /* use raw index text */ }
+  }
+  return { text: raw, title: "", pageStart: null, pageEnd: null };
+}
+
+function evidenceSnippet(raw: string, query: string) {
+  const decoded = decodeIndexedText(raw);
+  const text = decoded.text.replace(/\uF06C/gu, "•").replace(/\uF0E0/gu, "→").replace(/[\uE000-\uF8FF]/gu, " ").replace(/\\n/gu, " ").replace(/\s+/gu, " ").trim();
+  const normalizedText = normalizeEvidence(text);
+  const normalizedQuery = normalizeEvidence(query);
+  const matched = Boolean(normalizedQuery && normalizedText.includes(normalizedQuery));
+  let sourceIndex = -1;
+  if (matched) {
+    const compactPrefixLength = normalizeEvidence(text.slice(0, Math.max(0, text.length))).indexOf(normalizedQuery);
+    if (compactPrefixLength >= 0) {
+      let compact = "";
+      for (let index = 0; index < text.length; index += 1) {
+        compact += normalizeEvidence(text[index]);
+        if (compact.length >= compactPrefixLength) { sourceIndex = index; break; }
+      }
+    }
+  }
+  if (sourceIndex < 0) {
+    const terms = query.split(/[\s、，。；：,.;:()（）]+/u).filter((item) => item.length >= 2);
+    sourceIndex = terms.map((term) => text.indexOf(term)).find((index) => index >= 0) ?? -1;
+  }
+  const start = Math.max(0, (sourceIndex < 0 ? 0 : sourceIndex) - 90);
+  const end = Math.min(text.length, (sourceIndex < 0 ? 0 : sourceIndex) + 260);
+  return { ...decoded, text, matched, snippet: `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}` };
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { documentId?: number; query?: string };
@@ -59,16 +101,19 @@ export async function POST(request: Request) {
       eq(documentSearchUnits.documentId, documentId),
       or(...terms.map((term) => like(documentSearchUnits.normalizedText, `%${term}%`))),
     )).orderBy(desc(sql<number>`case when ${documentSearchUnits.normalizedText} like ${`%${query.normalize("NFKC").toLocaleLowerCase("zh-Hant")}%`} then 2 else 1 end`), documentSearchUnits.sequence).limit(8) : [];
-    const lexicalHits = lexicalRows.map((row) => ({
+    const lexicalHits = lexicalRows.map((row) => {
+      const evidence = evidenceSnippet(row.text, query);
+      return {
       fileName: "精準頁面索引",
       score: null,
-      text: row.text.slice(0, 900),
-      pageStart: row.pageStart,
-      pageEnd: row.pageEnd,
-      title: row.title,
+      text: evidence.snippet,
+      pageStart: evidence.pageStart ?? row.pageStart,
+      pageEnd: evidence.pageEnd ?? row.pageEnd,
+      title: evidence.title || row.title,
       hierarchyPath: row.hierarchyPath,
       retrievalMode: "fine_lexical",
-    }));
+      evidenceMatched: evidence.matched,
+    }});
     const [document] = await db.select({
       id: documents.id,
       fileName: documents.fileName,
@@ -80,7 +125,7 @@ export async function POST(request: Request) {
     }).from(documents).where(eq(documents.id, documentId)).limit(1);
     if (!document) return Response.json({ error: "找不到這份教材" }, { status: 404 });
     if (document.status !== "completed" || !document.openaiFileId || !document.vectorIndexed) {
-      if (lexicalHits.length) return Response.json({ documentId, query, selectedFileWasSearched: true, hits: lexicalHits, retrievalModes: ["fine_lexical"], index: { fullTextIndexed: Boolean(document.fullTextIndexed), vectorIndexed: Boolean(document.vectorIndexed) } });
+      if (lexicalHits.length) return Response.json({ documentId, query, selectedFileWasSearched: true, evidenceVerified: lexicalHits.some((hit) => hit.evidenceMatched), hits: lexicalHits, retrievalModes: ["fine_lexical"], index: { fullTextIndexed: Boolean(document.fullTextIndexed), vectorIndexed: Boolean(document.vectorIndexed) } });
       return Response.json({
         error: "這份教材尚未完成向量索引，請先重新處理教材。",
         code: "INDEX_NOT_READY",
@@ -107,17 +152,22 @@ export async function POST(request: Request) {
     const allResults = fileSearchResults(payload);
     const vectorHits = allResults
       .filter((result) => result.file_id === document.openaiFileId || result.filename === document.fileName)
-      .map((result) => ({
+      .map((result) => {
+        const evidence = evidenceSnippet(resultText(result), query);
+        return {
         fileName: String(result.filename || document.fileName),
         score: resultNumber(result, "score"),
-        text: resultText(result).slice(0, 900),
-        pageStart: resultPage(result, "page_start"),
-        pageEnd: resultPage(result, "page_end"),
-      }))
+        text: evidence.snippet,
+        pageStart: evidence.pageStart ?? resultPage(result, "page_start"),
+        pageEnd: evidence.pageEnd ?? resultPage(result, "page_end"),
+        title: evidence.title,
+        evidenceMatched: evidence.matched,
+      }})
       .filter((result) => result.text)
       .slice(0, 8);
     const hits = [...lexicalHits, ...vectorHits.map((hit) => ({ ...hit, retrievalMode: "vector" }))]
       .filter((hit, index, rows) => rows.findIndex((candidate) => candidate.pageStart === hit.pageStart && candidate.text.slice(0, 100) === hit.text.slice(0, 100)) === index)
+      .sort((left, right) => Number(right.evidenceMatched) - Number(left.evidenceMatched) || Number(right.retrievalMode === "fine_lexical") - Number(left.retrievalMode === "fine_lexical") || Number(right.score ?? 0) - Number(left.score ?? 0))
       .slice(0, 8);
     const usage = payload.usage && typeof payload.usage === "object"
       ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } }
@@ -138,6 +188,7 @@ export async function POST(request: Request) {
       documentId,
       query,
       selectedFileWasSearched: hits.length > 0,
+      evidenceVerified: hits.some((hit) => hit.evidenceMatched),
       hits,
       retrievalModes: [...new Set(hits.map((hit) => hit.retrievalMode))],
       index: { fullTextIndexed: Boolean(document.fullTextIndexed), vectorIndexed: Boolean(document.vectorIndexed) },

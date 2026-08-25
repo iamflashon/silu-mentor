@@ -2,8 +2,10 @@ import { headers } from "next/headers";
 import { desc, eq } from "drizzle-orm";
 import { memberLoginPath } from "../../../lib/member-login-path";
 import { examQuestions, medtechPracticeSessions } from "../../../db/schema";
-import { requireMedtechMember } from "../../../lib/member-auth";
+import { hasMedtechPermission, requireMedtechMember } from "../../../lib/member-auth";
+import { getActiveMedtechAllAccess } from "../../../lib/medtech-usage";
 import MemberLogoutButton from "../MemberLogoutButton";
+import DeleteMemberAccountButton from "../DeleteMemberAccountButton";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +51,7 @@ export default async function MedtechAccountPage() {
       </main>
     );
   const { member, access } = auth;
+  const entitlement = await getActiveMedtechAllAccess(auth.db, member.email);
   const practiceSessions = await auth.db
     .select()
     .from(medtechPracticeSessions)
@@ -145,6 +148,17 @@ export default async function MedtechAccountPage() {
     ? Math.round((totalCorrect / totalAnswered) * 100)
     : 0;
   const totalMinutes = Math.floor(totalDurationSeconds / 60);
+  const accessDate = (value: Date) => new Intl.DateTimeFormat("zh-TW", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Taipei",
+  }).format(value);
+  const remainingHours = entitlement
+    ? Math.max(0, Math.ceil((entitlement.availableUntil.getTime() - Date.now()) / 3600000))
+    : 0;
+  const remainingLabel = remainingHours >= 24
+    ? `剩餘 ${Math.floor(remainingHours / 24)} 天 ${remainingHours % 24} 小時`
+    : `剩餘 ${remainingHours} 小時`;
   return (
     <main className="medtech-member-page">
       <header>
@@ -169,14 +183,18 @@ export default async function MedtechAccountPage() {
           <a className="primary" href="/medtech">
             進入學習首頁
           </a>
-          <a href="/medtech/upgrade">選購題目包</a>
-          {access.canAdmin && <a href="/medtech/admin">醫檢師管理後台</a>}
+          <a href={entitlement ? "/medtech/chapters" : "/medtech/upgrade"}>{entitlement ? "我已購買課程" : "選購題目包"}</a>
+          {(access.canAdmin || hasMedtechPermission(access.permissionsJson, "questions")) && <a href="/medtech/admin">{access.canAdmin ? "醫檢師管理後台" : "文件題庫編修"}</a>}
           <MemberLogoutButton />
         </div>
         <dl>
           <div>
             <dt>類科資格</dt>
-            <dd>醫檢師 · 已開通</dd>
+            <dd>
+              {entitlement
+                ? `本書已付費開通 · 至 ${new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(entitlement.availableUntil)}`
+                : "尚未購買 · 可任選一包免費體驗"}
+            </dd>
           </div>
           <div>
             <dt>會員身分</dt>
@@ -188,9 +206,20 @@ export default async function MedtechAccountPage() {
           </div>
           <div>
             <dt>管理權限</dt>
-            <dd>{access.canAdmin ? "醫檢師管理員" : "一般會員"}</dd>
+            <dd>{access.canAdmin ? "醫檢師管理員" : hasMedtechPermission(access.permissionsJson, "questions") ? "文件題庫編修者" : "一般會員"}</dd>
           </div>
         </dl>
+        {entitlement && (
+          <section className="medtech-purchased-course" aria-label="我已購買課程">
+            <header><small>我已購買課程</small><h2>醫檢師國考題詳解（Ⅲ）臨床病毒學（下）</h2></header>
+            <dl>
+              <div><dt>開通時間</dt><dd>{accessDate(entitlement.startedAt)}</dd></div>
+              <div><dt>有效期限</dt><dd>{accessDate(entitlement.availableUntil)}</dd></div>
+              <div><dt>目前狀態</dt><dd>使用中・{remainingLabel}</dd></div>
+            </dl>
+            <a className="primary" href="/medtech/chapters">進入已購買課程</a>
+          </section>
+        )}
         <section className="medtech-study-statistics">
           <header>
             <div>
@@ -254,6 +283,7 @@ export default async function MedtechAccountPage() {
             </p>
           )}
         </section>
+        {!member.canAdmin && <DeleteMemberAccountButton email={member.email} />}
       </section>
     </main>
   );
