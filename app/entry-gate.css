@@ -71,3 +71,7 @@
 /* Subtle cyan touch watermark behind the compact category launchers. */
 .main-entry-gate .main-portal-grid{position:relative;isolation:isolate}
 .main-entry-gate .main-portal-grid::before{content:none}
+.main-entry-gate .main-portal-grid.is-loading{min-height:190px;visibility:hidden}
+.main-entry-gate .main-portal-grid.is-ready{animation:portal-cards-reveal .22s ease-out both}
+@keyframes portal-cards-reveal{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.main-entry-gate .main-portal-grid.is-ready{animation:none}}
