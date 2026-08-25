@@ -3661,6 +3661,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
           <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
           <a href="/admin/ai-access">AI 方案與啟用碼</a>
+          <a href="/admin/portal-cards">首頁卡片管理</a>
         </nav>}
         {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
           <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
@@ -3681,6 +3682,9 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           </a>
           <a href="/admin/ai-access">
             AI 方案與啟用碼
+          </a>
+          <a href="/admin/portal-cards">
+            首頁卡片管理
           </a>
           <button
             className={activeTab === "costs" ? "active" : ""}
