@@ -1256,8 +1256,9 @@ export default function MainEntryGate() {
     let active = true;
     void fetch("/api/admin-entry/session", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : { authenticated: false })
-      .then((result: { authenticated?: boolean }) => {
-        if (active) setAdminEntryState(result.authenticated ? "authenticated" : "anonymous");
+      .then((result: { authenticated?: boolean; identityPresent?: boolean }) => {
+        if (!active) return;
+        setAdminEntryState(result.authenticated ? "authenticated" : "anonymous");
       })
       .catch(() => {
         if (active) setAdminEntryState("anonymous");
@@ -1265,18 +1266,37 @@ export default function MainEntryGate() {
     return () => { active = false; };
   }, []);
 
-  return <main className="main-entry-gate">
-    <section>
-      <span>iBRAIN AI LEARNING</span>
-      <div className="main-entry-logo" aria-hidden="true">智</div>
-      <h1>iBrain AI 學習平台</h1>
-      {adminEntryState === "authenticated" ? <>
-        <div className="main-entry-actions">
-          <a className="main-entry-law" href="/law">進入司律備考</a>
-          <a className="main-entry-medtech" href="/medtech">進入醫檢師平台</a>
+  return <main className="main-entry-gate main-portal">
+    <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
+    <div className="main-portal-orb main-portal-orb-two" aria-hidden="true" />
+    <section className="main-portal-shell">
+      <header className="main-portal-head">
+        <div className="main-entry-logo" aria-hidden="true">智</div>
+        <div>
+          <span>iBRAIN PEDIA X</span>
+          <h1>智學百科・智慧學習</h1>
+          <p>選擇你的學習領域，開啟專屬的備考與智慧學習空間。</p>
         </div>
-        <a className="main-entry-signin" href="/admin/library">管理後台</a>
-      </> : adminEntryState === "anonymous" ? <a className="main-entry-signin" href="/admin-login?return_to=/admin/library">管理員登入</a> : null}
+      </header>
+      <div className="main-portal-status"><i aria-hidden="true" /><span>LEARNING NETWORK</span><b>系統運作中</b></div>
+      <div className="main-portal-grid">
+        <a className="main-portal-card law" href="/law">
+          <div className="main-portal-card-top"><span>LEGAL INTELLIGENCE</span><i>01</i></div>
+          <div className="main-portal-card-icon" aria-hidden="true">法</div>
+          <div className="main-portal-card-copy"><small>律師・司法官國考</small><h2>司律備考</h2><p>爭點學習、真題演練與申論解題，建立完整法律思考路徑。</p></div>
+          <div className="main-portal-card-enter"><span>進入學習平台</span><b aria-hidden="true">↗</b></div>
+        </a>
+        <a className="main-portal-card medtech" href="/medtech">
+          <div className="main-portal-card-top"><span>MEDICAL LAB SCIENCE</span><i>02</i></div>
+          <div className="main-portal-card-icon" aria-hidden="true">醫</div>
+          <div className="main-portal-card-copy"><small>醫事檢驗師國考</small><h2>醫檢國考</h2><p>章節刷題、完整解析與老師語音，讓國考準備更有方向。</p></div>
+          <div className="main-portal-card-enter"><span>進入學習平台</span><b aria-hidden="true">↗</b></div>
+        </a>
+      </div>
+      <footer className="main-portal-footer">
+        <span>iBrain Pedia X・智學百科</span>
+        {adminEntryState === "authenticated" ? <a href="/admin/library">進入總管理後台</a> : adminEntryState === "loading" ? <span className="main-portal-loading">權限確認中</span> : <span>SECURE LEARNING GATEWAY</span>}
+      </footer>
     </section>
   </main>;
 }
