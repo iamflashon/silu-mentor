@@ -1285,7 +1285,7 @@ export default function MainEntryGate() {
           <a href="https://www.ibrain.com.tw/">知識達</a>
         </nav>
         <strong>
-          iBrain Pedia X・智<a className="main-portal-secret-admin" href="/admin-login?return_to=%2Fadmin%2Flibrary" aria-label="管理員登入">學</a>百科
+          iBrain Pedia X・智<a className="main-portal-secret-admin" href="/admin/library" aria-label="管理員登入">學</a>百科
         </strong>
       </footer>
     </section>
