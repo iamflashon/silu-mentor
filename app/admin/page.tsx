@@ -3659,6 +3659,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         {independentMode && <nav className="central-admin-tabs" aria-label="中央管理功能切換">
           <a className={libraryMode ? "active" : ""} href="/admin/library">教材向量庫</a>
           <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
+          <a href="/admin/products">書籍與商品</a>
           <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
           <a href="/admin/ai-access">AI 方案與啟用碼</a>
           <a href="/admin/portal-cards">首頁卡片管理</a>
@@ -3676,6 +3677,9 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           </a>
           <a href="/admin/question-bank">
             總題庫管理
+          </a>
+          <a href="/admin/products">
+            書籍與商品
           </a>
           <a href="/admin/members">
             會員與權限
