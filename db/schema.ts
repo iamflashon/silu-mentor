@@ -207,6 +207,7 @@ export const accountingProducts = sqliteTable("accounting_products", {
   title: text("title").notNull(),
   subtitle: text("subtitle").notNull().default(""),
   descriptionHtml: text("description_html").notNull().default(""),
+  coverStorageKey: text("cover_storage_key"),
   listPrice: integer("list_price").notNull().default(249),
   salePrice: integer("sale_price"),
   saleLabel: text("sale_label").notNull().default(""),

@@ -9,6 +9,7 @@ import "../../medtech/admin/document-question-library.css";
 import "../../medtech/admin/processing-progress.css";
 import "../../medtech/admin/processing-note.css";
 import "../../medtech/admin/question-workbench/page.css";
+import "./product.css";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

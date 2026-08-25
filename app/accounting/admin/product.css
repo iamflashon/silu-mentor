@@ -1,0 +1,5 @@
+.accounting-cover-admin{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:24px;margin:22px 0;padding:22px;border:1px solid #d8e2dc;border-radius:16px;background:#f8fbf9}
+.accounting-cover-preview{aspect-ratio:3/4;display:grid;place-items:center;overflow:hidden;border:1px solid #ccd9d2;border-radius:9px;background:#eaf0ec;color:#62716b;text-align:center}
+.accounting-cover-preview img{width:100%;height:100%;object-fit:cover}.accounting-cover-preview span{display:grid;gap:8px;padding:12px}.accounting-cover-preview small{font-size:11px}
+.accounting-cover-upload{display:inline-flex;margin-right:10px;padding:11px 17px;border-radius:10px;background:#176b5d;color:#fff;font-weight:800;cursor:pointer}.accounting-cover-upload input{position:absolute;width:1px;height:1px;opacity:0}
+@media(max-width:600px){.accounting-cover-admin{grid-template-columns:1fr}.accounting-cover-preview{width:150px;margin:auto}}
