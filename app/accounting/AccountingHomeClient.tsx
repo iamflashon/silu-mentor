@@ -49,6 +49,7 @@ export default function AccountingHomeClient({ canAdmin }: { canAdmin: boolean }
       <a href="/accounting" className="accounting-brand"><span>中</span><div><b>中級會計課業答疑</b><small>INTERMEDIATE ACCOUNTING</small></div></a>
       <nav>
         <a className="active" href="/accounting">課業答疑</a>
+        <a href="/accounting/books">練題書庫</a>
         {adminMode && <a href="/accounting/admin">管理後台</a>}
         {canAdmin && (studentPreview
           ? <button type="button" className="accounting-mode-switch return" onClick={() => switchMode(false)}>返回管理模式</button>
