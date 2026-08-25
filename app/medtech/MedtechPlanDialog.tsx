@@ -12,12 +12,34 @@ const features = [
   "完整解題與康情老師語音解析",
 ];
 
-export default function MedtechPlanDialog({ label = "查看方案內容", compact = false, price: suppliedPrice, accessDays: suppliedAccessDays, trialQuestions: suppliedTrialQuestions }: { label?: string; compact?: boolean; price?: number; accessDays?: number; trialQuestions?: number }) {
+type SuppliedEntitlement = {
+  purchased: true;
+  startedAt: string;
+  availableUntil: string;
+};
+
+export default function MedtechPlanDialog({
+  label = "查看方案內容",
+  compact = false,
+  price: suppliedPrice,
+  accessDays: suppliedAccessDays,
+  trialQuestions: suppliedTrialQuestions,
+  entitlement: suppliedEntitlement,
+}: {
+  label?: string;
+  compact?: boolean;
+  price?: number;
+  accessDays?: number;
+  trialQuestions?: number;
+  entitlement?: SuppliedEntitlement | null;
+}) {
   const product = useMedtechProductSettings();
   const price = suppliedPrice ?? product?.effectivePrice ?? null;
   const accessDays = suppliedAccessDays ?? product?.accessDays ?? null;
   const trialQuestions = suppliedTrialQuestions ?? product?.trialQuestions ?? null;
-  const entitlement = product?.entitlement ?? null;
+  // A server-rendered entitlement is authoritative. This avoids a second
+  // browser-side auth check being misclassified in LINE's in-app browser.
+  const entitlement = suppliedEntitlement ?? product?.entitlement ?? null;
   const [open, setOpen] = useState(false);
 
   useEffect(() => {

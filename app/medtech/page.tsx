@@ -66,6 +66,11 @@ export default async function MedtechHome() {
         <MedtechHeaderActions
           accountLabel="我的帳號"
           accountHref="/medtech/account"
+          entitlement={entitlement ? {
+            purchased: true,
+            startedAt: entitlement.startedAt.toISOString(),
+            availableUntil: entitlement.availableUntil.toISOString(),
+          } : null}
         />
         <nav>
           <a href="/medtech" className="active">
@@ -102,7 +107,16 @@ export default async function MedtechHome() {
           <div className="medtech-featured-actions" data-no-navigation-feedback>
             <a className="primary trial" href="/medtech/chapters">{entitlement ? "進入已購買課程" : `免費體驗 ${product.trialQuestions} 題`}</a>
             {!entitlement && <LinePayPurchaseButton {...purchaseAuthorization} packageName="全庫通行證" packNumber={1} amount={product.effectivePrice} label={`LINE Pay NT$${product.effectivePrice} 開通本書`} />}
-            <MedtechPlanDialog price={product.effectivePrice} accessDays={product.accessDays} trialQuestions={product.trialQuestions} />
+            <MedtechPlanDialog
+              price={product.effectivePrice}
+              accessDays={product.accessDays}
+              trialQuestions={product.trialQuestions}
+              entitlement={entitlement ? {
+                purchased: true,
+                startedAt: entitlement.startedAt.toISOString(),
+                availableUntil: entitlement.availableUntil.toISOString(),
+              } : null}
+            />
           </div>
         </div>
       </section>

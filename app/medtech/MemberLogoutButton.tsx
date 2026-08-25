@@ -11,7 +11,7 @@ export default function MemberLogoutButton() {
     // Clear the platform cookie first. The route then redirects to
     // Cloudflare Access logout so the next visit can choose another Google
     // account instead of silently restoring the previous Access identity.
-    window.location.assign("/api/member/logout");
+    window.location.assign("/api/member/logout?return_to=%2Fmedtech");
   }
 
   return <button className="medtech-account-logout" type="button" onClick={logout} disabled={busy}>{busy ? "正在登出並切換…" : "登出並切換帳號"}</button>;

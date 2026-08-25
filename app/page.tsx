@@ -1266,8 +1266,13 @@ export default function MainEntryGate() {
     let active = true;
     void fetch("/api/admin-entry/session", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : { authenticated: false })
-      .then((result: { authenticated?: boolean }) => {
-        if (active) setAdminEntryState(result.authenticated ? "authenticated" : "anonymous");
+      .then((result: { authenticated?: boolean; identityPresent?: boolean }) => {
+        if (!active) return;
+        if (!result.authenticated && result.identityPresent && window.location.hostname === "silu-mentor.iamflashon.workers.dev") {
+          window.location.replace("/medtech");
+          return;
+        }
+        setAdminEntryState(result.authenticated ? "authenticated" : "anonymous");
       })
       .catch(() => {
         if (active) setAdminEntryState("anonymous");

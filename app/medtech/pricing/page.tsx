@@ -40,7 +40,11 @@ export default async function MedtechPricingPage() {
           <span>醫</span>
           <div><b>醫檢師備考</b><small>ALL ACCESS</small></div>
         </a>
-        <MedtechHeaderActions />
+        <MedtechHeaderActions entitlement={entitlement ? {
+          purchased: true,
+          startedAt: entitlement.startedAt.toISOString(),
+          availableUntil: entitlement.availableUntil.toISOString(),
+        } : null} />
       </header>
       <MedtechTabs />
       <section className="medtech-pricing-head">
