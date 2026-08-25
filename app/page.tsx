@@ -262,8 +262,40 @@ export function LawHome() {
   );
   const handoffHandled = useRef(false);
   useEffect(() => {
-    fetch("/api/account").then(async (response) => response.ok ? (await response.json()).member : null).then(setCurrentMember).catch(() => setCurrentMember(null));
-    fetch("/api/ai-access",{cache:"no-store"}).then(async response=>response.ok?(await response.json()).aiAccess:null).then(setAiMeter).catch(()=>setAiMeter(null));
+    let cancelled = false;
+    const loadMemberAndAiAccess = async () => {
+      try {
+        const accountResponse = await fetch("/api/account", { cache: "no-store" });
+        const member = accountResponse.ok ? (await accountResponse.json()).member as CurrentMember : null;
+        if (cancelled) return;
+        setCurrentMember(member);
+        if (!member) {
+          setAiMeter(null);
+          return;
+        }
+
+        // Cloudflare Access may refresh its authorization cookie while the page
+        // is starting. Read the member first, then retry the entitlement request
+        // briefly so a valid AI plan is not hidden by that transient refresh.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const response = await fetch("/api/ai-access", { cache: "no-store" });
+          if (response.ok) {
+            const aiAccess = (await response.json()).aiAccess as AiMeter;
+            if (!cancelled) setAiMeter(aiAccess);
+            return;
+          }
+          if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+        }
+        if (!cancelled) setAiMeter(null);
+      } catch {
+        if (!cancelled) {
+          setCurrentMember(null);
+          setAiMeter(null);
+        }
+      }
+    };
+    void loadMemberAndAiAccess();
+    return () => { cancelled = true; };
   }, []);
   const nextExam = useMemo(() => {
     const todayValue = Date.parse(`${today}T00:00:00Z`);
@@ -1209,7 +1241,7 @@ export function LawHome() {
           <span aria-hidden="true">工具</span>
           <b>學習工具</b>
         </button>
-          {currentMember&&aiMeter?.active&&<div className="ai-meter-row"><a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{practiceCoaching||thinking?"AI 回覆完成後計入本輪":aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a><button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || practiceCoaching || !input.trim() || aiMeter.coachWebSearchUsed>=1} title={aiMeter.coachWebSearchUsed>=1?"本組專業查證已使用，下一組重新提供":input.trim()?"使用目前輸入的問題進行官方來源查證":"請先輸入要查證的問題"}>{aiMeter.coachWebSearchUsed>=1?"本組已查證":"查證最新資料"}</button></div>}
+          {aiMeter?.active&&<div className="ai-meter-row"><a className="ai-usage-meter" href="/account#ai-access" aria-label={`AI 教練進度 ${aiMeter.coachRoundsUsed}／${aiMeter.coachRoundsTarget} 輪，剩餘 ${aiMeter.remaining} 次`}><strong>AI 教練 {aiMeter.coachRoundsUsed}／{aiMeter.coachRoundsTarget} 輪</strong><span>{practiceCoaching||thinking?"AI 回覆完成後計入本輪":aiMeter.coachRoundsUsed===0?`再完成 ${aiMeter.coachRoundsTarget} 輪扣 1 次`:`再完成 ${Math.max(0,aiMeter.coachRoundsTarget-aiMeter.coachRoundsUsed)} 輪扣 1 次`} · 剩餘 {aiMeter.remaining} 次</span><em>查看方案</em></a><button className="professional-verification-button" type="button" onClick={() => setVerificationOpen(true)} disabled={thinking || practiceCoaching || !input.trim() || aiMeter.coachWebSearchUsed>=1} title={aiMeter.coachWebSearchUsed>=1?"本組專業查證已使用，下一組重新提供":input.trim()?"使用目前輸入的問題進行官方來源查證":"請先輸入要查證的問題"}>{aiMeter.coachWebSearchUsed>=1?"本組已查證":"查證最新資料"}</button></div>}
           {currentMember?.canAdmin && simulationToolsEnabled && <section className={`model-mode-switch ${settingsCollapsed ? "is-collapsed" : ""}`} aria-label="AI 學習設定">
           <div className="model-mode-heading"><strong>AI 學習設定</strong><span className="model-mode-summary">{teachingLevelLabels[pendingTeachingLevel ?? "general"]} · Luna</span><button type="button" className="follow-up-compact-button" onClick={() => void generateStudentFollowUp(pendingTeachingLevel ?? undefined)} disabled={!canGenerateStudentReply || thinking || generatingStudentReply || evaluatingTeaching} aria-label="針對上一則 AI 回覆繼續追問">{evaluatingLevel ? "產生中…" : "繼續追問"}</button><button type="button" className="model-settings-toggle" onClick={() => setSettingsCollapsed((current) => { const next = !current; saveAiSettings(pendingTeachingLevel ?? "general", "luna", settingsPinned, next); return next; })} aria-expanded={!settingsCollapsed}>{settingsCollapsed ? "展開設定" : "收合設定"}</button></div>
           {!settingsCollapsed && <>
