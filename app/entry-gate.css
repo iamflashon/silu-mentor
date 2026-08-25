@@ -37,3 +37,9 @@
 .main-entry-gate .main-portal-card-enter{border-top-color:rgba(105,151,164,.15);color:#365966}.main-entry-gate .main-portal-card-enter b{background:color-mix(in srgb,var(--portal-accent) 14%,white)}
 .main-entry-gate .main-portal-footer{margin-top:34px;color:#82959b}.main-entry-gate .main-portal-footer a{color:#456d7b}.main-entry-gate .main-portal-footer a:hover{color:#173f51}
 @media(max-width:760px){.main-entry-gate.main-portal{padding:32px 17px 52px}.main-entry-gate.main-portal::after{height:360px}.main-entry-gate.main-portal .main-portal-shell{padding:0}}
+
+.main-entry-gate .main-portal-head h1{font-weight:620;letter-spacing:-.04em}
+.main-entry-gate .main-portal-card::before{background:linear-gradient(180deg,color-mix(in srgb,var(--portal-accent) 14%,white) 0,color-mix(in srgb,var(--portal-accent) 6%,white) 42%,rgba(255,255,255,0) 64%)}
+.main-entry-gate .main-portal-card>*{position:relative;z-index:1}
+.main-entry-gate .main-portal-card.law{border-top:3px solid color-mix(in srgb,var(--portal-accent) 62%,white)}
+.main-entry-gate .main-portal-card.medtech{border-top:3px solid color-mix(in srgb,var(--portal-accent) 62%,white)}
