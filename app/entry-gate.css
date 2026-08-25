@@ -47,12 +47,23 @@
 @media(max-width:430px){.main-entry-gate .main-portal-head h1{font-size:43px}.main-entry-gate .main-portal-footer nav a{padding:0 9px;font-size:12px}}
 
 /* Keep the original space horizon unobstructed; cards begin below the hero. */
-.main-entry-gate.main-portal::after{height:445px;background-image:linear-gradient(180deg,rgba(3,18,49,.02),rgba(3,24,60,.04)),url('/hero-ai-brain-background.png');background-position:center top;background-size:cover}
+.main-entry-gate.main-portal::after{height:445px;background-image:linear-gradient(180deg,rgba(3,18,49,.02),rgba(3,24,60,.04)),url('/hero-ai-brain-background.png');background-position:center bottom;background-size:cover}
 .main-entry-gate .main-portal-head{margin-bottom:0}
 .main-entry-gate .main-portal-grid{margin-top:255px}
 .main-entry-gate .main-portal-card{border:1px solid #e0e8ec;border-top:2px solid color-mix(in srgb,var(--portal-accent) 58%,white);background:#fff;box-shadow:0 16px 42px rgba(24,64,82,.09)}
 .main-entry-gate .main-portal-card::before{background:linear-gradient(135deg,rgba(255,255,255,.75),transparent 54%)}
 .main-entry-gate .main-portal-card::after{opacity:.035}
 .main-entry-gate .main-portal-card-icon{background:#f7fafb;box-shadow:none}
-@media(max-width:760px){.main-entry-gate.main-portal::after{height:390px;background-position:center top}.main-entry-gate .main-portal-grid{margin-top:205px}}
+@media(max-width:760px){.main-entry-gate.main-portal::after{height:390px;background-position:center bottom}.main-entry-gate .main-portal-grid{margin-top:205px}}
 @media(max-width:430px){.main-entry-gate.main-portal::after{height:360px}.main-entry-gate .main-portal-grid{margin-top:185px}}
+
+/* Compact category launchers, fully below the space hero. */
+.main-entry-gate .main-portal-grid{grid-template-columns:repeat(2,minmax(0,280px));justify-content:center;gap:22px;margin-top:310px}
+.main-entry-gate .main-portal-card{grid-template-columns:52px 1fr;grid-template-rows:auto 1fr auto;gap:13px 15px;min-height:190px;padding:18px 19px;border-radius:18px}
+.main-entry-gate .main-portal-card-top{font-size:7px;letter-spacing:.14em}.main-entry-gate .main-portal-card-top i{font-size:9px}
+.main-entry-gate .main-portal-card-icon{width:52px;height:52px;border-radius:15px}.main-entry-gate .main-portal-card-icon svg{width:34px;height:34px;stroke-width:2.1}
+.main-entry-gate .main-portal-card-copy small{font-size:10px}.main-entry-gate .main-portal-card-copy h2{font-size:22px}.main-entry-gate .main-portal-card-copy p{margin-top:7px;font-size:11px;line-height:1.55}
+.main-entry-gate .main-portal-card-enter{padding-top:12px;font-size:11px}.main-entry-gate .main-portal-card-enter b{width:27px;height:27px;font-size:14px}
+.main-entry-gate .main-portal-footer{margin-top:42px}
+@media(max-width:760px){.main-entry-gate .main-portal-grid{grid-template-columns:minmax(0,320px);margin-top:255px}.main-entry-gate .main-portal-card{min-height:184px}}
+@media(max-width:430px){.main-entry-gate .main-portal-grid{margin-top:235px}}
