@@ -1,6 +1,6 @@
 # iBrain 公司本機教材節點
 
-第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.4.1 會把 `inbox` 內支援檔案的檔名、大小與修改時間回報給管理後台，供批次勾選；並支援 Cloudflare Access Service Token 雙重驗證。節點只回傳擷取後的文字切片與統計，原始 PDF／Word 不會上傳。
+第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.4.2 會把 `inbox` 內支援檔案的檔名、大小與修改時間回報給管理後台，供批次勾選；支援 Cloudflare Access Service Token 雙重驗證，並可使用 Windows DPAPI 加密金鑰後於登入時自動啟動。節點只回傳擷取後的文字切片與統計，原始 PDF／Word 不會上傳。
 
 ## Windows 測試啟動
 
@@ -15,6 +15,23 @@ $env:LOCAL_NODE_NAME="公司 RTX 4090"
 ```
 
 看到「心跳成功」後，中央教材向量庫會自動顯示已連線。停止測試可按 `Ctrl+C`。
+
+## Windows 安全自動啟動
+
+先在目前 PowerShell 完成上述六個環境變數設定並確認心跳成功，停止前景節點後執行：
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+.\install-auto-start.ps1
+```
+
+安裝程式會以目前 Windows 帳號的 DPAPI 加密兩組 Secret，建立 `iBrain Local Node` 登入排程並立即啟動。金鑰不會寫入啟動腳本或命令列。執行紀錄位於 `%LOCALAPPDATA%\iBrainLocalNode\logs\node.log`。
+
+解除自動啟動：
+
+```powershell
+.\uninstall-auto-start.ps1
+```
 
 PDF 文字擷取需先安裝：
 

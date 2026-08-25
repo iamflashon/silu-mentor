@@ -13,7 +13,7 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 SUPPORTED_INBOX_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".json", ".jsonl", ".html", ".htm", ".csv"}
