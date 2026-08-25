@@ -1250,22 +1250,6 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
-  const [adminEntryState, setAdminEntryState] = useState<"loading" | "authenticated" | "anonymous">("loading");
-
-  useEffect(() => {
-    let active = true;
-    void fetch("/api/admin-entry/session", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : { authenticated: false })
-      .then((result: { authenticated?: boolean; identityPresent?: boolean }) => {
-        if (!active) return;
-        setAdminEntryState(result.authenticated ? "authenticated" : "anonymous");
-      })
-      .catch(() => {
-        if (active) setAdminEntryState("anonymous");
-      });
-    return () => { active = false; };
-  }, []);
-
   return <main className="main-entry-gate main-portal">
     <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
     <div className="main-portal-orb main-portal-orb-two" aria-hidden="true" />
@@ -1300,8 +1284,9 @@ export default function MainEntryGate() {
           <a href="https://publish.get.com.tw/">高點文化</a>
           <a href="https://www.ibrain.com.tw/">知識達</a>
         </nav>
-        <strong>iBrain Pedia X・智學百科</strong>
-        {adminEntryState === "authenticated" ? <a className="main-portal-admin-link" href="/admin/library">進入總管理後台</a> : adminEntryState === "loading" ? <span className="main-portal-loading">權限確認中</span> : null}
+        <strong>
+          iBrain Pedia X・智<a className="main-portal-secret-admin" href="/admin-login?return_to=%2Fadmin%2Flibrary" aria-label="管理員登入">學</a>百科
+        </strong>
       </footer>
     </section>
   </main>;
