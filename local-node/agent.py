@@ -13,7 +13,7 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 SUPPORTED_INBOX_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".json", ".jsonl", ".html", ".htm", ".csv"}
@@ -56,19 +56,41 @@ def ram_gb() -> float | None:
 
 def request_json(url: str, token: str, payload: dict | None = None) -> tuple[int, dict | None]:
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json", "User-Agent": USER_AGENT}
+    access_client_id = os.getenv("CF_ACCESS_CLIENT_ID", "").strip()
+    access_client_secret = os.getenv("CF_ACCESS_CLIENT_SECRET", "").strip()
+    if access_client_id and access_client_secret:
+        headers["CF-Access-Client-Id"] = access_client_id
+        headers["CF-Access-Client-Secret"] = access_client_secret
     request = urllib.request.Request(
         url,
         data=data,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json", "User-Agent": USER_AGENT},
+        headers=headers,
         method="POST" if payload is not None else "GET",
     )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             raw = response.read()
-            return response.status, json.loads(raw) if raw else None
+            if not raw:
+                return response.status, None
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "json" not in content_type:
+                raise RuntimeError(
+                    f"服務回傳非 JSON 內容（HTTP {response.status}，{content_type or '未知格式'}）。"
+                    "若網址受 Cloudflare Access 保護，請設定 CF_ACCESS_CLIENT_ID 與 CF_ACCESS_CLIENT_SECRET。"
+                )
+            try:
+                return response.status, json.loads(raw)
+            except json.JSONDecodeError as error:
+                raise RuntimeError(f"服務回傳無效 JSON（HTTP {response.status}）") from error
     except urllib.error.HTTPError as error:
         if error.code == 204:
             return 204, None
+        if error.code in (302, 401, 403):
+            raise RuntimeError(
+                f"Cloudflare Access 驗證失敗（HTTP {error.code}）。"
+                "請確認 Service Auth 原則及 CF_ACCESS_CLIENT_ID／CF_ACCESS_CLIENT_SECRET。"
+            ) from error
         raise
 
 
