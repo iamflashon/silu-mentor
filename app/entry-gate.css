@@ -71,6 +71,3 @@
 /* Subtle cyan touch watermark behind the compact category launchers. */
 .main-entry-gate .main-portal-grid{position:relative;isolation:isolate}
 .main-entry-gate .main-portal-grid::before{content:none}
-.main-portal-hand{position:absolute;z-index:-1;top:28px;right:7vw;width:min(560px,42vw);aspect-ratio:3/2;background:url('/ibrain-wireframe-hand-only-transparent.png') center/contain no-repeat;opacity:.42;pointer-events:none;filter:saturate(.72) brightness(.92)}
-@media(max-width:900px){.main-portal-hand{top:72px;right:-2vw;width:46vw;opacity:.34}}
-@media(max-width:600px){.main-portal-hand{top:125px;right:-13vw;width:66vw;opacity:.25}}
