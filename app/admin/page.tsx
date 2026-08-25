@@ -3785,6 +3785,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               <nav className="question-bank-control-actions" aria-label="中央題庫主要頁面">
                 <a className={questionBankSection === "questions" ? "active" : ""} href="/admin/question-bank/questions"><b>題目搜尋</b><small>分類、關鍵字、高亮與逐題管理</small></a>
                 <a className={questionBankSection === "documents" ? "active" : ""} href="/admin/question-bank/documents"><b>文件管理</b><small>PDF、Word、HTML 分類與搜尋</small></a>
+                <a href="/admin/question-bank/quality"><b>品質修復中心</b><small>自動掃描 P0／P1，儲存後下一題</small></a>
                 <a className={questionBankSection === "sources" ? "active" : ""} href="/admin/question-bank/sources"><b>網址／PDF 擷取</b><small>直接網址、錯誤與左右對照</small></a>
                 <a className={questionBankSection === "packages" ? "active" : ""} href="/admin/question-bank/packages"><b>組合包管理</b><small>勾選題目、建立與分派題包</small></a>
               </nav>
@@ -3873,7 +3874,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               <header><div><h3>文件清單</h3><p>原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{filteredQuestionBankFiles.length} 份文件</span></header>
               {filteredQuestionBankFiles.map((file) => {
                 const workspace = `/admin/question-bank/workspace?category=${file.examCategory}&id=${file.id}`;
-                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>拆題與總編輯</a></article>;
+                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><div className="central-document-actions"><a href={workspace}>拆題與總編輯</a>{file.examCategory!=="law"&&<a href={"/admin/question-bank/quality?id="+file.id}>自動品質修復</a>}</div></article>;
               })}
               {!filteredQuestionBankFiles.length && <p className="usage-empty">沒有符合條件的文件。</p>}
             </div>
