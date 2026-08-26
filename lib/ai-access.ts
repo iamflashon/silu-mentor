@@ -35,6 +35,8 @@ export async function grantAiAccess(db: Db, input:{memberId:number;quota:number;
 }
 
 export async function grantOrExtendAiAccess(db: Db, input:{memberId:number;quota:number;durationDays:number;source:string;referenceId:string;note:string}) {
+  const [alreadyGranted] = await db.select().from(aiAccessEntitlements).where(and(eq(aiAccessEntitlements.memberId,input.memberId),eq(aiAccessEntitlements.referenceId,input.referenceId))).limit(1);
+  if (alreadyGranted) return alreadyGranted;
   const existing = await getActiveAiEntitlement(db,input.memberId);
   if (!existing) return grantAiAccess(db,input);
   const expiresAt = new Date(existing.expiresAt.getTime()+input.durationDays*86400000);
