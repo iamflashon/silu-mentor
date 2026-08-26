@@ -124,7 +124,7 @@ export default function PengliTeacherPage() {
       <div className="pengli-lesson-task">
         <span>現在換你判斷</span>
         <p>人民依民法第 767 條請求市政府返還土地，市政府以公用地役關係抗辯。事件性質應從哪裡開始判斷？</p>
-        <div><button type="button">看解題提示</button><Link href="/law">交給司律 AI 引導</Link></div>
+        <div><button type="button">看解題提示</button><Link href="/teachers/pengli/coach?topic=%E5%85%AC%E7%A7%81%E6%B3%95%E5%8D%80%E5%88%86">詢問彭狸 AI 教練</Link></div>
       </div>
     </section>
 
