@@ -1,0 +1,67 @@
+.quality-bulk-replace {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr auto auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid #d1e2de;
+  border-radius: 12px;
+  background: #fffaf0;
+}
+
+.quality-bulk-replace > div span {
+  display: block;
+  margin-top: 4px;
+  color: #68827e;
+  font-size: 13px;
+}
+
+.quality-bulk-replace label {
+  font-weight: 800;
+}
+
+.quality-bulk-replace input {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 10px;
+  border: 1px solid #bad3ce;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.quality-bulk-replace p {
+  margin: 0 0 9px;
+  color: #6b5a2b;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.quality-bulk-replace button {
+  margin-bottom: 1px;
+  background: #b88720;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.quality-bulk-replace button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.focus-mode > .quality-bulk-replace {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .quality-bulk-replace {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .quality-bulk-replace {
+    grid-template-columns: 1fr;
+  }
+}
