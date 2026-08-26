@@ -4,6 +4,12 @@ import { documents, examQuestions, listeningAudioSegments, listeningSolutions, l
 import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
+function repairQualityText(value:string,kind:"spacing"|"linebreak"){
+  const source=String(value||"");
+  if(kind==="linebreak")return source.replace(/([\u4e00-\u9fff])(?:\s*<br\s*\/?\s*>\s*|\r?\n\s*)(?=[\u4e00-\u9fff])/giu,"$1");
+  return source.split(/(<[^>]+>)/g).map(part=>part.startsWith("<")?part:part.replace(/([\u4e00-\u9fff])\s+(?=[\u4e00-\u9fffA-Za-z0-9$％%])/gu,"$1").replace(/([A-Za-z0-9])\s+(?=[\u4e00-\u9fff])/gu,"$1").replace(/([，。；：、（）])\s+(?=[\u4e00-\u9fffA-Za-z0-9])/gu,"$1")).join("");
+}
+
 async function shiftSourceOrders(db: Awaited<ReturnType<typeof getDb>>, sourceUrl: string, minimumOrder: number, exceptId?: number) {
   const rows = await db.select({ id: examQuestions.id, sourceOrder: examQuestions.sourceOrder })
     .from(examQuestions)
@@ -285,6 +291,24 @@ export async function PATCH(request: Request) {
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as Record<string, unknown>;
+  const qualityRepair=body.qualityRepair==="spacing"||body.qualityRepair==="linebreak"?body.qualityRepair:null;
+  if(qualityRepair){
+    const documentId=Number(body.documentId);
+    if(!Number.isInteger(documentId)||documentId<1)return Response.json({error:"缺少文件編號"},{status:400});
+    const db=await getDb();
+    const [document]=await db.select({storageKey:documents.storageKey,fileName:documents.fileName}).from(documents).where(and(eq(documents.id,documentId),eq(documents.examCategory,"medtech"))).limit(1);
+    if(!document)return Response.json({error:"找不到指定的醫檢文件"},{status:404});
+    const sources=[...new Set([`document:${documentId}`,document.storageKey,document.fileName].filter((value):value is string=>Boolean(value)))];
+    const rows=await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory,"medtech"),or(...sources.map(source=>eq(examQuestions.sourceUrl,source)))));
+    let updated=0;
+    for(const row of rows){
+      const options=JSON.parse(row.optionsJson||"{}") as Record<string,string>,clean=(value:string|null)=>sanitizeRichHtml(repairQualityText(value||"",qualityRepair));
+      const values={stem:clean(row.stem),explanation:clean(row.explanation),completeExplanation:clean(row.completeExplanation),teacherCompleteExplanation:clean(row.teacherCompleteExplanation),simulatedExplanation:clean(row.simulatedExplanation),optionsJson:JSON.stringify(Object.fromEntries(Object.entries(options).map(([key,value])=>[key,clean(String(value??""))])))};
+      if(values.stem===row.stem&&values.explanation===row.explanation&&values.completeExplanation===row.completeExplanation&&values.teacherCompleteExplanation===row.teacherCompleteExplanation&&values.simulatedExplanation===row.simulatedExplanation&&values.optionsJson===row.optionsJson)continue;
+      await db.update(examQuestions).set(values).where(and(eq(examQuestions.id,row.id),eq(examQuestions.examCategory,"medtech")));updated+=1;
+    }
+    return Response.json({qualityRepair,updated,scanned:rows.length});
+  }
   const replaceFind = typeof body.replaceFind === "string" ? body.replaceFind : "";
   if (replaceFind) {
     const documentId = Number(body.documentId);

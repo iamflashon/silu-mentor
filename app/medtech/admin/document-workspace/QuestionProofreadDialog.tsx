@@ -87,12 +87,12 @@ export function QuestionProofreadDialog({ question, onClose, accounting = false 
           </div>
         </section>
 
-        <section className={`question-proofread-answer-grid ${accounting ? "single" : ""}`}>
+        {(!accounting || !teacherAnswerIsLong) && <section className={`question-proofread-answer-grid ${accounting ? "single" : ""}`}>
           {!accounting && <div className="question-proofread-answer ai"><span>AI 擬答（AI 版）</span><strong>{aiAnswer || "尚未產生"}</strong><small>AI 獨立判斷；僅供與老師答案比對</small></div>}
           <div className={`question-proofread-answer teacher ${teacherAnswerIsLong ? "long-answer" : ""}`}><span>老師答案（老師版）</span><strong dangerouslySetInnerHTML={{ __html: qualityHighlightedHtml(teacherAnswer || "尚未確認") }} /><small>{question.answerSource || "原稿／題庫來源尚未標示"}</small></div>
-        </section>
+        </section>}
 
-        <ExplanationCard title="題目原有簡要解析" value={question.explanation} empty="原題沒有附簡要解析。" />
+        <ExplanationCard title="題目原有簡要解析" value={question.explanation || (accounting && teacherAnswerIsLong ? question.teacherAnswer : "")} empty="原題沒有附簡要解析。" />
         {!accounting && <><ExplanationCard title="AI 簡要解析" value={question.simulatedExplanation} tone="ai" empty="AI 簡要解析尚未產生。" /><ExplanationCard title="AI 完整解析（待老師核對）" value={aiComplete} tone="ai" empty="AI 完整解析尚未產生。" /><ExplanationCard title="老師完整解析（老師版）" value={teacherComplete} tone="teacher" empty="老師完整解析尚未補充。" /></>}
 
         <div className={`question-proofread-status ${question.reviewStatus === "confirmed" ? "confirmed" : "pending"}`}>
