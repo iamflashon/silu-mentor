@@ -67,7 +67,7 @@ export default function PengliTeacherPage() {
       </div>
       <div className="pengli-book-stage">
         <div className="pengli-book-halo" aria-hidden="true" />
-        <img src="/teachers/pengli-administrative-law-cover-v2.png" alt="行政法考點（考前衝刺）演習書透明書封" />
+        <img src="https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif" alt="行政法考點（考前衝刺）演習書書封" />
         <div className="pengli-teacher-note"><small>AUTHOR</small><strong>彭狸</strong><span>臺大法律研究所公法組</span></div>
       </div>
     </section>

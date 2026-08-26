@@ -1318,7 +1318,7 @@ export default function MainEntryGate() {
         {homeCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => card.id === "pengli" ?
         <article className="main-teacher-card law-teacher" key={card.id}>
           <div className="main-teacher-cover">
-            <img src="/api/portal-cards/cover?id=pengli" onError={coverFallback("/teachers/pengli-administrative-law-cover-v2.png")} alt="行政法考點（考前衝刺）演習書透明書封" />
+            <img src="/api/portal-cards/cover?id=pengli" onError={coverFallback("https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif")} alt="行政法考點（考前衝刺）演習書書封" />
           </div>
           <div className="main-teacher-content">
             <div className="main-teacher-tags"><span>法律類</span><span>行政法</span><span>司律二試</span></div>
