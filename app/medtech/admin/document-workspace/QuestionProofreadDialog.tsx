@@ -23,8 +23,23 @@ function content(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function qualityHighlightedHtml(value: unknown) {
+  const original = content(value);
+  if (!original) return original;
+  const hasSpacing = /(?:[\u4e00-\u9fff]\s+){3,}[\u4e00-\u9fff]/u.test(original.replace(/<[^>]+>/g, " "));
+  let html = original.replace(/([\u4e00-\u9fff])(\s*<br\s*\/?\s*>\s*)(?=[\u4e00-\u9fff])/giu, '$1<mark class="quality-text-warning linebreak" title="疑似強制斷行">↵</mark>$2');
+  html = html.split(/(<[^>]+>)/g).map((part) => {
+    if (part.startsWith("<")) return part;
+    let text = part.replace(/[\uE000-\uF8FF�]/gu, (char) => `<mark class="quality-text-warning garbled" title="亂碼或無法辨識字元">${char}</mark>`);
+    text = text.replace(/([\u4e00-\u9fff])\r?\n\s*(?=[\u4e00-\u9fff])/gu, '$1<mark class="quality-text-warning linebreak" title="疑似強制斷行">↵</mark>');
+    if (hasSpacing) text = text.replace(/([\u4e00-\u9fff])([ \t]+)(?=[\u4e00-\u9fff])/gu, (_match, left, spaces) => `${left}<mark class="quality-text-warning spacing" title="中文字間異常空格">${"␠".repeat(Math.max(1, spaces.length))}</mark>`);
+    return text;
+  }).join("");
+  return html;
+}
+
 function RichContent({ value, empty = "尚未提供" }: { value?: unknown; empty?: string }) {
-  const html = content(value);
+  const html = qualityHighlightedHtml(value);
   return html
     ? <div className="question-proofread-rich" dangerouslySetInnerHTML={{ __html: html }} />
     : <div className="question-proofread-empty">{empty}</div>;
@@ -74,7 +89,7 @@ export function QuestionProofreadDialog({ question, onClose, accounting = false 
 
         <section className={`question-proofread-answer-grid ${accounting ? "single" : ""}`}>
           {!accounting && <div className="question-proofread-answer ai"><span>AI 擬答（AI 版）</span><strong>{aiAnswer || "尚未產生"}</strong><small>AI 獨立判斷；僅供與老師答案比對</small></div>}
-          <div className={`question-proofread-answer teacher ${teacherAnswerIsLong ? "long-answer" : ""}`}><span>老師答案（老師版）</span><strong>{teacherAnswer || "尚未確認"}</strong><small>{question.answerSource || "原稿／題庫來源尚未標示"}</small></div>
+          <div className={`question-proofread-answer teacher ${teacherAnswerIsLong ? "long-answer" : ""}`}><span>老師答案（老師版）</span><strong dangerouslySetInnerHTML={{ __html: qualityHighlightedHtml(teacherAnswer || "尚未確認") }} /><small>{question.answerSource || "原稿／題庫來源尚未標示"}</small></div>
         </section>
 
         <ExplanationCard title="題目原有簡要解析" value={question.explanation} empty="原題沒有附簡要解析。" />

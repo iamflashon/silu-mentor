@@ -1,0 +1,15 @@
+.quality-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quality-editor-actions button:first-child {
+  background: #15796e;
+  color: #fff;
+}
+
+.quality-editor-actions button:last-child {
+  background: #fff;
+  color: #166b61;
+}

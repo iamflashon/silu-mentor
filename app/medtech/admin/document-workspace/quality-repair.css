@@ -13,4 +13,7 @@
 .workspace-quality-reasons p{display:flex;align-items:center;gap:8px;margin:0;padding:8px 10px;border-radius:8px;background:#fff2e8;color:#315f58}
 .workspace-quality-reasons p.p0{background:#fff0f0}
 .workspace-quality-reasons p strong{color:#c14848}
+.question-proofread-inline .quality-text-warning{padding:0 2px;border-radius:3px;background:#ffe1e1;color:#c42d2d;font-weight:900;text-decoration:none}
+.question-proofread-inline .quality-text-warning.linebreak{margin:0 2px;background:#ffd5c8;color:#b93417}
+.question-proofread-inline .quality-text-warning.spacing{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:0}
 @media(max-width:900px){.quality-repair-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.quality-repair-filters>b{grid-column:1/-1}}
