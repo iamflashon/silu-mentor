@@ -7,6 +7,7 @@ import StudyBreakReminder from "./study-break-reminder";
 import NavigationFeedback from "./navigation-feedback";
 import SimulationToolsVisibility from "./simulation-tools-visibility";
 import FrontendCostVisibility from "./frontend-cost-visibility";
+import SpecialtyHomeLink from "./specialty-home-link";
 
 export const metadata: Metadata = {
   title: { default: "iBrain AI 學習平台", template: "%s｜iBrain AI 學習平台" },
@@ -35,6 +36,7 @@ export default function RootLayout({
       <body className="antialiased">
         <SimulationToolsVisibility />
         <FrontendCostVisibility />
+        <SpecialtyHomeLink />
         {children}
         <NavigationFeedback />
         <GlobalSelectionTools />
