@@ -1,0 +1,32 @@
+.quality-source > header {
+  align-items: center;
+}
+
+.quality-source > header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-source > header button {
+  flex: none;
+  padding: 6px 9px;
+}
+
+.quality-selection-search {
+  position: fixed;
+  z-index: 50;
+  padding: 5px;
+  border: 1px solid #83b4ad;
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: 0 8px 24px #123f3a33;
+}
+
+.quality-selection-search button {
+  border: 0;
+  background: #15796e;
+  color: #fff;
+  white-space: nowrap;
+}
