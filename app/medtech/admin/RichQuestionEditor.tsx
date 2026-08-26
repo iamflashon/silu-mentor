@@ -38,7 +38,20 @@ function cropStructureDiagrams(root:ParentNode){
 function editorHtml(root:HTMLElement){
   const clone=root.cloneNode(true) as HTMLElement;
   clone.querySelectorAll("[data-table-editor-selected]").forEach(element=>element.removeAttribute("data-table-editor-selected"));
+  clone.querySelectorAll<HTMLElement>("[data-quality-warning]").forEach(element=>element.replaceWith(document.createTextNode(element.dataset.qualityOriginal??element.textContent??"")));
   return clone.innerHTML;
+}
+
+function qualityEditorHtml(value:string){
+  const marker=(text:string,kind:string,original=text)=>`<mark class="quality-editor-warning ${kind}" data-quality-warning="true" data-quality-original="${original.replace(/&/g,"&amp;").replace(/"/g,"&quot;")}">${text}</mark>`;
+  return String(value||"")
+    .replace(/([\u4e00-\u9fff])(?:\s*<br\s*\/?\s*>\s*)(?=[\u4e00-\u9fff])/giu,(_,before)=>`${before}${marker("↵","linebreak","")}<br>`)
+    .split(/(<[^>]+>)/g)
+    .map(part=>part.startsWith("<")?part:part
+      .replace(/[\uE000-\uF8FF�]/gu,char=>marker(char,"garbled"))
+      .replace(/([\u4e00-\u9fff])\r?\n\s*(?=[\u4e00-\u9fff])/gu,(_,before)=>`${before}${marker("↵","linebreak","")}\n`)
+      .replace(/([\u4e00-\u9fff])([ \t]{2,})(?=[\u4e00-\u9fff])/gu,(_,before,space)=>`${before}${marker("␠","spacing",space)}`))
+    .join("");
 }
 
 function TableSizeControl({label,value,min,max,onChange}:{label:string;value:number;min:number;max:number;onChange:(value:number)=>void}){
@@ -50,7 +63,7 @@ function TableSizeControl({label,value,min,max,onChange}:{label:string;value:num
   return <div className="table-size-control"><b>{label}</b><input aria-label={`${label}滑桿`} type="range" min={min} max={max} step="1" value={current} onChange={event=>update(Number(event.currentTarget.value))}/><button type="button" aria-label={`${label}減少 1%`} onClick={()=>update(current-1)}>−</button><label><input aria-label={`${label}百分比`} type="number" min={min} max={max} step="1" value={draft} onChange={event=>setDraft(event.currentTarget.value)} onBlur={commitDraft} onKeyDown={event=>{if(event.key==="Enter")event.currentTarget.blur()}}/><span>%</span></label><button type="button" aria-label={`${label}增加 1%`} onClick={()=>update(current+1)}>＋</button></div>
 }
 
-export function RichQuestionEditor({label,value,onChange,compact=false,category="medtech"}:{label:string;value:string;onChange:(value:string)=>void;compact?:boolean;category?:"medtech"|"accounting"|"data-structure"}){
+export function RichQuestionEditor({label,value,onChange,compact=false,category="medtech",highlightIssues=true}:{label:string;value:string;onChange:(value:string)=>void;compact?:boolean;category?:"medtech"|"accounting"|"data-structure";highlightIssues?:boolean}){
   const ref=useRef<HTMLDivElement>(null); const fileRef=useRef<HTMLInputElement>(null); const selectionRef=useRef<Range|null>(null); const imageFiles=useRef(new Map<string,File>()); const svgHistory=useRef<string[]>([]); const svgFuture=useRef<string[]>([]); const [showSymbols,setShowSymbols]=useState(false); const [showTableGrid,setShowTableGrid]=useState(false); const [showBorderPicker,setShowBorderPicker]=useState(false); const [borderWidth,setBorderWidth]=useState<1|2|3>(1); const [gridSize,setGridSize]=useState({rows:3,cols:4}); const [selectedCell,setSelectedCell]=useState<HTMLTableCellElement|null>(null); const [selectedCells,setSelectedCells]=useState<HTMLTableCellElement[]>([]); const [selectedImage,setSelectedImage]=useState<HTMLImageElement|null>(null); const [selectedDiagram,setSelectedDiagram]=useState<SVGSVGElement|null>(null); const [selectedSvgItem,setSelectedSvgItem]=useState<Element|null>(null); const [svgItemText,setSvgItemText]=useState(""); const [diagramMode,setDiagramMode]=useState<"select"|"connect">("select"); const [connectionStart,setConnectionStart]=useState<SVGGElement|null>(null); const [newEdgeDirected,setNewEdgeDirected]=useState(false); const [uploading,setUploading]=useState(false); const [convertingTable,setConvertingTable]=useState(false); const [convertingDiagram,setConvertingDiagram]=useState(false); const [structureType,setStructureType]=useState(""); const [formatState,setFormatState]=useState({bold:false,italic:false,underline:false,unorderedList:false,alignment:"left" as "left"|"center"|"right"});
   const [addSvgTextMode,setAddSvgTextMode]=useState(false);
   function rememberSelection(){const selection=window.getSelection();if(!selection||!selection.rangeCount||!ref.current)return;const range=selection.getRangeAt(0);if(ref.current.contains(range.commonAncestorContainer))selectionRef.current=range.cloneRange()}
@@ -68,7 +81,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     return "left";
   }
   function refreshFormatState(){try{setFormatState({bold:document.queryCommandState("bold"),italic:document.queryCommandState("italic"),underline:document.queryCommandState("underline"),unorderedList:document.queryCommandState("insertUnorderedList"),alignment:currentAlignment()})}catch{setFormatState({bold:false,italic:false,underline:false,unorderedList:false,alignment:"left"})}}
-  useEffect(()=>{const normalized=normalizeTemperature(value||"");if(ref.current&&normalizeTemperature(editorHtml(ref.current))!==normalized){ref.current.innerHTML=normalized;setSelectedCell(null);setSelectedCells([])}if(ref.current)cropStructureDiagrams(ref.current)},[value]);
+  useEffect(()=>{const normalized=normalizeTemperature(value||"");if(ref.current&&normalizeTemperature(editorHtml(ref.current))!==normalized){ref.current.innerHTML=highlightIssues?qualityEditorHtml(normalized):normalized;setSelectedCell(null);setSelectedCells([])}if(ref.current)cropStructureDiagrams(ref.current)},[value,highlightIssues]);
   function sync(){const normalized=normalizeTemperature(ref.current?editorHtml(ref.current):"");onChange(normalized);rememberSelection()}
   function command(name:string,arg?:string){restoreSelection();const before=ref.current?.innerHTML??"";document.execCommand(name,false,arg);if(name==="insertUnorderedList"&&ref.current&&ref.current.innerHTML===before){document.execCommand("insertHTML",false,"<ul><li><br></li></ul>")}rememberSelection();sync();refreshFormatState()}
   function doubleUnderline(){
