@@ -1292,9 +1292,10 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
-  const defaultPortalCards: Array<{ id: "law" | "medtech"; enabled: boolean; order: number }> = [
+  const defaultPortalCards: Array<{ id: "law" | "medtech" | "accounting"; enabled: boolean; order: number }> = [
     { id: "law", enabled: true, order: 1 },
     { id: "medtech", enabled: true, order: 2 },
+    { id: "accounting", enabled: true, order: 3 },
   ];
   const [portalCards, setPortalCards] = useState<typeof defaultPortalCards | null>(null);
   useEffect(() => {
@@ -1306,6 +1307,7 @@ export default function MainEntryGate() {
   const cardDefinitions = {
     law: { className: "law", href: "/law", eyebrow: "LEGAL INTELLIGENCE", number: "01", small: "律師・司法官國考", title: "司律備考", description: "爭點學習、真題演練與申論解題，建立完整法律思考路徑。" },
     medtech: { className: "medtech", href: "/medtech", eyebrow: "MEDICAL LAB SCIENCE", number: "02", small: "醫事檢驗師國考", title: "醫檢國考", description: "章節刷題、完整解析與老師語音，讓國考準備更有方向。" },
+    accounting: { className: "accounting", href: "/accounting", eyebrow: "ACCOUNTING INTELLIGENCE", number: "03", small: "會研所・會計專業", title: "中級會計", description: "課業答疑、題庫練習與申論解析，把會計觀念與計算步驟真正串起來。" },
   };
   return <main className="main-entry-gate main-portal">
     <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
@@ -1320,12 +1322,41 @@ export default function MainEntryGate() {
         {(portalCards ?? []).filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => { const item = cardDefinitions[card.id]; return <a className={`main-portal-card ${item.className}`} href={item.href} key={card.id}>
           <div className="main-portal-card-top"><span>{item.eyebrow}</span><i>{item.number}</i></div>
           <div className="main-portal-card-icon" aria-hidden="true">
-            {card.id === "law" ? <svg viewBox="0 0 64 64" role="img"><path d="M32 10v42M18 16h28M12 52h40M21 16l-9 18h18L21 16Zm22 0-9 18h18L43 16Z"/><path d="M10 34c1.5 5 5 8 11 8s9.5-3 11-8M32 34c1.5 5 5 8 11 8s9.5-3 11-8"/></svg> : <svg viewBox="0 0 64 64" role="img"><path d="M27 10h13v8H27zM32 18v10l-9 9M39 24l8 8M18 37c0 9 7 16 16 16h15M42 52h10M21 34l17 17"/><circle cx="39" cy="34" r="6"/><path d="M13 54h42"/></svg>}
+            {card.id === "law" ? <svg viewBox="0 0 64 64" role="img"><path d="M32 10v42M18 16h28M12 52h40M21 16l-9 18h18L21 16Zm22 0-9 18h18L43 16Z"/><path d="M10 34c1.5 5 5 8 11 8s9.5-3 11-8M32 34c1.5 5 5 8 11 8s9.5-3 11-8"/></svg> : card.id === "medtech" ? <svg viewBox="0 0 64 64" role="img"><path d="M27 10h13v8H27zM32 18v10l-9 9M39 24l8 8M18 37c0 9 7 16 16 16h15M42 52h10M21 34l17 17"/><circle cx="39" cy="34" r="6"/><path d="M13 54h42"/></svg> : <svg viewBox="0 0 64 64" role="img"><rect x="14" y="8" width="36" height="48" rx="5"/><path d="M21 16h22M22 27h5M30 27h5M38 27h5M22 36h5M30 36h5M38 36h5M22 45h5M30 45h5M38 45h5"/></svg>}
           </div>
           <div className="main-portal-card-copy"><small>{item.small}</small><h2>{item.title}</h2><p>{item.description}</p></div>
           <div className="main-portal-card-enter"><span>進入學習平台</span><b aria-hidden="true">↗</b></div>
         </a>; })}
       </div>
+      <section className="main-teacher-zone" aria-labelledby="featured-teachers-title">
+        <header className="main-teacher-zone-head">
+          <div>
+            <span>FEATURED MENTORS</span>
+            <h2 id="featured-teachers-title">名師專區</h2>
+          </div>
+          <p>依類科找到老師，從專屬教材開始學習。</p>
+        </header>
+        <article className="main-teacher-card law-teacher">
+          <div className="main-teacher-cover">
+            <img src="https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif" alt="行政法考點（考前衝刺）演習書書封" />
+          </div>
+          <div className="main-teacher-content">
+            <div className="main-teacher-tags"><span>法律類</span><span>行政法</span><span>司律二試</span></div>
+            <small>彭狸老師專區</small>
+            <h3>行政法考點衝刺</h3>
+            <p>從熱門爭點、破題方法到申論擬答，把行政法從看得懂練到寫得出來。</p>
+            <div className="main-teacher-features" aria-label="專區內容">
+              <span><b>8</b> 大主題</span>
+              <span>考點演練</span>
+              <span>申論批改</span>
+            </div>
+          </div>
+          <div className="main-teacher-actions" aria-label="專區預覽按鈕">
+            <span className="main-teacher-trial">免費試學</span>
+            <span className="main-teacher-enter">進入專區 <b aria-hidden="true">↗</b></span>
+          </div>
+        </article>
+      </section>
       <footer className="main-portal-footer">
         <span>高點學習服務</span>
         <nav aria-label="高點學習服務">

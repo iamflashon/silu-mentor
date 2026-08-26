@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-type Card = { id: "law" | "medtech"; enabled: boolean; order: number };
+type Card = { id: "law" | "medtech" | "accounting"; enabled: boolean; order: number };
 
 const details = {
   law: { mark: "律", title: "司律備考", subtitle: "律師・司法官國考", href: "/law", tone: "law" },
   medtech: { mark: "醫", title: "醫檢國考", subtitle: "醫事檢驗師國考", href: "/medtech", tone: "medtech" },
+  accounting: { mark: "會", title: "中級會計", subtitle: "會研所・會計專業", href: "/accounting", tone: "accounting" },
 };
 
 export default function PortalCardsAdminPage() {
