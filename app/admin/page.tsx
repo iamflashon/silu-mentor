@@ -3275,9 +3275,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
       const exists = current.some((item) => item.examCategory === category);
       const next = exists
         ? current.filter((item) => item.examCategory !== category)
-        : category === "pengli" && /彭狸|行政法考點/u.test(`${file.bookTitle ?? ""} ${file.name}`)
-          ? [{ examCategory: "pengli", subject: "行政法", usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }]
-          : [...current, { examCategory: category, subject: file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
+        : [...current, { examCategory: category, subject: category === "pengli" ? "行政法" : file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
       if (!next.length) throw new Error("至少保留一個使用平台");
       const savedResponse = await fetch("/api/documents/assignments", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, assignments: next }) });
       const saved = await savedResponse.json() as { assignments?: Array<{ examCategory: string }>; error?: string };
