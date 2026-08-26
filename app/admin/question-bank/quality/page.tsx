@@ -16,6 +16,7 @@ function flags(q:Question){
  if(!plain(q.stem))result.push({severity:"P0",message:"題幹為空或拆題失敗",auto:false});
  if(!essay&&!options.every(Boolean))result.push({severity:"P0",message:"A～D 選項不完整",auto:false});
  if(!essay&&!/^(?:[A-D]|NONE)$/.test(answer))result.push({severity:"P0",message:"缺少有效老師答案",auto:false});
+ if(!essay&&answer==="NONE")result.push({severity:"P0",message:"老師確認 A～D 均無適合答案；本題暫不發布",auto:false});
  if(options.some(v=>/(?:解析|解答|計算過程|答案)\s*[：:]/u.test(v)))result.push({severity:"P0",message:"解析或答案疑似混入選項",auto:false});
  if(/[\uE000-\uF8FF�]/u.test([q.stem,...options,q.explanation||""].join(" ")))result.push({severity:"P0",message:"偵測到私人使用區或無法辨識的特殊字元",auto:false});
  if(/(?:[\u4e00-\u9fff]\s+){3,}[\u4e00-\u9fff]/u.test([plain(q.stem),...options].join(" ")))result.push({severity:"P1",message:"偵測到中文字間異常空格",auto:true});

@@ -469,7 +469,6 @@ export default function MedtechPractice() {
   }
 
   function displayedLetter(questionId: number, originalLetter: string) {
-    if (originalLetter === "NONE") return "無適合選項";
     const position = displayedOptionOrder(questionId).indexOf(originalLetter);
     return position >= 0 ? letters[position] : originalLetter;
   }
@@ -1027,7 +1026,6 @@ export default function MedtechPractice() {
                   )}
                 </div>
               ))}
-              {q.answer === "NONE" && <div className={userAnswer === "NONE" ? "correct" : ""}><b>無</b><span>無適合選項（A～D 皆不正確）</span><em>{q.answerLabel || "正確答案"}</em></div>}
             </div>
             <section className="medtech-explanation">
               <span>簡要解析</span>
@@ -1358,7 +1356,6 @@ export default function MedtechPractice() {
                 <span>{q.options[letter]}</span>
               </button>
             ))}
-            {q.answer === "NONE" && <button className={answers[q.id] === "NONE" ? "selected" : ""} disabled={q.locked} onClick={() => chooseAnswer("NONE")}><b>無</b><span>無適合選項（A～D 皆不正確）</span></button>}
           </div>
           <footer>
             <button
