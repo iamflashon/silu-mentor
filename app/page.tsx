@@ -1338,7 +1338,7 @@ export default function MainEntryGate() {
         </header>
         <article className="main-teacher-card law-teacher">
           <div className="main-teacher-cover">
-            <img src="https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif" alt="行政法考點（考前衝刺）演習書書封" />
+            <img src="/teachers/pengli-administrative-law-cover.png" alt="行政法考點（考前衝刺）演習書透明書封" />
           </div>
           <div className="main-teacher-content">
             <div className="main-teacher-tags"><span>法律類</span><span>行政法</span><span>司律二試</span></div>
