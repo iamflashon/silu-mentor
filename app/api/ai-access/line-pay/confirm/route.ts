@@ -15,8 +15,8 @@ export async function GET(request:Request){
   if(!transactionId||(order.transactionId&&callbackTransactionId&&order.transactionId!==callbackTransactionId))return Response.redirect(`${url.origin}${destination}?ai_payment=invalid`);
   try{
     const result=await linePayPost(`/v3/payments/${transactionId}/confirm`,{amount:order.amount,currency:order.currency}),paid=result.returnCode==="0000";
+    if(paid)await grantOrExtendAiAccess(auth.db,{memberId:auth.member.id,quota:order.quota,durationDays:order.durationDays,source:"line_pay",referenceId:order.orderId,note:`LINE Pay NT${order.amount} 單次付款／加購`});
     await auth.db.update(aiPaymentOrders).set({transactionId,status:paid?"paid":"failed",returnCode:result.returnCode??null,returnMessage:result.returnMessage??null,paidAt:paid?new Date():null,updatedAt:new Date()}).where(eq(aiPaymentOrders.id,order.id));
-    if(paid)await grantOrExtendAiAccess(auth.db,{memberId:auth.member.id,quota:order.quota,durationDays:order.durationDays,source:"line_pay",referenceId:order.orderId,note:`LINE Pay NT$${order.amount} 單次付款／加購`});
     return Response.redirect(`${url.origin}${destination}?ai_payment=${paid?"success":"failed"}`);
   }catch{return Response.redirect(`${url.origin}${destination}?ai_payment=failed`)}
 }
