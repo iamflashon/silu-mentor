@@ -122,11 +122,11 @@ export default function PengliCoach() {
       <header><div><span>彭狸 AI 教練</span><h1>先找爭點，再把答案寫出來</h1></div><i><b /> 教材模式</i></header>
       <div className="pengli-coach-thread" aria-live="polite">
         {!hasConversation && <div className="pengli-coach-starters">{starters.map((starter) => <button type="button" key={starter} onClick={() => void ask(starter)}>{starter}<b>→</b></button>)}</div>}
-        {messages.map((message, index) => <article className={message.role} key={`${message.role}-${index}`}>
-          <div className="pengli-coach-avatar">{message.role === "coach" ? "狸" : message.role === "scholar" ? "霸" : "我"}</div>
-          <div><small>{message.role === "coach" ? "彭狸 AI 教練" : message.role === "scholar" ? "AI 學霸" : "我的問題"}</small><p>{message.text}</p>{message.source && <span>依據：{message.source}</span>}</div>
+        {messages.map((message, index) => <article className={message.role === "coach" ? "coach" : "student"} key={`${message.role}-${index}`}>
+          <div className="pengli-coach-avatar">{message.role === "coach" ? "狸" : "我"}</div>
+          <div><small>{message.role === "coach" ? "彭狸 AI 教練" : message.role === "scholar" ? "我的回答（學霸幫我答）" : "我的問題"}</small><p>{message.text}</p>{message.source && <span>（根據《{message.source}）</span>}</div>
         </article>)}
-        {scholarThinking && <article className="scholar thinking"><div className="pengli-coach-avatar">霸</div><div><small>AI 學霸（學生角色）</small><p>正在替我整理回答，並準備反問老師……</p></div></article>}
+        {scholarThinking && <article className="student thinking"><div className="pengli-coach-avatar">我</div><div><small>我的回答（學霸幫我答）</small><p>正在替我整理回答與要問老師的問題……</p></div></article>}
         {thinking && <article className="coach thinking"><div className="pengli-coach-avatar">狸</div><div><small>彭狸 AI 教練</small><p>正在回應學員的回答與追問……</p></div></article>}
         <div ref={endRef} />
       </div>
