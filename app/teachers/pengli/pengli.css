@@ -22,3 +22,10 @@
 .pengli-book-object::after{content:"";position:absolute;z-index:3;right:23px;bottom:-16px;width:17px;height:47px;background:linear-gradient(90deg,#b88a3d,#e2bf75 55%,#9a6d29);clip-path:polygon(0 0,100% 0,100% 100%,50% 78%,0 100%)}
 .pengli-book-object img{display:block;width:100%;aspect-ratio:760/1500;object-fit:cover;border-radius:1px 4px 4px 1px}
 @media(max-width:680px){.pengli-book-object{width:198px}}
+
+
+/* Correct the publisher cover to its natural 200:278 proportion. */
+.pengli-book-object{width:282px}
+.pengli-book-object img{aspect-ratio:200/278;object-fit:contain}
+.pengli-teacher-note{right:-58px;bottom:12px}
+@media(max-width:680px){.pengli-book-object{width:210px}.pengli-teacher-note{right:-2px;bottom:-10px}}
