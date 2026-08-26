@@ -30,7 +30,10 @@ function qualityHighlightedHtml(value: unknown) {
   let html = original.replace(/([\u4e00-\u9fff])(\s*<br\s*\/?\s*>\s*)(?=[\u4e00-\u9fff])/giu, '$1<mark class="quality-text-warning linebreak" title="疑似強制斷行">↵</mark>$2');
   html = html.split(/(<[^>]+>)/g).map((part) => {
     if (part.startsWith("<")) return part;
-    let text = part.replace(/[\uE000-\uF8FF�]/gu, (char) => `<mark class="quality-text-warning garbled" title="亂碼或無法辨識字元">${char}</mark>`);
+    let text = part.replace(/[\uE000-\uF8FF�]/gu, (char) => {
+      const code = `U+${char.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`;
+      return `<mark class="quality-text-warning garbled" title="亂碼或無法辨識字元：${code}">⚠ ${code}</mark>`;
+    });
     text = text.replace(/([\u4e00-\u9fff])\r?\n\s*(?=[\u4e00-\u9fff])/gu, '$1<mark class="quality-text-warning linebreak" title="疑似強制斷行">↵</mark>');
     if (hasSpacing) text = text.replace(/([\u4e00-\u9fff])([ \t]+)(?=[\u4e00-\u9fff])/gu, (_match, left, spaces) => `${left}<mark class="quality-text-warning spacing" title="中文字間異常空格">${"␠".repeat(Math.max(1, spaces.length))}</mark>`);
     return text;

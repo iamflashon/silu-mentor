@@ -4,6 +4,7 @@ import { examQuestions, usageLogs } from "../../../../../../db/schema";
 import { requireMedtechQuestionEditor } from "../../../../../../lib/member-auth";
 import { getOpenAIKey, getOpenAIModel, openAIJson } from "../../../../../../lib/openai";
 import { sanitizeRichHtml } from "../../../../../../lib/rich-html";
+import { estimateCostUsdMicros } from "../../../../../../lib/usage";
 
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
@@ -84,14 +85,13 @@ export async function POST(request: Request) {
     ...(question.status === "published" ? { status: "disabled" } : {}),
   }).where(eq(examQuestions.id, question.id)).returning();
   const usage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
+  const inputTokens=usage.input_tokens??0,outputTokens=usage.output_tokens??0,cachedTokens=usage.input_tokens_details?.cached_tokens??0,estimatedCostUsdMicros=estimateCostUsdMicros(model,{inputTokens,outputTokens,cachedTokens});
   await db.insert(usageLogs).values({
     model,
-    source: `醫檢師擬真題 AI 擬答｜題目 ${question.id}`,
-    inputTokens: usage.input_tokens ?? 0,
-    cachedTokens: usage.input_tokens_details?.cached_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? 0,
+    source: `教材編輯｜醫檢｜AI 擬答｜題目 ${question.id}`,
+    inputTokens,cachedTokens,outputTokens,
     fileSearchCalls: 0,
-    estimatedCostUsdMicros: 0,
+    estimatedCostUsdMicros,
   }).catch(() => undefined);
-  return Response.json({ item: updated, generated: true, answerConflict: hasTeacherAnswer && simulatedAnswer !== teacherAnswer, model, usage: { inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } });
+  return Response.json({ item: updated, generated: true, answerConflict: hasTeacherAnswer && simulatedAnswer !== teacherAnswer, model, usage: { inputTokens,cachedTokens,outputTokens,estimatedCostUsd:estimatedCostUsdMicros/1_000_000 } });
 }

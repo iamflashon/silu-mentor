@@ -20,6 +20,15 @@ export async function GET(request: Request) {
       costMicros: sql<number>`coalesce(sum(${usageLogs.estimatedCostUsdMicros}), 0)`,
     }).from(usageLogs).where(lawUsageWhere);
     const recent = await db.select().from(usageLogs).where(lawUsageWhere).orderBy(desc(usageLogs.createdAt)).limit(30);
+    const editorUsageWhere = sql`${usageLogs.source} like '教材編輯｜%'`;
+    const [editorTotals] = await db.select({
+      requests: sql<number>`count(*)`,
+      inputTokens: sql<number>`coalesce(sum(${usageLogs.inputTokens}), 0)`,
+      cachedTokens: sql<number>`coalesce(sum(${usageLogs.cachedTokens}), 0)`,
+      outputTokens: sql<number>`coalesce(sum(${usageLogs.outputTokens}), 0)`,
+      costMicros: sql<number>`coalesce(sum(${usageLogs.estimatedCostUsdMicros}), 0)`,
+    }).from(usageLogs).where(editorUsageWhere);
+    const editorRecent = await db.select().from(usageLogs).where(editorUsageWhere).orderBy(desc(usageLogs.createdAt)).limit(50);
     // 模型比較是較晚加入的選用功能。舊環境尚未建立比較資料表時，
     // 不應連帶讓既有成本統計與顯示設定整頁失效。
     const comparisons = await db.select().from(chatComparisons).orderBy(desc(chatComparisons.createdAt)).limit(30).catch(() => []);
@@ -40,6 +49,8 @@ export async function GET(request: Request) {
     return Response.json({
       totals,
       recent,
+      editorTotals,
+      editorRecent,
       showCosts,
       showEvidence,
       essayGradingDualEnabled,

@@ -130,6 +130,8 @@ type UsageData = {
     estimatedCostUsdMicros: number;
     createdAt: string;
   }>;
+  editorTotals?: { requests: number; inputTokens: number; cachedTokens: number; outputTokens: number; costMicros: number };
+  editorRecent?: Array<{ id: number; model: string; source: string; inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsdMicros: number; createdAt: string }>;
   comparisonStats?: {
     comparisons: number;
     ratedResponses: number;
@@ -4158,6 +4160,11 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                 </strong>
               </div>
             </div>
+            <section className="comparison-admin-summary" aria-label="教材編輯成本彙整">
+              <div className="cost-heading"><div><h3>教材編輯成本彙整</h3><p className="panel-sub">集中累積中會、醫檢與其他類科後台的 OCR、圖片轉文字／表格、AI 擬答及完整解析成本；規則式掃描與批次修復為 0 token。</p></div><span className="source-count">{usage?.editorTotals?.requests ?? 0} 次付費編輯</span></div>
+              <div className="cost-metrics comparison-metrics"><div><span>輸入 Token</span><strong>{Number(usage?.editorTotals?.inputTokens ?? 0).toLocaleString()}</strong></div><div><span>輸出 Token</span><strong>{Number(usage?.editorTotals?.outputTokens ?? 0).toLocaleString()}</strong></div><div><span>快取 Token</span><strong>{Number(usage?.editorTotals?.cachedTokens ?? 0).toLocaleString()}</strong></div><div className="cost-total"><span>編輯累計成本</span><strong>US$ {(Number(usage?.editorTotals?.costMicros ?? 0)/1_000_000).toFixed(5)} · 約 NT$ {formatTwd(Number(usage?.editorTotals?.costMicros ?? 0)/1_000_000,2)}</strong></div></div>
+              {usage?.editorRecent?.length?<div className="comparison-admin-list">{usage.editorRecent.slice(0,20).map(row=><article key={row.id}><header><strong>{row.source}</strong><span>{(row.inputTokens+row.outputTokens).toLocaleString()} tokens · US$ {(row.estimatedCostUsdMicros/1_000_000).toFixed(6)}</span><small>{new Date(row.createdAt).toLocaleString("zh-TW")}</small></header></article>)}</div>:<p className="usage-empty">尚未產生需使用 Token 的教材編輯紀錄。</p>}
+            </section>
             <section className="comparison-admin-summary" aria-label="雙模型比較統計">
               <div className="cost-heading"><div><h3>AI 導師模型比較</h3><p className="panel-sub">前台測試者可比較 Luna、Claude Sonnet 與 DeepSeek V4-Pro；這裡顯示各模型的實際回覆、Token、耗時、成本與回饋。</p></div><span className="source-count">{usage?.comparisonStats?.comparisons ?? 0} 次比較</span></div>
               <div className="cost-metrics comparison-metrics"><div><span>已評分回答</span><strong>{usage?.comparisonStats?.ratedResponses ?? 0}</strong></div><div><span>Luna 被選較多</span><strong>{usage?.comparisonStats?.lunaPreferred ?? 0}</strong></div><div><span>Sonnet 被選較多</span><strong>{usage?.comparisonStats?.claudePreferred ?? 0}</strong></div><div><span>DeepSeek 被選較多</span><strong>{usage?.comparisonStats?.deepseekPreferred ?? 0}</strong></div><div><span>平均評分</span><strong>{Number(usage?.comparisonStats?.averageScore ?? 0).toFixed(2)} / 5</strong></div></div>

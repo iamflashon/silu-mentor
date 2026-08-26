@@ -1,6 +1,8 @@
 import { requireAccountingAdmin } from "../../../../../lib/member-auth";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
+import { usageLogs } from "../../../../../db/schema";
+import { estimateCostUsdMicros } from "../../../../../lib/usage";
 
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
@@ -27,9 +29,12 @@ export async function POST(request: Request) {
     text: { format: { type: "json_schema", name: "accounting_layout_from_image", strict: true, schema: { type: "object", additionalProperties: false, properties: { html: { type: "string" }, confidence: { type: "string", enum: ["high", "medium", "low"] }, note: { type: "string" } }, required: ["html", "confidence", "note"] } } },
     max_output_tokens: 3200,
   }) });
+  const usage=payload.usage&&typeof payload.usage==="object"?payload.usage as {input_tokens?:number;output_tokens?:number;input_tokens_details?:{cached_tokens?:number}}:{};
+  const inputTokens=Number(usage.input_tokens??0),outputTokens=Number(usage.output_tokens??0),cachedTokens=Number(usage.input_tokens_details?.cached_tokens??0),model="gpt-5.6-luna",estimatedCostUsdMicros=estimateCostUsdMicros(model,{inputTokens,outputTokens,cachedTokens});
+  await auth.db.insert(usageLogs).values({model,source:"教材編輯｜中會｜圖片轉文字／表格",inputTokens,outputTokens,cachedTokens,fileSearchCalls:0,estimatedCostUsdMicros}).catch(()=>undefined);
   let parsed: { html?: string; confidence?: string; note?: string } = {};
   try { parsed = JSON.parse(outputText(payload)) as typeof parsed; } catch { return Response.json({ error: "AI 版面辨識結果格式錯誤。" }, { status: 502 }); }
   const html = sanitizeRichHtml(String(parsed.html ?? "").trim());
   if (!html) return Response.json({ error: String(parsed.note || "無法可靠辨識圖片內容。"), confidence: parsed.confidence || "low" }, { status: 422 });
-  return Response.json({ html, confidence: parsed.confidence || "medium", note: parsed.note || "已保留表格與周邊文字。" });
+  return Response.json({ html, confidence: parsed.confidence || "medium", note: parsed.note || "已保留表格與周邊文字。",usage:{model,inputTokens,outputTokens,cachedTokens,estimatedCostUsd:estimatedCostUsdMicros/1_000_000} });
 }

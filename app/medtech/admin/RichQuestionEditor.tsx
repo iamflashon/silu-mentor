@@ -23,7 +23,8 @@ function removeBackgroundColors(root:ParentNode){
 
 function normalizeDoubleUnderlines(root:ParentNode){
   root.querySelectorAll<HTMLElement>("span,[style]").forEach(element=>{
-    if(element.style.textDecorationStyle!=="double"&&!element.dataset.doubleUnderline)return;
+    const borderBottom=element.style.borderBottom||element.style.getPropertyValue("border-bottom");
+    if(element.style.textDecorationStyle!=="double"&&!/\bdouble\b/i.test(borderBottom)&&!element.dataset.doubleUnderline)return;
     element.dataset.doubleUnderline="true";
     element.style.textDecoration="none";
     element.style.borderBottom="3px double currentColor";
@@ -48,7 +49,7 @@ function qualityEditorHtml(value:string){
     .replace(/([\u4e00-\u9fff])(?:\s*<br\s*\/?\s*>\s*)(?=[\u4e00-\u9fff])/giu,(_,before)=>`${before}${marker("↵","linebreak","")}<br>`)
     .split(/(<[^>]+>)/g)
     .map(part=>part.startsWith("<")?part:part
-      .replace(/[\uE000-\uF8FF�]/gu,char=>marker(char,"garbled"))
+      .replace(/[\uE000-\uF8FF�]/gu,char=>marker(`⚠ U+${char.codePointAt(0)!.toString(16).toUpperCase().padStart(4,"0")}`,"garbled",char))
       .replace(/([\u4e00-\u9fff])\r?\n\s*(?=[\u4e00-\u9fff])/gu,(_,before)=>`${before}${marker("↵","linebreak","")}\n`)
       .replace(/([\u4e00-\u9fff])([ \t]{2,})(?=[\u4e00-\u9fff])/gu,(_,before,space)=>`${before}${marker("␠","spacing",space)}`))
     .join("");
@@ -81,7 +82,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     return "left";
   }
   function refreshFormatState(){try{setFormatState({bold:document.queryCommandState("bold"),italic:document.queryCommandState("italic"),underline:document.queryCommandState("underline"),unorderedList:document.queryCommandState("insertUnorderedList"),alignment:currentAlignment()})}catch{setFormatState({bold:false,italic:false,underline:false,unorderedList:false,alignment:"left"})}}
-  useEffect(()=>{const normalized=normalizeTemperature(value||"");if(ref.current&&normalizeTemperature(editorHtml(ref.current))!==normalized){ref.current.innerHTML=highlightIssues?qualityEditorHtml(normalized):normalized;setSelectedCell(null);setSelectedCells([])}if(ref.current)cropStructureDiagrams(ref.current)},[value,highlightIssues]);
+  useEffect(()=>{const normalized=normalizeTemperature(value||"");if(ref.current&&normalizeTemperature(editorHtml(ref.current))!==normalized){ref.current.innerHTML=highlightIssues?qualityEditorHtml(normalized):normalized;normalizeDoubleUnderlines(ref.current);setSelectedCell(null);setSelectedCells([])}if(ref.current)cropStructureDiagrams(ref.current)},[value,highlightIssues]);
   function sync(){const normalized=normalizeTemperature(ref.current?editorHtml(ref.current):"");onChange(normalized);rememberSelection()}
   function command(name:string,arg?:string){restoreSelection();const before=ref.current?.innerHTML??"";document.execCommand(name,false,arg);if(name==="insertUnorderedList"&&ref.current&&ref.current.innerHTML===before){document.execCommand("insertHTML",false,"<ul><li><br></li></ul>")}rememberSelection();sync();refreshFormatState()}
   function doubleUnderline(){
@@ -91,10 +92,18 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     const range=selection.getRangeAt(0);
     if(!ref.current?.contains(range.commonAncestorContainer))return;
     const anchor=selection.anchorNode instanceof HTMLElement?selection.anchorNode:selection.anchorNode?.parentElement;
-    const current=anchor?.closest<HTMLElement>("[data-double-underline=true]");
-    const matched=[...ref.current.querySelectorAll<HTMLElement>("[data-double-underline=true]")].filter(item=>current===item||(!selection.isCollapsed&&range.intersectsNode(item)));
+    const candidates=[...ref.current.querySelectorAll<HTMLElement>("[data-double-underline=true],span[style]")].filter(item=>item.dataset.doubleUnderline==="true"||item.style.textDecorationStyle==="double"||/\bdouble\b/i.test(item.style.borderBottom||item.style.getPropertyValue("border-bottom")));
+    const current=anchor?.closest<HTMLElement>("[data-double-underline=true],span[style]");
+    const matched=candidates.filter(item=>current===item||(!selection.isCollapsed&&range.intersectsNode(item)));
     if(matched.length){
-      matched.forEach(item=>item.replaceWith(...Array.from(item.childNodes)));
+      matched.forEach(item=>{
+        item.removeAttribute("data-double-underline");
+        item.style.removeProperty("border-bottom");
+        item.style.removeProperty("padding-bottom");
+        item.style.removeProperty("text-decoration");
+        item.style.removeProperty("text-decoration-style");
+        if(item.tagName==="SPAN"&&!item.getAttribute("style"))item.replaceWith(...Array.from(item.childNodes));
+      });
       clearSelection();sync();return;
     }
     if(selection.isCollapsed)return;
@@ -112,7 +121,7 @@ export function RichQuestionEditor({label,value,onChange,compact=false,category=
     const form=new FormData();form.set("file",file);const response=await fetch(category==="accounting"?"/api/accounting/admin/question-assets":"/api/medtech/admin/question-assets",{method:"POST",body:form});const data=await response.json() as {url?:string;error?:string};
     if(response.ok&&data.url){imageFiles.current.set(data.url,file);command("insertImage",data.url)}else alert(data.error||"圖片上傳失敗");setUploading(false);
   }
-  async function convertSelectedImage(){const image=selectedImage;if(!image||!ref.current)return;let file=imageFiles.current.get(image.getAttribute("src")||"");if(!file){try{const response=await fetch(image.src);const blob=await response.blob();file=new File([blob],"pasted-table.png",{type:blob.type||"image/png"})}catch{file=undefined}}if(!file){alert("找不到這張圖片的原始檔，請重新貼上圖片後再試。");return}setConvertingTable(true);const form=new FormData();form.set("file",file);try{const response=await fetch(category==="accounting"?"/api/accounting/admin/table-from-image":"/api/medtech/admin/table-from-image",{method:"POST",body:form});const data=await response.json() as {html?:string;error?:string;confidence?:string};if(!response.ok||!data.html)throw new Error(data.error||"圖片表格辨識失敗");const holder=document.createElement("div");holder.innerHTML=data.html;removeBackgroundColors(holder);normalizeDoubleUnderlines(holder);image.replaceWith(...Array.from(holder.childNodes));sync();setSelectedImage(null);alert(`已轉成可編輯 HTML 表格（${data.confidence||"medium"} 信心度）。請核對欄列內容。`)}catch(error){alert(error instanceof Error?error.message:"圖片表格辨識失敗")}finally{setConvertingTable(false)}}
+  async function convertSelectedImage(){const image=selectedImage;if(!image||!ref.current)return;let file=imageFiles.current.get(image.getAttribute("src")||"");if(!file){try{const response=await fetch(image.src);const blob=await response.blob();file=new File([blob],"pasted-content.png",{type:blob.type||"image/png"})}catch{file=undefined}}if(!file){alert("找不到這張圖片的原始檔，請重新貼上圖片後再試。");return}setConvertingTable(true);const form=new FormData();form.set("file",file);try{const response=await fetch(category==="accounting"?"/api/accounting/admin/table-from-image":"/api/medtech/admin/table-from-image",{method:"POST",body:form});const data=await response.json() as {html?:string;error?:string;confidence?:string;note?:string;usage?:{inputTokens?:number;outputTokens?:number;cachedTokens?:number;estimatedCostUsd?:number}};if(!response.ok||!data.html)throw new Error(data.error||"圖片辨識失敗");const holder=document.createElement("div");holder.innerHTML=data.html;removeBackgroundColors(holder);normalizeDoubleUnderlines(holder);image.replaceWith(...Array.from(holder.childNodes));sync();setSelectedImage(null);const usage=data.usage;alert(`${data.note||"已轉成可編輯內容。"}（${data.confidence||"medium"} 信心度）\n\n本次用量：輸入 ${(usage?.inputTokens??0).toLocaleString()}、輸出 ${(usage?.outputTokens??0).toLocaleString()} tokens；估算 US$ ${(usage?.estimatedCostUsd??0).toFixed(6)}。已累積至總管理編輯成本。`)}catch(error){alert(error instanceof Error?error.message:"圖片辨識失敗")}finally{setConvertingTable(false)}}
   async function convertSelectedDiagram(){const image=selectedImage;if(!image||!ref.current)return;let file=imageFiles.current.get(image.getAttribute("src")||"");if(!file){try{const response=await fetch(image.src);const blob=await response.blob();file=new File([blob],"data-structure-content.png",{type:blob.type||"image/png"})}catch{file=undefined}}if(!file){alert("找不到圖片原始檔，請重新貼上後再試。");return}setConvertingDiagram(true);const form=new FormData();form.set("file",file);try{const response=await fetch("/api/data-structure/admin/diagram-from-image",{method:"POST",body:form});const data=await response.json() as {html?:string;error?:string;confidence?:string;nodes?:unknown[];edges?:unknown[];warnings?:string[]};if(!response.ok||!data.html)throw new Error(data.error||"資構內容辨識失敗");const holder=document.createElement("div");holder.innerHTML=data.html;image.replaceWith(...Array.from(holder.childNodes));sync();setSelectedImage(null);alert(`資構內容已轉換（${data.confidence||"medium"} 信心度）${data.nodes?.length?`：SVG ${data.nodes.length} 個節點、${data.edges?.length??0} 條邊`:"：已保留文字與表格"}。${data.warnings?.length?`有 ${data.warnings.length} 項需核對。`:"請與左側原稿核對。"}`)}catch(error){alert(error instanceof Error?error.message:"資構內容辨識失敗")}finally{setConvertingDiagram(false)}}
   function clearBackgroundColors(){if(!ref.current)return;removeBackgroundColors(ref.current);sync()}
   async function paste(event:React.ClipboardEvent<HTMLDivElement>){

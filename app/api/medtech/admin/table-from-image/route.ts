@@ -1,6 +1,8 @@
 import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
+import { usageLogs } from "../../../../../db/schema";
+import { estimateCostUsdMicros } from "../../../../../lib/usage";
 
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
@@ -22,14 +24,17 @@ export async function POST(request: Request) {
   const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
   const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
     model: "gpt-5.6-luna",
-    instructions: "你是醫學教材版面轉換助手。只處理圖片中的表格，不解題、不改寫文字。請辨識表格邊界、合併欄標題、列欄順序與儲存格文字，輸出可直接插入 contentEditable 的安全 HTML table。若圖片不是表格或無法可靠辨識，html 回傳空字串。禁止 Markdown、script、style、事件屬性與外部連結。保留原文繁體中文、英文、括號與換行。",
-    input: [{ role: "user", content: [{ type: "input_text", text: "請把這張圖片中的表格轉成真正可編輯、可複製到 Word 的 HTML 表格。" }, { type: "input_image", image_url: `data:${file.type};base64,${base64}`, detail: "high" }] }],
+    instructions: "你是醫學教材版面轉換助手。不解題、不改寫文字。完整辨識圖片內容：有表格時保留表格邊界、合併欄標題、列欄順序並輸出安全 HTML table；沒有表格時，依原圖段落與換行輸出 p、ol、ul 等可編輯 HTML。禁止 Markdown、script、style、事件屬性與外部連結。保留原文繁體中文、英文、括號、符號與換行。",
+    input: [{ role: "user", content: [{ type: "input_text", text: "請把整張圖片轉成可編輯、可複製到 Word 的 HTML；有表格就保留表格，沒有表格就忠實轉成文字。" }, { type: "input_image", image_url: `data:${file.type};base64,${base64}`, detail: "high" }] }],
     text: { format: { type: "json_schema", name: "table_from_image", strict: true, schema: { type: "object", additionalProperties: false, properties: { html: { type: "string" }, confidence: { type: "string", enum: ["high", "medium", "low"] }, note: { type: "string" } }, required: ["html", "confidence", "note"] } } },
     max_output_tokens: 2200,
   }) });
+  const usage=payload.usage&&typeof payload.usage==="object"?payload.usage as {input_tokens?:number;output_tokens?:number;input_tokens_details?:{cached_tokens?:number}}:{};
+  const inputTokens=Number(usage.input_tokens??0),outputTokens=Number(usage.output_tokens??0),cachedTokens=Number(usage.input_tokens_details?.cached_tokens??0),model="gpt-5.6-luna",estimatedCostUsdMicros=estimateCostUsdMicros(model,{inputTokens,outputTokens,cachedTokens});
+  await auth.db.insert(usageLogs).values({model,source:"教材編輯｜醫檢｜圖片轉文字／表格",inputTokens,outputTokens,cachedTokens,fileSearchCalls:0,estimatedCostUsdMicros}).catch(()=>undefined);
   let parsed: { html?: string; confidence?: string; note?: string } = {};
   try { parsed = JSON.parse(outputText(payload)) as typeof parsed; } catch { return Response.json({ error: "AI 表格辨識結果格式錯誤。" }, { status: 502 }); }
   const html = sanitizeRichHtml(String(parsed.html ?? "").trim());
-  if (!html || !/<table[\s>]/i.test(html)) return Response.json({ error: String(parsed.note || "這張圖片無法可靠辨識為表格，請保留原圖或手動插入表格。"), confidence: parsed.confidence || "low" }, { status: 422 });
-  return Response.json({ html, confidence: parsed.confidence || "medium", note: parsed.note || "已轉換為 HTML 表格。" });
+  if (!html) return Response.json({ error: String(parsed.note || "這張圖片無法可靠辨識，請保留原圖或手動輸入。"), confidence: parsed.confidence || "low" }, { status: 422 });
+  return Response.json({ html, confidence: parsed.confidence || "medium", note: parsed.note || (/<table[\s>]/i.test(html)?"已轉換為 HTML 表格。":"已轉換為可編輯文字。"),usage:{model,inputTokens,outputTokens,cachedTokens,estimatedCostUsd:estimatedCostUsdMicros/1_000_000} });
 }
