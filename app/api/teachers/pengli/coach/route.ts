@@ -56,7 +56,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const gate = await prepareAiUse(request, "law");
+    const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
     const body = await request.json() as { messages?: InputMessage[]; requestKey?: string };

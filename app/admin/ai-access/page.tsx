@@ -9,7 +9,7 @@ type Generator = {limits:{role:string;batch:number;daily:number;monthly:number};
 type MedtechProduct = {productKey:string;title:string;status:string};
 type Payload = { policy:Policy; codes:Code[]; batches?:Batch[]; medtechProducts?:MedtechProduct[]; generator?:Generator; updatedAt:string; generatedCodes?:string[]; error?:string };
 
-const categoryOptions = [{id:"law",label:"司律／法律"},{id:"accounting",label:"會計"},{id:"medtech",label:"醫檢師"},{id:"data-structure",label:"資料結構"}];
+const categoryOptions = [{id:"law",label:"司律／法律"},{id:"pengli",label:"彭狸老師"},{id:"accounting",label:"會計"},{id:"medtech",label:"醫檢師"},{id:"data-structure",label:"資料結構"}];
 const statusLabels:Record<string,string>={unused:"未使用",redeemed:"已兌換",disabled:"已停用",expired:"已過期"};
 
 export default function AiAccessAdminPage(){
@@ -24,7 +24,7 @@ export default function AiAccessAdminPage(){
   async function disable(id:string){const reason=window.prompt("請填寫停用原因（至少 3 個字）");if(!reason)return;const data=await post({action:"disable-code",id,reason});if(data)setNotice("啟用碼已停用並留下稽核紀錄。")}
   function toggleCategory(id:string){if(!policy)return;setPolicy({...policy,categories:policy.categories.includes(id)?policy.categories.filter(value=>value!==id):[...policy.categories,id]})}
   return <main className="ai-access-admin">
-    <header className="ai-access-hero"><div><p>GLOBAL AI ACCESS CONTROL</p><h1>AI 方案與啟用碼</h1><span>總管理共用規則，可套用司律、會計、醫檢師與資料結構；各類科不另建重複方案。</span></div><a href="/admin">返回總管理後台 →</a></header>
+    <header className="ai-access-hero"><div><p>GLOBAL AI ACCESS CONTROL</p><h1>AI 方案與啟用碼</h1><span>總管理共用規則，可套用司律、彭狸老師、會計、醫檢師與資料結構；各類科不另建重複方案。</span></div><a href="/admin">返回總管理後台 →</a></header>
     {!policy?<section className="ai-access-card">讀取方案設定中…</section>:<>
       <section className="ai-access-card"><div className="ai-access-section-title"><div><h2>30 天 AI 試問方案</h2><p>目前先建立規則與管理介面；啟用前不會影響既有學生權益。</p></div><label className="ai-access-switch"><input type="checkbox" checked={policy.enabled} onChange={event=>setPolicy({...policy,enabled:event.target.checked})}/><span>{policy.enabled?"標記為啟用":"草稿模式"}</span></label></div>
       <div className="ai-access-grid"><label>方案名稱<input value={policy.name} onChange={event=>setPolicy({...policy,name:event.target.value})}/></label><label>單次售價 NT$<input type="number" min="1" value={policy.price} onChange={event=>setPolicy({...policy,price:Number(event.target.value)})}/></label><label>AI 學習額度<input type="number" min="1" value={policy.quota} onChange={event=>setPolicy({...policy,quota:Number(event.target.value)})}/></label><label>有效天數<input type="number" min="1" value={policy.durationDays} onChange={event=>setPolicy({...policy,durationDays:Number(event.target.value)})}/></label><label>每次教練任務包含輪數<input type="number" min="1" value={policy.coachRounds} onChange={event=>setPolicy({...policy,coachRounds:Number(event.target.value)})}/></label><label>續約方式<input value="單次購買，不自動續約" disabled/></label></div>

@@ -5,7 +5,7 @@ import { AI_ACCESS_SETTINGS_KEY, DEFAULT_AI_PLAN, type AiPlan } from "../../../.
 import { MEDTECH_DEFAULT_PRODUCT_KEY } from "../../../../lib/medtech-product-settings";
 import { requireAdmin } from "../../../../lib/member-auth";
 
-type Db=Awaited<ReturnType<typeof getDb>>;const categories=["law","accounting","medtech","data-structure"]as const;
+type Db=Awaited<ReturnType<typeof getDb>>;const categories=["law","pengli","accounting","medtech","data-structure"]as const;
 function randomPart(length=4){const alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789",bytes=crypto.getRandomValues(new Uint8Array(length));return Array.from(bytes,b=>alphabet[b%alphabet.length]).join("")}
 async function digest(value:string){return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value.trim().toUpperCase())))).map(b=>b.toString(16).padStart(2,"0")).join("")}
 function publicCode(code:typeof activationCodes.$inferSelect){return{id:code.id,batchId:code.batchId,last4:code.last4,label:code.label,status:code.status,benefitType:code.benefitType,categories:code.examCategory?[code.examCategory]:categories.slice(),productKey:code.productKey,quota:code.quota,durationDays:code.durationDays,redeemBy:code.redeemBy?.toISOString().slice(0,10)??null,createdAt:code.createdAt.toISOString(),createdBy:code.createdBy,redeemedAt:code.redeemedAt?.toISOString()??null,redeemedBy:code.redeemedByMemberId?`會員 #${code.redeemedByMemberId}`:null,selectedUnitLabel:code.selectedUnitLabel,disabledBy:code.disabledBy,disabledReason:code.disabledReason}}
