@@ -1292,21 +1292,11 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
-  const defaultPortalCards: Array<{ id: "law" | "medtech"; enabled: boolean; order: number }> = [
-    { id: "law", enabled: true, order: 1 },
-    { id: "medtech", enabled: true, order: 2 },
-  ];
-  const [portalCards, setPortalCards] = useState<typeof defaultPortalCards | null>(null);
-  useEffect(() => {
-    void fetch("/api/portal-cards", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data) => setPortalCards(Array.isArray(data.cards) ? data.cards : defaultPortalCards))
-      .catch(() => setPortalCards(defaultPortalCards));
-  }, []);
-  const cardDefinitions = {
-    law: { className: "law", href: "/law", eyebrow: "LEGAL INTELLIGENCE", number: "01", small: "律師・司法官國考", title: "司律備考", description: "爭點學習、真題演練與申論解題，建立完整法律思考路徑。" },
-    medtech: { className: "medtech", href: "/medtech", eyebrow: "MEDICAL LAB SCIENCE", number: "02", small: "醫事檢驗師國考", title: "醫檢國考", description: "章節刷題、完整解析與老師語音，讓國考準備更有方向。" },
-  };
+  type HomeCard = { id: "law" | "pengli" | "medtech" | "accounting"; enabled: boolean; order: number };
+  const homeDefaults: HomeCard[] = [{ id: "pengli", enabled: true, order: 1 }, { id: "medtech", enabled: true, order: 2 }, { id: "accounting", enabled: true, order: 3 }, { id: "law", enabled: false, order: 4 }];
+  const [homeCards, setHomeCards] = useState<HomeCard[]>(homeDefaults);
+  useEffect(() => { void fetch("/api/portal-cards", { cache: "no-store" }).then((response) => response.json()).then((data) => { if (Array.isArray(data.cards)) setHomeCards(data.cards); }).catch(() => undefined); }, []);
+  const coverFallback = (fallback: string) => (event: React.SyntheticEvent<HTMLImageElement>) => { const image = event.currentTarget; if (!image.dataset.fallback) { image.dataset.fallback = "1"; image.src = fallback; } };
   return <main className="main-entry-gate main-portal">
     <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
     <div className="main-portal-orb main-portal-orb-two" aria-hidden="true" />
@@ -1316,16 +1306,72 @@ export default function MainEntryGate() {
         <h1>iBrain Pedia <em>X</em></h1>
         <h2>智學百科｜智慧學習</h2>
       </header>
-      <div className={`main-portal-grid ${portalCards ? "is-ready" : "is-loading"}`} aria-busy={!portalCards}>
-        {(portalCards ?? []).filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => { const item = cardDefinitions[card.id]; return <a className={`main-portal-card ${item.className}`} href={item.href} key={card.id}>
-          <div className="main-portal-card-top"><span>{item.eyebrow}</span><i>{item.number}</i></div>
-          <div className="main-portal-card-icon" aria-hidden="true">
-            {card.id === "law" ? <svg viewBox="0 0 64 64" role="img"><path d="M32 10v42M18 16h28M12 52h40M21 16l-9 18h18L21 16Zm22 0-9 18h18L43 16Z"/><path d="M10 34c1.5 5 5 8 11 8s9.5-3 11-8M32 34c1.5 5 5 8 11 8s9.5-3 11-8"/></svg> : <svg viewBox="0 0 64 64" role="img"><path d="M27 10h13v8H27zM32 18v10l-9 9M39 24l8 8M18 37c0 9 7 16 16 16h15M42 52h10M21 34l17 17"/><circle cx="39" cy="34" r="6"/><path d="M13 54h42"/></svg>}
+      <section className="main-teacher-zone" aria-labelledby="featured-teachers-title">
+        <header className="main-teacher-zone-head">
+          <div>
+            <span>FEATURED MENTORS</span>
+            <h2 id="featured-teachers-title">名師專區</h2>
           </div>
-          <div className="main-portal-card-copy"><small>{item.small}</small><h2>{item.title}</h2><p>{item.description}</p></div>
-          <div className="main-portal-card-enter"><span>進入學習平台</span><b aria-hidden="true">↗</b></div>
-        </a>; })}
-      </div>
+          <p>依類科找到老師，從專屬教材開始學習。</p>
+        </header>
+        <div className="main-teacher-list">
+        {homeCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => card.id === "pengli" ?
+        <article className="main-teacher-card law-teacher" key={card.id}>
+          <div className="main-teacher-cover">
+            <img src="/api/portal-cards/cover?id=pengli" onError={coverFallback("/teachers/pengli-administrative-law-cover-v2.png")} alt="行政法考點（考前衝刺）演習書透明書封" />
+          </div>
+          <div className="main-teacher-content">
+            <div className="main-teacher-tags"><span>法律類</span><span>行政法</span><span>司律二試</span></div>
+            <small>彭狸老師專區</small>
+            <h3>行政法考點衝刺</h3>
+            <p>從熱門爭點、破題方法到申論擬答，把行政法從看得懂練到寫得出來。</p>
+            <div className="main-teacher-features" aria-label="專區內容">
+              <span><b>8</b> 大主題</span>
+              <span>考點演練</span>
+              <span>申論批改</span>
+            </div>
+          </div>
+          <div className="main-teacher-actions" aria-label="彭狸老師專區入口">
+            <Link className="main-teacher-enter" href="/teachers/pengli">進入專區 <b aria-hidden="true">↗</b></Link>
+          </div>
+        </article> : card.id === "medtech" ?
+        <article className="main-teacher-card medtech-teacher" key={card.id}>
+          <div className="main-teacher-cover">
+            <img src="/api/portal-cards/cover?id=medtech" onError={coverFallback("/medtech-books/clinical-virology-lower.jpg")} alt="醫檢師國考題詳解臨床病毒學下冊書封" />
+          </div>
+          <div className="main-teacher-content">
+            <div className="main-teacher-tags"><span>醫檢類</span><span>臨床病毒學</span><span>醫檢國考</span></div>
+            <small>康情老師・醫檢國考系列</small>
+            <h3>臨床病毒學題庫演練</h3>
+            <p>以代表書帶進章節刷題、完整解析與老師語音，從一本書開始建立國考複習節奏。</p>
+            <div className="main-teacher-features" aria-label="專區內容"><span><b>1,400+</b> 題</span><span>老師語音</span><span>錯題重練</span></div>
+          </div>
+          <div className="main-teacher-actions" aria-label="康情老師醫檢專區入口">
+            <Link className="main-teacher-enter" href="/medtech">進入專區 <b aria-hidden="true">↗</b></Link>
+          </div>
+        </article> : card.id === "accounting" ?
+        <article className="main-teacher-card accounting-teacher" key={card.id}>
+          <div className="main-teacher-cover accounting-feature-cover">
+            <img src="/api/portal-cards/cover?id=accounting" onError={coverFallback("/api/accounting/product/cover")} alt="會研所中級會計學題庫制霸書封" />
+          </div>
+          <div className="main-teacher-content">
+            <div className="main-teacher-tags"><span>會計類</span><span>中級會計</span><span>會研所</span></div>
+            <small>中會互動解題專區</small>
+            <h3>中級會計題庫制霸</h3>
+            <p>以章節題庫串連計算過程、老師解析、錯題重練與學習紀錄，讀完觀念立即進入考題。</p>
+            <div className="main-teacher-features" aria-label="專區內容"><span><b>18</b> 章</span><span>計算詳解</span><span>錯題收藏</span></div>
+          </div>
+          <div className="main-teacher-actions" aria-label="中級會計專區入口">
+            <Link className="main-teacher-enter" href="/accounting">進入專區 <b aria-hidden="true">↗</b></Link>
+          </div>
+        </article> :
+        <article className="main-platform-strip" key={card.id}>
+          <div className="main-platform-strip-icon" aria-hidden="true">律</div>
+          <div><small>律師・司法官國考學習平台</small><h3>司律備考</h3><p>爭點學習、真題演練與申論解題，建立完整法律思考路徑。</p></div>
+          <Link href="/law">進入學習平台 <b aria-hidden="true">↗</b></Link>
+        </article>)}
+        </div>
+      </section>
       <footer className="main-portal-footer">
         <span>高點學習服務</span>
         <nav aria-label="高點學習服務">

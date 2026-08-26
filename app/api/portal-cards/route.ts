@@ -6,14 +6,16 @@ import { requireAdmin } from "../../../lib/member-auth";
 const SETTING_KEY = "portal_exam_cards";
 
 export type PortalExamCard = {
-  id: "law" | "medtech";
+  id: "law" | "pengli" | "medtech" | "accounting";
   enabled: boolean;
   order: number;
 };
 
 const defaults: PortalExamCard[] = [
-  { id: "law", enabled: true, order: 1 },
+  { id: "pengli", enabled: true, order: 1 },
   { id: "medtech", enabled: true, order: 2 },
+  { id: "accounting", enabled: true, order: 3 },
+  { id: "law", enabled: false, order: 4 },
 ];
 
 function normalize(value: unknown): PortalExamCard[] {

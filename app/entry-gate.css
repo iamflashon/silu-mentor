@@ -13,7 +13,7 @@
 .main-portal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
 .main-portal-card{position:relative;overflow:hidden;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr auto;gap:20px 22px;min-height:350px;padding:27px;border:1px solid rgba(130,194,205,.2);border-radius:25px;background:linear-gradient(145deg,rgba(17,43,55,.96),rgba(9,29,38,.94));color:#edfaff;text-decoration:none;box-shadow:0 22px 55px rgba(0,0,0,.24);transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
 .main-portal-card::before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(120deg,rgba(255,255,255,.06),transparent 28%,transparent 70%,rgba(89,218,215,.04))}.main-portal-card::after{content:"";position:absolute;width:180px;height:180px;right:-80px;top:-80px;border-radius:50%;background:var(--portal-glow);filter:blur(6px);opacity:.3}
-.main-portal-card.law{--portal-accent:#5ab8f0;--portal-glow:#267eb7}.main-portal-card.medtech{--portal-accent:#56d7b1;--portal-glow:#159a79}
+.main-portal-card.law{--portal-accent:#5ab8f0;--portal-glow:#267eb7}.main-portal-card.medtech{--portal-accent:#56d7b1;--portal-glow:#159a79}.main-portal-card.accounting{--portal-accent:#e5bd62;--portal-glow:#a86e13}
 .main-portal-card:hover{transform:translateY(-7px);border-color:color-mix(in srgb,var(--portal-accent) 58%,transparent);box-shadow:0 30px 70px rgba(0,0,0,.32),0 0 34px color-mix(in srgb,var(--portal-accent) 12%,transparent)}.main-portal-card:focus-visible{outline:3px solid var(--portal-accent);outline-offset:4px}
 .main-portal-card-top{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;color:var(--portal-accent);font-size:9px;font-weight:900;letter-spacing:.19em}.main-portal-card-top i{color:#647e86;font-style:normal;font-size:11px;letter-spacing:.08em}
 .main-portal-card-icon{display:grid;place-items:center;width:76px;height:76px;border:1px solid color-mix(in srgb,var(--portal-accent) 48%,transparent);border-radius:22px;background:linear-gradient(145deg,color-mix(in srgb,var(--portal-accent) 18%,transparent),rgba(7,25,38,.6));color:var(--portal-accent);box-shadow:inset 0 0 24px color-mix(in srgb,var(--portal-accent) 8%,transparent),0 0 24px color-mix(in srgb,var(--portal-accent) 9%,transparent)}.main-portal-card-icon svg{width:49px;height:49px;overflow:visible;fill:none;stroke:currentColor;stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 8px color-mix(in srgb,var(--portal-accent) 45%,transparent))}
@@ -43,6 +43,7 @@
 .main-entry-gate .main-portal-card>*{position:relative;z-index:1}
 .main-entry-gate .main-portal-card.law{border-top:3px solid color-mix(in srgb,var(--portal-accent) 62%,white)}
 .main-entry-gate .main-portal-card.medtech{border-top:3px solid color-mix(in srgb,var(--portal-accent) 62%,white)}
+.main-entry-gate .main-portal-card.accounting{border-top:3px solid color-mix(in srgb,var(--portal-accent) 62%,white)}
 .main-entry-gate .main-portal-footer{display:flex;align-items:center;flex-direction:column;justify-content:center;gap:10px;margin-top:50px;color:#83949b;text-align:center;letter-spacing:0}.main-entry-gate .main-portal-footer>span:first-child{font-size:12px;font-weight:700}.main-entry-gate .main-portal-footer nav{display:flex;align-items:center;justify-content:center}.main-entry-gate .main-portal-footer nav a{padding:0 14px;border-right:1px solid #d3dce0;color:#536d77;font-size:13px;font-weight:700}.main-entry-gate .main-portal-footer nav a:last-child{border-right:0}.main-entry-gate .main-portal-footer strong{margin-top:5px;color:#27434e;font-size:15px;letter-spacing:0}.main-entry-gate .main-portal-footer .main-portal-secret-admin{padding:0;border:0;color:inherit;font:inherit;font-weight:inherit;letter-spacing:inherit;text-decoration:none;cursor:text}.main-entry-gate .main-portal-footer .main-portal-secret-admin:hover{color:inherit}.main-entry-gate .main-portal-footer .main-portal-secret-admin:focus-visible{border-radius:3px;outline:2px solid #5ba4c8;outline-offset:3px}
 @media(max-width:430px){.main-entry-gate .main-portal-head h1{font-size:43px}.main-entry-gate .main-portal-footer nav a{padding:0 9px;font-size:12px}}
 
@@ -75,3 +76,50 @@
 .main-entry-gate .main-portal-grid.is-ready{animation:portal-cards-reveal .22s ease-out both}
 @keyframes portal-cards-reveal{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.main-entry-gate .main-portal-grid.is-ready{animation:none}}
+
+/* Teacher storefront: grouped by exam category, separate from the primary platforms. */
+.main-entry-gate .main-teacher-zone{width:min(760px,100%);margin:38px auto 0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;text-align:left}
+.main-teacher-zone-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:13px;padding:0 4px}
+.main-teacher-zone-head>div>span{display:block;margin-bottom:4px;color:#54849b;font-size:8px;font-weight:900;letter-spacing:.2em}
+.main-entry-gate .main-teacher-zone-head h2{margin:0;color:#173642;font-size:20px;letter-spacing:-.02em}
+.main-entry-gate .main-teacher-zone-head p{margin:0;color:#8498a0;font-size:11px;line-height:1.5}
+.main-teacher-card{position:relative;overflow:hidden;display:grid;grid-template-columns:118px minmax(0,1fr) auto;align-items:center;gap:24px;padding:20px 22px;border:1px solid #dce6eb;border-top:3px solid #8caee0;border-radius:20px;background:linear-gradient(120deg,#fff 0,#fff 63%,#f3f7fc 100%);box-shadow:0 16px 42px rgba(24,64,82,.09)}
+.main-teacher-card::after{content:"LAW";position:absolute;right:22px;top:6px;color:rgba(41,83,132,.035);font-size:82px;font-weight:900;letter-spacing:-.08em;pointer-events:none}
+.main-teacher-cover{position:relative;z-index:1;height:142px;display:grid;place-items:center}
+.main-teacher-cover img{display:block;max-width:100%;max-height:142px;border:1px solid #d9dee2;background:#fff;box-shadow:0 10px 22px rgba(24,46,65,.18);object-fit:contain}
+.main-teacher-content{position:relative;z-index:1;min-width:0}
+.main-teacher-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.main-teacher-tags span{padding:4px 8px;border-radius:99px;color:#315f8d;background:#eaf2fb;font-size:9px;font-weight:850}
+.main-teacher-content>small{display:block;margin-bottom:3px;color:#607b8b;font-size:10px;font-weight:800}
+.main-teacher-content h3{margin:0;color:#173642;font-size:24px;letter-spacing:-.035em}
+.main-entry-gate .main-teacher-content p{max-width:430px;margin:8px 0 13px;color:#687f88;font-size:12px;line-height:1.65}
+.main-teacher-features{display:flex;align-items:center;gap:8px;color:#536e7a;font-size:10px;font-weight:750}.main-teacher-features span{padding-right:9px;border-right:1px solid #d7e0e5}.main-teacher-features span:last-child{padding-right:0;border-right:0}.main-teacher-features b{color:#2f70aa;font-size:14px}
+.main-teacher-actions{position:relative;z-index:1;display:grid;gap:9px;min-width:128px}.main-teacher-actions>a{display:flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border-radius:10px;font-size:11px;font-weight:850;white-space:nowrap;text-decoration:none;transition:transform .18s ease,box-shadow .18s ease}.main-teacher-actions>a:hover{transform:translateY(-2px)}.main-teacher-enter{gap:9px;color:#fff;background:#315f91;box-shadow:0 8px 18px rgba(49,95,145,.2)}.main-teacher-enter b{font-size:14px}
+.main-entry-gate .main-teacher-zone+.main-portal-footer{margin-top:34px}
+@media(max-width:760px){.main-entry-gate .main-teacher-zone{margin-top:28px}.main-teacher-zone-head{align-items:flex-start;flex-direction:column;gap:4px}.main-teacher-card{grid-template-columns:88px minmax(0,1fr);gap:18px;padding:18px}.main-teacher-cover{height:118px}.main-teacher-cover img{max-height:118px}.main-teacher-actions{grid-column:1/-1}.main-teacher-card::after{font-size:65px}.main-teacher-content h3{font-size:21px}}
+@media(max-width:430px){.main-teacher-card{grid-template-columns:76px minmax(0,1fr);gap:14px;padding:15px;border-radius:17px}.main-teacher-cover{height:108px}.main-teacher-cover img{max-height:108px}.main-teacher-tags{gap:4px}.main-teacher-tags span{padding:3px 6px}.main-entry-gate .main-teacher-content p{font-size:11px}.main-teacher-features{gap:5px;font-size:9px}.main-teacher-actions>a{min-height:36px;padding:8px 10px}.main-teacher-zone-head p{display:none}}
+
+/* Homepage storefront: representative books and mentors share equal visual weight. */
+.main-entry-gate .main-teacher-zone{width:min(920px,100%);margin-top:310px}
+.main-teacher-list{display:grid;gap:14px}
+.main-teacher-card{min-height:190px}
+.main-teacher-card.medtech-teacher{border-top-color:#73cbb8;background:linear-gradient(120deg,#fff 0,#fff 63%,#f1faf7 100%)}
+.main-teacher-card.accounting-teacher{border-top-color:#d8b864;background:linear-gradient(120deg,#fff 0,#fff 63%,#fbf7ed 100%)}
+.main-teacher-card.medtech-teacher::after{content:"MED";color:rgba(26,130,106,.04)}
+.main-teacher-card.accounting-teacher::after{content:"ACC";color:rgba(143,101,17,.04)}
+.main-teacher-card.medtech-teacher .main-teacher-tags span{color:#237563;background:#e8f7f2}
+.main-teacher-card.accounting-teacher .main-teacher-tags span{color:#765719;background:#f8efd9}
+.main-teacher-card.medtech-teacher .main-teacher-enter{background:#278271;box-shadow:0 8px 18px rgba(39,130,113,.2)}
+.main-teacher-card.accounting-teacher .main-teacher-enter{background:#8b6a27;box-shadow:0 8px 18px rgba(139,106,39,.2)}
+.main-teacher-card.medtech-teacher .main-teacher-features b{color:#278271}
+.main-teacher-card.accounting-teacher .main-teacher-features b{color:#8b6a27}
+.main-teacher-cover img{border:0;background:transparent;object-fit:contain}
+.accounting-feature-cover img{max-width:100%;max-height:142px;border-radius:2px;box-shadow:0 10px 22px rgba(24,46,65,.18)}
+.main-secondary-platforms{display:flex;align-items:center;justify-content:center;gap:12px;margin:20px auto 0;color:#78909a;font-size:11px}
+.main-secondary-platforms span{font-weight:850;letter-spacing:.08em}.main-secondary-platforms a{padding:7px 12px;border:1px solid #d7e2e7;border-radius:99px;background:#fff;color:#476671;font-weight:800;text-decoration:none}.main-secondary-platforms a:hover{border-color:#9cb8c3;color:#173f51}
+.main-platform-strip{position:relative;overflow:hidden;display:grid;grid-template-columns:88px minmax(0,1fr) auto;align-items:center;gap:24px;min-height:142px;padding:20px 22px;border:1px solid #dce6eb;border-top:3px solid #7eadd3;border-radius:20px;background:linear-gradient(120deg,#fff 0,#fff 66%,#eef6fb 100%);box-shadow:0 16px 42px rgba(24,64,82,.09)}
+.main-platform-strip::after{content:"LAW";position:absolute;right:26px;top:-8px;color:rgba(41,83,132,.04);font-size:82px;font-weight:900;pointer-events:none}.main-platform-strip>*{position:relative;z-index:1}
+.main-platform-strip-icon{width:68px;height:68px;display:grid;place-items:center;border:1px solid #c7dceb;border-radius:18px;background:#eaf4fb;color:#2f70aa;font-size:28px;font-weight:900}
+.main-platform-strip small{color:#607b8b;font-size:10px;font-weight:800}.main-platform-strip h3{margin:3px 0 5px;color:#173642;font-size:24px}.main-entry-gate .main-platform-strip p{margin:0;color:#687f88;font-size:12px;line-height:1.6}.main-platform-strip>a{display:flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:10px 17px;border-radius:10px;background:#315f91;color:#fff;font-size:11px;font-weight:850;text-decoration:none;box-shadow:0 8px 18px rgba(49,95,145,.2)}
+@media(max-width:760px){.main-entry-gate .main-teacher-zone{margin-top:255px}.main-teacher-list{gap:12px}.main-secondary-platforms{flex-wrap:wrap}}
+@media(max-width:760px){.main-platform-strip{grid-template-columns:68px minmax(0,1fr);gap:17px;padding:18px}.main-platform-strip>a{grid-column:1/-1}.main-platform-strip-icon{width:58px;height:58px;border-radius:15px}}
+@media(max-width:430px){.main-entry-gate .main-teacher-zone{margin-top:235px}}
