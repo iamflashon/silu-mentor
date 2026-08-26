@@ -83,12 +83,13 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; requestKey?: string; mode?: "scholar-assist" };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" };
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
 
-    const rawMessages = (Array.isArray(body.messages) ? body.messages : []).slice(-12);
+    const selectedText = String(body.selectedText ?? "").trim().slice(0, 1200);
+    const rawMessages = body.mode === "plain-explain" ? [{ role: "student", text: selectedText }] : (Array.isArray(body.messages) ? body.messages : []).slice(-12);
     const messages = rawMessages.map((message) => ({
       role: message.role === "coach" ? "assistant" : "user",
       content: String(message.text ?? "").slice(0, 4000),
@@ -105,6 +106,23 @@ export async function POST(request: Request) {
       return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.slice(0, 1800)}`;
     }).join("\n\n");
     const model = "gpt-5.6-luna";
+
+    if (body.mode === "plain-explain") {
+      const startedAt = Date.now();
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model,
+        instructions: `你是彭狸 AI 教練。只依本次提供的彭狸老師《行政法考點演習書（二版）》片段，把學生框選的行政法文字改寫成清楚、口語的繁體中文。先用一句話說核心意思，再列出至多三個判斷重點；限150至300字，不補造教材沒有的法條或見解，不使用 Markdown 符號。正文不要另外列來源。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
+        input: `【學生框選文字】\n${selectedText}`,
+        max_output_tokens: 700,
+      }) }) as Record<string, unknown>;
+      const explanation = plainText(outputText(payload));
+      if (!explanation) return Response.json({ error: "目前無法產生白話解釋。" }, { status: 502 });
+      const access = await finishAiCoachRound(gate, { action: "pengli_plain_explain_5_rounds", description: "彭狸教材白話解釋，每5次扣1次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
+      const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
+      const inputTokens = Number(rawUsage.input_tokens ?? 0), cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0), outputTokens = Number(rawUsage.output_tokens ?? 0);
+      const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
+      return Response.json({ explanation, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+    }
 
     if (body.mode === "scholar-assist") {
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
@@ -127,7 +145,7 @@ export async function POST(request: Request) {
     }) }) as Record<string, unknown>;
     const rawReply = plainText(outputText(payload).replace(/【教練回應】/gu, "").replace(/【學霸追問】[\s\S]*$/u, ""));
     const citedMatch = [...rawReply.matchAll(/(?:本書)?第\s*(\d+)(?:\s*[–—-]\s*(\d+))?\s*頁/gu)].at(-1);
-    const reply = rawReply.replace(/\s*[（(]?\s*依據[：:]\s*行政法考點(?:（二版）|\(二版\))?[,，]?\s*(?:本書)?第\s*\d+(?:\s*[–—-]\s*\d+)?\s*頁\s*[）)]?\s*$/u, "").trim();
+    const reply = rawReply.replace(/\s*[（(]?\s*依據[：:][^\n]*第\s*\d+(?:\s*[–—-]\s*\d+)?\s*頁\s*[）)]?\s*$/u, "").trim();
     if (!reply) return Response.json({ error: "彭狸 AI 教練沒有產生可顯示的回答。" }, { status: 502 });
     const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
     const inputTokens = Number(rawUsage.input_tokens ?? 0);
