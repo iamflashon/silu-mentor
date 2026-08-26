@@ -91,7 +91,9 @@ export default function GlobalSelectionTools() {
   const pathname = usePathname();
   const isMedtech = pathname.startsWith("/medtech");
   const isAccounting = pathname.startsWith("/accounting");
+  const isPengli = pathname.startsWith("/teachers/pengli");
   const [selectedText, setSelectedText] = useState("");
+  const [selectionSource, setSelectionSource] = useState("");
   const [editingSelection, setEditingSelection] = useState(false);
   const [lawQuery, setLawQuery] = useState("");
   const [judicialQuery, setJudicialQuery] = useState<{
@@ -112,6 +114,7 @@ export default function GlobalSelectionTools() {
     explaining: boolean;
     usage: ExplainUsage | null;
     access?: MedtechExplainAccess;
+    coachAccess?: { charged?: boolean; remaining?: number; coachRoundsUsed?: number; coachRoundsTarget?: number };
   } | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">(
@@ -176,6 +179,7 @@ export default function GlobalSelectionTools() {
       setSelectedText("");
       setLawQuery("");
       setJudicialQuery(null);
+      setSelectionSource("");
     }
   }
 
@@ -216,6 +220,7 @@ export default function GlobalSelectionTools() {
         return;
       }
       const range = selection.getRangeAt(0).cloneRange();
+      setSelectionSource(anchorRoot.getAttribute("data-selection-source") || "");
       rangeRef.current = range;
       applySelectedText(text);
       setEditingSelection(false);
@@ -370,7 +375,7 @@ export default function GlobalSelectionTools() {
         ? "/api/medtech/explain"
         : isAccounting
           ? "/api/accounting/tutor"
-          : "/api/legal-explain",
+          : isPengli ? "/api/teachers/pengli/coach" : "/api/legal-explain",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -387,7 +392,9 @@ export default function GlobalSelectionTools() {
                   ],
                   mode: "free",
                 }
-              : { selectedText, article: reference },
+              : isPengli
+                ? { selectedText, mode: "plain-explain", requestKey: crypto.randomUUID() }
+                : { selectedText, article: reference },
         ),
       },
     );
@@ -420,6 +427,10 @@ export default function GlobalSelectionTools() {
               valid && data.access && typeof data.access === "object"
                 ? (data.access as MedtechExplainAccess)
                 : latest.access,
+            coachAccess:
+              valid && data.access && typeof data.access === "object"
+                ? data.access
+                : latest.coachAccess,
             error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。",
           }
         : latest,
@@ -452,6 +463,17 @@ export default function GlobalSelectionTools() {
         subject: "醫檢師｜臨床病毒學",
         tags: "醫檢師、待複習",
         sourceLabel: "醫檢師引導學習",
+      };
+    }
+    if (isPengli) {
+      const parts = [selectedText];
+      if (lookup?.explanation) parts.push(`白話解釋\n${lookup.explanation}`);
+      return {
+        title: selectedText.slice(0, 32) || "彭狸行政法學習筆記",
+        content: parts.filter(Boolean).join("\n\n"),
+        subject: "行政法｜彭狸老師專區",
+        tags: "行政法、彭狸老師、待複習",
+        sourceLabel: selectionSource || "彭狸老師《行政法考點演習書（二版）》",
       };
     }
     const title =
@@ -685,8 +707,8 @@ export default function GlobalSelectionTools() {
                     ? "醫檢 AI 助教｜專有名詞解析"
                     : isAccounting
                       ? "Luna 助教｜中會白話說明"
-                      : lookup.mode === "explain"
-                        ? "AI 法律助教｜辨識與拆解"
+                    : lookup.mode === "explain"
+                        ? isPengli ? "彭狸 AI 教練｜白話解釋" : "AI 法律助教｜辨識與拆解"
                         : lookup.decision
                           ? "司法院裁判資料庫｜已下載資料"
                           : "全國法規資料庫｜已下載資料"}
@@ -789,6 +811,12 @@ export default function GlobalSelectionTools() {
                           名詞解析免費剩餘 {lookup.access.freeRemaining} 次 ·
                           目前點數 {lookup.access.pointsRemaining} 點
                         </span>
+                      </div>
+                    )}
+                    {isPengli && lookup.coachAccess && (
+                      <div className="medtech-feature-access">
+                        <b>{lookup.coachAccess.charged ? "已完成5次，本輪扣1次" : `白話解釋第 ${lookup.coachAccess.coachRoundsUsed ?? 0}／${lookup.coachAccess.coachRoundsTarget ?? 5} 次`}</b>
+                        <span>每完成5次白話解釋扣1個 AI 次數・目前剩餘 {lookup.coachAccess.remaining ?? "—"} 次</span>
                       </div>
                     )}
                     {lookup.usage && (
