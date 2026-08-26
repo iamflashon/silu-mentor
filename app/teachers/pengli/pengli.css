@@ -14,3 +14,11 @@
 /* Exact publisher cover cutout: transparent edges with no baked-in white frame. */
 .pengli-book-stage>img{width:272px;border:0;box-shadow:none;filter:drop-shadow(22px 28px 28px rgba(0,0,0,.34))}
 @media(max-width:680px){.pengli-book-stage>img{width:205px}}
+
+/* Upright book object: exact cover content, corrected crop, page block and bookmark. */
+.pengli-book-stage::after{bottom:10px;width:330px;height:42px;background:radial-gradient(ellipse,rgba(0,0,0,.42),transparent 68%);filter:blur(6px)}
+.pengli-book-object{position:relative;width:258px;padding:7px 9px 11px 6px;border-radius:3px 9px 9px 3px;background:linear-gradient(90deg,#d7d0bd 0 3px,#f8f5ea 3px 100%);box-shadow:3px 3px 0 #b8ad93,22px 30px 42px rgba(0,0,0,.4);transform:translateY(-5px)}
+.pengli-book-object::before{content:"";position:absolute;z-index:2;top:8px;right:-7px;bottom:9px;width:9px;border-radius:0 5px 5px 0;background:repeating-linear-gradient(180deg,#eee8d9 0 3px,#c7bfac 3px 4px)}
+.pengli-book-object::after{content:"";position:absolute;z-index:3;right:23px;bottom:-16px;width:17px;height:47px;background:linear-gradient(90deg,#b88a3d,#e2bf75 55%,#9a6d29);clip-path:polygon(0 0,100% 0,100% 100%,50% 78%,0 100%)}
+.pengli-book-object img{display:block;width:100%;aspect-ratio:760/1500;object-fit:cover;border-radius:1px 4px 4px 1px}
+@media(max-width:680px){.pengli-book-object{width:198px}}
