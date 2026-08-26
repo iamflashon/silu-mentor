@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import "./portal-cards.css";
 
 type Card = { id: "law" | "pengli" | "medtech" | "accounting"; enabled: boolean; order: number };
 
@@ -51,7 +52,7 @@ export default function PortalCardsAdminPage() {
     <nav><a href="/admin/library">教材向量庫</a><a href="/admin/question-bank">總題庫管理</a><a href="/admin/members">會員總管理</a><a href="/admin/ai-access">AI 方案與啟用碼</a><a className="active" href="/admin/portal-cards">首頁卡片管理</a></nav>
     <section className="portal-card-admin-list">
       {cards.map((card, index) => { const item = details[card.id]; return <article key={card.id} className={card.enabled ? "enabled" : "disabled"}>
-        <div className={`portal-card-admin-mark ${item.tone}`}>{item.cover ? <><img src={`/api/portal-cards/cover?id=${card.id}&v=${coverVersion[card.id] ?? 0}`} alt={`${item.title}書封`} onError={(event) => { event.currentTarget.style.display = "none"; }} /><label className="portal-cover-upload">補書封<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCover(card.id, file); event.currentTarget.value = ""; }} /></label></> : item.mark}</div>
+        <div className={`portal-card-admin-mark ${item.tone}${item.cover ? " has-cover" : ""}`}>{item.cover ? <><img src={`/api/portal-cards/cover?id=${card.id}&v=${coverVersion[card.id] ?? 0}`} alt={`${item.title}書封`} onError={(event) => { event.currentTarget.style.display = "none"; }} /><label className="portal-cover-upload">補書封<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCover(card.id, file); event.currentTarget.value = ""; }} /></label></> : item.mark}</div>
         <div className="portal-card-admin-copy"><small>{item.subtitle}</small><h2>{item.title}</h2><span>{item.href}</span></div>
         <div className="portal-card-admin-order"><button onClick={() => move(index, -1)} disabled={index === 0} aria-label={`${item.title}往上移`}>↑</button><b>{index + 1}</b><button onClick={() => move(index, 1)} disabled={index === cards.length - 1} aria-label={`${item.title}往下移`}>↓</button></div>
         <label className="portal-card-switch"><input type="checkbox" checked={card.enabled} onChange={(event) => setCards((rows) => rows.map((row) => row.id === card.id ? { ...row, enabled: event.target.checked } : row))} /><span /><b>{card.enabled ? "已上架" : "已下架"}</b></label>

@@ -199,7 +199,16 @@ def extract_pages(path: Path) -> tuple[list[str], str]:
         except ImportError as error:
             raise RuntimeError("尚未安裝 PDF 文字擷取套件 pypdf") from error
         weak_pages = [index for index, text in enumerate(pages) if len(text.strip()) < 40]
-        if weak_pages and os.getenv("LOCAL_NODE_OCR", "auto").lower() != "off":
+        native_chars = sum(len(text.strip()) for text in pages)
+        weak_ratio = len(weak_pages) / max(1, len(pages))
+        # A selectable-text book commonly contains a few blank, cover or divider
+        # pages.  Do not require the optional OCR stack merely because one such
+        # page has fewer than 40 characters.  OCR is reserved for documents whose
+        # text layer is weak overall or whose weak-page ratio is substantial.
+        needs_ocr = bool(weak_pages) and (
+            native_chars < max(1_000, len(pages) * 100) or weak_ratio >= 0.15
+        )
+        if needs_ocr and os.getenv("LOCAL_NODE_OCR", "auto").lower() != "off":
             try:
                 import fitz  # type: ignore
                 document = fitz.open(path)
@@ -207,7 +216,7 @@ def extract_pages(path: Path) -> tuple[list[str], str]:
                     pages[index] = ocr_pdf_page(document[index])
             except ImportError as error:
                 raise RuntimeError("偵測到掃描頁；請安裝 PyMuPDF、PaddlePaddle 與 PaddleOCR") from error
-        mode = "ocr" if weak_pages and all(index in weak_pages for index in range(len(pages))) else "mixed" if weak_pages else "native_text"
+        mode = "ocr" if needs_ocr and len(weak_pages) == len(pages) else "mixed" if needs_ocr else "native_text"
         return pages, mode
     raise RuntimeError(f"目前不支援 {suffix or '無副檔名'} 文件")
 
