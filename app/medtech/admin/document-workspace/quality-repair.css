@@ -4,4 +4,8 @@
 .quality-repair-filters button:hover,.quality-repair-filters button.active{border-color:#147d70;background:#147d70;color:#fff}
 .quality-repair-filters button span{min-width:27px;padding:2px 7px;border-radius:999px;background:rgba(20,125,112,.12);text-align:center}
 .quality-repair-filters button.active span{background:rgba(255,255,255,.2)}
+.workspace-quality-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 14px;border-bottom:1px solid #d8e7e3;background:#fff8e8;color:#315f58}
+.workspace-quality-actions b{margin-right:auto}
+.workspace-quality-actions button{padding:8px 10px;border:1px solid #d9a82c;border-radius:8px;background:#fff;color:#815d00;font-weight:800;cursor:pointer}
+.workspace-quality-actions span{font-weight:700;color:#52736e}
 @media(max-width:900px){.quality-repair-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.quality-repair-filters>b{grid-column:1/-1}}
