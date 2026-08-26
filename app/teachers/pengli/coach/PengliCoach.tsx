@@ -122,7 +122,7 @@ export default function PengliCoach() {
       <header><div><span>彭狸 AI 教練</span><h1>先找爭點，再把答案寫出來</h1></div><i><b /> 教材模式</i></header>
       <div className="pengli-coach-thread" aria-live="polite">
         {!hasConversation && <div className="pengli-coach-starters">{starters.map((starter) => <button type="button" key={starter} onClick={() => void ask(starter)}>{starter}<b>→</b></button>)}</div>}
-        {messages.map((message, index) => <article className={message.role === "coach" ? "coach" : "student"} key={`${message.role}-${index}`}>
+        {messages.map((message, index) => <article data-selection-scope="pengli" data-selection-source={message.source || ""} className={message.role === "coach" ? "coach" : "student"} key={`${message.role}-${index}`}>
           <div className="pengli-coach-avatar">{message.role === "coach" ? "狸" : "我"}</div>
           <div><small>{message.role === "coach" ? "彭狸 AI 教練" : message.role === "scholar" ? "我的回答（學霸幫我答）" : "我的問題"}</small><p>{message.text}</p>{message.source && <span>（根據《{message.source}）</span>}</div>
         </article>)}
