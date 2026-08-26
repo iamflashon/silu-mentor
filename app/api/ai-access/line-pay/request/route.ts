@@ -1,13 +1,12 @@
 import { eq } from "drizzle-orm";
 import { aiPaymentOrders } from "../../../../../db/schema";
-import { getActiveAiEntitlement, getAiPlan } from "../../../../../lib/ai-access";
+import { getAiPlan } from "../../../../../lib/ai-access";
 import { linePayConfig, linePayPost } from "../../../../../lib/line-pay";
 import { requireMember } from "../../../../../lib/member-auth";
 
 export async function POST(request:Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
-  if (await getActiveAiEntitlement(auth.db, auth.member.id)) return Response.json({ error:"目前仍有有效的 AI 方案，請於額度用完或到期後再購買" }, { status:409 });
   const plan = await getAiPlan(auth.db);
   if (!plan.enabled) return Response.json({ error:"AI 試問方案目前尚未開放購買" }, { status:409 });
   const config = await linePayConfig();
