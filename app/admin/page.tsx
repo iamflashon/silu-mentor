@@ -3266,7 +3266,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     }
   }
 
-  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "medtech" | "accounting") {
+  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "pengli" | "medtech" | "accounting") {
     try {
       const response = await fetch(`/api/documents/assignments?documentId=${file.id}`, { cache: "no-store" });
       const loaded = await response.json() as { assignments?: Array<{ examCategory: string; subject: string; usageType?: string; visibility?: string; aiSearchEnabled?: boolean }>; error?: string };
@@ -3275,13 +3275,24 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
       const exists = current.some((item) => item.examCategory === category);
       const next = exists
         ? current.filter((item) => item.examCategory !== category)
-        : [...current, { examCategory: category, subject: file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
+        : category === "pengli" && /彭狸|行政法考點/u.test(`${file.bookTitle ?? ""} ${file.name}`)
+          ? [{ examCategory: "pengli", subject: "行政法", usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }]
+          : [...current, { examCategory: category, subject: file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
       if (!next.length) throw new Error("至少保留一個使用平台");
       const savedResponse = await fetch("/api/documents/assignments", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, assignments: next }) });
       const saved = await savedResponse.json() as { assignments?: Array<{ examCategory: string }>; error?: string };
       if (!savedResponse.ok) throw new Error(saved.error ?? "教材平台儲存失敗");
       const assignmentCategories = (saved.assignments ?? []).map((item) => item.examCategory);
-      setFiles((rows) => rows.map((item) => item.id === file.id ? { ...item, assignmentCategories, assignmentCount: assignmentCategories.length } : item));
+      let normalizedBookTitle = file.bookTitle;
+      let normalizedTags = file.tags;
+      if (category === "pengli" && !exists && /彭狸|行政法考點/u.test(`${file.bookTitle ?? ""} ${file.name}`)) {
+        normalizedBookTitle = "行政法考點演習書（二版）｜彭狸";
+        normalizedTags = ["法律", "行政法", "核心教材", "彭狸老師"];
+        const metadataResponse = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, bookTitle: normalizedBookTitle, tags: normalizedTags }) });
+        const metadata = await metadataResponse.json() as { error?: string };
+        if (!metadataResponse.ok) throw new Error(metadata.error ?? "彭狸教材名稱與標籤更新失敗");
+      }
+      setFiles((rows) => rows.map((item) => item.id === file.id ? { ...item, bookTitle: normalizedBookTitle, tags: normalizedTags, subject: category === "pengli" && !exists ? "行政法" : item.subject, assignmentCategories, assignmentCount: assignmentCategories.length } : item));
       setNotice(`「${file.bookTitle || file.name}」的平台關聯已更新。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "教材平台儲存失敗");
@@ -4503,7 +4514,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                           {ready && (
                             <div className="document-platform-links">
                               <strong>使用平台</strong>
-                              {([['law', '司律'], ['medtech', '醫檢師'], ['accounting', '會計']] as const).map(([value, label]) => {
+                              {([['law', '司律'], ['pengli', '彭狸老師'], ['medtech', '醫檢師'], ['accounting', '會計']] as const).map(([value, label]) => {
                                 const enabled = (file.assignmentCategories?.length ? file.assignmentCategories : [file.examCategory ?? 'law']).includes(value);
                                 return <button key={value} type="button" className={enabled ? "active" : ""} onClick={() => void toggleDocumentAssignment(file, value)}>{enabled ? "✓ " : "+ "}{label}</button>;
                               })}

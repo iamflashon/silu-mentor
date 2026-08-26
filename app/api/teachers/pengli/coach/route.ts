@@ -1,5 +1,6 @@
+import { and, desc, eq, like, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { usageLogs } from "../../../../../db/schema";
+import { documentAssignments, documentSearchUnits, documents, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
@@ -10,6 +11,26 @@ function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
   const output = Array.isArray(payload.output) ? payload.output : [];
   return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []).map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim();
+}
+
+function plainText(value: string) {
+  return value.replace(/\*\*/gu, "").replace(/^#{1,6}\s*/gmu, "").replace(/^>\s?/gmu, "").trim();
+}
+
+async function pengliEvidence(query: string) {
+  const db = await getDb("primary");
+  const [book] = await db.select({ id: documents.id, title: documents.bookTitle })
+    .from(documentAssignments)
+    .innerJoin(documents, eq(documents.id, documentAssignments.documentId))
+    .where(and(eq(documentAssignments.examCategory, "pengli"), eq(documentAssignments.aiSearchEnabled, true)))
+    .orderBy(desc(documents.id)).limit(1);
+  if (!book) return { documentId: null, title: "", rows: [] as Array<{ pageStart: number | null; pageEnd: number | null; text: string }> };
+  const terms = [...new Set(query.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!]+/u).map((term) => term.trim()).filter((term) => term.length >= 2))].slice(0, 8);
+  const rows = terms.length ? await db.select({ pageStart: documentSearchUnits.pageStart, pageEnd: documentSearchUnits.pageEnd, text: documentSearchUnits.text })
+    .from(documentSearchUnits)
+    .where(and(eq(documentSearchUnits.documentId, book.id), or(...terms.map((term) => like(documentSearchUnits.normalizedText, `%${term.toLocaleLowerCase("zh-Hant")}%`)))))
+    .orderBy(documentSearchUnits.sequence).limit(8) : [];
+  return { documentId: book.id, title: book.title || "行政法考點演習書（二版）｜彭狸", rows };
 }
 
 const teacherContext = `
@@ -32,15 +53,18 @@ export async function POST(request: Request) {
       content: String(message.text ?? "").slice(0, 4000),
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
+    const latestQuestion = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+    const evidence = await pengliEvidence(latestQuestion);
+    const evidenceText = evidence.rows.length ? evidence.rows.map((row, index) => `【教材片段 ${index + 1}｜本書第 ${row.pageStart ?? "?"}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁】\n${row.text.slice(0, 1800)}`).join("\n\n") : "目前未從彭狸專屬教材精準命中，不得假稱教材有記載。";
     const model = "gpt-5.6-luna";
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-      instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。只能服務臺灣行政法考試學習，不得引用或混用其他司律老師教材。教學風格：先指出問題意識，再用一至兩個問題帶學生判斷，最後才整理爭點、規範、涵攝與結論。回答精簡、口語、像考前帶學生抓重點。若下列專屬教材已直接支持，結尾標示「依據：彭狸老師教材」；若問題超出目前已核對範圍，可用一般行政法知識協助，但必須標示「AI 補充，待老師教材索引核對」，不得虛構老師原文、頁碼、裁判或法條。\n${teacherContext}`,
+      instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。只能服務臺灣行政法考試學習，不得引用或混用其他司律老師教材。只以本次提供的彭狸專屬教材片段作為教材依據。回答精簡、口語，一次只教一個判斷步驟；先問一個問題讓學生回答，不要一次傾倒完整擬答。禁止使用 Markdown 符號（包括 **、#、>）。引用教材時必須在句末標示「依據：行政法考點演習書（二版），本書第 X–X 頁」。沒有命中教材就明說「本輪未命中彭狸教材」，不得自行編造頁碼、老師原文、裁判或法條。\n${teacherContext}\n\n【本輪專屬教材檢索】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 1200,
     }) }) as Record<string, unknown>;
-    const reply = outputText(payload);
+    const reply = plainText(outputText(payload));
     if (!reply) return Response.json({ error: "彭狸 AI 教練沒有產生可顯示的回答。" }, { status: 502 });
     const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
     const inputTokens = Number(rawUsage.input_tokens ?? 0);
@@ -48,7 +72,7 @@ export async function POST(request: Request) {
     const outputTokens = Number(rawUsage.output_tokens ?? 0);
     const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
     try { const db = await getDb(); await db.insert(usageLogs).values({ model, source: "彭狸老師專區｜AI 分身教練", inputTokens, cachedTokens, outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: costMicros }); } catch { /* 回答不因成本紀錄失敗而中斷 */ }
-    const source = /AI 補充/.test(reply) ? "AI 補充，待老師教材索引核對" : "彭狸老師教材｜專屬試學索引";
+    const source = evidence.rows.length ? `${evidence.title}｜教材 #${evidence.documentId}` : "本輪未命中彭狸教材";
     return Response.json({ reply, source, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "彭狸 AI 教練目前無法回答。" }, { status: 500 });

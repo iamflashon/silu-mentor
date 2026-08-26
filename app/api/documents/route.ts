@@ -261,11 +261,12 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; bookTitle?: string };
+    const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; bookTitle?: string; tags?: string[] };
     const id = Number(body.id);
     const hasBookTitle = typeof body.bookTitle === "string";
+    const hasTags = Array.isArray(body.tags);
     const hasHomepageSearchSetting = typeof body.homepageSearchEnabled === "boolean";
-    if (!Number.isInteger(id) || id < 1 || (!hasBookTitle && !hasHomepageSearchSetting)) {
+    if (!Number.isInteger(id) || id < 1 || (!hasBookTitle && !hasTags && !hasHomepageSearchSetting)) {
       return Response.json({ error: "教材設定資料不正確" }, { status: 400 });
     }
     const db = await getDb();
@@ -275,7 +276,12 @@ export async function PATCH(request: Request) {
       const bookTitle = normalizeDocumentTitle(String(body.bookTitle ?? ""));
       if (!bookTitle) return Response.json({ error: "請輸入書籍名稱" }, { status: 400 });
       await db.update(documents).set({ bookTitle }).where(eq(documents.id, id));
-      if (!hasHomepageSearchSetting) return Response.json({ id, bookTitle });
+      if (!hasTags && !hasHomepageSearchSetting) return Response.json({ id, bookTitle });
+    }
+    if (hasTags) {
+      const tags = [...new Set((body.tags ?? []).map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 20);
+      await db.update(documents).set({ tagsJson: JSON.stringify(tags) }).where(eq(documents.id, id));
+      if (!hasHomepageSearchSetting) return Response.json({ id, bookTitle: hasBookTitle ? normalizeDocumentTitle(String(body.bookTitle ?? "")) : document.bookTitle, tags });
     }
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     if (body.homepageSearchEnabled && document.status !== "completed") {
