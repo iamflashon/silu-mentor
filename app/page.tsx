@@ -1332,7 +1332,6 @@ export default function MainEntryGate() {
             </div>
           </div>
           <div className="main-teacher-actions" aria-label="彭狸老師專區入口">
-            <Link className="main-teacher-trial" href="/teachers/pengli#free-trial">免費試學</Link>
             <Link className="main-teacher-enter" href="/teachers/pengli">進入專區 <b aria-hidden="true">↗</b></Link>
           </div>
         </article> : card.id === "medtech" ?
@@ -1348,8 +1347,7 @@ export default function MainEntryGate() {
             <div className="main-teacher-features" aria-label="專區內容"><span><b>1,400+</b> 題</span><span>老師語音</span><span>錯題重練</span></div>
           </div>
           <div className="main-teacher-actions" aria-label="康情老師醫檢專區入口">
-            <Link className="main-teacher-trial" href="/medtech">免費試學</Link>
-            <Link className="main-teacher-enter" href="/medtech/books">看本書 <b aria-hidden="true">↗</b></Link>
+            <Link className="main-teacher-enter" href="/medtech">進入專區 <b aria-hidden="true">↗</b></Link>
           </div>
         </article> : card.id === "accounting" ?
         <article className="main-teacher-card accounting-teacher" key={card.id}>
@@ -1364,8 +1362,7 @@ export default function MainEntryGate() {
             <div className="main-teacher-features" aria-label="專區內容"><span><b>18</b> 章</span><span>計算詳解</span><span>錯題收藏</span></div>
           </div>
           <div className="main-teacher-actions" aria-label="中級會計專區入口">
-            <Link className="main-teacher-trial" href="/accounting">免費試學</Link>
-            <Link className="main-teacher-enter" href="/accounting/books">看本書 <b aria-hidden="true">↗</b></Link>
+            <Link className="main-teacher-enter" href="/accounting">進入專區 <b aria-hidden="true">↗</b></Link>
           </div>
         </article> :
         <article className="main-platform-strip" key={card.id}>
