@@ -8,4 +8,9 @@
 .workspace-quality-actions b{margin-right:auto}
 .workspace-quality-actions button{padding:8px 10px;border:1px solid #d9a82c;border-radius:8px;background:#fff;color:#815d00;font-weight:800;cursor:pointer}
 .workspace-quality-actions span{font-weight:700;color:#52736e}
+.workspace-quality-reasons{display:grid;width:100%;gap:6px}
+.workspace-quality-reasons>b{margin:0}
+.workspace-quality-reasons p{display:flex;align-items:center;gap:8px;margin:0;padding:8px 10px;border-radius:8px;background:#fff2e8;color:#315f58}
+.workspace-quality-reasons p.p0{background:#fff0f0}
+.workspace-quality-reasons p strong{color:#c14848}
 @media(max-width:900px){.quality-repair-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.quality-repair-filters>b{grid-column:1/-1}}

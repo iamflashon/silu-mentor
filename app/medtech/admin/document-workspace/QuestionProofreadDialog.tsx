@@ -43,6 +43,7 @@ export function QuestionProofreadDialog({ question, onClose, accounting = false 
   const aiComplete = content(question.aiCompleteExplanation || question.simulatedCompleteExplanation);
   const teacherComplete = content(question.teacherCompleteExplanation || question.completeExplanation);
   const options = question.options ?? {};
+  const teacherAnswerIsLong = teacherAnswer.length > 8;
 
   return <section className="question-proofread-inline" role="region" aria-label={`第 ${question.questionNumber || ""} 題單題校對`}>
     <div className="question-proofread-dialog question-proofread-inline-dialog">
@@ -73,7 +74,7 @@ export function QuestionProofreadDialog({ question, onClose, accounting = false 
 
         <section className={`question-proofread-answer-grid ${accounting ? "single" : ""}`}>
           {!accounting && <div className="question-proofread-answer ai"><span>AI 擬答（AI 版）</span><strong>{aiAnswer || "尚未產生"}</strong><small>AI 獨立判斷；僅供與老師答案比對</small></div>}
-          <div className="question-proofread-answer teacher"><span>老師答案（老師版）</span><strong>{teacherAnswer || "尚未確認"}</strong><small>{question.answerSource || "原稿／題庫來源尚未標示"}</small></div>
+          <div className={`question-proofread-answer teacher ${teacherAnswerIsLong ? "long-answer" : ""}`}><span>老師答案（老師版）</span><strong>{teacherAnswer || "尚未確認"}</strong><small>{question.answerSource || "原稿／題庫來源尚未標示"}</small></div>
         </section>
 
         <ExplanationCard title="題目原有簡要解析" value={question.explanation} empty="原題沒有附簡要解析。" />
