@@ -1292,6 +1292,11 @@ export function LawHome() {
 }
 
 export default function MainEntryGate() {
+  type HomeCard = { id: "law" | "pengli" | "medtech" | "accounting"; enabled: boolean; order: number };
+  const homeDefaults: HomeCard[] = [{ id: "pengli", enabled: true, order: 1 }, { id: "medtech", enabled: true, order: 2 }, { id: "accounting", enabled: true, order: 3 }, { id: "law", enabled: false, order: 4 }];
+  const [homeCards, setHomeCards] = useState<HomeCard[]>(homeDefaults);
+  useEffect(() => { void fetch("/api/portal-cards", { cache: "no-store" }).then((response) => response.json()).then((data) => { if (Array.isArray(data.cards)) setHomeCards(data.cards); }).catch(() => undefined); }, []);
+  const coverFallback = (fallback: string) => (event: React.SyntheticEvent<HTMLImageElement>) => { const image = event.currentTarget; if (!image.dataset.fallback) { image.dataset.fallback = "1"; image.src = fallback; } };
   return <main className="main-entry-gate main-portal">
     <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
     <div className="main-portal-orb main-portal-orb-two" aria-hidden="true" />
@@ -1310,9 +1315,10 @@ export default function MainEntryGate() {
           <p>依類科找到老師，從專屬教材開始學習。</p>
         </header>
         <div className="main-teacher-list">
-        <article className="main-teacher-card law-teacher">
+        {homeCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => card.id === "pengli" ?
+        <article className="main-teacher-card law-teacher" key={card.id}>
           <div className="main-teacher-cover">
-            <img src="/teachers/pengli-administrative-law-cover-v2.png" alt="行政法考點（考前衝刺）演習書透明書封" />
+            <img src="/api/portal-cards/cover?id=pengli" onError={coverFallback("/teachers/pengli-administrative-law-cover-v2.png")} alt="行政法考點（考前衝刺）演習書透明書封" />
           </div>
           <div className="main-teacher-content">
             <div className="main-teacher-tags"><span>法律類</span><span>行政法</span><span>司律二試</span></div>
@@ -1329,10 +1335,10 @@ export default function MainEntryGate() {
             <Link className="main-teacher-trial" href="/teachers/pengli#free-trial">免費試學</Link>
             <Link className="main-teacher-enter" href="/teachers/pengli">進入專區 <b aria-hidden="true">↗</b></Link>
           </div>
-        </article>
-        <article className="main-teacher-card medtech-teacher">
+        </article> : card.id === "medtech" ?
+        <article className="main-teacher-card medtech-teacher" key={card.id}>
           <div className="main-teacher-cover">
-            <img src="/medtech-books/clinical-virology-lower.jpg" alt="醫檢師國考題詳解臨床病毒學下冊書封" />
+            <img src="/api/portal-cards/cover?id=medtech" onError={coverFallback("/medtech-books/clinical-virology-lower.jpg")} alt="醫檢師國考題詳解臨床病毒學下冊書封" />
           </div>
           <div className="main-teacher-content">
             <div className="main-teacher-tags"><span>醫檢類</span><span>臨床病毒學</span><span>醫檢國考</span></div>
@@ -1345,10 +1351,10 @@ export default function MainEntryGate() {
             <Link className="main-teacher-trial" href="/medtech">免費試學</Link>
             <Link className="main-teacher-enter" href="/medtech/books">看本書 <b aria-hidden="true">↗</b></Link>
           </div>
-        </article>
-        <article className="main-teacher-card accounting-teacher">
-          <div className="main-teacher-cover accounting-feature-cover" aria-label="中級會計學題庫制霸書封">
-            <div><span>中級會計學</span><b>題庫<br/>制霸</b><small>會研所選擇題庫</small></div>
+        </article> : card.id === "accounting" ?
+        <article className="main-teacher-card accounting-teacher" key={card.id}>
+          <div className="main-teacher-cover accounting-feature-cover">
+            <img src="/api/portal-cards/cover?id=accounting" onError={coverFallback("/api/accounting/product/cover")} alt="會研所中級會計學題庫制霸書封" />
           </div>
           <div className="main-teacher-content">
             <div className="main-teacher-tags"><span>會計類</span><span>中級會計</span><span>會研所</span></div>
@@ -1361,12 +1367,14 @@ export default function MainEntryGate() {
             <Link className="main-teacher-trial" href="/accounting">免費試學</Link>
             <Link className="main-teacher-enter" href="/accounting/books">看本書 <b aria-hidden="true">↗</b></Link>
           </div>
-        </article>
+        </article> :
+        <article className="main-platform-strip" key={card.id}>
+          <div className="main-platform-strip-icon" aria-hidden="true">律</div>
+          <div><small>律師・司法官國考學習平台</small><h3>司律備考</h3><p>爭點學習、真題演練與申論解題，建立完整法律思考路徑。</p></div>
+          <Link href="/law">進入學習平台 <b aria-hidden="true">↗</b></Link>
+        </article>)}
         </div>
       </section>
-      <nav className="main-secondary-platforms" aria-label="學習平台入口">
-        <span>學習平台</span><Link href="/medtech">醫檢國考</Link><Link href="/accounting">中級會計</Link>
-      </nav>
       <footer className="main-portal-footer">
         <span>高點學習服務</span>
         <nav aria-label="高點學習服務">

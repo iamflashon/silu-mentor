@@ -113,9 +113,13 @@
 .main-teacher-card.medtech-teacher .main-teacher-features b{color:#278271}
 .main-teacher-card.accounting-teacher .main-teacher-features b{color:#8b6a27}
 .main-teacher-cover img{border:0;background:transparent;object-fit:contain}
-.accounting-feature-cover>div{width:92px;height:132px;padding:12px 10px;display:flex;flex-direction:column;justify-content:space-between;border-radius:4px;background:linear-gradient(150deg,#173e37,#2b7669);color:#fff;box-shadow:0 10px 22px rgba(24,46,65,.18)}
-.accounting-feature-cover span,.accounting-feature-cover small{font-size:8px;font-weight:800;letter-spacing:.08em}.accounting-feature-cover b{font-size:22px;line-height:1.06}
+.accounting-feature-cover img{max-width:100%;max-height:142px;border-radius:2px;box-shadow:0 10px 22px rgba(24,46,65,.18)}
 .main-secondary-platforms{display:flex;align-items:center;justify-content:center;gap:12px;margin:20px auto 0;color:#78909a;font-size:11px}
 .main-secondary-platforms span{font-weight:850;letter-spacing:.08em}.main-secondary-platforms a{padding:7px 12px;border:1px solid #d7e2e7;border-radius:99px;background:#fff;color:#476671;font-weight:800;text-decoration:none}.main-secondary-platforms a:hover{border-color:#9cb8c3;color:#173f51}
+.main-platform-strip{position:relative;overflow:hidden;display:grid;grid-template-columns:88px minmax(0,1fr) auto;align-items:center;gap:24px;min-height:142px;padding:20px 22px;border:1px solid #dce6eb;border-top:3px solid #7eadd3;border-radius:20px;background:linear-gradient(120deg,#fff 0,#fff 66%,#eef6fb 100%);box-shadow:0 16px 42px rgba(24,64,82,.09)}
+.main-platform-strip::after{content:"LAW";position:absolute;right:26px;top:-8px;color:rgba(41,83,132,.04);font-size:82px;font-weight:900;pointer-events:none}.main-platform-strip>*{position:relative;z-index:1}
+.main-platform-strip-icon{width:68px;height:68px;display:grid;place-items:center;border:1px solid #c7dceb;border-radius:18px;background:#eaf4fb;color:#2f70aa;font-size:28px;font-weight:900}
+.main-platform-strip small{color:#607b8b;font-size:10px;font-weight:800}.main-platform-strip h3{margin:3px 0 5px;color:#173642;font-size:24px}.main-entry-gate .main-platform-strip p{margin:0;color:#687f88;font-size:12px;line-height:1.6}.main-platform-strip>a{display:flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:10px 17px;border-radius:10px;background:#315f91;color:#fff;font-size:11px;font-weight:850;text-decoration:none;box-shadow:0 8px 18px rgba(49,95,145,.2)}
 @media(max-width:760px){.main-entry-gate .main-teacher-zone{margin-top:255px}.main-teacher-list{gap:12px}.main-secondary-platforms{flex-wrap:wrap}}
-@media(max-width:430px){.main-entry-gate .main-teacher-zone{margin-top:235px}.accounting-feature-cover>div{width:70px;height:102px;padding:9px 8px}.accounting-feature-cover b{font-size:17px}.accounting-feature-cover span,.accounting-feature-cover small{font-size:6px}}
+@media(max-width:760px){.main-platform-strip{grid-template-columns:68px minmax(0,1fr);gap:17px;padding:18px}.main-platform-strip>a{grid-column:1/-1}.main-platform-strip-icon{width:58px;height:58px;border-radius:15px}}
+@media(max-width:430px){.main-entry-gate .main-teacher-zone{margin-top:235px}}
