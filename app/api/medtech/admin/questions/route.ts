@@ -51,7 +51,7 @@ function hasReviewableExplanation(question: { explanation?: string | null; aiCom
 }
 
 function hasTeacherAnswer(question: { teacherAnswer?: string | null; correctAnswer?: string | null }) {
-  return /^[A-D]$/i.test(String(question.teacherAnswer || question.correctAnswer || "").trim());
+  return /^(?:[A-D]|NONE)$/i.test(String(question.teacherAnswer || question.correctAnswer || "").trim());
 }
 
 function hasPublishableAnswer(question: { teacherAnswer?: string | null; correctAnswer?: string | null; reviewStatus?: string | null; examName?: string | null; subject?: string | null; simulatedAnswer?: string | null }) {
@@ -350,7 +350,7 @@ export async function PATCH(request: Request) {
           .set({ reviewStatus: "confirmed", reviewedAt: new Date() })
           .where(and(eq(examQuestions.id, row.id), eq(examQuestions.examCategory, "medtech")));
       }
-      const unanswered = rows.filter((row) => !/^[A-D]$/.test(String(row.teacherAnswer || row.correctAnswer || "").trim().toUpperCase())).length;
+      const unanswered = rows.filter((row) => !/^(?:[A-D]|NONE)$/.test(String(row.teacherAnswer || row.correctAnswer || "").trim().toUpperCase())).length;
       return Response.json({ updated: rows.length, unanswered, questionIds: rows.map((item) => item.id), reviewStatus: "confirmed" });
     } catch (error) {
       console.error("[medtech] bulk review confirmation failed", error);
@@ -384,7 +384,7 @@ export async function PATCH(request: Request) {
     const rows = publishableRows;
     const skippedUnanswered = draftRows.filter((row) => !hasPublishableAnswer(row)).length;
     if (!rows.length && draftRows.length) {
-      return Response.json({ error: `本文件尚未發布任何題目：${skippedUnanswered} 題尚未設定有效的老師答案（需為 A、B、C 或 D）。`, updated: 0, skippedUnanswered, status: "draft" }, { status: 409 });
+      return Response.json({ error: `本文件尚未發布任何題目：${skippedUnanswered} 題尚未設定有效的老師答案（A～D 或「無適合選項」）。`, updated: 0, skippedUnanswered, status: "draft" }, { status: 409 });
     }
     return Response.json({ updated: rows.length, skippedUnanswered, skipped: Math.max(0, draftRows.length - rows.length), documentId, status: "published" });
   }
@@ -393,7 +393,7 @@ export async function PATCH(request: Request) {
 
   if (body.confirmReview === true) {
     const answer = String(existing.teacherAnswer || existing.correctAnswer || "").trim().toUpperCase();
-    if (!/^[A-D]$/.test(answer)) return Response.json({ error: "請先設定右側老師答案，再確認校對。" }, { status: 422 });
+    if (!/^(?:[A-D]|NONE)$/.test(answer)) return Response.json({ error: "請先設定右側老師答案或確認為無適合選項，再確認校對。" }, { status: 422 });
     if (!hasReviewableExplanation(existing)) return Response.json({ error: "請先確認至少有一段解析內容，再標記為已校對。" }, { status: 422 });
     const [updated] = await db.update(examQuestions).set({ reviewStatus: "confirmed", reviewedAt: new Date() }).where(eq(examQuestions.id, id)).returning();
     return Response.json({ item: updated, reviewStatus: "confirmed" });

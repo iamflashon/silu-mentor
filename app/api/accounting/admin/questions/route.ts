@@ -39,10 +39,10 @@ export async function PATCH(request:Request){
     const aliases=[...new Set([`document:${document.id}`,document.storageKey,document.fileName].filter((value):value is string=>Boolean(value)))];
     const sourceFilter=or(...aliases.map((source)=>eq(examQuestions.sourceUrl,source)));
     const draftRows=await db.select({id:examQuestions.id,teacherAnswer:examQuestions.teacherAnswer,correctAnswer:examQuestions.correctAnswer}).from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.status,"draft"),sourceFilter));
-    const publishableRows=draftRows.filter((row)=>/^[A-D]$/i.test(String(row.teacherAnswer||row.correctAnswer||"").trim()));
+    const publishableRows=draftRows.filter((row)=>/^(?:[A-D]|NONE)$/i.test(String(row.teacherAnswer||row.correctAnswer||"").trim()));
     for(const row of publishableRows)await db.update(examQuestions).set({status:"published"}).where(and(eq(examQuestions.id,row.id),eq(examQuestions.examCategory,"accounting")));
     const rows=publishableRows;
-    const skippedUnanswered=draftRows.filter((row)=>!/^[A-D]$/i.test(String(row.teacherAnswer||row.correctAnswer||"").trim())).length;
+    const skippedUnanswered=draftRows.filter((row)=>!/^(?:[A-D]|NONE)$/i.test(String(row.teacherAnswer||row.correctAnswer||"").trim())).length;
     if(!rows.length&&draftRows.length)return Response.json({error:`本文件尚未發布任何題目：${skippedUnanswered} 題尚未設定有效答案。`,updated:0,skippedUnanswered,status:"draft"},{status:409});
     return Response.json({updated:rows.length,skippedUnanswered,skipped:Math.max(0,draftRows.length-rows.length),documentId,status:"published"});
   }
