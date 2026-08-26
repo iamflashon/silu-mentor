@@ -34,6 +34,14 @@ export async function grantAiAccess(db: Db, input:{memberId:number;quota:number;
   return created;
 }
 
+export async function grantOrExtendAiAccess(db: Db, input:{memberId:number;quota:number;durationDays:number;source:string;referenceId:string;note:string}) {
+  const existing = await getActiveAiEntitlement(db,input.memberId);
+  if (!existing) return grantAiAccess(db,input);
+  const expiresAt = new Date(existing.expiresAt.getTime()+input.durationDays*86400000);
+  const [updated] = await db.update(aiAccessEntitlements).set({quotaTotal:sql`${aiAccessEntitlements.quotaTotal} + ${input.quota}`,expiresAt,source:input.source,referenceId:input.referenceId,note:input.note,updatedAt:new Date()}).where(eq(aiAccessEntitlements.id,existing.id)).returning();
+  return updated;
+}
+
 export async function consumeAiAccess(db: Db, input:{memberId:number;action:string;description:string;requestKey?:string}) {
   const requestKey=(input.requestKey||crypto.randomUUID()).slice(0,120);
   const [existingLedger]=await db.select().from(aiAccessLedger).where(and(eq(aiAccessLedger.memberId,input.memberId),eq(aiAccessLedger.requestKey,requestKey))).limit(1);
