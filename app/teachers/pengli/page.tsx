@@ -67,9 +67,7 @@ export default function PengliTeacherPage() {
       </div>
       <div className="pengli-book-stage">
         <div className="pengli-book-halo" aria-hidden="true" />
-        <div className="pengli-book-object">
-          <img src="/teachers/pengli-administrative-law-cover.webp" alt="行政法考點（考前衝刺）演習書書封" />
-        </div>
+        <img src="/teachers/pengli-administrative-law-cover-v2.png" alt="行政法考點（考前衝刺）演習書透明書封" />
         <div className="pengli-teacher-note"><small>AUTHOR</small><strong>彭狸</strong><span>臺大法律研究所公法組</span></div>
       </div>
     </section>
@@ -102,7 +100,7 @@ export default function PengliTeacherPage() {
     <section className="pengli-trial" id="free-trial">
       <header><span>FREE TRIAL</span><h2>免費試學：先練三個基礎考點</h2><p>每個考點都從一個問題開始，不先把答案整段塞給你。</p></header>
       <div className="pengli-trial-grid">
-        {samplePoints.map((point, index) => <article key={point.number}>
+        {samplePoints.map((point) => <article key={point.number}>
           <div><span>{point.label}</span><b>{point.number}</b></div>
           <h3>{point.title}</h3>
           <p>{point.question}</p>
@@ -110,23 +108,8 @@ export default function PengliTeacherPage() {
             <summary>查看本題學習重點</summary>
             <p>{point.takeaway}</p>
           </details>
-          <a href={index === 0 ? "#first-lesson" : "#access-plan"}>{index === 0 ? "開始試學" : "排入試學順序"}<b aria-hidden="true">→</b></a>
+          <Link href={`/teachers/pengli/coach?topic=${encodeURIComponent(point.title)}`}>進入 AI 教練<b aria-hidden="true">→</b></Link>
         </article>)}
-      </div>
-    </section>
-
-    <section className="pengli-first-lesson" id="first-lesson">
-      <div className="pengli-lesson-number">考點 01</div>
-      <div className="pengli-lesson-copy">
-        <span>主題一｜行政法理論基礎</span>
-        <h2>公私法區分：先找到真正的請求</h2>
-        <p>遇到審判權問題時，先不要被當事人的身分帶走。請先圈出原告主張的請求權基礎，再判斷這個法律關係屬於公法或私法。</p>
-        <blockquote><b>彭狸老師提醒</b>這是基本功，但不是考試熱區；先把新主體說與釋字第 758 號的判斷方式掌握好。</blockquote>
-      </div>
-      <div className="pengli-lesson-task">
-        <span>現在換你判斷</span>
-        <p>人民依民法第 767 條請求市政府返還土地，市政府以公用地役關係抗辯。事件性質應從哪裡開始判斷？</p>
-        <div><button type="button">看解題提示</button><Link href="/teachers/pengli/coach?topic=%E5%85%AC%E7%A7%81%E6%B3%95%E5%8D%80%E5%88%86">詢問彭狸 AI 教練</Link></div>
       </div>
     </section>
 
