@@ -97,3 +97,25 @@
 .main-entry-gate .main-teacher-zone+.main-portal-footer{margin-top:34px}
 @media(max-width:760px){.main-entry-gate .main-teacher-zone{margin-top:28px}.main-teacher-zone-head{align-items:flex-start;flex-direction:column;gap:4px}.main-teacher-card{grid-template-columns:88px minmax(0,1fr);gap:18px;padding:18px}.main-teacher-cover{height:118px}.main-teacher-cover img{max-height:118px}.main-teacher-actions{grid-column:1/-1;grid-template-columns:1fr 1fr}.main-teacher-card::after{font-size:65px}.main-teacher-content h3{font-size:21px}}
 @media(max-width:430px){.main-teacher-card{grid-template-columns:76px minmax(0,1fr);gap:14px;padding:15px;border-radius:17px}.main-teacher-cover{height:108px}.main-teacher-cover img{max-height:108px}.main-teacher-tags{gap:4px}.main-teacher-tags span{padding:3px 6px}.main-entry-gate .main-teacher-content p{font-size:11px}.main-teacher-features{gap:5px;font-size:9px}.main-teacher-actions>a{min-height:36px;padding:8px 10px}.main-teacher-zone-head p{display:none}}
+
+/* Homepage storefront: representative books and mentors share equal visual weight. */
+.main-entry-gate .main-teacher-zone{width:min(920px,100%);margin-top:310px}
+.main-teacher-list{display:grid;gap:14px}
+.main-teacher-card{min-height:190px}
+.main-teacher-card.medtech-teacher{border-top-color:#73cbb8;background:linear-gradient(120deg,#fff 0,#fff 63%,#f1faf7 100%)}
+.main-teacher-card.accounting-teacher{border-top-color:#d8b864;background:linear-gradient(120deg,#fff 0,#fff 63%,#fbf7ed 100%)}
+.main-teacher-card.medtech-teacher::after{content:"MED";color:rgba(26,130,106,.04)}
+.main-teacher-card.accounting-teacher::after{content:"ACC";color:rgba(143,101,17,.04)}
+.main-teacher-card.medtech-teacher .main-teacher-tags span{color:#237563;background:#e8f7f2}
+.main-teacher-card.accounting-teacher .main-teacher-tags span{color:#765719;background:#f8efd9}
+.main-teacher-card.medtech-teacher .main-teacher-enter{background:#278271;box-shadow:0 8px 18px rgba(39,130,113,.2)}
+.main-teacher-card.accounting-teacher .main-teacher-enter{background:#8b6a27;box-shadow:0 8px 18px rgba(139,106,39,.2)}
+.main-teacher-card.medtech-teacher .main-teacher-features b{color:#278271}
+.main-teacher-card.accounting-teacher .main-teacher-features b{color:#8b6a27}
+.main-teacher-cover img{border:0;background:transparent;object-fit:contain}
+.accounting-feature-cover>div{width:92px;height:132px;padding:12px 10px;display:flex;flex-direction:column;justify-content:space-between;border-radius:4px;background:linear-gradient(150deg,#173e37,#2b7669);color:#fff;box-shadow:0 10px 22px rgba(24,46,65,.18)}
+.accounting-feature-cover span,.accounting-feature-cover small{font-size:8px;font-weight:800;letter-spacing:.08em}.accounting-feature-cover b{font-size:22px;line-height:1.06}
+.main-secondary-platforms{display:flex;align-items:center;justify-content:center;gap:12px;margin:20px auto 0;color:#78909a;font-size:11px}
+.main-secondary-platforms span{font-weight:850;letter-spacing:.08em}.main-secondary-platforms a{padding:7px 12px;border:1px solid #d7e2e7;border-radius:99px;background:#fff;color:#476671;font-weight:800;text-decoration:none}.main-secondary-platforms a:hover{border-color:#9cb8c3;color:#173f51}
+@media(max-width:760px){.main-entry-gate .main-teacher-zone{margin-top:255px}.main-teacher-list{gap:12px}.main-secondary-platforms{flex-wrap:wrap}}
+@media(max-width:430px){.main-entry-gate .main-teacher-zone{margin-top:235px}.accounting-feature-cover>div{width:70px;height:102px;padding:9px 8px}.accounting-feature-cover b{font-size:17px}.accounting-feature-cover span,.accounting-feature-cover small{font-size:6px}}
