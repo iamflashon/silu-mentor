@@ -17,6 +17,7 @@ export default function PengliCoach() {
   const [messages, setMessages] = useState<CoachMessage[]>([{ role: "coach", text: "我是彭狸 AI 教練。這裡只依彭狸老師《行政法考點（考前衝刺）演習書》的學習脈絡陪你練習；我會先幫你找爭點與破題方向，不會一開始就把整份擬答貼給你。", source: "專區使用說明" }]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [scholarThinking, setScholarThinking] = useState(false);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
@@ -40,28 +41,65 @@ export default function PengliCoach() {
 
   const hasConversation = useMemo(() => messages.some((message) => message.role === "student"), [messages]);
 
+  async function requestCoach(next: CoachMessage[]) {
+    const response = await fetch("/api/teachers/pengli/coach", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: next.slice(-12), requestKey: crypto.randomUUID() }),
+    });
+    const data = await response.json() as { reply?: string; source?: string; error?: string; usage?: Usage; access?: Access; purchaseUrl?: string };
+    if (!response.ok || !data.reply) {
+      if (data.purchaseUrl) window.location.href = "/teachers/pengli/ai-access";
+      throw new Error(data.error || "彭狸 AI 教練目前無法回答。");
+    }
+    setMessages((current) => [...current, { role: "coach", text: data.reply!, source: data.source }]);
+    setUsage(data.usage || null);
+    if (data.access) setAccess(data.access);
+  }
+
   async function ask(text: string) {
     const question = text.trim();
-    if (!question || thinking) return;
+    if (!question || thinking || scholarThinking) return;
     const next = [...messages, { role: "student" as const, text: question }];
     setMessages(next);
     setInput("");
     setThinking(true);
     setError("");
     try {
-      const response = await fetch("/api/teachers/pengli/coach", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: next.slice(-12), requestKey: crypto.randomUUID() }),
-      });
-      const data = await response.json() as { reply?: string; scholar?: string; source?: string; error?: string; usage?: Usage; access?: Access; purchaseUrl?: string };
-      if (!response.ok || !data.reply) { if (data.purchaseUrl) window.location.href = "/teachers/pengli/ai-access"; throw new Error(data.error || "彭狸 AI 教練目前無法回答。"); }
-      setMessages((current) => [...current, { role: "coach", text: data.reply!, source: data.source }, ...(data.scholar ? [{ role: "scholar" as const, text: data.scholar, source: "AI 學霸追問" }] : [])]);
-      setUsage(data.usage || null);
-      if (data.access) setAccess(data.access);
+      await requestCoach(next);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "彭狸 AI 教練目前無法回答。");
     } finally {
+      setThinking(false);
+    }
+  }
+
+  async function askScholarToAnswer() {
+    if (thinking || scholarThinking) return;
+    const latestCoach = [...messages].reverse().find((message) => message.role === "coach");
+    if (!latestCoach) return;
+    setScholarThinking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/coach", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "scholar-assist", messages: messages.slice(-12) }),
+      });
+      const data = await response.json() as { scholarDraft?: string; error?: string; purchaseUrl?: string };
+      if (!response.ok || !data.scholarDraft) {
+        if (data.purchaseUrl) window.location.href = "/teachers/pengli/ai-access";
+        throw new Error(data.error || "AI 學霸目前無法代答。");
+      }
+      const next = [...messages, { role: "scholar" as const, text: data.scholarDraft, source: "學霸代答（學生角色）" }];
+      setMessages(next);
+      setScholarThinking(false);
+      setThinking(true);
+      await requestCoach(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "AI 學霸目前無法代答。");
+    } finally {
+      setScholarThinking(false);
       setThinking(false);
     }
   }
@@ -88,13 +126,19 @@ export default function PengliCoach() {
           <div className="pengli-coach-avatar">{message.role === "coach" ? "狸" : message.role === "scholar" ? "霸" : "我"}</div>
           <div><small>{message.role === "coach" ? "彭狸 AI 教練" : message.role === "scholar" ? "AI 學霸" : "我的問題"}</small><p>{message.text}</p>{message.source && <span>依據：{message.source}</span>}</div>
         </article>)}
-        {thinking && <article className="coach thinking"><div className="pengli-coach-avatar">狸</div><div><small>彭狸 AI 教練</small><p>正在依老師教材脈絡整理問題……</p></div></article>}
+        {scholarThinking && <article className="scholar thinking"><div className="pengli-coach-avatar">霸</div><div><small>AI 學霸（學生角色）</small><p>正在替我整理回答，並準備反問老師……</p></div></article>}
+        {thinking && <article className="coach thinking"><div className="pengli-coach-avatar">狸</div><div><small>彭狸 AI 教練</small><p>正在回應學員的回答與追問……</p></div></article>}
         <div ref={endRef} />
       </div>
       {error && <p className="pengli-coach-error">{error}</p>}
+      <div className="pengli-coach-assist">
+        <button type="button" onClick={() => void askScholarToAnswer()} disabled={thinking || scholarThinking || !messages.some((message) => message.role === "coach")}>
+          <b>霸</b><span><strong>學霸幫我回答</strong><small>我不知道時，代我回答並反問老師</small></span>
+        </button>
+      </div>
       <form className="pengli-coach-composer" onSubmit={submit}>
         <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} placeholder="貼上行政法題目，或告訴我你卡在哪個爭點……" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(input); } }} />
-        <button type="submit" disabled={!input.trim() || thinking}>送出</button>
+        <button type="submit" disabled={!input.trim() || thinking || scholarThinking}>送出</button>
       </form>
       <footer><span>AI 分身不等同真人老師；每完成 5 輪陪練扣 1 次。</span><small>{access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5} 輪・剩餘 {access?.remaining ?? "—"} 次</small></footer>
     </div>

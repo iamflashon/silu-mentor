@@ -29,18 +29,45 @@ function coachParts(value: string) {
 
 async function pengliEvidence(query: string) {
   const db = await getDb("primary");
-  const [book] = await db.select({ id: documents.id, title: documents.bookTitle })
+  const [directBook] = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
+    .from(documents)
+    .where(or(like(documents.fileName, "%59ML170502%"), like(documents.bookTitle, "%行政法考點%")))
+    .orderBy(desc(documents.id)).limit(1);
+  const [assignedBook] = directBook ? [] : await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
     .from(documentAssignments)
     .innerJoin(documents, eq(documents.id, documentAssignments.documentId))
     .where(and(eq(documentAssignments.examCategory, "pengli"), eq(documentAssignments.aiSearchEnabled, true)))
     .orderBy(desc(documents.id)).limit(1);
-  if (!book) return { documentId: null, title: "", rows: [] as Array<{ pageStart: number | null; pageEnd: number | null; text: string }> };
-  const terms = [...new Set(query.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!]+/u).map((term) => term.trim()).filter((term) => term.length >= 2))].slice(0, 8);
-  const rows = terms.length ? await db.select({ pageStart: documentSearchUnits.pageStart, pageEnd: documentSearchUnits.pageEnd, text: documentSearchUnits.text })
-    .from(documentSearchUnits)
-    .where(and(eq(documentSearchUnits.documentId, book.id), or(...terms.map((term) => like(documentSearchUnits.normalizedText, `%${term.toLocaleLowerCase("zh-Hant")}%`)))))
-    .orderBy(documentSearchUnits.sequence).limit(8) : [];
-  return { documentId: book.id, title: book.title || "行政法考點演習書（二版）｜彭狸", rows };
+  const book = directBook ?? assignedBook;
+  if (!book) return { documentId: null, title: "", rows: [] as Array<{ pageStart: number | null; pageEnd: number | null; title: string; hierarchyPath: string; text: string }> };
+
+  const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
+  const topicHints: string[] = [];
+  if (/公私法|請求權基礎|758/u.test(normalized)) topicHints.push("公私法區分", "請求權基礎", "新主體說", "758");
+  if (/法律保留|443/u.test(normalized)) topicHints.push("法律保留原則", "層級化法律保留", "443");
+  if (/明確性/u.test(normalized)) topicHints.push("明確性原則", "可理解", "可預見", "司法審查");
+  if (/行政處分|外部性/u.test(normalized)) topicHints.push("行政處分", "外部性");
+  const terms = [...new Set([
+    ...topicHints,
+    ...normalized.split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
+      .map((term) => term.replace(/^(我正在學|請先用|一個問題|帶我判斷|請問|老師)/u, "").trim())
+      .filter((term) => term.length >= 2 && term.length <= 18),
+  ])].slice(0, 12);
+  const conditions = terms.flatMap((term) => [
+    like(documentSearchUnits.normalizedText, `%${term}%`),
+    like(documentSearchUnits.title, `%${term}%`),
+    like(documentSearchUnits.hierarchyPath, `%${term}%`),
+  ]);
+  const rows = conditions.length ? await db.select({
+    pageStart: documentSearchUnits.pageStart,
+    pageEnd: documentSearchUnits.pageEnd,
+    title: documentSearchUnits.title,
+    hierarchyPath: documentSearchUnits.hierarchyPath,
+    text: documentSearchUnits.text,
+  }).from(documentSearchUnits)
+    .where(and(eq(documentSearchUnits.documentId, book.id), or(...conditions)))
+    .orderBy(documentSearchUnits.sequence).limit(12) : [];
+  return { documentId: book.id, title: book.title || book.fileName || "行政法考點演習書（二版）｜彭狸", rows };
 }
 
 const teacherContext = `
@@ -56,28 +83,50 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
+    const body = await request.json() as { messages?: InputMessage[]; requestKey?: string; mode?: "scholar-assist" };
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
-    const body = await request.json() as { messages?: InputMessage[]; requestKey?: string };
-    const messages = (Array.isArray(body.messages) ? body.messages : []).slice(-12).map((message) => ({
-      role: message.role === "coach" || message.role === "scholar" ? "assistant" : "user",
+
+    const rawMessages = (Array.isArray(body.messages) ? body.messages : []).slice(-12);
+    const messages = rawMessages.map((message) => ({
+      role: message.role === "coach" ? "assistant" : "user",
       content: String(message.text ?? "").slice(0, 4000),
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
-    const latestQuestion = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
-    const evidence = await pengliEvidence(latestQuestion);
-    const evidenceText = evidence.rows.length ? evidence.rows.map((row, index) => `【教材片段 ${index + 1}｜本書第 ${row.pageStart ?? "?"}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁】\n${row.text.slice(0, 1800)}`).join("\n\n") : "目前未從彭狸專屬教材精準命中，不得假稱教材有記載。";
+
+    const searchText = rawMessages.slice(-6).map((message) => String(message.text ?? "")).join(" ");
+    const evidence = await pengliEvidence(searchText);
+    if (!evidence.documentId) return Response.json({ error: "尚未在中央教材庫找到彭狸老師《行政法考點演習書（二版）》（書號 59ML170502），請管理員確認教材檔案仍存在。" }, { status: 409 });
+    if (!evidence.rows.length) return Response.json({ error: "已找到彭狸老師的書，但本題尚未命中頁面索引。請換成更明確的考點名稱後再試，系統不會改用其他教材回答。" }, { status: 409 });
+
+    const evidenceText = evidence.rows.map((row, index) => {
+      const page = row.pageStart ? `本書第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "本書頁碼待索引補正";
+      return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.slice(0, 1800)}`;
+    }).join("\n\n");
     const model = "gpt-5.6-luna";
+
+    if (body.mode === "scholar-assist") {
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model,
+        instructions: `你是程度很好的行政法考生，現在代替不會回答的學生向彭狸老師作答。只依下方彭狸老師《行政法考點演習書（二版）》教材片段與目前對話回答。先用第一人稱學生口吻直接回答老師剛才的問題，控制在 3 至 5 句；接著另起一行，以「我想再請問老師：」提出一個從本題延伸的反問。不要冒充老師，不要寫完整擬答，不得引用其他老師教材，不得使用 Markdown 符號。若引用教材觀點，在句末標示明確頁數。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
+        input: messages,
+        max_output_tokens: 650,
+      }) }) as Record<string, unknown>;
+      const scholarDraft = plainText(outputText(payload));
+      if (!scholarDraft) return Response.json({ error: "AI 學霸目前無法代答。" }, { status: 502 });
+      return Response.json({ scholarDraft, source: evidence.title });
+    }
+
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-      instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。只能服務臺灣行政法考試學習，不得引用或混用其他司律老師教材。只以本次提供的彭狸專屬教材片段作為教材依據。回答精簡、口語，一次只教一個判斷步驟；先問一個問題讓學生回答，不要一次傾倒完整擬答。接著模擬一位程度很好的「AI 學霸」，從學生容易忽略的反面、例外或事實變化提出一個短追問。禁止使用 Markdown 符號（包括 **、#、>）。引用教材時必須在句末標示「依據：行政法考點演習書（二版），本書第 X–X 頁」。沒有命中教材就明說「本輪未命中彭狸教材」，不得自行編造頁碼、老師原文、裁判或法條。輸出固定分成【教練回應】與【學霸追問】兩段，學霸只問一題。\n${teacherContext}\n\n【本輪專屬教材檢索】\n${evidenceText}`,
+      instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。每個取自教材的觀點都要在同一句或同一段末尾明確標示「依據：行政法考點演習書（二版），本書第 X–X 頁」。教材片段沒有頁碼時標示「本書頁碼待索引補正」，絕不可顯示 X–X 或虛構頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 1200,
     }) }) as Record<string, unknown>;
-    const parts = coachParts(outputText(payload));
-    if (!parts.coach) return Response.json({ error: "彭狸 AI 教練沒有產生可顯示的回答。" }, { status: 502 });
+    const reply = plainText(outputText(payload).replace(/【教練回應】/gu, "").replace(/【學霸追問】[\s\S]*$/u, ""));
+    if (!reply) return Response.json({ error: "彭狸 AI 教練沒有產生可顯示的回答。" }, { status: 502 });
     const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
     const inputTokens = Number(rawUsage.input_tokens ?? 0);
     const cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0);
@@ -85,8 +134,9 @@ export async function POST(request: Request) {
     const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
     try { const db = await getDb(); await db.insert(usageLogs).values({ model, source: "彭狸老師專區｜AI 分身教練", inputTokens, cachedTokens, outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: costMicros }); } catch { /* 回答不因成本紀錄失敗而中斷 */ }
     const access = await finishAiCoachRound(gate, { action: "pengli_coach_5_rounds", description: "彭狸 AI 分身陪練，每 5 輪扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
-    const source = evidence.rows.length ? `${evidence.title}｜教材 #${evidence.documentId}` : "本輪未命中彭狸教材";
-    return Response.json({ reply: parts.coach, scholar: parts.scholar, source, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+    const citedPages = [...new Set(evidence.rows.flatMap((row) => row.pageStart ? [row.pageEnd && row.pageEnd !== row.pageStart ? `${row.pageStart}–${row.pageEnd}` : String(row.pageStart)] : []))];
+    const source = `${evidence.title}｜本書第 ${citedPages.join("、")} 頁｜教材 #${evidence.documentId}`;
+    return Response.json({ reply, source, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "彭狸 AI 教練目前無法回答。" }, { status: 500 });
   }
