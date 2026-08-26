@@ -1307,7 +1307,7 @@ export default function MainEntryGate() {
   const cardDefinitions = {
     law: { className: "law", href: "/law", eyebrow: "LEGAL INTELLIGENCE", number: "01", small: "律師・司法官國考", title: "司律備考", description: "爭點學習、真題演練與申論解題，建立完整法律思考路徑。" },
     medtech: { className: "medtech", href: "/medtech", eyebrow: "MEDICAL LAB SCIENCE", number: "02", small: "醫事檢驗師國考", title: "醫檢國考", description: "章節刷題、完整解析與老師語音，讓國考準備更有方向。" },
-    accounting: { className: "accounting", href: "/accounting", eyebrow: "ACCOUNTING INTELLIGENCE", number: "03", small: "會研所・會計專業", title: "中級會計", description: "課業答疑、題庫練習與申論解析，把會計觀念與計算步驟真正串起來。" },
+    accounting: { className: "accounting", href: "/accounting", eyebrow: "ACCOUNTING INTELLIGENCE", number: "03", small: "會研所・會計專業", title: "中級會計", description: "觀念學完直接進入考題，以選擇題與申論題反覆實戰，立即核對計算過程及老師解析。" },
   };
   return <main className="main-entry-gate main-portal">
     <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
@@ -1351,9 +1351,9 @@ export default function MainEntryGate() {
               <span>申論批改</span>
             </div>
           </div>
-          <div className="main-teacher-actions" aria-label="專區預覽按鈕">
-            <span className="main-teacher-trial">免費試學</span>
-            <span className="main-teacher-enter">進入專區 <b aria-hidden="true">↗</b></span>
+          <div className="main-teacher-actions" aria-label="彭狸老師專區入口">
+            <Link className="main-teacher-trial" href="/teachers/pengli#free-trial">免費試學</Link>
+            <Link className="main-teacher-enter" href="/teachers/pengli">進入專區 <b aria-hidden="true">↗</b></Link>
           </div>
         </article>
       </section>
