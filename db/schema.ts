@@ -201,6 +201,44 @@ export const medtechMemberEntitlements = sqliteTable(
   ],
 );
 
+export const accountingProducts = sqliteTable("accounting_products", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  productKey: text("product_key").notNull().unique(),
+  title: text("title").notNull(),
+  subtitle: text("subtitle").notNull().default(""),
+  descriptionHtml: text("description_html").notNull().default(""),
+  coverStorageKey: text("cover_storage_key"),
+  listPrice: integer("list_price").notNull().default(249),
+  salePrice: integer("sale_price"),
+  saleLabel: text("sale_label").notNull().default(""),
+  saleStartsAt: integer("sale_starts_at", { mode: "timestamp" }),
+  saleEndsAt: integer("sale_ends_at", { mode: "timestamp" }),
+  accessDays: integer("access_days").notNull().default(90),
+  trialQuestions: integer("trial_questions").notNull().default(10),
+  renewalMode: text("renewal_mode").notNull().default("extend"),
+  status: text("status").notNull().default("draft"),
+  sortOrder: integer("sort_order").notNull().default(10),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const accountingMemberEntitlements = sqliteTable("accounting_member_entitlements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  productKey: text("product_key").notNull(),
+  status: text("status").notNull().default("active"),
+  source: text("source").notNull().default("manual"),
+  startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  note: text("note").notNull().default(""),
+  updatedBy: text("updated_by").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("accounting_member_entitlements_member_product_unique").on(table.memberId, table.productKey),
+  index("accounting_member_entitlements_product_expiry_idx").on(table.productKey, table.expiresAt),
+]);
+
 export const aiAccessEntitlements = sqliteTable(
   "ai_access_entitlements",
   {

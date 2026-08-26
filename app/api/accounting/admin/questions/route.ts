@@ -5,6 +5,12 @@ import { requireAccountingAdmin } from "../../../../../lib/member-auth";
 import { removeAccountingPageFurniture } from "../../../../../lib/accounting-question";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
+function repairQualityText(value:string,kind:"spacing"|"linebreak"){
+  const source=String(value||"");
+  if(kind==="linebreak")return source.replace(/([\u4e00-\u9fff])(?:\s*<br\s*\/?\s*>\s*|\r?\n\s*)(?=[\u4e00-\u9fff])/giu,"$1");
+  return source.split(/(<[^>]+>)/g).map(part=>part.startsWith("<")?part:part.replace(/([\u4e00-\u9fff])\s+(?=[\u4e00-\u9fffA-Za-z0-9$％%])/gu,"$1").replace(/([A-Za-z0-9])\s+(?=[\u4e00-\u9fff])/gu,"$1").replace(/([，。；：、（）])\s+(?=[\u4e00-\u9fffA-Za-z0-9])/gu,"$1")).join("");
+}
+
 function present(item:typeof examQuestions.$inferSelect){
   return {...item,stem:removeAccountingPageFurniture(item.stem),explanation:removeAccountingPageFurniture(item.explanation),teacherAnswer:removeAccountingPageFurniture(item.teacherAnswer),options:JSON.parse(item.optionsJson||"{}")};
 }
@@ -31,6 +37,21 @@ export async function GET(request:Request){
 export async function PATCH(request:Request){
   const auth=await requireAccountingAdmin(request);if("error" in auth)return auth.error;
   const body=await request.json() as Record<string,unknown>,db=await getDb();
+  const qualityRepair=body.qualityRepair==="spacing"||body.qualityRepair==="linebreak"?body.qualityRepair:null;
+  if(qualityRepair){
+    const documentId=Number(body.documentId);
+    if(!Number.isInteger(documentId)||documentId<1)return Response.json({error:"缺少文件編號"},{status:400});
+    const rows=await db.select().from(examQuestions).where(and(eq(examQuestions.examCategory,"accounting"),eq(examQuestions.sourceUrl,"document:"+documentId)));
+    let updated=0;
+    for(const row of rows){
+      const options=JSON.parse(row.optionsJson||"{}") as Record<string,string>;
+      const nextStem=repairQualityText(row.stem,qualityRepair),nextExplanation=repairQualityText(row.explanation,qualityRepair),nextTeacherAnswer=repairQualityText(row.teacherAnswer,qualityRepair),nextOptions=Object.fromEntries(Object.entries(options).map(([key,value])=>[key,repairQualityText(String(value??""),qualityRepair)]));
+      if(nextStem===row.stem&&nextExplanation===row.explanation&&nextTeacherAnswer===row.teacherAnswer&&JSON.stringify(nextOptions)===JSON.stringify(options))continue;
+      await db.update(examQuestions).set({stem:sanitizeRichHtml(nextStem),explanation:sanitizeRichHtml(nextExplanation),teacherAnswer:sanitizeRichHtml(nextTeacherAnswer),optionsJson:JSON.stringify(Object.fromEntries(Object.entries(nextOptions).map(([key,value])=>[key,sanitizeRichHtml(value)])))}).where(and(eq(examQuestions.id,row.id),eq(examQuestions.examCategory,"accounting")));
+      updated+=1;
+    }
+    return Response.json({qualityRepair,updated,scanned:rows.length});
+  }
   if(body.publishAllDrafts===true){
     const documentId=Number(body.documentId);
     if(!Number.isInteger(documentId)||documentId<1)return Response.json({error:"請從文件卡片按「發布此文件」，一次發布單一文件。"},{status:400});

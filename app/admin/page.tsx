@@ -130,6 +130,8 @@ type UsageData = {
     estimatedCostUsdMicros: number;
     createdAt: string;
   }>;
+  editorTotals?: { requests: number; inputTokens: number; cachedTokens: number; outputTokens: number; costMicros: number };
+  editorRecent?: Array<{ id: number; model: string; source: string; inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsdMicros: number; createdAt: string }>;
   comparisonStats?: {
     comparisons: number;
     ratedResponses: number;
@@ -3659,6 +3661,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         {independentMode && <nav className="central-admin-tabs" aria-label="中央管理功能切換">
           <a className={libraryMode ? "active" : ""} href="/admin/library">教材向量庫</a>
           <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
+          <a href="/admin/products">書籍與商品</a>
           <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
           <a href="/admin/ai-access">AI 方案與啟用碼</a>
           <a href="/admin/portal-cards">首頁卡片管理</a>
@@ -3676,6 +3679,9 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           </a>
           <a href="/admin/question-bank">
             總題庫管理
+          </a>
+          <a href="/admin/products">
+            書籍與商品
           </a>
           <a href="/admin/members">
             會員與權限
@@ -3781,6 +3787,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               <nav className="question-bank-control-actions" aria-label="中央題庫主要頁面">
                 <a className={questionBankSection === "questions" ? "active" : ""} href="/admin/question-bank/questions"><b>題目搜尋</b><small>分類、關鍵字、高亮與逐題管理</small></a>
                 <a className={questionBankSection === "documents" ? "active" : ""} href="/admin/question-bank/documents"><b>文件管理</b><small>PDF、Word、HTML 分類與搜尋</small></a>
+                <a href="/admin/question-bank/quality"><b>品質修復中心</b><small>自動掃描 P0／P1，儲存後下一題</small></a>
                 <a className={questionBankSection === "sources" ? "active" : ""} href="/admin/question-bank/sources"><b>網址／PDF 擷取</b><small>直接網址、錯誤與左右對照</small></a>
                 <a className={questionBankSection === "packages" ? "active" : ""} href="/admin/question-bank/packages"><b>組合包管理</b><small>勾選題目、建立與分派題包</small></a>
               </nav>
@@ -3869,7 +3876,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               <header><div><h3>文件清單</h3><p>原始文件各自保留題目清單，供拆題、逐題對照、版本更新與人工校正。</p></div><span>{filteredQuestionBankFiles.length} 份文件</span></header>
               {filteredQuestionBankFiles.map((file) => {
                 const workspace = `/admin/question-bank/workspace?category=${file.examCategory}&id=${file.id}`;
-                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><a href={workspace}>拆題與總編輯</a></article>;
+                return <article key={file.id}><span className={`question-bank-file-mark ${file.examCategory}`}>{file.examCategory === 'law' ? '律' : file.examCategory === 'medtech' ? '醫' : file.examCategory === 'accounting' ? '會' : '資'}</span><div><small>{file.subject} · {file.documentType}</small><strong title={file.fileName}>{file.bookTitle || file.fileName}</strong><span>{file.pageCount ? `${file.pageCount} 頁 · ` : ''}{file.fileName}</span></div><b>{file.questionCount.toLocaleString()}<small> 題</small></b><div className="central-document-actions"><a href={workspace}>拆題與總編輯</a>{file.examCategory!=="law"&&<a href={"/admin/question-bank/quality?id="+file.id}>自動品質修復</a>}</div></article>;
               })}
               {!filteredQuestionBankFiles.length && <p className="usage-empty">沒有符合條件的文件。</p>}
             </div>
@@ -4153,6 +4160,11 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                 </strong>
               </div>
             </div>
+            <section className="comparison-admin-summary" aria-label="教材編輯成本彙整">
+              <div className="cost-heading"><div><h3>教材編輯成本彙整</h3><p className="panel-sub">集中累積中會、醫檢與其他類科後台的 OCR、圖片轉文字／表格、AI 擬答及完整解析成本；規則式掃描與批次修復為 0 token。</p></div><span className="source-count">{usage?.editorTotals?.requests ?? 0} 次付費編輯</span></div>
+              <div className="cost-metrics comparison-metrics"><div><span>輸入 Token</span><strong>{Number(usage?.editorTotals?.inputTokens ?? 0).toLocaleString()}</strong></div><div><span>輸出 Token</span><strong>{Number(usage?.editorTotals?.outputTokens ?? 0).toLocaleString()}</strong></div><div><span>快取 Token</span><strong>{Number(usage?.editorTotals?.cachedTokens ?? 0).toLocaleString()}</strong></div><div className="cost-total"><span>編輯累計成本</span><strong>US$ {(Number(usage?.editorTotals?.costMicros ?? 0)/1_000_000).toFixed(5)} · 約 NT$ {formatTwd(Number(usage?.editorTotals?.costMicros ?? 0)/1_000_000,2)}</strong></div></div>
+              {usage?.editorRecent?.length?<div className="comparison-admin-list">{usage.editorRecent.slice(0,20).map(row=><article key={row.id}><header><strong>{row.source}</strong><span>{(row.inputTokens+row.outputTokens).toLocaleString()} tokens · US$ {(row.estimatedCostUsdMicros/1_000_000).toFixed(6)}</span><small>{new Date(row.createdAt).toLocaleString("zh-TW")}</small></header></article>)}</div>:<p className="usage-empty">尚未產生需使用 Token 的教材編輯紀錄。</p>}
+            </section>
             <section className="comparison-admin-summary" aria-label="雙模型比較統計">
               <div className="cost-heading"><div><h3>AI 導師模型比較</h3><p className="panel-sub">前台測試者可比較 Luna、Claude Sonnet 與 DeepSeek V4-Pro；這裡顯示各模型的實際回覆、Token、耗時、成本與回饋。</p></div><span className="source-count">{usage?.comparisonStats?.comparisons ?? 0} 次比較</span></div>
               <div className="cost-metrics comparison-metrics"><div><span>已評分回答</span><strong>{usage?.comparisonStats?.ratedResponses ?? 0}</strong></div><div><span>Luna 被選較多</span><strong>{usage?.comparisonStats?.lunaPreferred ?? 0}</strong></div><div><span>Sonnet 被選較多</span><strong>{usage?.comparisonStats?.claudePreferred ?? 0}</strong></div><div><span>DeepSeek 被選較多</span><strong>{usage?.comparisonStats?.deepseekPreferred ?? 0}</strong></div><div><span>平均評分</span><strong>{Number(usage?.comparisonStats?.averageScore ?? 0).toFixed(2)} / 5</strong></div></div>

@@ -1,0 +1,7 @@
+.accounting-book-product{grid-template-columns:210px minmax(0,1fr) 300px}
+.accounting-book-cover{aspect-ratio:3/4;overflow:hidden;border-radius:10px;background:#e7eee9;box-shadow:0 14px 30px #183e3422}
+.accounting-book-cover img{width:100%;height:100%;display:block;object-fit:cover}
+.accounting-book-cover>div{height:100%;padding:24px;display:flex;flex-direction:column;justify-content:space-between;color:#fff;background:linear-gradient(155deg,#153c36,#2a7668)}
+.accounting-book-cover span,.accounting-book-cover small{font-weight:750;letter-spacing:.1em}.accounting-book-cover b{font-size:36px;line-height:1.08}
+@media(max-width:900px){.accounting-book-product{grid-template-columns:150px minmax(0,1fr)}.accounting-book-product aside{grid-column:1/-1}}
+@media(max-width:620px){.accounting-book-product{grid-template-columns:1fr}.accounting-book-cover{width:min(230px,80%);margin:auto}.accounting-book-product aside{grid-column:auto}}
