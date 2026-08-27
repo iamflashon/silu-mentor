@@ -4,15 +4,17 @@ import { aiAccessEntitlements, aiAccessLedger, appSettings } from "../db/schema"
 
 export const AI_ACCESS_SETTINGS_KEY = "ai_access_admin_v1";
 export type Db = Awaited<ReturnType<typeof getDb>>;
-export type AiPlan = { enabled:boolean; scholarAssistEnabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; autoRenew:false; categories:string[]; notes:string };
+export type AiPlan = { enabled:boolean; lawScholarReflectionEnabled:boolean; pengliScholarReflectionEnabled:boolean; scholarAssistEnabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; autoRenew:false; categories:string[]; notes:string };
 
-export const DEFAULT_AI_PLAN: AiPlan = { enabled:false, scholarAssistEnabled:true, name:"AI 試問方案｜30 天 30 次", price:30, quota:30, durationDays:30, coachRounds:5, autoRenew:false, categories:["law","pengli","accounting","medtech","data-structure"], notes:"" };
+export const DEFAULT_AI_PLAN: AiPlan = { enabled:false, lawScholarReflectionEnabled:true, pengliScholarReflectionEnabled:true, scholarAssistEnabled:true, name:"AI 試問方案｜30 天 30 次", price:30, quota:30, durationDays:30, coachRounds:5, autoRenew:false, categories:["law","pengli","accounting","medtech","data-structure"], notes:"" };
 
 export async function getAiPlan(db: Db) {
   const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, AI_ACCESS_SETTINGS_KEY)).limit(1);
   try {
     const parsed = JSON.parse(row?.value ?? "") as { policy?: Partial<AiPlan> };
-    return { ...DEFAULT_AI_PLAN, ...(parsed.policy ?? {}), autoRenew:false } as AiPlan;
+    const stored = parsed.policy ?? {};
+    const legacy = stored.scholarAssistEnabled !== false;
+    return { ...DEFAULT_AI_PLAN, ...stored, lawScholarReflectionEnabled: stored.lawScholarReflectionEnabled ?? legacy, pengliScholarReflectionEnabled: stored.pengliScholarReflectionEnabled ?? legacy, autoRenew:false } as AiPlan;
   } catch { return DEFAULT_AI_PLAN; }
 }
 

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type CoachMessage = { role: "student" | "coach"; text: string; source?: string };
 type Usage = { inputTokens: number; cachedTokens: number; outputTokens: number; estimatedCostUsd: number };
+type RoundState = { remaining: number | null; coachRoundsUsed: number | null; coachRoundsTarget: number };
 const storageKey = "pengli-ai-coach-history-v1";
 
 const starters = [
@@ -18,6 +19,8 @@ export default function PengliCoach() {
   const [thinking, setThinking] = useState(false);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
+  const [scholarReflectionEnabled, setScholarReflectionEnabled] = useState(true);
+  const [roundState, setRoundState] = useState<RoundState>({ remaining: null, coachRoundsUsed: 0, coachRoundsTarget: 5 });
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,6 +30,15 @@ export default function PengliCoach() {
       const topic = new URLSearchParams(window.location.search).get("topic");
       if (topic) setInput(`我正在學「${topic}」，請先用一個問題帶我判斷。`);
     } catch { /* 使用預設歡迎訊息 */ }
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/ai-access", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const data = await response.json() as { plan?: { pengliScholarReflectionEnabled?: boolean; coachRounds?: number }; aiAccess?: { remaining?: number; coachRoundsUsed?: number; coachRoundsTarget?: number } };
+      setScholarReflectionEnabled(data.plan?.pengliScholarReflectionEnabled !== false);
+      setRoundState({ remaining: data.aiAccess?.remaining ?? null, coachRoundsUsed: data.aiAccess?.coachRoundsUsed ?? 0, coachRoundsTarget: data.aiAccess?.coachRoundsTarget ?? data.plan?.coachRounds ?? 5 });
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -48,17 +60,32 @@ export default function PengliCoach() {
       const response = await fetch("/api/teachers/pengli/coach", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: next.slice(-12) }),
+        body: JSON.stringify({ messages: next.slice(-12), mode: "coach", requestKey: crypto.randomUUID() }),
       });
-      const data = await response.json() as { reply?: string; source?: string; error?: string; usage?: Usage };
+      const data = await response.json() as { reply?: string; source?: string; error?: string; usage?: Usage; round?: RoundState };
       if (!response.ok || !data.reply) throw new Error(data.error || "彭狸 AI 教練目前無法回答。");
       setMessages((current) => [...current, { role: "coach", text: data.reply!, source: data.source }]);
       setUsage(data.usage || null);
+      if (data.round) setRoundState(data.round);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "彭狸 AI 教練目前無法回答。");
     } finally {
       setThinking(false);
     }
+  }
+
+  async function scholarReflect() {
+    if (thinking || !scholarReflectionEnabled || !messages.some((message) => message.role === "coach")) return;
+    setThinking(true); setError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: messages.slice(-12), mode: "scholar-reflection", requestKey: crypto.randomUUID() }) });
+      const data = await response.json() as { studentReply?: string; coachReply?: string; source?: string; error?: string; usage?: Usage; round?: RoundState };
+      if (!response.ok || !data.studentReply || !data.coachReply) throw new Error(data.error || "學霸反思目前無法使用。");
+      setMessages((current) => [...current, { role: "student", text: data.studentReply! }, { role: "coach", text: data.coachReply!, source: data.source }].slice(-40));
+      setUsage(data.usage || null);
+      if (data.round) setRoundState(data.round);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "學霸反思目前無法使用。"); }
+    finally { setThinking(false); }
   }
 
   function submit(event: FormEvent) { event.preventDefault(); void ask(input); }
@@ -86,11 +113,12 @@ export default function PengliCoach() {
         <div ref={endRef} />
       </div>
       {error && <p className="pengli-coach-error">{error}</p>}
+      {scholarReflectionEnabled && <div className="pengli-scholar-reflection"><button type="button" disabled={thinking} onClick={() => void scholarReflect()}><b>霸</b><span><strong>學霸怎麼想？</strong><small>示範判斷、說明思路並反問老師</small></span></button></div>}
       <form className="pengli-coach-composer" onSubmit={submit}>
         <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} placeholder="貼上行政法題目，或告訴我你卡在哪個爭點……" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(input); } }} />
         <button type="submit" disabled={!input.trim() || thinking}>送出</button>
       </form>
-      <footer><span>AI 分身不等同真人老師；老師原文與 AI 補充會分開標示。</span>{usage && <small>{usage.inputTokens + usage.outputTokens} tokens・估算成本 US$ {usage.estimatedCostUsd.toFixed(5)}</small>}</footer>
+      <footer><span>AI 分身不等同真人老師；每完成 {roundState.coachRoundsTarget} 輪扣 1 次。目前 {roundState.coachRoundsUsed ?? 0}/{roundState.coachRoundsTarget} 輪{roundState.remaining !== null ? `・剩餘 ${roundState.remaining} 次` : ""}。</span>{usage && <small>{usage.inputTokens + usage.outputTokens} tokens・估算成本 US$ {usage.estimatedCostUsd.toFixed(5)}</small>}</footer>
     </div>
   </section>;
 }

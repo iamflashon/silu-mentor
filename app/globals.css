@@ -43670,7 +43670,13 @@ body:has(.accounting-qa-page) .specialty-home-link{display:none!important}
 .ai-pengli-control p{margin:0 0 6px;color:#a7751f;font-size:12px;font-weight:900;letter-spacing:.14em}
 .ai-pengli-control h2{margin:0 0 6px;color:#153b53}.ai-pengli-control span{color:#617985}
 .ai-pengli-control>button{border:0;border-radius:10px;padding:13px 18px;background:#087c72;color:#fff;font-weight:900;cursor:pointer}
+.ai-scholar-switches{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 @media(max-width:760px){.ai-pengli-control{grid-template-columns:1fr}.ai-pengli-control>button{width:100%}}
+.pengli-coach-thread article>div:last-child>p{white-space:pre-line}
+.pengli-scholar-reflection{display:flex;justify-content:flex-end;padding:10px 20px;border-top:1px solid #dce7e8;background:#fff}
+.pengli-scholar-reflection button{display:flex;align-items:center;gap:10px;min-width:280px;padding:10px 14px;border:1px solid #91d1c8;border-radius:14px;background:#effaf7;color:#0b5f58;text-align:left;cursor:pointer}
+.pengli-scholar-reflection button>b{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#0b8b7d;color:#fff;font-size:18px}.pengli-scholar-reflection button>span{display:grid;gap:2px}.pengli-scholar-reflection strong{font-size:15px}.pengli-scholar-reflection small{color:#63817e}.pengli-scholar-reflection button:disabled{opacity:.55;cursor:wait}
+@media(max-width:600px){.pengli-scholar-reflection{padding:9px 12px}.pengli-scholar-reflection button{width:100%;min-width:0}}
 .qa-admin-panel{overflow:hidden;border:1px solid #cbdce7;border-radius:20px;background:#fff;box-shadow:0 16px 38px rgba(22,58,83,.07)}
 .qa-admin-panel>header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 26px;border-bottom:1px solid #dce7ed;background:linear-gradient(135deg,#fff,#f3f8fa)}
 .qa-admin-panel>header small{color:#168477;font-size:11px;font-weight:850;letter-spacing:.15em}
