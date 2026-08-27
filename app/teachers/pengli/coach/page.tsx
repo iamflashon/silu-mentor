@@ -12,7 +12,6 @@ export const metadata: Metadata = {
 export default function PengliCoachPage() {
   return <main className="pengli-coach-page">
     <nav className="pengli-topbar" aria-label="頁面導覽">
-      <Link href="/" className="pengli-brand">iBrain Pedia X</Link>
       <div><span>彭狸老師專區</span><b>AI 分身教練</b></div>
       <Link href="/teachers/pengli">回專區首頁</Link>
     </nav>
