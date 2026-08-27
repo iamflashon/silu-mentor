@@ -920,6 +920,27 @@ export const savedNotes = sqliteTable("saved_notes", {
     .$defaultFn(() => new Date()),
 });
 
+export const pengliTeacherQuestions = sqliteTable("pengli_teacher_questions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  conversationKey: text("conversation_key").notNull().default(""),
+  messageKey: text("message_key").notNull(),
+  topic: text("topic").notNull().default("行政法"),
+  aiReply: text("ai_reply").notNull(),
+  studentQuestion: text("student_question").notNull(),
+  verificationResult: text("verification_result").notNull().default(""),
+  verificationSourcesJson: text("verification_sources_json").notNull().default("[]"),
+  status: text("status").notNull().default("verified"),
+  teacherReply: text("teacher_reply").notNull().default(""),
+  teacherRepliedAt: integer("teacher_replied_at", { mode: "timestamp" }),
+  studentReadAt: integer("student_read_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("pengli_teacher_questions_member_status_idx").on(table.memberId, table.status),
+  index("pengli_teacher_questions_status_created_idx").on(table.status, table.createdAt),
+]);
+
 export const noteAttachments = sqliteTable("note_attachments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   noteId: integer("note_id")
