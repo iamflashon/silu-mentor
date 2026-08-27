@@ -542,13 +542,13 @@ export default function GlobalSelectionTools() {
     let hash = 2166136261;
     for (let index = 0; index < original.length; index++)
       hash = Math.imul(hash ^ original.charCodeAt(index), 16777619);
-    const sourceId = `${isMedtech ? "medtech-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
+    const sourceId = `${isMedtech ? "medtech-selection" : isPengli ? "pengli-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
     const response = await fetch("/api/notes", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ...draft,
-        category: isMedtech ? "medtech" : isAccounting ? "accounting" : "law",
+        category: isMedtech ? "medtech" : isAccounting ? "accounting" : isPengli ? "pengli" : "law",
         sourceType: kind,
         sourceId,
       }),
@@ -1103,7 +1103,7 @@ export default function GlobalSelectionTools() {
                         ? "AI 正在整理…"
                         : "＋ AI 整理成筆記"}
                     </button>
-                    <a href="/notes">前往我的筆記 →</a>
+                    <a href={isPengli ? "/teachers/pengli/notes" : "/notes"}>前往我的筆記 →</a>
                   </>
                 )}
                 {saveState === "error" && (
