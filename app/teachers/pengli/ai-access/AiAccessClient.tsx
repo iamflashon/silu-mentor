@@ -22,8 +22,10 @@ export default function AiAccessClient() {
 
   useEffect(() => {
     const payment = new URLSearchParams(window.location.search).get("ai_payment");
-    if (payment === "success") setNotice("LINE Pay 付款完成，AI 次數與使用期限已加入帳號。");
-    else if (payment) setNotice("LINE Pay 付款尚未完成，請稍後再試或確認付款狀態。");
+    if (payment === "success") setNotice("LINE Pay 付款完成，已將 AI 次數與使用期限加入帳號。");
+    else if (payment === "cancelled") setNotice("你已取消 LINE Pay 付款，本次不會扣款或增加次數。");
+    else if (payment === "missing" || payment === "invalid") setNotice("找不到可確認的付款訂單，請勿重複付款並聯絡管理員查核。");
+    else if (payment) setNotice("LINE Pay 尚未完成付款，未扣款也未增加次數。");
     void load();
   }, []);
 
