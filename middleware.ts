@@ -10,6 +10,14 @@ import { NextResponse, type NextRequest } from "next/server";
  * outer enforcement layer and is responsible for validating that JWT.
  */
 export function middleware(request: NextRequest) {
+  // 司律備考目前停用：不能只隱藏入口，直接輸入網址也必須在伺服器端封鎖。
+  if (request.nextUrl.pathname === "/law" || request.nextUrl.pathname.startsWith("/law/")) {
+    return new NextResponse("Not Found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  }
+
   const requestHeaders = new Headers(request.headers);
   const cloudflareAccessHost =
     request.nextUrl.hostname === "silu-mentor.iamflashon.workers.dev";
