@@ -51,7 +51,8 @@ export default function QaTestApplications() {
             <header><div><b>{row.displayName}</b><span>{row.email}</span></div><em>{row.status === "pending" ? "待審核" : row.status === "approved" ? "已核准" : row.status === "rejected" ? "已拒絕" : "已封鎖"}</em></header>
             <p>{row.reason}</p>
             <dl><div><dt>已用次數</dt><dd>{row.usedCount}／{10 + row.bonusCount}</dd></div><div><dt>申請時間</dt><dd>{new Date(row.requestedAt).toLocaleString("zh-TW")}</dd></div><div><dt>裝置識別</dt><dd>{row.deviceKey.slice(0, 10)}…</dd></div><div><dt>IP 雜湊</dt><dd>{row.ipHash.slice(0, 10)}…</dd></div></dl>
-            {row.status === "pending" && <footer><label>補發<input type="number" min="1" max="100" value={grant[row.id] || 10} onChange={event => setGrant({ ...grant, [row.id]: Number(event.target.value) })}/>次</label><button onClick={() => void act(row.id, "approve")}>核准</button><button className="secondary" onClick={() => void act(row.id, "reject")}>拒絕</button><button className="danger" onClick={() => void act(row.id, "block")}>封鎖裝置</button></footer>}
+            {row.status === "pending" && <footer><label>補發<input type="number" min="1" max="100" value={grant[row.id] || 10} onChange={event => setGrant({ ...grant, [row.id]: Number(event.target.value) })}/>次</label><button onClick={() => void act(row.id, "approve")}>核准</button><button className="secondary" onClick={() => void act(row.id, "reject")}>拒絕</button><button className="danger" onClick={() => void act(row.id, "block")}>封鎖裝置</button><button className="danger" onClick={() => void act(row.id, "block_ip")}>封鎖此 IP</button></footer>}
+            {row.deviceStatus !== "active" && <footer><button className="secondary" onClick={() => void act(row.id, "unblock")}>{row.deviceStatus === "blocked_ip" ? "解除此 IP 封鎖" : "解除裝置封鎖"}</button></footer>}
           </article>) : <div className="qa-admin-empty"><b>目前沒有 QA 測試申請</b><span>新的額度申請送出後，會集中顯示在這裡等待審核。</span></div>}
         </div>
       </section>

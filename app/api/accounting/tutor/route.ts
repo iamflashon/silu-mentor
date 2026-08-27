@@ -4,7 +4,7 @@ import { appSettings, chatMessages, chatSessions, documents, examQuestions, usag
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
-import { requireAdmin } from "../../../../lib/member-auth";
+import { requireAdmin, requireMember } from "../../../../lib/member-auth";
 import { finishAiUse, prepareAiUse } from "../../../../lib/ai-access-gate";
 import { refundTrialQuestion, reserveTrialQuestion, trialStatus } from "../../../../lib/accounting-qa-trial";
 
@@ -29,10 +29,15 @@ function sourceBookName(value:string){
     .trim();
 }
 
-export async function POST(request: Request) {
+export async function handleAccountingTutor(request: Request, forceTrialMode = false) {
   let reservedDeviceKey = "";
   try {
-    const body = await request.json() as { messages?: Turn[]; mode?: string; level?: string; stage?: string; chapter?: string; questionType?: string; simulateStudent?: boolean; imageDataUrls?: string[]; trialMode?: boolean };
+    const body = await request.json() as { messages?: Turn[]; mode?: string; level?: string; stage?: string; chapter?: string; questionType?: string; simulateStudent?: boolean; imageDataUrls?: string[] };
+    const isTrial = forceTrialMode === true;
+    if (!isTrial && !body.simulateStudent) {
+      const auth = await requireMember(request);
+      if ("error" in auth) return auth.error;
+    }
     if (body.simulateStudent) {
       const auth = await requireAdmin(request);
       if ("error" in auth) return auth.error;
@@ -42,10 +47,10 @@ export async function POST(request: Request) {
     const latest = [...messages].reverse().find((item) => item.role === "student")?.text.trim();
     if (!latest) return Response.json({ error: "請先輸入中級會計問題。" }, { status: 400 });
     if (!await getOpenAIKey()) return Response.json({ error: "Luna 助教模型尚未設定。" }, { status: 503 });
-    const reservation = body.trialMode ? await reserveTrialQuestion(request) : null;
+    const reservation = isTrial ? await reserveTrialQuestion(request) : null;
     if (reservation && !reservation.ok) return Response.json({ error: "免費測試次數已用完，請申請繼續測試。", code: "QA_TRIAL_LIMIT", trial: reservation }, { status: 429, headers: reservation.setCookie ? { "set-cookie": reservation.setCookie } : undefined });
     if (reservation?.ok) reservedDeviceKey = reservation.deviceKey;
-    const aiGate = body.trialMode ? { metered: false as const, memberId: null, db: await getDb() } : await prepareAiUse(request, "accounting");
+    const aiGate = isTrial ? { metered: false as const, memberId: null, db: await getDb() } : await prepareAiUse(request, "accounting");
     if (aiGate instanceof Response) return aiGate;
     const db = await getDb();
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
@@ -119,8 +124,12 @@ export async function POST(request: Request) {
       await db.insert(chatMessages).values([{sessionId:session.id,role:"student",text:latest},{sessionId:session.id,role:"mentor",text:reply,source,model:"Luna",estimatedCostUsdMicros}]);
     }
     const aiAccess = await finishAiUse(aiGate, { action: guided ? "accounting_coach" : "accounting_ask", description: guided ? "中級會計 AI 教練引導" : "中級會計 AI 試問" });
-    const currentTrial = body.trialMode ? await trialStatus(request) : undefined;
+    const currentTrial = isTrial ? await trialStatus(request) : undefined;
     const headers=currentTrial?.setCookie?{"set-cookie":currentTrial.setCookie}:undefined;
     return Response.json({ reply, source, recordId, aiAccess, trial:currentTrial, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } },{headers});
   } catch (error) { if(reservedDeviceKey)await refundTrialQuestion(reservedDeviceKey).catch(()=>null);return Response.json({ error: error instanceof Error ? error.message : "Luna 助教 回答失敗" }, { status: 500 }); }
+}
+
+export async function POST(request: Request) {
+  return handleAccountingTutor(request, false);
 }

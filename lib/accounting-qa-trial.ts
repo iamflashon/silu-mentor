@@ -30,15 +30,17 @@ export async function trialStatus(request: Request) {
   const identity = await ensureTrialDevice(request);
   const { env } = await import("cloudflare:workers");
   const row = await env.DB.prepare("SELECT used_count AS usedCount, bonus_count AS bonusCount, status FROM accounting_qa_trial_devices WHERE device_key=?").bind(identity.deviceKey).first<{usedCount:number;bonusCount:number;status:string}>();
+  const ipRow = await env.DB.prepare("SELECT COALESCE(SUM(used_count),0) AS usedCount, COALESCE(SUM(bonus_count),0) AS bonusCount, SUM(CASE WHEN status='blocked_ip' THEN 1 ELSE 0 END) AS blockedCount FROM accounting_qa_trial_devices WHERE ip_hash=?").bind(identity.ipHash).first<{usedCount:number;bonusCount:number;blockedCount:number}>();
   const pending = await env.DB.prepare("SELECT id FROM accounting_qa_trial_requests WHERE device_key=? AND status='pending' ORDER BY requested_at DESC LIMIT 1").bind(identity.deviceKey).first();
   const limit = BASE_LIMIT + Number(row?.bonusCount || 0), used = Number(row?.usedCount || 0);
-  return { ...identity, used, limit, remaining: Math.max(0, limit - used), blocked: row?.status === "blocked" || used >= limit, pending: Boolean(pending) };
+  const ipLimit = BASE_LIMIT + Number(ipRow?.bonusCount || 0), ipUsed = Number(ipRow?.usedCount || 0);
+  return { ...identity, used, limit, ipUsed, ipLimit, remaining: Math.max(0, Math.min(limit - used, ipLimit - ipUsed)), blocked: row?.status !== "active" || Number(ipRow?.blockedCount || 0) > 0 || used >= limit || ipUsed >= ipLimit, pending: Boolean(pending) };
 }
 export async function reserveTrialQuestion(request: Request) {
   const identity = await ensureTrialDevice(request);
   const { env } = await import("cloudflare:workers");
-  const result = await env.DB.prepare("UPDATE accounting_qa_trial_devices SET used_count=used_count+1, last_seen_at=? WHERE device_key=? AND status='active' AND used_count < ? + bonus_count RETURNING used_count AS usedCount, bonus_count AS bonusCount")
-    .bind(Date.now(), identity.deviceKey, BASE_LIMIT).first<{usedCount:number;bonusCount:number}>();
+  const result = await env.DB.prepare("UPDATE accounting_qa_trial_devices SET used_count=used_count+1, last_seen_at=? WHERE device_key=? AND status='active' AND used_count < ? + bonus_count AND (SELECT COALESCE(SUM(used_count),0) FROM accounting_qa_trial_devices WHERE ip_hash=?) < ? + (SELECT COALESCE(SUM(bonus_count),0) FROM accounting_qa_trial_devices WHERE ip_hash=?) RETURNING used_count AS usedCount, bonus_count AS bonusCount")
+    .bind(Date.now(), identity.deviceKey, BASE_LIMIT, identity.ipHash, BASE_LIMIT, identity.ipHash).first<{usedCount:number;bonusCount:number}>();
   if (!result) return { ok:false as const, ...(await trialStatus(request)) };
   const limit=BASE_LIMIT+Number(result.bonusCount||0), used=Number(result.usedCount||0);
   return { ok:true as const, ...identity, used, limit, remaining:Math.max(0,limit-used) };

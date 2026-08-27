@@ -10,6 +10,8 @@ export async function POST(request:Request){
   const{env}=await import("cloudflare:workers");
   const existing=await env.DB.prepare("SELECT id FROM accounting_qa_trial_requests WHERE device_key=? AND status='pending' LIMIT 1").bind(state.deviceKey).first();
   if(existing)return reply({ok:true,pending:true,message:"申請已送出，請等候管理者審核。"},state.setCookie);
+  const latest=await env.DB.prepare("SELECT requested_at AS requestedAt FROM accounting_qa_trial_requests WHERE device_key=? ORDER BY requested_at DESC LIMIT 1").bind(state.deviceKey).first<{requestedAt:number}>();
+  if(latest&&Date.now()-Number(latest.requestedAt)<60*60*1000)return reply({error:"申請送出後一小時內不可重複申請，請稍後再試。"},state.setCookie,429);
   await env.DB.prepare("INSERT INTO accounting_qa_trial_requests (device_key,display_name,email,reason,status,grant_count,requested_at,resolved_by) VALUES (?,?,?,?, 'pending',0,?, '')").bind(state.deviceKey,displayName,email,reason,Date.now()).run();
   return reply({ok:true,pending:true,message:"申請已送出，請等候管理者審核。"},state.setCookie);
 }
