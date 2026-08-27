@@ -43727,3 +43727,10 @@ html.frontend-costs-disabled .student-summary-meta > span {
 .selection-save-actions:has(.pengli-auto-note-preview)>span{margin-right:auto}
 .selection-save-actions:has(.pengli-auto-note-preview)>a{margin-left:auto}
 @media(max-width:760px){.selection-save-actions:has(.pengli-auto-note-preview)>span{width:100%}.selection-save-actions:has(.pengli-auto-note-preview)>a{width:100%;margin-left:0;text-align:center}}
+
+
+/* Pengli owns its compact top navigation. Hide any stale root-level portal
+   link that may remain in cached HTML from an older deployment. */
+body:has(.pengli-page, .pengli-coach-page, .pengli-ai-access-page, .notes-page) > .specialty-home-link {
+  display: none !important;
+}
