@@ -45,8 +45,12 @@ const samplePoints = [
 export default function PengliTeacherPage() {
   return <main className="pengli-page">
     <nav className="pengli-topbar" aria-label="頁面導覽">
-      <Link href="/">iBrain Pedia X</Link>
+      <Link href="/" className="pengli-brand">iBrain Pedia X</Link>
       <div><span>法律類</span><b>行政法</b></div>
+      <div className="pengli-top-actions">
+        <Link href="/teachers/pengli/coach">繼續 AI 對話</Link>
+        <Link href="/teachers/pengli/notes">我的筆記</Link>
+      </div>
     </nav>
 
     <section className="pengli-hero">
@@ -66,7 +70,7 @@ export default function PengliTeacherPage() {
       </div>
       <div className="pengli-book-stage">
         <div className="pengli-book-halo" aria-hidden="true" />
-        <img src="/teachers/pengli-administrative-law-cover.webp" alt="行政法考點（考前衝刺）演習書透明書封" />
+        <img src="/teachers/pengli-administrative-law-cover-v2.png" alt="行政法考點（考前衝刺）演習書透明書封" />
         <div className="pengli-teacher-note"><small>AUTHOR</small><strong>彭狸</strong><span>臺大法律研究所公法組</span></div>
       </div>
     </section>
@@ -99,7 +103,7 @@ export default function PengliTeacherPage() {
     <section className="pengli-trial" id="free-trial">
       <header><span>FREE TRIAL</span><h2>免費試學：先練三個基礎考點</h2><p>每個考點都從一個問題開始，不先把答案整段塞給你。</p></header>
       <div className="pengli-trial-grid">
-        {samplePoints.map((point) => <article key={point.number}>
+        {samplePoints.map((point, index) => <article key={point.number}>
           <div><span>{point.label}</span><b>{point.number}</b></div>
           <h3>{point.title}</h3>
           <p>{point.question}</p>
@@ -110,12 +114,6 @@ export default function PengliTeacherPage() {
           <Link href={`/teachers/pengli/coach?topic=${encodeURIComponent(point.title)}`}>進入 AI 教練<b aria-hidden="true">→</b></Link>
         </article>)}
       </div>
-    </section>
-
-    <section className="pengli-access" id="access-plan">
-      <div><span>FULL ACCESS</span><h2>完整專區開通規劃</h2><p>完整內容、使用期限與付款方式確認後，將在這裡直接開通。</p></div>
-      <ul><li>八大主題完整考點</li><li>考點直擊題與破題方法</li><li>申論擬答比較與批改</li><li>個人弱點與進度紀錄</li></ul>
-      <button type="button" disabled>方案準備中</button>
     </section>
 
     <footer className="pengli-footer"><Link href="/">返回 iBrain Pedia X 首頁</Link><span>法律類｜彭狸老師行政法專區</span></footer>

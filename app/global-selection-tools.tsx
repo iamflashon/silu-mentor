@@ -93,7 +93,6 @@ export default function GlobalSelectionTools() {
   const isAccounting = pathname.startsWith("/accounting");
   const isPengli = pathname.startsWith("/teachers/pengli");
   const [selectedText, setSelectedText] = useState("");
-  const [selectionSource, setSelectionSource] = useState("");
   const [editingSelection, setEditingSelection] = useState(false);
   const [lawQuery, setLawQuery] = useState("");
   const [judicialQuery, setJudicialQuery] = useState<{
@@ -114,11 +113,6 @@ export default function GlobalSelectionTools() {
     explaining: boolean;
     usage: ExplainUsage | null;
     access?: MedtechExplainAccess;
-    coachAccess?: { charged?: boolean; remaining?: number; coachRoundsUsed?: number; coachRoundsTarget?: number };
-    canAiFallback?: boolean;
-    aiFallback?: boolean;
-    sourceStatus?: string;
-    notePoints?: string;
   } | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">(
@@ -183,7 +177,6 @@ export default function GlobalSelectionTools() {
       setSelectedText("");
       setLawQuery("");
       setJudicialQuery(null);
-      setSelectionSource("");
     }
   }
 
@@ -224,7 +217,6 @@ export default function GlobalSelectionTools() {
         return;
       }
       const range = selection.getRangeAt(0).cloneRange();
-      setSelectionSource(anchorRoot.getAttribute("data-selection-source") || "");
       rangeRef.current = range;
       applySelectedText(text);
       setEditingSelection(false);
@@ -344,7 +336,7 @@ export default function GlobalSelectionTools() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  async function explain(allowAiFallback = false) {
+  async function explain() {
     if (!selectedText || lookup?.explaining) return;
     dismiss();
     const current = lookup ?? {
@@ -361,7 +353,7 @@ export default function GlobalSelectionTools() {
     setLookup({
       ...current,
       mode: "explain",
-      loading: true,
+      loading: !lookup,
       explaining: true,
       error: "",
     });
@@ -375,16 +367,20 @@ export default function GlobalSelectionTools() {
           }
         : null);
     const response = await fetch(
-      isMedtech
+      isPengli
+        ? "/api/teachers/pengli/coach"
+        : isMedtech
         ? "/api/medtech/explain"
         : isAccounting
           ? "/api/accounting/tutor"
-          : isPengli ? "/api/teachers/pengli/coach" : "/api/legal-explain",
+          : "/api/legal-explain",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(
-          isMedtech
+          isPengli
+            ? { selectedText, mode: "plain-explain", requestKey: crypto.randomUUID() }
+            : isMedtech
             ? { selectedText }
             : isAccounting
               ? {
@@ -396,35 +392,11 @@ export default function GlobalSelectionTools() {
                   ],
                   mode: "free",
                 }
-              : isPengli
-                ? { selectedText, mode: "plain-explain", allowAiFallback, requestKey: crypto.randomUUID() }
-                : { selectedText, article: reference },
+              : { selectedText, article: reference },
         ),
       },
     );
     const data = await response.json();
-    // 彭狸白話解釋若未帶回完整額度狀態，立即同步會員目前權益，
-    // 避免前台顯示「剩餘 — 次」。
-    if (
-      isPengli &&
-      response.ok &&
-      (!data.access || typeof data.access.remaining !== "number")
-    ) {
-      try {
-        const accessResponse = await fetch("/api/ai-access", { cache: "no-store" });
-        const accessData = accessResponse.ok ? await accessResponse.json() : null;
-        if (accessData?.aiAccess) {
-          data.access = {
-            ...(data.access ?? {}),
-            remaining: accessData.aiAccess.remaining,
-            coachRoundsUsed: accessData.aiAccess.coachRoundsUsed,
-            coachRoundsTarget: accessData.aiAccess.coachRoundsTarget,
-          };
-        }
-      } catch {
-        /* 白話解釋本身已成功時，不因額度顯示同步失敗而中斷 */
-      }
-    }
     const explanation =
       typeof (isAccounting ? data.reply : data.explanation) === "string"
         ? String(isAccounting ? data.reply : data.explanation).trim()
@@ -453,15 +425,7 @@ export default function GlobalSelectionTools() {
               valid && data.access && typeof data.access === "object"
                 ? (data.access as MedtechExplainAccess)
                 : latest.access,
-            coachAccess:
-              valid && data.access && typeof data.access === "object"
-                ? data.access
-                : latest.coachAccess,
             error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。",
-            canAiFallback: !valid && data.canAiFallback === true,
-            aiFallback: valid && data.aiFallback === true,
-            sourceStatus: valid ? String(data.sourceStatus ?? "") : "",
-            notePoints: valid ? String(data.notePoints ?? "") : "",
           }
         : latest,
     );
@@ -493,20 +457,6 @@ export default function GlobalSelectionTools() {
         subject: "醫檢師｜臨床病毒學",
         tags: "醫檢師、待複習",
         sourceLabel: "醫檢師引導學習",
-      };
-    }
-    if (isPengli) {
-      const parts = [`核心原文\n${selectedText}`];
-      if (lookup?.explanation) parts.push(`白話解釋\n${lookup.explanation}`);
-      if (lookup?.notePoints) parts.push(`延伸知識點\n${lookup.notePoints}`);
-      if (lookup?.sourceStatus) parts.push(`來源狀態\n${lookup.sourceStatus}`);
-      return {
-        title: selectedText.slice(0, 32) || "彭狸行政法學習筆記",
-        content: parts.filter(Boolean).join("\n\n"),
-        originalContent: selectedText,
-        subject: "行政法｜彭狸老師專區",
-        tags: lookup?.aiFallback ? "行政法、AI補充、白話筆記" : "行政法、彭狸老師、白話筆記",
-        sourceLabel: lookup?.aiFallback ? "AI 法律補充（未命中彭狸老師教材）" : selectionSource || "彭狸老師《行政法考點演習書（二版）》",
       };
     }
     const title =
@@ -553,13 +503,13 @@ export default function GlobalSelectionTools() {
     let hash = 2166136261;
     for (let index = 0; index < original.length; index++)
       hash = Math.imul(hash ^ original.charCodeAt(index), 16777619);
-    const sourceId = `${isMedtech ? "medtech-selection" : isPengli ? "pengli-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
+    const sourceId = `${isMedtech ? "medtech-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
     const response = await fetch("/api/notes", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ...draft,
-        category: isMedtech ? "medtech" : isAccounting ? "accounting" : isPengli ? "pengli" : "law",
+        category: isMedtech ? "medtech" : isAccounting ? "accounting" : "law",
         sourceType: kind,
         sourceId,
       }),
@@ -578,7 +528,7 @@ export default function GlobalSelectionTools() {
     }
     setSaveState("saved");
     setNoteDraft(null);
-    if (!isPengli) window.setTimeout(() => setSaveState(""), 1800);
+    window.setTimeout(() => setSaveState(""), 1800);
   }
 
   async function saveMedtechSelection() {
@@ -692,23 +642,19 @@ export default function GlobalSelectionTools() {
                 <button type="button" onClick={() => void searchJudicial()}>
                   裁判搜尋
                 </button>
-              ) : (
+              ) : lawQuery ? (
                 <button
                   type="button"
                   onClick={() => void searchLaw()}
-                  disabled={!lawQuery}
-                  title={
-                    lawQuery
-                      ? `搜尋 ${lawQuery}`
-                      : "請先編輯為單一、完整的法規名稱與條號"
-                  }
+                  title={`搜尋 ${lawQuery}`}
                 >
                   法條搜尋
                 </button>
+              ) : (
+                <button type="button" onClick={() => void explain()}>
+                  白話解釋
+                </button>
               )}
-              <button type="button" onClick={() => void explain()}>
-                白話解釋
-              </button>
             </>
           )}
           <button
@@ -740,8 +686,10 @@ export default function GlobalSelectionTools() {
                     ? "醫檢 AI 助教｜專有名詞解析"
                     : isAccounting
                       ? "Luna 助教｜中會白話說明"
-                    : lookup.mode === "explain"
-                        ? isPengli ? "彭狸 AI 教練｜白話解釋" : "AI 法律助教｜辨識與拆解"
+                      : isPengli && lookup.mode === "explain"
+                        ? "彭狸 AI 教練｜白話解釋"
+                      : lookup.mode === "explain"
+                        ? "AI 法律助教｜辨識與拆解"
                         : lookup.decision
                           ? "司法院裁判資料庫｜已下載資料"
                           : "全國法規資料庫｜已下載資料"}
@@ -753,44 +701,19 @@ export default function GlobalSelectionTools() {
               </button>
             </header>
             {lookup.loading ? (
-              <div className="law-lookup-status law-thinking-status" role="status" aria-live="polite">
-                <span className="law-thinking-orb" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <b>
-                  {isPengli && lookup.mode === "explain"
-                    ? "彭狸 AI 教練正在思考"
-                    : isMedtech
-                      ? "醫檢 AI 助教正在整理"
-                      : lookup.mode === "explain"
-                        ? "AI 正在進行白話拆解"
-                        : "正在查詢資料"}
-                </b>
-                <small>
-                  {isPengli && lookup.mode === "explain"
-                    ? "正在查找老師教材、整理白話解釋與延伸重點…"
-                    : isMedtech
-                      ? "正在整理中文、英文與臨床檢驗重點…"
-                      : lookup.mode === "explain"
-                        ? "正在辨識法律類型並進行白話拆解…"
-                        : "正在查詢已下載的法規／裁判資料…"}
-                </small>
-              </div>
+              <p className="law-lookup-status">
+                {isMedtech
+                  ? "正在整理中文、英文與臨床檢驗重點…"
+                  : lookup.mode === "explain"
+                    ? "正在辨識法律類型並進行白話拆解…"
+                    : "正在查詢已下載的法規／裁判資料…"}
+              </p>
             ) : lookup.mode === "explain" &&
               !lookup.article &&
               !lookup.decision ? (
               <>
                 {lookup.error ? (
-                  <div className="law-lookup-status error">
-                    <p>{lookup.error}</p>
-                    {isPengli && lookup.canAiFallback && (
-                      <button type="button" onClick={() => void explain(true)}>
-                        改由 AI 試著白話解釋
-                      </button>
-                    )}
-                  </div>
+                  <p className="law-lookup-status error">{lookup.error}</p>
                 ) : (
                   <section className="legal-analysis-card">
                     <small>框選內容</small>
@@ -858,13 +781,6 @@ export default function GlobalSelectionTools() {
                         <small>{lookup.analysis.caveat}</small>
                       )}
                     </div>
-                    {isPengli && lookup.notePoints && (
-                      <section className="pengli-extension-points">
-                        <b>延伸知識點</b>
-                        <p>{lookup.notePoints}</p>
-                        <small>來源狀態：{lookup.sourceStatus || (lookup.aiFallback ? "AI 補充" : "彭狸老師教材")}</small>
-                      </section>
-                    )}
                     {isMedtech && lookup.access && (
                       <div className="medtech-feature-access">
                         <b>
@@ -876,12 +792,6 @@ export default function GlobalSelectionTools() {
                           名詞解析免費剩餘 {lookup.access.freeRemaining} 次 ·
                           目前點數 {lookup.access.pointsRemaining} 點
                         </span>
-                      </div>
-                    )}
-                    {isPengli && lookup.coachAccess && (
-                      <div className="medtech-feature-access">
-                        <b>{lookup.coachAccess.charged ? "已完成5次，本輪扣1次" : `完整學習第 ${lookup.coachAccess.coachRoundsUsed ?? 0}／${lookup.coachAccess.coachRoundsTarget ?? 5} 組`}</b>
-                        <span>每完成5組完整學習扣1個 AI 次數（整理筆記包含在同一組）・目前剩餘 {lookup.coachAccess.remaining ?? "—"} 次</span>
                       </div>
                     )}
                     {lookup.usage && !isPengli && (
@@ -961,7 +871,7 @@ export default function GlobalSelectionTools() {
                     <small>
                       解釋以框選內容與顯示的條文為依據，不取代老師解析。
                     </small>
-                    {lookup.usage && !isPengli && (
+                    {lookup.usage && (
                       <div className="law-usage-meta">
                         <b>
                           {lookup.usage.model.replace("gpt-5.6-", "")}｜AI
@@ -1030,7 +940,7 @@ export default function GlobalSelectionTools() {
                     <b>白話解釋</b>
                     <p>{lookup.explanation}</p>
                     <small>解釋以顯示的裁判內容為依據，不取代老師解析。</small>
-                    {lookup.usage && !isPengli && (
+                    {lookup.usage && (
                       <div className="law-usage-meta">
                         <b>
                           {lookup.usage.model.replace("gpt-5.6-", "")}｜AI
@@ -1106,24 +1016,7 @@ export default function GlobalSelectionTools() {
             )}
             {!lookup.loading && !lookup.error && (
               <div className="selection-save-actions">
-                {isPengli ? (
-                  <>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void saveSelection("note")}
-                      disabled={!lookup.explanation || saveState === "saving" || saveState === "saved"}
-                    >
-                      {saveState === "saving"
-                        ? "正在加入筆記…"
-                        : saveState === "saved"
-                          ? "已加入我的筆記 ✓"
-                          : "＋ 加入我的筆記"}
-                    </button>
-                    {saveState === "error" && <small>{saveMessage || "加入筆記未完成，請再試一次。"}</small>}
-                    <a href="/teachers/pengli/notes">前往我的筆記 →</a>
-                  </>
-                ) : isMedtech ? (
+                {isMedtech ? (
                   <>
                     <button
                       type="button"
@@ -1144,25 +1037,23 @@ export default function GlobalSelectionTools() {
                   </>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => void saveSelection("favorite")}
-                      disabled={saveState === "saving" || saveState === "saved"}
-                    >
-                      {saveState === "saved"
-                        ? "已收藏原文 ✓"
-                        : "☆ 快速收藏原文"}
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void organizeNote()}
-                      disabled={organizeState === "organizing"}
-                    >
-                      {organizeState === "organizing"
-                        ? "AI 正在整理…"
-                        : "＋ AI 整理成筆記"}
-                    </button>
+                    {!isPengli && <>
+                      <button
+                        type="button"
+                        onClick={() => void saveSelection("favorite")}
+                        disabled={saveState === "saving" || saveState === "saved"}
+                      >
+                        {saveState === "saved" ? "已收藏原文 ✓" : "☆ 快速收藏原文"}
+                      </button>
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => void organizeNote()}
+                        disabled={organizeState === "organizing"}
+                      >
+                        {organizeState === "organizing" ? "AI 正在整理…" : "＋ AI 整理成筆記"}
+                      </button>
+                    </>}
                     <a href={isPengli ? "/teachers/pengli/notes" : "/notes"}>前往我的筆記 →</a>
                   </>
                 )}
@@ -1250,7 +1141,7 @@ export default function GlobalSelectionTools() {
               儲存後只建立一筆筆記；AI
               整理與原始收藏會一起保留，可在筆記中切換查看。
             </small>
-            {noteDraft.usage && !isPengli && (
+            {noteDraft.usage && (
               <div className="note-organize-usage">
                 <b>
                   {noteDraft.reused
