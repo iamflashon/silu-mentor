@@ -125,17 +125,20 @@ export async function POST(request: Request) {
       const startedAt = Date.now();
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model,
-        instructions: plainAiFallback ? `你是臺灣行政法學習助教。本段未命中彭狸老師教材，請只依可靠的一般行政法知識試作白話解釋。固定使用以下格式：第一行「核心意思：」；接著「判斷重點：」並列一、二、三點。限150至300字。不得虛構法條、裁判或老師觀點；不確定處要明說。最後一行標示「來源狀態：AI 補充，未命中彭狸老師教材」。不要使用 Markdown 符號。` : `你是彭狸 AI 教練。只依本次提供的彭狸老師《行政法考點演習書（二版）》片段，把學生框選的行政法文字改寫成清楚、口語的繁體中文。固定使用以下格式：第一行「核心意思：」；接著「判斷重點：」並列一、二、三點。限150至300字，不補造教材沒有的法條或見解，不使用 Markdown 符號。正文不要另外列來源。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: plainAiFallback ? `你是臺灣行政法學習助教。本段未命中彭狸老師教材，請依可靠的一般行政法知識產生兩個不同區塊。固定格式如下：【白話解釋】用120至200字只負責把框選原文講懂；【延伸知識點】列出恰好三點，每點必須新增學習價值，分別優先處理相近概念的區分、考場判斷步驟、常見誤判或例外，不得改寫或重複白話解釋。不得虛構法條、裁判或老師觀點；不確定處要明說。延伸區最後標示「來源狀態：AI 補充，未命中彭狸老師教材」。不要使用 Markdown 符號。` : `你是彭狸 AI 教練。只依本次提供的彭狸老師《行政法考點演習書（二版）》片段產生兩個不同區塊。固定格式如下：【白話解釋】用120至200字只負責把框選原文講懂；【延伸知識點】列出恰好三點，每點必須新增學習價值，分別優先處理相近概念的區分、考場判斷步驟、常見誤判或例外，不得改寫或重複白話解釋。不得補造教材沒有的法條、裁判或見解，不使用 Markdown 符號。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
         input: `【學生框選文字】\n${selectedText}`,
         max_output_tokens: 700,
       }) }) as Record<string, unknown>;
-      const explanation = plainText(outputText(payload));
+      const rawExplanation = plainText(outputText(payload));
+      const noteMarker = rawExplanation.indexOf("【延伸知識點】");
+      const explanation = plainText((noteMarker >= 0 ? rawExplanation.slice(0, noteMarker) : rawExplanation).replace("【白話解釋】", ""));
+      const notePoints = noteMarker >= 0 ? plainText(rawExplanation.slice(noteMarker + "【延伸知識點】".length)) : "";
       if (!explanation) return Response.json({ error: "目前無法產生白話解釋。" }, { status: 502 });
       const access = await finishAiCoachRound(gate, { action: "pengli_plain_explain_5_rounds", description: "彭狸教材白話解釋，每5次扣1次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
       const inputTokens = Number(rawUsage.input_tokens ?? 0), cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0), outputTokens = Number(rawUsage.output_tokens ?? 0);
       const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
-      return Response.json({ explanation, access, aiFallback: plainAiFallback, sourceStatus: plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材", usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+      return Response.json({ explanation, notePoints, access, aiFallback: plainAiFallback, sourceStatus: plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材", usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
     }
 
     if (body.mode === "scholar-assist") {
