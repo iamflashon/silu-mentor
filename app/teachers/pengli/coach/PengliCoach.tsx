@@ -237,9 +237,12 @@ export default function PengliCoach() {
     setDoubtLoading(true);
     setError("");
     setVerification(null);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 32_000);
     try {
       const response = await fetch("/api/teachers/pengli/coach", {
         method: "POST",
+        signal: controller.signal,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           mode: "verify-doubt",
@@ -269,8 +272,11 @@ export default function PengliCoach() {
       });
       if (data.access) setAccess(data.access);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "目前無法完成查證。");
+      setError(cause instanceof DOMException && cause.name === "AbortError"
+        ? "官方資料查證逾時，尚未扣除本組查證機會；請縮短疑問後再試。"
+        : cause instanceof Error ? cause.message : "目前無法完成查證。");
     } finally {
+      window.clearTimeout(timeout);
       setDoubtLoading(false);
     }
   }

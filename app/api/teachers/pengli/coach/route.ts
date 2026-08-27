@@ -23,6 +23,45 @@ function plainText(value: string) {
   return value.replace(/\*\*/gu, "").replace(/^#{1,6}\s*/gmu, "").replace(/^>\s?/gmu, "").trim();
 }
 
+const OFFICIAL_LEGAL_DOMAINS = ["law.moj.gov.tw", "moj.gov.tw", "judicial.gov.tw"];
+
+function officialWebSources(payload: Record<string, unknown>) {
+  const found = new Map<string, { label: string; url: string }>();
+  const add = (title: unknown, url: unknown) => {
+    const href = typeof url === "string" ? url.trim() : "";
+    if (!href) return;
+    try {
+      const host = new URL(href).hostname.toLowerCase();
+      if (!OFFICIAL_LEGAL_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`))) return;
+      found.set(href, { label: String(title || host).trim() || host, url: href });
+    } catch { /* 忽略非網址資料 */ }
+  };
+  for (const item of Array.isArray(payload.output) ? payload.output : []) {
+    if (!item || typeof item !== "object") continue;
+    const action = (item as { action?: { sources?: unknown[] } }).action;
+    for (const source of Array.isArray(action?.sources) ? action.sources : []) {
+      if (source && typeof source === "object") add((source as { title?: unknown }).title, (source as { url?: unknown }).url);
+    }
+    for (const content of Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []) {
+      if (!content || typeof content !== "object") continue;
+      for (const annotation of Array.isArray((content as { annotations?: unknown[] }).annotations) ? (content as { annotations: unknown[] }).annotations : []) {
+        if (annotation && typeof annotation === "object" && (annotation as { type?: unknown }).type === "url_citation") {
+          add((annotation as { title?: unknown }).title, (annotation as { url?: unknown }).url);
+        }
+      }
+    }
+  }
+  return [...found.values()].slice(0, 8);
+}
+
+function verificationTerms(question: string, reply: string) {
+  const exact = `${question} ${reply}`.normalize("NFKC").match(/[\p{Script=Han}]{1,18}法第\s*\d+(?:[-之]\d+)?\s*條|(?:釋字|憲判字)第?\s*\d+\s*號|\d{2,3}年度[^，。；：\s]{1,10}字第\s*\d+\s*號/gu) ?? [];
+  const stop = /^(老師|回答|問題|是否|可以|認為|規定|資料|法律|行政法|查證|說明|內容|學生|目前|如果|因為|本題|官方)$/u;
+  const words = question.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
+    .map((term) => term.trim()).filter((term) => term.length >= 2 && term.length <= 14 && !stop.test(term));
+  return [...new Set([...exact, ...words])].slice(0, 3);
+}
+
 
 type PengliLegalAnalysis = {
   kind: string;
@@ -203,28 +242,45 @@ export async function POST(request: Request) {
       const aiReply = String(body.aiReply ?? "").trim().slice(0, 6000);
       const studentQuestion = String(body.studentQuestion ?? "").trim().slice(0, 2000);
       if (!aiReply || !studentQuestion) return Response.json({ error: "請先選擇 AI 回覆並輸入你的疑問。" }, { status: 400 });
-      const terms = [...new Set(`${studentQuestion} ${aiReply}`.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u).filter((term) => term.length >= 2 && term.length <= 14))].slice(0, 6);
+      const terms = verificationTerms(studentQuestion, aiReply);
       const articleConditions = terms.map((term) => or(like(legalDocuments.title, `%${term}%`), like(legalArticles.content, `%${term}%`)));
-      const caseConditions = terms.map((term) => or(like(judicialCases.title, `%${term}%`), like(judicialCases.fullText, `%${term}%`), like(judicialCases.caseNo, `%${term}%`)));
-      const articles = articleConditions.length ? await auth.db.select({ title: legalDocuments.title, articleNo: legalArticles.articleNo, content: legalArticles.content, sourceUrl: legalDocuments.sourceUrl }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(or(...articleConditions)).limit(8) : [];
-      const cases = caseConditions.length ? await auth.db.select({ title: judicialCases.title, caseNo: judicialCases.caseNo, content: judicialCases.fullText }).from(judicialCases).where(or(...caseConditions)).limit(4) : [];
-      const sources = [
+      const caseConditions = terms.map((term) => or(like(judicialCases.title, `%${term}%`), like(judicialCases.caseNo, `%${term}%`)));
+      const articles = articleConditions.length ? await auth.db.select({ title: legalDocuments.title, articleNo: legalArticles.articleNo, content: legalArticles.content, sourceUrl: legalDocuments.sourceUrl }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(or(...articleConditions)).limit(5) : [];
+      const cases = caseConditions.length ? await auth.db.select({ title: judicialCases.title, caseNo: judicialCases.caseNo, content: judicialCases.fullText }).from(judicialCases).where(or(...caseConditions)).limit(2) : [];
+      let sources = [
         ...articles.map((row) => ({ label: `${row.title} ${row.articleNo}`, url: row.sourceUrl, excerpt: row.content.slice(0, 700) })),
         ...cases.map((row) => ({ label: `${row.title || "裁判"} ${row.caseNo}`, url: "", excerpt: row.content.slice(0, 700) })),
       ].slice(0, 8);
-      const evidence = sources.map((source, index) => `【查證資料 ${index + 1}｜${source.label}】\n${source.excerpt}`).join("\n\n") || "本次同步的官方法規與裁判資料未找到直接對應內容。";
-      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
-        model: "gpt-5.6-luna",
-        instructions: `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」，只依提供的官方法規／裁判資料驗證。先明確標示「查證結論：大致正確／需要修正／目前無法確認」三者之一，再說明理由、需修正處與學生下一步。不得把沒有資料支持的推論寫成確定事實；若資料不足就直說可轉交彭狸老師。全文 220 至 450 字，不使用 Markdown。\n\n${evidence}`,
-        input: `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
-        max_output_tokens: 900,
-      }) }) as Record<string, unknown>;
+      const useOfficialWeb = sources.length === 0;
+      const evidence = sources.map((source, index) => `【查證資料 ${index + 1}｜${source.label}】\n${source.excerpt}`).join("\n\n");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 28_000);
+      let payload: Record<string, unknown>;
+      try {
+        payload = await openAIJson("/responses", { method: "POST", signal: controller.signal, body: JSON.stringify({
+          model: "gpt-5.6-luna",
+          ...(useOfficialWeb ? {
+            tools: [{ type: "web_search", filters: { allowed_domains: OFFICIAL_LEGAL_DOMAINS } }],
+            tool_choice: "required",
+            include: ["web_search_call.action.sources"],
+          } : {}),
+          instructions: `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}先明確標示「查證結論：大致正確／需要修正／目前無法確認」三者之一，再說明理由、需修正處與學生下一步。不得把沒有資料支持的推論寫成確定事實；若資料不足就直說可轉交彭狸老師。全文 220 至 450 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
+          input: `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
+          max_output_tokens: 900,
+        }) }) as Record<string, unknown>;
+      } catch (cause) {
+        if (controller.signal.aborted) return Response.json({ error: "官方資料查證逾時，尚未扣除本組查證機會；請縮短疑問後再試。", code: "VERIFY_TIMEOUT" }, { status: 504 });
+        throw cause;
+      } finally {
+        clearTimeout(timeout);
+      }
+      if (useOfficialWeb) sources = officialWebSources(payload).map((source) => ({ ...source, excerpt: "官方外網補充" }));
       const verification = plainText(outputText(payload));
       if (!verification) return Response.json({ error: "查證暫時沒有完成，請稍後再試。" }, { status: 502 });
       await markCoachWebSearchUsed(gate);
       const access = await finishAiCoachRound(gate, { action: "pengli_doubt_verification_5_rounds", description: "彭狸 AI 回覆外部查證（每組一次）", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: JSON.stringify(sources.map(({ label, url }) => ({ label, url }))), status: "verified" }).returning();
-      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), ticketId: ticket.id, access });
+      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), officialWebFallback: useOfficialWeb, ticketId: ticket.id, access });
     }
 
     const selectedText = String(body.selectedText ?? "").trim().slice(0, 1200);
