@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type Policy = { enabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; autoRenew:false; categories:string[]; notes:string };
+type Policy = { enabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; scholarAssistEnabled:boolean; autoRenew:false; categories:string[]; notes:string };
 type Code = { id:string; last4:string; label:string; status:string; benefitType?:string; categories:string[]; productKey?:string; quota?:number; durationDays?:number; redeemBy:string|null; createdAt:string; redeemedAt:string|null; redeemedBy:string|null; createdBy?:string; selectedUnitLabel?:string; disabledReason?:string };
 type Batch = {id:string;label:string;purpose:string;benefitType:string;quantity:number;createdByEmail:string;createdAt:string};
 type Generator = {limits:{role:string;batch:number;daily:number;monthly:number};usage:{today:number;month:number}};
@@ -28,7 +28,7 @@ export default function AiAccessAdminPage(){
     {!policy?<section className="ai-access-card">讀取方案設定中…</section>:<>
       <section className="ai-access-card"><div className="ai-access-section-title"><div><h2>30 天 AI 試問方案</h2><p>目前先建立規則與管理介面；啟用前不會影響既有學生權益。</p></div><label className="ai-access-switch"><input type="checkbox" checked={policy.enabled} onChange={event=>setPolicy({...policy,enabled:event.target.checked})}/><span>{policy.enabled?"標記為啟用":"草稿模式"}</span></label></div>
       <div className="ai-access-grid"><label>方案名稱<input value={policy.name} onChange={event=>setPolicy({...policy,name:event.target.value})}/></label><label>單次售價 NT$<input type="number" min="1" value={policy.price} onChange={event=>setPolicy({...policy,price:Number(event.target.value)})}/></label><label>AI 學習額度<input type="number" min="1" value={policy.quota} onChange={event=>setPolicy({...policy,quota:Number(event.target.value)})}/></label><label>有效天數<input type="number" min="1" value={policy.durationDays} onChange={event=>setPolicy({...policy,durationDays:Number(event.target.value)})}/></label><label>每次教練任務包含輪數<input type="number" min="1" value={policy.coachRounds} onChange={event=>setPolicy({...policy,coachRounds:Number(event.target.value)})}/></label><label>續約方式<input value="單次購買，不自動續約" disabled/></label></div>
-      <fieldset className="ai-access-scope"><legend>適用類科</legend>{categoryOptions.map(item=><label key={item.id}><input type="checkbox" checked={policy.categories.includes(item.id)} onChange={()=>toggleCategory(item.id)}/>{item.label}</label>)}</fieldset>
+      <fieldset className="ai-access-scope"><legend>適用類科</legend>{categoryOptions.map(item=><label key={item.id}><input type="checkbox" checked={policy.categories.includes(item.id)} onChange={()=>toggleCategory(item.id)}/>{item.label}</label>)}</fieldset><div className="ai-access-section-title"><div><h2>彭狸學霸代答</h2><p>學生不知道怎麼回答時，可由 AI 依目前對話上下文代答並反問老師；代答本身不另外扣次。</p></div><label className="ai-access-switch"><input type="checkbox" checked={policy.scholarAssistEnabled!==false} onChange={event=>setPolicy({...policy,scholarAssistEnabled:event.target.checked})}/><span>{policy.scholarAssistEnabled!==false?"已開放":"已關閉"}</span></label></div>
       <label className="ai-access-notes">總管理註記<textarea rows={5} value={policy.notes} onChange={event=>setPolicy({...policy,notes:event.target.value})}/></label>
       <div className="ai-access-actions"><button type="button" onClick={()=>void save()} disabled={busy}>{busy?"儲存中…":"儲存方案規則"}</button></div></section>
 
