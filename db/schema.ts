@@ -24,6 +24,33 @@ export const members = sqliteTable("members", {
     .$defaultFn(() => new Date()),
 });
 
+export const accountingQaTrialDevices = sqliteTable("accounting_qa_trial_devices", {
+  deviceKey: text("device_key").primaryKey(),
+  ipHash: text("ip_hash").notNull().default(""),
+  userAgentHash: text("user_agent_hash").notNull().default(""),
+  usedCount: integer("used_count").notNull().default(0),
+  bonusCount: integer("bonus_count").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const accountingQaTrialRequests = sqliteTable("accounting_qa_trial_requests", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  deviceKey: text("device_key").notNull().references(() => accountingQaTrialDevices.deviceKey, { onDelete: "cascade" }),
+  displayName: text("display_name").notNull().default(""),
+  email: text("email").notNull().default(""),
+  reason: text("reason").notNull().default(""),
+  status: text("status").notNull().default("pending"),
+  grantCount: integer("grant_count").notNull().default(0),
+  requestedAt: integer("requested_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+  resolvedBy: text("resolved_by").notNull().default(""),
+}, (table) => [
+  index("accounting_qa_trial_requests_status_requested_idx").on(table.status, table.requestedAt),
+  index("accounting_qa_trial_requests_device_idx").on(table.deviceKey),
+]);
+
 export const memberPasswordResetRequests = sqliteTable(
   "member_password_reset_requests",
   {

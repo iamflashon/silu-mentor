@@ -3663,6 +3663,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
           <a href="/admin/products">書籍與商品</a>
           <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
+          <a href="/admin/qa-test-applications">QA 測試申請</a>
           <a href="/admin/ai-access">AI 方案與啟用碼</a>
           <a href="/admin/portal-cards">首頁卡片管理</a>
         </nav>}
