@@ -7,8 +7,10 @@ import { requireMember } from "../../../../../lib/member-auth";
 export async function POST(request:Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
+  const body = await request.json().catch(() => ({})) as { purchaseContext?: string };
   const plan = await getAiPlan(auth.db);
-  if (!plan.enabled) return Response.json({ error:"AI 試問方案目前尚未開放購買" }, { status:409 });
+  const pengliPurchase = body.purchaseContext === "pengli";
+  if (!plan.enabled && !pengliPurchase) return Response.json({ error:"AI 試問方案目前尚未開放購買" }, { status:409 });
   const config = await linePayConfig();
   if (!config.channelId || !config.channelSecret) return Response.json({ error:"網站尚未設定 LINE Pay" }, { status:503 });
   const orderId = `AI${Date.now()}${crypto.randomUUID().replaceAll("-", "").slice(0,10)}`;
