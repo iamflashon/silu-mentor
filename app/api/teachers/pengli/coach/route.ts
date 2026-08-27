@@ -5,6 +5,7 @@ import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
 import { finishAiCoachRound, prepareAiUse } from "../../../../../lib/ai-access-gate";
+import { getAiPlan } from "../../../../../lib/ai-access";
 
 type InputMessage = { role?: unknown; text?: unknown };
 
@@ -166,6 +167,9 @@ export async function POST(request: Request) {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
     const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain"; allowAiFallback?: boolean };
+    if (body.mode === "scholar-assist" && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
+      return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
+    }
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
