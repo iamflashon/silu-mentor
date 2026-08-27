@@ -11,7 +11,7 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 export function middleware(request: NextRequest) {
   // 司律備考目前停用：不能只隱藏入口，直接輸入網址也必須在伺服器端封鎖。
-  if (request.nextUrl.pathname === "/law" || request.nextUrl.pathname.startsWith("/law/")) {
+  if (request.nextUrl.pathname === "/law" || request.nextUrl.pathname.startsWith("/law/") || request.nextUrl.pathname === "/api/legal-explain") {
     return new NextResponse("Not Found", {
       status: 404,
       headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
