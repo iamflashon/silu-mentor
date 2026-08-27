@@ -178,6 +178,26 @@ export async function POST(request: Request) {
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
 
+    if (body.mode === "scholar-assist") {
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model: "gpt-5.6-luna",
+        instructions: `你是「學霸幫我回答」功能，但前台仍把你顯示為學生本人，不是獨立角色。這只是對話模擬，不查教材資料庫，也不要求引用頁碼。請完整閱讀目前對話上下文，尤其是彭狸 AI 教練最後一個問題，替學生自然作答。
+
+規則：
+1. 第一段直接回答老師最後的問題；若老師問 A 或 B，必須先明確選擇，不可只說「視情況而定」。
+2. 接著用2至4句，把對話中已出現的判準套用到題目事實；不要重複老師原話，不冒充老師，也不要寫成完整申論擬答。
+3. 即使上下文沒有完整教材，也要依對話中已有資訊作合理的學生回答；不得因未搜尋資料庫而拒答。
+4. 最後另起一行，以「我想再請問老師：」反問一個能推進學習的問題。優先改變一個關鍵事實、追問判準界線、比較相近法律效果，或詢問考場如何取捨。
+5. 禁止詢問單純名詞定義、禁止重問老師剛才的問題、禁止一次串多題、禁止虛構法條或裁判。
+6. 全文限180至320字，不使用 Markdown，不標示來源或頁碼。`,
+        input: messages,
+        max_output_tokens: 650,
+      }) }) as Record<string, unknown>;
+      const scholarDraft = plainText(outputText(payload));
+      if (!scholarDraft) return Response.json({ error: "目前無法產生學生代答，請再按一次。" }, { status: 502 });
+      return Response.json({ scholarDraft, source: "目前對話上下文" });
+    }
+
     const searchText = rawMessages.slice(-2).map((message) => String(message.text ?? "")).join(" ");
     const evidence = await pengliEvidence(searchText);
     if (!evidence.documentId) return Response.json({ error: "尚未在中央教材庫找到彭狸老師《行政法考點演習書（二版）》（書號 59ML170502），請管理員確認教材檔案仍存在。" }, { status: 409 });
@@ -246,18 +266,6 @@ notePoints 必須恰好三點，且不能重寫 explanation；三點分別延伸
         sourceStatus: plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材",
         usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 },
       });
-    }
-
-    if (body.mode === "scholar-assist") {
-      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
-        model,
-        instructions: `你是程度很好的行政法考生，現在代替不會回答的學生與彭狸老師對話。只依下方彭狸老師《行政法考點演習書（二版）》教材片段及目前對話作答。你必須先讀懂老師最後一個問題，第一句就直接選邊回答；若老師問「A還是B」，不得回答「要視情況而定」。接著用2至4句說明教材判準如何套用本題事實，不重複老師原話，不冒充老師，也不寫完整擬答。最後另起一行，以「我想再請問老師：」只問一個有深度的問題。反問必須從下列方向擇一：改變一個關鍵事實後結論是否不同、教材判準的例外或界線、相近訴訟類型為何不能選、考場上如何處理有爭議的兩說。禁止詢問名詞定義、禁止重問老師剛才的問題、禁止把兩三個問題串在一起、禁止虛構教材未提供的裁判或法條。學生代答與反問合計限180至320字，不使用 Markdown 符號。若引用教材觀點，只在代答最後標示一個最直接的頁碼。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
-        input: messages,
-        max_output_tokens: 650,
-      }) }) as Record<string, unknown>;
-      const scholarDraft = plainText(outputText(payload));
-      if (!scholarDraft) return Response.json({ error: "AI 學霸目前無法代答。" }, { status: 502 });
-      return Response.json({ scholarDraft, source: evidence.title });
     }
 
     const startedAt = Date.now();
