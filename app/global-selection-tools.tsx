@@ -399,6 +399,28 @@ export default function GlobalSelectionTools() {
       },
     );
     const data = await response.json();
+    // 彭狸白話解釋若未帶回完整額度狀態，立即同步會員目前權益，
+    // 避免前台顯示「剩餘 — 次」。
+    if (
+      isPengli &&
+      response.ok &&
+      (!data.access || typeof data.access.remaining !== "number")
+    ) {
+      try {
+        const accessResponse = await fetch("/api/ai-access", { cache: "no-store" });
+        const accessData = accessResponse.ok ? await accessResponse.json() : null;
+        if (accessData?.aiAccess) {
+          data.access = {
+            ...(data.access ?? {}),
+            remaining: accessData.aiAccess.remaining,
+            coachRoundsUsed: accessData.aiAccess.coachRoundsUsed,
+            coachRoundsTarget: accessData.aiAccess.coachRoundsTarget,
+          };
+        }
+      } catch {
+        /* 白話解釋本身已成功時，不因額度顯示同步失敗而中斷 */
+      }
+    }
     const explanation =
       typeof (isAccounting ? data.reply : data.explanation) === "string"
         ? String(isAccounting ? data.reply : data.explanation).trim()
@@ -815,11 +837,11 @@ export default function GlobalSelectionTools() {
                     )}
                     {isPengli && lookup.coachAccess && (
                       <div className="medtech-feature-access">
-                        <b>{lookup.coachAccess.charged ? "已完成5次，本輪扣1次" : `白話解釋第 ${lookup.coachAccess.coachRoundsUsed ?? 0}／${lookup.coachAccess.coachRoundsTarget ?? 5} 次`}</b>
-                        <span>每完成5次白話解釋扣1個 AI 次數・目前剩餘 {lookup.coachAccess.remaining ?? "—"} 次</span>
+                        <b>{lookup.coachAccess.charged ? "已完成5次，本輪扣1次" : `完整學習第 ${lookup.coachAccess.coachRoundsUsed ?? 0}／${lookup.coachAccess.coachRoundsTarget ?? 5} 組`}</b>
+                        <span>每完成5組完整學習扣1個 AI 次數（整理筆記包含在同一組）・目前剩餘 {lookup.coachAccess.remaining ?? "—"} 次</span>
                       </div>
                     )}
-                    {lookup.usage && (
+                    {lookup.usage && !isPengli && (
                       <div className="law-usage-meta">
                         <b>
                           {lookup.usage.model.replace("gpt-5.6-", "")}｜
@@ -896,7 +918,7 @@ export default function GlobalSelectionTools() {
                     <small>
                       解釋以框選內容與顯示的條文為依據，不取代老師解析。
                     </small>
-                    {lookup.usage && (
+                    {lookup.usage && !isPengli && (
                       <div className="law-usage-meta">
                         <b>
                           {lookup.usage.model.replace("gpt-5.6-", "")}｜AI
@@ -965,7 +987,7 @@ export default function GlobalSelectionTools() {
                     <b>白話解釋</b>
                     <p>{lookup.explanation}</p>
                     <small>解釋以顯示的裁判內容為依據，不取代老師解析。</small>
-                    {lookup.usage && (
+                    {lookup.usage && !isPengli && (
                       <div className="law-usage-meta">
                         <b>
                           {lookup.usage.model.replace("gpt-5.6-", "")}｜AI
@@ -1168,7 +1190,7 @@ export default function GlobalSelectionTools() {
               儲存後只建立一筆筆記；AI
               整理與原始收藏會一起保留，可在筆記中切換查看。
             </small>
-            {noteDraft.usage && (
+            {noteDraft.usage && !isPengli && (
               <div className="note-organize-usage">
                 <b>
                   {noteDraft.reused
