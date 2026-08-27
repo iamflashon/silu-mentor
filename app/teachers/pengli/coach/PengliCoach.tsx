@@ -111,7 +111,7 @@ export default function PengliCoach() {
   return <section className={`pengli-coach-shell${chatMaximized ? " chat-maximized" : ""}`}>
     <aside className="pengli-coach-sidebar">
       <div className="pengli-coach-identity">
-        <img src="/teachers/pengli-administrative-law-cover.png" alt="行政法考點演習書" />
+        <img src="/teachers/pengli-administrative-law-cover.webp" alt="行政法考點演習書" />
         <div><small>彭狸老師專屬</small><strong>行政法 AI 教練</strong><span>教材優先・引導作答</span></div>
       </div>
       <div className="pengli-coach-scope"><b>目前教材範圍</b><span>行政法 8 大主題</span><span>試學考點與解題脈絡</span><span>老師提醒與作答架構</span></div>

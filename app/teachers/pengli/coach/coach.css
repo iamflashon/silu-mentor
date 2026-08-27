@@ -8,3 +8,12 @@
 .pengli-scholar-button b{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;color:#fff;background:#138c7d;font-size:10px}
 .pengli-scholar-button:disabled{opacity:.48}
 @media(max-width:760px){.pengli-scholar-button{padding:5px!important;font-size:9px!important}.pengli-scholar-button b{width:22px;height:22px;font-size:10px}.pengli-coach-composer{grid-template-columns:1fr 108px;grid-template-rows:auto 1fr}}
+
+/* 固定聊天工作區：頁面不再隨訊息向下增高，只有訊息串捲動。 */
+.pengli-coach-shell{height:calc(100dvh - 98px);min-height:0}
+.pengli-coach-sidebar{min-height:0;overflow:auto}
+.pengli-coach-main{position:relative;min-height:0;overflow:hidden;grid-template-rows:auto minmax(0,1fr) auto auto}
+.pengli-coach-thread{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.pengli-coach-thread article.student>div:last-child{text-align:left}
+.pengli-chat-maximize{position:absolute;z-index:3;top:14px;right:132px;padding:7px 11px;border:1px solid #c8d7da;border-radius:999px;color:#28566a;background:#fff;font:inherit;font-size:9px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(25,55,72,.08)}
+@media(max-width:760px){.pengli-coach-shell{height:calc(100dvh - 62px);min-height:0}.pengli-coach-main{min-height:0}.pengli-chat-maximize{top:9px;right:90px}.pengli-coach-thread{min-height:0}}
