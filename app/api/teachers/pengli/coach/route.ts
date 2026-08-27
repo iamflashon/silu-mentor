@@ -27,14 +27,15 @@ function plainText(value: string) {
 const OFFICIAL_LEGAL_DOMAINS = ["law.moj.gov.tw", "moj.gov.tw", "judicial.gov.tw"];
 
 function officialWebSources(payload: Record<string, unknown>) {
-  const found = new Map<string, { label: string; url: string }>();
-  const add = (title: unknown, url: unknown) => {
-    const href = typeof url === "string" ? url.trim() : "";
+  const found = new Map<string, { label: string; url: string; context: string }>();
+  const add = (title: unknown, url: unknown, context = "") => {
+    const href = cleanOfficialUrl(typeof url === "string" ? url.trim() : "");
     if (!href) return;
     try {
       const host = new URL(href).hostname.toLowerCase();
       if (!OFFICIAL_LEGAL_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`))) return;
-      found.set(href, { label: String(title || host).trim() || host, url: href });
+      const current = found.get(href);
+      found.set(href, { label: String(title || current?.label || host).trim() || host, url: href, context: context || current?.context || "" });
     } catch { /* 忽略非網址資料 */ }
   };
   for (const item of Array.isArray(payload.output) ? payload.output : []) {
@@ -45,9 +46,11 @@ function officialWebSources(payload: Record<string, unknown>) {
     }
     for (const content of Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []) {
       if (!content || typeof content !== "object") continue;
+      const contentText = typeof (content as { text?: unknown }).text === "string" ? String((content as { text: unknown }).text) : "";
       for (const annotation of Array.isArray((content as { annotations?: unknown[] }).annotations) ? (content as { annotations: unknown[] }).annotations : []) {
         if (annotation && typeof annotation === "object" && (annotation as { type?: unknown }).type === "url_citation") {
-          add((annotation as { title?: unknown }).title, (annotation as { url?: unknown }).url);
+          const start = Number((annotation as { start_index?: unknown }).start_index ?? contentText.length);
+          add((annotation as { title?: unknown }).title, (annotation as { url?: unknown }).url, contentText.slice(Math.max(0, start - 180), start));
         }
       }
     }
@@ -91,17 +94,44 @@ function cleanOfficialUrl(value: string) {
   } catch { return value; }
 }
 
-function localizeOfficialCitations(value: string) {
-  return value
-    .replace(/\[[^\]]+\]\((https?:\/\/[^)\s]+)\)/gu, (_match, url: string) => `（來源：${officialAgencyName(url)}）`)
-    .replace(/\((https?:\/\/[^)\s]+)\)/gu, (_match, url: string) => `（來源：${officialAgencyName(url)}）`);
+function sourceTitleFromContext(value: string) {
+  const matches = value.normalize("NFKC").match(/(?:司法院)?釋字第\s*\d+\s*號|憲法法庭\s*\d+\s*年憲判字第\s*\d+\s*號|(?:最高)?行政法院\s*\d{2,3}\s*年度[^，。；：\s]{1,12}字第\s*\d+\s*號(?:判決|裁定)?|[\p{Script=Han}]{1,16}法第\s*\d+(?:[-之]\d+)?\s*條/gu) ?? [];
+  return matches.at(-1)?.replace(/\s+/gu, "") ?? "";
 }
 
-function localizedSource(source: { label: string; url: string; excerpt: string }) {
+function fallbackSourceTitle(value: string) {
+  try {
+    const url = new URL(value);
+    const fileName = decodeURIComponent(url.pathname.split("/").at(-1) || "");
+    if (/\.pdf$/iu.test(fileName)) return fileName.replace(/\.pdf$/iu, "");
+    const documentId = url.searchParams.get("id");
+    if (/\/download(?:\/|\.aspx)/iu.test(url.pathname) && documentId) return `PDF 文件（文件編號 ${documentId}）`;
+    const judgmentId = url.searchParams.get("id");
+    if (/judgment\.judicial\.gov\.tw$/iu.test(url.hostname) && judgmentId) return `裁判原文（${decodeURIComponent(judgmentId)}）`;
+  } catch { /* 使用通用名稱 */ }
+  return "官方資料頁面";
+}
+
+function humanSourceTitle(label: string, url: string, context = "") {
+  let host = "";
+  try { host = new URL(url).hostname.replace(/^www\./u, ""); } catch { /* 使用原標籤 */ }
+  const trimmed = label.trim();
+  const generic = !trimmed || trimmed === host || trimmed === `www.${host}` || /^https?:\/\//iu.test(trimmed);
+  return generic ? sourceTitleFromContext(context) || fallbackSourceTitle(url) : trimmed;
+}
+
+function localizeOfficialCitations(value: string) {
+  return value
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gu, (_match, label: string, url: string, offset: number) => `（來源：${officialAgencyName(url)}｜${humanSourceTitle(label, url, value.slice(Math.max(0, offset - 180), offset))}）`)
+    .replace(/\((https?:\/\/[^)\s]+)\)/gu, (_match, url: string, offset: number) => `（來源：${officialAgencyName(url)}｜${humanSourceTitle("", url, value.slice(Math.max(0, offset - 180), offset))}）`);
+}
+
+function localizedSource(source: { label: string; url: string; excerpt: string; context?: string }) {
   const url = cleanOfficialUrl(source.url);
   const agency = officialAgencyName(url);
-  const hostLike = /^(?:www\.)?(?:cons\.)?judicial\.gov\.tw$|^(?:www\.)?law\.moj\.gov\.tw$/iu.test(source.label.trim());
-  return { ...source, url, label: hostLike ? agency : `${agency}｜${source.label}` };
+  const title = humanSourceTitle(source.label, url, source.context);
+  const { context: _context, ...rest } = source;
+  return { ...rest, url, label: title.startsWith(agency) ? title : `${agency}｜${title}` };
 }
 
 
@@ -327,7 +357,12 @@ export async function POST(request: Request) {
         clearTimeout(timeout);
       }
       if (useOfficialWeb) sources = officialWebSources(payload).map((source) => ({ ...source, excerpt: "官方外網補充" }));
-      sources = sources.filter((source) => Boolean(source.url)).map((source) => localizedSource({ ...source, url: String(source.url) }));
+      const uniqueSources = new Map<string, ReturnType<typeof localizedSource>>();
+      for (const source of sources.filter((source) => Boolean(source.url))) {
+        const localized = localizedSource({ ...source, url: String(source.url) });
+        uniqueSources.set(localized.url, localized);
+      }
+      sources = [...uniqueSources.values()];
       const verification = localizeOfficialCitations(plainText(outputText(payload)));
       if (!verification) return Response.json({ error: "查證暫時沒有完成，請稍後再試。" }, { status: 502 });
       const access = await finishAiUse(gate, { action: "pengli_official_verification", description: "彭狸官方資料查證，成功扣 2 次", quantity: 2, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
