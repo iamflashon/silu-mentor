@@ -21,6 +21,7 @@ export default function PengliCoach() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
+  const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,7 +33,7 @@ export default function PengliCoach() {
     } catch { /* 使用預設歡迎訊息 */ }
   }, []);
 
-  useEffect(() => { void fetch("/api/ai-access", { cache: "no-store" }).then(async response => response.ok ? response.json() : null).then(data => data?.aiAccess && setAccess({ remaining: data.aiAccess.remaining, coachRoundsUsed: data.aiAccess.coachRoundsUsed, coachRoundsTarget: data.aiAccess.coachRoundsTarget })).catch(() => undefined); }, []);
+  useEffect(() => { void fetch("/api/ai-access", { cache: "no-store" }).then(async response => response.ok ? response.json() : null).then(data => { if (data?.aiAccess) setAccess({ remaining: data.aiAccess.remaining, coachRoundsUsed: data.aiAccess.coachRoundsUsed, coachRoundsTarget: data.aiAccess.coachRoundsTarget }); if (data?.plan) setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false); }).catch(() => undefined); }, []);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(messages.slice(-40)));
@@ -131,11 +132,11 @@ export default function PengliCoach() {
         <div ref={endRef} />
       </div>
       {error && <p className="pengli-coach-error">{error}</p>}
-      <div className="pengli-coach-assist">
+      {scholarAssistEnabled && <div className="pengli-coach-assist">
         <button type="button" onClick={() => void askScholarToAnswer()} disabled={thinking || scholarThinking || !messages.some((message) => message.role === "coach")}>
           <b>霸</b><span><strong>學霸幫我回答</strong><small>我不知道時，代我回答並反問老師</small></span>
         </button>
-      </div>
+      </div>}
       <form className="pengli-coach-composer" onSubmit={submit}>
         <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} placeholder="貼上行政法題目，或告訴我你卡在哪個爭點……" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(input); } }} />
         <button type="submit" disabled={!input.trim() || thinking || scholarThinking}>送出</button>
