@@ -119,6 +119,7 @@ export default function GlobalSelectionTools() {
     "",
   );
   const [saveMessage, setSaveMessage] = useState("");
+  const [lawFeedback, setLawFeedback] = useState<"" | "helpful">("");
   const [organizeState, setOrganizeState] = useState<
     "" | "organizing" | "error"
   >("");
@@ -370,29 +371,33 @@ export default function GlobalSelectionTools() {
       isPengli
         ? "/api/teachers/pengli/coach"
         : isMedtech
-        ? "/api/medtech/explain"
-        : isAccounting
-          ? "/api/accounting/tutor"
-          : "/api/legal-explain",
+          ? "/api/medtech/explain"
+          : isAccounting
+            ? "/api/accounting/tutor"
+            : "/api/legal-explain",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(
           isPengli
-            ? { selectedText, mode: "plain-explain", requestKey: crypto.randomUUID() }
+            ? {
+                selectedText,
+                mode: "plain-explain",
+                requestKey: crypto.randomUUID(),
+              }
             : isMedtech
-            ? { selectedText }
-            : isAccounting
-              ? {
-                  messages: [
-                    {
-                      role: "student",
-                      text: `請只針對這段中級會計內容做簡短白話說明：\n${selectedText}`,
-                    },
-                  ],
-                  mode: "free",
-                }
-              : { selectedText, article: reference },
+              ? { selectedText }
+              : isAccounting
+                ? {
+                    messages: [
+                      {
+                        role: "student",
+                        text: `請只針對這段中級會計內容做簡短白話說明：\n${selectedText}`,
+                      },
+                    ],
+                    mode: "free",
+                  }
+                : { selectedText, article: reference },
         ),
       },
     );
@@ -480,6 +485,17 @@ export default function GlobalSelectionTools() {
         `拆解重點\n${lookup.analysis.points.map((point) => `・${point}`).join("\n")}`,
       );
     if (lookup?.explanation) parts.push(`白話解釋\n${lookup.explanation}`);
+    if (isPengli) {
+      return {
+        title,
+        content: parts.filter(Boolean).join("\n\n"),
+        subject: lookup?.analysis?.legalField || "行政法",
+        tags: "彭狸老師專區、行政法、待複習",
+        sourceLabel: lookup?.article
+          ? `彭狸老師專區｜${lookup.article.title} ${lookup.article.articleNo}`
+          : "彭狸老師專區｜行政法考點演習書（二版）",
+      };
+    }
     return {
       title,
       content: parts.filter(Boolean).join("\n\n"),
@@ -503,13 +519,19 @@ export default function GlobalSelectionTools() {
     let hash = 2166136261;
     for (let index = 0; index < original.length; index++)
       hash = Math.imul(hash ^ original.charCodeAt(index), 16777619);
-    const sourceId = `${isMedtech ? "medtech-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
+    const sourceId = `${isPengli ? "pengli-selection" : isMedtech ? "medtech-selection" : "selection"}-${(hash >>> 0).toString(16)}-${original.length}`;
     const response = await fetch("/api/notes", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ...draft,
-        category: isMedtech ? "medtech" : isAccounting ? "accounting" : "law",
+        category: isPengli
+          ? "pengli"
+          : isMedtech
+            ? "medtech"
+            : isAccounting
+              ? "accounting"
+              : "law",
         sourceType: kind,
         sourceId,
       }),
@@ -579,6 +601,7 @@ export default function GlobalSelectionTools() {
     setSelectedText("");
     setLawQuery("");
     setJudicialQuery(null);
+    setLawFeedback("");
   };
   return (
     <>
@@ -688,11 +711,11 @@ export default function GlobalSelectionTools() {
                       ? "Luna 助教｜中會白話說明"
                       : isPengli && lookup.mode === "explain"
                         ? "彭狸 AI 教練｜白話解釋"
-                      : lookup.mode === "explain"
-                        ? "AI 法律助教｜辨識與拆解"
-                        : lookup.decision
-                          ? "司法院裁判資料庫｜已下載資料"
-                          : "全國法規資料庫｜已下載資料"}
+                        : lookup.mode === "explain"
+                          ? "AI 法律助教｜辨識與拆解"
+                          : lookup.decision
+                            ? "司法院裁判資料庫｜已下載資料"
+                            : "全國法規資料庫｜已下載資料"}
                 </span>
                 <h3>{selectedText || "框選內容"}</h3>
               </div>
@@ -846,12 +869,25 @@ export default function GlobalSelectionTools() {
                 </section>
                 {lookup.article.articleNo !== "白話解釋" && (
                   <footer>
+                    {isPengli && !lookup.explanation && (
+                      <button
+                        type="button"
+                        onClick={() => setLawFeedback("helpful")}
+                      >
+                        有幫助
+                      </button>
+                    )}
                     <button
                       type="button"
+                      className={isPengli ? "primary" : undefined}
                       onClick={() => void explain()}
                       disabled={lookup.explaining}
                     >
-                      {lookup.explaining ? "正在解釋…" : "白話解釋"}
+                      {lookup.explaining
+                        ? "AI 正在解釋…"
+                        : isPengli
+                          ? "看不懂，請 AI 解釋"
+                          : "白話解釋"}
                     </button>
                     {lookup.article.sourceUrl && (
                       <a
@@ -864,6 +900,13 @@ export default function GlobalSelectionTools() {
                     )}
                   </footer>
                 )}
+                {isPengli &&
+                  lawFeedback === "helpful" &&
+                  !lookup.explanation && (
+                    <p className="law-feedback-confirmation">
+                      好，這段不需 AI 解釋，也不會扣次數。
+                    </p>
+                  )}
                 {lookup.explanation && (
                   <section className="law-plain-explanation">
                     <b>白話解釋</b>
@@ -1014,7 +1057,8 @@ export default function GlobalSelectionTools() {
             {lookup.error && lookup.article && (
               <p className="law-lookup-status error">{lookup.error}</p>
             )}
-            {!lookup.loading && !lookup.error && (
+            {!lookup.loading &&
+              (!lookup.error || Boolean(lookup.article || lookup.explanation)) && (
               <div className="selection-save-actions">
                 {isMedtech ? (
                   <>
@@ -1037,24 +1081,52 @@ export default function GlobalSelectionTools() {
                   </>
                 ) : (
                   <>
-                    {!isPengli && <>
-                      <button
-                        type="button"
-                        onClick={() => void saveSelection("favorite")}
-                        disabled={saveState === "saving" || saveState === "saved"}
-                      >
-                        {saveState === "saved" ? "已收藏原文 ✓" : "☆ 快速收藏原文"}
-                      </button>
-                      <button
-                        type="button"
-                        className="primary"
-                        onClick={() => void organizeNote()}
-                        disabled={organizeState === "organizing"}
-                      >
-                        {organizeState === "organizing" ? "AI 正在整理…" : "＋ AI 整理成筆記"}
-                      </button>
-                    </>}
-                    <a href={isPengli ? "/teachers/pengli/notes" : "/notes"}>前往我的筆記 →</a>
+                    {isPengli ? (
+                      <>
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => void saveSelection("note")}
+                          disabled={
+                            saveState === "saving" || saveState === "saved"
+                          }
+                        >
+                          {saveState === "saving"
+                            ? "加入中…"
+                            : saveState === "saved"
+                              ? "已加入我的筆記 ✓"
+                              : "＋ 加入我的筆記"}
+                        </button>
+                        {saveState === "saved" && (
+                          <a href="/teachers/pengli/notes">查看我的筆記 →</a>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void saveSelection("favorite")}
+                          disabled={
+                            saveState === "saving" || saveState === "saved"
+                          }
+                        >
+                          {saveState === "saved"
+                            ? "已收藏原文 ✓"
+                            : "☆ 快速收藏原文"}
+                        </button>
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => void organizeNote()}
+                          disabled={organizeState === "organizing"}
+                        >
+                          {organizeState === "organizing"
+                            ? "AI 正在整理…"
+                            : "＋ AI 整理成筆記"}
+                        </button>
+                        <a href="/notes">前往我的筆記 →</a>
+                      </>
+                    )}
                   </>
                 )}
                 {saveState === "error" && (
