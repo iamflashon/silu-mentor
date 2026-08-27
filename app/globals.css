@@ -6581,8 +6581,11 @@ a {
 .central-admin-tabs {
   display: flex;
   gap: 8px;
-  margin: -4px 0 22px;
+  width: 100%;
+  max-width: 1240px;
+  margin: -4px auto 22px;
   padding: 7px;
+  box-sizing: border-box;
   overflow-x: auto;
   border: 1px solid #d5e2e8;
   border-radius: 14px;
