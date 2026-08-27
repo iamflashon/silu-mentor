@@ -29,3 +29,59 @@
 .pengli-coach-assist,.pengli-coach-composer,.pengli-coach-main>footer{position:relative;z-index:2;flex:none}
 @media(max-width:760px){.pengli-coach-shell{width:100%;max-width:none;box-sizing:border-box;height:calc(100dvh - 62px);min-height:0;max-height:calc(100dvh - 62px)}.pengli-coach-sidebar{overflow:visible}.pengli-coach-main{height:100%;min-height:0}}
 .pengli-coach-thread article span{color:#87949a;font-size:10px!important;font-weight:400}
+
+
+/* 對話最大化：隱藏教材身分區與大標題，把空間留給訊息串 */
+.pengli-coach-main {
+  position: relative;
+}
+.pengli-chat-maximize {
+  position: absolute;
+  z-index: 12;
+  top: 15px;
+  right: 138px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #b9cbc8;
+  border-radius: 999px;
+  background: rgba(255,255,255,.94);
+  color: #174a58;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(17,55,69,.08);
+}
+.pengli-chat-maximize:hover {
+  background: #edf8f5;
+}
+.pengli-coach-shell.chat-maximized {
+  grid-template-columns: minmax(0,1fr);
+}
+.pengli-coach-shell.chat-maximized .pengli-coach-sidebar,
+.pengli-coach-shell.chat-maximized .pengli-coach-main > header {
+  display: none;
+}
+.pengli-coach-shell.chat-maximized .pengli-coach-thread {
+  padding-top: 62px;
+}
+@media (max-width: 760px) {
+  .pengli-chat-maximize {
+    position: fixed;
+    top: 72px;
+    right: 12px;
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .pengli-coach-shell.chat-maximized {
+    height: calc(100dvh - 62px);
+    min-height: 0;
+  }
+  .pengli-coach-shell.chat-maximized .pengli-coach-main {
+    height: 100%;
+  }
+  .pengli-coach-shell.chat-maximized .pengli-coach-thread {
+    padding-top: 52px;
+  }
+}
