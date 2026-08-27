@@ -14617,6 +14617,11 @@ a {
   font-size: 11px;
   line-height: 1.45;
 }
+.book-dialogue-composer-actions>span{margin-right:auto}
+.scholar-reflection-button{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding:7px 11px;border:1px solid #91d1c8;border-radius:12px;background:#effaf7;color:#0b5f58;text-align:left;cursor:pointer}
+.scholar-reflection-button>b{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#0b8b7d;color:#fff;font-size:15px}
+.scholar-reflection-button>span{display:grid;gap:1px}.scholar-reflection-button strong{font-size:13px}.scholar-reflection-button small{color:#63817e;font-size:10px}.scholar-reflection-button:disabled{opacity:.55;cursor:wait}
+@media(max-width:700px){.book-dialogue-composer-actions{align-items:stretch;flex-wrap:wrap}.book-dialogue-composer-actions>span{width:100%}.scholar-reflection-button{flex:1}.scholar-follow-up-button{flex:0 0 auto}}
 .book-dialogue-empty {
   display: grid;
   place-content: center;
