@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import PengliCover from "../PengliCover";
 
 type CoachMessage = {
   id: string;
@@ -297,10 +298,7 @@ export default function PengliCoach() {
     >
       <aside className="pengli-coach-sidebar">
         <div className="pengli-coach-identity">
-          <img
-            src="/teachers/pengli-administrative-law-cover.webp"
-            alt="行政法考點演習書"
-          />
+          <PengliCover />
           <div>
             <small>彭狸老師專屬</small>
             <strong>行政法 AI 教練</strong>

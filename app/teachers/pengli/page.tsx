@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./pengli.css";
+import PengliCover from "./PengliCover";
 
 export const metadata: Metadata = {
   title: "彭狸老師行政法考點衝刺",
@@ -70,7 +71,7 @@ export default function PengliTeacherPage() {
       </div>
       <div className="pengli-book-stage">
         <div className="pengli-book-halo" aria-hidden="true" />
-        <img src="/teachers/pengli-administrative-law-cover-v2.png" alt="行政法考點（考前衝刺）演習書透明書封" />
+        <PengliCover />
         <div className="pengli-teacher-note"><small>AUTHOR</small><strong>彭狸</strong><span>臺大法律研究所公法組</span></div>
       </div>
     </section>
