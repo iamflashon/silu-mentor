@@ -4,6 +4,9 @@ import AiAccessClient from "./AiAccessClient";
 import "../pengli.css";
 import "./ai-access.css";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = { title: "AI 次數與兌換碼｜彭狸老師專區", description: "購買或兌換彭狸 AI 陪練次數。" };
 
 export default function PengliAiAccessPage() {
