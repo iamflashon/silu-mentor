@@ -42,17 +42,25 @@ async function pengliEvidence(query: string) {
   if (!book) return { documentId: null, title: "", rows: [] as Array<{ pageStart: number | null; pageEnd: number | null; title: string; hierarchyPath: string; text: string }> };
 
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
+  const legalPhrases = [
+    "禁止繼續使用擴音設施", "繼續使用擴音設施", "擴音設施", "噪音管制法",
+    "行政法上請求權", "公法上請求權", "課予義務訴訟", "一般給付訴訟",
+    "訴訟類型", "救濟程序", "行政處分", "請求權基礎", "公私法區分",
+    "法律保留原則", "層級化法律保留", "明確性原則", "外部性",
+  ].filter((phrase) => normalized.includes(phrase));
   const topicHints: string[] = [];
+  if (/擴音|噪音|禁止繼續使用/u.test(normalized)) topicHints.push("禁止繼續使用擴音設施", "行政法上請求權", "訴訟類型", "課予義務訴訟");
   if (/公私法|請求權基礎|758/u.test(normalized)) topicHints.push("公私法區分", "請求權基礎", "新主體說", "758");
   if (/法律保留|443/u.test(normalized)) topicHints.push("法律保留原則", "層級化法律保留", "443");
   if (/明確性/u.test(normalized)) topicHints.push("明確性原則", "可理解", "可預見", "司法審查");
   if (/行政處分|外部性/u.test(normalized)) topicHints.push("行政處分", "外部性");
   const terms = [...new Set([
+    ...legalPhrases,
     ...topicHints,
     ...normalized.split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
       .map((term) => term.replace(/^(我正在學|請先用|一個問題|帶我判斷|請問|老師)/u, "").trim())
       .filter((term) => term.length >= 2 && term.length <= 18),
-  ])].slice(0, 4);
+  ])].slice(0, 8);
   // D1 查詢只使用少量核心詞，避免學霸代答把整段對話展開成過長的 OR 條件。
   const conditions = terms.map((term) =>
     like(documentSearchUnits.normalizedText, `%${term}%`)
@@ -95,7 +103,7 @@ export async function POST(request: Request) {
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
 
-    const searchText = rawMessages.slice(-6).map((message) => String(message.text ?? "")).join(" ");
+    const searchText = rawMessages.slice(-2).map((message) => String(message.text ?? "")).join(" ");
     const evidence = await pengliEvidence(searchText);
     if (!evidence.documentId) return Response.json({ error: "尚未在中央教材庫找到彭狸老師《行政法考點演習書（二版）》（書號 59ML170502），請管理員確認教材檔案仍存在。" }, { status: 409 });
     if (!evidence.rows.length) return Response.json({ error: "已找到彭狸老師的書，但本題尚未命中頁面索引。請換成更明確的考點名稱後再試，系統不會改用其他教材回答。" }, { status: 409 });
