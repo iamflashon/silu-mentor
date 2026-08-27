@@ -43636,3 +43636,11 @@ html.frontend-costs-disabled .student-summary-meta > span {
 .pengli-auto-note-preview h4{margin:10px 0 7px;color:#244751;font-size:15px}
 .pengli-auto-note-preview p{margin:0;color:#385b63;font-size:13px;line-height:1.75}
 .pengli-auto-note-preview small{display:block;margin-top:9px;color:#71858a}
+
+
+/* Pengli note preview occupies the full row; status and navigation stay below it. */
+.selection-save-actions:has(.pengli-auto-note-preview){flex-wrap:wrap}
+.selection-save-actions .pengli-auto-note-preview{flex:0 0 100%;width:100%;box-sizing:border-box}
+.selection-save-actions:has(.pengli-auto-note-preview)>span{margin-right:auto}
+.selection-save-actions:has(.pengli-auto-note-preview)>a{margin-left:auto}
+@media(max-width:760px){.selection-save-actions:has(.pengli-auto-note-preview)>span{width:100%}.selection-save-actions:has(.pengli-auto-note-preview)>a{width:100%;margin-left:0;text-align:center}}
