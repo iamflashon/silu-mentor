@@ -43657,3 +43657,24 @@ body:has(.accounting-qa-page) .specialty-home-link{display:none!important}
 .learning-coach-meta span + span,
 .review-usage-meta,
 .review-history-meta span:last-child { display: none !important; }
+
+/* QA 申請維持中央管理後台的完整框架與頁籤。 */
+.qa-admin-page{min-height:100vh;background:#f4f8fb;color:#12304b}
+.qa-admin-page .admin-main{max-width:1320px;margin:0 auto;padding-bottom:72px}
+.qa-admin-page .central-admin-tabs{margin-bottom:24px}
+.ai-access-admin>.central-admin-tabs,.portal-card-admin>.central-admin-tabs{margin-bottom:24px}
+.ai-pengli-control{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:20px;border-color:#b6dcd4;background:linear-gradient(135deg,#f4fbf9,#fff)}
+.ai-pengli-control p{margin:0 0 6px;color:#a7751f;font-size:12px;font-weight:900;letter-spacing:.14em}
+.ai-pengli-control h2{margin:0 0 6px;color:#153b53}.ai-pengli-control span{color:#617985}
+.ai-pengli-control>button{border:0;border-radius:10px;padding:13px 18px;background:#087c72;color:#fff;font-weight:900;cursor:pointer}
+@media(max-width:760px){.ai-pengli-control{grid-template-columns:1fr}.ai-pengli-control>button{width:100%}}
+.qa-admin-panel{overflow:hidden;border:1px solid #cbdce7;border-radius:20px;background:#fff;box-shadow:0 16px 38px rgba(22,58,83,.07)}
+.qa-admin-panel>header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 26px;border-bottom:1px solid #dce7ed;background:linear-gradient(135deg,#fff,#f3f8fa)}
+.qa-admin-panel>header small{color:#168477;font-size:11px;font-weight:850;letter-spacing:.15em}
+.qa-admin-panel>header h2{margin:5px 0 0;font-size:23px;font-weight:650}
+.qa-admin-panel>header>span{padding:8px 12px;border-radius:999px;color:#47657c;background:#eaf2f7;font-size:13px;font-weight:800}
+.qa-admin-panel .qa-admin-list{padding:22px}
+.qa-admin-panel .qa-admin-empty{min-height:210px;display:grid;place-content:center;gap:8px;border:1px dashed #c6d8e2;background:#f8fbfc}
+.qa-admin-panel .qa-admin-empty b{color:#274d68;font-size:18px}
+.qa-admin-panel .qa-admin-empty span{color:#71899a}
+@media(max-width:700px){.qa-admin-page .admin-main{padding-left:14px;padding-right:14px}.qa-admin-panel>header{align-items:flex-start;padding:18px;flex-direction:column}.qa-admin-panel .qa-admin-list{padding:12px}.qa-admin-panel .qa-admin-empty{min-height:170px}}

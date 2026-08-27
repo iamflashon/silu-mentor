@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import CentralAdminTabs from "../CentralAdminTabs";
 
 type Card = { id: "law" | "pengli" | "medtech" | "accounting"; enabled: boolean; order: number };
 
@@ -48,7 +49,7 @@ export default function PortalCardsAdminPage() {
 
   return <main className="portal-card-admin">
     <header><div><span>PORTAL CONTENT CONTROL</span><h1>首頁書籍與老師卡片管理</h1><p>控制書籍老師卡與司律平台入口。下架只隱藏首頁內容，不會刪除專區、會員或資料。</p></div><a href="/">查看入口首頁 ↗</a></header>
-    <nav><a href="/admin/library">教材向量庫</a><a href="/admin/question-bank">總題庫管理</a><a href="/admin/members">會員總管理</a><a href="/admin/ai-access">AI 方案與啟用碼</a><a className="active" href="/admin/portal-cards">首頁卡片管理</a></nav>
+    <CentralAdminTabs active="portal-cards" />
     <section className="portal-card-admin-list">
       {cards.map((card, index) => { const item = details[card.id]; return <article key={card.id} className={card.enabled ? "enabled" : "disabled"}>
         <div className={`portal-card-admin-mark ${item.tone}`}>{item.cover ? <><img src={`/api/portal-cards/cover?id=${card.id}&v=${coverVersion[card.id] ?? 0}`} alt={`${item.title}書封`} onError={(event) => { event.currentTarget.style.display = "none"; }} /><label className="portal-cover-upload">補書封<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCover(card.id, file); event.currentTarget.value = ""; }} /></label></> : item.mark}</div>

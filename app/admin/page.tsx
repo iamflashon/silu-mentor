@@ -11,6 +11,7 @@ import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 import SitesCloudflareSyncDownload from "./SitesCloudflareSyncDownload";
 import LocalNodeJobsPanel from "./LocalNodeJobsPanel";
 import DocumentIndexHealthPanel from "./DocumentIndexHealthPanel";
+import CentralAdminTabs from "./CentralAdminTabs";
 
 type PaymentOrderRow = { orderId: string; transactionId: string | null; packageName: string; amount: number; currency: string; status: string; environment: string; paidAt: string | null; activatedAt: string | null; createdAt: string };
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; passwordResetRequestedAt?: string | null; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }>; paymentOrders?: PaymentOrderRow[] };
@@ -3658,15 +3659,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             <span>{libraryMode ? "獨立處理公司教材的文字抽取、最小單位切片、全文索引、向量索引與檢索驗證。" : questionBankMode ? "以共用資料庫集中管理全部類科的文件題庫、網址題庫、拆題、校對、版本與發布狀態。" : memberMode ? "集中查看全部會員、所屬類科、班級、帳號狀態與管理權限。" : "跨平台集中管理教材、會員、AI 模型與營運資料；類科專屬內容仍在各自工作區處理。"}</span>
           </div>
         </div>
-        {independentMode && <nav className="central-admin-tabs" aria-label="中央管理功能切換">
-          <a className={libraryMode ? "active" : ""} href="/admin/library">教材向量庫</a>
-          <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
-          <a href="/admin/products">書籍與商品</a>
-          <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
-          <a href="/admin/qa-test-applications">QA 測試申請</a>
-          <a href="/admin/ai-access">AI 方案與啟用碼</a>
-          <a href="/admin/portal-cards">首頁卡片管理</a>
-        </nav>}
+        {independentMode && <CentralAdminTabs active={libraryMode ? "library" : questionBankMode ? "question-bank" : "members"} />}
         {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
           <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
           <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>

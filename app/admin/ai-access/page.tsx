@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import CentralAdminTabs from "../CentralAdminTabs";
 
-type Policy = { enabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; autoRenew:false; categories:string[]; notes:string };
+type Policy = { enabled:boolean; scholarAssistEnabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; autoRenew:false; categories:string[]; notes:string };
 type Code = { id:string; last4:string; label:string; status:string; benefitType?:string; categories:string[]; productKey?:string; quota?:number; durationDays?:number; redeemBy:string|null; createdAt:string; redeemedAt:string|null; redeemedBy:string|null; createdBy?:string; selectedUnitLabel?:string; disabledReason?:string };
 type Batch = {id:string;label:string;purpose:string;benefitType:string;quantity:number;createdByEmail:string;createdAt:string};
 type Generator = {limits:{role:string;batch:number;daily:number;monthly:number};usage:{today:number;month:number}};
 type MedtechProduct = {productKey:string;title:string;status:string};
 type Payload = { policy:Policy; codes:Code[]; batches?:Batch[]; medtechProducts?:MedtechProduct[]; generator?:Generator; updatedAt:string; generatedCodes?:string[]; error?:string };
 
-const categoryOptions = [{id:"law",label:"司律／法律"},{id:"accounting",label:"會計"},{id:"medtech",label:"醫檢師"},{id:"data-structure",label:"資料結構"}];
+const categoryOptions = [{id:"law",label:"司律／法律"},{id:"pengli",label:"彭狸老師"},{id:"accounting",label:"會計"},{id:"medtech",label:"醫檢師"},{id:"data-structure",label:"資料結構"}];
 const statusLabels:Record<string,string>={unused:"未使用",redeemed:"已兌換",disabled:"已停用",expired:"已過期"};
 
 export default function AiAccessAdminPage(){
@@ -25,7 +26,9 @@ export default function AiAccessAdminPage(){
   function toggleCategory(id:string){if(!policy)return;setPolicy({...policy,categories:policy.categories.includes(id)?policy.categories.filter(value=>value!==id):[...policy.categories,id]})}
   return <main className="ai-access-admin">
     <header className="ai-access-hero"><div><p>GLOBAL AI ACCESS CONTROL</p><h1>AI 方案與啟用碼</h1><span>總管理共用規則，可套用司律、會計、醫檢師與資料結構；各類科不另建重複方案。</span></div><a href="/admin">返回總管理後台 →</a></header>
+    <CentralAdminTabs active="ai-access" />
     {!policy?<section className="ai-access-card">讀取方案設定中…</section>:<>
+      <section className="ai-access-card ai-pengli-control"><div><p>PENGLI COACH CONTROL</p><h2>彭狸 AI 教練設定</h2><span>控制學生端是否顯示「學霸幫我回答」。關閉後，既有對話與一般教練功能不受影響。</span></div><label className="ai-access-switch"><input type="checkbox" checked={policy.scholarAssistEnabled!==false} onChange={event=>setPolicy({...policy,scholarAssistEnabled:event.target.checked})}/><span>{policy.scholarAssistEnabled!==false?"學霸代答已開放":"學霸代答已關閉"}</span></label><button type="button" onClick={()=>void save()} disabled={busy}>{busy?"儲存中…":"儲存彭狸設定"}</button></section>
       <section className="ai-access-card"><div className="ai-access-section-title"><div><h2>30 天 AI 試問方案</h2><p>目前先建立規則與管理介面；啟用前不會影響既有學生權益。</p></div><label className="ai-access-switch"><input type="checkbox" checked={policy.enabled} onChange={event=>setPolicy({...policy,enabled:event.target.checked})}/><span>{policy.enabled?"標記為啟用":"草稿模式"}</span></label></div>
       <div className="ai-access-grid"><label>方案名稱<input value={policy.name} onChange={event=>setPolicy({...policy,name:event.target.value})}/></label><label>單次售價 NT$<input type="number" min="1" value={policy.price} onChange={event=>setPolicy({...policy,price:Number(event.target.value)})}/></label><label>AI 學習額度<input type="number" min="1" value={policy.quota} onChange={event=>setPolicy({...policy,quota:Number(event.target.value)})}/></label><label>有效天數<input type="number" min="1" value={policy.durationDays} onChange={event=>setPolicy({...policy,durationDays:Number(event.target.value)})}/></label><label>每次教練任務包含輪數<input type="number" min="1" value={policy.coachRounds} onChange={event=>setPolicy({...policy,coachRounds:Number(event.target.value)})}/></label><label>續約方式<input value="單次購買，不自動續約" disabled/></label></div>
       <fieldset className="ai-access-scope"><legend>適用類科</legend>{categoryOptions.map(item=><label key={item.id}><input type="checkbox" checked={policy.categories.includes(item.id)} onChange={()=>toggleCategory(item.id)}/>{item.label}</label>)}</fieldset>
