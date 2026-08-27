@@ -143,7 +143,7 @@ export default function PengliCoach() {
         <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} placeholder="貼上行政法題目，或告訴我你卡在哪個爭點……" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(input); } }} />
         <button type="submit" disabled={!input.trim() || thinking || scholarThinking}>送出</button>
       </form>
-      <footer><span>AI 分身不等同真人老師；每完成 5 輪陪練扣 1 次。</span><small>{access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5} 輪・剩餘 {access?.remaining ?? "—"} 次</small></footer>
+      <footer><span>AI 分身不等同真人老師；每完成 5 輪陪練扣 1 次。</span><a className="pengli-mobile-access" href="/teachers/pengli/ai-access">購買／兌換碼</a><small>{access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5} 輪・剩餘 {access?.remaining ?? "—"} 次</small></footer>
     </div>
   </section>;
 }
