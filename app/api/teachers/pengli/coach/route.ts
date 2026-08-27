@@ -90,7 +90,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain"; allowAiFallback?: boolean };
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
@@ -106,7 +106,14 @@ export async function POST(request: Request) {
     const searchText = rawMessages.slice(-2).map((message) => String(message.text ?? "")).join(" ");
     const evidence = await pengliEvidence(searchText);
     if (!evidence.documentId) return Response.json({ error: "尚未在中央教材庫找到彭狸老師《行政法考點演習書（二版）》（書號 59ML170502），請管理員確認教材檔案仍存在。" }, { status: 409 });
-    if (!evidence.rows.length) return Response.json({ error: "已找到彭狸老師的書，但本題尚未命中頁面索引。請換成更明確的考點名稱後再試，系統不會改用其他教材回答。" }, { status: 409 });
+    const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
+    if (!evidence.rows.length && !plainAiFallback) return Response.json({
+      error: body.mode === "plain-explain"
+        ? "這段文字尚未命中彭狸老師教材。是否改由 AI 依臺灣行政法一般知識試著白話解釋？"
+        : "已找到彭狸老師的書，但本題尚未命中頁面索引。請換成更明確的考點名稱後再試。",
+      code: body.mode === "plain-explain" ? "PENGLI_EVIDENCE_NOT_FOUND" : "PENGLI_COACH_EVIDENCE_NOT_FOUND",
+      canAiFallback: body.mode === "plain-explain",
+    }, { status: 409 });
 
     const evidenceText = evidence.rows.map((row, index) => {
       const page = row.pageStart ? `本書第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "本書頁碼待索引補正";
@@ -118,7 +125,7 @@ export async function POST(request: Request) {
       const startedAt = Date.now();
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model,
-        instructions: `你是彭狸 AI 教練。只依本次提供的彭狸老師《行政法考點演習書（二版）》片段，把學生框選的行政法文字改寫成清楚、口語的繁體中文。先用一句話說核心意思，再列出至多三個判斷重點；限150至300字，不補造教材沒有的法條或見解，不使用 Markdown 符號。正文不要另外列來源。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: plainAiFallback ? `你是臺灣行政法學習助教。本段未命中彭狸老師教材，請只依可靠的一般行政法知識試作白話解釋。固定使用以下格式：第一行「核心意思：」；接著「判斷重點：」並列一、二、三點。限150至300字。不得虛構法條、裁判或老師觀點；不確定處要明說。最後一行標示「來源狀態：AI 補充，未命中彭狸老師教材」。不要使用 Markdown 符號。` : `你是彭狸 AI 教練。只依本次提供的彭狸老師《行政法考點演習書（二版）》片段，把學生框選的行政法文字改寫成清楚、口語的繁體中文。固定使用以下格式：第一行「核心意思：」；接著「判斷重點：」並列一、二、三點。限150至300字，不補造教材沒有的法條或見解，不使用 Markdown 符號。正文不要另外列來源。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
         input: `【學生框選文字】\n${selectedText}`,
         max_output_tokens: 700,
       }) }) as Record<string, unknown>;
@@ -128,7 +135,7 @@ export async function POST(request: Request) {
       const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
       const inputTokens = Number(rawUsage.input_tokens ?? 0), cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0), outputTokens = Number(rawUsage.output_tokens ?? 0);
       const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
-      return Response.json({ explanation, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+      return Response.json({ explanation, access, aiFallback: plainAiFallback, sourceStatus: plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材", usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
     }
 
     if (body.mode === "scholar-assist") {
