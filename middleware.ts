@@ -1,4 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAdminEntryAuthenticated } from "./lib/admin-entry-auth";
+
+const PUBLIC_QA_PATHS = [
+  "/accounting/qa",
+  "/member-login",
+  "/member-register",
+  "/api/accounting/tutor",
+  "/api/accounting/qa-access",
+  "/api/accounting/history",
+  "/api/notes",
+];
+
+function isQaAllowedPath(pathname: string) {
+  return PUBLIC_QA_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+    || pathname.startsWith("/cdn-cgi/access/")
+    || /\.[a-z0-9]{2,8}$/i.test(pathname);
+}
 
 /**
  * Cloudflare Access authenticates the Google account before the request reaches
@@ -9,15 +26,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * merely by supplying the public email header.  Cloudflare Access remains the
  * outer enforcement layer and is responsible for validating that JWT.
  */
-export function middleware(request: NextRequest) {
-  // 司律備考目前停用：不能只隱藏入口，直接輸入網址也必須在伺服器端封鎖。
-  if (request.nextUrl.pathname === "/law" || request.nextUrl.pathname.startsWith("/law/") || request.nextUrl.pathname === "/api/legal-explain") {
-    return new NextResponse("Not Found", {
-      status: 404,
-      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
-    });
-  }
-
+export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   const cloudflareAccessHost =
     request.nextUrl.hostname === "silu-mentor.iamflashon.workers.dev";
@@ -30,7 +39,24 @@ export function middleware(request: NextRequest) {
     requestHeaders.set("x-silu-identity-provider", "cloudflare-google");
   }
 
-  return NextResponse.next({ request: { headers: requestHeaders } });
+  if (isQaAllowedPath(request.nextUrl.pathname)) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  const authenticatedRequest = new Request(request.url, {
+    method: request.method,
+    headers: requestHeaders,
+  });
+  if (await isAdminEntryAuthenticated(authenticatedRequest)) {
+    requestHeaders.set("x-silu-admin-entry", "1");
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "此內部測試功能只限管理員" }, { status: 403 });
+  }
+
+  return NextResponse.redirect(new URL("/accounting/qa", request.url));
 }
 
 export const config = {

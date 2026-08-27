@@ -11,6 +11,7 @@ import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 import SitesCloudflareSyncDownload from "./SitesCloudflareSyncDownload";
 import LocalNodeJobsPanel from "./LocalNodeJobsPanel";
 import DocumentIndexHealthPanel from "./DocumentIndexHealthPanel";
+import CentralAdminTabs from "./CentralAdminTabs";
 
 type PaymentOrderRow = { orderId: string; transactionId: string | null; packageName: string; amount: number; currency: string; status: string; environment: string; paidAt: string | null; activatedAt: string | null; createdAt: string };
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; passwordResetRequestedAt?: string | null; accesses?: Array<{ memberId: number; examCategory: string; status: string; canAdmin: boolean; className: string }>; paymentOrders?: PaymentOrderRow[] };
@@ -3266,7 +3267,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     }
   }
 
-  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "pengli" | "medtech" | "accounting") {
+  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "medtech" | "accounting") {
     try {
       const response = await fetch(`/api/documents/assignments?documentId=${file.id}`, { cache: "no-store" });
       const loaded = await response.json() as { assignments?: Array<{ examCategory: string; subject: string; usageType?: string; visibility?: string; aiSearchEnabled?: boolean }>; error?: string };
@@ -3275,22 +3276,13 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
       const exists = current.some((item) => item.examCategory === category);
       const next = exists
         ? current.filter((item) => item.examCategory !== category)
-        : [...current, { examCategory: category, subject: category === "pengli" ? "行政法" : file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
+        : [...current, { examCategory: category, subject: file.subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true }];
       if (!next.length) throw new Error("至少保留一個使用平台");
       const savedResponse = await fetch("/api/documents/assignments", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ documentId: file.id, assignments: next }) });
       const saved = await savedResponse.json() as { assignments?: Array<{ examCategory: string }>; error?: string };
       if (!savedResponse.ok) throw new Error(saved.error ?? "教材平台儲存失敗");
       const assignmentCategories = (saved.assignments ?? []).map((item) => item.examCategory);
-      let normalizedBookTitle = file.bookTitle;
-      let normalizedTags = file.tags;
-      if (category === "pengli" && !exists && /彭狸|行政法考點/u.test(`${file.bookTitle ?? ""} ${file.name}`)) {
-        normalizedBookTitle = "行政法考點演習書（二版）｜彭狸";
-        normalizedTags = ["法律", "行政法", "核心教材", "彭狸老師"];
-        const metadataResponse = await fetch("/api/documents", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, bookTitle: normalizedBookTitle, tags: normalizedTags }) });
-        const metadata = await metadataResponse.json() as { error?: string };
-        if (!metadataResponse.ok) throw new Error(metadata.error ?? "彭狸教材名稱與標籤更新失敗");
-      }
-      setFiles((rows) => rows.map((item) => item.id === file.id ? { ...item, bookTitle: normalizedBookTitle, tags: normalizedTags, subject: category === "pengli" && !exists ? "行政法" : item.subject, assignmentCategories, assignmentCount: assignmentCategories.length } : item));
+      setFiles((rows) => rows.map((item) => item.id === file.id ? { ...item, assignmentCategories, assignmentCount: assignmentCategories.length } : item));
       setNotice(`「${file.bookTitle || file.name}」的平台關聯已更新。`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "教材平台儲存失敗");
@@ -3667,14 +3659,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             <span>{libraryMode ? "獨立處理公司教材的文字抽取、最小單位切片、全文索引、向量索引與檢索驗證。" : questionBankMode ? "以共用資料庫集中管理全部類科的文件題庫、網址題庫、拆題、校對、版本與發布狀態。" : memberMode ? "集中查看全部會員、所屬類科、班級、帳號狀態與管理權限。" : "跨平台集中管理教材、會員、AI 模型與營運資料；類科專屬內容仍在各自工作區處理。"}</span>
           </div>
         </div>
-        {independentMode && <nav className="central-admin-tabs" aria-label="中央管理功能切換">
-          <a className={libraryMode ? "active" : ""} href="/admin/library">教材向量庫</a>
-          <a className={questionBankMode ? "active" : ""} href="/admin/question-bank">總題庫管理</a>
-          <a href="/admin/products">書籍與商品</a>
-          <a className={memberMode ? "active" : ""} href="/admin/members">會員總管理</a>
-          <a href="/admin/ai-access">AI 方案與啟用碼</a>
-          <a href="/admin/portal-cards">首頁卡片管理</a>
-        </nav>}
+        {independentMode && <CentralAdminTabs active={libraryMode ? "library" : questionBankMode ? "question-bank" : "members"} />}
         {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
           <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
           <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>
@@ -4512,7 +4497,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                           {ready && (
                             <div className="document-platform-links">
                               <strong>使用平台</strong>
-                              {([['law', '司律'], ['pengli', '彭狸老師'], ['medtech', '醫檢師'], ['accounting', '會計']] as const).map(([value, label]) => {
+                              {([['law', '司律'], ['medtech', '醫檢師'], ['accounting', '會計']] as const).map(([value, label]) => {
                                 const enabled = (file.assignmentCategories?.length ? file.assignmentCategories : [file.examCategory ?? 'law']).includes(value);
                                 return <button key={value} type="button" className={enabled ? "active" : ""} onClick={() => void toggleDocumentAssignment(file, value)}>{enabled ? "✓ " : "+ "}{label}</button>;
                               })}
