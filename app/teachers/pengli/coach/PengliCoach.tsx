@@ -68,7 +68,8 @@ export default function PengliCoach() {
       setUsage(data.usage || null);
       if (data.round) setRoundState(data.round);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "彭狸 AI 教練目前無法回答。");
+      const message = cause instanceof Error ? cause.message : "";
+      setError(/額度|登入|方案|關閉/.test(message) ? message : "彭狸 AI 教練暫時沒有完成回答，請再送出一次。");
     } finally {
       setThinking(false);
     }

@@ -8,6 +8,10 @@ import { finishAiCoachRound, prepareAiUse } from "../../../../../lib/ai-access-g
 
 type InputMessage = { role?: unknown; text?: unknown };
 
+function isShortHelpReply(text: string) {
+  return /^(我)?(不知道|不會|不懂|沒想法|想不到|請提示|給我提示|可以提示嗎)[。！!？?\s]*$/u.test(text.trim());
+}
+
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
   const output = Array.isArray(payload.output) ? payload.output : [];
@@ -37,6 +41,8 @@ export async function POST(request: Request) {
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
     const reflectionMode = body.mode === "scholar-reflection";
+    const lastStudentText = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+    const needsContextHint = !reflectionMode && isShortHelpReply(lastStudentText);
     const plan = await getAiPlan(auth.db);
     if (reflectionMode && plan.pengliScholarReflectionEnabled === false) return Response.json({ error: "「學霸怎麼想？」目前已由管理員關閉。" }, { status: 403 });
     const model = "gpt-5.6-luna";
@@ -45,7 +51,7 @@ export async function POST(request: Request) {
       model,
       instructions: reflectionMode
         ? `你是學生的反思助手，不是另一個可見角色。請根據目前老師與學生的對話，用程度良好的學生口吻產生一次完整回應，固定包含三段：「我的判斷」、「我怎麼想到的」、「我還想問老師」。第一段正面回答老師最後的問題；第二段抓出關鍵事實、規範與判斷順序；第三段只提出一個能延伸或測試反例的問題。不得宣稱是彭狸老師原文，不得顯示 Markdown 符號，控制在 350 字內。接著以彭狸 AI 教練口吻，針對這份學生回答給一段簡短回饋並繼續引導。只輸出 JSON：{"studentReply":"...","coachReply":"..."}。\n${teacherContext}`
-        : `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。只能服務臺灣行政法考試學習，不得引用或混用其他司律老師教材。教學風格：先指出問題意識，再用一至兩個問題帶學生判斷，最後才整理爭點、規範、涵攝與結論。回答精簡、口語、像考前帶學生抓重點。若下列專屬教材已直接支持，結尾標示「依據：彭狸老師教材」；若問題超出目前已核對範圍，可用一般行政法知識協助，但必須標示「AI 補充，待老師教材索引核對」，不得虛構老師原文、頁碼、裁判或法條。\n${teacherContext}`,
+        : `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。只能服務臺灣行政法考試學習，不得引用或混用其他司律老師教材。教學風格：先指出問題意識，再用一至兩個問題帶學生判斷，最後才整理爭點、規範、涵攝與結論。回答精簡、口語、像考前帶學生抓重點。若下列專屬教材已直接支持，結尾標示「依據：彭狸老師教材」；若問題超出目前已核對範圍，可用一般行政法知識協助，但必須標示「AI 補充，待老師教材索引核對」，不得虛構老師原文、頁碼、裁判或法條。${needsContextHint ? "學生這一輪只是表示不知道或請求提示；請直接承接上一輪老師的問題，用更小的步驟提示一個判斷入口，不要要求學生重述題目，也不要因教材頁碼未命中而拒絕回答。" : ""}\n${teacherContext}`,
       input: messages,
       max_output_tokens: reflectionMode ? 1800 : 1200,
     }) }) as Record<string, unknown>;
