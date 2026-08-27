@@ -457,6 +457,16 @@ export default function GlobalSelectionTools() {
           }
         : latest,
     );
+    if (isPengli && valid) {
+      await saveSelection("note", {
+        title: selectedText.slice(0, 32) || "彭狸行政法學習筆記",
+        content: `【框選原文】\n${selectedText}\n\n【白話整理】\n${explanation}`,
+        originalContent: selectedText,
+        subject: "行政法｜彭狸老師專區",
+        tags: "行政法、彭狸老師、白話筆記",
+        sourceLabel: selectionSource || "彭狸老師《行政法考點演習書（二版）》",
+      });
+    }
   }
 
   function noteFromLookup(): NoteDraft {
@@ -567,7 +577,7 @@ export default function GlobalSelectionTools() {
     }
     setSaveState("saved");
     setNoteDraft(null);
-    window.setTimeout(() => setSaveState(""), 1800);
+    if (!isPengli) window.setTimeout(() => setSaveState(""), 1800);
   }
 
   async function saveMedtechSelection() {
@@ -1063,7 +1073,12 @@ export default function GlobalSelectionTools() {
             )}
             {!lookup.loading && !lookup.error && (
               <div className="selection-save-actions">
-                {isMedtech ? (
+                {isPengli ? (
+                  <>
+                    <span>{saveState === "saving" ? "正在自動加入彭狸筆記…" : saveState === "error" ? "自動加入筆記未完成" : "已自動加入彭狸筆記 ✓"}</span>
+                    <a href="/teachers/pengli/notes">前往我的筆記 →</a>
+                  </>
+                ) : isMedtech ? (
                   <>
                     <button
                       type="button"
