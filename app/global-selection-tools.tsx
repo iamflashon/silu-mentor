@@ -118,6 +118,7 @@ export default function GlobalSelectionTools() {
     canAiFallback?: boolean;
     aiFallback?: boolean;
     sourceStatus?: string;
+    notePoints?: string;
   } | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">(
@@ -460,13 +461,14 @@ export default function GlobalSelectionTools() {
             canAiFallback: !valid && data.canAiFallback === true,
             aiFallback: valid && data.aiFallback === true,
             sourceStatus: valid ? String(data.sourceStatus ?? "") : "",
+            notePoints: valid ? String(data.notePoints ?? "") : "",
           }
         : latest,
     );
     if (isPengli && valid) {
       await saveSelection("note", {
         title: selectedText.slice(0, 32) || "彭狸行政法學習筆記",
-        content: `【核心原文】\n${selectedText}\n\n【白話重點整理】\n${explanation}\n\n【來源狀態】\n${data.sourceStatus || "彭狸老師教材"}`,
+        content: `【核心原文】\n${selectedText}\n\n【白話解釋】\n${explanation}\n\n【延伸知識點】\n${data.notePoints || "本次尚無延伸知識點"}\n\n【來源狀態】\n${data.sourceStatus || "彭狸老師教材"}`,
         originalContent: selectedText,
         subject: "行政法｜彭狸老師專區",
         tags: data.aiFallback ? "行政法、AI補充、白話筆記" : "行政法、彭狸老師、白話筆記",
@@ -1091,8 +1093,8 @@ export default function GlobalSelectionTools() {
                     {lookup.explanation && (
                       <details open className="pengli-auto-note-preview">
                         <summary>本次自動筆記預覽</summary>
-                        <h4>{selectedText.slice(0, 32) || "行政法白話筆記"}</h4>
-                        <p style={{ whiteSpace: "pre-wrap" }}>{lookup.explanation}</p>
+                        <h4>延伸知識點</h4>
+                        <p style={{ whiteSpace: "pre-wrap" }}>{lookup.notePoints || "正在整理延伸知識點…"}</p>
                         <small>來源狀態：{lookup.sourceStatus || (lookup.aiFallback ? "AI 補充" : "彭狸老師教材")}</small>
                       </details>
                     )}
