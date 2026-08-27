@@ -19,10 +19,11 @@ function userKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
 }
 
-type NoteCategory = "law" | "medtech" | "accounting" | "data-structure";
+type NoteCategory = "law" | "pengli" | "medtech" | "accounting" | "data-structure";
 
 function noteCategory(value: string | null | undefined): NoteCategory {
-  return value === "medtech" ||
+  return value === "pengli" ||
+    value === "medtech" ||
     value === "accounting" ||
     value === "data-structure"
     ? value
@@ -30,6 +31,14 @@ function noteCategory(value: string | null | undefined): NoteCategory {
 }
 
 function categoryFilter(category: NoteCategory) {
+  if (category === "pengli")
+    return or(
+      like(savedNotes.sourceId, "pengli-%"),
+      like(savedNotes.subject, "%彭狸老師%"),
+      like(savedNotes.tags, "%彭狸老師%"),
+      like(savedNotes.sourceLabel, "%彭狸老師%"),
+      like(savedNotes.sourceLabel, "%行政法考點演習書%"),
+    );
   if (category === "medtech")
     return or(
       like(savedNotes.sourceId, "medtech-selection-%"),
@@ -51,6 +60,15 @@ function categoryFilter(category: NoteCategory) {
       like(savedNotes.sourceId, "data-structure-%"),
     );
   return and(
+    not(
+      or(
+        like(savedNotes.sourceId, "pengli-%"),
+        like(savedNotes.subject, "%彭狸老師%"),
+        like(savedNotes.tags, "%彭狸老師%"),
+        like(savedNotes.sourceLabel, "%彭狸老師%"),
+        like(savedNotes.sourceLabel, "%行政法考點演習書%"),
+      ),
+    ),
     not(
       or(
         like(savedNotes.subject, "醫檢師%"),
