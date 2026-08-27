@@ -9,7 +9,7 @@ type Generator = {limits:{role:string;batch:number;daily:number;monthly:number};
 type MedtechProduct = {productKey:string;title:string;status:string};
 type Payload = { policy:Policy; codes:Code[]; batches?:Batch[]; medtechProducts?:MedtechProduct[]; generator?:Generator; updatedAt:string; generatedCodes?:string[]; error?:string };
 
-const categoryOptions = [{id:"law",label:"司律／法律"},{id:"pengli",label:"彭狸老師"},{id:"accounting",label:"會計"},{id:"medtech",label:"醫檢師"},{id:"data-structure",label:"資料結構"}];
+const categoryOptions = [{id:"law",label:"司律／法律"},{id:"pengli",label:"彭狸老師（AI 教練）"},{id:"accounting",label:"會計"},{id:"medtech",label:"醫檢師"},{id:"data-structure",label:"資料結構"}];
 const statusLabels:Record<string,string>={unused:"未使用",redeemed:"已兌換",disabled:"已停用",expired:"已過期"};
 
 export default function AiAccessAdminPage(){
