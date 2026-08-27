@@ -236,7 +236,7 @@ analysis 欄位規則：
 8. caveat：提醒教材範圍、爭議或仍須查證處；沒有則填空字串。
 
 explanation 用150至300字白話講懂原文，不得只是重複原句。
-notePoints 必須恰好三點，且不能重寫 explanation；三點分別延伸：
+notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加「一、二、三」或數字編號，且不能重寫 explanation；三點分別延伸：
 一、相近概念的區分或體系位置；
 二、考場判斷步驟與作答方法；
 三、常見誤判、例外、爭議或變化題。
@@ -256,7 +256,7 @@ notePoints 必須恰好三點，且不能重寫 explanation；三點分別延伸
       const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
       const inputTokens = Number(rawUsage.input_tokens ?? 0), cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0), outputTokens = Number(rawUsage.output_tokens ?? 0);
       const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
-      const notePoints = parsed.notePoints.map((point, index) => `${["一", "二", "三"][index]}、${point}`).join("\n");
+      const notePoints = parsed.notePoints.map((point, index) => `${["一", "二", "三"][index]}、${point.replace(/^(?:[一二三四五六七八九十]|\d+)[、．.)）]\s*/u, "").trim()}`).join("\n");
       return Response.json({
         explanation: parsed.explanation,
         analysis: parsed.analysis,
