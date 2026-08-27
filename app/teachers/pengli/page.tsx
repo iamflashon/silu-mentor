@@ -108,30 +108,9 @@ export default function PengliTeacherPage() {
             <summary>查看本題學習重點</summary>
             <p>{point.takeaway}</p>
           </details>
-          <a href={index === 0 ? "#first-lesson" : "#access-plan"}>{index === 0 ? "開始試學" : "排入試學順序"}<b aria-hidden="true">→</b></a>
+          <Link href={`/teachers/pengli/coach?topic=${encodeURIComponent(point.title)}`}>進入 AI 教練<b aria-hidden="true">→</b></Link>
         </article>)}
       </div>
-    </section>
-
-    <section className="pengli-first-lesson" id="first-lesson">
-      <div className="pengli-lesson-number">考點 01</div>
-      <div className="pengli-lesson-copy">
-        <span>主題一｜行政法理論基礎</span>
-        <h2>公私法區分：先找到真正的請求</h2>
-        <p>遇到審判權問題時，先不要被當事人的身分帶走。請先圈出原告主張的請求權基礎，再判斷這個法律關係屬於公法或私法。</p>
-        <blockquote><b>彭狸老師提醒</b>這是基本功，但不是考試熱區；先把新主體說與釋字第 758 號的判斷方式掌握好。</blockquote>
-      </div>
-      <div className="pengli-lesson-task">
-        <span>現在換你判斷</span>
-        <p>人民依民法第 767 條請求市政府返還土地，市政府以公用地役關係抗辯。事件性質應從哪裡開始判斷？</p>
-        <div><button type="button">看解題提示</button><Link href="/teachers/pengli/coach?topic=%E5%85%AC%E7%A7%81%E6%B3%95%E5%8D%80%E5%88%86">詢問彭狸 AI 教練</Link></div>
-      </div>
-    </section>
-
-    <section className="pengli-access" id="access-plan">
-      <div><span>FULL ACCESS</span><h2>完整專區開通規劃</h2><p>完整內容、使用期限與付款方式確認後，將在這裡直接開通。</p></div>
-      <ul><li>八大主題完整考點</li><li>考點直擊題與破題方法</li><li>申論擬答比較與批改</li><li>個人弱點與進度紀錄</li></ul>
-      <button type="button" disabled>方案準備中</button>
     </section>
 
     <footer className="pengli-footer"><Link href="/">返回 iBrain Pedia X 首頁</Link><span>法律類｜彭狸老師行政法專區</span></footer>

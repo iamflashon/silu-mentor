@@ -84,6 +84,11 @@
 .main-entry-gate .main-teacher-zone-head h2{margin:0;color:#173642;font-size:20px;letter-spacing:-.02em}
 .main-entry-gate .main-teacher-zone-head p{margin:0;color:#8498a0;font-size:11px;line-height:1.5}
 .main-teacher-card{position:relative;overflow:hidden;display:grid;grid-template-columns:118px minmax(0,1fr) auto;align-items:center;gap:24px;padding:20px 22px;border:1px solid #dce6eb;border-top:3px solid #8caee0;border-radius:20px;background:linear-gradient(120deg,#fff 0,#fff 63%,#f3f7fc 100%);box-shadow:0 16px 42px rgba(24,64,82,.09)}
+.main-teacher-list.is-loading{display:grid;gap:14px}
+.main-teacher-skeleton{height:185px;border:1px solid #e1e8eb;border-radius:20px;background:linear-gradient(100deg,#edf2f4 20%,#f8fafb 38%,#edf2f4 56%);background-size:240% 100%;animation:teacher-card-loading 1.25s ease-in-out infinite}
+.main-teacher-list.is-ready{animation:portal-cards-reveal .22s ease-out both}
+@keyframes teacher-card-loading{to{background-position:-140% 0}}
+@media(prefers-reduced-motion:reduce){.main-teacher-skeleton,.main-teacher-list.is-ready{animation:none}}
 .main-teacher-card::after{content:"LAW";position:absolute;right:22px;top:6px;color:rgba(41,83,132,.035);font-size:82px;font-weight:900;letter-spacing:-.08em;pointer-events:none}
 .main-teacher-cover{position:relative;z-index:1;height:142px;display:grid;place-items:center}
 .main-teacher-cover img{display:block;max-width:100%;max-height:142px;border:1px solid #d9dee2;background:#fff;box-shadow:0 10px 22px rgba(24,46,65,.18);object-fit:contain}
