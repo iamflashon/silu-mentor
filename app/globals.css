@@ -43682,6 +43682,10 @@ html.frontend-costs-disabled .student-summary-meta > span {
 
 /* Pengli inline AI fallback and automatically saved note preview */
 .law-lookup-status.error button{margin-top:12px;padding:10px 14px;border:1px solid #b8786f;border-radius:9px;color:#8d3934;background:#fff;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.pengli-extension-points{margin:0 22px 18px;padding:18px 20px;border:1px solid #cfe1dd;border-radius:12px;background:#f4faf8;color:#31535a}
+.pengli-extension-points>b{display:block;margin-bottom:9px;color:#176b70;font-size:16px}
+.pengli-extension-points p{margin:0;white-space:pre-wrap;color:#385b63;font-size:15px;line-height:1.85}
+.pengli-extension-points small{display:block;margin-top:12px;color:#71858a;font-size:12px}
 .pengli-auto-note-preview{width:100%;padding:13px 15px;border:1px solid #cfe1dd;border-radius:10px;background:#f4faf8;color:#31535a}
 .pengli-auto-note-preview summary{color:#176b70;font-size:13px;font-weight:900;cursor:pointer}
 .pengli-auto-note-preview h4{margin:10px 0 7px;color:#244751;font-size:15px}
