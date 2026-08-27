@@ -45,7 +45,6 @@ const samplePoints = [
 export default function PengliTeacherPage() {
   return <main className="pengli-page">
     <nav className="pengli-topbar" aria-label="頁面導覽">
-      <Link href="/" className="pengli-brand">iBrain Pedia X</Link>
       <div><span>法律類</span><b>行政法</b></div>
     </nav>
 
