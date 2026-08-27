@@ -1117,8 +1117,8 @@ export default function GlobalSelectionTools() {
                       {saveState === "saving"
                         ? "正在加入筆記…"
                         : saveState === "saved"
-                          ? "已加入彭狸筆記 ✓"
-                          : "＋ 加入彭狸筆記"}
+                          ? "已加入我的筆記 ✓"
+                          : "＋ 加入我的筆記"}
                     </button>
                     {saveState === "error" && <small>{saveMessage || "加入筆記未完成，請再試一次。"}</small>}
                     <a href="/teachers/pengli/notes">前往我的筆記 →</a>
