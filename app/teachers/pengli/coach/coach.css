@@ -109,3 +109,13 @@
     white-space: nowrap;
   }
 }
+
+
+/* 最大化後標題列不存在，重新指定四列，避免學霸按鈕被 Grid 推出畫面。 */
+.pengli-coach-shell.chat-maximized .pengli-coach-main {
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
+}
+.pengli-coach-shell.chat-maximized .pengli-coach-assist {
+  display: flex;
+  flex-shrink: 0;
+}
