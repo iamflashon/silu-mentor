@@ -361,7 +361,7 @@ export default function GlobalSelectionTools() {
     setLookup({
       ...current,
       mode: "explain",
-      loading: !lookup,
+      loading: true,
       explaining: true,
       error: "",
     });
@@ -760,13 +760,31 @@ export default function GlobalSelectionTools() {
               </button>
             </header>
             {lookup.loading ? (
-              <p className="law-lookup-status">
-                {isMedtech
-                  ? "正在整理中文、英文與臨床檢驗重點…"
-                  : lookup.mode === "explain"
-                    ? "正在辨識法律類型並進行白話拆解…"
-                    : "正在查詢已下載的法規／裁判資料…"}
-              </p>
+              <div className="law-lookup-status law-thinking-status" role="status" aria-live="polite">
+                <span className="law-thinking-orb" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <b>
+                  {isPengli && lookup.mode === "explain"
+                    ? "彭狸 AI 教練正在思考"
+                    : isMedtech
+                      ? "醫檢 AI 助教正在整理"
+                      : lookup.mode === "explain"
+                        ? "AI 正在進行白話拆解"
+                        : "正在查詢資料"}
+                </b>
+                <small>
+                  {isPengli && lookup.mode === "explain"
+                    ? "正在查找老師教材、整理白話解釋與延伸重點…"
+                    : isMedtech
+                      ? "正在整理中文、英文與臨床檢驗重點…"
+                      : lookup.mode === "explain"
+                        ? "正在辨識法律類型並進行白話拆解…"
+                        : "正在查詢已下載的法規／裁判資料…"}
+                </small>
+              </div>
             ) : lookup.mode === "explain" &&
               !lookup.article &&
               !lookup.decision ? (
@@ -1091,7 +1109,7 @@ export default function GlobalSelectionTools() {
                 {isPengli ? (
                   <>
                     {lookup.explanation && (
-                      <details open className="pengli-auto-note-preview">
+                      <details className="pengli-auto-note-preview">
                         <summary>本次自動筆記預覽</summary>
                         <h4>延伸知識點</h4>
                         <p style={{ whiteSpace: "pre-wrap" }}>{lookup.notePoints || "正在整理延伸知識點…"}</p>
