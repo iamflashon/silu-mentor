@@ -72,6 +72,38 @@ function judicialOfficialUrl(jid: string) {
   return jid ? `https://judgment.judicial.gov.tw/FJUD/data.aspx?ty=JD&id=${encodeURIComponent(jid)}` : "";
 }
 
+function officialAgencyName(value: string) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    if (host === "cons.judicial.gov.tw" || host.endsWith(".cons.judicial.gov.tw")) return "憲法法庭";
+    if (host === "judicial.gov.tw" || host.endsWith(".judicial.gov.tw")) return "司法院";
+    if (host === "law.moj.gov.tw" || host.endsWith(".law.moj.gov.tw")) return "全國法規資料庫";
+    if (host === "moj.gov.tw" || host.endsWith(".moj.gov.tw")) return "法務部";
+  } catch { /* 保留無法解析的來源名稱 */ }
+  return "官方資料";
+}
+
+function cleanOfficialUrl(value: string) {
+  try {
+    const url = new URL(value);
+    for (const key of [...url.searchParams.keys()]) if (key.toLowerCase().startsWith("utm_")) url.searchParams.delete(key);
+    return url.toString();
+  } catch { return value; }
+}
+
+function localizeOfficialCitations(value: string) {
+  return value
+    .replace(/\[[^\]]+\]\((https?:\/\/[^)\s]+)\)/gu, (_match, url: string) => `（來源：${officialAgencyName(url)}）`)
+    .replace(/\((https?:\/\/[^)\s]+)\)/gu, (_match, url: string) => `（來源：${officialAgencyName(url)}）`);
+}
+
+function localizedSource(source: { label: string; url: string; excerpt: string }) {
+  const url = cleanOfficialUrl(source.url);
+  const agency = officialAgencyName(url);
+  const hostLike = /^(?:www\.)?(?:cons\.)?judicial\.gov\.tw$|^(?:www\.)?law\.moj\.gov\.tw$/iu.test(source.label.trim());
+  return { ...source, url, label: hostLike ? agency : `${agency}｜${source.label}` };
+}
+
 
 type PengliLegalAnalysis = {
   kind: string;
@@ -295,7 +327,8 @@ export async function POST(request: Request) {
         clearTimeout(timeout);
       }
       if (useOfficialWeb) sources = officialWebSources(payload).map((source) => ({ ...source, excerpt: "官方外網補充" }));
-      const verification = plainText(outputText(payload));
+      sources = sources.filter((source) => Boolean(source.url)).map((source) => localizedSource({ ...source, url: String(source.url) }));
+      const verification = localizeOfficialCitations(plainText(outputText(payload)));
       if (!verification) return Response.json({ error: "查證暫時沒有完成，請稍後再試。" }, { status: 502 });
       const access = await finishAiUse(gate, { action: "pengli_official_verification", description: "彭狸官方資料查證，成功扣 2 次", quantity: 2, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: JSON.stringify(sources.map(({ label, url }) => ({ label, url }))), status: "verified" }).returning();
