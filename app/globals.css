@@ -43637,6 +43637,7 @@ body:has(.accounting-qa-page) .specialty-home-link{display:none!important}
 /* Student-facing AI usage and cost details stay in the admin reports only. */
 .accounting-usage,
 .data-learning-library details > small:last-child,
+.data-learning-library details .accounting-source,
 .medtech-guided-message-list li > small,
 .message-usage,
 .model-comparison-meta,
