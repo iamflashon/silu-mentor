@@ -42,7 +42,7 @@ export default function AiAccessClient() {
   async function purchase() {
     setBusy(true); setNotice("");
     try {
-      const response = await fetch("/api/ai-access/line-pay/request", { method: "POST" });
+      const response = await fetch("/api/ai-access/line-pay/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purchaseContext: "pengli" }) });
       const result = await response.json() as { paymentUrl?: string; error?: string };
       if (!response.ok || !result.paymentUrl) throw new Error(result.error || "目前無法建立付款");
       window.location.href = result.paymentUrl;
@@ -61,7 +61,7 @@ export default function AiAccessClient() {
     <section className="pengli-ai-purchase-card">
       <span>購買 AI 次數</span><h2>{plan?.name || "AI 學習方案"}</h2>
       <div className="pengli-ai-price"><strong>NT$ {plan?.price ?? 30}</strong><small>{plan?.quota ?? 30} 次・{plan?.durationDays ?? 30} 天</small></div>
-      <button type="button" onClick={() => void purchase()} disabled={busy || !plan?.enabled}>{plan?.enabled ? access?.active ? `使用 LINE Pay 加購 ${plan.quota} 次` : "使用 LINE Pay 購買" : "方案尚未開放"}</button>
+      <button type="button" onClick={() => void purchase()} disabled={busy}>{busy ? "正在前往 LINE Pay…" : access?.active ? `LINE Pay NT${plan?.price ?? 30} 加購 ${plan?.quota ?? 30} 次` : `LINE Pay NT${plan?.price ?? 30} 購買`}</button>
       <small>{access?.active ? `加購會保留目前剩餘次數，另加 ${plan?.quota ?? 30} 次，並由目前到期日再延長 ${plan?.durationDays ?? 30} 天。` : "付款完成後會自動加入目前登入帳號，不會自動續約。"}</small>
       <hr />
       <form onSubmit={redeem}><label>輸入 AI 次數兌換碼<input value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="IB-AI-XXXX-XXXX" autoComplete="off" /></label><button type="submit" disabled={busy || !code.trim()}>兌換到我的帳號</button></form>
