@@ -18,6 +18,81 @@ function plainText(value: string) {
   return value.replace(/\*\*/gu, "").replace(/^#{1,6}\s*/gmu, "").replace(/^>\s?/gmu, "").trim();
 }
 
+
+type PengliLegalAnalysis = {
+  kind: string;
+  officialName: string;
+  legalField: string;
+  nature: string;
+  reference: string;
+  points: string[];
+  verification: string;
+  caveat: string;
+};
+
+type PengliPlainExplanation = {
+  explanation: string;
+  notePoints: string[];
+  analysis: PengliLegalAnalysis;
+};
+
+const pengliPlainResponseFormat = {
+  type: "json_schema",
+  name: "pengli_legal_explanation",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      analysis: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string" },
+          officialName: { type: "string" },
+          legalField: { type: "string" },
+          nature: { type: "string" },
+          reference: { type: "string" },
+          points: { type: "array", items: { type: "string" } },
+          verification: { type: "string" },
+          caveat: { type: "string" },
+        },
+        required: ["kind", "officialName", "legalField", "nature", "reference", "points", "verification", "caveat"],
+      },
+      explanation: { type: "string" },
+      notePoints: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 3 },
+    },
+    required: ["analysis", "explanation", "notePoints"],
+  },
+};
+
+function parsePengliPlainExplanation(text: string): PengliPlainExplanation | null {
+  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try {
+    const value = JSON.parse(cleaned) as { explanation?: unknown; notePoints?: unknown; analysis?: Partial<PengliLegalAnalysis> };
+    if (typeof value.explanation !== "string" || !value.explanation.trim() || !value.analysis || typeof value.analysis !== "object" || Array.isArray(value.analysis)) return null;
+    const notePoints = Array.isArray(value.notePoints) ? value.notePoints.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 3) : [];
+    const points = Array.isArray(value.analysis.points) ? value.analysis.points.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+    if (notePoints.length !== 3) return null;
+    return {
+      explanation: value.explanation.trim(),
+      notePoints,
+      analysis: {
+        kind: String(value.analysis.kind ?? ""),
+        officialName: String(value.analysis.officialName ?? ""),
+        legalField: String(value.analysis.legalField ?? ""),
+        nature: String(value.analysis.nature ?? ""),
+        reference: String(value.analysis.reference ?? ""),
+        points,
+        verification: String(value.analysis.verification ?? ""),
+        caveat: String(value.analysis.caveat ?? ""),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 function coachParts(value: string) {
   const cleaned = plainText(value);
   const marker = cleaned.match(/【學霸追問】/u);
@@ -123,22 +198,54 @@ export async function POST(request: Request) {
 
     if (body.mode === "plain-explain") {
       const startedAt = Date.now();
-      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+      const verificationRule = plainAiFallback
+        ? "本段未命中彭狸老師教材；verification 必須明確寫「AI 補充，未命中彭狸老師教材，仍須核對法規與實務」。"
+        : "本段已提供彭狸老師教材片段；verification 寫明已依《行政法考點演習書（二版）》教材片段核對，不得宣稱核對了未提供的法規或裁判原文。";
+      const requestBody = {
         model,
-        instructions: plainAiFallback ? `你是臺灣行政法學習助教。本段未命中彭狸老師教材，請依可靠的一般行政法知識產生兩個不同區塊。固定格式如下：【白話解釋】用120至200字只負責把框選原文講懂；【延伸知識點】列出恰好三點，每點必須新增學習價值，分別優先處理相近概念的區分、考場判斷步驟、常見誤判或例外，不得改寫或重複白話解釋。不得虛構法條、裁判或老師觀點；不確定處要明說。延伸區最後標示「來源狀態：AI 補充，未命中彭狸老師教材」。不要使用 Markdown 符號。` : `你是彭狸 AI 教練。只依本次提供的彭狸老師《行政法考點演習書（二版）》片段產生兩個不同區塊。固定格式如下：【白話解釋】用120至200字只負責把框選原文講懂；【延伸知識點】列出恰好三點，每點必須新增學習價值，分別優先處理相近概念的區分、考場判斷步驟、常見誤判或例外，不得改寫或重複白話解釋。不得補造教材沒有的法條、裁判或見解，不使用 Markdown 符號。\n\n【彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: `你是臺灣行政法學習助教。請用與司律備考白話解釋相同的結構化品質處理框選文字，但彭狸專區必須以彭狸老師教材為優先依據。
+
+analysis 欄位規則：
+1. kind：辨識為法條、裁判字號、法律概念、學說、課程章節標題或一般法律文字。
+2. officialName：寫正式名稱；無特定正式名稱時說明它是何種學習範圍，不要硬造名稱。
+3. legalField：填行政法或更精確的行政法子領域。
+4. nature：說明它在考試與法律論證中的功能。
+5. reference：有明確法條、釋字或裁判且教材片段確有提及才填；否則明寫「未對應特定法條或裁判」。
+6. points：列出3至5個真正的拆解重點，包含判斷順序、構成要素或概念界線。
+7. verification：${verificationRule}
+8. caveat：提醒教材範圍、爭議或仍須查證處；沒有則填空字串。
+
+explanation 用150至300字白話講懂原文，不得只是重複原句。
+notePoints 必須恰好三點，且不能重寫 explanation；三點分別延伸：
+一、相近概念的區分或體系位置；
+二、考場判斷步驟與作答方法；
+三、常見誤判、例外、爭議或變化題。
+不得虛構法條、裁判、教材頁碼或老師觀點。${plainAiFallback ? "" : `\n\n【彭狸老師專屬教材】\n${evidenceText}`}`,
         input: `【學生框選文字】\n${selectedText}`,
-        max_output_tokens: 700,
-      }) }) as Record<string, unknown>;
-      const rawExplanation = plainText(outputText(payload));
-      const noteMarker = rawExplanation.indexOf("【延伸知識點】");
-      const explanation = plainText((noteMarker >= 0 ? rawExplanation.slice(0, noteMarker) : rawExplanation).replace("【白話解釋】", ""));
-      const notePoints = noteMarker >= 0 ? plainText(rawExplanation.slice(noteMarker + "【延伸知識點】".length)) : "";
-      if (!explanation) return Response.json({ error: "目前無法產生白話解釋。" }, { status: 502 });
+        text: { format: pengliPlainResponseFormat },
+        max_output_tokens: 1200,
+      };
+      let payload: Record<string, unknown> = {};
+      let parsed: PengliPlainExplanation | null = null;
+      for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+        payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify(requestBody) }) as Record<string, unknown>;
+        parsed = parsePengliPlainExplanation(outputText(payload));
+      }
+      if (!parsed) return Response.json({ error: "AI 回傳格式不完整，請再試一次。" }, { status: 502 });
       const access = await finishAiCoachRound(gate, { action: "pengli_plain_explain_5_rounds", description: "彭狸教材白話解釋，每5次扣1次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
       const inputTokens = Number(rawUsage.input_tokens ?? 0), cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0), outputTokens = Number(rawUsage.output_tokens ?? 0);
       const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
-      return Response.json({ explanation, notePoints, access, aiFallback: plainAiFallback, sourceStatus: plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材", usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+      const notePoints = parsed.notePoints.map((point, index) => `${["一", "二", "三"][index]}、${point}`).join("\n");
+      return Response.json({
+        explanation: parsed.explanation,
+        analysis: parsed.analysis,
+        notePoints,
+        access,
+        aiFallback: plainAiFallback,
+        sourceStatus: plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材",
+        usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 },
+      });
     }
 
     if (body.mode === "scholar-assist") {
