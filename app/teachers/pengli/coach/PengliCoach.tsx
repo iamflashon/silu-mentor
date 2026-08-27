@@ -134,6 +134,11 @@ export default function PengliCoach() {
         <div ref={endRef} />
       </div>
       {error && <p className="pengli-coach-error">{error}</p>}
+      <div className="pengli-coach-usage-bar" aria-label="AI 陪練使用狀態">
+        <span>本組進度 <b>{access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5} 輪</b></span>
+        <span>AI 剩餘 <strong>{access?.remaining ?? "—"} 次</strong></span>
+        <a href="/teachers/pengli/ai-access">購買／兌換</a>
+      </div>
       <form className="pengli-coach-composer" onSubmit={submit}>
         {scholarAssistEnabled && <button
           type="button"
