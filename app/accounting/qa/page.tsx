@@ -26,5 +26,5 @@ export default async function AccountingQaPage() {
     </section></main>;
   }
 
-  return <AccountingHomeClient canAdmin={auth.member.canAdmin} />;
+  return <AccountingHomeClient />;
 }
