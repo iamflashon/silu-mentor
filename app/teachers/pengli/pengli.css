@@ -8,6 +8,12 @@
 @media(max-width:680px){.pengli-topbar{grid-template-columns:1fr auto;padding:0 16px}.pengli-topbar>div{display:none}.pengli-hero{padding:42px 20px 52px}.pengli-hero-copy>p{font-size:14px}.pengli-book-stage{min-height:310px}.pengli-book-stage>img{width:185px}.pengli-book-halo{width:260px;height:260px}.pengli-teacher-note{right:8px}.pengli-workspace,.pengli-trial,.pengli-first-lesson,.pengli-access{width:calc(100% - 28px)}.pengli-workspace>header,.pengli-trial>header{align-items:flex-start;flex-direction:column;gap:8px}.pengli-theme-list{grid-template-columns:1fr}.pengli-trial-grid{grid-template-columns:1fr}.pengli-trial-grid article{min-height:270px}.pengli-first-lesson{grid-template-columns:1fr;padding:24px}.pengli-lesson-task{grid-column:auto}.pengli-access{grid-template-columns:1fr;padding:25px}.pengli-access ul{grid-template-columns:1fr}.pengli-footer{align-items:flex-start;flex-direction:column;gap:8px}}
 @media(max-width:420px){.pengli-hero h1{font-size:48px}.pengli-hero-stats{gap:20px}.pengli-hero-stats dt{font-size:26px}.pengli-hero-actions a{flex:1}.pengli-teacher-note{bottom:0;min-width:160px}.pengli-lesson-task>div{flex-direction:column}}
 
+/* Pengli owns its navigation; do not send students back to the separate law platform. */
+.pengli-topbar .pengli-top-actions{justify-self:end;display:flex;align-items:center;gap:8px}
+.pengli-top-actions a{padding:7px 10px;border:1px solid #c6d2d8;border-radius:8px;color:#294a65;font-size:11px;font-weight:850}
+.pengli-top-actions a:last-child{color:#fff;border-color:#315f7e;background:#315f7e}
+@media(max-width:680px){.pengli-topbar{height:auto;min-height:62px;padding:9px 16px}.pengli-topbar>div.pengli-top-actions{display:flex}.pengli-top-actions a{padding:7px 8px;font-size:10px}}
+
 /* Exact publisher cover cutout: transparent edges with no baked-in white frame. */
 .pengli-book-stage>img{width:272px;border:0;box-shadow:none;filter:drop-shadow(22px 28px 28px rgba(0,0,0,.34))}
 @media(max-width:680px){.pengli-book-stage>img{width:205px}}

@@ -91,6 +91,7 @@ export default function GlobalSelectionTools() {
   const pathname = usePathname();
   const isMedtech = pathname.startsWith("/medtech");
   const isAccounting = pathname.startsWith("/accounting");
+  const isPengli = pathname.startsWith("/teachers/pengli");
   const [selectedText, setSelectedText] = useState("");
   const [editingSelection, setEditingSelection] = useState(false);
   const [lawQuery, setLawQuery] = useState("");
@@ -366,7 +367,9 @@ export default function GlobalSelectionTools() {
           }
         : null);
     const response = await fetch(
-      isMedtech
+      isPengli
+        ? "/api/teachers/pengli/coach"
+        : isMedtech
         ? "/api/medtech/explain"
         : isAccounting
           ? "/api/accounting/tutor"
@@ -375,7 +378,9 @@ export default function GlobalSelectionTools() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(
-          isMedtech
+          isPengli
+            ? { selectedText, mode: "plain-explain", requestKey: crypto.randomUUID() }
+            : isMedtech
             ? { selectedText }
             : isAccounting
               ? {
@@ -637,23 +642,19 @@ export default function GlobalSelectionTools() {
                 <button type="button" onClick={() => void searchJudicial()}>
                   裁判搜尋
                 </button>
-              ) : (
+              ) : lawQuery ? (
                 <button
                   type="button"
                   onClick={() => void searchLaw()}
-                  disabled={!lawQuery}
-                  title={
-                    lawQuery
-                      ? `搜尋 ${lawQuery}`
-                      : "請先編輯為單一、完整的法規名稱與條號"
-                  }
+                  title={`搜尋 ${lawQuery}`}
                 >
                   法條搜尋
                 </button>
+              ) : (
+                <button type="button" onClick={() => void explain()}>
+                  白話解釋
+                </button>
               )}
-              <button type="button" onClick={() => void explain()}>
-                白話解釋
-              </button>
             </>
           )}
           <button
@@ -685,6 +686,8 @@ export default function GlobalSelectionTools() {
                     ? "醫檢 AI 助教｜專有名詞解析"
                     : isAccounting
                       ? "Luna 助教｜中會白話說明"
+                      : isPengli && lookup.mode === "explain"
+                        ? "彭狸 AI 教練｜白話解釋"
                       : lookup.mode === "explain"
                         ? "AI 法律助教｜辨識與拆解"
                         : lookup.decision
@@ -791,7 +794,7 @@ export default function GlobalSelectionTools() {
                         </span>
                       </div>
                     )}
-                    {lookup.usage && (
+                    {lookup.usage && !isPengli && (
                       <div className="law-usage-meta">
                         <b>
                           {lookup.usage.model.replace("gpt-5.6-", "")}｜
@@ -1034,26 +1037,24 @@ export default function GlobalSelectionTools() {
                   </>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => void saveSelection("favorite")}
-                      disabled={saveState === "saving" || saveState === "saved"}
-                    >
-                      {saveState === "saved"
-                        ? "已收藏原文 ✓"
-                        : "☆ 快速收藏原文"}
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void organizeNote()}
-                      disabled={organizeState === "organizing"}
-                    >
-                      {organizeState === "organizing"
-                        ? "AI 正在整理…"
-                        : "＋ AI 整理成筆記"}
-                    </button>
-                    <a href="/notes">前往我的筆記 →</a>
+                    {!isPengli && <>
+                      <button
+                        type="button"
+                        onClick={() => void saveSelection("favorite")}
+                        disabled={saveState === "saving" || saveState === "saved"}
+                      >
+                        {saveState === "saved" ? "已收藏原文 ✓" : "☆ 快速收藏原文"}
+                      </button>
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => void organizeNote()}
+                        disabled={organizeState === "organizing"}
+                      >
+                        {organizeState === "organizing" ? "AI 正在整理…" : "＋ AI 整理成筆記"}
+                      </button>
+                    </>}
+                    <a href={isPengli ? "/teachers/pengli/notes" : "/notes"}>前往我的筆記 →</a>
                   </>
                 )}
                 {saveState === "error" && (
