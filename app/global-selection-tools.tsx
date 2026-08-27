@@ -465,16 +465,6 @@ export default function GlobalSelectionTools() {
           }
         : latest,
     );
-    if (isPengli && valid) {
-      await saveSelection("note", {
-        title: selectedText.slice(0, 32) || "彭狸行政法學習筆記",
-        content: `【核心原文】\n${selectedText}\n\n【白話解釋】\n${explanation}\n\n【延伸知識點】\n${data.notePoints || "本次尚無延伸知識點"}\n\n【來源狀態】\n${data.sourceStatus || "彭狸老師教材"}`,
-        originalContent: selectedText,
-        subject: "行政法｜彭狸老師專區",
-        tags: data.aiFallback ? "行政法、AI補充、白話筆記" : "行政法、彭狸老師、白話筆記",
-        sourceLabel: data.aiFallback ? "AI 法律補充（未命中彭狸老師教材）" : selectionSource || "彭狸老師《行政法考點演習書（二版）》",
-      });
-    }
   }
 
   function noteFromLookup(): NoteDraft {
@@ -506,14 +496,17 @@ export default function GlobalSelectionTools() {
       };
     }
     if (isPengli) {
-      const parts = [selectedText];
+      const parts = [`核心原文\n${selectedText}`];
       if (lookup?.explanation) parts.push(`白話解釋\n${lookup.explanation}`);
+      if (lookup?.notePoints) parts.push(`延伸知識點\n${lookup.notePoints}`);
+      if (lookup?.sourceStatus) parts.push(`來源狀態\n${lookup.sourceStatus}`);
       return {
         title: selectedText.slice(0, 32) || "彭狸行政法學習筆記",
         content: parts.filter(Boolean).join("\n\n"),
+        originalContent: selectedText,
         subject: "行政法｜彭狸老師專區",
-        tags: "行政法、彭狸老師、待複習",
-        sourceLabel: selectionSource || "彭狸老師《行政法考點演習書（二版）》",
+        tags: lookup?.aiFallback ? "行政法、AI補充、白話筆記" : "行政法、彭狸老師、白話筆記",
+        sourceLabel: lookup?.aiFallback ? "AI 法律補充（未命中彭狸老師教材）" : selectionSource || "彭狸老師《行政法考點演習書（二版）》",
       };
     }
     const title =
@@ -865,6 +858,13 @@ export default function GlobalSelectionTools() {
                         <small>{lookup.analysis.caveat}</small>
                       )}
                     </div>
+                    {isPengli && lookup.notePoints && (
+                      <section className="pengli-extension-points">
+                        <b>延伸知識點</b>
+                        <p>{lookup.notePoints}</p>
+                        <small>來源狀態：{lookup.sourceStatus || (lookup.aiFallback ? "AI 補充" : "彭狸老師教材")}</small>
+                      </section>
+                    )}
                     {isMedtech && lookup.access && (
                       <div className="medtech-feature-access">
                         <b>
@@ -1108,15 +1108,19 @@ export default function GlobalSelectionTools() {
               <div className="selection-save-actions">
                 {isPengli ? (
                   <>
-                    {lookup.explanation && (
-                      <details className="pengli-auto-note-preview">
-                        <summary>本次自動筆記預覽</summary>
-                        <h4>延伸知識點</h4>
-                        <p style={{ whiteSpace: "pre-wrap" }}>{lookup.notePoints || "正在整理延伸知識點…"}</p>
-                        <small>來源狀態：{lookup.sourceStatus || (lookup.aiFallback ? "AI 補充" : "彭狸老師教材")}</small>
-                      </details>
-                    )}
-                    <span>{saveState === "saving" ? "正在自動加入彭狸筆記…" : saveState === "error" ? "自動加入筆記未完成" : "已自動加入彭狸筆記 ✓"}</span>
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => void saveSelection("note")}
+                      disabled={!lookup.explanation || saveState === "saving" || saveState === "saved"}
+                    >
+                      {saveState === "saving"
+                        ? "正在加入筆記…"
+                        : saveState === "saved"
+                          ? "已加入彭狸筆記 ✓"
+                          : "＋ 加入彭狸筆記"}
+                    </button>
+                    {saveState === "error" && <small>{saveMessage || "加入筆記未完成，請再試一次。"}</small>}
                     <a href="/teachers/pengli/notes">前往我的筆記 →</a>
                   </>
                 ) : isMedtech ? (
