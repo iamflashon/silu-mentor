@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { aiPaymentOrders } from "../../../../../db/schema";
-import { getActiveAiEntitlement, getAiPlan } from "../../../../../lib/ai-access";
+import { aiPurchaseOffer, getActiveAiEntitlement, getAiPlan } from "../../../../../lib/ai-access";
 import { linePayConfig, linePayPost } from "../../../../../lib/line-pay";
 import { requireMember } from "../../../../../lib/member-auth";
 
@@ -8,7 +8,9 @@ export async function POST(request:Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
   if (await getActiveAiEntitlement(auth.db, auth.member.id)) return Response.json({ error:"目前仍有有效的 AI 方案，請於額度用完或到期後再購買" }, { status:409 });
-  const plan = await getAiPlan(auth.db);
+  const basePlan = await getAiPlan(auth.db);
+  const [previousPurchase] = await auth.db.select({ id:aiPaymentOrders.id }).from(aiPaymentOrders).where(and(eq(aiPaymentOrders.memberId,auth.member.id),eq(aiPaymentOrders.status,"paid"))).limit(1);
+  const plan = aiPurchaseOffer(basePlan,Boolean(previousPurchase));
   if (!plan.enabled) return Response.json({ error:"AI 試問方案目前尚未開放購買" }, { status:409 });
   const config = await linePayConfig();
   if (!config.channelId || !config.channelSecret) return Response.json({ error:"網站尚未設定 LINE Pay" }, { status:503 });

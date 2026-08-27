@@ -4,7 +4,8 @@ import { documentAssignments, documentSearchUnits, documents, judicialCases, leg
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
-import { coachWebSearchAvailable, finishAiCoachRound, markCoachWebSearchUsed, prepareAiUse } from "../../../../../lib/ai-access-gate";
+import { finishAiUse, prepareAiUse } from "../../../../../lib/ai-access-gate";
+import { getActiveAiEntitlement } from "../../../../../lib/ai-access";
 import { getAiPlan } from "../../../../../lib/ai-access";
 
 type InputMessage = { role?: unknown; text?: unknown };
@@ -60,6 +61,15 @@ function verificationTerms(question: string, reply: string) {
   const words = question.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
     .map((term) => term.trim()).filter((term) => term.length >= 2 && term.length <= 14 && !stop.test(term));
   return [...new Set([...exact, ...words])].slice(0, 3);
+}
+
+function exactCaseReferences(question: string, reply: string) {
+  return [...new Set((`${question} ${reply}`.normalize("NFKC").match(/\d{2,3}年度[^，。；：\s]{1,12}字第\s*\d+\s*號/gu) ?? [])
+    .map((value) => value.replace(/\s+/gu, "")))];
+}
+
+function judicialOfficialUrl(jid: string) {
+  return jid ? `https://judgment.judicial.gov.tw/FJUD/data.aspx?ty=JD&id=${encodeURIComponent(jid)}` : "";
 }
 
 
@@ -238,18 +248,28 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
 
     if (body.mode === "verify-doubt") {
-      if (!await coachWebSearchAvailable(gate)) return Response.json({ error: "官方資料查證每完成 5 輪可使用一次；完成目前的 5 輪對話後即可再次查證。", code: "WEB_SEARCH_USED" }, { status: 429 });
+      if (gate.metered && gate.memberId) {
+        const entitlement = await getActiveAiEntitlement(gate.db, gate.memberId);
+        const remaining = entitlement ? entitlement.quotaTotal - entitlement.quotaUsed : 0;
+        if (remaining < 2) return Response.json({ error: "AI 使用次數不足；官方資料查證需要 2 次。", code: "AI_ACCESS_INSUFFICIENT", purchaseUrl: "/teachers/pengli/ai-access" }, { status: 402 });
+      }
       const aiReply = String(body.aiReply ?? "").trim().slice(0, 6000);
       const studentQuestion = String(body.studentQuestion ?? "").trim().slice(0, 2000);
       if (!aiReply || !studentQuestion) return Response.json({ error: "請先選擇 AI 回覆並輸入你的疑問。" }, { status: 400 });
       const terms = verificationTerms(studentQuestion, aiReply);
+      const exactCases = exactCaseReferences(studentQuestion, aiReply);
       const articleConditions = terms.map((term) => or(like(legalDocuments.title, `%${term}%`), like(legalArticles.content, `%${term}%`)));
-      const caseConditions = terms.map((term) => or(like(judicialCases.title, `%${term}%`), like(judicialCases.caseNo, `%${term}%`)));
+      const caseTerms = exactCases.length ? exactCases : terms.slice(0, 2);
+      const caseConditions = caseTerms.map((term) => or(like(judicialCases.title, `%${term}%`), like(judicialCases.caseNo, `%${term}%`)));
       const articles = articleConditions.length ? await auth.db.select({ title: legalDocuments.title, articleNo: legalArticles.articleNo, content: legalArticles.content, sourceUrl: legalDocuments.sourceUrl }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(or(...articleConditions)).limit(5) : [];
-      const cases = caseConditions.length ? await auth.db.select({ title: judicialCases.title, caseNo: judicialCases.caseNo, content: judicialCases.fullText }).from(judicialCases).where(or(...caseConditions)).limit(2) : [];
+      const cases = caseConditions.length ? await auth.db.select({ jid: judicialCases.jid, court: judicialCases.court, judgmentDate: judicialCases.judgmentDate, title: judicialCases.title, caseNo: judicialCases.caseNo, content: judicialCases.fullText }).from(judicialCases).where(and(eq(judicialCases.status, "active"), or(...caseConditions))).limit(exactCases.length ? 1 : 2) : [];
       let sources = [
         ...articles.map((row) => ({ label: `${row.title} ${row.articleNo}`, url: row.sourceUrl, excerpt: row.content.slice(0, 700) })),
-        ...cases.map((row) => ({ label: `${row.title || "裁判"} ${row.caseNo}`, url: "", excerpt: row.content.slice(0, 700) })),
+        ...cases.map((row) => ({
+          label: [row.court, row.caseNo, row.judgmentDate ? `（${row.judgmentDate}）` : "", row.title ? `｜${row.title}` : ""].filter(Boolean).join(" "),
+          url: judicialOfficialUrl(row.jid),
+          excerpt: row.content.slice(0, 700),
+        })),
       ].slice(0, 8);
       const useOfficialWeb = sources.length === 0;
       const evidence = sources.map((source, index) => `【查證資料 ${index + 1}｜${source.label}】\n${source.excerpt}`).join("\n\n");
@@ -266,7 +286,7 @@ export async function POST(request: Request) {
           } : {}),
           instructions: `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}先明確標示「查證結論：大致正確／需要修正／目前無法確認」三者之一，再說明理由、需修正處與學生下一步。不得把沒有資料支持的推論寫成確定事實；若資料不足就直說可轉交彭狸老師。全文 220 至 450 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
           input: `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
-          max_output_tokens: 900,
+          max_output_tokens: 700,
         }) }) as Record<string, unknown>;
       } catch (cause) {
         if (controller.signal.aborted) return Response.json({ error: "官方資料查證逾時，此次沒有計入使用次數。請縮短疑問後再試。", code: "VERIFY_TIMEOUT" }, { status: 504 });
@@ -277,17 +297,16 @@ export async function POST(request: Request) {
       if (useOfficialWeb) sources = officialWebSources(payload).map((source) => ({ ...source, excerpt: "官方外網補充" }));
       const verification = plainText(outputText(payload));
       if (!verification) return Response.json({ error: "查證暫時沒有完成，請稍後再試。" }, { status: 502 });
-      await markCoachWebSearchUsed(gate);
-      const access = await finishAiCoachRound(gate, { action: "pengli_doubt_verification_5_rounds", description: "彭狸 AI 回覆外部查證（每組一次）", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
+      const access = await finishAiUse(gate, { action: "pengli_official_verification", description: "彭狸官方資料查證，成功扣 2 次", quantity: 2, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: JSON.stringify(sources.map(({ label, url }) => ({ label, url }))), status: "verified" }).returning();
       return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), officialWebFallback: useOfficialWeb, ticketId: ticket.id, access });
     }
 
     const selectedText = String(body.selectedText ?? "").trim().slice(0, 1200);
-    const rawMessages = body.mode === "plain-explain" ? [{ role: "student", text: selectedText }] : (Array.isArray(body.messages) ? body.messages : []).slice(-12);
+    const rawMessages = body.mode === "plain-explain" ? [{ role: "student", text: selectedText }] : (Array.isArray(body.messages) ? body.messages : []).slice(-8);
     const messages = rawMessages.map((message) => ({
       role: message.role === "coach" ? "assistant" : "user",
-      content: String(message.text ?? "").slice(0, 4000),
+      content: String(message.text ?? "").slice(0, 2500),
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
 
@@ -304,7 +323,7 @@ export async function POST(request: Request) {
 5. 禁止詢問單純名詞定義、禁止重問老師剛才的問題、禁止一次串多題、禁止虛構法條或裁判。
 6. 全文限180至320字，不使用 Markdown，不標示來源或頁碼。`,
         input: messages,
-        max_output_tokens: 650,
+        max_output_tokens: 500,
       }) }) as Record<string, unknown>;
       const scholarDraft = plainText(outputText(payload));
       if (!scholarDraft) return Response.json({ error: "目前無法產生學生代答，請再按一次。" }, { status: 502 });
@@ -328,7 +347,7 @@ export async function POST(request: Request) {
 
     const evidenceText = evidence.rows.map((row, index) => {
       const page = row.pageStart ? `本書第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "本書頁碼待索引補正";
-      return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.slice(0, 1200)}`;
+      return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.slice(0, 800)}`;
     }).join("\n\n");
     const model = "gpt-5.6-luna";
 
@@ -359,7 +378,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
 不得虛構法條、裁判、教材頁碼或老師觀點。${plainAiFallback ? "" : `\n\n【彭狸老師專屬教材】\n${evidenceText}`}`,
         input: `【學生框選文字】\n${selectedText}`,
         text: { format: pengliPlainResponseFormat },
-        max_output_tokens: 1200,
+        max_output_tokens: 850,
       };
       let payload: Record<string, unknown> = {};
       let parsed: PengliPlainExplanation | null = null;
@@ -368,7 +387,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
         parsed = parsePengliPlainExplanation(outputText(payload));
       }
       if (!parsed) return Response.json({ error: "AI 回傳格式不完整，請再試一次。" }, { status: 502 });
-      const access = await finishAiCoachRound(gate, { action: "pengli_plain_explain_5_rounds", description: "彭狸教材白話解釋，每5次扣1次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
+      const access = await finishAiUse(gate, { action: "pengli_plain_explain", description: "彭狸教材白話解釋，成功扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
       const inputTokens = Number(rawUsage.input_tokens ?? 0), cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0), outputTokens = Number(rawUsage.output_tokens ?? 0);
       const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
@@ -389,7 +408,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       model,
       instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}正文中不要插入任何來源或頁碼。${coachAiFallback ? "整則回答最後不要標示書本頁碼。" : "請只選擇本次回答實際使用、最直接支持答案的一個教材頁碼，並在整則回答最後一行僅標示一次「依據：行政法考點演習書（二版）第X頁」。不得列出檢索過但未實際使用的其他頁碼；教材片段沒有頁碼時標示「頁碼待索引補正」，絕不可顯示 X–X 或虛構頁碼。"}禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
-      max_output_tokens: 1200,
+      max_output_tokens: 500,
     }) }) as Record<string, unknown>;
     const rawReply = plainText(outputText(payload).replace(/【教練回應】/gu, "").replace(/【學霸追問】[\s\S]*$/u, ""));
     const citedMatch = [...rawReply.matchAll(/(?:本書)?第\s*(\d+)(?:\s*[–—-]\s*(\d+))?\s*頁/gu)].at(-1);
@@ -401,7 +420,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const outputTokens = Number(rawUsage.output_tokens ?? 0);
     const costMicros = estimateCostUsdMicros(model, { inputTokens, cachedTokens, outputTokens });
     try { const db = await getDb(); await db.insert(usageLogs).values({ model, source: "彭狸老師專區｜AI 分身教練", inputTokens, cachedTokens, outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: costMicros }); } catch { /* 回答不因成本紀錄失敗而中斷 */ }
-    const access = await finishAiCoachRound(gate, { action: "pengli_coach_5_rounds", description: "彭狸 AI 分身陪練，每 5 輪扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
+    const access = await finishAiUse(gate, { action: "pengli_coach", description: "彭狸 AI 分身陪練，成功扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
     const citedPage = citedMatch ? `${citedMatch[1]}${citedMatch[2] ? `–${citedMatch[2]}` : ""}` : fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
     const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : `行政法考點演習書（二版）》第${citedPage}頁`;

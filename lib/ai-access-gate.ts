@@ -26,7 +26,7 @@ export async function prepareAiUse(request: Request, category: string): Promise<
   return { metered: true, memberId: auth.member.id, db: auth.db };
 }
 
-export async function finishAiUse(gate: AiUseGate, input: { action: string; description: string; requestKey?: string }) {
+export async function finishAiUse(gate: AiUseGate, input: { action: string; description: string; requestKey?: string; quantity?: number }) {
   if (!gate.metered || !gate.memberId) return { charged: false, remaining: null };
   const result = await consumeAiAccess(gate.db, { memberId: gate.memberId, ...input });
   if (!result.charged && !result.idempotent) throw new Error("AI 額度已用完，請購買新一期方案或輸入啟用碼。");

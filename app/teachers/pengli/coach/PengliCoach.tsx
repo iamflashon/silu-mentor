@@ -19,8 +19,6 @@ type Usage = {
 type Access = {
   charged?: boolean;
   remaining?: number | null;
-  coachRoundsUsed?: number | null;
-  coachRoundsTarget?: number;
 };
 const storageKey = "pengli-ai-coach-history-v1";
 
@@ -88,8 +86,6 @@ export default function PengliCoach() {
         if (data?.aiAccess)
           setAccess({
             remaining: data.aiAccess.remaining,
-            coachRoundsUsed: data.aiAccess.coachRoundsUsed,
-            coachRoundsTarget: data.aiAccess.coachRoundsTarget,
           });
         if (data?.plan)
           setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
@@ -336,9 +332,9 @@ export default function PengliCoach() {
           </p>
         </div>
         <div className="pengli-coach-access">
-          <b>AI 陪練次數</b>
+          <b>AI 使用次數</b>
           <strong>{access?.remaining ?? "—"} 次</strong>
-          <span>完成 5 輪才扣 1 次</span>
+          <span>一般回答 1 次・官方查證 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／輸入兌換碼</a>
         </div>
         <button
@@ -491,12 +487,14 @@ export default function PengliCoach() {
                 <button
                   type="button"
                   onClick={() => void verifyDoubt()}
-                  disabled={!doubtText.trim() || doubtLoading}
+                  disabled={!doubtText.trim() || doubtLoading || (access?.remaining != null && access.remaining < 2)}
                 >
                   {doubtLoading
                     ? "正在查證官方法規與裁判…"
-                    : "查證官方資料"}
+                    : "使用 2 次查證官方資料"}
                 </button>
+                <p className="pengli-verification-status">目前剩餘 {access?.remaining ?? "—"} 次；只有成功產生可驗證的官方來源與網址才扣 2 次，查詢失敗不扣。</p>
+                {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">AI 使用次數不足，前往購買／兌換</a>}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
               </>
             ) : (
@@ -532,17 +530,11 @@ export default function PengliCoach() {
             )}
           </section>
         )}
-        <div className="pengli-coach-usage-bar" aria-label="AI 陪練使用狀態">
+        <div className="pengli-coach-usage-bar" aria-label="AI 使用狀態">
           <span>
-            本組進度{" "}
-            <b>
-              {access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5}{" "}
-              輪
-            </b>
+            AI 使用次數剩餘 <strong>{access?.remaining ?? "—"} 次</strong>
           </span>
-          <span>
-            AI 剩餘 <strong>{access?.remaining ?? "—"} 次</strong>
-          </span>
+          <span>一般回答扣 1 次・官方查證成功扣 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／兌換</a>
         </div>
         <form className="pengli-coach-composer" onSubmit={submit}>
@@ -590,17 +582,14 @@ export default function PengliCoach() {
           </button>
         </form>
         <footer>
-          <span>AI 分身不等同真人老師；每完成 5 輪陪練扣 1 次。</span>
+          <span>AI 分身不等同真人老師；成功回答扣 1 次，官方查證成功扣 2 次。</span>
           <a className="pengli-notes-link" href="/teachers/pengli/notes">
             ✉ 我的筆記{unreadCount > 0 ? `（${unreadCount} 封新回覆）` : ""}
           </a>
           <a className="pengli-mobile-access" href="/teachers/pengli/ai-access">
             購買／兌換碼
           </a>
-          <small>
-            {access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5}{" "}
-            輪・剩餘 {access?.remaining ?? "—"} 次
-          </small>
+          <small>AI 使用次數剩餘 {access?.remaining ?? "—"} 次</small>
         </footer>
       </div>
     </section>
