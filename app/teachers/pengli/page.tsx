@@ -47,7 +47,6 @@ export default function PengliTeacherPage() {
     <nav className="pengli-topbar" aria-label="頁面導覽">
       <Link href="/" className="pengli-brand">iBrain Pedia X</Link>
       <div><span>法律類</span><b>行政法</b></div>
-      <Link href="/">回 iBrain Pedia X 首頁</Link>
     </nav>
 
     <section className="pengli-hero">
