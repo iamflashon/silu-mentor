@@ -43634,3 +43634,25 @@ html.frontend-costs-disabled .student-summary-meta > span {
 body:has(.accounting-qa-page) .specialty-home-link{display:none!important}
 /* Accounting QA anonymous trial */
 .qa-trial-rule{margin:18px 0;padding:18px 20px;border:1px solid #d9c693;border-radius:14px;background:#fffaf0;display:flex;justify-content:space-between;gap:18px;align-items:flex-start;color:#4d4024}.qa-trial-rule b{font-size:17px}.qa-trial-rule p{margin:7px 0 5px;line-height:1.7}.qa-trial-rule small{color:#786b50}.qa-trial-rule>strong{white-space:nowrap;background:#8b6821;color:#fff;border-radius:999px;padding:8px 13px}.qa-trial-application{margin:16px 0;padding:20px;border:1px solid #dfb2a9;border-radius:14px;background:#fff8f6}.qa-trial-application h3{margin:0 0 6px;color:#8d3025}.qa-trial-application>div{display:grid;grid-template-columns:1fr 1fr;gap:12px}.qa-trial-application label{display:grid;gap:6px;margin:10px 0;font-weight:700}.qa-trial-application input,.qa-trial-application textarea{width:100%;padding:10px;border:1px solid #cabdb6;border-radius:9px;background:#fff}.qa-trial-application textarea{min-height:90px;resize:vertical}.qa-trial-application button{padding:10px 18px;border:0;border-radius:9px;background:#8b6821;color:#fff;font-weight:800}.qa-admin-list{display:grid;gap:14px;padding:24px}.qa-admin-list article{padding:18px;border:1px solid #dde2e5;border-radius:14px;background:#fff}.qa-admin-list article>header{display:flex;justify-content:space-between;gap:12px}.qa-admin-list article header div{display:grid}.qa-admin-list article header span{color:#667}.qa-admin-list article em{font-style:normal;font-weight:800;color:#98640c}.qa-admin-list dl{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.qa-admin-list dl div{padding:10px;background:#f6f8f8;border-radius:8px}.qa-admin-list dt{font-size:12px;color:#687378}.qa-admin-list dd{margin:4px 0 0;font-weight:700}.qa-admin-list footer{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.qa-admin-list footer label{display:grid;gap:4px}.qa-admin-list footer input{width:90px;padding:8px}.qa-admin-list footer button{padding:9px 15px;border:0;border-radius:8px;background:#176b64;color:#fff;font-weight:800}.qa-admin-list footer .secondary{background:#6c7378}.qa-admin-list footer .danger{background:#a43d32}.qa-admin-empty{padding:36px;text-align:center;color:#687378;background:#fff;border-radius:14px}@media(max-width:700px){.qa-trial-rule{display:grid}.qa-trial-rule>strong{justify-self:start}.qa-trial-application>div{grid-template-columns:1fr}.qa-admin-list{padding:14px}.qa-admin-list dl{grid-template-columns:1fr 1fr}}
+/* Student-facing AI usage and cost details stay in the admin reports only. */
+.accounting-usage,
+.data-learning-library details > small:last-child,
+.medtech-guided-message-list li > small,
+.message-usage,
+.model-comparison-meta,
+.message-challenge-thread article > small,
+.study-group-message-usage,
+.pengli-coach-shell footer small,
+.essay-usage-meta,
+.essay-coach-comparisons em,
+.book-ai-usage,
+.student-summary-meta > span,
+.student-issue-result footer small,
+.issue-workflow-result > small,
+.issue-challenge-meta,
+.law-usage-meta,
+.note-organize-usage,
+.book-model-comparison footer,
+.learning-coach-meta span + span,
+.review-usage-meta,
+.review-history-meta span:last-child { display: none !important; }

@@ -161,7 +161,7 @@ function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedK
   const [scores, setScores] = useState<Record<number, number>>({});
   const [saved, setSaved] = useState<number | null>(null);
   return <section className="model-comparison-card" aria-label="AI 模型測試比較">
-    <header><div><b>AI 模型測試比較</b><span>{comparisonSourceLabel(comparison.sourceStatus)}</span></div><small>每個模型使用同一個問題；回覆、Token、耗時與估算成本都會保存。</small></header>
+    <header><div><b>AI 模型測試比較</b><span>{comparisonSourceLabel(comparison.sourceStatus)}</span></div><small>每個模型使用同一個問題；回覆與評測資料都會保存。</small></header>
     <div className="model-comparison-grid">
       {comparison.responses.map((response) => <article className={`model-comparison-response ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`} key={response.id}>
         <div className="model-comparison-response-head"><strong>{response.label}</strong><small>{response.model}</small></div>
