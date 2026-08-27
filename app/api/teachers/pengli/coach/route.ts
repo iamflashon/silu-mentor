@@ -1,10 +1,10 @@
 import { and, desc, eq, like, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documentAssignments, documentSearchUnits, documents, usageLogs } from "../../../../../db/schema";
+import { documentAssignments, documentSearchUnits, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
-import { finishAiCoachRound, prepareAiUse } from "../../../../../lib/ai-access-gate";
+import { coachWebSearchAvailable, finishAiCoachRound, markCoachWebSearchUsed, prepareAiUse } from "../../../../../lib/ai-access-gate";
 import { getAiPlan } from "../../../../../lib/ai-access";
 
 type InputMessage = { role?: unknown; text?: unknown };
@@ -190,13 +190,42 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain"; allowAiFallback?: boolean };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string };
     if (body.mode === "scholar-assist" && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
+
+    if (body.mode === "verify-doubt") {
+      if (!await coachWebSearchAvailable(gate)) return Response.json({ error: "本組的外部查證機會已使用；完成 5 輪後會重新取得一次。", code: "WEB_SEARCH_USED" }, { status: 429 });
+      const aiReply = String(body.aiReply ?? "").trim().slice(0, 6000);
+      const studentQuestion = String(body.studentQuestion ?? "").trim().slice(0, 2000);
+      if (!aiReply || !studentQuestion) return Response.json({ error: "請先選擇 AI 回覆並輸入你的疑問。" }, { status: 400 });
+      const terms = [...new Set(`${studentQuestion} ${aiReply}`.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u).filter((term) => term.length >= 2 && term.length <= 14))].slice(0, 6);
+      const articleConditions = terms.map((term) => or(like(legalDocuments.title, `%${term}%`), like(legalArticles.content, `%${term}%`)));
+      const caseConditions = terms.map((term) => or(like(judicialCases.title, `%${term}%`), like(judicialCases.fullText, `%${term}%`), like(judicialCases.caseNo, `%${term}%`)));
+      const articles = articleConditions.length ? await auth.db.select({ title: legalDocuments.title, articleNo: legalArticles.articleNo, content: legalArticles.content, sourceUrl: legalDocuments.sourceUrl }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(or(...articleConditions)).limit(8) : [];
+      const cases = caseConditions.length ? await auth.db.select({ title: judicialCases.title, caseNo: judicialCases.caseNo, content: judicialCases.fullText }).from(judicialCases).where(or(...caseConditions)).limit(4) : [];
+      const sources = [
+        ...articles.map((row) => ({ label: `${row.title} ${row.articleNo}`, url: row.sourceUrl, excerpt: row.content.slice(0, 700) })),
+        ...cases.map((row) => ({ label: `${row.title || "裁判"} ${row.caseNo}`, url: "", excerpt: row.content.slice(0, 700) })),
+      ].slice(0, 8);
+      const evidence = sources.map((source, index) => `【查證資料 ${index + 1}｜${source.label}】\n${source.excerpt}`).join("\n\n") || "本次同步的官方法規與裁判資料未找到直接對應內容。";
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model: "gpt-5.6-luna",
+        instructions: `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」，只依提供的官方法規／裁判資料驗證。先明確標示「查證結論：大致正確／需要修正／目前無法確認」三者之一，再說明理由、需修正處與學生下一步。不得把沒有資料支持的推論寫成確定事實；若資料不足就直說可轉交彭狸老師。全文 220 至 450 字，不使用 Markdown。\n\n${evidence}`,
+        input: `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
+        max_output_tokens: 900,
+      }) }) as Record<string, unknown>;
+      const verification = plainText(outputText(payload));
+      if (!verification) return Response.json({ error: "查證暫時沒有完成，請稍後再試。" }, { status: 502 });
+      await markCoachWebSearchUsed(gate);
+      const access = await finishAiCoachRound(gate, { action: "pengli_doubt_verification_5_rounds", description: "彭狸 AI 回覆外部查證（每組一次）", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
+      const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: JSON.stringify(sources.map(({ label, url }) => ({ label, url }))), status: "verified" }).returning();
+      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), ticketId: ticket.id, access });
+    }
 
     const selectedText = String(body.selectedText ?? "").trim().slice(0, 1200);
     const rawMessages = body.mode === "plain-explain" ? [{ role: "student", text: selectedText }] : (Array.isArray(body.messages) ? body.messages : []).slice(-12);
