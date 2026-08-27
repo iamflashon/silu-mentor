@@ -115,6 +115,9 @@ export default function GlobalSelectionTools() {
     usage: ExplainUsage | null;
     access?: MedtechExplainAccess;
     coachAccess?: { charged?: boolean; remaining?: number; coachRoundsUsed?: number; coachRoundsTarget?: number };
+    canAiFallback?: boolean;
+    aiFallback?: boolean;
+    sourceStatus?: string;
   } | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">(
@@ -340,7 +343,7 @@ export default function GlobalSelectionTools() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  async function explain() {
+  async function explain(allowAiFallback = false) {
     if (!selectedText || lookup?.explaining) return;
     dismiss();
     const current = lookup ?? {
@@ -393,7 +396,7 @@ export default function GlobalSelectionTools() {
                   mode: "free",
                 }
               : isPengli
-                ? { selectedText, mode: "plain-explain", requestKey: crypto.randomUUID() }
+                ? { selectedText, mode: "plain-explain", allowAiFallback, requestKey: crypto.randomUUID() }
                 : { selectedText, article: reference },
         ),
       },
@@ -454,17 +457,20 @@ export default function GlobalSelectionTools() {
                 ? data.access
                 : latest.coachAccess,
             error: valid ? "" : data.error || "AI 回傳格式不完整，請再試一次。",
+            canAiFallback: !valid && data.canAiFallback === true,
+            aiFallback: valid && data.aiFallback === true,
+            sourceStatus: valid ? String(data.sourceStatus ?? "") : "",
           }
         : latest,
     );
     if (isPengli && valid) {
       await saveSelection("note", {
         title: selectedText.slice(0, 32) || "彭狸行政法學習筆記",
-        content: `【框選原文】\n${selectedText}\n\n【白話整理】\n${explanation}`,
+        content: `【核心原文】\n${selectedText}\n\n【白話重點整理】\n${explanation}\n\n【來源狀態】\n${data.sourceStatus || "彭狸老師教材"}`,
         originalContent: selectedText,
         subject: "行政法｜彭狸老師專區",
-        tags: "行政法、彭狸老師、白話筆記",
-        sourceLabel: selectionSource || "彭狸老師《行政法考點演習書（二版）》",
+        tags: data.aiFallback ? "行政法、AI補充、白話筆記" : "行政法、彭狸老師、白話筆記",
+        sourceLabel: data.aiFallback ? "AI 法律補充（未命中彭狸老師教材）" : selectionSource || "彭狸老師《行政法考點演習書（二版）》",
       });
     }
   }
@@ -764,7 +770,14 @@ export default function GlobalSelectionTools() {
               !lookup.decision ? (
               <>
                 {lookup.error ? (
-                  <p className="law-lookup-status error">{lookup.error}</p>
+                  <div className="law-lookup-status error">
+                    <p>{lookup.error}</p>
+                    {isPengli && lookup.canAiFallback && (
+                      <button type="button" onClick={() => void explain(true)}>
+                        改由 AI 試著白話解釋
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <section className="legal-analysis-card">
                     <small>框選內容</small>
@@ -1075,6 +1088,14 @@ export default function GlobalSelectionTools() {
               <div className="selection-save-actions">
                 {isPengli ? (
                   <>
+                    {lookup.explanation && (
+                      <details open className="pengli-auto-note-preview">
+                        <summary>本次自動筆記預覽</summary>
+                        <h4>{selectedText.slice(0, 32) || "行政法白話筆記"}</h4>
+                        <p style={{ whiteSpace: "pre-wrap" }}>{lookup.explanation}</p>
+                        <small>來源狀態：{lookup.sourceStatus || (lookup.aiFallback ? "AI 補充" : "彭狸老師教材")}</small>
+                      </details>
+                    )}
                     <span>{saveState === "saving" ? "正在自動加入彭狸筆記…" : saveState === "error" ? "自動加入筆記未完成" : "已自動加入彭狸筆記 ✓"}</span>
                     <a href="/teachers/pengli/notes">前往我的筆記 →</a>
                   </>
