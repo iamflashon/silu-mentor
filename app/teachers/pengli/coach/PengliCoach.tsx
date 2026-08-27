@@ -22,6 +22,7 @@ export default function PengliCoach() {
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
+  const [chatMaximized, setChatMaximized] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -107,7 +108,7 @@ export default function PengliCoach() {
 
   function submit(event: FormEvent) { event.preventDefault(); void ask(input); }
 
-  return <section className="pengli-coach-shell">
+  return <section className={`pengli-coach-shell${chatMaximized ? " chat-maximized" : ""}`}>
     <aside className="pengli-coach-sidebar">
       <div className="pengli-coach-identity">
         <img src="https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif" alt="行政法考點演習書" />
@@ -120,6 +121,7 @@ export default function PengliCoach() {
     </aside>
 
     <div className="pengli-coach-main">
+      <button type="button" className="pengli-chat-maximize" aria-pressed={chatMaximized} onClick={() => setChatMaximized((value) => !value)}>{chatMaximized ? "退出最大化" : "⛶ 最大化對話"}</button>
       <header><div><span>彭狸 AI 教練</span><h1>先找爭點，再把答案寫出來</h1></div><i><b /> 教材模式</i></header>
       <div className="pengli-coach-thread" aria-live="polite">
         {!hasConversation && <div className="pengli-coach-starters">{starters.map((starter) => <button type="button" key={starter} onClick={() => void ask(starter)}>{starter}<b>→</b></button>)}</div>}
