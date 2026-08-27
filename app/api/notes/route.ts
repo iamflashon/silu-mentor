@@ -19,10 +19,12 @@ function userKey(request: Request) {
   return request.headers.get("oai-authenticated-user-email") ?? "default-owner";
 }
 
-type NoteCategory = "law" | "medtech" | "accounting" | "data-structure";
+type NoteCategory =
+  "law" | "pengli" | "medtech" | "accounting" | "data-structure";
 
 function noteCategory(value: string | null | undefined): NoteCategory {
-  return value === "medtech" ||
+  return value === "pengli" ||
+    value === "medtech" ||
     value === "accounting" ||
     value === "data-structure"
     ? value
@@ -30,6 +32,12 @@ function noteCategory(value: string | null | undefined): NoteCategory {
 }
 
 function categoryFilter(category: NoteCategory) {
+  if (category === "pengli")
+    return or(
+      like(savedNotes.sourceId, "pengli-selection-%"),
+      like(savedNotes.tags, "%彭狸老師專區%"),
+      like(savedNotes.sourceLabel, "彭狸老師專區%"),
+    );
   if (category === "medtech")
     return or(
       like(savedNotes.sourceId, "medtech-selection-%"),
@@ -51,6 +59,15 @@ function categoryFilter(category: NoteCategory) {
       like(savedNotes.sourceId, "data-structure-%"),
     );
   return and(
+    or(
+      isNull(savedNotes.tags),
+      not(like(savedNotes.tags, "%彭狸老師專區%")),
+    ),
+    or(
+      isNull(savedNotes.sourceLabel),
+      not(like(savedNotes.sourceLabel, "彭狸老師專區%")),
+    ),
+    or(isNull(savedNotes.sourceId), not(like(savedNotes.sourceId, "pengli-%"))),
     not(
       or(
         like(savedNotes.subject, "醫檢師%"),
@@ -264,22 +281,20 @@ export async function POST(request: Request) {
         await env.BUCKET.put(storageKey, image.bytes, {
           httpMetadata: { contentType: image.contentType },
         });
-        await db
-          .insert(noteAttachments)
-          .values({
-            noteId: note.id,
-            userKey: owner,
-            kind: "screenshot",
-            storageKey,
-            contentType: image.contentType,
-            sizeBytes: image.bytes.byteLength,
-            sourceUrl: String(body.imageSourceUrl ?? "").slice(0, 1000),
-            episodeTitle: String(body.episodeTitle ?? "").slice(0, 300),
-            positionSeconds: Math.max(
-              0,
-              Math.floor(Number(body.positionSeconds) || 0),
-            ),
-          });
+        await db.insert(noteAttachments).values({
+          noteId: note.id,
+          userKey: owner,
+          kind: "screenshot",
+          storageKey,
+          contentType: image.contentType,
+          sizeBytes: image.bytes.byteLength,
+          sourceUrl: String(body.imageSourceUrl ?? "").slice(0, 1000),
+          episodeTitle: String(body.episodeTitle ?? "").slice(0, 300),
+          positionSeconds: Math.max(
+            0,
+            Math.floor(Number(body.positionSeconds) || 0),
+          ),
+        });
       } catch {
         await db
           .delete(savedNotes)

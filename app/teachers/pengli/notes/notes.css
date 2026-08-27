@@ -1,1 +1,98 @@
-.pengli-notes{max-width:1180px;margin:auto;padding:48px 24px;color:#153c51}.pengli-notes header{display:flex;justify-content:space-between;align-items:end;margin-bottom:28px}.pengli-notes h1{font-size:42px;margin:6px 0}.pengli-notes header small{color:#087d72;font-weight:900;letter-spacing:.15em}.pengli-notes header a{border:1px solid #8eb8bc;border-radius:10px;padding:11px 15px;color:#075f68;font-weight:800}.pengli-notes .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.pengli-notes article,.pengli-notes .empty{border:1px solid #cbdadd;border-radius:16px;background:#fff;padding:22px;box-shadow:0 10px 30px #133e5010}.pengli-notes article.unread{border:2px solid #e0a92e;box-shadow:0 0 0 5px #fff1b8}.pengli-notes article>p{white-space:pre-wrap;line-height:1.7;color:#49636d}.pengli-notes .status{display:inline-block;background:#e9f7f4;color:#087467;border-radius:999px;padding:6px 10px;font-weight:900}.pengli-notes article.unread .status{background:#d89112;color:white}.pengli-notes .teacher{margin-top:16px;padding:16px;border-left:4px solid #d5a437;background:#fff8e7}.pengli-notes .teacher p{white-space:pre-wrap;line-height:1.75}@media(max-width:720px){.pengli-notes{padding:24px 14px}.pengli-notes header{align-items:start;gap:12px}.pengli-notes h1{font-size:32px}.pengli-notes .grid{grid-template-columns:1fr}}
+.pengli-notes {
+  max-width: 1180px;
+  margin: auto;
+  padding: 48px 24px;
+  color: #153c51;
+}
+.pengli-notes header {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  margin-bottom: 28px;
+}
+.pengli-notes h1 {
+  font-size: 42px;
+  margin: 6px 0;
+}
+.pengli-notes header small {
+  color: #087d72;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+}
+.pengli-notes header a {
+  border: 1px solid #8eb8bc;
+  border-radius: 10px;
+  padding: 11px 15px;
+  color: #075f68;
+  font-weight: 800;
+}
+.pengli-notes .grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.pengli-notes article,
+.pengli-notes .empty {
+  border: 1px solid #cbdadd;
+  border-radius: 16px;
+  background: #fff;
+  padding: 22px;
+  box-shadow: 0 10px 30px #133e5010;
+}
+.pengli-notes article.unread {
+  border: 2px solid #e0a92e;
+  box-shadow: 0 0 0 5px #fff1b8;
+}
+.pengli-notes article > p {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  color: #49636d;
+}
+.pengli-notes .status {
+  display: inline-block;
+  background: #e9f7f4;
+  color: #087467;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 900;
+}
+.pengli-notes article.unread .status {
+  background: #d89112;
+  color: white;
+}
+.pengli-notes .teacher {
+  margin-top: 16px;
+  padding: 16px;
+  border-left: 4px solid #d5a437;
+  background: #fff8e7;
+}
+.pengli-notes .teacher p {
+  white-space: pre-wrap;
+  line-height: 1.75;
+}
+.pengli-notes .saved-notes {
+  margin-bottom: 28px;
+}
+.pengli-notes .saved-notes article {
+  border-color: #8fc9c2;
+}
+.pengli-notes article > small {
+  display: block;
+  margin-top: 14px;
+  color: #668087;
+}
+@media (max-width: 720px) {
+  .pengli-notes {
+    padding: 24px 14px;
+  }
+  .pengli-notes header {
+    align-items: start;
+    gap: 12px;
+  }
+  .pengli-notes h1 {
+    font-size: 32px;
+  }
+  .pengli-notes .grid {
+    grid-template-columns: 1fr;
+  }
+}
