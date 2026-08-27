@@ -27,5 +27,5 @@
 .pengli-coach-main{height:100%;min-height:0;overflow:hidden;grid-template-rows:auto minmax(0,1fr) auto auto auto}
 .pengli-coach-thread{min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 .pengli-coach-assist,.pengli-coach-composer,.pengli-coach-main>footer{position:relative;z-index:2;flex:none}
-@media(max-width:760px){.pengli-coach-shell{height:calc(100dvh - 62px);min-height:0;max-height:calc(100dvh - 62px)}.pengli-coach-sidebar{overflow:visible}.pengli-coach-main{height:100%;min-height:0}}
+@media(max-width:760px){.pengli-coach-shell{width:100%;max-width:none;box-sizing:border-box;height:calc(100dvh - 62px);min-height:0;max-height:calc(100dvh - 62px)}.pengli-coach-sidebar{overflow:visible}.pengli-coach-main{height:100%;min-height:0}}
 .pengli-coach-thread article span{color:#87949a;font-size:10px!important;font-weight:400}
