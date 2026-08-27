@@ -51,6 +51,7 @@ export default function PengliCoach() {
   const [doubtTarget, setDoubtTarget] = useState<CoachMessage | null>(null);
   const [doubtText, setDoubtText] = useState("");
   const [doubtLoading, setDoubtLoading] = useState(false);
+  const [doubtError, setDoubtError] = useState("");
   const [verification, setVerification] = useState<{
     ticketId: number;
     text: string;
@@ -183,7 +184,14 @@ export default function PengliCoach() {
     const latestCoach = [...messages]
       .reverse()
       .find((message) => message.role === "coach");
-    if (!latestCoach) return;
+    const targetCoach = replyTarget?.role === "coach" ? replyTarget : latestCoach;
+    if (!targetCoach) return;
+    const contextMessages = replyTarget
+      ? [
+          ...messages.filter((message) => message.id !== targetCoach.id).slice(-10),
+          targetCoach,
+        ]
+      : messages.slice(-12);
     setScholarThinking(true);
     setError("");
     try {
@@ -192,7 +200,7 @@ export default function PengliCoach() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           mode: "scholar-assist",
-          messages: messages.slice(-12),
+          messages: contextMessages,
         }),
       });
       const data = (await response.json()) as {
@@ -215,6 +223,7 @@ export default function PengliCoach() {
         },
       ];
       setMessages(next);
+      setReplyTarget(null);
       setScholarThinking(false);
       setThinking(true);
       await requestCoach(next);
@@ -236,7 +245,7 @@ export default function PengliCoach() {
   async function verifyDoubt() {
     if (!doubtTarget || !doubtText.trim() || doubtLoading) return;
     setDoubtLoading(true);
-    setError("");
+    setDoubtError("");
     setVerification(null);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 32_000);
@@ -273,9 +282,11 @@ export default function PengliCoach() {
       });
       if (data.access) setAccess(data.access);
     } catch (cause) {
-      setError(cause instanceof DOMException && cause.name === "AbortError"
-        ? "官方資料查證逾時，尚未扣除本組查證機會；請縮短疑問後再試。"
-        : cause instanceof Error ? cause.message : "目前無法完成查證。");
+      setDoubtError(cause instanceof DOMException && cause.name === "AbortError"
+        ? "官方資料查證逾時，此次沒有計入使用次數。請縮短疑問後再試一次。"
+        : cause instanceof TypeError
+          ? "目前無法連接查證服務，此次沒有計入使用次數。請稍後再試。"
+          : cause instanceof Error ? cause.message : "目前無法完成查證，請稍後再試。");
     } finally {
       window.clearTimeout(timeout);
       setDoubtLoading(false);
@@ -284,12 +295,18 @@ export default function PengliCoach() {
 
   async function escalateDoubt() {
     if (!verification) return;
-    const response = await fetch("/api/teachers/pengli/questions", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: verification.ticketId, action: "escalate" }),
-    });
-    if (response.ok) setVerification({ ...verification, escalated: true });
+    setDoubtError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/questions", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: verification.ticketId, action: "escalate" }),
+      });
+      if (!response.ok) throw new Error("目前無法送交老師，請稍後再試。");
+      setVerification({ ...verification, escalated: true });
+    } catch (cause) {
+      setDoubtError(cause instanceof Error ? cause.message : "目前無法送交老師，請稍後再試。");
+    }
   }
 
   return (
@@ -454,6 +471,7 @@ export default function PengliCoach() {
               onClick={() => {
                 setDoubtTarget(null);
                 setVerification(null);
+                setDoubtError("");
               }}
             >
               ×
@@ -477,8 +495,9 @@ export default function PengliCoach() {
                 >
                   {doubtLoading
                     ? "正在查證官方法規與裁判…"
-                    : "使用本組查證機會"}
+                    : "查證官方資料"}
                 </button>
+                {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
               </>
             ) : (
               <div className="pengli-verification">
@@ -508,6 +527,7 @@ export default function PengliCoach() {
                     仍有疑問，轉請彭狸老師
                   </button>
                 )}
+                {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
               </div>
             )}
           </section>

@@ -238,7 +238,7 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
 
     if (body.mode === "verify-doubt") {
-      if (!await coachWebSearchAvailable(gate)) return Response.json({ error: "本組的外部查證機會已使用；完成 5 輪後會重新取得一次。", code: "WEB_SEARCH_USED" }, { status: 429 });
+      if (!await coachWebSearchAvailable(gate)) return Response.json({ error: "官方資料查證每完成 5 輪可使用一次；完成目前的 5 輪對話後即可再次查證。", code: "WEB_SEARCH_USED" }, { status: 429 });
       const aiReply = String(body.aiReply ?? "").trim().slice(0, 6000);
       const studentQuestion = String(body.studentQuestion ?? "").trim().slice(0, 2000);
       if (!aiReply || !studentQuestion) return Response.json({ error: "請先選擇 AI 回覆並輸入你的疑問。" }, { status: 400 });
@@ -269,7 +269,7 @@ export async function POST(request: Request) {
           max_output_tokens: 900,
         }) }) as Record<string, unknown>;
       } catch (cause) {
-        if (controller.signal.aborted) return Response.json({ error: "官方資料查證逾時，尚未扣除本組查證機會；請縮短疑問後再試。", code: "VERIFY_TIMEOUT" }, { status: 504 });
+        if (controller.signal.aborted) return Response.json({ error: "官方資料查證逾時，此次沒有計入使用次數。請縮短疑問後再試。", code: "VERIFY_TIMEOUT" }, { status: 504 });
         throw cause;
       } finally {
         clearTimeout(timeout);
