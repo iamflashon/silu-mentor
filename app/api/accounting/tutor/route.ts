@@ -4,8 +4,9 @@ import { appSettings, chatMessages, chatSessions, documents, examQuestions, usag
 import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
-import { requireAdmin } from "../../../../lib/member-auth";
+import { requireAdmin, requireMember } from "../../../../lib/member-auth";
 import { finishAiUse, prepareAiUse } from "../../../../lib/ai-access-gate";
+import { refundTrialQuestion, reserveTrialQuestion, trialStatus } from "../../../../lib/accounting-qa-trial";
 
 type Turn = { role: "student" | "mentor"; text: string };
 function outputText(payload: Record<string, unknown>) { if (typeof payload.output_text === "string") return payload.output_text.trim(); const output = Array.isArray(payload.output) ? payload.output : []; return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []).map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim(); }
@@ -28,20 +29,29 @@ function sourceBookName(value:string){
     .trim();
 }
 
-export async function POST(request: Request) {
+export async function handleAccountingTutor(request: Request, forceTrialMode = false) {
+  let reservedDeviceKey = "";
   try {
     const body = await request.json() as { messages?: Turn[]; mode?: string; level?: string; stage?: string; chapter?: string; questionType?: string; simulateStudent?: boolean; imageDataUrls?: string[] };
+    const isTrial = forceTrialMode === true;
+    if (!isTrial && !body.simulateStudent) {
+      const auth = await requireMember(request);
+      if ("error" in auth) return auth.error;
+    }
     if (body.simulateStudent) {
       const auth = await requireAdmin(request);
       if ("error" in auth) return auth.error;
     }
-    const aiGate = await prepareAiUse(request, "accounting");
-    if (aiGate instanceof Response) return aiGate;
     const messages = (body.messages ?? []).filter((item) => item && ["student", "mentor"].includes(item.role) && typeof item.text === "string").slice(-10);
     const studentTurnCount = messages.filter((item) => item.role === "student").length;
     const latest = [...messages].reverse().find((item) => item.role === "student")?.text.trim();
     if (!latest) return Response.json({ error: "請先輸入中級會計問題。" }, { status: 400 });
     if (!await getOpenAIKey()) return Response.json({ error: "Luna 助教模型尚未設定。" }, { status: 503 });
+    const reservation = isTrial ? await reserveTrialQuestion(request) : null;
+    if (reservation && !reservation.ok) return Response.json({ error: "免費測試次數已用完，請申請繼續測試。", code: "QA_TRIAL_LIMIT", trial: reservation }, { status: 429, headers: reservation.setCookie ? { "set-cookie": reservation.setCookie } : undefined });
+    if (reservation?.ok) reservedDeviceKey = reservation.deviceKey;
+    const aiGate = isTrial ? { metered: false as const, memberId: null, db: await getDb() } : await prepareAiUse(request, "accounting");
+    if (aiGate instanceof Response) return aiGate;
     const db = await getDb();
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     const enabledDocuments = await db.select({ id: documents.id, fileName: documents.fileName, openaiFileId: documents.openaiFileId, subject: documents.subject, documentType: documents.documentType }).from(documents).where(and(eq(documents.examCategory, "accounting"), eq(documents.homepageSearchEnabled, true), eq(documents.vectorIndexed, true)));
@@ -108,12 +118,18 @@ export async function POST(request: Request) {
     const source=directSource?`依據來源：${directSource}`:searchResults.length ? `依據來源：${searchedFiles.length?searchedFiles.join("、"):`老師教材相關片段`}` : allowSearch ? "本次已搜尋，但未命中老師教材" : "尚無已開放搜尋的老師教材，以下為 AI 一般知識說明";
     let recordId:number|undefined;
     if(!body.simulateStudent&&!guided){
-      const userKey=request.headers.get("oai-authenticated-user-email")??"default-owner";
+      const userKey=request.headers.get("oai-authenticated-user-email")??(reservedDeviceKey?`qa-trial:${reservedDeviceKey}`:"default-owner");
       const [session]=await db.insert(chatSessions).values({userKey,title:latest.slice(0,80),summary:reply.slice(0,220),progressStatus:"completed",contextType:"accounting",updatedAt:new Date()}).returning();
       recordId=session.id;
       await db.insert(chatMessages).values([{sessionId:session.id,role:"student",text:latest},{sessionId:session.id,role:"mentor",text:reply,source,model:"Luna",estimatedCostUsdMicros}]);
     }
     const aiAccess = await finishAiUse(aiGate, { action: guided ? "accounting_coach" : "accounting_ask", description: guided ? "中級會計 AI 教練引導" : "中級會計 AI 試問" });
-    return Response.json({ reply, source, recordId, aiAccess, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
-  } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Luna 助教 回答失敗" }, { status: 500 }); }
+    const currentTrial = isTrial ? await trialStatus(request) : undefined;
+    const headers=currentTrial?.setCookie?{"set-cookie":currentTrial.setCookie}:undefined;
+    return Response.json({ reply, source, recordId, aiAccess, trial:currentTrial, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } },{headers});
+  } catch (error) { if(reservedDeviceKey)await refundTrialQuestion(reservedDeviceKey).catch(()=>null);return Response.json({ error: error instanceof Error ? error.message : "Luna 助教 回答失敗" }, { status: 500 }); }
+}
+
+export async function POST(request: Request) {
+  return handleAccountingTutor(request, false);
 }
