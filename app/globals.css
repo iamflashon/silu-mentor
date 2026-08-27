@@ -33141,6 +33141,57 @@ a {
   color: #57727c;
   text-align: center;
 }
+.law-thinking-status {
+  min-height: 210px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: linear-gradient(180deg, #fbfdfc 0%, #f1f8f6 100%);
+}
+.law-thinking-status b {
+  color: #195f5b;
+  font-size: 17px;
+}
+.law-thinking-status small {
+  color: #6d858c;
+  font-size: 14px;
+}
+.law-thinking-orb {
+  width: 62px;
+  height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid #b9ddd6;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(32, 111, 103, 0.13);
+  animation: law-thinking-pulse 1.8s ease-in-out infinite;
+}
+.law-thinking-orb i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #168a7e;
+  animation: law-thinking-dot 1.2s ease-in-out infinite;
+}
+.law-thinking-orb i:nth-child(2) { animation-delay: 0.16s; }
+.law-thinking-orb i:nth-child(3) { animation-delay: 0.32s; }
+@keyframes law-thinking-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 10px 28px rgba(32, 111, 103, 0.13); }
+  50% { transform: scale(1.04); box-shadow: 0 12px 34px rgba(32, 111, 103, 0.22); }
+}
+@keyframes law-thinking-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30% { transform: translateY(-6px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .law-thinking-orb,
+  .law-thinking-orb i { animation: none; }
+}
 .law-lookup-status.error {
   color: #9a4541;
 }
