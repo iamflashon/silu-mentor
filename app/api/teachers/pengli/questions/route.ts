@@ -21,7 +21,8 @@ export async function PATCH(request: Request) {
   const [row] = await auth.db.select().from(pengliTeacherQuestions).where(and(eq(pengliTeacherQuestions.id, id), eq(pengliTeacherQuestions.memberId, auth.member.id))).limit(1);
   if (!row) return Response.json({ error: "找不到疑問單。" }, { status: 404 });
   if (body.action === "escalate") {
-    await auth.db.update(pengliTeacherQuestions).set({ status: "pending_teacher", updatedAt: new Date() }).where(eq(pengliTeacherQuestions.id, id));
+    if (row.status !== "verified") return Response.json({ error: "這筆疑問已送出或已由老師處理。" }, { status: 409 });
+    await auth.db.update(pengliTeacherQuestions).set({ status: "pending_review", assignedTeacherId: null, adminReviewedAt: null, assignedAt: null, updatedAt: new Date() }).where(eq(pengliTeacherQuestions.id, id));
   } else if (body.action === "read" && row.status === "answered") {
     await auth.db.update(pengliTeacherQuestions).set({ studentReadAt: new Date(), updatedAt: new Date() }).where(and(eq(pengliTeacherQuestions.id, id), isNull(pengliTeacherQuestions.studentReadAt)));
   }

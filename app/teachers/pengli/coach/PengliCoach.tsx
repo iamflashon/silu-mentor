@@ -298,10 +298,10 @@ export default function PengliCoach() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: verification.ticketId, action: "escalate" }),
       });
-      if (!response.ok) throw new Error("目前無法送交老師，請稍後再試。");
+      if (!response.ok) throw new Error("目前無法送交確認，請稍後再試。");
       setVerification({ ...verification, escalated: true });
     } catch (cause) {
-      setDoubtError(cause instanceof Error ? cause.message : "目前無法送交老師，請稍後再試。");
+      setDoubtError(cause instanceof Error ? cause.message : "目前無法送交確認，請稍後再試。");
     }
   }
 
@@ -518,11 +518,11 @@ export default function PengliCoach() {
                 )}
                 {verification.escalated ? (
                   <strong>
-                    已送交彭狸老師，回覆後會在「我的筆記」通知你。
+                    已送交管理員確認；確認後會轉交彭狸老師，回覆會在「我的筆記」通知你。
                   </strong>
                 ) : (
                   <button type="button" onClick={() => void escalateDoubt()}>
-                    仍有疑問，轉請彭狸老師
+                    仍有疑問，申請轉請彭狸老師
                   </button>
                 )}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}

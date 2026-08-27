@@ -931,6 +931,9 @@ export const pengliTeacherQuestions = sqliteTable("pengli_teacher_questions", {
   verificationResult: text("verification_result").notNull().default(""),
   verificationSourcesJson: text("verification_sources_json").notNull().default("[]"),
   status: text("status").notNull().default("verified"),
+  assignedTeacherId: integer("assigned_teacher_id").references(() => members.id, { onDelete: "set null" }),
+  adminReviewedAt: integer("admin_reviewed_at", { mode: "timestamp" }),
+  assignedAt: integer("assigned_at", { mode: "timestamp" }),
   teacherReply: text("teacher_reply").notNull().default(""),
   teacherRepliedAt: integer("teacher_replied_at", { mode: "timestamp" }),
   studentReadAt: integer("student_read_at", { mode: "timestamp" }),
@@ -938,6 +941,7 @@ export const pengliTeacherQuestions = sqliteTable("pengli_teacher_questions", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 }, (table) => [
   index("pengli_teacher_questions_member_status_idx").on(table.memberId, table.status),
+  index("pengli_teacher_questions_teacher_status_idx").on(table.assignedTeacherId, table.status),
   index("pengli_teacher_questions_status_created_idx").on(table.status, table.createdAt),
 ]);
 

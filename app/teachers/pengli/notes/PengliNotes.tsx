@@ -98,6 +98,8 @@ export default function PengliNotes() {
                     ? "✉ 老師新回覆"
                     : row.status === "pending_teacher"
                       ? "等待老師回覆"
+                      : row.status === "pending_review"
+                        ? "等待管理員確認"
                       : "AI 已查證"}
                 </div>
                 <h2>{row.topic}</h2>
