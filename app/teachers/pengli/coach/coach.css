@@ -85,3 +85,27 @@
     padding-top: 52px;
   }
 }
+
+
+.pengli-mobile-access {
+  display: none;
+}
+@media (max-width: 760px) {
+  .pengli-coach-main > footer {
+    gap: 8px;
+  }
+  .pengli-mobile-access {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 30px;
+    padding: 5px 9px;
+    border-radius: 8px;
+    color: #173349;
+    background: #e3c27e;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+}
