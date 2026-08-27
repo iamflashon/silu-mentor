@@ -111,7 +111,7 @@ export default function PengliCoach() {
   return <section className={`pengli-coach-shell${chatMaximized ? " chat-maximized" : ""}`}>
     <aside className="pengli-coach-sidebar">
       <div className="pengli-coach-identity">
-        <img src="https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif" alt="行政法考點演習書" />
+        <img src="/teachers/pengli-administrative-law-cover.png" alt="行政法考點演習書" />
         <div><small>彭狸老師專屬</small><strong>行政法 AI 教練</strong><span>教材優先・引導作答</span></div>
       </div>
       <div className="pengli-coach-scope"><b>目前教材範圍</b><span>行政法 8 大主題</span><span>試學考點與解題脈絡</span><span>老師提醒與作答架構</span></div>
@@ -134,12 +134,14 @@ export default function PengliCoach() {
         <div ref={endRef} />
       </div>
       {error && <p className="pengli-coach-error">{error}</p>}
-      {scholarAssistEnabled && <div className="pengli-coach-assist">
-        <button type="button" onClick={() => void askScholarToAnswer()} disabled={thinking || scholarThinking || !messages.some((message) => message.role === "coach")}>
-          <b>霸</b><span><strong>學霸幫我回答</strong><small>我不知道時，代我回答並反問老師</small></span>
-        </button>
-      </div>}
       <form className="pengli-coach-composer" onSubmit={submit}>
+        {scholarAssistEnabled && <button
+          type="button"
+          className="pengli-scholar-button"
+          title="示範判斷、說明思路並反問老師"
+          onClick={() => void askScholarToAnswer()}
+          disabled={thinking || scholarThinking || !messages.some((message) => message.role === "coach")}
+        ><b>霸</b><span>學霸怎麼想？</span></button>}
         <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={2} placeholder="貼上行政法題目，或告訴我你卡在哪個爭點……" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(input); } }} />
         <button type="submit" disabled={!input.trim() || thinking || scholarThinking}>送出</button>
       </form>
@@ -147,4 +149,3 @@ export default function PengliCoach() {
     </div>
   </section>;
 }
-
