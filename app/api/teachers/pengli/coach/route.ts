@@ -52,12 +52,11 @@ async function pengliEvidence(query: string) {
     ...normalized.split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
       .map((term) => term.replace(/^(我正在學|請先用|一個問題|帶我判斷|請問|老師)/u, "").trim())
       .filter((term) => term.length >= 2 && term.length <= 18),
-  ])].slice(0, 12);
-  const conditions = terms.flatMap((term) => [
-    like(documentSearchUnits.normalizedText, `%${term}%`),
-    like(documentSearchUnits.title, `%${term}%`),
-    like(documentSearchUnits.hierarchyPath, `%${term}%`),
-  ]);
+  ])].slice(0, 4);
+  // D1 查詢只使用少量核心詞，避免學霸代答把整段對話展開成過長的 OR 條件。
+  const conditions = terms.map((term) =>
+    like(documentSearchUnits.normalizedText, `%${term}%`)
+  );
   const rows = conditions.length ? await db.select({
     pageStart: documentSearchUnits.pageStart,
     pageEnd: documentSearchUnits.pageEnd,
@@ -159,6 +158,7 @@ export async function POST(request: Request) {
     const source = citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : `行政法考點演習書（二版）》第${citedPage}頁`;
     return Response.json({ reply, source, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "彭狸 AI 教練目前無法回答。" }, { status: 500 });
+    console.error("Pengli coach request failed", error);
+    return Response.json({ error: "教材搜尋暫時沒有完成，請再按一次；若仍無法回答，請換成較精簡的考點名稱。" }, { status: 500 });
   }
 }
