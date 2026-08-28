@@ -65,7 +65,7 @@ export default function PengliTeacherPage() {
         </div>
         <dl className="pengli-hero-stats">
           <div><dt>8</dt><dd>大主題</dd></div>
-          <div><dt>3</dt><dd>免費考點</dd></div>
+          <div><dt>3</dt><dd>免費提問</dd></div>
           <div><dt>90</dt><dd>天衝刺規劃</dd></div>
         </dl>
       </div>
@@ -79,32 +79,32 @@ export default function PengliTeacherPage() {
     <section className="pengli-workspace" id="curriculum">
       <header>
         <div><span>LEARNING PATH</span><h2>八大主題學習路徑</h2></div>
-        <p>免費體驗開放主題 1 的前三個考點；完整專區將依書籍順序逐步解鎖。</p>
+        <p>八大主題全部開放自由選擇；只有實際送出 AI 問題時，才會計入可用提問次數。</p>
       </header>
       <div className="pengli-layout">
         <div className="pengli-theme-list">
-          {themes.map(([number, title, summary], index) => <article className={index === 0 ? "active" : "locked"} key={number}>
+          {themes.map(([number, title, summary]) => <Link className="theme-card" href={`/teachers/pengli/coach?topic=${encodeURIComponent(title)}`} key={number}>
             <span>{number}</span>
             <div><h3>{title}</h3><p>{summary}</p></div>
-            <b aria-label={index === 0 ? "可試學" : "尚未解鎖"}>{index === 0 ? "開始" : "鎖定"}</b>
-          </article>)}
+            <b>進入</b>
+          </Link>)}
         </div>
         <aside className="pengli-progress-card">
           <span>我的衝刺進度</span>
-          <strong>免費體驗</strong>
-          <div className="pengli-progress"><i style={{width:"12%"}} /></div>
-          <small>0／3 個免費考點完成</small>
+          <strong>免費提問</strong>
+          <div className="pengli-progress"><i style={{width:"0%"}} /></div>
+          <small>0／3 次免費提問已使用</small>
           <hr/>
           <ul><li>考點閱讀與老師提醒</li><li>破題步驟練習</li><li>申論架構自我檢查</li></ul>
-          <a href="#free-trial">開始第一個考點</a>
+          <a href="#curriculum">選擇任一主題</a>
         </aside>
       </div>
     </section>
 
     <section className="pengli-trial" id="free-trial">
-      <header><span>FREE TRIAL</span><h2>免費試學：先練三個基礎考點</h2><p>每個考點都從一個問題開始，不先把答案整段塞給你。</p></header>
+      <header><span>FREE TRIAL</span><h2>免費試學：先體驗三次 AI 提問</h2><p>可以從任何主題開始；真正送出問題時才會扣除一次可用次數。</p></header>
       <div className="pengli-trial-grid">
-        {samplePoints.map((point, index) => <article key={point.number}>
+        {samplePoints.map((point) => <article key={point.number}>
           <div><span>{point.label}</span><b>{point.number}</b></div>
           <h3>{point.title}</h3>
           <p>{point.question}</p>
