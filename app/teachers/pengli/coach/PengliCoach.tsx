@@ -15,6 +15,7 @@ type CoachMessage = {
     citationMatched: boolean;
     contentMatched: boolean;
     expectedPage: number;
+    bookPageLabel: string;
     citedPage: number | null;
     retrievedPages: number[];
     answerAnchor: string;
@@ -22,7 +23,7 @@ type CoachMessage = {
     sourceExcerpt: string;
   };
 };
-type BookTestMeta = { expectedPage: number; answerAnchor: string; questionKind: "case_facts" | "issue_prompt" | "explanation"; sourceExcerpt: string };
+type BookTestMeta = { expectedPage: number; bookPageLabel: string; answerAnchor: string; questionKind: "case_facts" | "issue_prompt" | "explanation"; sourceExcerpt: string };
 type Usage = {
   inputTokens: number;
   cachedTokens: number;
@@ -165,6 +166,7 @@ export default function PengliCoach() {
       citationMatched,
       contentMatched,
       expectedPage: bookTest.expectedPage,
+      bookPageLabel: bookTest.bookPageLabel,
       citedPage,
       retrievedPages,
       answerAnchor: bookTest.answerAnchor,
@@ -223,9 +225,9 @@ export default function PengliCoach() {
     setError("");
     try {
       const response = await fetch("/api/teachers/pengli/random-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic: activeTopic || undefined }) });
-      const data = await response.json() as { question?: string; questionKind?: "case_facts" | "issue_prompt" | "explanation"; expectedPage?: number; answerAnchor?: string; sourceExcerpt?: string; error?: string };
-      if (!response.ok || !data.question || !data.questionKind || !data.expectedPage || !data.answerAnchor) throw new Error(data.error || "無法產生書頁驗證題目。");
-      await ask(data.question, { expectedPage: data.expectedPage, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "" });
+      const data = await response.json() as { question?: string; questionKind?: "case_facts" | "issue_prompt" | "explanation"; expectedPage?: number; bookPageLabel?: string; answerAnchor?: string; sourceExcerpt?: string; error?: string };
+      if (!response.ok || !data.question || !data.questionKind || !data.expectedPage || !data.bookPageLabel || !data.answerAnchor) throw new Error(data.error || "無法產生書頁驗證題目。");
+      await ask(data.question, { expectedPage: data.expectedPage, bookPageLabel: data.bookPageLabel, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "" });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "無法產生書頁驗證題目。");
     } finally {
@@ -485,6 +487,7 @@ export default function PengliCoach() {
                 {message.testVerification && (
                   <div className={`pengli-book-test-result ${message.testVerification.passed ? "pass" : "fail"}`}>
                     <strong>{message.testVerification.passed ? "✓ 頁碼、搜尋與回答內容全部通過" : "⚠ 書頁內容驗證未完全通過"}</strong>
+                    <span>抽問頁碼：{message.testVerification.bookPageLabel ? `書內第 ${message.testVerification.bookPageLabel} 頁 ↔ ` : ""}PDF 第 {message.testVerification.expectedPage} 頁</span>
                     <span>{message.testVerification.pageMatched ? "✓" : "✕"} 搜尋頁面：原始 PDF 第 {message.testVerification.expectedPage} 頁 → {message.testVerification.retrievedPages[0] ? `命中第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
                     <span>{message.testVerification.citationMatched ? "✓" : "✕"} 系統引用：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
                     <span>{message.testVerification.contentMatched ? "✓" : "✕"} 回答內容：{message.testVerification.contentMatched ? "包含本頁可核對答案" : "未包含本頁可核對答案"}</span>

@@ -125,37 +125,49 @@ export async function POST(request: Request) {
   const scoped = records.filter((record) => record.page >= effectiveStartPage && record.page <= mapped.pdfEndPage && !isNavigationPage(record.text) && record.text.replace(/\s+/gu, " ").length >= 120);
   const substantive = scoped.filter((record) => isSubstantivePage(record.text));
   const pagePool = substantive.length ? substantive : scoped;
-  const shuffled = [...pagePool].sort(() => Math.random() - 0.5);
+  const shuffled = [...pagePool].sort((left, right) => {
+    const score = (text: string) => {
+      const normalized = text.replace(/\s+/gu, " ");
+      const reasoning = (normalized.match(/(?:係指|要件|判斷|原則|例外|因此|故|理由|應先|其次|是否|法律效果)/gu) ?? []).length;
+      const weak = (normalized.match(/(?:版權頁|空白頁|本頁故意留白)/gu) ?? []).length;
+      return reasoning * 3 - weak * 20 + Math.random() * 10;
+    };
+    return score(right.text) - score(left.text);
+  });
   let chosen: { sample: (typeof pagePool)[number]; sourceText: string; question: string; answerAnchor: string; questionKind: TestQuestionKind } | null = null;
-  for (const sample of shuffled.slice(0, Math.min(3, shuffled.length))) {
+  for (const sample of shuffled.slice(0, Math.min(5, shuffled.length))) {
     const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 3200);
     try {
       const payload = await openAIJson("/responses", {
         method: "POST",
         body: JSON.stringify({
           model: "gpt-5.6-luna",
-          instructions: `你是教材真實演練出題員。只能依提供的單頁教材原文出題，不得使用一般法律知識補足本頁沒有寫出的內容。
+          instructions: `你是具備臺灣行政法訓練的教材真實演練出題員。只能依提供的單頁教材原文出題，不得使用一般法律知識補足本頁沒有寫出的內容。
 
 先判斷頁面性質：
 1. case_facts：案例人物、函文、處分或事件事實。只能詢問本頁明載的具體事實、行為或文件。
 2. issue_prompt：頁面主要列出待作答問題或爭點。只能詢問本頁要求分析哪個爭點，不得要求回答尚未出現的法律結論。
 3. explanation：頁面已經出現規則、判準、理由或結論。只有這類頁面才能詢問概念、要件、層次或判斷方法。
 
-產生一個學生會自然詢問、而且完全能由本頁回答的問題。不得提到頁碼、抽樣、測試或「依原文」。answerAnchor 必須是本頁連續逐字出現、8至50字、能直接回答問題的核心原句；不得只是章節標題，也不得把完整 answerAnchor 直接寫進問題。`,
+usable 只有在本頁具有足以形成完整問題與答案的內容時才能為 true；若只有章節標題、頁尾、空白、殘句，或答案明顯要到其他頁才會出現，必須回傳 false，系統會自動改抽別頁。
+
+usable=true 時，產生一個學生會自然詢問、而且完全能由本頁回答的專業問題。優先詢問法律爭點、判斷順序、規則與例外、理由、法律效果，或案例事實如何形成爭議；避免只問名詞抄寫或簡單是非題。案例題幹頁不得要求作出本頁尚未提供的最終法律結論。不得提到抽樣、測試或「依原文」。answerAnchor 必須是本頁連續逐字出現、8至50字、能直接回答問題的核心原句；不得只是章節標題，也不得把完整 answerAnchor 直接寫進問題。`,
           input: `教材單頁原文：\n${sourceText}`,
           text: { format: { type: "json_schema", name: "pengli_random_book_test", strict: true, schema: {
             type: "object", additionalProperties: false,
             properties: {
+              usable: { type: "boolean" },
               questionKind: { type: "string", enum: ["case_facts", "issue_prompt", "explanation"] },
-              question: { type: "string", minLength: 12, maxLength: 120 },
-              answerAnchor: { type: "string", minLength: 8, maxLength: 50 },
+              question: { type: "string", minLength: 0, maxLength: 120 },
+              answerAnchor: { type: "string", minLength: 0, maxLength: 50 },
             },
-            required: ["questionKind", "question", "answerAnchor"],
+            required: ["usable", "questionKind", "question", "answerAnchor"],
           } } },
           max_output_tokens: 300,
         }),
       }) as Record<string, unknown>;
-      const generated = JSON.parse(outputText(payload)) as { questionKind?: TestQuestionKind; question?: string; answerAnchor?: string };
+      const generated = JSON.parse(outputText(payload)) as { usable?: boolean; questionKind?: TestQuestionKind; question?: string; answerAnchor?: string };
+      if (generated.usable !== true) continue;
       const candidate = String(generated.question ?? "").trim();
       const answerAnchor = String(generated.answerAnchor ?? "").replace(/\s+/gu, " ").trim();
       const questionKind = generated.questionKind;
@@ -173,9 +185,11 @@ export async function POST(request: Request) {
     if (!answerAnchor) return Response.json({ error: "抽樣頁面暫時沒有可形成問題的正文。" }, { status: 409 });
     chosen = { sample, sourceText, answerAnchor, questionKind: "case_facts", question: "這一頁記載的具體事實或待判斷爭點是什麼？請先說明本頁確實寫出的內容。" };
   }
+  const bookPageLabel = `${selectedThemeIndex + 1}-${chosen.sample.page - mapped.pdfStartPage + 1}`;
   return Response.json({
-    question: chosen.question,
+    question: `書內第 ${bookPageLabel} 頁，${chosen.question}`,
     questionKind: chosen.questionKind,
+    bookPageLabel,
     expectedPage: chosen.sample.page,
     expectedPageEnd: chosen.sample.pageEnd,
     answerAnchor: chosen.answerAnchor,
