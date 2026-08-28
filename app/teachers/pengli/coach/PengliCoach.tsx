@@ -24,7 +24,7 @@ type CoachMessage = {
     sourceExcerpt: string;
   };
 };
-type BookTestMeta = { expectedPage: number; bookPageLabel: string; answerAnchor: string; questionKind: "case_facts" | "issue_prompt" | "explanation"; sourceExcerpt: string };
+type BookTestMeta = { expectedPage: number; bookPageLabel: string; answerAnchor: string; questionKind: "case_facts" | "issue_prompt" | "explanation"; sourceExcerpt: string; issueTitle: string; bodyRole: string };
 type Usage = {
   inputTokens: number;
   cachedTokens: number;
@@ -193,6 +193,9 @@ export default function PengliCoach() {
         topic: activeTopic || undefined,
         pageHint: bookTest?.expectedPage || undefined,
         testAnswerAnchor: bookTest?.answerAnchor || undefined,
+        testIssueTitle: bookTest?.issueTitle || undefined,
+        testBodyRole: bookTest?.bodyRole || undefined,
+        testSourceExcerpt: bookTest?.sourceExcerpt || undefined,
         boundaryTest: continuesBoundaryTest,
         boundaryQuestion,
       }),
@@ -231,12 +234,15 @@ export default function PengliCoach() {
       questionKind: bookTest.questionKind,
       sourceExcerpt: bookTest.sourceExcerpt,
     } : undefined;
+    const displayedReply = testVerification && !testVerification.passed
+      ? "這次回答沒有通過書頁核對，我先不顯示錯誤內容。請再按一次「學霸照書問」重新抽頁。"
+      : data.reply!;
     setMessages((current) => [
       ...current,
       {
         id: crypto.randomUUID(),
         role: "coach",
-        text: data.reply!,
+        text: displayedReply,
         source: data.source,
         evidenceMissing: data.evidenceMissing ? { question: data.missingQuestion || next.at(-1)?.text || "" } : undefined,
         testVerification,
@@ -287,9 +293,9 @@ export default function PengliCoach() {
       const testedPages = messages.flatMap((message) => message.testVerification?.expectedPage ? [message.testVerification.expectedPage] : []).slice(-24);
       const testedQuestions = messages.filter((message) => message.role === "student" && /^書內第\s*[1-8]-\d+\s*頁/u.test(message.text)).map((message) => message.text).slice(-24);
       const response = await fetch("/api/teachers/pengli/random-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic: activeTopic || undefined, excludedPages: testedPages, excludedQuestions: testedQuestions }) });
-      const data = await response.json() as { question?: string; questionKind?: "case_facts" | "issue_prompt" | "explanation"; expectedPage?: number; bookPageLabel?: string; answerAnchor?: string; sourceExcerpt?: string; error?: string };
+      const data = await response.json() as { question?: string; questionKind?: "case_facts" | "issue_prompt" | "explanation"; expectedPage?: number; bookPageLabel?: string; answerAnchor?: string; sourceExcerpt?: string; issueTitle?: string; bodyRole?: string; error?: string };
       if (!response.ok || !data.question || !data.questionKind || !data.expectedPage || !data.bookPageLabel || !data.answerAnchor) throw new Error(data.error || "無法產生書頁驗證題目。");
-      await ask(data.question, { expectedPage: data.expectedPage, bookPageLabel: data.bookPageLabel, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "" }, "scholar", "學霸照教材提問（學生角色）");
+      await ask(data.question, { expectedPage: data.expectedPage, bookPageLabel: data.bookPageLabel, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "", issueTitle: data.issueTitle ?? "", bodyRole: data.bodyRole ?? "考點正文" }, "scholar", "學霸照教材提問（學生角色）");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "無法產生書頁驗證題目。");
     } finally {
