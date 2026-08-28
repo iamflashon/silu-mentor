@@ -46,6 +46,21 @@ export async function grantAiAccess(db: Db, input:{memberId:number;quota:number;
   return created;
 }
 
+export async function grantOrExtendAiAccess(db: Db, input:{memberId:number;quota:number;durationDays:number;source:string;referenceId:string;note:string}) {
+  const now=new Date();
+  const quota=Math.max(1,Math.floor(input.quota));
+  const durationDays=Math.max(1,Math.floor(input.durationDays));
+  const [existing]=await db.select().from(aiAccessEntitlements).where(and(eq(aiAccessEntitlements.memberId,input.memberId),eq(aiAccessEntitlements.status,"active"),gt(aiAccessEntitlements.expiresAt,now))).orderBy(desc(aiAccessEntitlements.expiresAt)).limit(1);
+  if(existing){
+    const expiresAt=new Date(existing.expiresAt.getTime()+durationDays*86400000);
+    const [updated]=await db.update(aiAccessEntitlements).set({quotaTotal:sql`${aiAccessEntitlements.quotaTotal} + ${quota}`,expiresAt,source:input.source,referenceId:input.referenceId,note:input.note,updatedAt:now}).where(eq(aiAccessEntitlements.id,existing.id)).returning();
+    return updated;
+  }
+  const expiresAt=new Date(now.getTime()+durationDays*86400000);
+  const [created]=await db.insert(aiAccessEntitlements).values({memberId:input.memberId,status:"active",source:input.source,quotaTotal:quota,quotaUsed:0,startsAt:now,expiresAt,referenceId:input.referenceId,note:input.note}).returning();
+  return created;
+}
+
 export async function consumeAiAccess(db: Db, input:{memberId:number;action:string;description:string;requestKey?:string;quantity?:number}) {
   const requestKey=(input.requestKey||crypto.randomUUID()).slice(0,120);
   const quantity=Math.max(1,Math.min(20,Math.floor(input.quantity??1)));
