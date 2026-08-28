@@ -100,7 +100,10 @@ export default function PengliCoach() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
+  const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
+  const [aiPlanEnabled, setAiPlanEnabled] = useState(false);
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
+  const [bookVerificationVisible, setBookVerificationVisible] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
   const [activeTopic, setActiveTopic] = useState("");
   const [topicLocation, setTopicLocation] = useState<{ pageStart: number; pageEnd?: number | null } | null>(null);
@@ -155,12 +158,18 @@ export default function PengliCoach() {
     void fetch("/api/ai-access", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : null))
       .then((data) => {
-        if (data?.aiAccess)
-          setAccess({
+        if (data?.aiAccess) {
+          const nextAccess = {
             remaining: data.aiAccess.remaining,
-          });
-        if (data?.plan)
+          };
+          setAccess(nextAccess);
+          if (data?.plan?.enabled === true && nextAccess.remaining === 0) setQuotaDialogOpen(true);
+        }
+        if (data?.plan) {
+          setAiPlanEnabled(data.plan.enabled === true);
           setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
+          setBookVerificationVisible(data.plan.pengliBookVerificationEnabled !== false);
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -186,6 +195,21 @@ export default function PengliCoach() {
     `「${activeTopic}」最常見的申論爭點有哪些？`,
     `請從「${activeTopic}」出一題帶我逐步判斷。`,
   ] : [];
+
+  function requireAiUse(required = 1) {
+    if (aiPlanEnabled && access?.remaining != null && access.remaining < required) {
+      setQuotaDialogOpen(true);
+      setError("");
+      return false;
+    }
+    return true;
+  }
+
+  function applyAccess(nextAccess?: Access) {
+    if (!nextAccess) return;
+    setAccess(nextAccess);
+    if (nextAccess.remaining === 0) setQuotaDialogOpen(true);
+  }
 
   async function requestCoach(next: CoachMessage[], bookTest?: BookTestMeta) {
     const latestQuestion = next.at(-1)?.text ?? "";
@@ -226,7 +250,10 @@ export default function PengliCoach() {
       testVerified?: boolean;
     };
     if (!response.ok || !data.reply) {
-      if (data.purchaseUrl) window.location.href = "/teachers/pengli/ai-access";
+      if (data.purchaseUrl) {
+        setAccess({ remaining: 0 });
+        setQuotaDialogOpen(true);
+      }
       throw new Error(data.error || "彭狸 AI 教練目前無法回答。");
     }
     const citedPage = Number(data.source?.match(/PDF 第\s*(\d+)/u)?.[1] ?? 0) || null;
@@ -265,12 +292,13 @@ export default function PengliCoach() {
       },
     ]);
     setUsage(data.usage || null);
-    if (data.access) setAccess(data.access);
+    applyAccess(data.access);
   }
 
   async function ask(text: string, bookTest?: BookTestMeta, role: "student" | "scholar" = "student", source?: string) {
     const question = text.trim();
     if (!question || thinking || scholarThinking) return;
+    if (!requireAiUse()) return;
     const quoted = replyTarget
       ? `針對這段回覆：「${replyTarget.text.slice(0, 240)}」\n\n${question}`
       : question;
@@ -303,6 +331,7 @@ export default function PengliCoach() {
 
   async function runBookContentTest() {
     if (thinking || scholarThinking || bookTestLoading) return;
+    if (!requireAiUse()) return;
     setBookTestLoading(true);
     setError("");
     try {
@@ -334,6 +363,7 @@ export default function PengliCoach() {
 
   async function askScholarFollowUp() {
     if (thinking || scholarThinking) return;
+    if (!requireAiUse()) return;
     const target = latestPassedBookTest;
     if (!target) {
       setError("請先按「學霸照書問」，完成一次書頁核對後才能繼續追問。");
@@ -372,8 +402,10 @@ export default function PengliCoach() {
         purchaseUrl?: string;
       };
       if (!response.ok || !data.scholarFollowUp) {
-        if (data.purchaseUrl)
-          window.location.href = "/teachers/pengli/ai-access";
+        if (data.purchaseUrl) {
+          setAccess({ remaining: 0 });
+          setQuotaDialogOpen(true);
+        }
         throw new Error(data.error || "學霸目前無法繼續追問。");
       }
       const next = [
@@ -450,7 +482,7 @@ export default function PengliCoach() {
         sources: data.sources || [],
         searchTrace: data.searchTrace,
       });
-      if (data.access) setAccess(data.access);
+      applyAccess(data.access);
     } catch (cause) {
       setDoubtError(cause instanceof DOMException && cause.name === "AbortError"
         ? "官方資料查證逾時，此次沒有計入使用次數。請縮短疑問後再試一次。"
@@ -624,18 +656,23 @@ export default function PengliCoach() {
                 </small>
                 <p>{message.text}</p>
                 {message.source && <span>（根據《{message.source}）</span>}
-                {message.testVerification && (
-                  <div className={`pengli-book-test-result ${message.testVerification.passed ? "pass" : "fail"}`}>
-                    <strong>{message.testVerification.passed ? "✓ 頁碼、搜尋與回答內容全部通過" : "⚠ 書頁內容驗證未完全通過"}</strong>
-                    <span>抽問頁碼：{message.testVerification.bookPageLabel ? `書內第 ${message.testVerification.bookPageLabel} 頁 ↔ ` : ""}PDF 第 {message.testVerification.expectedPage} 頁</span>
-                    <span>{message.testVerification.pageMatched ? "✓" : "✕"} 搜尋頁面：原始 PDF 第 {message.testVerification.expectedPage} 頁 → {message.testVerification.retrievedPages[0] ? `命中第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
-                    <span>{message.testVerification.citationMatched ? "✓" : "✕"} 系統引用：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
-                    <span>{message.testVerification.contentMatched ? "✓" : "✕"} 回答內容：{message.testVerification.contentMatched ? "包含本頁可核對答案" : "未包含本頁可核對答案"}</span>
-                    <span>其他候選頁：{message.testVerification.retrievedPages.slice(1).length ? message.testVerification.retrievedPages.slice(1).map((page) => `第 ${page} 頁`).join("、") : "無"}</span>
-                    <small>題型：{message.testVerification.questionKind === "explanation" ? "解題說明" : message.testVerification.questionKind === "issue_prompt" ? "待分析爭點" : "案例事實"}</small>
-                    <small>核對答案原文：{message.testVerification.answerAnchor}</small>
-                    <details><summary>查看抽樣頁原文</summary><p>{message.testVerification.sourceExcerpt}</p></details>
-                  </div>
+                {bookVerificationVisible && message.testVerification && (
+                  <details className={`pengli-book-test-result ${message.testVerification.passed ? "pass" : "fail"}`}>
+                    <summary>
+                      <strong>{message.testVerification.passed ? "✓ 書頁內容核對通過" : "⚠ 書頁內容驗證未完全通過"}</strong>
+                      <small>點擊查看核對內容</small>
+                    </summary>
+                    <div className="pengli-book-test-result-body">
+                      <span>抽問頁碼：{message.testVerification.bookPageLabel ? `書內第 ${message.testVerification.bookPageLabel} 頁 ↔ ` : ""}PDF 第 {message.testVerification.expectedPage} 頁</span>
+                      <span>{message.testVerification.pageMatched ? "✓" : "✕"} 搜尋頁面：原始 PDF 第 {message.testVerification.expectedPage} 頁 → {message.testVerification.retrievedPages[0] ? `命中第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
+                      <span>{message.testVerification.citationMatched ? "✓" : "✕"} 系統引用：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
+                      <span>{message.testVerification.contentMatched ? "✓" : "✕"} 回答內容：{message.testVerification.contentMatched ? "包含本頁可核對答案" : "未包含本頁可核對答案"}</span>
+                      <span>其他候選頁：{message.testVerification.retrievedPages.slice(1).length ? message.testVerification.retrievedPages.slice(1).map((page) => `第 ${page} 頁`).join("、") : "無"}</span>
+                      <small>題型：{message.testVerification.questionKind === "explanation" ? "解題說明" : message.testVerification.questionKind === "issue_prompt" ? "待分析爭點" : "案例事實"}</small>
+                      <small>核對答案原文：{message.testVerification.answerAnchor}</small>
+                      <details><summary>查看抽樣頁原文</summary><p>{message.testVerification.sourceExcerpt}</p></details>
+                    </div>
+                  </details>
                 )}
                 {message.role === "coach" && message.evidenceMissing && (
                   <nav className="pengli-missing-actions">
@@ -660,16 +697,18 @@ export default function PengliCoach() {
                     >
                       ↩ 針對這段追問
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDoubtTarget(message);
-                        setDoubtText("");
-                        setVerification(null);
-                      }}
-                    >
-                      ？ 我有疑問
-                    </button>
+                    {!message.testVerification?.passed && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDoubtTarget(message);
+                          setDoubtText("");
+                          setVerification(null);
+                        }}
+                      >
+                        ？ 我有疑問
+                      </button>
+                    )}
                   </nav>
                 )}
               </div>
@@ -855,6 +894,20 @@ export default function PengliCoach() {
           <small>AI 使用次數剩餘 {access?.remaining ?? "—"} 次</small>
         </footer>
       </div>
+      {quotaDialogOpen && (
+        <div className="pengli-quota-overlay" role="presentation">
+          <section className="pengli-quota-dialog" role="dialog" aria-modal="true" aria-labelledby="pengli-quota-title">
+            <b className="pengli-quota-zero" aria-hidden="true">0</b>
+            <span>AI 使用次數已用完</span>
+            <h2 id="pengli-quota-title">需要補充次數才能繼續提問</h2>
+            <p>目前不會再送出問題，也不會產生額外扣次。購買次數或輸入兌換碼後，就能接著目前的對話繼續學習。</p>
+            <div>
+              <a href="/teachers/pengli/ai-access">購買／輸入兌換碼</a>
+              <button type="button" onClick={() => setQuotaDialogOpen(false)}>稍後再說</button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

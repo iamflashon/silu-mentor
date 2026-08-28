@@ -4,9 +4,9 @@ import { aiAccessEntitlements, aiAccessLedger, appSettings } from "../db/schema"
 
 export const AI_ACCESS_SETTINGS_KEY = "ai_access_admin_v1";
 export type Db = Awaited<ReturnType<typeof getDb>>;
-export type AiPlan = { enabled:boolean; lawScholarReflectionEnabled:boolean; pengliScholarReflectionEnabled:boolean; scholarAssistEnabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; promoEnabled:boolean; promoBonusQuota:number; promoStartsAt:string; promoEndsAt:string; promoFirstPurchaseOnly:boolean; autoRenew:false; categories:string[]; notes:string };
+export type AiPlan = { enabled:boolean; lawScholarReflectionEnabled:boolean; pengliScholarReflectionEnabled:boolean; scholarAssistEnabled:boolean; pengliBookVerificationEnabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; promoEnabled:boolean; promoBonusQuota:number; promoStartsAt:string; promoEndsAt:string; promoFirstPurchaseOnly:boolean; autoRenew:false; categories:string[]; notes:string };
 
-export const DEFAULT_AI_PLAN: AiPlan = { enabled:false, lawScholarReflectionEnabled:true, pengliScholarReflectionEnabled:true, scholarAssistEnabled:true, name:"AI 使用方案｜30 天 30 次", price:30, quota:30, durationDays:30, coachRounds:1, promoEnabled:true, promoBonusQuota:20, promoStartsAt:"2026-08-27T00:00:00+08:00", promoEndsAt:"2026-09-26T23:59:59+08:00", promoFirstPurchaseOnly:true, autoRenew:false, categories:["law","pengli","accounting","medtech","data-structure"], notes:"" };
+export const DEFAULT_AI_PLAN: AiPlan = { enabled:false, lawScholarReflectionEnabled:true, pengliScholarReflectionEnabled:true, scholarAssistEnabled:true, pengliBookVerificationEnabled:true, name:"AI 使用方案｜30 天 30 次", price:30, quota:30, durationDays:30, coachRounds:1, promoEnabled:true, promoBonusQuota:20, promoStartsAt:"2026-08-27T00:00:00+08:00", promoEndsAt:"2026-09-26T23:59:59+08:00", promoFirstPurchaseOnly:true, autoRenew:false, categories:["law","pengli","accounting","medtech","data-structure"], notes:"" };
 
 export function aiPurchaseOffer(plan:AiPlan,hasPurchased:boolean,now=new Date()){
   const starts=plan.promoStartsAt?new Date(plan.promoStartsAt):null,ends=plan.promoEndsAt?new Date(plan.promoEndsAt):null;
