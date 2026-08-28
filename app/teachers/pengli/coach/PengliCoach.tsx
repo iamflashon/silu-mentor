@@ -177,6 +177,13 @@ export default function PengliCoach() {
   ] : [];
 
   async function requestCoach(next: CoachMessage[], bookTest?: BookTestMeta) {
+    const latestQuestion = next.at(-1)?.text ?? "";
+    const refersToPreviousQuestion = /這題|這個問題|上述|上題|剛才|前面|考點破解|怎麼寫|怎麼答|怎麼解/u.test(latestQuestion);
+    const continuesBoundaryTest = next.at(-1)?.source === "學霸越界測試（學生角色）"
+      || (refersToPreviousQuestion && next.slice(-4, -1).some((message) => message.source === "學霸越界測試（學生角色）"));
+    const boundaryQuestion = continuesBoundaryTest
+      ? [...next].reverse().find((message) => message.source === "學霸越界測試（學生角色）")?.text
+      : undefined;
     const response = await fetch("/api/teachers/pengli/coach", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -186,7 +193,8 @@ export default function PengliCoach() {
         topic: activeTopic || undefined,
         pageHint: bookTest?.expectedPage || undefined,
         testAnswerAnchor: bookTest?.answerAnchor || undefined,
-        boundaryTest: next.at(-1)?.source === "學霸越界測試（學生角色）",
+        boundaryTest: continuesBoundaryTest,
+        boundaryQuestion,
       }),
     });
     const data = (await response.json()) as {
