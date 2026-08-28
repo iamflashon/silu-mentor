@@ -25,6 +25,11 @@ function isShortHelpReply(text: string) {
   return /^(我)?(不知道|不會|不懂|沒想法|想不到|請提示|給我提示|可以提示嗎)[。！!？?\s]*$/u.test(text.trim());
 }
 
+function clearlyOutsidePengliScope(text: string) {
+  const normalized = text.normalize("NFKC");
+  return /出師表|唐詩|宋詞|國文作文|會計分錄|折舊費用|借貸平衡|合併報表|血液檢驗|血球分類|抗原抗體|英文文法|二次方程式|微積分|Python|食譜|天氣預報|共同正犯|殺人罪|竊盜罪|刑事訴訟法/u.test(normalized);
+}
+
 function outputText(payload: Record<string, unknown>) {
   if (typeof payload.output_text === "string") return payload.output_text.trim();
   const output = Array.isArray(payload.output) ? payload.output : [];
@@ -629,6 +634,12 @@ export async function POST(request: Request) {
         ? [{ role: "student", text: latestStudentText }]
         : rawMessages.slice(-1);
     const searchText = searchMessages.map((message) => String(message.text ?? "")).filter(Boolean).join(" ");
+    if (body.mode !== "plain-explain" && clearlyOutsidePengliScope(searchText)) return Response.json({
+      reply: "這個問題不屬於彭狸老師行政法教材範圍，我先不回答，避免把其他科目或模型的一般知識混進教材學習。請改問行政法問題，或回到對應的科目專區；這次不扣使用次數。",
+      source: "超出行政法教材範圍｜已拒絕回答",
+      outOfScope: true,
+      retrievedPages: [],
+    }, { headers: { "Cache-Control": "no-store" } });
     const pageHint = Number(body.pageHint ?? 0);
     const evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
     if (evidence.navigationPage) return Response.json({

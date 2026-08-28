@@ -237,7 +237,7 @@ export default function PengliCoach() {
     if (data.access) setAccess(data.access);
   }
 
-  async function ask(text: string, bookTest?: BookTestMeta) {
+  async function ask(text: string, bookTest?: BookTestMeta, role: "student" | "scholar" = "student", source?: string) {
     const question = text.trim();
     if (!question || thinking || scholarThinking) return;
     const quoted = replyTarget
@@ -245,8 +245,9 @@ export default function PengliCoach() {
       : question;
     const studentMessage = {
       id: crypto.randomUUID(),
-      role: "student" as const,
+      role,
       text: question,
+      source,
       replyTo: replyTarget
         ? { id: replyTarget.id, excerpt: replyTarget.text.slice(0, 120) }
         : undefined,
@@ -279,12 +280,25 @@ export default function PengliCoach() {
       const response = await fetch("/api/teachers/pengli/random-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic: activeTopic || undefined, excludedPages: testedPages, excludedQuestions: testedQuestions }) });
       const data = await response.json() as { question?: string; questionKind?: "case_facts" | "issue_prompt" | "explanation"; expectedPage?: number; bookPageLabel?: string; answerAnchor?: string; sourceExcerpt?: string; error?: string };
       if (!response.ok || !data.question || !data.questionKind || !data.expectedPage || !data.bookPageLabel || !data.answerAnchor) throw new Error(data.error || "無法產生書頁驗證題目。");
-      await ask(data.question, { expectedPage: data.expectedPage, bookPageLabel: data.bookPageLabel, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "" });
+      await ask(data.question, { expectedPage: data.expectedPage, bookPageLabel: data.bookPageLabel, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "" }, "scholar", "學霸照教材提問（學生角色）");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "無法產生書頁驗證題目。");
     } finally {
       setBookTestLoading(false);
     }
+  }
+
+  async function runBoundaryTest() {
+    const questions = [
+      "請說明《出師表》的主旨與作者情感。",
+      "請幫我作一筆機器設備折舊的會計分錄。",
+      "血液檢驗中的白血球分類應如何判讀？",
+      "刑法共同正犯的犯意聯絡要如何認定？",
+      "行政程序法第999條是否規定元宇宙行政處分的效力？",
+      "行政機關用區塊鏈發出虛擬許可證，是否必然屬於本書所稱的行政處分？",
+    ];
+    const question = questions[Math.floor(Math.random() * questions.length)];
+    await ask(question, undefined, "scholar", "學霸越界測試（學生角色）");
   }
 
   async function askScholarToAnswer() {
@@ -738,32 +752,40 @@ export default function PengliCoach() {
               </button>
             </div>
           )}
-          {scholarAssistEnabled && (
+          <div className="pengli-coach-test-tools">
+            {scholarAssistEnabled && (
+              <button
+                type="button"
+                className="pengli-scholar-button"
+                title="示範判斷、說明思路並反問老師"
+                onClick={() => void askScholarToAnswer()}
+                disabled={thinking || scholarThinking || !messages.some((message) => message.role === "coach")}
+              >
+                <b>霸</b>
+                <span>學霸怎麼想？</span>
+              </button>
+            )}
             <button
               type="button"
-              className="pengli-scholar-button"
-              title="示範判斷、說明思路並反問老師"
-              onClick={() => void askScholarToAnswer()}
-              disabled={
-                thinking ||
-                scholarThinking ||
-                !messages.some((message) => message.role === "coach")
-              }
+              className="pengli-book-test-button"
+              title="由學霸抽取目前主題的教材頁面提問"
+              onClick={() => void runBookContentTest()}
+              disabled={thinking || scholarThinking || bookTestLoading}
             >
-              <b>霸</b>
-              <span>學霸怎麼想？</span>
+              <b>書</b>
+              <span>{bookTestLoading ? "抽頁中…" : "學霸照書問"}</span>
             </button>
-          )}
-          <button
-            type="button"
-            className="pengli-book-test-button"
-            title="隨機抽取教材頁面，走一次完整搜尋與回答流程"
-            onClick={() => void runBookContentTest()}
-            disabled={thinking || scholarThinking || bookTestLoading}
-          >
-            <b>驗</b>
-            <span>{bookTestLoading ? "抽題中…" : "書頁內容測試"}</span>
-          </button>
+            <button
+              type="button"
+              className="pengli-boundary-test-button"
+              title="隨機提出非本科或教材未收錄的混淆問題，測試拒答與查證流程"
+              onClick={() => void runBoundaryTest()}
+              disabled={thinking || scholarThinking || bookTestLoading}
+            >
+              <b>界</b>
+              <span>學霸越界問</span>
+            </button>
+          </div>
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
