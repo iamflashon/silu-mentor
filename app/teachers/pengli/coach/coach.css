@@ -14,6 +14,7 @@
 .pengli-book-test-result.fail{border-color:#d8b77e;background:#fff7e8;color:#79551d}
 .pengli-book-test-result strong,.pengli-book-test-result span,.pengli-book-test-result small{display:block;margin:0;padding:0;border:0;color:inherit}
 .pengli-book-test-result details{margin-top:2px}.pengli-book-test-result summary{cursor:pointer;font-size:9px;font-weight:800}.pengli-book-test-result p{margin-top:7px!important;padding:8px;border-radius:7px;background:rgba(255,255,255,.72);font-size:10px!important}
+.pengli-page-lock{display:grid;gap:6px;padding:10px;border:1px solid rgba(217,184,121,.45);border-radius:9px;background:rgba(255,255,255,.07)}.pengli-page-lock small{color:#e4c88f;font-size:9px;font-weight:850}.pengli-page-lock>span{display:grid;grid-template-columns:1fr auto;gap:5px;padding:0;background:transparent}.pengli-page-lock input{min-width:0;padding:7px 8px;border:1px solid rgba(255,255,255,.22);border-radius:6px;color:#173349;background:#fff;font:inherit;font-size:11px}.pengli-page-lock button{padding:6px 8px;border:1px solid rgba(255,255,255,.22);border-radius:6px;color:#fff;background:transparent;font:inherit;font-size:9px;cursor:pointer}.pengli-page-lock em{color:#aebfc9;font-size:8px;font-style:normal;line-height:1.5}
 @media(max-width:760px){.pengli-scholar-button{padding:5px!important;font-size:9px!important}.pengli-scholar-button b{width:22px;height:22px;font-size:10px}.pengli-coach-composer{grid-template-columns:1fr 108px;grid-template-rows:auto 1fr}}
 
 /* 固定聊天工作區：頁面不再隨訊息向下增高，只有訊息串捲動。 */

@@ -31,25 +31,45 @@ function themeStart(records: Array<{ page: number; text: string }>, title: strin
 
 const anchorKeywords = ["行政法", "行政罰", "行政處分", "法律保留", "明確性", "裁量", "義務", "責任", "要件", "法律效果", "不利處分", "救濟", "訴願", "訴訟", "原則", "標準", "模式", "路徑"];
 
+function isSubstantivePage(text: string) {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  const themeCount = themeTitles.filter((title) => normalized.includes(title)).length;
+  const sentenceCount = (normalized.match(/[。；！？]/gu) ?? []).length;
+  const navigationSignals = (normalized.match(/(?:目錄|contents|第[一二三四五六七八九十\d]+章|PDF\s*第?\s*\d+\s*頁)/giu) ?? []).length;
+  return normalized.length >= 420 && sentenceCount >= 3 && themeCount <= 2 && navigationSignals <= 4;
+}
+
 function exactAnchorCandidates(sourceText: string) {
   const candidates = new Set<string>();
-  for (const match of sourceText.matchAll(/[「『]([^」』]{4,18})[」』]/gu)) candidates.add(match[1].trim());
+  for (const match of sourceText.matchAll(/[「『]([^」』]{8,32})[」』]/gu)) candidates.add(match[1].trim());
+  for (const clause of sourceText.split(/[。；！？]/u)) {
+    const cleaned = clause.replace(/^[\s\d一二三四五六七八九十、.)（）]+/u, "").trim();
+    if (cleaned.length >= 12) {
+      if (cleaned.length <= 32) candidates.add(cleaned);
+      for (const keyword of anchorKeywords) {
+        const index = cleaned.indexOf(keyword);
+        if (index < 0) continue;
+        const start = Math.max(0, Math.min(index - 8, cleaned.length - 26));
+        candidates.add(cleaned.slice(start, Math.min(cleaned.length, start + 26)));
+      }
+    }
+  }
   for (const match of sourceText.matchAll(/[\p{Script=Han}]{4,}/gu)) {
     const run = match[0];
-    if (run.length <= 18) candidates.add(run);
+    if (run.length >= 10 && run.length <= 28) candidates.add(run);
     for (const keyword of anchorKeywords) {
       const index = run.indexOf(keyword);
       if (index < 0) continue;
-      const start = Math.max(0, Math.min(index - 5, run.length - 14));
-      candidates.add(run.slice(start, Math.min(run.length, start + 14)));
+      const start = Math.max(0, Math.min(index - 7, run.length - 22));
+      candidates.add(run.slice(start, Math.min(run.length, start + 22)));
     }
   }
   return [...candidates]
     .map((value) => value.trim())
-    .filter((value) => value.length >= 4 && value.length <= 18 && sourceText.includes(value))
+    .filter((value) => value.length >= 10 && value.length <= 32 && sourceText.includes(value) && !themeTitles.includes(value))
     .sort((left, right) => {
-      const leftScore = anchorKeywords.filter((keyword) => left.includes(keyword)).length * 20 + Math.min(left.length, 14);
-      const rightScore = anchorKeywords.filter((keyword) => right.includes(keyword)).length * 20 + Math.min(right.length, 14);
+      const leftScore = anchorKeywords.filter((keyword) => left.includes(keyword)).length * 20 + Math.min(left.length, 24);
+      const rightScore = anchorKeywords.filter((keyword) => right.includes(keyword)).length * 20 + Math.min(right.length, 24);
       return rightScore - leftScore;
     });
 }
@@ -91,12 +111,18 @@ export async function POST(request: Request) {
   const selectedThemeIndex = themeIndex(requestedTopic);
   const startPage = selectedThemeIndex >= 0 ? themeStart(records, themeTitles[selectedThemeIndex]) : null;
   const nextPage = selectedThemeIndex >= 0 && selectedThemeIndex < themeTitles.length - 1 ? themeStart(records, themeTitles[selectedThemeIndex + 1]) : null;
-  const scoped = records.filter((record) => record.text.replace(/\s+/gu, " ").length >= 180 && (!startPage || record.page >= startPage) && (!nextPage || record.page < nextPage));
-  const sample = scoped[Math.floor(Math.random() * scoped.length)];
-  if (!sample) return Response.json({ error: "目前主題沒有可供抽樣的真實頁面內容。" }, { status: 409 });
-  const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 1800);
-  const anchors = exactAnchorCandidates(sourceText);
-  if (!anchors.length) return Response.json({ error: "這一頁沒有可供精準核對的原文短語，系統會在下次抽樣時略過。" }, { status: 409 });
+  const scoped = records.filter((record) => isSubstantivePage(record.text) && (!startPage || record.page >= startPage) && (!nextPage || record.page < nextPage));
+  const eligible = scoped.map((record) => {
+    const sourceText = record.text.replace(/\s+/gu, " ").trim().slice(0, 2400);
+    const anchors = exactAnchorCandidates(sourceText).filter((anchor) => {
+      const matchingPages = new Set(records.filter((item) => item.text.replace(/\s+/gu, " ").includes(anchor)).map((item) => item.page));
+      return matchingPages.size === 1;
+    });
+    return { record, sourceText, anchors };
+  }).filter((item) => item.anchors.length > 0);
+  const selected = eligible[Math.floor(Math.random() * eligible.length)];
+  if (!selected) return Response.json({ error: "目前主題沒有可供精準核對的正文頁面。" }, { status: 409 });
+  const { record: sample, sourceText, anchors } = selected;
   const anchorPool = anchors.slice(0, Math.min(12, anchors.length));
   const anchorPhrase = anchorPool[Math.floor(Math.random() * anchorPool.length)];
   let question = "";

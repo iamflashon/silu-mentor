@@ -58,6 +58,7 @@ export default function PengliCoach() {
   const [chatMaximized, setChatMaximized] = useState(false);
   const [activeTopic, setActiveTopic] = useState("");
   const [topicLocation, setTopicLocation] = useState<{ pageStart: number; pageEnd?: number | null } | null>(null);
+  const [currentPage, setCurrentPage] = useState("");
   const [replyTarget, setReplyTarget] = useState<CoachMessage | null>(null);
   const [doubtTarget, setDoubtTarget] = useState<CoachMessage | null>(null);
   const [doubtText, setDoubtText] = useState("");
@@ -87,6 +88,8 @@ export default function PengliCoach() {
             })),
         );
       const topic = new URLSearchParams(window.location.search).get("topic");
+      const savedPage = localStorage.getItem("pengli-current-pdf-page") || "";
+      if (/^\d{1,4}$/u.test(savedPage)) setCurrentPage(savedPage);
       if (topic) {
         setActiveTopic(topic);
         setInput(`我正在學「${topic}」，請先用一個問題帶我判斷。`);
@@ -133,6 +136,7 @@ export default function PengliCoach() {
         messages: next.slice(-12),
         requestKey: crypto.randomUUID(),
         topic: activeTopic || undefined,
+        pageHint: bookTest?.expectedPage || (Number(currentPage) > 0 ? Number(currentPage) : undefined),
       }),
     });
     const data = (await response.json()) as {
@@ -152,7 +156,7 @@ export default function PengliCoach() {
     const retrievedPages = (data.retrievedPages ?? []).filter((page) => Number.isFinite(page));
     const answerMentionsAnchor = bookTest ? data.reply.normalize("NFKC").replace(/\s+/gu, "").includes(bookTest.anchorPhrase.normalize("NFKC").replace(/\s+/gu, "")) : false;
     const testVerification = bookTest ? {
-      passed: retrievedPages[0] === bookTest.expectedPage && citedPage === bookTest.expectedPage,
+      passed: retrievedPages[0] === bookTest.expectedPage && citedPage === bookTest.expectedPage && answerMentionsAnchor,
       expectedPage: bookTest.expectedPage,
       citedPage,
       retrievedPages,
@@ -383,6 +387,11 @@ export default function PengliCoach() {
           <span>試學考點與解題脈絡</span>
           <span>老師提醒與作答架構</span>
         </div>
+        <label className="pengli-page-lock">
+          <small>我正在讀的教材 PDF 頁碼</small>
+          <span><input inputMode="numeric" pattern="[0-9]*" min="1" max="9999" value={currentPage} onChange={(event) => { const value = event.target.value.replace(/\D/gu, "").slice(0, 4); setCurrentPage(value); if (value) localStorage.setItem("pengli-current-pdf-page", value); else localStorage.removeItem("pengli-current-pdf-page"); }} placeholder="例如 236" /><button type="button" onClick={() => { setCurrentPage(""); localStorage.removeItem("pengli-current-pdf-page"); }}>不限頁</button></span>
+          <em>{currentPage ? `回答只使用 PDF 第 ${currentPage} 頁` : "未填時依目前主題與正文定位"}</em>
+        </label>
         <div className="pengli-coach-rule">
           <b>回答原則</b>
           <p>
@@ -473,12 +482,13 @@ export default function PengliCoach() {
                 {message.source && <span>（根據《{message.source}）</span>}
                 {message.testVerification && (
                   <div className={`pengli-book-test-result ${message.testVerification.passed ? "pass" : "fail"}`}>
-                    <strong>{message.testVerification.passed ? "✓ 真實頁碼、索引第一名與引用頁完全一致" : "⚠ 精準頁碼驗證未通過"}</strong>
+                    <strong>{message.testVerification.passed ? "✓ 原文、頁碼、回答內容完全一致" : "⚠ 精準教材驗證未通過"}</strong>
                     <span>原始逐頁檔：PDF 第 {message.testVerification.expectedPage} 頁</span>
                     <span>索引第一名：{message.testVerification.retrievedPages[0] ? `PDF 第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
                     <span>系統引用頁：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
                     <span>其他候選頁：{message.testVerification.retrievedPages.slice(1).length ? message.testVerification.retrievedPages.slice(1).map((page) => `第 ${page} 頁`).join("、") : "無"}</span>
                     <small>核對考點：{message.testVerification.anchorPhrase}</small>
+                    <small>回答包含原文考點：{message.testVerification.answerMentionsAnchor ? "是" : "否"}</small>
                     <details><summary>查看抽樣頁原文</summary><p>{message.testVerification.sourceExcerpt}</p></details>
                   </div>
                 )}

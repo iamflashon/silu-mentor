@@ -226,7 +226,7 @@ function coachParts(value: string) {
   };
 }
 
-async function pengliEvidence(query: string, scopeTopic = "") {
+async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
   const empty = (searchFailed = false) => ({
     documentId: null as number | null,
     title: "",
@@ -251,7 +251,7 @@ async function pengliEvidence(query: string, scopeTopic = "") {
 
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const normalizedScope = scopeTopic.normalize("NFKC").toLocaleLowerCase("zh-Hant");
-  const requestedPage = Number(normalized.match(/(?:pdf\s*)?第?\s*(\d{1,4})\s*頁/u)?.[1] ?? 0);
+  const requestedPage = Number(pageHint || normalized.match(/(?:pdf\s*)?第?\s*(\d{1,4})\s*頁/u)?.[1] || 0);
   const themeHints = [
     ["行政法理論基礎與行政組織法", /行政法理論基礎|行政組織法|原理原則/u, ["行政組織法", "原理原則"]],
     ["行政處分", /行政處分/u, ["行政處分"]],
@@ -295,29 +295,29 @@ async function pengliEvidence(query: string, scopeTopic = "") {
   if (/法律保留|443/u.test(normalized)) topicHints.push("法律保留原則", "層級化法律保留", "443");
   if (/明確性/u.test(normalized)) topicHints.push("明確性原則", "可理解", "可預見", "司法審查");
   if (/行政處分|外部性/u.test(normalized)) topicHints.push("行政處分", "外部性");
+  const quotedPhrases = [...normalized.matchAll(/[「『]([^」』]{4,36})[」』]/gu)].map((match) => match[1].trim());
   const longPhraseWindows = (normalized.match(/[\p{Script=Han}]{4,}/gu) ?? []).flatMap((phrase) => {
-    if (phrase.length <= 18) return [phrase];
+    if (phrase.length <= 28) return [phrase];
     const windows: string[] = [];
     for (let index = 0; index < phrase.length; index += 6) {
-      const window = phrase.slice(index, index + 14);
-      if (window.length >= 4) windows.push(window);
+      const window = phrase.slice(index, index + 22);
+      if (window.length >= 8) windows.push(window);
     }
     return windows;
   });
   const terms = [...new Set([
-    ...legalPhrases,
-    ...topicHints,
+    ...quotedPhrases,
     ...longPhraseWindows,
+    ...legalPhrases,
     ...normalized.split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
       .map((term) => term.replace(/^(我正在學|請先用|一個問題|帶我判斷|請問|老師)/u, "").trim())
-      .filter((term) => term.length >= 2 && term.length <= 18),
-  ])].slice(0, 8);
+      .filter((term) => term.length >= 2 && term.length <= 28),
+    ...topicHints,
+  ])].slice(0, 10);
   // D1 查詢只使用少量核心詞，避免學霸代答把整段對話展開成過長的 OR 條件。
   const conditions = terms.map((term) => or(
     like(documentSearchUnits.normalizedText, `%${term}%`),
     like(documentSearchUnits.text, `%${term}%`),
-    like(documentSearchUnits.title, `%${term}%`),
-    like(documentSearchUnits.hierarchyPath, `%${term}%`),
   ));
   const pageCondition = requestedPage > 0
     ? or(
@@ -349,10 +349,15 @@ async function pengliEvidence(query: string, scopeTopic = "") {
       const themeTitle = matchedTheme?.[0] ?? "";
       const heading = `${row.title} ${row.hierarchyPath}`.normalize("NFKC").toLocaleLowerCase("zh-Hant");
       const opening = row.text.slice(0, 260).normalize("NFKC").toLocaleLowerCase("zh-Hant");
+      const normalizedText = row.text.normalize("NFKC").toLocaleLowerCase("zh-Hant");
+      const otherThemeCount = themeTitleList.filter((item) => normalizedText.includes(item.toLocaleLowerCase("zh-Hant"))).length;
+      const navigationPenalty = /目錄|contents/iu.test(row.text) ? 240 : Math.max(0, otherThemeCount - 1) * 90;
       const score = (requestedPage > 0 && row.pageStart === requestedPage ? 200 : 0)
-        + terms.reduce((total, term, index) => total + (haystack.includes(term) ? Math.max(1, 10 - index) : 0), 0)
-        + (themeTitle && heading.includes(themeTitle) ? 80 : 0)
-        + (themeTitle && opening.includes(themeTitle) ? 35 : 0);
+        + terms.reduce((total, term, index) => total + (normalizedText.includes(term) ? Math.max(4, 40 - index * 3) + Math.min(term.length, 28) * 2 : haystack.includes(term) ? 2 : 0), 0)
+        + quotedPhrases.reduce((total, phrase) => total + (normalizedText.includes(phrase) ? 180 + phrase.length * 4 : 0), 0)
+        + (themeTitle && heading.includes(themeTitle) ? 12 : 0)
+        + (themeTitle && opening.includes(themeTitle) ? 8 : 0)
+        - navigationPenalty;
       return { row, score };
     })
     .sort((a, b) => b.score - a.score || (a.row.pageStart ?? 9999) - (b.row.pageStart ?? 9999))
@@ -396,7 +401,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number };
     if (body.mode === "scholar-assist" && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -509,7 +514,8 @@ export async function POST(request: Request) {
         ? [{ role: "student", text: latestStudentText }]
         : rawMessages.slice(-1);
     const searchText = searchMessages.map((message) => String(message.text ?? "")).filter(Boolean).join(" ");
-    const evidence = await pengliEvidence(searchText, String(body.topic ?? ""));
+    const pageHint = Number(body.pageHint ?? 0);
+    const evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
     const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
     const coachAiFallback = body.mode !== "plain-explain" && !evidence.rows.length;
     if (!evidence.rows.length && !plainAiFallback && body.mode === "plain-explain") return Response.json({
@@ -586,7 +592,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的索引頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${pageHint > 0 ? `學生已指定正在閱讀 PDF 第 ${Math.floor(pageHint)} 頁；只能回答本輪提供的該頁教材內容，若片段不足就明確請學生貼出該段，不得轉答其他頁。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的索引頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 500,
     }) }) as Record<string, unknown>;
