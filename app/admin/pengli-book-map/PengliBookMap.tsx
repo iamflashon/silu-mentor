@@ -21,7 +21,17 @@ export default function PengliBookMap() {
   const completed = useMemo(() => sections.filter((item) => item.pdfStartPage > 0 && item.pdfEndPage >= item.pdfStartPage).length, [sections]);
   const bookPage = selected?.sectionType === "body" && selected.pdfStartPage > 0 && page >= selected.pdfStartPage ? `${selected.sortOrder}-${page - selected.pdfStartPage + 1}` : "前置頁";
   const bookRange = (section: Section) => section.sectionType === "body" && section.pdfStartPage > 0 && section.pdfEndPage >= section.pdfStartPage ? `書頁 ${section.sortOrder}-1–${section.sortOrder}-${section.pdfEndPage - section.pdfStartPage + 1}` : "";
-  function update(index: number, key: "pdfStartPage" | "pdfEndPage", value: number) { setSections((rows) => rows.map((row, i) => i === index ? { ...row, [key]: Math.max(0, value), verified: false } : row)); }
+  function update(index: number, key: "pdfStartPage" | "pdfEndPage", value: number) {
+    const normalized = Math.max(0, value);
+    setSections((rows) => rows.map((row, i) => {
+      if (i === index) return { ...row, [key]: normalized, verified: false };
+      if (key === "pdfEndPage" && normalized > 0 && i === index + 1 && row.sectionType === "body") {
+        const nextStart = normalized + 1;
+        return { ...row, pdfStartPage: nextStart, pdfEndPage: row.pdfEndPage >= nextStart ? row.pdfEndPage : 0, verified: false };
+      }
+      return row;
+    }));
+  }
   function markStart() {
     setSections((rows) => rows.map((row, index) => index === active ? { ...row, pdfStartPage: page, pdfEndPage: row.pdfEndPage >= page ? row.pdfEndPage : 0, verified: false } : index === active - 1 && row.sectionType === "body" ? { ...row, pdfEndPage: page - 1, verified: false } : row));
   }

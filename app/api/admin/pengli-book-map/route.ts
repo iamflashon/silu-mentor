@@ -55,7 +55,7 @@ export async function PUT(request: Request) {
     const incoming = body.sections?.find((item) => item.sectionKey === template.sectionKey);
     const start = Math.max(0, Math.floor(Number(incoming?.pdfStartPage ?? template.pdfStartPage)));
     const end = Math.max(0, Math.floor(Number(incoming?.pdfEndPage ?? template.pdfEndPage)));
-    if ((start === 0) !== (end === 0) || (start > 0 && end < start)) throw new Error(`${template.title}的起訖頁不正確。`);
+    if ((end > 0 && start === 0) || (end > 0 && end < start)) throw new Error(`${template.title}的起訖頁不正確。`);
     return { documentId: selected.id, sectionKey: template.sectionKey, title: template.title, sectionType: template.sectionType, sortOrder: template.sortOrder, pdfStartPage: start, pdfEndPage: end, verified: start > 0 && end >= start, updatedAt: new Date() };
   });
   const completed = values.filter((item) => item.verified).sort((a, b) => a.pdfStartPage - b.pdfStartPage);
