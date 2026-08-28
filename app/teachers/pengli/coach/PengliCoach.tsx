@@ -753,18 +753,6 @@ export default function PengliCoach() {
             </div>
           )}
           <div className="pengli-coach-test-tools">
-            {scholarAssistEnabled && (
-              <button
-                type="button"
-                className="pengli-scholar-button"
-                title="示範判斷、說明思路並反問老師"
-                onClick={() => void askScholarToAnswer()}
-                disabled={thinking || scholarThinking || !messages.some((message) => message.role === "coach")}
-              >
-                <b>霸</b>
-                <span>學霸怎麼想？</span>
-              </button>
-            )}
             <button
               type="button"
               className="pengli-book-test-button"
