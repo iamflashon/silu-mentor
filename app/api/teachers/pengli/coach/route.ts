@@ -233,15 +233,17 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
     rows: [] as Array<{ pageStart: number | null; pageEnd: number | null; title: string; hierarchyPath: string; text: string }>,
     themeStartPage: null as number | null,
     themeEndPage: null as number | null,
+    requestedPage: 0,
+    sourceMode: "index" as "index" | "private_pdf_page",
     searchFailed,
   });
   try {
   const db = await getDb("primary");
-  const directBooks = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
+  const directBooks = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName, storageKey: documents.storageKey })
     .from(documents)
     .where(or(like(documents.fileName, "%59ML170502%"), like(documents.bookTitle, "%行政法考點%")))
     .orderBy(desc(documents.id)).limit(10);
-  const assignedBooks = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
+  const assignedBooks = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName, storageKey: documents.storageKey })
     .from(documentAssignments)
     .innerJoin(documents, eq(documents.id, documentAssignments.documentId))
     .where(and(eq(documentAssignments.examCategory, "pengli"), eq(documentAssignments.aiSearchEnabled, true)))
@@ -251,7 +253,42 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
 
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const normalizedScope = scopeTopic.normalize("NFKC").toLocaleLowerCase("zh-Hant");
-  const requestedPage = Number(pageHint || normalized.match(/(?:pdf\s*)?第?\s*(\d{1,4})\s*頁/u)?.[1] || 0);
+  const requestedPage = Number(normalized.match(/(?:pdf\s*)?第?\s*(\d{1,4})\s*頁/u)?.[1] || pageHint || 0);
+  if (requestedPage > 0) {
+    const sourceBooks = [...books].sort((left, right) => {
+      const leftScore = /59ML170502|行政法考點/iu.test(`${left.fileName} ${left.title}`) ? 1 : 0;
+      const rightScore = /59ML170502|行政法考點/iu.test(`${right.fileName} ${right.title}`) ? 1 : 0;
+      return rightScore - leftScore || right.id - left.id;
+    });
+    const { env } = await import("cloudflare:workers");
+    for (const book of sourceBooks) {
+      if (!/\.local-index\.jsonl$/iu.test(book.fileName) || !book.storageKey) continue;
+      const object = await env.BUCKET?.get(book.storageKey);
+      if (!object) continue;
+      const raw = new TextDecoder("utf-8", { fatal: false }).decode(await object.arrayBuffer()).replace(/^\uFEFF/u, "");
+      for (const [index, line] of raw.split(/\r?\n/u).entries()) {
+        try {
+          const record = JSON.parse(line) as { page_start?: unknown; page_end?: unknown; title?: unknown; hierarchy_path?: unknown; text?: unknown };
+          const pageStart = Number(record.page_start) || index + 1;
+          const pageEnd = Number(record.page_end) || pageStart;
+          if (requestedPage < pageStart || requestedPage > pageEnd || typeof record.text !== "string") continue;
+          const text = record.text.replace(/\\n/gu, "\n").trim();
+          if (!text) continue;
+          return {
+            documentId: book.id,
+            title: book.title || book.fileName || "行政法考點演習書（二版）｜彭狸",
+            rows: [{ pageStart: requestedPage, pageEnd: requestedPage, title: String(record.title ?? ""), hierarchyPath: String(record.hierarchy_path ?? record.title ?? ""), text }],
+            themeStartPage: null,
+            themeEndPage: null,
+            requestedPage,
+            sourceMode: "private_pdf_page" as const,
+            searchFailed: false,
+          };
+        } catch { /* 略過無法解析的原始頁面列 */ }
+      }
+    }
+    return { ...empty(), requestedPage };
+  }
   const themeHints = [
     ["行政法理論基礎與行政組織法", /行政法理論基礎|行政組織法|原理原則/u, ["行政組織法", "原理原則"]],
     ["行政處分", /行政處分/u, ["行政處分"]],
@@ -364,7 +401,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
     .slice(0, 6)
     .map(({ row: { documentId: _documentId, ...row } }) => row);
   const matchedBook = books.find((book) => book.id === candidates[0]?.documentId) ?? books[0];
-  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, searchFailed: false };
+  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, sourceMode: "index" as const, searchFailed: false };
   } catch (error) {
     console.error("Pengli evidence lookup failed", error);
     return empty(true);
@@ -516,6 +553,16 @@ export async function POST(request: Request) {
     const searchText = searchMessages.map((message) => String(message.text ?? "")).filter(Boolean).join(" ");
     const pageHint = Number(body.pageHint ?? 0);
     const evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
+    if (evidence.requestedPage > 0 && !evidence.rows.length) return Response.json({
+      error: `私密教材 PDF 找不到第 ${evidence.requestedPage} 頁原文；本次不會改查其他頁，也不會扣除使用次數。`,
+      code: "PENGLI_PDF_PAGE_NOT_FOUND",
+    }, { status: 409 });
+    if (body.mode !== "plain-explain" && !evidence.rows.length) return Response.json({
+      reply: "我目前還無法精準確認你正在讀哪一頁。請告訴我書本或教材 PDF 的頁數，例如「第 236 頁」，我會先讀取該頁原文，再依那一頁陪你判斷。這次不扣使用次數。",
+      source: "等待學生提供精準頁碼",
+      needsPage: true,
+      retrievedPages: [],
+    }, { headers: { "Cache-Control": "no-store" } });
     const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
     const coachAiFallback = body.mode !== "plain-explain" && !evidence.rows.length;
     if (!evidence.rows.length && !plainAiFallback && body.mode === "plain-explain") return Response.json({
@@ -526,13 +573,37 @@ export async function POST(request: Request) {
       canAiFallback: body.mode === "plain-explain",
     }, { status: 409 });
 
-    const focusTerms = searchText.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u).map((term) => term.trim()).filter((term) => term.length >= 3 && term.length <= 18);
+    const normalizedQuestion = searchText.normalize("NFKC").replace(/(?:pdf\s*)?第?\s*\d{1,4}\s*頁/giu, " ");
+    const quotedFocusTerms = [...normalizedQuestion.matchAll(/[「『]([^」』]{3,36})[」』]/gu)].map((match) => match[1].trim());
+    const phraseFocusTerms = (normalizedQuestion.match(/[\p{Script=Han}]{3,}/gu) ?? []).flatMap((phrase) => {
+      const cleaned = phrase.replace(/^(?:老師|請問|這裡|這段|書上|教材|提到|所說|我想問|怎麼|如何)/u, "");
+      if (cleaned.length <= 24) return [cleaned];
+      const windows: string[] = [];
+      for (let index = 0; index < cleaned.length; index += 6) {
+        const window = cleaned.slice(index, index + 18);
+        if (window.length >= 6) windows.push(window);
+      }
+      return windows;
+    });
+    const focusTerms = [...new Set([...quotedFocusTerms, ...phraseFocusTerms])]
+      .filter((term) => term.length >= 3 && term.length <= 36)
+      .sort((left, right) => right.length - left.length);
+    const pageFocusMatched = evidence.rows.some((row) => {
+      const normalizedRow = row.text.replace(/\s+/gu, " ").normalize("NFKC");
+      return focusTerms.some((term) => normalizedRow.includes(term));
+    });
+    if (evidence.sourceMode === "private_pdf_page" && !pageFocusMatched) return Response.json({
+      reply: `我已找到教材 PDF 第 ${evidence.requestedPage} 頁。請再告訴我這一頁的考點名稱，或貼上你看不懂的那一句；我會只擷取該句前後的內容回答。這次不扣使用次數。`,
+      source: `行政法考點演習書（二版）》PDF 第 ${evidence.requestedPage} 頁`,
+      needsFocus: true,
+      retrievedPages: [evidence.requestedPage],
+    }, { headers: { "Cache-Control": "no-store" } });
     const evidenceText = evidence.rows.map((row, index) => {
       const page = row.pageStart ? `PDF 第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "PDF 頁碼待索引補正";
       const normalizedRow = row.text.replace(/\s+/gu, " ").trim();
       const matchedIndex = focusTerms.map((term) => normalizedRow.indexOf(term)).find((position) => position >= 0) ?? 0;
       const start = Math.max(0, matchedIndex - 110);
-      const excerpt = normalizedRow.slice(start, Math.min(normalizedRow.length, start + 430));
+      const excerpt = normalizedRow.slice(start, Math.min(normalizedRow.length, start + 520));
       return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${start > 0 ? "…" : ""}${excerpt}${start + excerpt.length < normalizedRow.length ? "…" : ""}`;
     }).join("\n\n");
     const model = "gpt-5.6-luna";
@@ -609,7 +680,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
     const citedPage = fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
     const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
-    return Response.json({ reply, source, retrievedPages: [...new Set(evidence.rows.map((row) => row.pageStart).filter((page): page is number => page != null))], access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+    return Response.json({ reply, source, sourceMode: evidence.sourceMode, retrievedPages: [...new Set(evidence.rows.map((row) => row.pageStart).filter((page): page is number => page != null))], access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     console.error("Pengli coach request failed", error);
     return Response.json({ error: "教材搜尋暫時沒有完成，請再按一次；若仍無法回答，請換成較精簡的考點名稱。" }, { status: 500 });

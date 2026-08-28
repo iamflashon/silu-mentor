@@ -147,6 +147,7 @@ export default function PengliCoach() {
       access?: Access;
       purchaseUrl?: string;
       retrievedPages?: number[];
+      sourceMode?: "index" | "private_pdf_page";
     };
     if (!response.ok || !data.reply) {
       if (data.purchaseUrl) window.location.href = "/teachers/pengli/ai-access";
@@ -484,7 +485,7 @@ export default function PengliCoach() {
                   <div className={`pengli-book-test-result ${message.testVerification.passed ? "pass" : "fail"}`}>
                     <strong>{message.testVerification.passed ? "✓ 原文、頁碼、回答內容完全一致" : "⚠ 精準教材驗證未通過"}</strong>
                     <span>原始逐頁檔：PDF 第 {message.testVerification.expectedPage} 頁</span>
-                    <span>索引第一名：{message.testVerification.retrievedPages[0] ? `PDF 第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
+                    <span>私密 PDF 原頁：{message.testVerification.retrievedPages[0] ? `PDF 第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
                     <span>系統引用頁：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
                     <span>其他候選頁：{message.testVerification.retrievedPages.slice(1).length ? message.testVerification.retrievedPages.slice(1).map((page) => `第 ${page} 頁`).join("、") : "無"}</span>
                     <small>核對考點：{message.testVerification.anchorPhrase}</small>
