@@ -75,6 +75,7 @@ async function readPolicy(db: Db) {
       ...DEFAULT_AI_PLAN,
       ...((JSON.parse(row?.value ?? "") as { policy?: Partial<AiPlan> })
         .policy ?? {}),
+      coachRounds: 1,
       autoRenew: false,
     } as AiPlan;
   } catch {

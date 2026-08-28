@@ -21,7 +21,10 @@ export async function getAiPlan(db: Db) {
     const parsed = JSON.parse(row?.value ?? "") as { policy?: Partial<AiPlan> };
     const stored = parsed.policy ?? {};
     const legacy = stored.scholarAssistEnabled !== false;
-    return { ...DEFAULT_AI_PLAN, ...stored, lawScholarReflectionEnabled: stored.lawScholarReflectionEnabled ?? legacy, pengliScholarReflectionEnabled: stored.pengliScholarReflectionEnabled ?? legacy, autoRenew:false } as AiPlan;
+    // The legacy plan stored one charge per five coaching rounds. AI usage is
+    // now unified platform-wide, so a successful coach reply always consumes
+    // one unit even when an older database row still contains coachRounds: 5.
+    return { ...DEFAULT_AI_PLAN, ...stored, coachRounds:1, lawScholarReflectionEnabled: stored.lawScholarReflectionEnabled ?? legacy, pengliScholarReflectionEnabled: stored.pengliScholarReflectionEnabled ?? legacy, autoRenew:false } as AiPlan;
   } catch { return DEFAULT_AI_PLAN; }
 }
 
