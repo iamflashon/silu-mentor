@@ -7,11 +7,11 @@ import { requireMember } from "../../../../../lib/member-auth";
 import { finishAiUse, prepareAiUse } from "../../../../../lib/ai-access-gate";
 import { getActiveAiEntitlement } from "../../../../../lib/ai-access";
 import { getAiPlan } from "../../../../../lib/ai-access";
+import { PENGLI_THEME_TITLES } from "../../../../../lib/pengli-book-toc";
 
 type InputMessage = { role?: unknown; text?: unknown };
 
 const PENGLI_BOOK_BODY_START_PAGE = 23;
-const PENGLI_THEME_TITLES = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
 
 function isPengliNavigationPage(text: string) {
   const normalized = text.replace(/\s+/gu, " ").trim();
@@ -493,11 +493,10 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
 
 const teacherContext = `
 【專屬教材】彭狸，《行政法考點（考前衝刺）演習書》，2026年二版。
-【教材結構】行政法理論基礎與行政組織法、行政處分、行政契約與行政命令、行政罰法、行政執行法、訴願法與行政訴訟法、國家賠償法與損失補償、新進實務見解整理。
-【目前已核對試學範圍】
-1. 公私法區分：法律條文性質可由新主體說判斷；事件性質需先看原告主張的請求權基礎。釋字第758號指出，依民法第767條請求返還土地，原則上屬私法爭議，即使被告以公法關係抗辯亦不改變。老師提醒：這是基本功但不是考試熱區，先熟悉新主體說與釋字第758號。
-2. 法律保留原則：以釋字第443號的層級化法律保留為核心；依人身自由、其他自由權利、技術細節與重大給付行政事項調整規範密度。地方自治事項另注意自治條例與釋字第806號。
-3. 明確性原則：概念容許解釋不當然違反明確性；應從受規範者可理解、可預見及可經司法審查等方向說明。
+【目錄層級】全書依「主題 → 部（不一定有）→ 子部（不一定有）→ 考點 → 考點直擊站（可能有多題）」編排。考點編號可能在不同部重新起算；不得只憑考點號碼判斷位置。
+【正文結構】「概說、問題意識、學說見解、實務見解、考點破解、擬答」是正文中可能出現的內容類型，不是每個考點都有的固定欄位。只有本輪原文明確出現時才能引用，不得補造缺少的段落。
+【本書學習方法】本書以「爭點＋解題」協助已有行政法基礎的學生考前複習。先建立問題意識，理解爭議為何發生；再整理實務與學說及其理由；接著用考點直擊站辨認老師如何包裝爭點；最後依考點破解整理答題順序與涵攝。
+【行政法解題總脈絡】若題目審查行政行為，先定性，再審查合法性，最後處理救濟；若題目詢問得否請求，先找請求權基礎，再處理如何請求與救濟。申論作答應重視本文見解、本案涵攝、邏輯及層次，但不得在教材原文不足時自行生成完整擬答。
 `;
 
 export async function GET(request: Request) {
@@ -809,7 +808,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${body.testAnswerAnchor ? `本輪是書頁內容驗證。先用一至兩句直接回答學生問題，回答核心只能圍繞本頁原文核對短語「${String(body.testAnswerAnchor).slice(0, 60)}」，並須逐字包含這段短語。不得改答同頁其他爭點、不得羅列問題沒有詢問的其他事實，也不得只反問。若本頁資訊不足，只能明確說明本頁能確認到哪裡，不可自行補足；完成核心回答後才可問一個簡短追問。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${body.testAnswerAnchor ? `本輪是書頁內容驗證。核對短語「${String(body.testAnswerAnchor).slice(0, 60)}」只用來確認回答確實來自本頁，不代表學生詢問的完整答案。請先辨認本頁屬於考點正文、考點直擊站、考點破解或其他實際出現的區塊，再用二至四句說明本頁真正內容。若該頁只是案例事實，就說明案例正在問什麼；若是考點破解，就說明題目在測什麼以及書中採取的解題順序。不得把相鄰概念拼成教材沒有的結論，也不得為了回答而虛構完整擬答。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 500,
     }) }) as Record<string, unknown>;

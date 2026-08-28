@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documentAssignments, documentSectionMappings, documents } from "../../../../../db/schema";
 import { requireMember } from "../../../../../lib/member-auth";
+import { detectPengliBodyRole, resolvePengliIssue } from "../../../../../lib/pengli-book-toc";
 
 const themeTitles = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
 const bookBodyStartPage = 23;
@@ -15,8 +16,12 @@ type TestQuestionKind = "case_facts" | "issue_prompt" | "explanation";
 
 function answerAnchorFromPage(text: string) {
   const normalized = text.replace(/\s+/gu, " ").trim();
-  const clauses = normalized.split(/(?<=[。；！？])/u).map((item) => item.trim()).filter((item) => item.length >= 8);
-  const concise = clauses.find((item) => item.length <= 50);
+  const clauses = normalized.split(/(?<=[。；！？])/u).map((item) => item.trim()).filter((item) =>
+    item.length >= 12
+    && !/^(?:主題|考點|考點直擊站|考點破解|問題意識|學說見解|實務見解|擬答|概說)/u.test(item)
+    && !/^\d+(?:-\d+)?$/u.test(item),
+  );
+  const concise = clauses.find((item) => item.length >= 18 && item.length <= 70);
   return (concise ?? clauses[0] ?? normalized).slice(0, 50).trim();
 }
 
@@ -43,9 +48,10 @@ export async function POST(request: Request) {
   const books = [...new Map([...assigned, ...direct].map((book) => [book.id, book])).values()];
   if (!books.length) return Response.json({ error: "尚未找到彭狸老師教材。" }, { status: 409 });
 
-  const requestBody = await request.json().catch(() => ({})) as { topic?: unknown; excludedPages?: unknown };
+  const requestBody = await request.json().catch(() => ({})) as { topic?: unknown; excludedPages?: unknown; excludedQuestions?: unknown };
   const requestedTopic = String(requestBody.topic ?? "").trim();
   const excludedPages = new Set((Array.isArray(requestBody.excludedPages) ? requestBody.excludedPages : []).map(Number).filter((page) => Number.isInteger(page) && page > 0).slice(-24));
+  const excludedQuestions = new Set((Array.isArray(requestBody.excludedQuestions) ? requestBody.excludedQuestions : []).map(String).slice(-24));
   const selectedThemeIndex = themeIndex(requestedTopic);
   if (selectedThemeIndex < 0) return Response.json({ error: "目前無法確認正在學習的主題。" }, { status: 409 });
   const [mapped] = await db.select().from(documentSectionMappings).where(and(
@@ -81,10 +87,22 @@ export async function POST(request: Request) {
   const themeNumber = selectedThemeIndex + 1;
   const themePage = sample.page - mapped.pdfStartPage + 1;
   const bookPageLabel = `${themeNumber}-${themePage}`;
+  const issue = resolvePengliIssue(themeNumber, themePage);
+  const bodyRole = detectPengliBodyRole(sourceText);
+  const pageDescription = issue
+    ? `書內第 ${bookPageLabel} 頁屬於「${issue.title}」${bodyRole === "考點正文" ? "" : `的「${bodyRole}」`}`
+    : `書內第 ${bookPageLabel} 頁`;
+  const questionCandidates = [
+    `老師，${pageDescription}在說什麼？請依這一頁簡單說明。`,
+    `老師，請告訴我${pageDescription}的重點是什麼？`,
+  ].filter((question) => !excludedQuestions.has(question));
+  const question = questionCandidates[0] ?? `老師，請依書內第 ${bookPageLabel} 頁說明這一頁的內容。`;
   return Response.json({
-    question: `老師，主題 ${themeNumber} 的第 ${themePage} 頁在說什麼？`,
+    question,
     questionKind,
     bookPageLabel,
+    issueTitle: issue?.title ?? "",
+    bodyRole,
     expectedPage: sample.page,
     expectedPageEnd: sample.pageEnd,
     answerAnchor,
