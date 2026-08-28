@@ -5,8 +5,7 @@ import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
 import { finishAiUse, prepareAiUse } from "../../../../../lib/ai-access-gate";
-import { getActiveAiEntitlement } from "../../../../../lib/ai-access";
-import { getAiPlan } from "../../../../../lib/ai-access";
+import { ensurePengliFreeTrial, getActiveAiEntitlement, getAiPlan } from "../../../../../lib/ai-access";
 import { PENGLI_THEME_TITLES } from "../../../../../lib/pengli-book-toc";
 
 type InputMessage = { role?: unknown; text?: unknown };
@@ -529,6 +528,9 @@ export async function POST(request: Request) {
     const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; boundaryTest?: boolean; boundaryQuestion?: string };
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
+    }
+    if (!auth.member.canAdmin && String(body.topic ?? "").trim()) {
+      await ensurePengliFreeTrial(auth.db, auth.member.id);
     }
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
