@@ -254,6 +254,8 @@ export async function POST(request: Request) {
       pengliScholarReflectionEnabled:
         input?.pengliScholarReflectionEnabled !== false,
       scholarAssistEnabled: input?.pengliScholarReflectionEnabled !== false,
+      pengliBookVerificationEnabled:
+        input?.pengliBookVerificationEnabled !== false,
       name:
         String(input?.name ?? DEFAULT_AI_PLAN.name)
           .trim()
