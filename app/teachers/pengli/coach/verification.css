@@ -19,3 +19,4 @@
 .pengli-verification h4 { margin: 14px 0 6px; color: #315d69; font-size: 13px; }
 .pengli-verification li { margin-bottom: 7px; }
 .pengli-verification li a { color: #076e69; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.pengli-verification .pengli-verification-close { display: block; width: 100%; margin-top: 16px; border: 1px solid #8fbdb8; color: #245d59; background: #fff; }
