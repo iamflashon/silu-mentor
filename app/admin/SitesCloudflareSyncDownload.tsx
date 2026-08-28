@@ -40,9 +40,12 @@ export default function SitesCloudflareSyncDownload() {
 
   async function importConfig(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; event.target.value = ""; if (!file) return;
+    setConfig(null);
     try {
       const parsed = JSON.parse(await file.text()) as SyncConfig;
       if (!(parsed.sourceUrl || parsed.sitesUrl) || !parsed.token) throw new Error("同步設定格式不正確");
+      const sourceHost = new URL(parsed.sourceUrl || parsed.sitesUrl!).host;
+      if (sourceHost === window.location.host) throw new Error("這是目前環境自己的設定，不能同步給自己。請到另一個環境的教材庫匯入這份設定。");
       setConfig(parsed); setNotice(`已匯入 ${new URL(parsed.sourceUrl || parsed.sitesUrl!).host} 的同步設定${parsed.expiresAt ? `（有效至 ${new Date(parsed.expiresAt).toLocaleString("zh-TW")}）` : ""}`);
     } catch (error) { setNotice(error instanceof Error ? error.message : "無法讀取同步設定"); }
   }
@@ -98,12 +101,12 @@ export default function SitesCloudflareSyncDownload() {
 
   return <div className="sites-cloudflare-sync-stack">
     <section className="sites-cloudflare-sync panel">
-      <div><p>CLOUDFLARE → SITES TEST</p><h2>跨環境教材同步</h2><span>在來源環境下載設定，再到接收環境匯入；可依類科同步教材原稿、使用平台指派及逐頁精準索引。</span></div>
+      <div><p>來源環境 → 目前環境</p><h2>跨環境教材同步</h2><span>先在有教材的網站下載連線設定，再到要接收教材的網站匯入並開始同步。</span></div>
       <div className="sites-cloudflare-sync-actions">
         <label className="sites-sync-scope">同步範圍<select value={scope} onChange={(event)=>setScope(event.target.value as SyncScope)}>{(Object.keys(scopeLabels) as SyncScope[]).map((key)=><option key={key} value={key}>{scopeLabels[key]}</option>)}</select></label>
-        <button type="button" className="secondary-btn" onClick={() => void download()} disabled={busy}>下載目前環境設定</button>
-        <label className="secondary-btn">匯入來源設定<input type="file" accept="application/json,.json" hidden onChange={(event) => void importConfig(event)} /></label>
-        <button type="button" className="primary-btn" onClick={() => void syncTextbooks()} disabled={busy || !config}>{busy ? "同步處理中…" : `同步${scopeLabels[scope]}到目前環境`}</button>
+        <button type="button" className="sites-sync-action-button sites-sync-download" onClick={() => void download()} disabled={busy}><b>1</b><span>⬇ 下載連線設定</span><small>在有教材的網站操作</small></button>
+        <label className="sites-sync-action-button sites-sync-import"><b>2</b><span>⬆ 匯入連線設定</span><small>在接收教材的網站操作</small><input type="file" accept="application/json,.json" hidden onChange={(event) => void importConfig(event)} /></label>
+        <button type="button" className="sites-sync-action-button sites-sync-start" onClick={() => void syncTextbooks()} disabled={busy || !config}><b>3</b><span>{busy ? "同步處理中…" : config ? `開始同步${scopeLabels[scope]}` : "請先匯入連線設定"}</span><small>{config ? "同步到目前環境" : "完成步驟 2 後才能開始"}</small></button>
       </div>
       {config && <small>目前來源：{new URL(config.sourceUrl || config.sitesUrl!).host}</small>}
       {notice && <small role="status">{notice}</small>}
@@ -111,7 +114,7 @@ export default function SitesCloudflareSyncDownload() {
     </section>
     <section className="sites-cloudflare-sync sites-cloudflare-sync-rescue panel">
       <div><p>SITES → CLOUDFLARE R2</p><h2>缺檔救援</h2><span>只在 Cloudflare 有文件紀錄但 R2 原稿遺失時使用；從匯入的來源補回缺檔，已存在的文件會自動跳過。</span></div>
-      <div className="sites-cloudflare-sync-actions"><button type="button" className="secondary-btn" onClick={() => void run()} disabled={busy || !config}>{busy ? "處理中…" : "檢查並補回缺檔"}</button></div>
+      <div className="sites-cloudflare-sync-actions"><button type="button" className="sites-sync-action-button sites-sync-rescue-button" onClick={() => void run()} disabled={busy || !config}><span>↻ 檢查並補回缺檔</span><small>{config ? "開始檢查 R2" : "請先匯入來源連線設定"}</small></button></div>
     </section>
   </div>;
 }
