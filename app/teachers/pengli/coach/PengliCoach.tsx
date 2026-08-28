@@ -100,6 +100,8 @@ export default function PengliCoach() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
+  const [freeTrialAvailable, setFreeTrialAvailable] = useState(false);
+  const [freeTrialTopic, setFreeTrialTopic] = useState("");
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
   const [aiPlanEnabled, setAiPlanEnabled] = useState(false);
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
@@ -163,8 +165,10 @@ export default function PengliCoach() {
             remaining: data.aiAccess.remaining,
           };
           setAccess(nextAccess);
-          if (data?.plan?.enabled === true && nextAccess.remaining === 0) setQuotaDialogOpen(true);
+          if (data?.plan?.enabled === true && nextAccess.remaining === 0 && !data?.pengliTrial?.available) setQuotaDialogOpen(true);
         }
+        setFreeTrialAvailable(data?.pengliTrial?.available === true);
+        setFreeTrialTopic(String(data?.pengliTrial?.selectedTopic ?? ""));
         if (data?.plan) {
           setAiPlanEnabled(data.plan.enabled === true);
           setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
@@ -195,8 +199,10 @@ export default function PengliCoach() {
     `「${activeTopic}」最常見的申論爭點有哪些？`,
     `請從「${activeTopic}」出一題帶我逐步判斷。`,
   ] : [];
+  const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? "—";
 
   function requireAiUse(required = 1) {
+    if (freeTrialAvailable && activeTopic) return true;
     if (aiPlanEnabled && access?.remaining != null && access.remaining < required) {
       setQuotaDialogOpen(true);
       setError("");
@@ -207,6 +213,10 @@ export default function PengliCoach() {
 
   function applyAccess(nextAccess?: Access) {
     if (!nextAccess) return;
+    if (freeTrialAvailable && activeTopic) {
+      setFreeTrialAvailable(false);
+      setFreeTrialTopic(activeTopic);
+    }
     setAccess(nextAccess);
     if (nextAccess.remaining === 0) setQuotaDialogOpen(true);
   }
@@ -568,7 +578,8 @@ export default function PengliCoach() {
         </div>
         <div className="pengli-coach-access">
           <b>AI 使用次數</b>
-          <strong>{access?.remaining ?? "—"} 次</strong>
+          <strong>{displayedRemaining} 次</strong>
+          {freeTrialTopic && <small>免費主題：{freeTrialTopic}</small>}
           <span>一般回答 1 次・官方查證 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／輸入兌換碼</a>
         </div>
@@ -771,7 +782,7 @@ export default function PengliCoach() {
                     : "使用 2 次查證官方資料"}
                 </button>
                 {doubtLoading && <div className="pengli-verification-progress" role="status"><strong>{verificationStage <= 1 ? "正在整理查詢關鍵字…" : verificationStage === 2 ? "正在比對已同步的法規與裁判…" : "正在搜尋司法院、憲法法庭與全國法規資料庫…"}</strong><ol><li className={verificationStage >= 1 ? "active" : ""}>整理疑問</li><li className={verificationStage >= 2 ? "active" : ""}>比對平台資料</li><li className={verificationStage >= 3 ? "active" : ""}>查詢官方網站</li></ol></div>}
-                <p className="pengli-verification-status">目前剩餘 {access?.remaining ?? "—"} 次；只有成功產生可驗證的官方來源與網址才扣 2 次，查詢失敗不扣。</p>
+                <p className="pengli-verification-status">目前剩餘 {displayedRemaining} 次；只有成功產生可驗證的官方來源與網址才扣 2 次，查詢失敗不扣。</p>
                 {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">AI 使用次數不足，前往購買／兌換</a>}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
               </>
@@ -822,7 +833,7 @@ export default function PengliCoach() {
         )}
         <div className="pengli-coach-usage-bar" aria-label="AI 使用狀態">
           <span>
-            AI 使用次數剩餘 <strong>{access?.remaining ?? "—"} 次</strong>
+            AI 使用次數剩餘 <strong>{displayedRemaining} 次</strong>
           </span>
           <span>一般回答扣 1 次・官方查證成功扣 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／兌換</a>
@@ -892,7 +903,7 @@ export default function PengliCoach() {
           <a className="pengli-mobile-access" href="/teachers/pengli/ai-access">
             購買／兌換碼
           </a>
-          <small>AI 使用次數剩餘 {access?.remaining ?? "—"} 次</small>
+          <small>AI 使用次數剩餘 {displayedRemaining} 次</small>
         </footer>
       </div>
       {quotaDialogOpen && (

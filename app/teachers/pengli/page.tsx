@@ -19,30 +19,6 @@ const themes = [
   ["08", "新進實務見解整理", "性平、性騷擾、警職法與近期重要實務"],
 ] as const;
 
-const samplePoints = [
-  {
-    number: "01",
-    title: "公私法區分",
-    question: "事件應由普通法院或行政法院審判，判斷起點是什麼？",
-    takeaway: "先區分法規性質與事件性質，再以請求權基礎檢查審判權。",
-    label: "基礎定位",
-  },
-  {
-    number: "02",
-    title: "法律保留原則",
-    question: "限制人民權利時，何時必須有法律或法律授權？",
-    takeaway: "掌握層級化法律保留，並辨認地方自治條例能否成為規範依據。",
-    label: "國考高頻",
-  },
-  {
-    number: "03",
-    title: "明確性原則",
-    question: "法律概念有解釋空間，就一定違反明確性原則嗎？",
-    takeaway: "從可理解、可預見及可由司法審查三個方向建立判斷架構。",
-    label: "免費試學",
-  },
-] as const;
-
 export default function PengliTeacherPage() {
   return <main className="pengli-page">
     <nav className="pengli-topbar" aria-label="頁面導覽">
@@ -60,12 +36,12 @@ export default function PengliTeacherPage() {
         <h1>行政法考點<br/><em>考前衝刺</em></h1>
         <p>不是把整本書重新讀一次，而是沿著老師的問題意識，完成考點複習、破題判斷與申論演練。</p>
         <div className="pengli-hero-actions">
-          <a href="#free-trial">先免費試學</a>
+          <a href="#curriculum">任選主題試問</a>
           <a href="#curriculum" className="primary">查看 8 大主題</a>
         </div>
         <dl className="pengli-hero-stats">
           <div><dt>8</dt><dd>大主題</dd></div>
-          <div><dt>3</dt><dd>免費提問</dd></div>
+          <div><dt>10</dt><dd>免費提問</dd></div>
           <div><dt>90</dt><dd>天衝刺規劃</dd></div>
         </dl>
       </div>
@@ -93,27 +69,11 @@ export default function PengliTeacherPage() {
           <span>我的衝刺進度</span>
           <strong>免費提問</strong>
           <div className="pengli-progress"><i style={{width:"0%"}} /></div>
-          <small>0／3 次免費提問已使用</small>
+          <small>第一次實際提問後，該主題可免費問 10 次</small>
           <hr/>
           <ul><li>考點閱讀與老師提醒</li><li>破題步驟練習</li><li>申論架構自我檢查</li></ul>
           <a href="#curriculum">選擇任一主題</a>
         </aside>
-      </div>
-    </section>
-
-    <section className="pengli-trial" id="free-trial">
-      <header><span>FREE TRIAL</span><h2>免費試學：先體驗三次 AI 提問</h2><p>可以從任何主題開始；真正送出問題時才會扣除一次可用次數。</p></header>
-      <div className="pengli-trial-grid">
-        {samplePoints.map((point) => <article key={point.number}>
-          <div><span>{point.label}</span><b>{point.number}</b></div>
-          <h3>{point.title}</h3>
-          <p>{point.question}</p>
-          <details>
-            <summary>查看本題學習重點</summary>
-            <p>{point.takeaway}</p>
-          </details>
-          <Link href={`/teachers/pengli/coach?topic=${encodeURIComponent(point.title)}`}>進入 AI 教練<b aria-hidden="true">→</b></Link>
-        </article>)}
       </div>
     </section>
 
