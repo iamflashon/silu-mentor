@@ -1,14 +1,16 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { documents } from "../../../../db/schema";
+import { documentAssignments, documents } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 import { buildFineIndexStep } from "../../documents/fine-index/route";
 
-type SyncConfig = { sitesUrl?: string; token?: string };
+type SyncConfig = { sourceUrl?: string; sitesUrl?: string; token?: string };
+
+function sourceOrigin(config: SyncConfig) { return String(config.sourceUrl || config.sitesUrl || ""); }
 
 function validConfig(config: SyncConfig) {
   try {
-    const url = new URL(String(config.sitesUrl || ""));
+    const url = new URL(sourceOrigin(config));
     return url.protocol === "https:" && Boolean(config.token?.trim());
   } catch { return false; }
 }
@@ -16,10 +18,50 @@ function validConfig(config: SyncConfig) {
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { action?: string; documentId?: number; config?: SyncConfig; restart?: boolean };
+  const body = await request.json() as { action?: string; documentId?: number; sourceDocumentId?: number; config?: SyncConfig; restart?: boolean };
   const db = await getDb("primary");
   const { env } = await import("cloudflare:workers");
   if (!env.BUCKET) return Response.json({ error: "Cloudflare R2 尚未綁定" }, { status: 503 });
+  if (body.action === "source-manifest") {
+    if (!validConfig(body.config || {})) return Response.json({ error: "請先匯入來源環境的同步設定" }, { status: 400 });
+    const sourceUrl = new URL("/api/sync/textbooks", sourceOrigin(body.config!));
+    sourceUrl.searchParams.set("action", "manifest"); sourceUrl.searchParams.set("scope", "pengli");
+    const response = await fetch(sourceUrl, { headers: { Authorization: `Bearer ${body.config!.token}` }, redirect: "manual" });
+    if (!response.ok) return Response.json({ error: response.status >= 300 && response.status < 400 ? "來源網站的同步入口被登入保護擋住，請將 /api/sync/textbooks 設為免登入但保留同步簽章驗證" : (await response.json().catch(() => ({})) as { error?: string }).error || `讀取來源教材失敗（${response.status}）` }, { status: 502 });
+    return Response.json(await response.json());
+  }
+  if (body.action === "import-pengli") {
+    if (!validConfig(body.config || {})) return Response.json({ error: "請先匯入來源環境的同步設定" }, { status: 400 });
+    const sourceDocumentId = Number(body.sourceDocumentId);
+    if (!Number.isInteger(sourceDocumentId) || sourceDocumentId < 1) return Response.json({ error: "來源教材編號不正確" }, { status: 400 });
+    const manifestUrl = new URL("/api/sync/textbooks", sourceOrigin(body.config!));
+    manifestUrl.searchParams.set("action", "manifest"); manifestUrl.searchParams.set("scope", "pengli");
+    const manifestResponse = await fetch(manifestUrl, { headers: { Authorization: `Bearer ${body.config!.token}` } });
+    const manifest = await manifestResponse.json().catch(() => ({})) as { documents?: Array<{ id:number;fileName:string;contentType:string;sizeBytes:number;examCategory:string;bookTitle:string;subject:string;documentType:string;status:string;pageCount:number|null;extractedChars:number;tagsJson:string }> ; error?: string };
+    if (!manifestResponse.ok) return Response.json({ error: manifest.error || "無法讀取來源教材清單" }, { status: 502 });
+    const sourceDocument = manifest.documents?.find((document) => document.id === sourceDocumentId);
+    if (!sourceDocument) return Response.json({ error: "來源教材已不存在，請重新讀取清單" }, { status: 404 });
+    const fileUrl = new URL("/api/sync/textbooks", sourceOrigin(body.config!)); fileUrl.searchParams.set("documentId", String(sourceDocumentId));
+    const source = await fetch(fileUrl, { headers: { Authorization: `Bearer ${body.config!.token}` } });
+    if (!source.ok) return Response.json({ error: (await source.json().catch(() => ({})) as { error?: string }).error || `下載來源教材失敗（${source.status}）` }, { status: 502 });
+    const bytes = await source.arrayBuffer();
+    if (!bytes.byteLength) return Response.json({ error: "來源教材內容是空的" }, { status: 502 });
+    const [existing] = await db.select().from(documents).where(eq(documents.fileName, sourceDocument.fileName)).orderBy(documents.id).limit(1);
+    const storageKey = existing?.storageKey || `documents/cloudflare-sync-${sourceDocumentId}-${crypto.randomUUID()}-${sourceDocument.fileName.replace(/[^\p{L}\p{N}._-]+/gu, "-")}`;
+    await env.BUCKET.put(storageKey, bytes, { httpMetadata: { contentType: source.headers.get("content-type") || sourceDocument.contentType }, customMetadata: { source: "cloudflare-to-sites-textbook-sync", originalName: sourceDocument.fileName } });
+    let documentId = existing?.id;
+    const metadata = { storageKey, contentType: sourceDocument.contentType, sizeBytes: bytes.byteLength, examCategory: sourceDocument.examCategory, bookTitle: sourceDocument.bookTitle, subject: sourceDocument.subject, documentType: sourceDocument.documentType, status: sourceDocument.status || "uploaded", pageCount: sourceDocument.pageCount, extractedChars: sourceDocument.extractedChars || 0, tagsJson: sourceDocument.tagsJson || "[]", processingMessage: "已從 Cloudflare 同步，等待精準索引", processingStage: "indexing" };
+    if (existing) await db.update(documents).set(metadata).where(eq(documents.id, existing.id));
+    else {
+      const [created] = await db.insert(documents).values({ ...metadata, fileName: sourceDocument.fileName }).returning({ id: documents.id });
+      documentId = created.id;
+    }
+    const [assignment] = await db.select({ id: documentAssignments.id }).from(documentAssignments)
+      .where(and(eq(documentAssignments.documentId, documentId!), eq(documentAssignments.examCategory, "pengli"))).limit(1);
+    if (assignment) await db.update(documentAssignments).set({ aiSearchEnabled: true, usageType: "教材檢索", visibility: "members", updatedAt: new Date() }).where(eq(documentAssignments.id, assignment.id));
+    else await db.insert(documentAssignments).values({ documentId: documentId!, examCategory: "pengli", subject: sourceDocument.subject || "行政法", usageType: "教材檢索", visibility: "members", aiSearchEnabled: true, sortOrder: 0 });
+    return Response.json({ status: existing ? "updated" : "created", documentId, fileName: sourceDocument.fileName, bytes: bytes.byteLength });
+  }
   if (body.action === "scan") {
     const rows = await db.select({ id: documents.id, fileName: documents.fileName, storageKey: documents.storageKey }).from(documents);
     const missing: typeof rows = [];
@@ -38,7 +80,7 @@ export async function POST(request: Request) {
   if (body.action === "restore") {
     if (await env.BUCKET.head(document.storageKey)) return Response.json({ status: "skipped", reason: "R2 已存在", document });
     if (!validConfig(body.config || {})) return Response.json({ error: "請匯入 Sites 同步設定" }, { status: 400 });
-    const sourceUrl = new URL("/api/admin/cloudflare-source", body.config!.sitesUrl);
+    const sourceUrl = new URL("/api/admin/cloudflare-source", sourceOrigin(body.config!));
     sourceUrl.searchParams.set("fileName", document.fileName);
     const source = await fetch(sourceUrl, { headers: { Authorization: `Bearer ${body.config!.token}` } });
     if (!source.ok) {

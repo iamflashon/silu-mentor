@@ -44771,6 +44771,10 @@ html.frontend-costs-disabled .student-summary-meta > span {
     grid-column: auto;
   }
 }
+.sites-cloudflare-sync-stack {
+  display: grid;
+  gap: 12px;
+}
 .sites-cloudflare-sync {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -44778,6 +44782,14 @@ html.frontend-costs-disabled .student-summary-meta > span {
   align-items: center;
   border-color: #9bcfc8;
   background: #eef9f6;
+}
+.sites-cloudflare-sync-rescue {
+  border-color: #d7dde1;
+  background: #f7f9fa;
+}
+.sites-cloudflare-sync-rescue p,
+.sites-cloudflare-sync-rescue > small {
+  color: #60737e;
 }
 .sites-cloudflare-sync p {
   margin: 0 0 4px;
