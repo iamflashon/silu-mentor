@@ -332,7 +332,9 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
           if (requestedPage < pageStart || requestedPage > pageEnd || typeof record.text !== "string") continue;
           const text = record.text.replace(/\\n/gu, "\n").trim();
           if (!text) continue;
-          if (requestedPage < PENGLI_BOOK_BODY_START_PAGE || isPengliNavigationPage(text)) return {
+          // 精準指定頁已由後台主題範圍與原始逐頁檔共同定位。正文中常有大量
+          // 裁判字號、條號與書頁交互引用，不能再以「頁碼很多」推定為目錄。
+          if (requestedPage < PENGLI_BOOK_BODY_START_PAGE) return {
             ...empty(),
             requestedPage,
             bookPageLabel,
