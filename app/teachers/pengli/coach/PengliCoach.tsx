@@ -690,6 +690,7 @@ export default function PengliCoach() {
                   <nav className="pengli-message-actions">
                     <button
                       type="button"
+                      className="pengli-inline-followup"
                       onClick={() => {
                         setReplyTarget(message);
                         setDoubtTarget(null);
