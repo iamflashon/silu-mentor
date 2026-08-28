@@ -11,7 +11,9 @@ import {
   aiPurchaseOffer,
   getActiveAiEntitlement,
   getAiPlan,
+  getPengliFreeTrial,
   grantAiAccess,
+  PENGLI_FREE_TRIAL_QUOTA,
   publicAiAccess,
 } from "../../../lib/ai-access";
 import { MEDTECH_DEFAULT_PRODUCT_KEY } from "../../../lib/medtech-product-settings";
@@ -82,9 +84,10 @@ async function selectableUnits(auth: Auth) {
 }
 async function state(auth: Auth) {
   const now = new Date();
-  const [basePlan, ai, [medtech], voucherRows, [previousPurchase]] = await Promise.all([
+  const [basePlan, ai, pengliTrial, [medtech], voucherRows, [previousPurchase]] = await Promise.all([
     getAiPlan(auth.db),
     getActiveAiEntitlement(auth.db, auth.member.id),
+    getPengliFreeTrial(auth.db, auth.member.id),
     auth.db
       .select()
       .from(medtechMemberEntitlements)
@@ -121,6 +124,11 @@ async function state(auth: Auth) {
   return {
     plan,
     aiAccess: { ...publicAiAccess(ai), coachRoundsTarget: plan.coachRounds },
+    pengliTrial: {
+      available: plan.enabled && plan.categories.includes("pengli") && !ai && !pengliTrial,
+      quota: PENGLI_FREE_TRIAL_QUOTA,
+      started: Boolean(pengliTrial),
+    },
     medtechAccess: medtech
       ? {
           active: true,
