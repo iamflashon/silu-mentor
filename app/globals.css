@@ -44791,6 +44791,22 @@ html.frontend-costs-disabled .student-summary-meta > span {
 .sites-cloudflare-sync-rescue > small {
   color: #60737e;
 }
+.sites-sync-scope {
+  display: grid;
+  gap: 4px;
+  color: #557571;
+  font-size: 12px;
+  font-weight: 800;
+}
+.sites-sync-scope select {
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid #9bcfc8;
+  border-radius: 8px;
+  background: #fff;
+  color: #173d58;
+  font: inherit;
+}
 .sites-cloudflare-sync p {
   margin: 0 0 4px;
   color: #08786f;

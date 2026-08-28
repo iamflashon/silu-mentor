@@ -1,6 +1,6 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { documentAssignments, documentSearchUnits, documents } from "../../../../db/schema";
+import { documentAssignments, documents } from "../../../../db/schema";
 import { verifySitesCloudflareSyncToken } from "../../../../lib/sites-cloudflare-sync-token";
 
 function bearer(request: Request) {
@@ -29,23 +29,32 @@ export async function GET(request: Request) {
     } });
   }
 
-  if (url.searchParams.get("action") !== "manifest" || url.searchParams.get("scope") !== "pengli") return Response.json({ error: "同步範圍不正確" }, { status: 400 });
+  const scope = url.searchParams.get("scope") || "all";
+  if (url.searchParams.get("action") !== "manifest" || !["all", "pengli", "law", "medtech", "accounting", "data-structure"].includes(scope)) return Response.json({ error: "同步範圍不正確" }, { status: 400 });
   const fields = {
     id: documents.id, fileName: documents.fileName, storageKey: documents.storageKey, contentType: documents.contentType, sizeBytes: documents.sizeBytes,
     examCategory: documents.examCategory, bookTitle: documents.bookTitle, subject: documents.subject, documentType: documents.documentType,
     status: documents.status, pageCount: documents.pageCount, extractedChars: documents.extractedChars, tagsJson: documents.tagsJson,
   };
-  const assigned = await db.select(fields).from(documentAssignments).innerJoin(documents, eq(documents.id, documentAssignments.documentId))
-    .where(and(eq(documentAssignments.examCategory, "pengli"), eq(documentAssignments.aiSearchEnabled, true))).orderBy(desc(documents.id)).limit(30);
-  const recognized = await db.select(fields).from(documents)
-    .where(or(like(documents.fileName, "%59ML170502%"), like(documents.bookTitle, "%行政法考點%"))).orderBy(desc(documents.id)).limit(30);
-  const unique = [...new Map([...assigned, ...recognized].map((document) => [document.id, document])).values()];
+  const allDocuments = await db.select(fields).from(documents).orderBy(desc(documents.id)).limit(500);
+  const assignments: Array<{ documentId:number;examCategory:string;subject:string;usageType:string;visibility:string;aiSearchEnabled:boolean;sortOrder:number }> = [];
+  for (let offset = 0; offset < allDocuments.length; offset += 100) {
+    assignments.push(...await db.select({ documentId: documentAssignments.documentId, examCategory: documentAssignments.examCategory, subject: documentAssignments.subject, usageType: documentAssignments.usageType, visibility: documentAssignments.visibility, aiSearchEnabled: documentAssignments.aiSearchEnabled, sortOrder: documentAssignments.sortOrder })
+      .from(documentAssignments).where(inArray(documentAssignments.documentId, allDocuments.slice(offset, offset + 100).map((document) => document.id))));
+  }
+  const assignmentsByDocument = new Map<number, typeof assignments>();
+  for (const assignment of assignments) assignmentsByDocument.set(assignment.documentId, [...(assignmentsByDocument.get(assignment.documentId) || []), assignment]);
+  const selected = scope === "all" ? allDocuments : allDocuments.filter((document) => {
+    if (document.examCategory === scope || assignmentsByDocument.get(document.id)?.some((assignment) => assignment.examCategory === scope && assignment.aiSearchEnabled)) return true;
+    return scope === "pengli" && (/59ML170502/iu.test(document.fileName) || /行政法考點/u.test(document.bookTitle));
+  });
   const { env } = await import("cloudflare:workers");
-  const manifest = await Promise.all(unique.map(async (document) => {
-    const [{ units, pages }] = await db.select({ units: sql<number>`count(*)`, pages: sql<number>`count(distinct ${documentSearchUnits.pageStart})` })
-      .from(documentSearchUnits).where(eq(documentSearchUnits.documentId, document.id));
-    const { storageKey, ...metadata } = document;
-    return { ...metadata, sourceAvailable: Boolean(await env.BUCKET?.head(storageKey)), indexedUnits: Number(units), indexedPages: Number(pages) };
-  }));
-  return Response.json({ scope: "pengli", documents: manifest }, { headers: { "Cache-Control": "private, no-store" } });
+  const manifest: Array<Record<string, unknown>> = [];
+  for (let offset = 0; offset < selected.length; offset += 20) {
+    manifest.push(...await Promise.all(selected.slice(offset, offset + 20).map(async (document) => {
+      const { storageKey, ...metadata } = document;
+      return { ...metadata, assignments: assignmentsByDocument.get(document.id) || [], sourceAvailable: Boolean(await env.BUCKET?.head(storageKey)) };
+    })));
+  }
+  return Response.json({ scope, documents: manifest }, { headers: { "Cache-Control": "private, no-store" } });
 }

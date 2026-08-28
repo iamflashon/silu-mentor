@@ -4,13 +4,16 @@ import { ChangeEvent, useState } from "react";
 
 type SyncConfig = { sourceUrl?: string; sitesUrl?: string; token: string; expiresAt?: string };
 type MissingDocument = { id: number; fileName: string; storageKey: string };
-type SourceDocument = { id:number;fileName:string;bookTitle:string;indexedPages:number;indexedUnits:number;pageCount:number|null;sourceAvailable:boolean };
+type SourceDocument = { id:number;fileName:string;bookTitle:string;pageCount:number|null;sourceAvailable:boolean };
+type SyncScope="all"|"pengli"|"law"|"medtech"|"accounting"|"data-structure";
+const scopeLabels:Record<SyncScope,string>={all:"全部教材",pengli:"彭狸老師／行政法",law:"司律／法律",medtech:"醫檢",accounting:"會計","data-structure":"資料結構"};
 
 export default function SitesCloudflareSyncDownload() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [config, setConfig] = useState<SyncConfig | null>(null);
   const [progress, setProgress] = useState<string[]>([]);
+  const [scope, setScope] = useState<SyncScope>("pengli");
 
   async function api(body: Record<string, unknown>) {
     const response = await fetch("/api/admin/cloudflare-r2-sync", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -66,19 +69,19 @@ export default function SitesCloudflareSyncDownload() {
     finally { setBusy(false); }
   }
 
-  async function syncPengli() {
+  async function syncTextbooks() {
     if (busy || !config) return;
-    setBusy(true); setProgress([]); setNotice("正在讀取來源環境的彭狸教材…");
+    setBusy(true); setProgress([]); setNotice(`正在讀取來源環境的「${scopeLabels[scope]}」…`);
     try {
-      const manifest = await api({ action: "source-manifest", config }) as { documents?: SourceDocument[] };
+      const manifest = await api({ action: "source-manifest", scope, config }) as { documents?: SourceDocument[] };
       const allDocuments = manifest.documents || [];
       const sourceDocuments = allDocuments.filter((document) => document.sourceAvailable);
       const unavailable = allDocuments.length - sourceDocuments.length;
-      if (!sourceDocuments.length) { setNotice(allDocuments.length ? "來源環境有彭狸教材紀錄，但同步原稿不在 R2；請確認 RTX 4090 已回傳 .local-index.jsonl。" : "來源環境目前沒有已指派給彭狸專區的教材。"); return; }
-      setNotice(`找到 ${sourceDocuments.length} 份可同步的彭狸教材${unavailable ? `；另有 ${unavailable} 份只有紀錄、沒有 R2 原稿，已跳過` : ""}。開始同步專區指派與精準索引。`);
+      if (!sourceDocuments.length) { setNotice(allDocuments.length ? `來源環境有「${scopeLabels[scope]}」紀錄，但同步原稿不在 R2；請確認 RTX 4090 已回傳 .local-index.jsonl。` : `來源環境目前沒有「${scopeLabels[scope]}」。`); return; }
+      setNotice(`找到 ${sourceDocuments.length} 份可同步教材${unavailable ? `；另有 ${unavailable} 份只有紀錄、沒有 R2 原稿，已跳過` : ""}。開始同步原稿、類科指派與精準索引。`);
       for (const [position, document] of sourceDocuments.entries()) {
         setProgress((rows) => [...rows, `${position + 1}/${sourceDocuments.length} ${document.bookTitle || document.fileName}：正在同步教材…`]);
-        const imported = await api({ action: "import-pengli", sourceDocumentId: document.id, config }) as { documentId?: number };
+        const imported = await api({ action: "import-document", sourceDocumentId: document.id, scope, config }) as { documentId?: number };
         if (!imported.documentId) throw new Error(`${document.fileName} 未取得目標教材編號`);
         let done = false; let first = true;
         while (!done) {
@@ -87,18 +90,19 @@ export default function SitesCloudflareSyncDownload() {
           setProgress((rows) => [...rows.slice(0, -1), `${position + 1}/${sourceDocuments.length} ${document.bookTitle || document.fileName}：索引 ${indexed.pagesDone || 0}/${indexed.totalPages || 0} 頁${done ? `，完成（${indexed.units || 0} 個片段）` : "…"}`]);
         }
       }
-      setNotice(`同步完成：${sourceDocuments.length} 份彭狸教材已寫入目前環境並建立精準索引。`);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "彭狸教材同步失敗"); }
+      setNotice(`同步完成：${sourceDocuments.length} 份「${scopeLabels[scope]}」已寫入目前環境並建立精準索引。`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "教材同步失敗"); }
     finally { setBusy(false); }
   }
 
   return <div className="sites-cloudflare-sync-stack">
     <section className="sites-cloudflare-sync panel">
-      <div><p>CLOUDFLARE → SITES TEST</p><h2>彭狸教材同步到測試站</h2><span>在 Cloudflare 下載目前環境設定，再到 Sites 匯入；系統會同步彭狸教材、專區指派並重建逐頁精準索引。</span></div>
+      <div><p>CLOUDFLARE → SITES TEST</p><h2>跨環境教材同步</h2><span>在來源環境下載設定，再到接收環境匯入；可依類科同步教材原稿、使用平台指派及逐頁精準索引。</span></div>
       <div className="sites-cloudflare-sync-actions">
+        <label className="sites-sync-scope">同步範圍<select value={scope} onChange={(event)=>setScope(event.target.value as SyncScope)}>{(Object.keys(scopeLabels) as SyncScope[]).map((key)=><option key={key} value={key}>{scopeLabels[key]}</option>)}</select></label>
         <button type="button" className="secondary-btn" onClick={() => void download()} disabled={busy}>下載目前環境設定</button>
         <label className="secondary-btn">匯入來源設定<input type="file" accept="application/json,.json" hidden onChange={(event) => void importConfig(event)} /></label>
-        <button type="button" className="primary-btn" onClick={() => void syncPengli()} disabled={busy || !config}>{busy ? "同步處理中…" : "同步彭狸教材到目前環境"}</button>
+        <button type="button" className="primary-btn" onClick={() => void syncTextbooks()} disabled={busy || !config}>{busy ? "同步處理中…" : `同步${scopeLabels[scope]}到目前環境`}</button>
       </div>
       {config && <small>目前來源：{new URL(config.sourceUrl || config.sitesUrl!).host}</small>}
       {notice && <small role="status">{notice}</small>}
