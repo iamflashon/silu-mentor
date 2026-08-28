@@ -97,7 +97,7 @@ jobs:
 
       - name: Seed verified Pengli PDF mappings
         shell: bash
-        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "$(cat ./drizzle/0080_seed_pengli_book_map.sql)"
+        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "$(sed '/^--/d' ./drizzle/0080_seed_pengli_book_map.sql)"
 
       - name: Verify target D1 is initialized
         shell: bash
