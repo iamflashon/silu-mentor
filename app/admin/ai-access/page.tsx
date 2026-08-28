@@ -8,6 +8,7 @@ type Policy = {
   lawScholarReflectionEnabled: boolean;
   pengliScholarReflectionEnabled: boolean;
   scholarAssistEnabled: boolean;
+  pengliBookVerificationEnabled: boolean;
   name: string;
   price: number;
   quota: number;
@@ -234,6 +235,19 @@ export default function AiAccessAdminPage() {
                   }
                 />
                 <span>彭狸老師</span>
+              </label>
+              <label className="ai-access-switch">
+                <input
+                  type="checkbox"
+                  checked={policy.pengliBookVerificationEnabled !== false}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      pengliBookVerificationEnabled: event.target.checked,
+                    })
+                  }
+                />
+                <span>顯示書頁核對明細</span>
               </label>
             </div>
             <button type="button" onClick={() => void save()} disabled={busy}>
