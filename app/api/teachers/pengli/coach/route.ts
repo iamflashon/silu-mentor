@@ -11,13 +11,13 @@ import { getAiPlan } from "../../../../../lib/ai-access";
 type InputMessage = { role?: unknown; text?: unknown };
 
 const PENGLI_BOOK_BODY_START_PAGE = 23;
+const PENGLI_THEME_TITLES = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
 
 function isPengliNavigationPage(text: string) {
   const normalized = text.replace(/\s+/gu, " ").trim();
   const dotLeaders = (normalized.match(/(?:\.{4,}|…{2,}|·{4,})/gu) ?? []).length;
   const compactPageRefs = (normalized.match(/\b\d{1,2}-\d{1,3}\b/gu) ?? []).length;
-  const themeNames = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
-  const themeCount = themeNames.filter((title) => normalized.includes(title)).length;
+  const themeCount = PENGLI_THEME_TITLES.filter((title) => normalized.includes(title)).length;
   return /目\s*錄|contents/iu.test(normalized.slice(0, 280)) || dotLeaders >= 2 || compactPageRefs >= 5 || themeCount >= 3;
 }
 
@@ -245,6 +245,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
     themeStartPage: null as number | null,
     themeEndPage: null as number | null,
     requestedPage: 0,
+    bookPageLabel: "",
     navigationPage: false,
     sourceMode: "index" as "index" | "private_pdf_page",
     searchFailed,
@@ -265,9 +266,43 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
 
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const normalizedScope = scopeTopic.normalize("NFKC").toLocaleLowerCase("zh-Hant");
-  const requestedPage = Number(normalized.match(/(?:pdf\s*)?第?\s*(\d{1,4})\s*頁/u)?.[1] || pageHint || 0);
+  const scopeThemeIndex = normalizedScope ? PENGLI_THEME_TITLES.findIndex((title) => normalizedScope.includes(title.toLocaleLowerCase("zh-Hant")) || title.toLocaleLowerCase("zh-Hant").includes(normalizedScope)) : -1;
+  const printedMatch = normalized.match(/(?:書(?:本|內)?\s*)?第?\s*([1-8])\s*[-－—]\s*(\d{1,3})\s*頁?/u);
+  const explicitPdfPage = Number(normalized.match(/pdf\s*第?\s*(\d{1,4})\s*頁/u)?.[1] || 0);
+  const ordinaryPage = Number(normalized.match(/第\s*(\d{1,4})\s*頁/u)?.[1] || 0);
+  let requestedPage = Number(pageHint || explicitPdfPage || 0);
+  let bookPageLabel = "";
+  let requestedMapping: typeof documentSectionMappings.$inferSelect | undefined;
+  if (!requestedPage && printedMatch) {
+    const themeNumber = Number(printedMatch[1]), localPage = Number(printedMatch[2]);
+    [requestedMapping] = await db.select().from(documentSectionMappings).where(and(
+      inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
+      eq(documentSectionMappings.sectionKey, `theme_${themeNumber}`),
+      eq(documentSectionMappings.verified, true),
+    )).limit(1);
+    if (requestedMapping) { requestedPage = requestedMapping.pdfStartPage + localPage - 1; bookPageLabel = `${themeNumber}-${localPage}`; }
+  } else if (!requestedPage && ordinaryPage && scopeThemeIndex >= 0) {
+    [requestedMapping] = await db.select().from(documentSectionMappings).where(and(
+      inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
+      eq(documentSectionMappings.sectionKey, `theme_${scopeThemeIndex + 1}`),
+      eq(documentSectionMappings.verified, true),
+    )).limit(1);
+    if (requestedMapping) { requestedPage = requestedMapping.pdfStartPage + ordinaryPage - 1; bookPageLabel = `${scopeThemeIndex + 1}-${ordinaryPage}`; }
+    else requestedPage = ordinaryPage;
+  } else if (!requestedPage && ordinaryPage) requestedPage = ordinaryPage;
+  if (requestedPage > 0 && !bookPageLabel) {
+    [requestedMapping] = await db.select().from(documentSectionMappings).where(and(
+      inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
+      eq(documentSectionMappings.verified, true),
+      lte(documentSectionMappings.pdfStartPage, requestedPage),
+      gte(documentSectionMappings.pdfEndPage, requestedPage),
+    )).limit(1);
+    if (requestedMapping?.sectionType === "body") bookPageLabel = `${requestedMapping.sortOrder}-${requestedPage - requestedMapping.pdfStartPage + 1}`;
+  }
+  if (requestedMapping && (requestedPage < requestedMapping.pdfStartPage || requestedPage > requestedMapping.pdfEndPage)) return { ...empty(), requestedPage, bookPageLabel };
   if (requestedPage > 0) {
     const sourceBooks = [...books].sort((left, right) => {
+      if (requestedMapping && left.id !== right.id) return left.id === requestedMapping.documentId ? -1 : right.id === requestedMapping.documentId ? 1 : 0;
       const leftScore = /59ML170502|行政法考點/iu.test(`${left.fileName} ${left.title}`) ? 1 : 0;
       const rightScore = /59ML170502|行政法考點/iu.test(`${right.fileName} ${right.title}`) ? 1 : 0;
       return rightScore - leftScore || right.id - left.id;
@@ -289,6 +324,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
           if (requestedPage < PENGLI_BOOK_BODY_START_PAGE || isPengliNavigationPage(text)) return {
             ...empty(),
             requestedPage,
+            bookPageLabel,
             navigationPage: true,
             sourceMode: "private_pdf_page" as const,
           };
@@ -299,6 +335,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
             themeStartPage: null,
             themeEndPage: null,
             requestedPage,
+            bookPageLabel,
             navigationPage: false,
             sourceMode: "private_pdf_page" as const,
             searchFailed: false,
@@ -306,7 +343,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
         } catch { /* 略過無法解析的原始頁面列 */ }
       }
     }
-    return { ...empty(), requestedPage };
+    return { ...empty(), requestedPage, bookPageLabel };
   }
   const themeHints = [
     ["行政法理論基礎與行政組織法", /行政法理論基礎|行政組織法|原理原則/u, ["行政組織法", "原理原則"]],
@@ -425,7 +462,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
     .slice(0, 6)
     .map(({ row: { documentId: _documentId, ...row } }) => row);
   const matchedBook = books.find((book) => book.id === candidates[0]?.documentId) ?? books[0];
-  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, navigationPage: false, sourceMode: "index" as const, searchFailed: false };
+  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, bookPageLabel: "", navigationPage: false, sourceMode: "index" as const, searchFailed: false };
   } catch (error) {
     console.error("Pengli evidence lookup failed", error);
     return empty(true);
@@ -602,7 +639,7 @@ export async function POST(request: Request) {
       canAiFallback: body.mode === "plain-explain",
     }, { status: 409 });
 
-    const normalizedQuestion = searchText.normalize("NFKC").replace(/(?:pdf\s*)?第?\s*\d{1,4}\s*頁/giu, " ");
+    const normalizedQuestion = searchText.normalize("NFKC").replace(/(?:書(?:本|內)?\s*)?第?\s*[1-8]\s*[-－—]\s*\d{1,3}\s*頁?/giu, " ").replace(/(?:pdf\s*)?第?\s*\d{1,4}\s*頁/giu, " ");
     const quotedFocusTerms = [...normalizedQuestion.matchAll(/[「『]([^」』]{3,36})[」』]/gu)].map((match) => match[1].trim());
     const phraseFocusTerms = (normalizedQuestion.match(/[\p{Script=Han}]{3,}/gu) ?? []).flatMap((phrase) => {
       const cleaned = phrase.replace(/^(?:老師|請問|這裡|這段|書上|教材|提到|所說|我想問|怎麼|如何)/u, "");
@@ -702,7 +739,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const access = await finishAiUse(gate, { action: "pengli_coach", description: "彭狸 AI 分身陪練，成功扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
     const citedPage = fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
-    const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
+    const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : evidence.bookPageLabel ? `行政法考點演習書（二版）》書內第 ${evidence.bookPageLabel} 頁（PDF 第 ${citedPage} 頁）` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
     return Response.json({ reply, source, sourceMode: evidence.sourceMode, retrievedPages: [...new Set(evidence.rows.map((row) => row.pageStart).filter((page): page is number => page != null))], access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     console.error("Pengli coach request failed", error);
