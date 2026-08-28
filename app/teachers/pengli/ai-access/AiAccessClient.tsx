@@ -3,8 +3,8 @@
 import { FormEvent, useEffect, useState } from "react";
 
 type AccessState = {
-  plan?: { enabled: boolean; name: string; price: number; quota: number; durationDays: number; coachRounds: number };
-  aiAccess?: { active: boolean; remaining: number; quotaTotal: number; quotaUsed: number; coachRoundsUsed: number; coachRoundsTarget: number; expiresAt: string | null };
+  plan?: { enabled: boolean; name: string; price: number; quota: number; standardQuota: number; bonusQuota: number; promoActive: boolean; promoEndsAt: string; durationDays: number };
+  aiAccess?: { active: boolean; remaining: number; quotaTotal: number; quotaUsed: number; expiresAt: string | null };
   error?: string;
 };
 
@@ -56,13 +56,14 @@ export default function AiAccessClient() {
   return <div className="pengli-ai-access-grid">
     <section className="pengli-ai-plan-card">
       <span>AI PRACTICE PASS</span><h1>彭狸 AI 陪練次數</h1>
-      <p>老師每次引導算一輪；「學霸幫我答」仍以學生身分接續。完成 {plan?.coachRounds ?? 5} 輪才扣 1 次。</p>
+      <p>所有功能都使用同一種 AI 次數：一般 AI 成功回答扣 1 次；查證官方資料成功扣 2 次。</p>
       <div className="pengli-ai-balance"><small>目前剩餘</small><strong>{access?.active ? access.remaining : 0}<em> 次</em></strong><span>{access?.active && access.expiresAt ? `可使用至 ${new Date(access.expiresAt).toLocaleDateString("zh-TW")}` : "目前沒有有效方案"}</span></div>
-      <ul><li>彭狸教材逐頁檢索與頁碼引用</li><li>彭狸 AI 教練分段引導</li><li>學霸代答並以學生身分反問老師</li><li>每 5 輪才扣 1 次</li></ul>
+      <ul><li>一般對話、針對這段追問：成功扣 1 次</li><li>白話解釋、學霸代答：成功扣 1 次</li><li>官方資料查證：成功且附官方網址才扣 2 次</li><li>失敗、逾時或查無精準資料：不扣次</li></ul>
     </section>
     <section className="pengli-ai-purchase-card">
-      <span>購買 AI 次數</span><h2>{plan?.name || "AI 學習方案"}</h2>
+      <span>{plan?.promoActive ? "限時首購優惠" : "購買 AI 次數"}</span><h2>{plan?.promoActive ? `NT$${plan.price}｜${plan.standardQuota} 次再送 ${plan.bonusQuota} 次` : plan?.name || "AI 使用方案"}</h2>
       <div className="pengli-ai-price"><strong>NT$ {plan?.price ?? 30}</strong><small>{plan?.quota ?? 30} 次・{plan?.durationDays ?? 30} 天</small></div>
+      {plan?.promoActive && <p className="pengli-ai-promo">本次共 {plan.quota} 次；每位會員限首購一次，優惠至 {new Date(plan.promoEndsAt).toLocaleDateString("zh-TW")}。</p>}
       <button type="button" onClick={() => void purchase()} disabled={busy}>{busy ? "正在前往 LINE Pay…" : access?.active ? `LINE Pay NT${plan?.price ?? 30} 加購 ${plan?.quota ?? 30} 次` : `LINE Pay NT${plan?.price ?? 30} 購買`}</button>
       <small>{access?.active ? `加購會保留目前剩餘次數，另加 ${plan?.quota ?? 30} 次，並由目前到期日再延長 ${plan?.durationDays ?? 30} 天。` : "付款完成後會自動加入目前登入帳號，不會自動續約。"}</small>
       <hr />

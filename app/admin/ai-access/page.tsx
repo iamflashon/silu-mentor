@@ -1,55 +1,672 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import CentralAdminTabs from "../CentralAdminTabs";
 
-type Policy = { enabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; scholarAssistEnabled:boolean; autoRenew:false; categories:string[]; notes:string };
-type Code = { id:string; last4:string; label:string; status:string; benefitType?:string; categories:string[]; productKey?:string; quota?:number; durationDays?:number; redeemBy:string|null; createdAt:string; redeemedAt:string|null; redeemedBy:string|null; createdBy?:string; selectedUnitLabel?:string; disabledReason?:string };
-type Batch = {id:string;label:string;purpose:string;benefitType:string;quantity:number;createdByEmail:string;createdAt:string};
-type Generator = {limits:{role:string;batch:number;daily:number;monthly:number};usage:{today:number;month:number}};
-type MedtechProduct = {productKey:string;title:string;status:string};
-type Payload = { policy:Policy; codes:Code[]; batches?:Batch[]; medtechProducts?:MedtechProduct[]; generator?:Generator; updatedAt:string; generatedCodes?:string[]; error?:string };
+type Policy = {
+  enabled: boolean;
+  lawScholarReflectionEnabled: boolean;
+  pengliScholarReflectionEnabled: boolean;
+  scholarAssistEnabled: boolean;
+  name: string;
+  price: number;
+  quota: number;
+  durationDays: number;
+  coachRounds: number;
+  promoEnabled: boolean;
+  promoBonusQuota: number;
+  promoStartsAt: string;
+  promoEndsAt: string;
+  promoFirstPurchaseOnly: boolean;
+  autoRenew: false;
+  categories: string[];
+  notes: string;
+};
+type Code = {
+  id: string;
+  last4: string;
+  label: string;
+  status: string;
+  benefitType?: string;
+  categories: string[];
+  productKey?: string;
+  quota?: number;
+  durationDays?: number;
+  redeemBy: string | null;
+  createdAt: string;
+  redeemedAt: string | null;
+  redeemedBy: string | null;
+  createdBy?: string;
+  selectedUnitLabel?: string;
+  disabledReason?: string;
+};
+type Batch = {
+  id: string;
+  label: string;
+  purpose: string;
+  benefitType: string;
+  quantity: number;
+  createdByEmail: string;
+  createdAt: string;
+};
+type Generator = {
+  limits: { role: string; batch: number; daily: number; monthly: number };
+  usage: { today: number; month: number };
+};
+type MedtechProduct = { productKey: string; title: string; status: string };
+type Payload = {
+  policy: Policy;
+  codes: Code[];
+  batches?: Batch[];
+  medtechProducts?: MedtechProduct[];
+  generator?: Generator;
+  updatedAt: string;
+  generatedCodes?: string[];
+  error?: string;
+};
 
-const categoryOptions = [{id:"law",label:"司律／法律"},{id:"pengli",label:"彭狸老師（AI 教練）"},{id:"accounting",label:"會計"},{id:"medtech",label:"醫檢師"},{id:"data-structure",label:"資料結構"}];
-const statusLabels:Record<string,string>={unused:"未使用",redeemed:"已兌換",disabled:"已停用",expired:"已過期"};
+const categoryOptions = [
+  { id: "law", label: "司律／法律" },
+  { id: "pengli", label: "彭狸老師" },
+  { id: "accounting", label: "會計" },
+  { id: "medtech", label: "醫檢師" },
+  { id: "data-structure", label: "資料結構" },
+];
+const statusLabels: Record<string, string> = {
+  unused: "未使用",
+  redeemed: "已兌換",
+  disabled: "已停用",
+  expired: "已過期",
+};
 
-export default function AiAccessAdminPage(){
-  const [policy,setPolicy]=useState<Policy|null>(null),[codes,setCodes]=useState<Code[]>([]),[batches,setBatches]=useState<Batch[]>([]),[medtechProducts,setMedtechProducts]=useState<MedtechProduct[]>([]),[selectedProductKey,setSelectedProductKey]=useState(""),[generator,setGenerator]=useState<Generator|null>(null),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false),[count,setCount]=useState(10),[label,setLabel]=useState("培訓學生贈送"),[purpose,setPurpose]=useState("培訓學生 30 題試讀"),[redeemBy,setRedeemBy]=useState(""),[generated,setGenerated]=useState<string[]>([]),[benefitType,setBenefitType]=useState("medtech_pack_choice"),[codeDuration,setCodeDuration]=useState(30);
-  const applyPayload=(data:Payload)=>{const products=data.medtechProducts??[];setPolicy(data.policy);setCodes(data.codes);setBatches(data.batches??[]);setMedtechProducts(products);setSelectedProductKey(current=>products.some(product=>product.productKey===current)?current:products[0]?.productKey??"");setGenerator(data.generator??null)};
-  const load=useCallback(async()=>{const response=await fetch("/api/admin/ai-access",{cache:"no-store"});const data=await response.json() as Payload;if(response.ok)applyPayload(data);else setNotice(data.error??"讀取失敗")},[]);
-  useEffect(()=>{void load()},[load]);
-  async function post(body:Record<string,unknown>){setBusy(true);setNotice("");try{const response=await fetch("/api/admin/ai-access",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});const data=await response.json() as Payload;if(!response.ok)throw new Error(data.error??"操作失敗");applyPayload(data);return data}catch(error){setNotice(error instanceof Error?error.message:"操作失敗");return null}finally{setBusy(false)}}
-  async function save(){if(!policy)return;const data=await post({action:"save-policy",policy});if(data)setNotice(policy.enabled?"AI 方案已啟用；指定類科將開始檢查有效方案，成功回覆才扣次。":"AI 方案規則已儲存，目前未啟用，不會限制或扣除學生次數。")}
-  async function generate(){const data=await post({action:"generate-codes",count,label,purpose,redeemBy:redeemBy||null,benefitType,productKey:benefitType==="medtech_book"?selectedProductKey:undefined,durationDays:codeDuration,categories:policy?.categories??[]});if(data){setGenerated(data.generatedCodes??[]);setNotice(`已產生 ${data.generatedCodes?.length??0} 組一次性啟用碼。完整碼只在本次畫面顯示，請立即複製保存。`)}}
-  const productTitle=(productKey?:string)=>medtechProducts.find(product=>product.productKey===productKey)?.title??"醫檢師國考題詳解（Ⅲ）臨床病毒學（下）";
-  async function disable(id:string){const reason=window.prompt("請填寫停用原因（至少 3 個字）");if(!reason)return;const data=await post({action:"disable-code",id,reason});if(data)setNotice("啟用碼已停用並留下稽核紀錄。")}
-  function toggleCategory(id:string){if(!policy)return;setPolicy({...policy,categories:policy.categories.includes(id)?policy.categories.filter(value=>value!==id):[...policy.categories,id]})}
-  return <main className="ai-access-admin">
-    <header className="ai-access-hero"><div><p>GLOBAL AI ACCESS CONTROL</p><h1>AI 方案與啟用碼</h1><span>總管理共用規則，可套用司律、彭狸老師、會計、醫檢師與資料結構；各類科不另建重複方案。</span></div><a href="/admin">返回總管理後台 →</a></header>
-    {!policy?<section className="ai-access-card">讀取方案設定中…</section>:<>
-      <section className="ai-access-card"><div className="ai-access-section-title"><div><h2>30 天 AI 試問方案</h2><p>目前先建立規則與管理介面；啟用前不會影響既有學生權益。</p></div><label className="ai-access-switch"><input type="checkbox" checked={policy.enabled} onChange={event=>setPolicy({...policy,enabled:event.target.checked})}/><span>{policy.enabled?"標記為啟用":"草稿模式"}</span></label></div>
-      <div className="ai-access-grid"><label>方案名稱<input value={policy.name} onChange={event=>setPolicy({...policy,name:event.target.value})}/></label><label>單次售價 NT$<input type="number" min="1" value={policy.price} onChange={event=>setPolicy({...policy,price:Number(event.target.value)})}/></label><label>AI 學習額度<input type="number" min="1" value={policy.quota} onChange={event=>setPolicy({...policy,quota:Number(event.target.value)})}/></label><label>有效天數<input type="number" min="1" value={policy.durationDays} onChange={event=>setPolicy({...policy,durationDays:Number(event.target.value)})}/></label><label>每次教練任務包含輪數<input type="number" min="1" value={policy.coachRounds} onChange={event=>setPolicy({...policy,coachRounds:Number(event.target.value)})}/></label><label>續約方式<input value="單次購買，不自動續約" disabled/></label></div>
-      <fieldset className="ai-access-scope"><legend>適用類科</legend>{categoryOptions.map(item=><label key={item.id}><input type="checkbox" checked={policy.categories.includes(item.id)} onChange={()=>toggleCategory(item.id)}/>{item.label}</label>)}</fieldset><div className="ai-access-section-title"><div><h2>彭狸學霸代答</h2><p>學生不知道怎麼回答時，可由 AI 依目前對話上下文代答並反問老師；代答本身不另外扣次。</p></div><label className="ai-access-switch"><input type="checkbox" checked={policy.scholarAssistEnabled!==false} onChange={event=>setPolicy({...policy,scholarAssistEnabled:event.target.checked})}/><span>{policy.scholarAssistEnabled!==false?"已開放":"已關閉"}</span></label></div>
-      <label className="ai-access-notes">總管理註記<textarea rows={5} value={policy.notes} onChange={event=>setPolicy({...policy,notes:event.target.value})}/></label>
-      <div className="ai-access-actions"><button type="button" onClick={()=>void save()} disabled={busy}>{busy?"儲存中…":"儲存方案規則"}</button></div></section>
+export default function AiAccessAdminPage() {
+  const [policy, setPolicy] = useState<Policy | null>(null),
+    [codes, setCodes] = useState<Code[]>([]),
+    [batches, setBatches] = useState<Batch[]>([]),
+    [medtechProducts, setMedtechProducts] = useState<MedtechProduct[]>([]),
+    [selectedProductKey, setSelectedProductKey] = useState(""),
+    [generator, setGenerator] = useState<Generator | null>(null),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false),
+    [count, setCount] = useState(10),
+    [label, setLabel] = useState("培訓學生贈送"),
+    [purpose, setPurpose] = useState("培訓學生 30 題試讀"),
+    [redeemBy, setRedeemBy] = useState(""),
+    [generated, setGenerated] = useState<string[]>([]),
+    [benefitType, setBenefitType] = useState("medtech_pack_choice"),
+    [codeDuration, setCodeDuration] = useState(30);
+  const applyPayload = (data: Payload) => {
+    const products = data.medtechProducts ?? [];
+    setPolicy(data.policy);
+    setCodes(data.codes);
+    setBatches(data.batches ?? []);
+    setMedtechProducts(products);
+    setSelectedProductKey((current) =>
+      products.some((product) => product.productKey === current)
+        ? current
+        : (products[0]?.productKey ?? ""),
+    );
+    setGenerator(data.generator ?? null);
+  };
+  const load = useCallback(async () => {
+    const response = await fetch("/api/admin/ai-access", { cache: "no-store" });
+    const data = (await response.json()) as Payload;
+    if (response.ok) applyPayload(data);
+    else setNotice(data.error ?? "讀取失敗");
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  async function post(body: Record<string, unknown>) {
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/ai-access", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await response.json()) as Payload;
+      if (!response.ok) throw new Error(data.error ?? "操作失敗");
+      applyPayload(data);
+      return data;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "操作失敗");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function save() {
+    if (!policy) return;
+    const data = await post({ action: "save-policy", policy });
+    if (data)
+      setNotice(
+        policy.enabled
+          ? "AI 方案已啟用；指定類科將開始檢查有效方案，成功回覆才扣次。"
+          : "AI 方案規則已儲存，目前未啟用，不會限制或扣除學生次數。",
+      );
+  }
+  async function generate() {
+    const data = await post({
+      action: "generate-codes",
+      count,
+      label,
+      purpose,
+      redeemBy: redeemBy || null,
+      benefitType,
+      productKey:
+        benefitType === "medtech_book" ? selectedProductKey : undefined,
+      durationDays: codeDuration,
+      categories: policy?.categories ?? [],
+    });
+    if (data) {
+      setGenerated(data.generatedCodes ?? []);
+      setNotice(
+        `已產生 ${data.generatedCodes?.length ?? 0} 組一次性啟用碼。完整碼只在本次畫面顯示，請立即複製保存。`,
+      );
+    }
+  }
+  const productTitle = (productKey?: string) =>
+    medtechProducts.find((product) => product.productKey === productKey)
+      ?.title ?? "醫檢師國考題詳解（Ⅲ）臨床病毒學（下）";
+  async function disable(id: string) {
+    const reason = window.prompt("請填寫停用原因（至少 3 個字）");
+    if (!reason) return;
+    const data = await post({ action: "disable-code", id, reason });
+    if (data) setNotice("啟用碼已停用並留下稽核紀錄。");
+  }
+  function toggleCategory(id: string) {
+    if (!policy) return;
+    setPolicy({
+      ...policy,
+      categories: policy.categories.includes(id)
+        ? policy.categories.filter((value) => value !== id)
+        : [...policy.categories, id],
+    });
+  }
+  return (
+    <main className="ai-access-admin">
+      <header className="ai-access-hero">
+        <div>
+          <p>GLOBAL AI ACCESS CONTROL</p>
+          <h1>AI 方案與啟用碼</h1>
+          <span>
+            總管理共用規則，可套用司律、會計、醫檢師與資料結構；各類科不另建重複方案。
+          </span>
+        </div>
+        <a href="/admin">返回總管理後台 →</a>
+      </header>
+      <CentralAdminTabs active="ai-access" />
+      {!policy ? (
+        <section className="ai-access-card">讀取方案設定中…</section>
+      ) : (
+        <>
+          <section className="ai-access-card ai-pengli-control">
+            <div>
+              <p>SCHOLAR REFLECTION CONTROL</p>
+              <h2>各專區「學霸怎麼想？」</h2>
+              <span>以學生身分示範判斷、說明思路並反問老師；成功完成後使用 1 次 AI 使用次數。</span>
+            </div>
+            <div className="ai-scholar-switches">
+              <label className="ai-access-switch">
+                <input
+                  type="checkbox"
+                  checked={policy.lawScholarReflectionEnabled !== false}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      lawScholarReflectionEnabled: event.target.checked,
+                    })
+                  }
+                />
+                <span>司律備考</span>
+              </label>
+              <label className="ai-access-switch">
+                <input
+                  type="checkbox"
+                  checked={policy.pengliScholarReflectionEnabled !== false}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      pengliScholarReflectionEnabled: event.target.checked,
+                    })
+                  }
+                />
+                <span>彭狸老師</span>
+              </label>
+            </div>
+            <button type="button" onClick={() => void save()} disabled={busy}>
+              {busy ? "儲存中…" : "儲存反思設定"}
+            </button>
+          </section>
+          <section className="ai-access-card">
+            <div className="ai-access-section-title">
+              <div>
+                <h2>30 天 AI 試問方案</h2>
+                <p>目前先建立規則與管理介面；啟用前不會影響既有學生權益。</p>
+              </div>
+              <label className="ai-access-switch">
+                <input
+                  type="checkbox"
+                  checked={policy.enabled}
+                  onChange={(event) =>
+                    setPolicy({ ...policy, enabled: event.target.checked })
+                  }
+                />
+                <span>{policy.enabled ? "標記為啟用" : "草稿模式"}</span>
+              </label>
+            </div>
+            <div className="ai-access-grid">
+              <label>
+                方案名稱
+                <input
+                  value={policy.name}
+                  onChange={(event) =>
+                    setPolicy({ ...policy, name: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                單次售價 NT$
+                <input
+                  type="number"
+                  min="1"
+                  value={policy.price}
+                  onChange={(event) =>
+                    setPolicy({ ...policy, price: Number(event.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                AI 學習額度
+                <input
+                  type="number"
+                  min="1"
+                  value={policy.quota}
+                  onChange={(event) =>
+                    setPolicy({ ...policy, quota: Number(event.target.value) })
+                  }
+                />
+              </label>
+              <label>
+                有效天數
+                <input
+                  type="number"
+                  min="1"
+                  value={policy.durationDays}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      durationDays: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>計次方式<input value="成功回答 1 次；官方查證 2 次" disabled /></label>
+              <label>
+                續約方式
+                <input value="單次購買，不自動續約" disabled />
+              </label>
+            </div>
+            <fieldset className="ai-access-scope">
+              <legend>限時首購優惠</legend>
+              <label><input type="checkbox" checked={policy.promoEnabled} onChange={(event)=>setPolicy({...policy,promoEnabled:event.target.checked})}/>啟用限時優惠</label>
+              <label>加贈次數<input type="number" min="0" value={policy.promoBonusQuota} onChange={(event)=>setPolicy({...policy,promoBonusQuota:Number(event.target.value)})}/></label>
+              <label>開始<input type="datetime-local" value={policy.promoStartsAt.slice(0,16)} onChange={(event)=>setPolicy({...policy,promoStartsAt:`${event.target.value}:00+08:00`})}/></label>
+              <label>結束<input type="datetime-local" value={policy.promoEndsAt.slice(0,16)} onChange={(event)=>setPolicy({...policy,promoEndsAt:`${event.target.value}:00+08:00`})}/></label>
+              <label><input type="checkbox" checked={policy.promoFirstPurchaseOnly} onChange={(event)=>setPolicy({...policy,promoFirstPurchaseOnly:event.target.checked})}/>每位會員限首購一次</label>
+            </fieldset>
+            <fieldset className="ai-access-scope">
+              <legend>適用類科</legend>
+              {categoryOptions.map((item) => (
+                <label key={item.id}>
+                  <input
+                    type="checkbox"
+                    checked={policy.categories.includes(item.id)}
+                    onChange={() => toggleCategory(item.id)}
+                  />
+                  {item.label}
+                </label>
+              ))}
+            </fieldset>
+            <label className="ai-access-notes">
+              總管理註記
+              <textarea
+                rows={5}
+                value={policy.notes}
+                onChange={(event) =>
+                  setPolicy({ ...policy, notes: event.target.value })
+                }
+              />
+            </label>
+            <div className="ai-access-actions">
+              <button type="button" onClick={() => void save()} disabled={busy}>
+                {busy ? "儲存中…" : "儲存方案規則"}
+              </button>
+            </div>
+          </section>
 
-      <section className="ai-access-card ai-access-rules"><h2>全平台統一計次規則</h2><div><article><b>一般 AI 試問</b><strong>成功回答扣 1 次</strong><p>首頁導師、教材追問、爭點追問與答題後 AI 說明統一計算。</p></article><article><b>AI 教練</b><strong>{policy.coachRounds} 輪引導扣 1 次</strong><p>同一題、同一任務；繼續下一組引導時再扣一次。</p></article><article><b>不扣次</b><strong>閱讀與系統失敗</strong><p>既有解析、教材搜尋、歷史紀錄、逾時、錯誤及管理員測試均不扣。</p></article><article><b>到期與續購</b><strong>{policy.durationDays} 天後失效</strong><p>不累積、不轉讓、不折現；額度用完或到期後由學生自行重新購買。</p></article></div><aside>重要：只有 AI 成功產生有效回答後才扣除額度；不得在按下送出時先扣。LINE Pay 為單次付款，不設定自動續約。</aside></section>
+          <section className="ai-access-card ai-access-rules">
+            <h2>全平台統一計次規則</h2>
+            <div>
+              <article>
+                <b>一般 AI 試問</b>
+                <strong>成功回答扣 1 次</strong>
+                <p>首頁導師、教材追問、爭點追問與答題後 AI 說明統一計算。</p>
+              </article>
+              <article>
+                <b>AI 教練</b>
+                <strong>成功回答扣 1 次</strong>
+                <p>一般對話、指定訊息追問、學霸代答與白話解釋使用同一種次數。</p>
+              </article>
+              <article>
+                <b>官方資料查證</b>
+                <strong>成功查證扣 2 次</strong>
+                <p>必須產生可驗證的官方資料名稱與網址；失敗、逾時或查無精準結果不扣。</p>
+              </article>
+              <article>
+                <b>不扣次</b>
+                <strong>閱讀與系統失敗</strong>
+                <p>
+                  既有解析、教材搜尋、歷史紀錄、逾時、錯誤及管理員測試均不扣。
+                </p>
+              </article>
+              <article>
+                <b>到期與續購</b>
+                <strong>{policy.durationDays} 天後失效</strong>
+                <p>
+                  不累積、不轉讓、不折現；額度用完或到期後由學生自行重新購買。
+                </p>
+              </article>
+            </div>
+            <aside>
+              重要：只有 AI
+              成功產生有效回答後才扣除額度；不得在按下送出時先扣。LINE Pay
+              為單次付款，不設定自動續約。
+            </aside>
+          </section>
 
-      <section className="ai-access-card ai-compliance-notes"><div className="ai-access-section-title"><div><h2>合規設計理由與公司註記</h2><p>這些是降低消費爭議的產品原則，不是規避法律或「保證免信託」的聲明。</p></div><span className="ai-compliance-badge">所有類科共用</span></div><div className="ai-compliance-grid">
-        <article><b>採單次 30 天服務</b><p>每次付款對應一段明確服務期間，避免月底購買卻只剩數日；不自動扣款，可減少續約同意、取消與重複扣款爭議。</p></article>
-        <article><b>稱為 AI 學習額度</b><p>不使用「儲值金、點數、代幣」等名稱；額度不可折現、轉讓或跨期累積。但主管機關仍會依實際交易內容判斷，不能只靠改名排除法規。</p></article>
-        <article><b>同時間一個有效方案</b><p>用完或到期後才能重新購買；不允許大量疊加或囤積方案，降低被理解為永久預付餘額的風險。</p></article>
-        <article><b>免費碼一碼一次</b><p>公司贈送碼不得販售、折現或轉讓；兌換後綁定會員，30 天從兌換成功時起算，未兌換碼可由總管理停用。</p></article>
-        <article><b>成功回答才扣額度</b><p>逾時、模型錯誤、系統失敗及重複送出不扣；保留完整使用紀錄，讓會員與客服都能核對。</p></article>
-        <article><b>通訊交易仍須告知</b><p>付款前應揭露價格、次數、起訖日、失效方式及不自動續約；立即提供數位服務時，另取得消費者明確同意。</p></article>
-      </div><aside className="ai-legal-warning"><strong>法務確認界線</strong><span>此設計只能降低風險，不能宣稱「完全合法、一定免履約保障」。正式開賣前，仍應依公司實際營業類別、定型化契約與主管機關要求完成法務確認。</span><div><a href="https://cpc.ey.gov.tw/Page/4432D6D5FA6677B9/68d2a0cd-6f61-4e46-80e0-cba38adc776f" target="_blank" rel="noreferrer">官方：通訊交易解除權例外</a><a href="https://cpc.ey.gov.tw/page/99e57a84abe1694f/11ef7dac-c0d0-4b82-ab48-a0218ed9d124" target="_blank" rel="noreferrer">官方：教育服務與履約保障說明</a></div></aside></section>
+          <section className="ai-access-card ai-compliance-notes">
+            <div className="ai-access-section-title">
+              <div>
+                <h2>合規設計理由與公司註記</h2>
+                <p>
+                  這些是降低消費爭議的產品原則，不是規避法律或「保證免信託」的聲明。
+                </p>
+              </div>
+              <span className="ai-compliance-badge">所有類科共用</span>
+            </div>
+            <div className="ai-compliance-grid">
+              <article>
+                <b>採單次 30 天服務</b>
+                <p>
+                  每次付款對應一段明確服務期間，避免月底購買卻只剩數日；不自動扣款，可減少續約同意、取消與重複扣款爭議。
+                </p>
+              </article>
+              <article>
+                <b>稱為 AI 學習額度</b>
+                <p>
+                  不使用「儲值金、點數、代幣」等名稱；額度不可折現、轉讓或跨期累積。但主管機關仍會依實際交易內容判斷，不能只靠改名排除法規。
+                </p>
+              </article>
+              <article>
+                <b>同時間一個有效方案</b>
+                <p>
+                  用完或到期後才能重新購買；不允許大量疊加或囤積方案，降低被理解為永久預付餘額的風險。
+                </p>
+              </article>
+              <article>
+                <b>免費碼一碼一次</b>
+                <p>
+                  公司贈送碼不得販售、折現或轉讓；兌換後綁定會員，30
+                  天從兌換成功時起算，未兌換碼可由總管理停用。
+                </p>
+              </article>
+              <article>
+                <b>成功回答才扣額度</b>
+                <p>
+                  逾時、模型錯誤、系統失敗及重複送出不扣；保留完整使用紀錄，讓會員與客服都能核對。
+                </p>
+              </article>
+              <article>
+                <b>通訊交易仍須告知</b>
+                <p>
+                  付款前應揭露價格、次數、起訖日、失效方式及不自動續約；立即提供數位服務時，另取得消費者明確同意。
+                </p>
+              </article>
+            </div>
+            <aside className="ai-legal-warning">
+              <strong>法務確認界線</strong>
+              <span>
+                此設計只能降低風險，不能宣稱「完全合法、一定免履約保障」。正式開賣前，仍應依公司實際營業類別、定型化契約與主管機關要求完成法務確認。
+              </span>
+              <div>
+                <a
+                  href="https://cpc.ey.gov.tw/Page/4432D6D5FA6677B9/68d2a0cd-6f61-4e46-80e0-cba38adc776f"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  官方：通訊交易解除權例外
+                </a>
+                <a
+                  href="https://cpc.ey.gov.tw/page/99e57a84abe1694f/11ef7dac-c0d0-4b82-ab48-a0218ed9d124"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  官方：教育服務與履約保障說明
+                </a>
+              </div>
+            </aside>
+          </section>
 
-      <section className="ai-access-card"><div className="ai-access-section-title"><div><h2>免費一次性啟用碼與 30 題兌換券</h2><p>每張券綁定一個會員；30 題券由學生任選一組，確認成功後才核銷，選定後不可更換。</p></div><span className="ai-access-count">{codes.length} 組紀錄</span></div>
-      {generator&&<div className="ai-generator-limits"><strong>產製權限：{generator.limits.role}</strong><span>單批上限 {generator.limits.batch} 張</span><span>今日 {generator.usage.today}／{generator.limits.daily}</span><span>本月 {generator.usage.month}／{generator.limits.monthly}</span></div>}
-      <div className="ai-code-generator"><label>開通權益<select value={benefitType} onChange={event=>setBenefitType(event.target.value)}><option value="medtech_pack_choice">醫檢任選一組 30 題</option><option value="ai_access">AI 學習額度</option><option value="medtech_book">醫檢指定書籍</option></select></label>{benefitType==="medtech_book"&&<label>指定書籍<select value={selectedProductKey} onChange={event=>setSelectedProductKey(event.target.value)}>{medtechProducts.map(product=><option key={product.productKey} value={product.productKey}>{product.title}</option>)}</select></label>}<label>活動名稱<input value={label} onChange={event=>setLabel(event.target.value)}/></label><label>產製用途<input value={purpose} onChange={event=>setPurpose(event.target.value)} placeholder="例如：醫檢班學員試讀"/></label>{benefitType==="medtech_pack_choice"?<label>開通期間<input value="永久開通選定單元" disabled/></label>:<label>使用天數<input type="number" min="1" max="365" value={codeDuration} onChange={event=>setCodeDuration(Number(event.target.value))}/></label>}<label>產生數量<input type="number" min="1" max={generator?.limits.batch??100} value={count} onChange={event=>setCount(Number(event.target.value))}/></label><label>最晚兌換日（可留空）<input type="date" value={redeemBy} onChange={event=>setRedeemBy(event.target.value)}/></label><button type="button" onClick={()=>void generate()} disabled={busy||purpose.trim().length<3||(benefitType==="medtech_book"&&!selectedProductKey)}>產生啟用碼</button></div>
-      {!!generated.length&&<div className="ai-generated-codes"><header><b>本次產生的完整啟用碼</b><button type="button" onClick={()=>void navigator.clipboard.writeText(generated.join("\n"))}>全部複製</button></header><pre>{generated.join("\n")}</pre><small>系統只保存雜湊與末四碼；離開本頁後無法再次查看完整碼。</small></div>}
-      {!!batches.length&&<details className="ai-batch-list"><summary>查看最近產製批次（{batches.length}）</summary>{batches.slice(0,20).map(batch=><p key={batch.id}><b>{batch.label}</b> · {batch.quantity} 張 · {batch.purpose} · {batch.createdByEmail} · {new Date(batch.createdAt).toLocaleString("zh-TW")}</p>)}</details>}
-      <div className="ai-code-list">{codes.length?codes.slice(0,100).map(code=><article key={code.id}><div><b>{code.label}</b><span>••••-{code.last4} · {code.benefitType==="medtech_pack_choice"?"醫檢任選 30 題 · 永久":code.benefitType==="medtech_book"?`${productTitle(code.productKey)} · ${code.durationDays??30} 天`:`AI ${code.quota??policy.quota} 次／${code.durationDays??policy.durationDays} 天`}</span><small>建立 {new Date(code.createdAt).toLocaleString("zh-TW")}{code.createdBy?` · 產製者 ${code.createdBy}`:""}{code.redeemBy?` · ${code.redeemBy} 前兌換`:" · 無兌換截止日"}{code.redeemedBy?` · 兌換者 ${code.redeemedBy}`:""}{code.selectedUnitLabel?` · ${code.selectedUnitLabel}`:""}{code.disabledReason?` · 停用原因：${code.disabledReason}`:""}</small></div><em className={`ai-code-${code.status}`}>{statusLabels[code.status]??code.status}</em>{code.status==="unused"&&<button type="button" onClick={()=>void disable(code.id)} disabled={busy}>停用</button>}</article>):<p>尚未產生啟用碼。</p>}</div></section>
-    </>}
-    {notice&&<p className="ai-access-notice" role="status">{notice}</p>}
-  </main>
+          <section className="ai-access-card">
+            <div className="ai-access-section-title">
+              <div>
+                <h2>免費一次性啟用碼與 30 題兌換券</h2>
+                <p>
+                  每張券綁定一個會員；30
+                  題券由學生任選一組，確認成功後才核銷，選定後不可更換。
+                </p>
+              </div>
+              <span className="ai-access-count">{codes.length} 組紀錄</span>
+            </div>
+            {generator && (
+              <div className="ai-generator-limits">
+                <strong>產製權限：{generator.limits.role}</strong>
+                <span>單批上限 {generator.limits.batch} 張</span>
+                <span>
+                  今日 {generator.usage.today}／{generator.limits.daily}
+                </span>
+                <span>
+                  本月 {generator.usage.month}／{generator.limits.monthly}
+                </span>
+              </div>
+            )}
+            <div className="ai-code-generator">
+              <label>
+                開通權益
+                <select
+                  value={benefitType}
+                  onChange={(event) => setBenefitType(event.target.value)}
+                >
+                  <option value="medtech_pack_choice">
+                    醫檢任選一組 30 題
+                  </option>
+                  <option value="ai_access">AI 學習額度</option>
+                  <option value="medtech_book">醫檢指定書籍</option>
+                </select>
+              </label>
+              {benefitType === "medtech_book" && (
+                <label>
+                  指定書籍
+                  <select
+                    value={selectedProductKey}
+                    onChange={(event) =>
+                      setSelectedProductKey(event.target.value)
+                    }
+                  >
+                    {medtechProducts.map((product) => (
+                      <option
+                        key={product.productKey}
+                        value={product.productKey}
+                      >
+                        {product.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label>
+                活動名稱
+                <input
+                  value={label}
+                  onChange={(event) => setLabel(event.target.value)}
+                />
+              </label>
+              <label>
+                產製用途
+                <input
+                  value={purpose}
+                  onChange={(event) => setPurpose(event.target.value)}
+                  placeholder="例如：醫檢班學員試讀"
+                />
+              </label>
+              {benefitType === "medtech_pack_choice" ? (
+                <label>
+                  開通期間
+                  <input value="永久開通選定單元" disabled />
+                </label>
+              ) : (
+                <label>
+                  使用天數
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    value={codeDuration}
+                    onChange={(event) =>
+                      setCodeDuration(Number(event.target.value))
+                    }
+                  />
+                </label>
+              )}
+              <label>
+                產生數量
+                <input
+                  type="number"
+                  min="1"
+                  max={generator?.limits.batch ?? 100}
+                  value={count}
+                  onChange={(event) => setCount(Number(event.target.value))}
+                />
+              </label>
+              <label>
+                最晚兌換日（可留空）
+                <input
+                  type="date"
+                  value={redeemBy}
+                  onChange={(event) => setRedeemBy(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void generate()}
+                disabled={
+                  busy ||
+                  purpose.trim().length < 3 ||
+                  (benefitType === "medtech_book" && !selectedProductKey)
+                }
+              >
+                產生啟用碼
+              </button>
+            </div>
+            {!!generated.length && (
+              <div className="ai-generated-codes">
+                <header>
+                  <b>本次產生的完整啟用碼</b>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void navigator.clipboard.writeText(generated.join("\n"))
+                    }
+                  >
+                    全部複製
+                  </button>
+                </header>
+                <pre>{generated.join("\n")}</pre>
+                <small>
+                  系統只保存雜湊與末四碼；離開本頁後無法再次查看完整碼。
+                </small>
+              </div>
+            )}
+            {!!batches.length && (
+              <details className="ai-batch-list">
+                <summary>查看最近產製批次（{batches.length}）</summary>
+                {batches.slice(0, 20).map((batch) => (
+                  <p key={batch.id}>
+                    <b>{batch.label}</b> · {batch.quantity} 張 · {batch.purpose}{" "}
+                    · {batch.createdByEmail} ·{" "}
+                    {new Date(batch.createdAt).toLocaleString("zh-TW")}
+                  </p>
+                ))}
+              </details>
+            )}
+            <div className="ai-code-list">
+              {codes.length ? (
+                codes.slice(0, 100).map((code) => (
+                  <article key={code.id}>
+                    <div>
+                      <b>{code.label}</b>
+                      <span>
+                        ••••-{code.last4} ·{" "}
+                        {code.benefitType === "medtech_pack_choice"
+                          ? "醫檢任選 30 題 · 永久"
+                          : code.benefitType === "medtech_book"
+                            ? `${productTitle(code.productKey)} · ${code.durationDays ?? 30} 天`
+                            : `AI ${code.quota ?? policy.quota} 次／${code.durationDays ?? policy.durationDays} 天`}
+                      </span>
+                      <small>
+                        建立 {new Date(code.createdAt).toLocaleString("zh-TW")}
+                        {code.createdBy ? ` · 產製者 ${code.createdBy}` : ""}
+                        {code.redeemBy
+                          ? ` · ${code.redeemBy} 前兌換`
+                          : " · 無兌換截止日"}
+                        {code.redeemedBy ? ` · 兌換者 ${code.redeemedBy}` : ""}
+                        {code.selectedUnitLabel
+                          ? ` · ${code.selectedUnitLabel}`
+                          : ""}
+                        {code.disabledReason
+                          ? ` · 停用原因：${code.disabledReason}`
+                          : ""}
+                      </small>
+                    </div>
+                    <em className={`ai-code-${code.status}`}>
+                      {statusLabels[code.status] ?? code.status}
+                    </em>
+                    {code.status === "unused" && (
+                      <button
+                        type="button"
+                        onClick={() => void disable(code.id)}
+                        disabled={busy}
+                      >
+                        停用
+                      </button>
+                    )}
+                  </article>
+                ))
+              ) : (
+                <p>尚未產生啟用碼。</p>
+              )}
+            </div>
+          </section>
+        </>
+      )}
+      {notice && (
+        <p className="ai-access-notice" role="status">
+          {notice}
+        </p>
+      )}
+    </main>
+  );
 }

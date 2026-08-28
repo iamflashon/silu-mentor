@@ -1,18 +1,30 @@
-import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, lt, lte, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import { aiAccessEntitlements, aiAccessLedger, appSettings } from "../db/schema";
 
 export const AI_ACCESS_SETTINGS_KEY = "ai_access_admin_v1";
 export type Db = Awaited<ReturnType<typeof getDb>>;
-export type AiPlan = { enabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; scholarAssistEnabled:boolean; autoRenew:false; categories:string[]; notes:string };
+export type AiPlan = { enabled:boolean; lawScholarReflectionEnabled:boolean; pengliScholarReflectionEnabled:boolean; scholarAssistEnabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; promoEnabled:boolean; promoBonusQuota:number; promoStartsAt:string; promoEndsAt:string; promoFirstPurchaseOnly:boolean; autoRenew:false; categories:string[]; notes:string };
 
-export const DEFAULT_AI_PLAN: AiPlan = { enabled:false, name:"AI 試問方案｜30 天 30 次", price:30, quota:30, durationDays:30, coachRounds:5, scholarAssistEnabled:true, autoRenew:false, categories:["law","pengli","accounting","medtech","data-structure"], notes:"" };
+export const DEFAULT_AI_PLAN: AiPlan = { enabled:false, lawScholarReflectionEnabled:true, pengliScholarReflectionEnabled:true, scholarAssistEnabled:true, name:"AI 使用方案｜30 天 30 次", price:30, quota:30, durationDays:30, coachRounds:1, promoEnabled:true, promoBonusQuota:20, promoStartsAt:"2026-08-27T00:00:00+08:00", promoEndsAt:"2026-09-26T23:59:59+08:00", promoFirstPurchaseOnly:true, autoRenew:false, categories:["law","pengli","accounting","medtech","data-structure"], notes:"" };
+
+export function aiPurchaseOffer(plan:AiPlan,hasPurchased:boolean,now=new Date()){
+  const starts=plan.promoStartsAt?new Date(plan.promoStartsAt):null,ends=plan.promoEndsAt?new Date(plan.promoEndsAt):null;
+  const promoActive=plan.promoEnabled&&(!starts||starts<=now)&&(!ends||ends>=now)&&(!plan.promoFirstPurchaseOnly||!hasPurchased);
+  const bonusQuota=promoActive?Math.max(0,plan.promoBonusQuota):0;
+  return{...plan,standardQuota:plan.quota,quota:plan.quota+bonusQuota,bonusQuota,promoActive};
+}
 
 export async function getAiPlan(db: Db) {
   const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, AI_ACCESS_SETTINGS_KEY)).limit(1);
   try {
     const parsed = JSON.parse(row?.value ?? "") as { policy?: Partial<AiPlan> };
-    return { ...DEFAULT_AI_PLAN, ...(parsed.policy ?? {}), autoRenew:false } as AiPlan;
+    const stored = parsed.policy ?? {};
+    const legacy = stored.scholarAssistEnabled !== false;
+    // The legacy plan stored one charge per five coaching rounds. AI usage is
+    // now unified platform-wide, so a successful coach reply always consumes
+    // one unit even when an older database row still contains coachRounds: 5.
+    return { ...DEFAULT_AI_PLAN, ...stored, coachRounds:1, lawScholarReflectionEnabled: stored.lawScholarReflectionEnabled ?? legacy, pengliScholarReflectionEnabled: stored.pengliScholarReflectionEnabled ?? legacy, autoRenew:false } as AiPlan;
   } catch { return DEFAULT_AI_PLAN; }
 }
 
@@ -34,28 +46,19 @@ export async function grantAiAccess(db: Db, input:{memberId:number;quota:number;
   return created;
 }
 
-export async function grantOrExtendAiAccess(db: Db, input:{memberId:number;quota:number;durationDays:number;source:string;referenceId:string;note:string}) {
-  const [alreadyGranted] = await db.select().from(aiAccessEntitlements).where(and(eq(aiAccessEntitlements.memberId,input.memberId),eq(aiAccessEntitlements.referenceId,input.referenceId))).limit(1);
-  if (alreadyGranted) return alreadyGranted;
-  const existing = await getActiveAiEntitlement(db,input.memberId);
-  if (!existing) return grantAiAccess(db,input);
-  const expiresAt = new Date(existing.expiresAt.getTime()+input.durationDays*86400000);
-  const [updated] = await db.update(aiAccessEntitlements).set({quotaTotal:sql`${aiAccessEntitlements.quotaTotal} + ${input.quota}`,expiresAt,source:input.source,referenceId:input.referenceId,note:input.note,updatedAt:new Date()}).where(eq(aiAccessEntitlements.id,existing.id)).returning();
-  return updated;
-}
-
-export async function consumeAiAccess(db: Db, input:{memberId:number;action:string;description:string;requestKey?:string}) {
+export async function consumeAiAccess(db: Db, input:{memberId:number;action:string;description:string;requestKey?:string;quantity?:number}) {
   const requestKey=(input.requestKey||crypto.randomUUID()).slice(0,120);
+  const quantity=Math.max(1,Math.min(20,Math.floor(input.quantity??1)));
   const [existingLedger]=await db.select().from(aiAccessLedger).where(and(eq(aiAccessLedger.memberId,input.memberId),eq(aiAccessLedger.requestKey,requestKey))).limit(1);
   if(existingLedger)return { charged:false,remaining:existingLedger.balanceAfter,idempotent:true };
   const entitlement=await getActiveAiEntitlement(db,input.memberId);
   if(!entitlement)return { charged:false,remaining:0,idempotent:false };
   const [reservation]=await db.insert(aiAccessLedger).values({entitlementId:entitlement.id,memberId:input.memberId,delta:0,balanceAfter:Math.max(0,entitlement.quotaTotal-entitlement.quotaUsed),action:"reserved",requestKey,description:input.description}).onConflictDoNothing().returning();
   if(!reservation){const [winner]=await db.select().from(aiAccessLedger).where(and(eq(aiAccessLedger.memberId,input.memberId),eq(aiAccessLedger.requestKey,requestKey))).limit(1);return {charged:false,remaining:winner?.balanceAfter??0,idempotent:true}}
-  const [updated]=await db.update(aiAccessEntitlements).set({quotaUsed:sql`${aiAccessEntitlements.quotaUsed} + 1`,updatedAt:new Date()}).where(and(eq(aiAccessEntitlements.id,entitlement.id),eq(aiAccessEntitlements.status,"active"),lt(aiAccessEntitlements.quotaUsed,aiAccessEntitlements.quotaTotal),gt(aiAccessEntitlements.expiresAt,new Date()))).returning();
+  const [updated]=await db.update(aiAccessEntitlements).set({quotaUsed:sql`${aiAccessEntitlements.quotaUsed} + ${quantity}`,updatedAt:new Date()}).where(and(eq(aiAccessEntitlements.id,entitlement.id),eq(aiAccessEntitlements.status,"active"),lte(aiAccessEntitlements.quotaUsed,sql`${aiAccessEntitlements.quotaTotal} - ${quantity}`),gt(aiAccessEntitlements.expiresAt,new Date()))).returning();
   if(!updated){await db.delete(aiAccessLedger).where(eq(aiAccessLedger.id,reservation.id));return { charged:false,remaining:0,idempotent:false }}
   const remaining=Math.max(0,updated.quotaTotal-updated.quotaUsed);
-  await db.update(aiAccessLedger).set({delta:-1,balanceAfter:remaining,action:input.action,description:input.description}).where(eq(aiAccessLedger.id,reservation.id));
+  await db.update(aiAccessLedger).set({delta:-quantity,balanceAfter:remaining,action:input.action,description:input.description}).where(eq(aiAccessLedger.id,reservation.id));
   return { charged:true,remaining,idempotent:false };
 }
 
@@ -66,24 +69,9 @@ export async function progressAiCoach(db:Db,input:{memberId:number;roundTarget:n
   const entitlement=await getActiveAiEntitlement(db,input.memberId);if(!entitlement)return{charged:false,remaining:0,idempotent:false,coachRoundsUsed:0,coachWebSearchUsed:0,coachRoundsTarget:roundTarget};
   const[reservation]=await db.insert(aiAccessLedger).values({entitlementId:entitlement.id,memberId:input.memberId,delta:0,balanceAfter:Math.max(0,entitlement.quotaTotal-entitlement.quotaUsed),action:"coach_round_reserved",requestKey,description:input.description}).onConflictDoNothing().returning();
   if(!reservation){const[winner]=await db.select().from(aiAccessLedger).where(and(eq(aiAccessLedger.memberId,input.memberId),eq(aiAccessLedger.requestKey,requestKey))).limit(1),current=await getActiveAiEntitlement(db,input.memberId);return{charged:(winner?.delta??0)<0,remaining:winner?.balanceAfter??0,idempotent:true,coachRoundsUsed:current?.coachRoundsUsed??0,coachWebSearchUsed:current?.coachWebSearchUsed??0,coachRoundsTarget:roundTarget}}
-  // 先在應用層決定本輪是否達到扣次門檻，讓「輪數歸零」與「額度扣 1」
-  // 使用同一個布林結果；避免 D1 在同一個 UPDATE 的多個 CASE 運算間產生不一致。
-  const charged = entitlement.coachRoundsUsed + 1 >= roundTarget;
-  const nextCoachRoundsUsed = charged ? 0 : entitlement.coachRoundsUsed + 1;
-  const [updated]=await db.update(aiAccessEntitlements).set({
-    coachRoundsUsed:nextCoachRoundsUsed,
-    coachWebSearchUsed:charged?0:entitlement.coachWebSearchUsed,
-    quotaUsed:sql`${aiAccessEntitlements.quotaUsed} + ${charged ? 1 : 0}`,
-    updatedAt:new Date()
-  }).where(and(
-    eq(aiAccessEntitlements.id,entitlement.id),
-    eq(aiAccessEntitlements.status,"active"),
-    eq(aiAccessEntitlements.coachRoundsUsed,entitlement.coachRoundsUsed),
-    lt(aiAccessEntitlements.quotaUsed,aiAccessEntitlements.quotaTotal),
-    gt(aiAccessEntitlements.expiresAt,new Date())
-  )).returning();
-  if(!updated){await db.delete(aiAccessLedger).where(eq(aiAccessLedger.id,reservation.id));return{charged:false,remaining:Math.max(0,entitlement.quotaTotal-entitlement.quotaUsed),idempotent:false,coachRoundsUsed:entitlement.coachRoundsUsed,coachWebSearchUsed:entitlement.coachWebSearchUsed,coachRoundsTarget:roundTarget}}
-  const remaining=Math.max(0,updated.quotaTotal-updated.quotaUsed);
+  const[updated]=await db.update(aiAccessEntitlements).set({coachRoundsUsed:sql`case when ${aiAccessEntitlements.coachRoundsUsed} + 1 >= ${roundTarget} then 0 else ${aiAccessEntitlements.coachRoundsUsed} + 1 end`,coachWebSearchUsed:sql`case when ${aiAccessEntitlements.coachRoundsUsed} + 1 >= ${roundTarget} then 0 else ${aiAccessEntitlements.coachWebSearchUsed} end`,quotaUsed:sql`${aiAccessEntitlements.quotaUsed} + case when ${aiAccessEntitlements.coachRoundsUsed} + 1 >= ${roundTarget} then 1 else 0 end`,updatedAt:new Date()}).where(and(eq(aiAccessEntitlements.id,entitlement.id),eq(aiAccessEntitlements.status,"active"),lt(aiAccessEntitlements.quotaUsed,aiAccessEntitlements.quotaTotal),gt(aiAccessEntitlements.expiresAt,new Date()))).returning();
+  if(!updated){await db.delete(aiAccessLedger).where(eq(aiAccessLedger.id,reservation.id));return{charged:false,remaining:0,idempotent:false,coachRoundsUsed:0,coachWebSearchUsed:0,coachRoundsTarget:roundTarget}}
+  const charged=updated.coachRoundsUsed===0,remaining=Math.max(0,updated.quotaTotal-updated.quotaUsed);
   await db.update(aiAccessLedger).set({delta:charged?-1:0,balanceAfter:remaining,action:charged?input.action:"coach_round",description:input.description}).where(eq(aiAccessLedger.id,reservation.id));
   return{charged,remaining,idempotent:false,coachRoundsUsed:updated.coachRoundsUsed,coachWebSearchUsed:updated.coachWebSearchUsed,coachRoundsTarget:roundTarget};
 }

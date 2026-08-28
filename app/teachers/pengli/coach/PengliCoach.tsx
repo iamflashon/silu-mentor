@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import PengliCover from "../PengliCover";
 
 type CoachMessage = {
   id: string;
@@ -18,8 +19,6 @@ type Usage = {
 type Access = {
   charged?: boolean;
   remaining?: number | null;
-  coachRoundsUsed?: number | null;
-  coachRoundsTarget?: number;
 };
 const storageKey = "pengli-ai-coach-history-v1";
 
@@ -50,6 +49,7 @@ export default function PengliCoach() {
   const [doubtTarget, setDoubtTarget] = useState<CoachMessage | null>(null);
   const [doubtText, setDoubtText] = useState("");
   const [doubtLoading, setDoubtLoading] = useState(false);
+  const [doubtError, setDoubtError] = useState("");
   const [verification, setVerification] = useState<{
     ticketId: number;
     text: string;
@@ -86,8 +86,6 @@ export default function PengliCoach() {
         if (data?.aiAccess)
           setAccess({
             remaining: data.aiAccess.remaining,
-            coachRoundsUsed: data.aiAccess.coachRoundsUsed,
-            coachRoundsTarget: data.aiAccess.coachRoundsTarget,
           });
         if (data?.plan)
           setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
@@ -182,7 +180,14 @@ export default function PengliCoach() {
     const latestCoach = [...messages]
       .reverse()
       .find((message) => message.role === "coach");
-    if (!latestCoach) return;
+    const targetCoach = replyTarget?.role === "coach" ? replyTarget : latestCoach;
+    if (!targetCoach) return;
+    const contextMessages = replyTarget
+      ? [
+          ...messages.filter((message) => message.id !== targetCoach.id).slice(-10),
+          targetCoach,
+        ]
+      : messages.slice(-12);
     setScholarThinking(true);
     setError("");
     try {
@@ -191,7 +196,7 @@ export default function PengliCoach() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           mode: "scholar-assist",
-          messages: messages.slice(-12),
+          messages: contextMessages,
         }),
       });
       const data = (await response.json()) as {
@@ -214,6 +219,7 @@ export default function PengliCoach() {
         },
       ];
       setMessages(next);
+      setReplyTarget(null);
       setScholarThinking(false);
       setThinking(true);
       await requestCoach(next);
@@ -235,7 +241,7 @@ export default function PengliCoach() {
   async function verifyDoubt() {
     if (!doubtTarget || !doubtText.trim() || doubtLoading) return;
     setDoubtLoading(true);
-    setError("");
+    setDoubtError("");
     setVerification(null);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 32_000);
@@ -272,9 +278,11 @@ export default function PengliCoach() {
       });
       if (data.access) setAccess(data.access);
     } catch (cause) {
-      setError(cause instanceof DOMException && cause.name === "AbortError"
-        ? "官方資料查證逾時，尚未扣除本組查證機會；請縮短疑問後再試。"
-        : cause instanceof Error ? cause.message : "目前無法完成查證。");
+      setDoubtError(cause instanceof DOMException && cause.name === "AbortError"
+        ? "官方資料查證逾時，此次沒有計入使用次數。請縮短疑問後再試一次。"
+        : cause instanceof TypeError
+          ? "目前無法連接查證服務，此次沒有計入使用次數。請稍後再試。"
+          : cause instanceof Error ? cause.message : "目前無法完成查證，請稍後再試。");
     } finally {
       window.clearTimeout(timeout);
       setDoubtLoading(false);
@@ -283,12 +291,18 @@ export default function PengliCoach() {
 
   async function escalateDoubt() {
     if (!verification) return;
-    const response = await fetch("/api/teachers/pengli/questions", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: verification.ticketId, action: "escalate" }),
-    });
-    if (response.ok) setVerification({ ...verification, escalated: true });
+    setDoubtError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/questions", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: verification.ticketId, action: "escalate" }),
+      });
+      if (!response.ok) throw new Error("目前無法送交確認，請稍後再試。");
+      setVerification({ ...verification, escalated: true });
+    } catch (cause) {
+      setDoubtError(cause instanceof Error ? cause.message : "目前無法送交確認，請稍後再試。");
+    }
   }
 
   return (
@@ -297,10 +311,7 @@ export default function PengliCoach() {
     >
       <aside className="pengli-coach-sidebar">
         <div className="pengli-coach-identity">
-          <img
-            src="/teachers/pengli-administrative-law-cover.webp"
-            alt="行政法考點演習書"
-          />
+          <PengliCover />
           <div>
             <small>彭狸老師專屬</small>
             <strong>行政法 AI 教練</strong>
@@ -321,9 +332,9 @@ export default function PengliCoach() {
           </p>
         </div>
         <div className="pengli-coach-access">
-          <b>AI 陪練次數</b>
+          <b>AI 使用次數</b>
           <strong>{access?.remaining ?? "—"} 次</strong>
-          <span>完成 5 輪才扣 1 次</span>
+          <span>一般回答 1 次・官方查證 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／輸入兌換碼</a>
         </div>
         <button
@@ -456,6 +467,7 @@ export default function PengliCoach() {
               onClick={() => {
                 setDoubtTarget(null);
                 setVerification(null);
+                setDoubtError("");
               }}
             >
               ×
@@ -475,12 +487,15 @@ export default function PengliCoach() {
                 <button
                   type="button"
                   onClick={() => void verifyDoubt()}
-                  disabled={!doubtText.trim() || doubtLoading}
+                  disabled={!doubtText.trim() || doubtLoading || (access?.remaining != null && access.remaining < 2)}
                 >
                   {doubtLoading
                     ? "正在查證官方法規與裁判…"
-                    : "使用本組查證機會"}
+                    : "使用 2 次查證官方資料"}
                 </button>
+                <p className="pengli-verification-status">目前剩餘 {access?.remaining ?? "—"} 次；只有成功產生可驗證的官方來源與網址才扣 2 次，查詢失敗不扣。</p>
+                {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">AI 使用次數不足，前往購買／兌換</a>}
+                {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
               </>
             ) : (
               <div className="pengli-verification">
@@ -503,28 +518,23 @@ export default function PengliCoach() {
                 )}
                 {verification.escalated ? (
                   <strong>
-                    已送交彭狸老師，回覆後會在「我的筆記」通知你。
+                    已送交管理員確認；確認後會轉交彭狸老師，回覆會在「我的筆記」通知你。
                   </strong>
                 ) : (
                   <button type="button" onClick={() => void escalateDoubt()}>
-                    仍有疑問，轉請彭狸老師
+                    仍有疑問，申請轉請彭狸老師
                   </button>
                 )}
+                {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
               </div>
             )}
           </section>
         )}
-        <div className="pengli-coach-usage-bar" aria-label="AI 陪練使用狀態">
+        <div className="pengli-coach-usage-bar" aria-label="AI 使用狀態">
           <span>
-            本組進度{" "}
-            <b>
-              {access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5}{" "}
-              輪
-            </b>
+            AI 使用次數剩餘 <strong>{access?.remaining ?? "—"} 次</strong>
           </span>
-          <span>
-            AI 剩餘 <strong>{access?.remaining ?? "—"} 次</strong>
-          </span>
+          <span>一般回答扣 1 次・官方查證成功扣 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／兌換</a>
         </div>
         <form className="pengli-coach-composer" onSubmit={submit}>
@@ -572,17 +582,14 @@ export default function PengliCoach() {
           </button>
         </form>
         <footer>
-          <span>AI 分身不等同真人老師；每完成 5 輪陪練扣 1 次。</span>
+          <span>AI 分身不等同真人老師；成功回答扣 1 次，官方查證成功扣 2 次。</span>
           <a className="pengli-notes-link" href="/teachers/pengli/notes">
             ✉ 我的筆記{unreadCount > 0 ? `（${unreadCount} 封新回覆）` : ""}
           </a>
           <a className="pengli-mobile-access" href="/teachers/pengli/ai-access">
             購買／兌換碼
           </a>
-          <small>
-            {access?.coachRoundsUsed ?? 0}／{access?.coachRoundsTarget ?? 5}{" "}
-            輪・剩餘 {access?.remaining ?? "—"} 次
-          </small>
+          <small>AI 使用次數剩餘 {access?.remaining ?? "—"} 次</small>
         </footer>
       </div>
     </section>
