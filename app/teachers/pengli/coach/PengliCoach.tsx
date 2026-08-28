@@ -198,7 +198,7 @@ export default function PengliCoach() {
   ] : [];
   const displayedRemaining = freeTrialAvailable && activeTopic && (access?.remaining ?? 0) === 0
     ? 10
-    : displayedRemaining;
+    : access?.remaining ?? "—";
 
   function requireAiUse(required = 1) {
     if (aiPlanEnabled && access?.remaining != null && access.remaining < required) {
