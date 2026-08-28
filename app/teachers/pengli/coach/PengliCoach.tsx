@@ -49,11 +49,13 @@ export default function PengliCoach() {
   const [doubtTarget, setDoubtTarget] = useState<CoachMessage | null>(null);
   const [doubtText, setDoubtText] = useState("");
   const [doubtLoading, setDoubtLoading] = useState(false);
+  const [verificationStage, setVerificationStage] = useState(0);
   const [doubtError, setDoubtError] = useState("");
   const [verification, setVerification] = useState<{
     ticketId: number;
     text: string;
     sources: { label: string; url?: string }[];
+    searchTrace?: { mode: "official_web" | "synchronized_official_data"; terms: string[]; platformLookupFailed?: boolean; checkedAgencies: string[] };
     escalated?: boolean;
   } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -241,10 +243,15 @@ export default function PengliCoach() {
   async function verifyDoubt() {
     if (!doubtTarget || !doubtText.trim() || doubtLoading) return;
     setDoubtLoading(true);
+    setVerificationStage(1);
     setDoubtError("");
     setVerification(null);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 32_000);
+    const stageTimers = [
+      window.setTimeout(() => setVerificationStage(2), 700),
+      window.setTimeout(() => setVerificationStage(3), 1800),
+    ];
     try {
       const response = await fetch("/api/teachers/pengli/coach", {
         method: "POST",
@@ -267,6 +274,7 @@ export default function PengliCoach() {
         ticketId?: number;
         sources?: { label: string; url?: string }[];
         access?: Access;
+        searchTrace?: { mode: "official_web" | "synchronized_official_data"; terms: string[]; platformLookupFailed?: boolean; checkedAgencies: string[] };
         error?: string;
       };
       if (!response.ok || !data.verification || !data.ticketId)
@@ -275,6 +283,7 @@ export default function PengliCoach() {
         ticketId: data.ticketId,
         text: data.verification,
         sources: data.sources || [],
+        searchTrace: data.searchTrace,
       });
       if (data.access) setAccess(data.access);
     } catch (cause) {
@@ -285,6 +294,8 @@ export default function PengliCoach() {
           : cause instanceof Error ? cause.message : "目前無法完成查證，請稍後再試。");
     } finally {
       window.clearTimeout(timeout);
+      stageTimers.forEach((timer) => window.clearTimeout(timer));
+      setVerificationStage(0);
       setDoubtLoading(false);
     }
   }
@@ -493,6 +504,7 @@ export default function PengliCoach() {
                     ? "正在查證官方法規與裁判…"
                     : "使用 2 次查證官方資料"}
                 </button>
+                {doubtLoading && <div className="pengli-verification-progress" role="status"><strong>{verificationStage <= 1 ? "正在整理查詢關鍵字…" : verificationStage === 2 ? "正在比對已同步的法規與裁判…" : "正在搜尋司法院、憲法法庭與全國法規資料庫…"}</strong><ol><li className={verificationStage >= 1 ? "active" : ""}>整理疑問</li><li className={verificationStage >= 2 ? "active" : ""}>比對平台資料</li><li className={verificationStage >= 3 ? "active" : ""}>查詢官方網站</li></ol></div>}
                 <p className="pengli-verification-status">目前剩餘 {access?.remaining ?? "—"} 次；只有成功產生可驗證的官方來源與網址才扣 2 次，查詢失敗不扣。</p>
                 {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">AI 使用次數不足，前往購買／兌換</a>}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
@@ -500,9 +512,10 @@ export default function PengliCoach() {
             ) : (
               <div className="pengli-verification">
                 <h3>AI 外部查證結果</h3>
+                {verification.searchTrace && <div className="pengli-verification-trace"><b>{verification.searchTrace.mode === "official_web" ? "已查詢官方網站" : "已比對平台同步官方資料"}</b><span>查詢詞：{verification.searchTrace.terms.length ? verification.searchTrace.terms.join("、") : "依完整疑問搜尋"}</span><small>範圍：{verification.searchTrace.checkedAgencies.join("、")}</small></div>}
                 <p>{verification.text}</p>
                 {verification.sources.length > 0 && (
-                  <ul>
+                  <><h4>官方來源（點擊開啟原文）</h4><ul>
                     {verification.sources.map((source) => (
                       <li key={source.label}>
                         {source.url ? (
@@ -514,7 +527,7 @@ export default function PengliCoach() {
                         )}
                       </li>
                     ))}
-                  </ul>
+                  </ul></>
                 )}
                 {verification.escalated ? (
                   <strong>
