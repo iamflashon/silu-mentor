@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     conversationKey: String(body.conversationKey ?? "").slice(0, 120),
     messageKey,
     topic: String(body.topic ?? "行政法").slice(0, 120),
-    aiReply: String(body.aiReply ?? "教材全文未命中").slice(0, 6000),
+    aiReply: String(body.aiReply ?? "未找到對應書頁").slice(0, 6000),
     studentQuestion,
     verificationResult: "教材全文檢索未命中；依學生選擇直接轉請老師回答。",
     verificationSourcesJson: "[]",

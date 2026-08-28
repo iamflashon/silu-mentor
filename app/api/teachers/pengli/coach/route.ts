@@ -670,7 +670,7 @@ export async function POST(request: Request) {
     }, { headers: { "Cache-Control": "no-store" } });
     if (body.mode !== "plain-explain" && body.boundaryTest === true) return Response.json({
       reply: "目前彭狸老師教材沒有這個問題的直接內容。我不會因為出現『行政機關』或『行政處分』等相近詞，就拿不相關的教材頁面補成答案。你可以選擇查證官方資料，或轉請彭狸老師回答；這次不扣使用次數。",
-      source: "教材全文未命中｜未引用教材頁碼",
+      source: "未找到對應書頁",
       evidenceMissing: true,
       missingQuestion: searchText.slice(0, 2000),
       retrievedPages: [],
@@ -704,7 +704,7 @@ export async function POST(request: Request) {
     }, { status: 409 });
     if (body.mode !== "plain-explain" && !evidence.rows.length) return Response.json({
       reply: "我已搜尋目前主題及整本教材，暫時找不到這個問題的直接資料。為避免 AI 幻覺，我不會用一般知識補成教材答案。你可以選擇查證官方資料，或轉請彭狸老師回答；這次不扣使用次數。",
-      source: "教材全文未命中｜未使用 AI 一般知識",
+      source: "未找到對應書頁",
       evidenceMissing: true,
       missingQuestion: searchText.slice(0, 2000),
       retrievedPages: [],

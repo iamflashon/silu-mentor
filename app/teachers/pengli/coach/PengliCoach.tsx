@@ -666,7 +666,7 @@ export default function PengliCoach() {
             >
               ×
             </button>
-            <b>{doubtTarget.evidenceMissing ? "教材未命中：查證官方資料" : "針對這則 AI 回覆提出疑問"}</b>
+            <b>{doubtTarget.evidenceMissing ? "未找到對應書頁：查證官方資料" : "針對這則 AI 回覆提出疑問"}</b>
             <blockquote>
               {doubtTarget.text.slice(0, 300)}
               {doubtTarget.text.length > 300 ? "…" : ""}
