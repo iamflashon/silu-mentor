@@ -58,7 +58,6 @@ export default function PengliCoach() {
     searchTrace?: { mode: "official_web" | "synchronized_official_data"; terms: string[]; platformLookupFailed?: boolean; checkedAgencies: string[] };
     escalated?: boolean;
   } | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,13 +93,6 @@ export default function PengliCoach() {
       })
       .catch(() => undefined);
   }, []);
-  useEffect(() => {
-    void fetch("/api/teachers/pengli/questions", { cache: "no-store" })
-      .then(async (response) => (response.ok ? response.json() : null))
-      .then((data) => setUnreadCount(Number(data?.unreadCount || 0)))
-      .catch(() => undefined);
-  }, []);
-
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(messages.slice(-40)));
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -539,6 +531,17 @@ export default function PengliCoach() {
                   </button>
                 )}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
+                <button
+                  type="button"
+                  className="pengli-verification-close"
+                  onClick={() => {
+                    setDoubtTarget(null);
+                    setVerification(null);
+                    setDoubtError("");
+                  }}
+                >
+                  關閉查證結果
+                </button>
               </div>
             )}
           </section>
@@ -596,9 +599,6 @@ export default function PengliCoach() {
         </form>
         <footer>
           <span>AI 分身不等同真人老師；成功回答扣 1 次，官方查證成功扣 2 次。</span>
-          <a className="pengli-notes-link" href="/teachers/pengli/notes">
-            ✉ 我的筆記{unreadCount > 0 ? `（${unreadCount} 封新回覆）` : ""}
-          </a>
           <a className="pengli-mobile-access" href="/teachers/pengli/ai-access">
             購買／兌換碼
           </a>

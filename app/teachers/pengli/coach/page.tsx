@@ -15,7 +15,10 @@ export default function PengliCoachPage() {
     <nav className="pengli-topbar" aria-label="頁面導覽">
       <Link href="/" className="pengli-brand">iBrain Pedia X</Link>
       <div><span>彭狸老師專區</span><b>AI 分身教練</b></div>
-      <Link href="/teachers/pengli">回專區首頁</Link>
+      <div className="pengli-top-actions">
+        <Link href="/teachers/pengli/notes">我的筆記</Link>
+        <Link href="/teachers/pengli">回專區首頁</Link>
+      </div>
     </nav>
     <PengliCoach />
   </main>;
