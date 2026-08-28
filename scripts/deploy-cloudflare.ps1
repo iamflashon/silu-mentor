@@ -43,14 +43,16 @@ $buildFiles = Get-ChildItem $distPath -Recurse -File |
     Where-Object { $_.Extension -in ".js", ".html", ".json" }
 
 $oldRule = $buildFiles |
-    Select-String -SimpleMatch -Pattern "完成 5 輪才扣 1 次", "每 5 輪才扣 1 次" -Quiet
-if ($oldRule) {
+    Select-String -SimpleMatch -Pattern "完成 5 輪才扣 1 次", "每 5 輪才扣 1 次" |
+    Select-Object -First 1
+if ($null -ne $oldRule) {
     throw "建置內容仍含舊規則，停止部署"
 }
 
 $newRule = $buildFiles |
-    Select-String -SimpleMatch -Pattern "規則版本：2026-08-28" -Quiet
-if (-not $newRule) {
+    Select-String -SimpleMatch -Pattern "規則版本：2026-08-28" |
+    Select-Object -First 1
+if ($null -eq $newRule) {
     throw "建置內容找不到新版規則，停止部署"
 }
 
