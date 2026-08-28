@@ -2,20 +2,12 @@ import { clearAdminEntryCookie } from "../../../../lib/admin-entry-auth";
 
 function logout(request: Request) {
   const requestUrl = new URL(request.url);
-  const homeUrl = new URL("/", requestUrl.origin);
-  const isCloudflareAccessHost = requestUrl.hostname.endsWith(".workers.dev");
-  const destination = isCloudflareAccessHost
-    ? new URL("/cdn-cgi/access/logout", requestUrl.origin)
-    : homeUrl;
-
-  if (isCloudflareAccessHost) {
-    destination.searchParams.set("returnTo", homeUrl.toString());
-  }
+  const homeUrl = new URL("/platform", requestUrl.origin);
 
   return new Response(null, {
     status: 303,
     headers: {
-      location: destination.toString(),
+      location: homeUrl.toString(),
       "cache-control": "no-store",
       "set-cookie": clearAdminEntryCookie(),
     },

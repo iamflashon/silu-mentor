@@ -839,7 +839,7 @@ a {
 }
 .platform-entry > section {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 18px;
   margin-top: 42px;
 }
@@ -869,6 +869,10 @@ a {
 .platform-entry .medtech i {
   background: #dff0ec;
   color: #17675f;
+}
+.platform-entry .administrative i {
+  background: #f3e8c9;
+  color: #80601f;
 }
 .platform-entry .accounting {
   opacity: 0.62;
@@ -1196,6 +1200,9 @@ a {
 }
 .platform-entry .medtech strong {
   color: #17675f;
+}
+.platform-entry .administrative strong {
+  color: #80601f;
 }
 .platform-card-link {
   position: relative;
