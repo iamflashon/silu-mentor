@@ -272,7 +272,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const normalizedScope = scopeTopic.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const scopeThemeIndex = normalizedScope ? PENGLI_THEME_TITLES.findIndex((title) => normalizedScope.includes(title.toLocaleLowerCase("zh-Hant")) || title.toLocaleLowerCase("zh-Hant").includes(normalizedScope)) : -1;
-  const printedMatch = normalized.match(/(?:書(?:本|內)?\s*)?第?\s*([1-8])\s*[-－—]\s*(\d{1,3})\s*頁?/u);
+  const printedMatch = normalized.match(/(?:書(?:本|內)?\s*)?第?\s*([1-8])\s*[-－—之]\s*(\d{1,3})\s*頁?/u);
   const themePageMatch = normalized.match(/主題\s*([1-8])\s*(?:的)?\s*第?\s*(\d{1,3})\s*頁/u);
   const explicitPdfPage = Number(normalized.match(/pdf\s*第?\s*(\d{1,4})\s*頁/u)?.[1] || 0);
   const ordinaryPage = Number(normalized.match(/第\s*(\d{1,4})\s*頁/u)?.[1] || 0);
@@ -636,14 +636,56 @@ export async function POST(request: Request) {
         ? [{ role: "student", text: latestStudentText }]
         : rawMessages.slice(-1);
     const searchText = searchMessages.map((message) => String(message.text ?? "")).filter(Boolean).join(" ");
+    const pageHint = Number(body.pageHint ?? 0);
+    const normalizedPageQuestion = searchText.normalize("NFKC");
+    const ambiguousDashPage = normalizedPageQuestion.match(/(?:第\s*)?(\d{1,4})\s*[-－—]\s*(\d{1,4})\s*頁/u);
+    if (body.mode !== "plain-explain" && !(Number.isFinite(pageHint) && pageHint > 0) && ambiguousDashPage && !/書內頁碼|主題\s*[1-8]/u.test(normalizedPageQuestion)) {
+      const left = Number(ambiguousDashPage[1]);
+      const right = Number(ambiguousDashPage[2]);
+      return Response.json({
+        reply: `請確認一下：你是要問第 ${left} 頁到第 ${right} 頁的內容，還是書內頁碼 ${left}-${right}（主題 ${left} 的第 ${right} 頁）？請改成「第 ${left} 至 ${right} 頁」或「主題 ${left} 的第 ${right} 頁」。一次若問連續內容，最多只能問 3 頁；這次不扣使用次數。`,
+        source: "等待確認頁碼｜尚未搜尋教材",
+        pageClarificationRequired: true,
+        retrievedPages: [],
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+    const explicitRange = normalizedPageQuestion.match(/(?:第\s*)?(\d{1,4})\s*(?:到|至|～|~)\s*(?:第\s*)?(\d{1,4})\s*頁/u);
+    const rangeStart = Number(explicitRange?.[1] || 0);
+    const rangeEnd = Number(explicitRange?.[2] || 0);
+    if (body.mode !== "plain-explain" && explicitRange && (rangeEnd < rangeStart || rangeEnd - rangeStart + 1 > 3)) {
+      return Response.json({
+        reply: rangeEnd < rangeStart
+          ? `頁數順序好像反了。請告訴我單一頁，或依起訖順序提供最多 3 頁，例如「第 ${rangeEnd} 至 ${Math.min(rangeEnd + 2, rangeStart)} 頁」；這次不扣使用次數。`
+          : `第 ${rangeStart} 至 ${rangeEnd} 頁共有 ${rangeEnd - rangeStart + 1} 頁，範圍太大。請指定單一頁，或縮小成最多連續 3 頁，例如「第 ${rangeStart} 至 ${rangeStart + 2} 頁」；這次不扣使用次數。`,
+        source: "頁數範圍過大｜尚未搜尋教材",
+        pageRangeTooLarge: true,
+        retrievedPages: [],
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (body.mode !== "plain-explain" && clearlyOutsidePengliScope(searchText)) return Response.json({
       reply: "這個問題不屬於彭狸老師行政法教材範圍，我先不回答，避免把其他科目或模型的一般知識混進教材學習。請改問行政法問題，或回到對應的科目專區；這次不扣使用次數。",
       source: "超出行政法教材範圍｜已拒絕回答",
       outOfScope: true,
       retrievedPages: [],
     }, { headers: { "Cache-Control": "no-store" } });
-    const pageHint = Number(body.pageHint ?? 0);
-    const evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
+    let evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
+    if (body.mode !== "plain-explain" && explicitRange && rangeEnd >= rangeStart && rangeEnd - rangeStart + 1 <= 3) {
+      const pageEvidence = [];
+      const explicitPdfRange = /pdf/u.test(normalizedPageQuestion.toLocaleLowerCase("zh-Hant"));
+      for (let page = rangeStart; page <= rangeEnd; page += 1) {
+        pageEvidence.push(await pengliEvidence(`第 ${page} 頁`, String(body.topic ?? ""), explicitPdfRange ? page : 0));
+      }
+      const firstEvidence = pageEvidence[0];
+      evidence = {
+        ...firstEvidence,
+        rows: pageEvidence.flatMap((item) => item.rows),
+        navigationPage: pageEvidence.some((item) => item.navigationPage),
+        searchFailed: pageEvidence.some((item) => item.searchFailed),
+        bookPageLabel: pageEvidence.every((item) => item.bookPageLabel)
+          ? `${pageEvidence[0].bookPageLabel} 至 ${pageEvidence.at(-1)?.bookPageLabel}`
+          : "",
+      };
+    }
     if (evidence.navigationPage) return Response.json({
       reply: `PDF 第 ${evidence.requestedPage} 頁屬於封面、序言或目錄區，不作為教材正文回答。請告訴我正文頁數；這次不扣使用次數。`,
       source: "前置頁／目錄，不列入教材正文",
@@ -751,10 +793,16 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       });
     }
 
+    const coachPages = [...new Set(evidence.rows.flatMap((row) => row.pageStart ? [row.pageStart] : []))].sort((left, right) => left - right);
+    const requestedPageRule = coachPages.length > 1
+      ? `學生指定閱讀 PDF 第 ${coachPages[0]} 至 ${coachPages.at(-1)} 頁；本輪已提供這 ${coachPages.length} 頁原文，只能綜合這些頁面回答，不得轉答其他頁。先用2至4句概括這幾頁的共同重點，再問一個簡短問題。`
+      : evidence.requestedPage > 0
+        ? `學生已指定正在閱讀 PDF 第 ${evidence.requestedPage} 頁；只能回答本輪提供的該頁教材內容，不得轉答其他頁。${pageFocusMatched ? "先直接解釋學生提到的考點，再問一個能推進理解的小問題。" : "學生只表示這一頁看不懂；不要要求他重貼內容，先用2至3句說明該頁主要內容與最重要的一個考點，再問他是卡在概念、判斷步驟或例子。"}`
+        : "";
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${evidence.requestedPage > 0 ? `學生已指定正在閱讀 PDF 第 ${evidence.requestedPage} 頁；只能回答本輪提供的該頁教材內容，不得轉答其他頁。${pageFocusMatched ? "先直接解釋學生提到的考點，再問一個能推進理解的小問題。" : "學生只表示這一頁看不懂；不要要求他重貼內容，先用2至3句說明該頁主要內容與最重要的一個考點，再問他是卡在概念、判斷步驟或例子。"}` : ""}${body.testAnswerAnchor ? `本輪是書頁內容驗證。先用一至兩句直接回答學生問題，回答核心只能圍繞本頁原文核對短語「${String(body.testAnswerAnchor).slice(0, 60)}」，並須逐字包含這段短語。不得改答同頁其他爭點、不得羅列問題沒有詢問的其他事實，也不得只反問。若本頁資訊不足，只能明確說明本頁能確認到哪裡，不可自行補足；完成核心回答後才可問一個簡短追問。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${body.testAnswerAnchor ? `本輪是書頁內容驗證。先用一至兩句直接回答學生問題，回答核心只能圍繞本頁原文核對短語「${String(body.testAnswerAnchor).slice(0, 60)}」，並須逐字包含這段短語。不得改答同頁其他爭點、不得羅列問題沒有詢問的其他事實，也不得只反問。若本頁資訊不足，只能明確說明本頁能確認到哪裡，不可自行補足；完成核心回答後才可問一個簡短追問。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 500,
     }) }) as Record<string, unknown>;
