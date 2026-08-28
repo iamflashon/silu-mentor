@@ -1,0 +1,34 @@
+.pengli-ai-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(13, 39, 54, 0.58);
+  backdrop-filter: blur(3px);
+}
+
+.pengli-ai-modal {
+  width: min(470px, calc(100vw - 32px));
+  padding: 28px;
+  border: 1px solid #b8d0d3;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 28px 90px rgba(8, 32, 46, 0.34);
+}
+
+.pengli-ai-modal > span { color: #9d7638; font-size: 11px; font-weight: 900; letter-spacing: 0.13em; }
+.pengli-ai-modal h2 { margin: 8px 0 12px; color: #173f5a; font-size: 24px; }
+.pengli-ai-modal p { margin: 0 0 12px; padding: 0; color: #496572; background: transparent; line-height: 1.75; }
+.pengli-ai-modal > strong { display: block; padding: 11px 13px; border-radius: 9px; color: #176b60; background: #e9f7f3; }
+.pengli-ai-modal > div { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.pengli-ai-modal button { width: auto; min-width: 130px; padding: 11px 16px; border: 0; border-radius: 9px; color: #173349; background: #d9b879; font: inherit; font-weight: 900; cursor: pointer; }
+.pengli-ai-modal button.secondary { border: 1px solid #b8c8ce; color: #4b6572; background: #fff; }
+.pengli-ai-modal.alert { border-top: 6px solid #d9b879; }
+
+@media (max-width: 560px) {
+  .pengli-ai-modal { padding: 22px; }
+  .pengli-ai-modal > div { display: grid; }
+  .pengli-ai-modal button { width: 100%; }
+}
