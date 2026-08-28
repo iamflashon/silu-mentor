@@ -1295,7 +1295,16 @@ export default function MainEntryGate() {
   type HomeCard = { id: "law" | "pengli" | "medtech" | "accounting"; enabled: boolean; order: number };
   const homeDefaults: HomeCard[] = [{ id: "pengli", enabled: true, order: 1 }, { id: "medtech", enabled: true, order: 2 }, { id: "accounting", enabled: true, order: 3 }, { id: "law", enabled: false, order: 4 }];
   const [homeCards, setHomeCards] = useState<HomeCard[]>(homeDefaults);
-  useEffect(() => { void fetch("/api/portal-cards", { cache: "no-store" }).then((response) => response.json()).then((data) => { if (Array.isArray(data.cards)) setHomeCards(data.cards); }).catch(() => undefined); }, []);
+  const [homeCardsReady, setHomeCardsReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/portal-cards", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => { if (active && Array.isArray(data.cards)) setHomeCards(data.cards); })
+      .catch(() => undefined)
+      .finally(() => { if (active) setHomeCardsReady(true); });
+    return () => { active = false; };
+  }, []);
   const coverFallback = (fallback: string) => (event: React.SyntheticEvent<HTMLImageElement>) => { const image = event.currentTarget; if (!image.dataset.fallback) { image.dataset.fallback = "1"; image.src = fallback; } };
   return <main className="main-entry-gate main-portal">
     <div className="main-portal-orb main-portal-orb-one" aria-hidden="true" />
@@ -1314,8 +1323,8 @@ export default function MainEntryGate() {
           </div>
           <p>依類科找到老師，從專屬教材開始學習。</p>
         </header>
-        <div className="main-teacher-list">
-        {homeCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => card.id === "pengli" ?
+        <div className={`main-teacher-list ${homeCardsReady ? "is-ready" : "is-loading"}`} aria-busy={!homeCardsReady}>
+        {!homeCardsReady ? Array.from({ length: 3 }, (_, index) => <div className="main-teacher-skeleton" aria-hidden="true" key={index} />) : homeCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => card.id === "pengli" ?
         <article className="main-teacher-card law-teacher" key={card.id}>
           <div className="main-teacher-cover">
             <img src="/api/portal-cards/cover?id=pengli" onError={coverFallback("https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif")} alt="行政法考點（考前衝刺）演習書書封" />
