@@ -8,6 +8,7 @@ type CoachMessage = {
   role: "student" | "coach" | "scholar";
   text: string;
   source?: string;
+  evidenceMissing?: { question: string; teacherSubmitted?: boolean };
   replyTo?: { id: string; excerpt: string };
   testVerification?: {
     passed: boolean;
@@ -196,6 +197,8 @@ export default function PengliCoach() {
       purchaseUrl?: string;
       retrievedPages?: number[];
       sourceMode?: "index" | "private_pdf_page";
+      evidenceMissing?: boolean;
+      missingQuestion?: string;
     };
     if (!response.ok || !data.reply) {
       if (data.purchaseUrl) window.location.href = "/teachers/pengli/ai-access";
@@ -226,6 +229,7 @@ export default function PengliCoach() {
         role: "coach",
         text: data.reply!,
         source: data.source,
+        evidenceMissing: data.evidenceMissing ? { question: data.missingQuestion || next.at(-1)?.text || "" } : undefined,
         testVerification,
       },
     ]);
@@ -365,7 +369,7 @@ export default function PengliCoach() {
         signal: controller.signal,
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          mode: "verify-doubt",
+          mode: doubtTarget.evidenceMissing ? "official-answer" : "verify-doubt",
           messageKey: doubtTarget.id,
           aiReply: doubtTarget.text,
           studentQuestion: doubtText,
@@ -420,6 +424,31 @@ export default function PengliCoach() {
       setVerification({ ...verification, escalated: true });
     } catch (cause) {
       setDoubtError(cause instanceof Error ? cause.message : "目前無法送交確認，請稍後再試。");
+    }
+  }
+
+  async function sendMissingQuestionToTeacher(message: CoachMessage) {
+    if (!message.evidenceMissing || message.evidenceMissing.teacherSubmitted) return;
+    setError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/questions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messageKey: message.id,
+          conversationKey: storageKey,
+          topic: activeTopic || "行政法",
+          studentQuestion: message.evidenceMissing.question,
+          aiReply: message.text,
+        }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "目前無法轉請老師回答。");
+      setMessages((current) => current.map((item) => item.id === message.id && item.evidenceMissing
+        ? { ...item, evidenceMissing: { ...item.evidenceMissing, teacherSubmitted: true } }
+        : item));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "目前無法轉請老師回答。");
     }
   }
 
@@ -550,7 +579,19 @@ export default function PengliCoach() {
                     <details><summary>查看抽樣頁原文</summary><p>{message.testVerification.sourceExcerpt}</p></details>
                   </div>
                 )}
-                {message.role === "coach" && (
+                {message.role === "coach" && message.evidenceMissing && (
+                  <nav className="pengli-missing-actions">
+                    <button type="button" disabled={message.evidenceMissing.teacherSubmitted} onClick={() => {
+                      setDoubtTarget(message);
+                      setDoubtText(message.evidenceMissing?.question || "");
+                      setVerification(null);
+                    }}>查證官方資料</button>
+                    <button type="button" disabled={message.evidenceMissing.teacherSubmitted} onClick={() => void sendMissingQuestionToTeacher(message)}>
+                      {message.evidenceMissing.teacherSubmitted ? "已轉請老師回答" : "轉請老師回答"}
+                    </button>
+                  </nav>
+                )}
+                {message.role === "coach" && !message.evidenceMissing && (
                   <nav className="pengli-message-actions">
                     <button
                       type="button"
@@ -610,7 +651,7 @@ export default function PengliCoach() {
             >
               ×
             </button>
-            <b>針對這則 AI 回覆提出疑問</b>
+            <b>{doubtTarget.evidenceMissing ? "教材未命中：查證官方資料" : "針對這則 AI 回覆提出疑問"}</b>
             <blockquote>
               {doubtTarget.text.slice(0, 300)}
               {doubtTarget.text.length > 300 ? "…" : ""}

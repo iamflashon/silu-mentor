@@ -12,6 +12,33 @@ export async function GET(request: Request) {
   return Response.json({ rows: rows.map((row) => ({ ...row, verificationSources: JSON.parse(row.verificationSourcesJson || "[]") })), unreadCount });
 }
 
+export async function POST(request: Request) {
+  const auth = await requireMember(request);
+  if ("error" in auth) return auth.error;
+  const body = await request.json() as { messageKey?: unknown; conversationKey?: unknown; topic?: unknown; studentQuestion?: unknown; aiReply?: unknown };
+  const messageKey = String(body.messageKey ?? "").slice(0, 120);
+  const studentQuestion = String(body.studentQuestion ?? "").trim().slice(0, 2000);
+  if (!messageKey || !studentQuestion) return Response.json({ error: "找不到要轉交老師的問題。" }, { status: 400 });
+  const [existing] = await auth.db.select({ id: pengliTeacherQuestions.id, status: pengliTeacherQuestions.status }).from(pengliTeacherQuestions)
+    .where(and(eq(pengliTeacherQuestions.memberId, auth.member.id), eq(pengliTeacherQuestions.messageKey, messageKey))).limit(1);
+  if (existing) {
+    if (existing.status === "verified") await auth.db.update(pengliTeacherQuestions).set({ status: "pending_review", updatedAt: new Date() }).where(eq(pengliTeacherQuestions.id, existing.id));
+    return Response.json({ ok: true, id: existing.id, duplicate: true });
+  }
+  const [row] = await auth.db.insert(pengliTeacherQuestions).values({
+    memberId: auth.member.id,
+    conversationKey: String(body.conversationKey ?? "").slice(0, 120),
+    messageKey,
+    topic: String(body.topic ?? "行政法").slice(0, 120),
+    aiReply: String(body.aiReply ?? "教材全文未命中").slice(0, 6000),
+    studentQuestion,
+    verificationResult: "教材全文檢索未命中；依學生選擇直接轉請老師回答。",
+    verificationSourcesJson: "[]",
+    status: "pending_review",
+  }).returning({ id: pengliTeacherQuestions.id });
+  return Response.json({ ok: true, id: row.id });
+}
+
 export async function PATCH(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;

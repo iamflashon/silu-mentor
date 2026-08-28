@@ -428,7 +428,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
       ? and(gte(documentSearchUnits.pageStart, themeStartPage), lt(documentSearchUnits.pageStart, nextThemeStartPage))
       : gte(documentSearchUnits.pageStart, themeStartPage)
     : undefined;
-  const candidates = (pageCondition || conditions.length) ? await db.select({
+  let candidates = (pageCondition || conditions.length) ? await db.select({
     documentId: documentSearchUnits.documentId,
     pageStart: documentSearchUnits.pageStart,
     pageEnd: documentSearchUnits.pageEnd,
@@ -441,6 +441,21 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
       pageCondition ?? and(themeCondition, or(...conditions)),
     ))
     .orderBy(documentSearchUnits.sequence).limit(60) : [];
+  if (!candidates.length && themeCondition && conditions.length) {
+    candidates = await db.select({
+      documentId: documentSearchUnits.documentId,
+      pageStart: documentSearchUnits.pageStart,
+      pageEnd: documentSearchUnits.pageEnd,
+      title: documentSearchUnits.title,
+      hierarchyPath: documentSearchUnits.hierarchyPath,
+      text: documentSearchUnits.text,
+    }).from(documentSearchUnits)
+      .where(and(
+        inArray(documentSearchUnits.documentId, books.map((book) => book.id)),
+        or(...conditions),
+      ))
+      .orderBy(documentSearchUnits.sequence).limit(60);
+  }
   const rows = candidates
     .map((row) => {
       const haystack = `${row.title} ${row.hierarchyPath} ${row.text}`.normalize("NFKC").toLocaleLowerCase("zh-Hant");
@@ -499,7 +514,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testAnswerAnchor?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testAnswerAnchor?: string };
     if (body.mode === "scholar-assist" && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -507,7 +522,7 @@ export async function POST(request: Request) {
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
 
-    if (body.mode === "verify-doubt") {
+    if (body.mode === "verify-doubt" || body.mode === "official-answer") {
       if (gate.metered && gate.memberId) {
         const entitlement = await getActiveAiEntitlement(gate.db, gate.memberId);
         const remaining = entitlement ? entitlement.quotaTotal - entitlement.quotaUsed : 0;
@@ -551,8 +566,10 @@ export async function POST(request: Request) {
             tool_choice: "required",
             include: ["web_search_call.action.sources"],
           } : {}),
-          instructions: `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}輸出依序只有三段：第一段以「查證結論：大致正確／需要修正／目前無法確認」擇一；第二段用兩個短句說明關鍵理由；第三段只寫需修正處或學生下一步。不得整段抄錄官方資料、不得重複原 AI 回覆、不得列出搜尋過程。資料不足就直說可轉交彭狸老師。全文 140 至 240 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
-          input: `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
+          instructions: body.mode === "official-answer"
+            ? `你是臺灣行政法官方資料查證員。教材全文未命中這個問題，只能依可核對的官方法規或裁判回答，不得使用模型記憶補足。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料回答。"}第一段以「官方資料補充：」開頭直接回答；第二段簡要說明依據；若資料不足，必須明寫「目前官方資料仍無法確認，建議轉請彭狸老師回答」。不得虛構法條、裁判、老師見解或教材頁碼，不得整段抄錄官方資料。全文 140 至 240 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`
+            : `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}輸出依序只有三段：第一段以「查證結論：大致正確／需要修正／目前無法確認」擇一；第二段用兩個短句說明關鍵理由；第三段只寫需修正處或學生下一步。不得整段抄錄官方資料、不得重複原 AI 回覆、不得列出搜尋過程。資料不足就直說可轉交彭狸老師。全文 140 至 240 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
+          input: body.mode === "official-answer" ? `【待查問題】\n${studentQuestion}` : `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
           max_output_tokens: 380,
         }) }) as Record<string, unknown>;
       } catch (cause) {
@@ -624,9 +641,10 @@ export async function POST(request: Request) {
       code: "PENGLI_PDF_PAGE_NOT_FOUND",
     }, { status: 409 });
     if (body.mode !== "plain-explain" && !evidence.rows.length) return Response.json({
-      reply: "我目前還無法精準確認你正在讀哪一頁。請告訴我書本或教材 PDF 的頁數，例如「第 236 頁」，我會先讀取該頁原文，再依那一頁陪你判斷。這次不扣使用次數。",
-      source: "等待學生提供精準頁碼",
-      needsPage: true,
+      reply: "我已搜尋目前主題及整本教材，暫時找不到這個問題的直接資料。為避免 AI 幻覺，我不會用一般知識補成教材答案。你可以選擇查證官方資料，或轉請彭狸老師回答；這次不扣使用次數。",
+      source: "教材全文未命中｜未使用 AI 一般知識",
+      evidenceMissing: true,
+      missingQuestion: searchText.slice(0, 2000),
       retrievedPages: [],
     }, { headers: { "Cache-Control": "no-store" } });
     const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
