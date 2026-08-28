@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const { env } = await import("cloudflare:workers");
   const object = await env.BUCKET.get(row.value);
   if (!object) return new Response("not found", { status: 404 });
-  const headers = new Headers(); object.writeHttpMetadata(headers); headers.set("etag", object.httpEtag); headers.set("cache-control", "public, max-age=300");
+  const headers = new Headers(); object.writeHttpMetadata(headers); headers.set("etag", object.httpEtag); headers.set("cache-control", "public, max-age=0, must-revalidate");
   return new Response(object.body, { headers });
 }
 
