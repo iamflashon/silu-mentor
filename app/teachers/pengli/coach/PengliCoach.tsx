@@ -224,7 +224,9 @@ export default function PengliCoach() {
     setBookTestLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/teachers/pengli/random-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic: activeTopic || undefined }) });
+      const testedPages = messages.flatMap((message) => message.testVerification?.expectedPage ? [message.testVerification.expectedPage] : []).slice(-24);
+      const testedQuestions = messages.filter((message) => message.role === "student" && /^書內第\s*[1-8]-\d+\s*頁/u.test(message.text)).map((message) => message.text).slice(-24);
+      const response = await fetch("/api/teachers/pengli/random-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic: activeTopic || undefined, excludedPages: testedPages, excludedQuestions: testedQuestions }) });
       const data = await response.json() as { question?: string; questionKind?: "case_facts" | "issue_prompt" | "explanation"; expectedPage?: number; bookPageLabel?: string; answerAnchor?: string; sourceExcerpt?: string; error?: string };
       if (!response.ok || !data.question || !data.questionKind || !data.expectedPage || !data.bookPageLabel || !data.answerAnchor) throw new Error(data.error || "無法產生書頁驗證題目。");
       await ask(data.question, { expectedPage: data.expectedPage, bookPageLabel: data.bookPageLabel, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "" });

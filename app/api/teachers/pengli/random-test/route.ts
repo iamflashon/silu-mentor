@@ -28,50 +28,37 @@ function themeIndex(topic: string) {
   return themeTitles.findIndex((title) => normalized.includes(title) || title.includes(normalized));
 }
 
-const anchorKeywords = ["行政法", "行政罰", "行政處分", "法律保留", "明確性", "裁量", "義務", "責任", "要件", "法律效果", "不利處分", "救濟", "訴願", "訴訟", "原則", "標準", "模式", "路徑"];
-
 function isSubstantivePage(text: string) {
   const normalized = text.replace(/\s+/gu, " ").trim();
   const sentenceCount = (normalized.match(/[。；！？]/gu) ?? []).length;
   return !isNavigationPage(normalized) && normalized.length >= 220 && sentenceCount >= 1;
 }
 
-function exactAnchorCandidates(sourceText: string) {
-  const candidates = new Set<string>();
-  for (const match of sourceText.matchAll(/[「『]([^」』]{8,32})[」』]/gu)) candidates.add(match[1].trim());
-  for (const clause of sourceText.split(/[。；！？]/u)) {
-    const cleaned = clause.replace(/^[\s\d一二三四五六七八九十、.)（）]+/u, "").trim();
-    if (cleaned.length >= 12) {
-      if (cleaned.length <= 32) candidates.add(cleaned);
-      for (const keyword of anchorKeywords) {
-        const index = cleaned.indexOf(keyword);
-        if (index < 0) continue;
-        const start = Math.max(0, Math.min(index - 8, cleaned.length - 26));
-        candidates.add(cleaned.slice(start, Math.min(cleaned.length, start + 26)));
-      }
-    }
-  }
-  for (const match of sourceText.matchAll(/[\p{Script=Han}]{4,}/gu)) {
-    const run = match[0];
-    if (run.length >= 10 && run.length <= 28) candidates.add(run);
-    for (const keyword of anchorKeywords) {
-      const index = run.indexOf(keyword);
-      if (index < 0) continue;
-      const start = Math.max(0, Math.min(index - 7, run.length - 22));
-      candidates.add(run.slice(start, Math.min(run.length, start + 22)));
-    }
-  }
-  return [...candidates]
-    .map((value) => value.trim())
-    .filter((value) => value.length >= 10 && value.length <= 32 && sourceText.includes(value) && !themeTitles.includes(value))
-    .sort((left, right) => {
-      const leftScore = anchorKeywords.filter((keyword) => left.includes(keyword)).length * 20 + Math.min(left.length, 24);
-      const rightScore = anchorKeywords.filter((keyword) => right.includes(keyword)).length * 20 + Math.min(right.length, 24);
-      return rightScore - leftScore;
-    });
+type TestQuestionKind = "case_facts" | "issue_prompt" | "explanation";
+
+function questionFingerprint(value: string) {
+  return value.normalize("NFKC")
+    .replace(/^書內第\s*[1-8]-\d+\s*頁[，,:：\s]*/u, "")
+    .replace(/[\s、，。；：,.!?！？「」『』（）()]/gu, "")
+    .replace(/^(?:請問|請說明|本頁|這一頁|教材中)/u, "");
 }
 
-type TestQuestionKind = "case_facts" | "issue_prompt" | "explanation";
+function isSimilarQuestion(candidate: string, previous: string[]) {
+  const target = questionFingerprint(candidate);
+  return previous.some((item) => {
+    const prior = questionFingerprint(item);
+    if (!target || !prior) return false;
+    if (target === prior) return true;
+    const shorter = target.length <= prior.length ? target : prior;
+    const longer = target.length > prior.length ? target : prior;
+    if (shorter.length >= 12 && longer.includes(shorter)) return true;
+    const pairs = (value: string) => new Set(Array.from({ length: Math.max(0, value.length - 1) }, (_, index) => value.slice(index, index + 2)));
+    const targetPairs = pairs(target), priorPairs = pairs(prior);
+    const overlap = [...targetPairs].filter((pair) => priorPairs.has(pair)).length;
+    const union = new Set([...targetPairs, ...priorPairs]).size;
+    return union > 0 && overlap / union >= 0.72;
+  });
+}
 
 function sourceExcerptAround(text: string, anchor: string) {
   const index = text.indexOf(anchor);
@@ -97,7 +84,10 @@ export async function POST(request: Request) {
   const books = [...new Map([...assigned, ...direct].map((book) => [book.id, book])).values()];
   if (!books.length) return Response.json({ error: "尚未找到彭狸老師教材。" }, { status: 409 });
 
-  const requestedTopic = String((await request.json().catch(() => ({})) as { topic?: unknown }).topic ?? "").trim();
+  const requestBody = await request.json().catch(() => ({})) as { topic?: unknown; excludedPages?: unknown; excludedQuestions?: unknown };
+  const requestedTopic = String(requestBody.topic ?? "").trim();
+  const excludedPages = new Set((Array.isArray(requestBody.excludedPages) ? requestBody.excludedPages : []).map(Number).filter((page) => Number.isInteger(page) && page > 0).slice(-24));
+  const excludedQuestions = (Array.isArray(requestBody.excludedQuestions) ? requestBody.excludedQuestions : []).map(String).filter(Boolean).slice(-24);
   const selectedThemeIndex = themeIndex(requestedTopic);
   if (selectedThemeIndex < 0) return Response.json({ error: "目前無法確認正在學習的主題。" }, { status: 409 });
   const [mapped] = await db.select().from(documentSectionMappings).where(and(
@@ -124,7 +114,9 @@ export async function POST(request: Request) {
   const effectiveStartPage = Math.max(bookBodyStartPage, mapped.pdfStartPage);
   const scoped = records.filter((record) => record.page >= effectiveStartPage && record.page <= mapped.pdfEndPage && !isNavigationPage(record.text) && record.text.replace(/\s+/gu, " ").length >= 120);
   const substantive = scoped.filter((record) => isSubstantivePage(record.text));
-  const pagePool = substantive.length ? substantive : scoped;
+  const completePool = substantive.length ? substantive : scoped;
+  const freshPool = completePool.filter((record) => !excludedPages.has(record.page));
+  const pagePool = freshPool.length ? freshPool : completePool;
   const shuffled = [...pagePool].sort((left, right) => {
     const score = (text: string) => {
       const normalized = text.replace(/\s+/gu, " ");
@@ -152,7 +144,7 @@ export async function POST(request: Request) {
 usable 只有在本頁具有足以形成完整問題與答案的內容時才能為 true；若只有章節標題、頁尾、空白、殘句，或答案明顯要到其他頁才會出現，必須回傳 false，系統會自動改抽別頁。
 
 usable=true 時，產生一個學生會自然詢問、而且完全能由本頁回答的專業問題。優先詢問法律爭點、判斷順序、規則與例外、理由、法律效果，或案例事實如何形成爭議；避免只問名詞抄寫或簡單是非題。案例題幹頁不得要求作出本頁尚未提供的最終法律結論。不得提到抽樣、測試或「依原文」。answerAnchor 必須是本頁連續逐字出現、8至50字、能直接回答問題的核心原句；不得只是章節標題，也不得把完整 answerAnchor 直接寫進問題。`,
-          input: `教材單頁原文：\n${sourceText}`,
+          input: `${excludedQuestions.length ? `最近已問過的問題（不得重複或只換句話說）：\n${excludedQuestions.map((item, index) => `${index + 1}. ${item}`).join("\n")}\n\n` : ""}教材單頁原文：\n${sourceText}`,
           text: { format: { type: "json_schema", name: "pengli_random_book_test", strict: true, schema: {
             type: "object", additionalProperties: false,
             properties: {
@@ -172,19 +164,12 @@ usable=true 時，產生一個學生會自然詢問、而且完全能由本頁�
       const answerAnchor = String(generated.answerAnchor ?? "").replace(/\s+/gu, " ").trim();
       const questionKind = generated.questionKind;
       if (!questionKind || !["case_facts", "issue_prompt", "explanation"].includes(questionKind)) continue;
-      if (!sourceText.includes(answerAnchor) || answerAnchor.length < 8 || answerAnchor.length > 50 || candidate.includes(answerAnchor)) continue;
+      if (!sourceText.includes(answerAnchor) || answerAnchor.length < 8 || answerAnchor.length > 50 || candidate.includes(answerAnchor) || isSimilarQuestion(candidate, excludedQuestions)) continue;
       chosen = { sample, sourceText, question: candidate, answerAnchor, questionKind };
       break;
     } catch { /* 改抽同主題的另一個正文頁 */ }
   }
-  if (!chosen) {
-    const sample = shuffled[0];
-    if (!sample) return Response.json({ error: "目前主題尚未建立可抽樣的頁數範圍。" }, { status: 409 });
-    const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 3200);
-    const answerAnchor = exactAnchorCandidates(sourceText)[0] ?? (sourceText.match(/[\p{Script=Han}]{10,32}/gu) ?? [])[0];
-    if (!answerAnchor) return Response.json({ error: "抽樣頁面暫時沒有可形成問題的正文。" }, { status: 409 });
-    chosen = { sample, sourceText, answerAnchor, questionKind: "case_facts", question: "這一頁記載的具體事實或待判斷爭點是什麼？請先說明本頁確實寫出的內容。" };
-  }
+  if (!chosen) return Response.json({ error: "這次抽到的頁面沒有形成新的專業問題，系統已避免重複出題；請再按一次改抽其他頁。" }, { status: 409 });
   const bookPageLabel = `${selectedThemeIndex + 1}-${chosen.sample.page - mapped.pdfStartPage + 1}`;
   return Response.json({
     question: `書內第 ${bookPageLabel} 頁，${chosen.question}`,
