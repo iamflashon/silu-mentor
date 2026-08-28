@@ -3,6 +3,7 @@ import Link from "next/link";
 import AiAccessClient from "./AiAccessClient";
 import "../pengli.css";
 import "./ai-access.css";
+import "./dialog.css";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
