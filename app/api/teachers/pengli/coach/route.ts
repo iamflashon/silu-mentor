@@ -242,7 +242,7 @@ function coachParts(value: string) {
   };
 }
 
-async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
+async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, preferredDocumentId = 0) {
   const empty = (searchFailed = false) => ({
     documentId: null as number | null,
     title: "",
@@ -308,12 +308,16 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
   }
   if (requestedMapping && (requestedPage < requestedMapping.pdfStartPage || requestedPage > requestedMapping.pdfEndPage)) return { ...empty(), requestedPage, bookPageLabel };
   if (requestedPage > 0) {
-    const sourceBooks = [...books].sort((left, right) => {
+    const orderedSourceBooks = [...books].sort((left, right) => {
+      if (preferredDocumentId && left.id !== right.id) return left.id === preferredDocumentId ? -1 : right.id === preferredDocumentId ? 1 : 0;
       if (requestedMapping && left.id !== right.id) return left.id === requestedMapping.documentId ? -1 : right.id === requestedMapping.documentId ? 1 : 0;
       const leftScore = /59ML170502|行政法考點/iu.test(`${left.fileName} ${left.title}`) ? 1 : 0;
       const rightScore = /59ML170502|行政法考點/iu.test(`${right.fileName} ${right.title}`) ? 1 : 0;
       return rightScore - leftScore || right.id - left.id;
     });
+    const sourceBooks = preferredDocumentId
+      ? orderedSourceBooks.filter((book) => book.id === preferredDocumentId)
+      : orderedSourceBooks;
     const { env } = await import("cloudflare:workers");
     for (const book of sourceBooks) {
       if (!/\.local-index\.jsonl$/iu.test(book.fileName) || !book.storageKey) continue;
@@ -520,7 +524,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; boundaryTest?: boolean; boundaryQuestion?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; boundaryTest?: boolean; boundaryQuestion?: string };
     if (body.mode === "scholar-assist" && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -674,7 +678,8 @@ export async function POST(request: Request) {
       missingQuestion: String(body.boundaryQuestion || searchText).slice(0, 2000),
       retrievedPages: [],
     }, { headers: { "Cache-Control": "no-store" } });
-    let evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
+    const testDocumentId = Number(body.testDocumentId ?? 0);
+    let evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0, Number.isFinite(testDocumentId) && testDocumentId > 0 ? Math.floor(testDocumentId) : 0);
     if (body.mode !== "plain-explain" && explicitRange && rangeEnd >= rangeStart && rangeEnd - rangeStart + 1 <= 3) {
       const pageEvidence = [];
       const explicitPdfRange = /pdf/u.test(normalizedPageQuestion.toLocaleLowerCase("zh-Hant"));
@@ -698,9 +703,16 @@ export async function POST(request: Request) {
       retrievedPages: [],
     }, { headers: { "Cache-Control": "no-store" } });
     if (evidence.requestedPage > 0 && !evidence.rows.length) return Response.json({
-      error: `私密教材 PDF 找不到第 ${evidence.requestedPage} 頁原文；本次不會改查其他頁，也不會扣除使用次數。`,
-      code: "PENGLI_PDF_PAGE_NOT_FOUND",
-    }, { status: 409 });
+      ...(body.testAnswerAnchor ? {
+        reply: "本頁文字目前無法完成核對，系統已停止回答；本次不扣使用次數。",
+        source: "書頁核對未完成｜本次不扣使用次數",
+        retrievedPages: [],
+        testVerified: false,
+      } : {
+        error: `私密教材 PDF 找不到第 ${evidence.requestedPage} 頁原文；本次不會改查其他頁，也不會扣除使用次數。`,
+        code: "PENGLI_PDF_PAGE_NOT_FOUND",
+      }),
+    }, { status: body.testAnswerAnchor ? 200 : 409, headers: { "Cache-Control": "no-store" } });
     if (body.mode !== "plain-explain" && !evidence.rows.length) return Response.json({
       reply: "我已搜尋目前主題及整本教材，暫時找不到這個問題的直接資料。為避免 AI 幻覺，我不會用一般知識補成教材答案。你可以選擇查證官方資料，或轉請彭狸老師回答；這次不扣使用次數。",
       source: "未找到對應書頁",
@@ -831,6 +843,20 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     }
     if (!reply && testAnswerAnchor) reply = `這一頁仍屬於「${testIssueTitle || "本考點"}」${testBodyRole ? `的「${testBodyRole}」` : ""}。本頁可直接核對的內容是：「${testAnswerAnchor}」。因此只能先依這段原文理解本頁，不能自行改判成其他考點；若要完整作答，還要接著核對前後頁的說明。`;
     if (!reply) return Response.json({ error: "彭狸 AI 教練沒有產生可顯示的回答。" }, { status: 502 });
+    const retrievedPages = [...new Set(evidence.rows.map((row) => row.pageStart).filter((page): page is number => page != null))];
+    const compactVerifiedReply = reply.normalize("NFKC").replace(/\s+/gu, "");
+    const testVerified = !testAnswerAnchor || (
+      Number.isFinite(pageHint)
+      && pageHint > 0
+      && retrievedPages[0] === Math.floor(pageHint)
+      && compactVerifiedReply.includes(testAnswerAnchor.normalize("NFKC").replace(/\s+/gu, ""))
+    );
+    if (!testVerified) return Response.json({
+      reply: "本頁文字目前無法完成核對，系統已停止回答；本次不扣使用次數。",
+      source: "書頁核對未完成｜本次不扣使用次數",
+      retrievedPages,
+      testVerified: false,
+    }, { headers: { "Cache-Control": "no-store" } });
     const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
     const inputTokens = Number(rawUsage.input_tokens ?? 0);
     const cachedTokens = Number(rawUsage.input_tokens_details?.cached_tokens ?? 0);
@@ -841,7 +867,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
     const citedPage = fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
     const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : evidence.bookPageLabel ? `行政法考點演習書（二版）》書內第 ${evidence.bookPageLabel} 頁（PDF 第 ${citedPage} 頁）` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
-    return Response.json({ reply, source, sourceMode: evidence.sourceMode, retrievedPages: [...new Set(evidence.rows.map((row) => row.pageStart).filter((page): page is number => page != null))], access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+    return Response.json({ reply, source, sourceMode: evidence.sourceMode, retrievedPages, testVerified: testAnswerAnchor ? true : undefined, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     console.error("Pengli coach request failed", error);
     return Response.json({ error: "教材搜尋暫時沒有完成，請再按一次；若仍無法回答，請換成較精簡的考點名稱。" }, { status: 500 });

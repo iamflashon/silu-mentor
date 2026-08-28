@@ -100,6 +100,7 @@ export async function POST(request: Request) {
   return Response.json({
     question,
     questionKind,
+    documentId: book.id,
     bookPageLabel,
     issueTitle: issue?.title ?? "",
     bodyRole,
