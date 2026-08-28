@@ -24,6 +24,14 @@ function plainText(value: string) {
   return value.replace(/\*\*/gu, "").replace(/^#{1,6}\s*/gmu, "").replace(/^>\s?/gmu, "").trim();
 }
 
+function compactVerification(value: string, maxLength = 360) {
+  const cleaned = plainText(value).replace(/\n{3,}/gu, "\n\n").trim();
+  if (cleaned.length <= maxLength) return cleaned;
+  const clipped = cleaned.slice(0, maxLength);
+  const sentenceEnd = Math.max(clipped.lastIndexOf("。"), clipped.lastIndexOf("；"), clipped.lastIndexOf("！"), clipped.lastIndexOf("？"));
+  return `${clipped.slice(0, sentenceEnd >= 220 ? sentenceEnd + 1 : maxLength).trim()}…`;
+}
+
 const OFFICIAL_LEGAL_DOMAINS = ["law.moj.gov.tw", "moj.gov.tw", "judicial.gov.tw"];
 
 function officialWebSources(payload: Record<string, unknown>) {
@@ -328,16 +336,23 @@ export async function POST(request: Request) {
       const articleConditions = terms.map((term) => or(like(legalDocuments.title, `%${term}%`), like(legalArticles.content, `%${term}%`)));
       const caseTerms = exactCases.length ? exactCases : terms.slice(0, 2);
       const caseConditions = caseTerms.map((term) => or(like(judicialCases.title, `%${term}%`), like(judicialCases.caseNo, `%${term}%`)));
-      const articles = articleConditions.length ? await auth.db.select({ title: legalDocuments.title, articleNo: legalArticles.articleNo, content: legalArticles.content, sourceUrl: legalDocuments.sourceUrl }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(or(...articleConditions)).limit(5) : [];
-      const cases = caseConditions.length ? await auth.db.select({ jid: judicialCases.jid, court: judicialCases.court, judgmentDate: judicialCases.judgmentDate, title: judicialCases.title, caseNo: judicialCases.caseNo, content: judicialCases.fullText }).from(judicialCases).where(and(eq(judicialCases.status, "active"), or(...caseConditions))).limit(exactCases.length ? 1 : 2) : [];
-      let sources = [
-        ...articles.map((row) => ({ label: `${row.title} ${row.articleNo}`, url: row.sourceUrl, excerpt: row.content.slice(0, 700) })),
-        ...cases.map((row) => ({
-          label: [row.court, row.caseNo, row.judgmentDate ? `（${row.judgmentDate}）` : "", row.title ? `｜${row.title}` : ""].filter(Boolean).join(" "),
-          url: judicialOfficialUrl(row.jid),
-          excerpt: row.content.slice(0, 700),
-        })),
-      ].slice(0, 8);
+      let platformLookupFailed = false;
+      let sources: { label: string; url: string; excerpt: string }[] = [];
+      try {
+        const articles = articleConditions.length ? await auth.db.select({ title: legalDocuments.title, articleNo: legalArticles.articleNo, content: legalArticles.content, sourceUrl: legalDocuments.sourceUrl }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(or(...articleConditions)).limit(5) : [];
+        const cases = caseConditions.length ? await auth.db.select({ jid: judicialCases.jid, court: judicialCases.court, judgmentDate: judicialCases.judgmentDate, title: judicialCases.title, caseNo: judicialCases.caseNo, content: judicialCases.fullText }).from(judicialCases).where(and(eq(judicialCases.status, "active"), or(...caseConditions))).limit(exactCases.length ? 1 : 2) : [];
+        sources = [
+          ...articles.map((row) => ({ label: `${row.title} ${row.articleNo}`, url: row.sourceUrl, excerpt: row.content.slice(0, 420) })),
+          ...cases.map((row) => ({
+            label: [row.court, row.caseNo, row.judgmentDate ? `（${row.judgmentDate}）` : "", row.title ? `｜${row.title}` : ""].filter(Boolean).join(" "),
+            url: judicialOfficialUrl(row.jid),
+            excerpt: row.content.slice(0, 420),
+          })),
+        ].slice(0, 3);
+      } catch (cause) {
+        platformLookupFailed = true;
+        console.error("Pengli synchronized official lookup failed; continuing with official web search", cause);
+      }
       const useOfficialWeb = sources.length === 0;
       const evidence = sources.map((source, index) => `【查證資料 ${index + 1}｜${source.label}】\n${source.excerpt}`).join("\n\n");
       const controller = new AbortController();
@@ -351,9 +366,9 @@ export async function POST(request: Request) {
             tool_choice: "required",
             include: ["web_search_call.action.sources"],
           } : {}),
-          instructions: `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}先明確標示「查證結論：大致正確／需要修正／目前無法確認」三者之一，再說明理由、需修正處與學生下一步。不得把沒有資料支持的推論寫成確定事實；若資料不足就直說可轉交彭狸老師。全文 220 至 450 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
+          instructions: `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}輸出依序只有三段：第一段以「查證結論：大致正確／需要修正／目前無法確認」擇一；第二段用兩個短句說明關鍵理由；第三段只寫需修正處或學生下一步。不得整段抄錄官方資料、不得重複原 AI 回覆、不得列出搜尋過程。資料不足就直說可轉交彭狸老師。全文 140 至 240 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
           input: `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
-          max_output_tokens: 700,
+          max_output_tokens: 380,
         }) }) as Record<string, unknown>;
       } catch (cause) {
         if (controller.signal.aborted) return Response.json({ error: "官方資料查證逾時，此次沒有計入使用次數。請縮短疑問後再試。", code: "VERIFY_TIMEOUT" }, { status: 504 });
@@ -367,12 +382,13 @@ export async function POST(request: Request) {
         const localized = localizedSource({ ...source, url: String(source.url) });
         uniqueSources.set(localized.url, localized);
       }
-      sources = [...uniqueSources.values()];
-      const verification = localizeOfficialCitations(plainText(outputText(payload)));
+      sources = [...uniqueSources.values()].slice(0, 3);
+      const verification = compactVerification(localizeOfficialCitations(outputText(payload)));
       if (!verification) return Response.json({ error: "查證暫時沒有完成，請稍後再試。" }, { status: 502 });
+      if (!sources.length) return Response.json({ error: "官方網站查詢已執行，但這次沒有取得可開啟驗證的官方網址，因此不扣次。請改用較精確的法條、裁判字號或考點名稱再查一次。", code: "VERIFY_NO_OFFICIAL_SOURCE", searchTrace: { mode: "official_web", terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] } }, { status: 502 });
       const access = await finishAiUse(gate, { action: "pengli_official_verification", description: "彭狸官方資料查證，成功扣 2 次", quantity: 2, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: JSON.stringify(sources.map(({ label, url }) => ({ label, url }))), status: "verified" }).returning();
-      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), officialWebFallback: useOfficialWeb, ticketId: ticket.id, access });
+      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), officialWebFallback: useOfficialWeb, searchTrace: { mode: useOfficialWeb ? "official_web" : "synchronized_official_data", terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] }, ticketId: ticket.id, access });
     }
 
     const selectedText = String(body.selectedText ?? "").trim().slice(0, 1200);
