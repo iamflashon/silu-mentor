@@ -57,6 +57,7 @@ export default function AiAccessClient() {
     <section className="pengli-ai-plan-card">
       <span>AI PRACTICE PASS</span><h1>彭狸 AI 陪練次數</h1>
       <p>所有功能都使用同一種 AI 次數：一般 AI 成功回答扣 1 次；查證官方資料成功扣 2 次。</p>
+      <small className="pengli-rule-version">規則版本：2026-08-28</small>
       <div className="pengli-ai-balance"><small>目前剩餘</small><strong>{access?.active ? access.remaining : 0}<em> 次</em></strong><span>{access?.active && access.expiresAt ? `可使用至 ${new Date(access.expiresAt).toLocaleDateString("zh-TW")}` : "目前沒有有效方案"}</span></div>
       <ul><li>一般對話、針對這段追問：成功扣 1 次</li><li>白話解釋、學霸代答：成功扣 1 次</li><li>官方資料查證：成功且附官方網址才扣 2 次</li><li>失敗、逾時或查無精準資料：不扣次</li></ul>
     </section>
