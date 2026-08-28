@@ -501,6 +501,30 @@ export const documentSearchUnits = sqliteTable(
   ],
 );
 
+// Administrator-verified boundaries between a book's learning sections and
+// the physical PDF pages. Retrieval uses these ranges instead of guessing a
+// chapter from table-of-contents text.
+export const documentSectionMappings = sqliteTable(
+  "document_section_mappings",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    documentId: integer("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+    sectionKey: text("section_key").notNull(),
+    title: text("title").notNull(),
+    sectionType: text("section_type").notNull().default("body"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    pdfStartPage: integer("pdf_start_page").notNull(),
+    pdfEndPage: integer("pdf_end_page").notNull(),
+    verified: integer("verified", { mode: "boolean" }).notNull().default(false),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("document_section_mappings_document_key_unique").on(table.documentId, table.sectionKey),
+    index("document_section_mappings_document_order_idx").on(table.documentId, table.sortOrder),
+    index("document_section_mappings_document_pages_idx").on(table.documentId, table.pdfStartPage, table.pdfEndPage),
+  ],
+);
+
 export const medtechUsage = sqliteTable("medtech_usage", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userKey: text("user_key").notNull().unique(),
