@@ -9,6 +9,11 @@ const PUBLIC_QA_PATHS = [
   "/api/accounting/qa-access",
   "/api/accounting/history",
   "/api/notes",
+  // Machine-to-machine textbook sync is protected by its own short-lived,
+  // signed bearer token inside the route. Cloudflare Access service tokens do
+  // not carry a user email, so the admin-entry gate must let this request reach
+  // the route-level verifier.
+  "/api/sync/textbooks",
 ];
 
 function isQaAllowedPath(pathname: string) {

@@ -35,13 +35,17 @@ function sourceAccess(config: SyncConfig, runtimeEnv: Record<string, unknown>): 
 }
 
 async function sourceError(response: Response, access: SourceAccess, fallback: string) {
-  if ((response.status >= 300 && response.status < 400) || response.status === 401 || response.status === 403) {
+  const message = await response.clone().json().catch(() => ({})) as { error?: string };
+  if (message.error) return message.error;
+  if (response.status >= 300 && response.status < 400) {
     return access.serviceAuthConfigured
       ? "Cloudflare Access 尚未接受教材同步憑證；請確認 Service Auth 規則使用的是「Sites 教材同步」Token，且排在一般登入規則之前。"
       : "Sites 尚未設定 Cloudflare 教材同步憑證；請先設定 TEXTBOOK_SYNC_CF_ACCESS_CLIENT_ID 與 TEXTBOOK_SYNC_CF_ACCESS_CLIENT_SECRET。";
   }
-  const message = await response.json().catch(() => ({})) as { error?: string };
-  return message.error || `${fallback}（${response.status}）`;
+  if (response.status === 401 || response.status === 403) {
+    return `來源網站已連線，但同步授權未通過；請重新下載並匯入最新連線設定。（${response.status}）`;
+  }
+  return `${fallback}（${response.status}）`;
 }
 
 export async function POST(request: Request) {
