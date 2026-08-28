@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const subjects = [
   { code: "LAW", name: "司律備考", desc: "律師、司法官｜練真題、寫申論、找爭點、整摘要", href: "/law", tone: "law", status: "進入司律備考" },
+  { code: "ADM", name: "行政法 AI 教練", desc: "彭狸老師專區｜依八大主題與教材書頁精準學習", href: "/teachers/pengli", tone: "administrative", status: "進入行政法專區" },
   { code: "ACC", name: "中級會計課業答疑", desc: "中級會計學｜觀念、計算、分錄與準則問答", href: "/accounting", tone: "accounting", status: "開始提問" },
   { code: "MED", name: "醫檢師備考", desc: "醫事檢驗師｜國考題、病例與檢驗判讀", href: "/medtech", tone: "medtech", status: "進入平台" },
 ];
