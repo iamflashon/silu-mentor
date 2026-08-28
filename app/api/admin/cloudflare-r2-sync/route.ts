@@ -7,6 +7,8 @@ import { buildFineIndexStep } from "../../documents/fine-index/route";
 type SyncConfig = { sourceUrl?: string; sitesUrl?: string; token?: string };
 type SyncScope = "all" | "pengli" | "law" | "medtech" | "accounting" | "data-structure";
 
+type SourceAccess = { headers: Record<string, string>; serviceAuthConfigured: boolean };
+
 function sourceOrigin(config: SyncConfig) { return String(config.sourceUrl || config.sitesUrl || ""); }
 
 function validConfig(config: SyncConfig) {
@@ -16,6 +18,36 @@ function validConfig(config: SyncConfig) {
   } catch { return false; }
 }
 
+function sourceAccess(config: SyncConfig, runtimeEnv: Record<string, unknown>): SourceAccess {
+  const clientId = String(runtimeEnv.TEXTBOOK_SYNC_CF_ACCESS_CLIENT_ID || "").trim();
+  const clientSecret = String(runtimeEnv.TEXTBOOK_SYNC_CF_ACCESS_CLIENT_SECRET || "").trim();
+  const serviceAuthConfigured = Boolean(clientId && clientSecret);
+  return {
+    serviceAuthConfigured,
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      ...(serviceAuthConfigured ? {
+        "CF-Access-Client-Id": clientId,
+        "CF-Access-Client-Secret": clientSecret,
+      } : {}),
+    },
+  };
+}
+
+async function sourceError(response: Response, access: SourceAccess, fallback: string) {
+  const message = await response.clone().json().catch(() => ({})) as { error?: string };
+  if (message.error) return message.error;
+  if (response.status >= 300 && response.status < 400) {
+    return access.serviceAuthConfigured
+      ? "Cloudflare Access 尚未接受教材同步憑證；請確認 Service Auth 規則使用的是「Sites 教材同步」Token，且排在一般登入規則之前。"
+      : "Sites 尚未設定 Cloudflare 教材同步憑證；請先設定 TEXTBOOK_SYNC_CF_ACCESS_CLIENT_ID 與 TEXTBOOK_SYNC_CF_ACCESS_CLIENT_SECRET。";
+  }
+  if (response.status === 401 || response.status === 403) {
+    return `來源網站已連線，但同步授權未通過；請重新下載並匯入最新連線設定。（${response.status}）`;
+  }
+  return `${fallback}（${response.status}）`;
+}
+
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
@@ -23,29 +55,32 @@ export async function POST(request: Request) {
   const scope: SyncScope = ["all", "pengli", "law", "medtech", "accounting", "data-structure"].includes(String(body.scope)) ? body.scope! : "all";
   const db = await getDb("primary");
   const { env } = await import("cloudflare:workers");
+  const runtimeEnv = env as unknown as Record<string, unknown>;
   if (!env.BUCKET) return Response.json({ error: "Cloudflare R2 尚未綁定" }, { status: 503 });
   if (body.action === "source-manifest") {
     if (!validConfig(body.config || {})) return Response.json({ error: "請先匯入來源環境的同步設定" }, { status: 400 });
+    const access = sourceAccess(body.config!, runtimeEnv);
     const sourceUrl = new URL("/api/sync/textbooks", sourceOrigin(body.config!));
     sourceUrl.searchParams.set("action", "manifest"); sourceUrl.searchParams.set("scope", scope);
-    const response = await fetch(sourceUrl, { headers: { Authorization: `Bearer ${body.config!.token}` }, redirect: "manual" });
-    if (!response.ok) return Response.json({ error: response.status >= 300 && response.status < 400 ? "來源網站的同步入口被登入保護擋住，請將 /api/sync/textbooks 設為免登入但保留同步簽章驗證" : (await response.json().catch(() => ({})) as { error?: string }).error || `讀取來源教材失敗（${response.status}）` }, { status: 502 });
+    const response = await fetch(sourceUrl, { headers: access.headers, redirect: "manual" });
+    if (!response.ok) return Response.json({ error: await sourceError(response, access, "讀取來源教材失敗") }, { status: 502 });
     return Response.json(await response.json());
   }
   if (body.action === "import-document" || body.action === "import-pengli") {
     if (!validConfig(body.config || {})) return Response.json({ error: "請先匯入來源環境的同步設定" }, { status: 400 });
+    const access = sourceAccess(body.config!, runtimeEnv);
     const sourceDocumentId = Number(body.sourceDocumentId);
     if (!Number.isInteger(sourceDocumentId) || sourceDocumentId < 1) return Response.json({ error: "來源教材編號不正確" }, { status: 400 });
     const manifestUrl = new URL("/api/sync/textbooks", sourceOrigin(body.config!));
     manifestUrl.searchParams.set("action", "manifest"); manifestUrl.searchParams.set("scope", scope);
-    const manifestResponse = await fetch(manifestUrl, { headers: { Authorization: `Bearer ${body.config!.token}` } });
+    const manifestResponse = await fetch(manifestUrl, { headers: access.headers, redirect: "manual" });
     const manifest = await manifestResponse.json().catch(() => ({})) as { documents?: Array<{ id:number;fileName:string;contentType:string;sizeBytes:number;examCategory:string;bookTitle:string;subject:string;documentType:string;status:string;pageCount:number|null;extractedChars:number;tagsJson:string;assignments?:Array<{examCategory:string;subject:string;usageType:string;visibility:string;aiSearchEnabled:boolean;sortOrder:number}> }> ; error?: string };
-    if (!manifestResponse.ok) return Response.json({ error: manifest.error || "無法讀取來源教材清單" }, { status: 502 });
+    if (!manifestResponse.ok) return Response.json({ error: manifest.error || await sourceError(manifestResponse, access, "無法讀取來源教材清單") }, { status: 502 });
     const sourceDocument = manifest.documents?.find((document) => document.id === sourceDocumentId);
     if (!sourceDocument) return Response.json({ error: "來源教材已不存在，請重新讀取清單" }, { status: 404 });
     const fileUrl = new URL("/api/sync/textbooks", sourceOrigin(body.config!)); fileUrl.searchParams.set("documentId", String(sourceDocumentId));
-    const source = await fetch(fileUrl, { headers: { Authorization: `Bearer ${body.config!.token}` } });
-    if (!source.ok) return Response.json({ error: (await source.json().catch(() => ({})) as { error?: string }).error || `下載來源教材失敗（${source.status}）` }, { status: 502 });
+    const source = await fetch(fileUrl, { headers: access.headers, redirect: "manual" });
+    if (!source.ok) return Response.json({ error: await sourceError(source, access, "下載來源教材失敗") }, { status: 502 });
     const bytes = await source.arrayBuffer();
     if (!bytes.byteLength) return Response.json({ error: "來源教材內容是空的" }, { status: 502 });
     const sourceHost = new URL(sourceOrigin(body.config!)).hostname.replace(/[^a-z0-9.-]+/giu, "-");
@@ -87,12 +122,12 @@ export async function POST(request: Request) {
   if (body.action === "restore") {
     if (await env.BUCKET.head(document.storageKey)) return Response.json({ status: "skipped", reason: "R2 已存在", document });
     if (!validConfig(body.config || {})) return Response.json({ error: "請匯入 Sites 同步設定" }, { status: 400 });
+    const access = sourceAccess(body.config!, runtimeEnv);
     const sourceUrl = new URL("/api/admin/cloudflare-source", sourceOrigin(body.config!));
     sourceUrl.searchParams.set("fileName", document.fileName);
-    const source = await fetch(sourceUrl, { headers: { Authorization: `Bearer ${body.config!.token}` } });
+    const source = await fetch(sourceUrl, { headers: access.headers, redirect: "manual" });
     if (!source.ok) {
-      const message = await source.json().catch(() => ({})) as { error?: string };
-      return Response.json({ error: message.error || `Sites 下載失敗（${source.status}）` }, { status: 502 });
+      return Response.json({ error: await sourceError(source, access, "Sites 下載失敗") }, { status: 502 });
     }
     const bytes = await source.arrayBuffer();
     await env.BUCKET.put(document.storageKey, bytes, { httpMetadata: { contentType: source.headers.get("content-type") || document.contentType || "application/octet-stream" }, customMetadata: { source: "sites-missing-file-sync", fileName: document.fileName } });
