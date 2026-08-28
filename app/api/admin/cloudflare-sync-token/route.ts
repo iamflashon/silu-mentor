@@ -6,6 +6,7 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
   return Response.json({
+    sourceUrl: new URL(request.url).origin,
     sitesUrl: new URL(request.url).origin,
     token: await createSitesCloudflareSyncToken(),
     expiresAt: expiresAt.toISOString(),
