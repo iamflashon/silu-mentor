@@ -28,6 +28,40 @@ export async function getAiPlan(db: Db) {
   } catch { return DEFAULT_AI_PLAN; }
 }
 
+export const PENGLI_FREE_TRIAL_QUOTA = 10;
+export const PENGLI_FREE_TRIAL_SOURCE = "pengli_free_trial";
+
+export async function getPengliFreeTrial(db: Db, memberId: number) {
+  const [row] = await db.select().from(aiAccessEntitlements)
+    .where(and(eq(aiAccessEntitlements.memberId, memberId), eq(aiAccessEntitlements.source, PENGLI_FREE_TRIAL_SOURCE)))
+    .orderBy(desc(aiAccessEntitlements.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function ensurePengliFreeTrial(db: Db, memberId: number) {
+  const plan = await getAiPlan(db);
+  if (!plan.enabled || !plan.categories.includes("pengli")) return null;
+  const active = await getActiveAiEntitlement(db, memberId);
+  if (active) return active;
+  const previous = await getPengliFreeTrial(db, memberId);
+  if (previous) return null;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 90 * 86_400_000);
+  const [created] = await db.insert(aiAccessEntitlements).values({
+    memberId,
+    status: "active",
+    source: PENGLI_FREE_TRIAL_SOURCE,
+    quotaTotal: PENGLI_FREE_TRIAL_QUOTA,
+    quotaUsed: 0,
+    startsAt: now,
+    expiresAt,
+    referenceId: "pengli-any-topic-10",
+    note: "彭狸老師專區：八大主題任選，免費提問 10 次",
+  }).returning();
+  return created ?? null;
+}
+
 export async function getActiveAiEntitlement(db: Db, memberId: number, now = new Date()) {
   const [row] = await db.select().from(aiAccessEntitlements).where(and(eq(aiAccessEntitlements.memberId, memberId), eq(aiAccessEntitlements.status,"active"), gt(aiAccessEntitlements.expiresAt, now), lt(aiAccessEntitlements.quotaUsed, aiAccessEntitlements.quotaTotal))).orderBy(desc(aiAccessEntitlements.expiresAt)).limit(1);
   return row ?? null;
