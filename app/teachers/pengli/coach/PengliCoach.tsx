@@ -103,6 +103,7 @@ export default function PengliCoach() {
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
   const [aiPlanEnabled, setAiPlanEnabled] = useState(false);
   const [freeTrialAvailable, setFreeTrialAvailable] = useState(false);
+  const [freeTrialTopic, setFreeTrialTopic] = useState("");
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
   const [bookVerificationVisible, setBookVerificationVisible] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
@@ -166,6 +167,7 @@ export default function PengliCoach() {
           setAccess(nextAccess);
         }
         setFreeTrialAvailable(data?.pengliTrial?.available === true);
+        setFreeTrialTopic(String(data?.pengliTrial?.selectedTopic ?? ""));
         if (data?.plan) {
           setAiPlanEnabled(data.plan.enabled === true);
           setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
@@ -196,9 +198,7 @@ export default function PengliCoach() {
     `「${activeTopic}」最常見的申論爭點有哪些？`,
     `請從「${activeTopic}」出一題帶我逐步判斷。`,
   ] : [];
-  const displayedRemaining = freeTrialAvailable && activeTopic && (access?.remaining ?? 0) === 0
-    ? 10
-    : access?.remaining ?? "—";
+  const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? "—";
 
   function requireAiUse(required = 1) {
     if (aiPlanEnabled && access?.remaining != null && access.remaining < required) {
@@ -213,7 +213,10 @@ export default function PengliCoach() {
   function applyAccess(nextAccess?: Access) {
     if (!nextAccess) return;
     setAccess(nextAccess);
-    if (nextAccess.remaining != null) setFreeTrialAvailable(false);
+    if (freeTrialAvailable && activeTopic) {
+      setFreeTrialAvailable(false);
+      setFreeTrialTopic(activeTopic);
+    }
     if (nextAccess.remaining === 0) setQuotaDialogOpen(true);
   }
 
@@ -575,6 +578,7 @@ export default function PengliCoach() {
         <div className="pengli-coach-access">
           <b>AI 使用次數</b>
           <strong>{displayedRemaining} 次</strong>
+          {freeTrialTopic && <small>免費主題：{freeTrialTopic}</small>}
           <span>一般回答 1 次・官方查證 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／輸入兌換碼</a>
         </div>
