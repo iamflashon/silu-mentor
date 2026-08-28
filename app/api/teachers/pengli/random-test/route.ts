@@ -1,6 +1,6 @@
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documentAssignments, documents } from "../../../../../db/schema";
+import { documentAssignments, documentSectionMappings, documents } from "../../../../../db/schema";
 import { requireMember } from "../../../../../lib/member-auth";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 
@@ -13,30 +13,27 @@ function outputText(payload: Record<string, unknown>) {
 }
 
 const themeTitles = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
+const bookBodyStartPage = 23;
+
+function isNavigationPage(text: string) {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  const dotLeaders = (normalized.match(/(?:\.{4,}|…{2,}|·{4,})/gu) ?? []).length;
+  const compactPageRefs = (normalized.match(/\b\d{1,2}-\d{1,3}\b/gu) ?? []).length;
+  const themeCount = themeTitles.filter((title) => normalized.includes(title)).length;
+  return /目\s*錄|contents/iu.test(normalized.slice(0, 280)) || dotLeaders >= 2 || compactPageRefs >= 5 || themeCount >= 3;
+}
 
 function themeIndex(topic: string) {
   const normalized = topic.normalize("NFKC");
   return themeTitles.findIndex((title) => normalized.includes(title) || title.includes(normalized));
 }
 
-function themeStart(records: Array<{ page: number; text: string }>, title: string) {
-  return records.filter((record) => record.text.includes(title)).sort((left, right) => {
-    const leftOtherThemes = themeTitles.filter((item) => left.text.includes(item)).length;
-    const rightOtherThemes = themeTitles.filter((item) => right.text.includes(item)).length;
-    const leftOpening = left.text.slice(0, 220).includes(title) ? 0 : 1;
-    const rightOpening = right.text.slice(0, 220).includes(title) ? 0 : 1;
-    return leftOtherThemes - rightOtherThemes || leftOpening - rightOpening || left.page - right.page;
-  })[0]?.page ?? null;
-}
-
 const anchorKeywords = ["行政法", "行政罰", "行政處分", "法律保留", "明確性", "裁量", "義務", "責任", "要件", "法律效果", "不利處分", "救濟", "訴願", "訴訟", "原則", "標準", "模式", "路徑"];
 
 function isSubstantivePage(text: string) {
   const normalized = text.replace(/\s+/gu, " ").trim();
-  const themeCount = themeTitles.filter((title) => normalized.includes(title)).length;
   const sentenceCount = (normalized.match(/[。；！？]/gu) ?? []).length;
-  const navigationSignals = (normalized.match(/(?:目錄|contents|第[一二三四五六七八九十\d]+章|PDF\s*第?\s*\d+\s*頁)/giu) ?? []).length;
-  return normalized.length >= 420 && sentenceCount >= 3 && themeCount <= 2 && navigationSignals <= 4;
+  return !isNavigationPage(normalized) && normalized.length >= 220 && sentenceCount >= 1;
 }
 
 function exactAnchorCandidates(sourceText: string) {
@@ -93,7 +90,15 @@ export async function POST(request: Request) {
   if (!books.length) return Response.json({ error: "尚未找到彭狸老師教材。" }, { status: 409 });
 
   const requestedTopic = String((await request.json().catch(() => ({})) as { topic?: unknown }).topic ?? "").trim();
-  const book = books[0];
+  const selectedThemeIndex = themeIndex(requestedTopic);
+  if (selectedThemeIndex < 0) return Response.json({ error: "目前無法確認正在學習的主題。" }, { status: 409 });
+  const [mapped] = await db.select().from(documentSectionMappings).where(and(
+    inArray(documentSectionMappings.documentId, books.map((item) => item.id)),
+    eq(documentSectionMappings.sectionKey, `theme_${selectedThemeIndex + 1}`),
+    eq(documentSectionMappings.verified, true),
+  )).limit(1);
+  if (!mapped || mapped.pdfStartPage <= 0 || mapped.pdfEndPage < mapped.pdfStartPage) return Response.json({ error: "目前主題尚未在後台完成「章節 ↔ PDF 頁段」核對，因此不執行隨機書頁測試。" }, { status: 409 });
+  const book = books.find((item) => item.id === mapped.documentId) ?? books[0];
   if (!/\.local-index\.jsonl$/iu.test(book.fileName)) return Response.json({ error: "目前這項真實頁碼測試需要原始逐頁索引檔。" }, { status: 409 });
   const { env } = await import("cloudflare:workers");
   const object = await env.BUCKET?.get(book.storageKey);
@@ -108,10 +113,8 @@ export async function POST(request: Request) {
   }).filter((record): record is { page: number; pageEnd: number; title: string; text: string } => Boolean(record));
   if (!records.length) return Response.json({ error: "原始逐頁索引檔沒有可核對內容。" }, { status: 409 });
 
-  const selectedThemeIndex = themeIndex(requestedTopic);
-  const startPage = selectedThemeIndex >= 0 ? themeStart(records, themeTitles[selectedThemeIndex]) : null;
-  const nextPage = selectedThemeIndex >= 0 && selectedThemeIndex < themeTitles.length - 1 ? themeStart(records, themeTitles[selectedThemeIndex + 1]) : null;
-  const scoped = records.filter((record) => record.text.replace(/\s+/gu, " ").length >= 120 && (!startPage || record.page >= startPage) && (!nextPage || record.page < nextPage));
+  const effectiveStartPage = Math.max(bookBodyStartPage, mapped.pdfStartPage);
+  const scoped = records.filter((record) => record.page >= effectiveStartPage && record.page <= mapped.pdfEndPage && !isNavigationPage(record.text) && record.text.replace(/\s+/gu, " ").length >= 120);
   const substantive = scoped.filter((record) => isSubstantivePage(record.text));
   const pagePool = substantive.length ? substantive : scoped;
   const sample = pagePool[Math.floor(Math.random() * pagePool.length)];

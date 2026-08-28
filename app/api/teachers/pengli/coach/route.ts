@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, like, lt, lte, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documentAssignments, documentSearchUnits, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
+import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
@@ -9,6 +9,17 @@ import { getActiveAiEntitlement } from "../../../../../lib/ai-access";
 import { getAiPlan } from "../../../../../lib/ai-access";
 
 type InputMessage = { role?: unknown; text?: unknown };
+
+const PENGLI_BOOK_BODY_START_PAGE = 23;
+
+function isPengliNavigationPage(text: string) {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  const dotLeaders = (normalized.match(/(?:\.{4,}|…{2,}|·{4,})/gu) ?? []).length;
+  const compactPageRefs = (normalized.match(/\b\d{1,2}-\d{1,3}\b/gu) ?? []).length;
+  const themeNames = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
+  const themeCount = themeNames.filter((title) => normalized.includes(title)).length;
+  return /目\s*錄|contents/iu.test(normalized.slice(0, 280)) || dotLeaders >= 2 || compactPageRefs >= 5 || themeCount >= 3;
+}
 
 function isShortHelpReply(text: string) {
   return /^(我)?(不知道|不會|不懂|沒想法|想不到|請提示|給我提示|可以提示嗎)[。！!？?\s]*$/u.test(text.trim());
@@ -234,6 +245,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
     themeStartPage: null as number | null,
     themeEndPage: null as number | null,
     requestedPage: 0,
+    navigationPage: false,
     sourceMode: "index" as "index" | "private_pdf_page",
     searchFailed,
   });
@@ -274,6 +286,12 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
           if (requestedPage < pageStart || requestedPage > pageEnd || typeof record.text !== "string") continue;
           const text = record.text.replace(/\\n/gu, "\n").trim();
           if (!text) continue;
+          if (requestedPage < PENGLI_BOOK_BODY_START_PAGE || isPengliNavigationPage(text)) return {
+            ...empty(),
+            requestedPage,
+            navigationPage: true,
+            sourceMode: "private_pdf_page" as const,
+          };
           return {
             documentId: book.id,
             title: book.title || book.fileName || "行政法考點演習書（二版）｜彭狸",
@@ -281,6 +299,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
             themeStartPage: null,
             themeEndPage: null,
             requestedPage,
+            navigationPage: false,
             sourceMode: "private_pdf_page" as const,
             searchFailed: false,
           };
@@ -308,7 +327,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
         inArray(documentSearchUnits.documentId, books.map((book) => book.id)),
         like(documentSearchUnits.normalizedText, `%${title.toLocaleLowerCase("zh-Hant")}%`),
       )).limit(40);
-    return rows.filter((row): row is { pageStart: number; text: string } => row.pageStart != null).sort((left, right) => {
+    return rows.filter((row): row is { pageStart: number; text: string } => row.pageStart != null && row.pageStart >= PENGLI_BOOK_BODY_START_PAGE && !isPengliNavigationPage(row.text)).sort((left, right) => {
       const leftOtherThemes = themeTitleList.filter((item) => left.text.includes(item)).length;
       const rightOtherThemes = themeTitleList.filter((item) => right.text.includes(item)).length;
       const leftOpening = left.text.slice(0, 220).includes(title) ? 0 : 1;
@@ -317,8 +336,13 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
     })[0]?.pageStart ?? null;
   }
   const selectedThemeIndex = matchedTheme ? themeTitleList.indexOf(matchedTheme[0]) : -1;
-  const themeStartPage = selectedThemeIndex >= 0 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex]) : null;
-  const nextThemeStartPage = selectedThemeIndex >= 0 && selectedThemeIndex < themeTitleList.length - 1 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex + 1]) : null;
+  const [verifiedMapping] = selectedThemeIndex >= 0 && normalizedScope ? await db.select().from(documentSectionMappings).where(and(
+    inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
+    eq(documentSectionMappings.sectionKey, `theme_${selectedThemeIndex + 1}`),
+    eq(documentSectionMappings.verified, true),
+  )).limit(1) : [];
+  const themeStartPage = verifiedMapping?.pdfStartPage || (selectedThemeIndex >= 0 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex]) : null);
+  const nextThemeStartPage = verifiedMapping?.pdfEndPage ? verifiedMapping.pdfEndPage + 1 : selectedThemeIndex >= 0 && selectedThemeIndex < themeTitleList.length - 1 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex + 1]) : null;
   const legalPhrases = [
     "禁止繼續使用擴音設施", "繼續使用擴音設施", "擴音設施", "噪音管制法",
     "行政法上請求權", "公法上請求權", "課予義務訴訟", "一般給付訴訟",
@@ -401,7 +425,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
     .slice(0, 6)
     .map(({ row: { documentId: _documentId, ...row } }) => row);
   const matchedBook = books.find((book) => book.id === candidates[0]?.documentId) ?? books[0];
-  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, sourceMode: "index" as const, searchFailed: false };
+  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, navigationPage: false, sourceMode: "index" as const, searchFailed: false };
   } catch (error) {
     console.error("Pengli evidence lookup failed", error);
     return empty(true);
@@ -553,6 +577,11 @@ export async function POST(request: Request) {
     const searchText = searchMessages.map((message) => String(message.text ?? "")).filter(Boolean).join(" ");
     const pageHint = Number(body.pageHint ?? 0);
     const evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
+    if (evidence.navigationPage) return Response.json({
+      reply: `PDF 第 ${evidence.requestedPage} 頁屬於封面、序言或目錄區，不作為教材正文回答。請告訴我正文頁數；這次不扣使用次數。`,
+      source: "前置頁／目錄，不列入教材正文",
+      retrievedPages: [],
+    }, { headers: { "Cache-Control": "no-store" } });
     if (evidence.requestedPage > 0 && !evidence.rows.length) return Response.json({
       error: `私密教材 PDF 找不到第 ${evidence.requestedPage} 頁原文；本次不會改查其他頁，也不會扣除使用次數。`,
       code: "PENGLI_PDF_PAGE_NOT_FOUND",
