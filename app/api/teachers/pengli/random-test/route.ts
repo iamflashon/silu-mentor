@@ -29,6 +29,31 @@ function themeStart(records: Array<{ page: number; text: string }>, title: strin
   })[0]?.page ?? null;
 }
 
+const anchorKeywords = ["行政法", "行政罰", "行政處分", "法律保留", "明確性", "裁量", "義務", "責任", "要件", "法律效果", "不利處分", "救濟", "訴願", "訴訟", "原則", "標準", "模式", "路徑"];
+
+function exactAnchorCandidates(sourceText: string) {
+  const candidates = new Set<string>();
+  for (const match of sourceText.matchAll(/[「『]([^」』]{4,18})[」』]/gu)) candidates.add(match[1].trim());
+  for (const match of sourceText.matchAll(/[\p{Script=Han}]{4,}/gu)) {
+    const run = match[0];
+    if (run.length <= 18) candidates.add(run);
+    for (const keyword of anchorKeywords) {
+      const index = run.indexOf(keyword);
+      if (index < 0) continue;
+      const start = Math.max(0, Math.min(index - 5, run.length - 14));
+      candidates.add(run.slice(start, Math.min(run.length, start + 14)));
+    }
+  }
+  return [...candidates]
+    .map((value) => value.trim())
+    .filter((value) => value.length >= 4 && value.length <= 18 && sourceText.includes(value))
+    .sort((left, right) => {
+      const leftScore = anchorKeywords.filter((keyword) => left.includes(keyword)).length * 20 + Math.min(left.length, 14);
+      const rightScore = anchorKeywords.filter((keyword) => right.includes(keyword)).length * 20 + Math.min(right.length, 14);
+      return rightScore - leftScore;
+    });
+}
+
 export async function POST(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
@@ -70,30 +95,33 @@ export async function POST(request: Request) {
   const sample = scoped[Math.floor(Math.random() * scoped.length)];
   if (!sample) return Response.json({ error: "目前主題沒有可供抽樣的真實頁面內容。" }, { status: 409 });
   const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 1800);
-  const payload = await openAIJson("/responses", {
-    method: "POST",
-    body: JSON.stringify({
-      model: "gpt-5.6-luna",
-      instructions: "你是教材真實演練出題員。只依提供的單頁教材原文，產生一個自然、具體、學生會在對話框詢問的行政法問題。問題不得提到頁碼、抽樣、測試或已知答案；不得抄出整段答案。anchorPhrase 必須是原文中逐字存在、4至18字且能辨識考點的核心短語，question 必須逐字包含 anchorPhrase，讓教材搜尋能以學生實際問法檢索。",
-      input: `教材頁面原文：\n${sourceText}`,
-      text: { format: { type: "json_schema", name: "pengli_random_book_test", strict: true, schema: {
-        type: "object", additionalProperties: false,
-        properties: {
-          question: { type: "string", minLength: 12, maxLength: 120 },
-          anchorPhrase: { type: "string", minLength: 4, maxLength: 18 },
-        },
-        required: ["question", "anchorPhrase"],
-      } } },
-      max_output_tokens: 280,
-    }),
-  }) as Record<string, unknown>;
-  let generated: { question?: string; anchorPhrase?: string } = {};
-  try { generated = JSON.parse(outputText(payload)) as typeof generated; } catch { /* 下方回報 */ }
-  const question = String(generated.question ?? "").trim();
-  const anchorPhrase = String(generated.anchorPhrase ?? "").trim();
-  if (!question || !anchorPhrase || !sourceText.includes(anchorPhrase) || !question.includes(anchorPhrase)) {
-    return Response.json({ error: "這次未能從抽樣頁形成可核對問題，請再按一次。" }, { status: 502 });
+  const anchors = exactAnchorCandidates(sourceText);
+  if (!anchors.length) return Response.json({ error: "這一頁沒有可供精準核對的原文短語，系統會在下次抽樣時略過。" }, { status: 409 });
+  const anchorPool = anchors.slice(0, Math.min(12, anchors.length));
+  const anchorPhrase = anchorPool[Math.floor(Math.random() * anchorPool.length)];
+  let question = "";
+  for (let attempt = 0; attempt < 2 && !question; attempt += 1) {
+    try {
+      const payload = await openAIJson("/responses", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "gpt-5.6-luna",
+          instructions: "你是教材真實演練出題員。只依提供的單頁教材原文，產生一個自然、具體、學生會在對話框詢問的行政法問題。問題不得提到頁碼、抽樣、測試或已知答案，也不得抄出整段答案。題目必須逐字保留指定的原文考點短語，不得改寫、增刪或更換字詞。",
+          input: `必須逐字放入問題的原文考點短語：${anchorPhrase}\n\n教材頁面原文：\n${sourceText}`,
+          text: { format: { type: "json_schema", name: "pengli_random_book_test", strict: true, schema: {
+            type: "object", additionalProperties: false,
+            properties: { question: { type: "string", minLength: 12, maxLength: 120 } },
+            required: ["question"],
+          } } },
+          max_output_tokens: 220,
+        }),
+      }) as Record<string, unknown>;
+      const generated = JSON.parse(outputText(payload)) as { question?: string };
+      const candidate = String(generated.question ?? "").trim();
+      if (candidate.includes(anchorPhrase)) question = candidate;
+    } catch { /* 自動重試，最後使用原文保底題目 */ }
   }
+  if (!question) question = `教材所說的「${anchorPhrase}」應如何理解？判斷時要注意哪些要件或層次？`;
   return Response.json({
     question,
     expectedPage: sample.page,
