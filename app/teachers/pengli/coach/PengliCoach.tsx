@@ -648,7 +648,7 @@ export default function PengliCoach() {
                     ? "彭狸 AI 教練"
                     : message.role === "scholar"
                       ? message.source?.startsWith("學霸繼續追問")
-                        ? "我的問題（學霸繼續問）"
+                        ? "我的回答與追問（學霸）"
                         : message.source?.startsWith("學霸越界")
                           ? "我的問題（學霸越界測試）"
                           : "我的問題（學霸照書問）"
@@ -718,8 +718,8 @@ export default function PengliCoach() {
             <article className="student thinking">
               <div className="pengli-coach-avatar">我</div>
               <div>
-                <small>我的問題（學霸繼續問）</small>
-                <p>正在沿著同一書頁準備下一個問題……</p>
+                <small>我的回答與追問（學霸）</small>
+                <p>正在先回答老師，再沿著同一書頁準備下一個問題……</p>
               </div>
             </article>
           )}
@@ -864,7 +864,7 @@ export default function PengliCoach() {
               disabled={thinking || scholarThinking || bookTestLoading || !latestPassedBookTest}
             >
               <b>續</b>
-              <span>{scholarThinking ? "追問中…" : "學霸繼續問"}</span>
+              <span>{scholarThinking ? "回答並追問中…" : "學霸回答再問"}</span>
             </button>
           </div>
           <textarea

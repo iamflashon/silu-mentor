@@ -637,24 +637,33 @@ export async function POST(request: Request) {
       const pageLabel = Number(body.pageHint ?? 0) > 0 ? `PDF 第 ${Math.floor(Number(body.pageHint))} 頁` : "目前書頁";
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model: "gpt-5.6-luna",
-        instructions: `你是正在拿著彭狸老師教材學習的學生。請沿著老師剛才的回答，再提出一個自然、簡短而且真的有助於理解的追問。
+        instructions: `你是正在拿著彭狸老師教材學習的學生。這個功能不是立刻亂出下一題，而是要先完整回答彭狸 AI 教練最後問你的問題，再沿著同一考點提出一個新的追問。
 
 本輪固定範圍：${pageLabel}；考點「${String(body.testIssueTitle || "目前考點").slice(0, 120)}」；段落類型「${String(body.testBodyRole || "考點正文").slice(0, 80)}」。
 本頁可核對短語：「${String(body.testAnswerAnchor || "").slice(0, 100)}」
 本頁節錄：${String(body.testSourceExcerpt || "").slice(0, 1600)}
 
 規則：
-1. 只問一題，限 25 至 80 個中文字，不回答問題。
-2. 必須鎖定同一頁、同一考點；不得要求換頁、整章摘要或教材外資料。
-3. 優先追問老師上一答中的判斷理由、適用方式、考場寫法，或本頁兩個概念的差異。
-4. 不得重複對話中已經問過的題目，不得再問「這頁在說什麼」。
-5. 不得虛構本頁沒有的法條、案例、見解或名詞。
-6. 只輸出學生要問老師的那一句，不加稱呼、標題、來源、頁碼或 Markdown。`,
+1. 先找出對話中「彭狸 AI 教練」最後一個明確問句，第一段必須直接回答它；不可跳過回答、不可只改寫老師的問題。
+2. 回答要有明確結論與至少一個理由，限 70 至 180 個中文字。若教材節錄不足，只能依老師上一答已說明的內容回答，不得自行補造。
+3. 第二段才提出一個新問題，限 25 至 70 個中文字；問題必須由第一段回答自然延伸，並鎖定同一頁、同一考點。
+4. 追問可問判斷理由、適用方式、考場寫法或本頁概念差異，但不得要求換頁、整章摘要或教材外資料。
+5. 不得重複對話中已經問過的問題，不得再問「這頁在說什麼」，不得新增本頁與老師回答都沒有出現的法條、金額、案例、見解或名詞。
+6. 不得留下半句、條列片段或只有結論沒有理由的回答。
+7. 嚴格使用以下兩段格式，不使用 Markdown、來源或頁碼：
+我的回答：［完整回答老師最後一問］
+
+我想再問老師：［只問一個接續問題］`,
         input: messages,
-        max_output_tokens: 140,
+        max_output_tokens: 420,
       }) }) as Record<string, unknown>;
       const scholarFollowUp = plainText(outputText(payload)).replace(/^「|」$/gu, "").trim();
-      if (!scholarFollowUp) return Response.json({ error: "目前無法產生接續問題，請再按一次。" }, { status: 502 });
+      const answerMatch = scholarFollowUp.match(/我的回答：\s*([\s\S]+?)\s*我想再問老師：\s*([\s\S]+)/u);
+      const scholarAnswer = answerMatch?.[1]?.trim() ?? "";
+      const scholarQuestion = answerMatch?.[2]?.trim() ?? "";
+      if (scholarAnswer.length < 30 || scholarQuestion.length < 12 || !/[？?]$/u.test(scholarQuestion)) {
+        return Response.json({ error: "學霸這次沒有先完整回答老師，請再按一次。" }, { status: 502 });
+      }
       return Response.json({ scholarFollowUp, source: `${pageLabel}｜目前對話上下文` });
     }
 
