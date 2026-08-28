@@ -35,12 +35,50 @@ type Access = {
   remaining?: number | null;
 };
 const storageKey = "pengli-ai-coach-history-v1";
+const topicStorageKey = "pengli-ai-coach-active-topic-v1";
 
-const starters = [
-  "本題為什麼要先判斷請求權基礎？",
-  "法律保留原則的作答架構怎麼寫？",
-  "幫我練習判斷行政處分的外部性。",
-];
+const topicStarters: Record<string, string[]> = {
+  "行政法理論基礎與行政組織法": [
+    "公法與私法的區分，應依序檢查哪些判準？",
+    "法律保留原則在申論題中應如何分層審查？",
+    "行政機關與內部單位的權限差異應如何判斷？",
+  ],
+  行政處分: [
+    "一個行政行為是否構成行政處分，應依序判斷哪些要件？",
+    "行政處分無效與得撤銷，應如何區分並安排作答？",
+    "行政處分附款的合法性，應從哪些層次審查？",
+  ],
+  行政契約與行政命令: [
+    "行政契約與行政處分，應依哪些特徵區分？",
+    "法規命令與行政規則的效力有何不同？",
+    "行政契約無效時，申論題應如何安排審查順序？",
+  ],
+  行政罰法: [
+    "行政罰的責任要件，應依序審查哪些事項？",
+    "一行為不二罰原則，應先確認哪些判斷要素？",
+    "行政罰的裁處時效，應如何計算與審查？",
+  ],
+  行政執行法: [
+    "行政執行的義務類型，應如何辨認？",
+    "代履行與直接強制，應如何區分？",
+    "即時強制的合法性，應依哪些要件判斷？",
+  ],
+  訴願法與行政訴訟法: [
+    "訴願是否合法，應先檢查哪些程序要件？",
+    "撤銷訴訟與課予義務訴訟，應如何選擇？",
+    "暫時權利保護的必要性，應如何判斷？",
+  ],
+  國家賠償法與損失補償: [
+    "公務員違法行為的國家賠償責任，應如何審查？",
+    "公共設施設置或管理欠缺，應如何認定？",
+    "損失補償與國家賠償，應如何區分？",
+  ],
+  新進實務見解整理: [
+    "本主題的新進實務見解，改變了哪些既有判斷標準？",
+    "引用新進實務見解時，應如何整理爭點與裁判理由？",
+    "實務見解與傳統學說不同時，申論題應如何呈現？",
+  ],
+};
 
 export default function PengliCoach() {
   const [messages, setMessages] = useState<CoachMessage[]>([
@@ -90,10 +128,13 @@ export default function PengliCoach() {
               id: message.id || crypto.randomUUID(),
             })),
         );
-      const topic = new URLSearchParams(window.location.search).get("topic");
+      const urlTopic = new URLSearchParams(window.location.search).get("topic")?.trim() || "";
+      const savedTopic = localStorage.getItem(topicStorageKey)?.trim() || "";
+      const topic = urlTopic || savedTopic;
       if (topic) {
         setActiveTopic(topic);
-        setInput(`我正在學「${topic}」，請先用一個問題帶我判斷。`);
+        localStorage.setItem(topicStorageKey, topic);
+        if (urlTopic) setInput(`我正在學「${topic}」，請先用一個問題帶我判斷。`);
         void fetch(`/api/teachers/pengli/coach?topic=${encodeURIComponent(topic)}`, { cache: "no-store" })
           .then(async (response) => response.ok ? response.json() : null)
           .then((data) => {
@@ -128,6 +169,11 @@ export default function PengliCoach() {
     () => messages.some((message) => message.role === "student"),
     [messages],
   );
+  const starters = activeTopic ? topicStarters[activeTopic] ?? [
+    `請先整理「${activeTopic}」的核心判斷架構。`,
+    `「${activeTopic}」最常見的申論爭點有哪些？`,
+    `請從「${activeTopic}」出一題帶我逐步判斷。`,
+  ] : [];
 
   async function requestCoach(next: CoachMessage[], bookTest?: BookTestMeta) {
     const response = await fetch("/api/teachers/pengli/coach", {
@@ -392,7 +438,7 @@ export default function PengliCoach() {
         </div>
         <div className="pengli-coach-scope">
           <b>目前教材範圍</b>
-          {activeTopic && <span className="active-topic">目前主題：{activeTopic}</span>}
+          {activeTopic ? <span className="active-topic">目前主題：{activeTopic}</span> : <a className="topic-required" href="/teachers/pengli#curriculum">尚未選擇主題，請先從八大主題進入</a>}
           {activeTopic && <span className="topic-page">{topicLocation ? `PDF 第 ${topicLocation.pageStart}${topicLocation.pageEnd && topicLocation.pageEnd !== topicLocation.pageStart ? `–${topicLocation.pageEnd}` : ""} 頁` : "正在定位教材頁碼…"}</span>}
           <span>行政法 8 大主題</span>
           <span>試學考點與解題脈絡</span>
@@ -451,7 +497,7 @@ export default function PengliCoach() {
         <div className="pengli-coach-thread" aria-live="polite">
           {!hasConversation && (
             <div className="pengli-coach-starters">
-              {starters.map((starter) => (
+              {activeTopic ? starters.map((starter) => (
                 <button
                   type="button"
                   key={starter}
@@ -460,7 +506,12 @@ export default function PengliCoach() {
                   {starter}
                   <b>→</b>
                 </button>
-              ))}
+              )) : (
+                <a className="choose-topic" href="/teachers/pengli#curriculum">
+                  <span>請先選擇一個主題，我會依該主題提供三個專業練習問題。</span>
+                  <b>選擇八大主題 →</b>
+                </a>
+              )}
             </div>
           )}
           {messages.map((message) => (
