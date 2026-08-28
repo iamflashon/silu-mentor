@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PengliCover from "./PengliCover";
 import "./pengli.css";
 
 export const metadata: Metadata = {
@@ -16,30 +17,6 @@ const themes = [
   ["06", "訴願法與行政訴訟法", "訴訟類型、暫時權利保護與都市計畫審查"],
   ["07", "國家賠償法與損失補償", "公務員責任、公共設施與徵收補償"],
   ["08", "新進實務見解整理", "性平、性騷擾、警職法與近期重要實務"],
-] as const;
-
-const samplePoints = [
-  {
-    number: "01",
-    title: "公私法區分",
-    question: "事件應由普通法院或行政法院審判，判斷起點是什麼？",
-    takeaway: "先區分法規性質與事件性質，再以請求權基礎檢查審判權。",
-    label: "基礎定位",
-  },
-  {
-    number: "02",
-    title: "法律保留原則",
-    question: "限制人民權利時，何時必須有法律或法律授權？",
-    takeaway: "掌握層級化法律保留，並辨認地方自治條例能否成為規範依據。",
-    label: "國考高頻",
-  },
-  {
-    number: "03",
-    title: "明確性原則",
-    question: "法律概念有解釋空間，就一定違反明確性原則嗎？",
-    takeaway: "從可理解、可預見及可由司法審查三個方向建立判斷架構。",
-    label: "免費試學",
-  },
 ] as const;
 
 export default function PengliTeacherPage() {
@@ -59,18 +36,18 @@ export default function PengliTeacherPage() {
         <h1>行政法考點<br/><em>考前衝刺</em></h1>
         <p>不是把整本書重新讀一次，而是沿著老師的問題意識，完成考點複習、破題判斷與申論演練。</p>
         <div className="pengli-hero-actions">
-          <a href="#free-trial">先免費試學</a>
+          <a href="#curriculum">任選主題試問</a>
           <a href="#curriculum" className="primary">查看 8 大主題</a>
         </div>
         <dl className="pengli-hero-stats">
           <div><dt>8</dt><dd>大主題</dd></div>
-          <div><dt>3</dt><dd>免費考點</dd></div>
+          <div><dt>10</dt><dd>免費提問</dd></div>
           <div><dt>90</dt><dd>天衝刺規劃</dd></div>
         </dl>
       </div>
       <div className="pengli-book-stage">
         <div className="pengli-book-halo" aria-hidden="true" />
-        <img src="/teachers/pengli-administrative-law-cover-v2.png" alt="行政法考點（考前衝刺）演習書透明書封" />
+        <PengliCover className="pengli-hero-managed-cover" />
         <div className="pengli-teacher-note"><small>AUTHOR</small><strong>彭狸</strong><span>臺大法律研究所公法組</span></div>
       </div>
     </section>
@@ -78,41 +55,25 @@ export default function PengliTeacherPage() {
     <section className="pengli-workspace" id="curriculum">
       <header>
         <div><span>LEARNING PATH</span><h2>八大主題學習路徑</h2></div>
-        <p>免費體驗開放主題 1 的前三個考點；完整專區將依書籍順序逐步解鎖。</p>
+        <p>八大主題全部開放任選；選定主題進入 AI 教練，可免費提問 10 次。</p>
       </header>
       <div className="pengli-layout">
         <div className="pengli-theme-list">
-          {themes.map(([number, title, summary], index) => <article className={index === 0 ? "active" : "locked"} key={number}>
+          {themes.map(([number, title, summary]) => <article className="available" key={number}>
             <span>{number}</span>
             <div><h3>{title}</h3><p>{summary}</p></div>
-            <b aria-label={index === 0 ? "可試學" : "尚未解鎖"}>{index === 0 ? "開始" : "鎖定"}</b>
+            <Link href={`/teachers/pengli/coach?topic=${encodeURIComponent(title)}`} aria-label={`選擇主題：${title}`}>選擇</Link>
           </article>)}
         </div>
         <aside className="pengli-progress-card">
-          <span>我的衝刺進度</span>
-          <strong>免費體驗</strong>
-          <div className="pengli-progress"><i style={{width:"12%"}} /></div>
-          <small>0／3 個免費考點完成</small>
+          <span>免費體驗方式</span>
+          <strong>任選一個主題</strong>
+          <div className="pengli-progress"><i style={{width:"0%"}} /></div>
+          <small>首次實際提問時啟用 10 次</small>
           <hr/>
-          <ul><li>考點閱讀與老師提醒</li><li>破題步驟練習</li><li>申論架構自我檢查</li></ul>
-          <a href="#free-trial">開始第一個考點</a>
+          <ul><li>八大主題皆可選擇</li><li>只依老師教材範圍回答</li><li>未找到對應書頁不扣次</li></ul>
+          <a href="#curriculum">從八大主題中選擇</a>
         </aside>
-      </div>
-    </section>
-
-    <section className="pengli-trial" id="free-trial">
-      <header><span>FREE TRIAL</span><h2>免費試學：先練三個基礎考點</h2><p>每個考點都從一個問題開始，不先把答案整段塞給你。</p></header>
-      <div className="pengli-trial-grid">
-        {samplePoints.map((point, index) => <article key={point.number}>
-          <div><span>{point.label}</span><b>{point.number}</b></div>
-          <h3>{point.title}</h3>
-          <p>{point.question}</p>
-          <details>
-            <summary>查看本題學習重點</summary>
-            <p>{point.takeaway}</p>
-          </details>
-          <Link href={`/teachers/pengli/coach?topic=${encodeURIComponent(point.title)}`}>進入 AI 教練<b aria-hidden="true">→</b></Link>
-        </article>)}
       </div>
     </section>
 
