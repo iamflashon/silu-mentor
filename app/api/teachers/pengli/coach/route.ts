@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, like, lte, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lt, lte, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documentAssignments, documentSearchUnits, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
@@ -226,11 +226,13 @@ function coachParts(value: string) {
   };
 }
 
-async function pengliEvidence(query: string) {
+async function pengliEvidence(query: string, scopeTopic = "") {
   const empty = (searchFailed = false) => ({
     documentId: null as number | null,
     title: "",
     rows: [] as Array<{ pageStart: number | null; pageEnd: number | null; title: string; hierarchyPath: string; text: string }>,
+    themeStartPage: null as number | null,
+    themeEndPage: null as number | null,
     searchFailed,
   });
   try {
@@ -248,6 +250,7 @@ async function pengliEvidence(query: string) {
   if (!books.length) return empty();
 
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
+  const normalizedScope = scopeTopic.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const requestedPage = Number(normalized.match(/(?:pdf\s*)?第?\s*(\d{1,4})\s*頁/u)?.[1] ?? 0);
   const themeHints = [
     ["行政法理論基礎與行政組織法", /行政法理論基礎|行政組織法|原理原則/u, ["行政組織法", "原理原則"]],
@@ -259,7 +262,26 @@ async function pengliEvidence(query: string) {
     ["國家賠償法與損失補償", /國家賠償法|損失補償|國家賠償/u, ["國家賠償法", "損失補償"]],
     ["新進實務見解整理", /新進實務|實務見解/u, ["新進實務見解整理", "實務見解"]],
   ] as const;
-  const matchedTheme = themeHints.find(([, pattern]) => pattern.test(normalized));
+  const matchedTheme = themeHints.find(([, pattern]) => pattern.test(normalizedScope)) ?? themeHints.find(([, pattern]) => pattern.test(normalized));
+  const themeTitleList = themeHints.map(([title]) => title);
+  async function findThemeStart(title: string) {
+    const rows = await db.select({ pageStart: documentSearchUnits.pageStart, text: documentSearchUnits.text })
+      .from(documentSearchUnits)
+      .where(and(
+        inArray(documentSearchUnits.documentId, books.map((book) => book.id)),
+        like(documentSearchUnits.normalizedText, `%${title.toLocaleLowerCase("zh-Hant")}%`),
+      )).limit(40);
+    return rows.filter((row): row is { pageStart: number; text: string } => row.pageStart != null).sort((left, right) => {
+      const leftOtherThemes = themeTitleList.filter((item) => left.text.includes(item)).length;
+      const rightOtherThemes = themeTitleList.filter((item) => right.text.includes(item)).length;
+      const leftOpening = left.text.slice(0, 220).includes(title) ? 0 : 1;
+      const rightOpening = right.text.slice(0, 220).includes(title) ? 0 : 1;
+      return leftOtherThemes - rightOtherThemes || leftOpening - rightOpening || left.pageStart - right.pageStart;
+    })[0]?.pageStart ?? null;
+  }
+  const selectedThemeIndex = matchedTheme ? themeTitleList.indexOf(matchedTheme[0]) : -1;
+  const themeStartPage = selectedThemeIndex >= 0 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex]) : null;
+  const nextThemeStartPage = selectedThemeIndex >= 0 && selectedThemeIndex < themeTitleList.length - 1 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex + 1]) : null;
   const legalPhrases = [
     "禁止繼續使用擴音設施", "繼續使用擴音設施", "擴音設施", "噪音管制法",
     "行政法上請求權", "公法上請求權", "課予義務訴訟", "一般給付訴訟",
@@ -303,6 +325,11 @@ async function pengliEvidence(query: string) {
         and(lte(documentSearchUnits.pageStart, requestedPage), gte(documentSearchUnits.pageEnd, requestedPage)),
       )
     : undefined;
+  const themeCondition = !pageCondition && themeStartPage
+    ? nextThemeStartPage
+      ? and(gte(documentSearchUnits.pageStart, themeStartPage), lt(documentSearchUnits.pageStart, nextThemeStartPage))
+      : gte(documentSearchUnits.pageStart, themeStartPage)
+    : undefined;
   const candidates = (pageCondition || conditions.length) ? await db.select({
     documentId: documentSearchUnits.documentId,
     pageStart: documentSearchUnits.pageStart,
@@ -313,7 +340,7 @@ async function pengliEvidence(query: string) {
   }).from(documentSearchUnits)
     .where(and(
       inArray(documentSearchUnits.documentId, books.map((book) => book.id)),
-      pageCondition ?? or(...conditions),
+      pageCondition ?? and(themeCondition, or(...conditions)),
     ))
     .orderBy(documentSearchUnits.sequence).limit(60) : [];
   const rows = candidates
@@ -332,7 +359,7 @@ async function pengliEvidence(query: string) {
     .slice(0, 6)
     .map(({ row: { documentId: _documentId, ...row } }) => row);
   const matchedBook = books.find((book) => book.id === candidates[0]?.documentId) ?? books[0];
-  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, searchFailed: false };
+  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, searchFailed: false };
   } catch (error) {
     console.error("Pengli evidence lookup failed", error);
     return empty(true);
@@ -353,14 +380,14 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
   const topic = new URL(request.url).searchParams.get("topic")?.trim().slice(0, 120) ?? "";
   if (!topic) return Response.json({ error: "請提供主題名稱。" }, { status: 400 });
-  const evidence = await pengliEvidence(topic);
+  const evidence = await pengliEvidence(topic, topic);
   const first = evidence.rows.find((row) => row.pageStart != null);
   if (!first) return Response.json({ topic, located: false });
   return Response.json({
     topic,
     located: true,
-    pageStart: first.pageStart,
-    pageEnd: first.pageEnd,
+    pageStart: evidence.themeStartPage ?? first.pageStart,
+    pageEnd: evidence.themeEndPage ?? first.pageEnd,
     source: evidence.title,
   });
 }
@@ -481,8 +508,8 @@ export async function POST(request: Request) {
       : latestStudentText
         ? [{ role: "student", text: latestStudentText }]
         : rawMessages.slice(-1);
-    const searchText = [String(body.topic ?? "").trim(), ...searchMessages.map((message) => String(message.text ?? ""))].filter(Boolean).join(" ");
-    const evidence = await pengliEvidence(searchText);
+    const searchText = searchMessages.map((message) => String(message.text ?? "")).filter(Boolean).join(" ");
+    const evidence = await pengliEvidence(searchText, String(body.topic ?? ""));
     const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
     const coachAiFallback = body.mode !== "plain-explain" && !evidence.rows.length;
     if (!evidence.rows.length && !plainAiFallback && body.mode === "plain-explain") return Response.json({
@@ -493,9 +520,14 @@ export async function POST(request: Request) {
       canAiFallback: body.mode === "plain-explain",
     }, { status: 409 });
 
+    const focusTerms = searchText.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u).map((term) => term.trim()).filter((term) => term.length >= 3 && term.length <= 18);
     const evidenceText = evidence.rows.map((row, index) => {
       const page = row.pageStart ? `PDF 第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "PDF 頁碼待索引補正";
-      return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.slice(0, 800)}`;
+      const normalizedRow = row.text.replace(/\s+/gu, " ").trim();
+      const matchedIndex = focusTerms.map((term) => normalizedRow.indexOf(term)).find((position) => position >= 0) ?? 0;
+      const start = Math.max(0, matchedIndex - 110);
+      const excerpt = normalizedRow.slice(start, Math.min(normalizedRow.length, start + 430));
+      return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${start > 0 ? "…" : ""}${excerpt}${start + excerpt.length < normalizedRow.length ? "…" : ""}`;
     }).join("\n\n");
     const model = "gpt-5.6-luna";
 
@@ -554,12 +586,11 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-      instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}正文中不要插入任何來源或頁碼。${coachAiFallback ? "整則回答最後不要標示書本頁碼。" : "請只選擇本次回答實際使用、最直接支持答案的一個教材頁碼，並在整則回答最後一行僅標示一次「依據：行政法考點演習書（二版）第X頁」。不得列出檢索過但未實際使用的其他頁碼；教材片段沒有頁碼時標示「頁碼待索引補正」，絕不可顯示 X–X 或虛構頁碼。"}禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的索引頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 500,
     }) }) as Record<string, unknown>;
     const rawReply = plainText(outputText(payload).replace(/【教練回應】/gu, "").replace(/【學霸追問】[\s\S]*$/u, ""));
-    const citedMatch = [...rawReply.matchAll(/(?:本書)?第\s*(\d+)(?:\s*[–—-]\s*(\d+))?\s*頁/gu)].at(-1);
     const reply = rawReply.replace(/\s*[（(]?\s*依據[：:][^\n]*第\s*\d+(?:\s*[–—-]\s*\d+)?\s*頁\s*[）)]?\s*$/u, "").trim();
     if (!reply) return Response.json({ error: "彭狸 AI 教練沒有產生可顯示的回答。" }, { status: 502 });
     const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } : {};
@@ -570,9 +601,9 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     try { const db = await getDb(); await db.insert(usageLogs).values({ model, source: "彭狸老師專區｜AI 分身教練", inputTokens, cachedTokens, outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros: costMicros }); } catch { /* 回答不因成本紀錄失敗而中斷 */ }
     const access = await finishAiUse(gate, { action: "pengli_coach", description: "彭狸 AI 分身陪練，成功扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
-    const citedPage = citedMatch ? `${citedMatch[1]}${citedMatch[2] ? `–${citedMatch[2]}` : ""}` : fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
+    const citedPage = fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
     const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
-    return Response.json({ reply, source, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+    return Response.json({ reply, source, retrievedPages: [...new Set(evidence.rows.map((row) => row.pageStart).filter((page): page is number => page != null))], access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     console.error("Pengli coach request failed", error);
     return Response.json({ error: "教材搜尋暫時沒有完成，請再按一次；若仍無法回答，請換成較精簡的考點名稱。" }, { status: 500 });

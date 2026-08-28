@@ -7,6 +7,13 @@
 .pengli-scholar-button{grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:center;gap:5px;min-height:32px;padding:6px 8px!important;border:1px solid #78bdb1!important;border-radius:9px!important;color:#0c6c61!important;background:#eef9f6!important;font-size:9px!important;white-space:nowrap;box-shadow:0 3px 9px rgba(13,108,97,.1)}
 .pengli-scholar-button b{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;color:#fff;background:#138c7d;font-size:10px}
 .pengli-scholar-button:disabled{opacity:.48}
+.pengli-book-test-button{grid-column:1;grid-row:1;justify-self:end;display:flex;align-items:center;justify-content:center;gap:5px;min-height:32px;padding:6px 9px!important;border:1px solid #c6a76b!important;border-radius:9px!important;color:#79571e!important;background:#fff8e9!important;font-size:9px!important;white-space:nowrap;box-shadow:0 3px 9px rgba(121,87,30,.09)}
+.pengli-book-test-button b{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;color:#fff;background:#a9813f;font-size:10px}
+.pengli-book-test-button:disabled{opacity:.48}
+.pengli-book-test-result{display:grid;gap:6px;margin-top:10px;padding:10px 11px;border:1px solid #9fc9b9;border-radius:10px;background:#edf9f3;color:#275f4c}
+.pengli-book-test-result.fail{border-color:#d8b77e;background:#fff7e8;color:#79551d}
+.pengli-book-test-result strong,.pengli-book-test-result span,.pengli-book-test-result small{display:block;margin:0;padding:0;border:0;color:inherit}
+.pengli-book-test-result details{margin-top:2px}.pengli-book-test-result summary{cursor:pointer;font-size:9px;font-weight:800}.pengli-book-test-result p{margin-top:7px!important;padding:8px;border-radius:7px;background:rgba(255,255,255,.72);font-size:10px!important}
 @media(max-width:760px){.pengli-scholar-button{padding:5px!important;font-size:9px!important}.pengli-scholar-button b{width:22px;height:22px;font-size:10px}.pengli-coach-composer{grid-template-columns:1fr 108px;grid-template-rows:auto 1fr}}
 
 /* 固定聊天工作區：頁面不再隨訊息向下增高，只有訊息串捲動。 */

@@ -9,7 +9,17 @@ type CoachMessage = {
   text: string;
   source?: string;
   replyTo?: { id: string; excerpt: string };
+  testVerification?: {
+    passed: boolean;
+    expectedPage: number;
+    citedPage: number | null;
+    retrievedPages: number[];
+    anchorPhrase: string;
+    answerMentionsAnchor: boolean;
+    sourceExcerpt: string;
+  };
 };
+type BookTestMeta = { expectedPage: number; anchorPhrase: string; sourceExcerpt: string };
 type Usage = {
   inputTokens: number;
   cachedTokens: number;
@@ -40,6 +50,7 @@ export default function PengliCoach() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [scholarThinking, setScholarThinking] = useState(false);
+  const [bookTestLoading, setBookTestLoading] = useState(false);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
@@ -114,7 +125,7 @@ export default function PengliCoach() {
     [messages],
   );
 
-  async function requestCoach(next: CoachMessage[]) {
+  async function requestCoach(next: CoachMessage[], bookTest?: BookTestMeta) {
     const response = await fetch("/api/teachers/pengli/coach", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -131,11 +142,24 @@ export default function PengliCoach() {
       usage?: Usage;
       access?: Access;
       purchaseUrl?: string;
+      retrievedPages?: number[];
     };
     if (!response.ok || !data.reply) {
       if (data.purchaseUrl) window.location.href = "/teachers/pengli/ai-access";
       throw new Error(data.error || "彭狸 AI 教練目前無法回答。");
     }
+    const citedPage = Number(data.source?.match(/PDF 第\s*(\d+)/u)?.[1] ?? 0) || null;
+    const retrievedPages = (data.retrievedPages ?? []).filter((page) => Number.isFinite(page));
+    const answerMentionsAnchor = bookTest ? data.reply.normalize("NFKC").replace(/\s+/gu, "").includes(bookTest.anchorPhrase.normalize("NFKC").replace(/\s+/gu, "")) : false;
+    const testVerification = bookTest ? {
+      passed: retrievedPages[0] === bookTest.expectedPage && citedPage === bookTest.expectedPage,
+      expectedPage: bookTest.expectedPage,
+      citedPage,
+      retrievedPages,
+      anchorPhrase: bookTest.anchorPhrase,
+      answerMentionsAnchor,
+      sourceExcerpt: bookTest.sourceExcerpt,
+    } : undefined;
     setMessages((current) => [
       ...current,
       {
@@ -143,13 +167,14 @@ export default function PengliCoach() {
         role: "coach",
         text: data.reply!,
         source: data.source,
+        testVerification,
       },
     ]);
     setUsage(data.usage || null);
     if (data.access) setAccess(data.access);
   }
 
-  async function ask(text: string) {
+  async function ask(text: string, bookTest?: BookTestMeta) {
     const question = text.trim();
     if (!question || thinking || scholarThinking) return;
     const quoted = replyTarget
@@ -171,13 +196,29 @@ export default function PengliCoach() {
     setThinking(true);
     setError("");
     try {
-      await requestCoach(requestNext);
+      await requestCoach(requestNext, bookTest);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "彭狸 AI 教練目前無法回答。",
       );
     } finally {
       setThinking(false);
+    }
+  }
+
+  async function runBookContentTest() {
+    if (thinking || scholarThinking || bookTestLoading) return;
+    setBookTestLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/random-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic: activeTopic || undefined }) });
+      const data = await response.json() as { question?: string; expectedPage?: number; anchorPhrase?: string; sourceExcerpt?: string; error?: string };
+      if (!response.ok || !data.question || !data.expectedPage || !data.anchorPhrase) throw new Error(data.error || "無法產生書頁驗證題目。");
+      await ask(data.question, { expectedPage: data.expectedPage, anchorPhrase: data.anchorPhrase, sourceExcerpt: data.sourceExcerpt ?? "" });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "無法產生書頁驗證題目。");
+    } finally {
+      setBookTestLoading(false);
     }
   }
 
@@ -430,6 +471,17 @@ export default function PengliCoach() {
                 </small>
                 <p>{message.text}</p>
                 {message.source && <span>（根據《{message.source}）</span>}
+                {message.testVerification && (
+                  <div className={`pengli-book-test-result ${message.testVerification.passed ? "pass" : "fail"}`}>
+                    <strong>{message.testVerification.passed ? "✓ 真實頁碼、索引第一名與引用頁完全一致" : "⚠ 精準頁碼驗證未通過"}</strong>
+                    <span>原始逐頁檔：PDF 第 {message.testVerification.expectedPage} 頁</span>
+                    <span>索引第一名：{message.testVerification.retrievedPages[0] ? `PDF 第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
+                    <span>系統引用頁：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
+                    <span>其他候選頁：{message.testVerification.retrievedPages.slice(1).length ? message.testVerification.retrievedPages.slice(1).map((page) => `第 ${page} 頁`).join("、") : "無"}</span>
+                    <small>核對考點：{message.testVerification.anchorPhrase}</small>
+                    <details><summary>查看抽樣頁原文</summary><p>{message.testVerification.sourceExcerpt}</p></details>
+                  </div>
+                )}
                 {message.role === "coach" && (
                   <nav className="pengli-message-actions">
                     <button
@@ -593,6 +645,16 @@ export default function PengliCoach() {
               <span>學霸怎麼想？</span>
             </button>
           )}
+          <button
+            type="button"
+            className="pengli-book-test-button"
+            title="隨機抽取教材頁面，走一次完整搜尋與回答流程"
+            onClick={() => void runBookContentTest()}
+            disabled={thinking || scholarThinking || bookTestLoading}
+          >
+            <b>驗</b>
+            <span>{bookTestLoading ? "抽題中…" : "書頁內容測試"}</span>
+          </button>
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
