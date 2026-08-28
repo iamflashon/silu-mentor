@@ -529,8 +529,13 @@ export async function POST(request: Request) {
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
-    if (!auth.member.canAdmin && String(body.topic ?? "").trim()) {
-      await ensurePengliFreeTrial(auth.db, auth.member.id);
+    const requestedTopic = String(body.topic ?? "").trim();
+    if (!auth.member.canAdmin && requestedTopic) {
+      const trial = await ensurePengliFreeTrial(auth.db, auth.member.id, requestedTopic);
+      if (!trial.ok && trial.code === "TRIAL_TOPIC_MISMATCH") {
+        return Response.json({ error: `免費 10 次已選定「${trial.topic}」。如要練其他主題，請購買或兌換使用次數。`, code: trial.code, selectedTopic: trial.topic, purchaseUrl: "/teachers/pengli/ai-access" }, { status: 409 });
+      }
+      if (!trial.ok) return Response.json({ error: "免費主題啟用失敗，請重新整理後再試。", code: trial.code }, { status: 409 });
     }
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
