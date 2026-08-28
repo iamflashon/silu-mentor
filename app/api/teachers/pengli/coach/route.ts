@@ -592,12 +592,6 @@ export async function POST(request: Request) {
       const normalizedRow = row.text.replace(/\s+/gu, " ").normalize("NFKC");
       return focusTerms.some((term) => normalizedRow.includes(term));
     });
-    if (evidence.sourceMode === "private_pdf_page" && !pageFocusMatched) return Response.json({
-      reply: `我已找到教材 PDF 第 ${evidence.requestedPage} 頁。請再告訴我這一頁的考點名稱，或貼上你看不懂的那一句；我會只擷取該句前後的內容回答。這次不扣使用次數。`,
-      source: `行政法考點演習書（二版）》PDF 第 ${evidence.requestedPage} 頁`,
-      needsFocus: true,
-      retrievedPages: [evidence.requestedPage],
-    }, { headers: { "Cache-Control": "no-store" } });
     const evidenceText = evidence.rows.map((row, index) => {
       const page = row.pageStart ? `PDF 第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "PDF 頁碼待索引補正";
       const normalizedRow = row.text.replace(/\s+/gu, " ").trim();
@@ -663,7 +657,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${pageHint > 0 ? `學生已指定正在閱讀 PDF 第 ${Math.floor(pageHint)} 頁；只能回答本輪提供的該頁教材內容，若片段不足就明確請學生貼出該段，不得轉答其他頁。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的索引頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.requestedPage > 0 ? `學生已指定正在閱讀 PDF 第 ${evidence.requestedPage} 頁；只能回答本輪提供的該頁教材內容，不得轉答其他頁。${pageFocusMatched ? "先直接解釋學生提到的考點，再問一個能推進理解的小問題。" : "學生只表示這一頁看不懂；不要要求他重貼內容，先用2至3句說明該頁主要內容與最重要的一個考點，再問他是卡在概念、判斷步驟或例子。"}` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 500,
     }) }) as Record<string, unknown>;
