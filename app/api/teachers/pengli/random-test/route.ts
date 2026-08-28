@@ -111,18 +111,18 @@ export async function POST(request: Request) {
   const selectedThemeIndex = themeIndex(requestedTopic);
   const startPage = selectedThemeIndex >= 0 ? themeStart(records, themeTitles[selectedThemeIndex]) : null;
   const nextPage = selectedThemeIndex >= 0 && selectedThemeIndex < themeTitles.length - 1 ? themeStart(records, themeTitles[selectedThemeIndex + 1]) : null;
-  const scoped = records.filter((record) => isSubstantivePage(record.text) && (!startPage || record.page >= startPage) && (!nextPage || record.page < nextPage));
-  const eligible = scoped.map((record) => {
-    const sourceText = record.text.replace(/\s+/gu, " ").trim().slice(0, 2400);
-    const anchors = exactAnchorCandidates(sourceText).filter((anchor) => {
-      const matchingPages = new Set(records.filter((item) => item.text.replace(/\s+/gu, " ").includes(anchor)).map((item) => item.page));
-      return matchingPages.size === 1;
-    });
-    return { record, sourceText, anchors };
-  }).filter((item) => item.anchors.length > 0);
-  const selected = eligible[Math.floor(Math.random() * eligible.length)];
-  if (!selected) return Response.json({ error: "目前主題沒有可供精準核對的正文頁面。" }, { status: 409 });
-  const { record: sample, sourceText, anchors } = selected;
+  const scoped = records.filter((record) => record.text.replace(/\s+/gu, " ").length >= 120 && (!startPage || record.page >= startPage) && (!nextPage || record.page < nextPage));
+  const substantive = scoped.filter((record) => isSubstantivePage(record.text));
+  const pagePool = substantive.length ? substantive : scoped;
+  const sample = pagePool[Math.floor(Math.random() * pagePool.length)];
+  if (!sample) return Response.json({ error: "目前主題尚未建立可抽樣的頁數範圍。" }, { status: 409 });
+  const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 2400);
+  const anchors = exactAnchorCandidates(sourceText);
+  if (!anchors.length) {
+    const fallbackAnchor = (sourceText.match(/[\p{Script=Han}]{10,32}/gu) ?? [])[0];
+    if (fallbackAnchor) anchors.push(fallbackAnchor);
+  }
+  if (!anchors.length) return Response.json({ error: "抽樣頁面暫時沒有可形成問題的正文。" }, { status: 409 });
   const anchorPool = anchors.slice(0, Math.min(12, anchors.length));
   const anchorPhrase = anchorPool[Math.floor(Math.random() * anchorPool.length)];
   let question = "";
