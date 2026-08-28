@@ -81,14 +81,19 @@ jobs:
           set -euo pipefail
           columns="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "PRAGMA table_info(pengli_teacher_questions);" --json)"
           if ! echo "$columns" | jq -e '.. | objects | select(.name? == "assigned_teacher_id")' >/dev/null; then
-            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0078_pengli_teacher_assignment.sql
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command 'ALTER TABLE `pengli_teacher_questions` ADD `assigned_teacher_id` integer REFERENCES `members`(`id`) ON DELETE set null;'
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command 'ALTER TABLE `pengli_teacher_questions` ADD `admin_reviewed_at` integer;'
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command 'ALTER TABLE `pengli_teacher_questions` ADD `assigned_at` integer;'
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command 'CREATE INDEX IF NOT EXISTS `pengli_teacher_questions_teacher_status_idx` ON `pengli_teacher_questions` (`assigned_teacher_id`,`status`);'
           fi
 
       - name: Assign Pengli documents idempotently
-        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0079_pengli_document_assignment.sql
+        shell: bash
+        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "$(cat ./drizzle/0079_pengli_document_assignment.sql)"
 
       - name: Seed verified Pengli PDF mappings
-        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0080_seed_pengli_book_map.sql
+        shell: bash
+        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "$(cat ./drizzle/0080_seed_pengli_book_map.sql)"
 
       - name: Verify target D1 is initialized
         shell: bash
