@@ -79,6 +79,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          tables="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "SELECT name FROM sqlite_master WHERE type='table' AND name='pengli_teacher_questions';" --json)"
+          if ! echo "$tables" | jq -e '.. | objects | select(.name? == "pengli_teacher_questions")' >/dev/null; then
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "$(sed '/statement-breakpoint/d' ./drizzle/0077_pengli_teacher_questions.sql)"
+          fi
           columns="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "PRAGMA table_info(pengli_teacher_questions);" --json)"
           if ! echo "$columns" | jq -e '.. | objects | select(.name? == "assigned_teacher_id")' >/dev/null; then
             npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command 'ALTER TABLE `pengli_teacher_questions` ADD `assigned_teacher_id` integer REFERENCES `members`(`id`) ON DELETE set null;'
