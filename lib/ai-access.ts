@@ -3,6 +3,9 @@ import type { getDb } from "../db";
 import { aiAccessEntitlements, aiAccessLedger, appSettings } from "../db/schema";
 
 export const AI_ACCESS_SETTINGS_KEY = "ai_access_admin_v1";
+export const PENGLI_FREE_TRIAL_QUOTA = 10;
+export const PENGLI_FREE_TRIAL_SOURCE = "pengli_free_trial";
+const PENGLI_FREE_TRIAL_KEY_PREFIX = "pengli_free_trial_member:";
 export type Db = Awaited<ReturnType<typeof getDb>>;
 export type AiPlan = { enabled:boolean; lawScholarReflectionEnabled:boolean; pengliScholarReflectionEnabled:boolean; scholarAssistEnabled:boolean; pengliBookVerificationEnabled:boolean; name:string; price:number; quota:number; durationDays:number; coachRounds:number; promoEnabled:boolean; promoBonusQuota:number; promoStartsAt:string; promoEndsAt:string; promoFirstPurchaseOnly:boolean; autoRenew:false; categories:string[]; notes:string };
 
@@ -28,9 +31,10 @@ export async function getAiPlan(db: Db) {
   } catch { return DEFAULT_AI_PLAN; }
 }
 
-export const PENGLI_FREE_TRIAL_QUOTA = 10;
-export const PENGLI_FREE_TRIAL_SOURCE = "pengli_free_trial";
-const PENGLI_FREE_TRIAL_KEY_PREFIX = "pengli_free_trial_member:";
+export async function getActiveAiEntitlement(db: Db, memberId: number, now = new Date()) {
+  const [row] = await db.select().from(aiAccessEntitlements).where(and(eq(aiAccessEntitlements.memberId, memberId), eq(aiAccessEntitlements.status,"active"), gt(aiAccessEntitlements.expiresAt, now), lt(aiAccessEntitlements.quotaUsed, aiAccessEntitlements.quotaTotal))).orderBy(desc(aiAccessEntitlements.expiresAt)).limit(1);
+  return row ?? null;
+}
 
 export async function getPengliFreeTrial(db: Db, memberId: number) {
   const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, `${PENGLI_FREE_TRIAL_KEY_PREFIX}${memberId}`)).limit(1);
@@ -41,49 +45,34 @@ export async function getPengliFreeTrial(db: Db, memberId: number) {
   } catch { return null; }
 }
 
-export async function hasPengliFreeTrial(db: Db, memberId: number) {
-  return Boolean(await getPengliFreeTrial(db, memberId));
-}
-
 export async function ensurePengliFreeTrial(db: Db, memberId: number, topic: string) {
   const selectedTopic = topic.trim().slice(0, 120);
   if (!selectedTopic) return { ok: false as const, code: "TOPIC_REQUIRED" as const };
   const active = await getActiveAiEntitlement(db, memberId);
   if (active && active.source !== PENGLI_FREE_TRIAL_SOURCE) return { ok: true as const, topic: selectedTopic, entitlement: active, created: false };
-  const plan = await getAiPlan(db);
-  if (!active && (!plan.enabled || !plan.categories.includes("pengli"))) return { ok: false as const, code: "TRIAL_DISABLED" as const };
-  const markerKey = `${PENGLI_FREE_TRIAL_KEY_PREFIX}${memberId}`;
-  const now = new Date();
-  const markerValue = JSON.stringify({ topic: selectedTopic, createdAt: now.toISOString() });
-  const [marker] = await db.insert(appSettings).values({ key: markerKey, value: markerValue, updatedAt: now }).onConflictDoNothing().returning();
-  const trial = marker ? { topic: selectedTopic } : await getPengliFreeTrial(db, memberId);
+
+  const key = `${PENGLI_FREE_TRIAL_KEY_PREFIX}${memberId}`;
+  const markerValue = JSON.stringify({ topic: selectedTopic, createdAt: new Date().toISOString() });
+  const [inserted] = await db.insert(appSettings).values({ key, value: markerValue }).onConflictDoNothing().returning();
+  const trial = inserted ? { topic: selectedTopic } : await getPengliFreeTrial(db, memberId);
   if (!trial) return { ok: false as const, code: "TRIAL_STATE_INVALID" as const };
   if (trial.topic !== selectedTopic) return { ok: false as const, code: "TRIAL_TOPIC_MISMATCH" as const, topic: trial.topic };
+
   const current = await getActiveAiEntitlement(db, memberId);
   if (current) return { ok: true as const, topic: selectedTopic, entitlement: current, created: false };
-  const expiresAt = new Date(now.getTime() + 90 * 86_400_000);
-  try {
-    const [created] = await db.insert(aiAccessEntitlements).values({
-      memberId,
-      status: "active",
-      source: PENGLI_FREE_TRIAL_SOURCE,
-      quotaTotal: PENGLI_FREE_TRIAL_QUOTA,
-      quotaUsed: 0,
-      startsAt: now,
-      expiresAt,
-      referenceId: markerKey,
-      note: `彭狸免費主題：${selectedTopic}`,
-    }).returning();
-    return { ok: true as const, topic: selectedTopic, entitlement: created, created: true };
-  } catch (cause) {
-    await db.delete(appSettings).where(eq(appSettings.key, markerKey));
-    throw cause;
-  }
-}
-
-export async function getActiveAiEntitlement(db: Db, memberId: number, now = new Date()) {
-  const [row] = await db.select().from(aiAccessEntitlements).where(and(eq(aiAccessEntitlements.memberId, memberId), eq(aiAccessEntitlements.status,"active"), gt(aiAccessEntitlements.expiresAt, now), lt(aiAccessEntitlements.quotaUsed, aiAccessEntitlements.quotaTotal))).orderBy(desc(aiAccessEntitlements.expiresAt)).limit(1);
-  return row ?? null;
+  const now = new Date();
+  const [created] = await db.insert(aiAccessEntitlements).values({
+    memberId,
+    status: "active",
+    source: PENGLI_FREE_TRIAL_SOURCE,
+    quotaTotal: PENGLI_FREE_TRIAL_QUOTA,
+    quotaUsed: 0,
+    startsAt: now,
+    expiresAt: new Date(now.getTime() + 90 * 86400000),
+    referenceId: key,
+    note: `彭狸免費主題：${selectedTopic}`,
+  }).returning();
+  return { ok: true as const, topic: selectedTopic, entitlement: created, created: true };
 }
 
 export function publicAiAccess(row: typeof aiAccessEntitlements.$inferSelect | null) {

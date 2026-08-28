@@ -161,7 +161,7 @@ function ModelComparisonCard({ comparison, messageIndex, pairedPrompt, selectedK
   const [scores, setScores] = useState<Record<number, number>>({});
   const [saved, setSaved] = useState<number | null>(null);
   return <section className="model-comparison-card" aria-label="AI 模型測試比較">
-    <header><div><b>AI 模型測試比較</b><span>{comparisonSourceLabel(comparison.sourceStatus)}</span></div><small>每個模型使用同一個問題；回覆、Token、耗時與估算成本都會保存。</small></header>
+    <header><div><b>AI 模型測試比較</b><span>{comparisonSourceLabel(comparison.sourceStatus)}</span></div><small>每個模型使用同一個問題；回覆與評測資料都會保存。</small></header>
     <div className="model-comparison-grid">
       {comparison.responses.map((response) => <article className={`model-comparison-response ${selectedKeys.includes(`teacher:${messageIndex}:${response.id}:${response.label}`) ? "follow-up-selected" : ""}`} key={response.id}>
         <div className="model-comparison-response-head"><strong>{response.label}</strong><small>{response.model}</small></div>
@@ -1294,15 +1294,13 @@ export function LawHome() {
 export default function MainEntryGate() {
   type HomeCard = { id: "law" | "pengli" | "medtech" | "accounting"; enabled: boolean; order: number };
   const homeDefaults: HomeCard[] = [{ id: "pengli", enabled: true, order: 1 }, { id: "medtech", enabled: true, order: 2 }, { id: "accounting", enabled: true, order: 3 }, { id: "law", enabled: false, order: 4 }];
-  const [homeCards, setHomeCards] = useState<HomeCard[]>(homeDefaults);
-  const [homeCardsReady, setHomeCardsReady] = useState(false);
+  const [homeCards, setHomeCards] = useState<HomeCard[] | null>(null);
   useEffect(() => {
     let active = true;
     void fetch("/api/portal-cards", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data) => { if (active && Array.isArray(data.cards)) setHomeCards(data.cards); })
-      .catch(() => undefined)
-      .finally(() => { if (active) setHomeCardsReady(true); });
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("portal cards unavailable")))
+      .then((data) => { if (active) setHomeCards(Array.isArray(data.cards) ? data.cards : homeDefaults); })
+      .catch(() => { if (active) setHomeCards(homeDefaults); });
     return () => { active = false; };
   }, []);
   const coverFallback = (fallback: string) => (event: React.SyntheticEvent<HTMLImageElement>) => { const image = event.currentTarget; if (!image.dataset.fallback) { image.dataset.fallback = "1"; image.src = fallback; } };
@@ -1323,11 +1321,15 @@ export default function MainEntryGate() {
           </div>
           <p>依類科找到老師，從專屬教材開始學習。</p>
         </header>
-        <div className={`main-teacher-list ${homeCardsReady ? "is-ready" : "is-loading"}`} aria-busy={!homeCardsReady}>
-        {!homeCardsReady ? Array.from({ length: 3 }, (_, index) => <div className="main-teacher-skeleton" aria-hidden="true" key={index} />) : homeCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => card.id === "pengli" ?
+        <div className={`main-teacher-list ${homeCards ? "is-ready" : "is-loading"}`} aria-busy={!homeCards}>
+        {!homeCards ? <>
+          <div className="main-teacher-skeleton" aria-hidden="true" />
+          <div className="main-teacher-skeleton" aria-hidden="true" />
+          <div className="main-teacher-skeleton" aria-hidden="true" />
+        </> : homeCards.filter((card) => card.enabled).sort((a, b) => a.order - b.order).map((card) => card.id === "pengli" ?
         <article className="main-teacher-card law-teacher" key={card.id}>
           <div className="main-teacher-cover">
-            <img src="/api/portal-cards/cover?id=pengli" onError={coverFallback("https://publish.get.com.tw/Publish/Control/pictures/Book/59ML170502.gif")} alt="行政法考點（考前衝刺）演習書書封" />
+            <img src="/api/portal-cards/cover?id=pengli" onError={coverFallback("/teachers/pengli-administrative-law-cover-v2.png")} alt="行政法考點（考前衝刺）演習書透明書封" />
           </div>
           <div className="main-teacher-content">
             <div className="main-teacher-tags"><span>法律類</span><span>行政法</span><span>司律二試</span></div>

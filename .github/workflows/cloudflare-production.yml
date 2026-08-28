@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: cloudflare-production-worker
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -67,13 +67,28 @@ jobs:
           set -euo pipefail
           test -f dist/server/index.js
           grep -R -q "任選主題試問" dist/server
-          grep -R -q "八大主題全部開放任選" dist/server
+          grep -R -q "八大主題全部開放自由選擇" dist/server
           grep -R -q "portal-cards/cover?id=pengli" dist
           grep -R -q "pengli_free_trial_member" dist/server
           echo "Verified current Pengli UI, shared cover and free-trial logic."
 
       - name: Apply idempotent PDF mapping schema
         run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0078_document_section_mappings.sql
+
+      - name: Apply teacher assignment columns once
+        shell: bash
+        run: |
+          set -euo pipefail
+          columns="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "PRAGMA table_info(pengli_teacher_questions);" --json)"
+          if ! echo "$columns" | jq -e '.. | objects | select(.name? == "assigned_teacher_id")' >/dev/null; then
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0078_pengli_teacher_assignment.sql
+          fi
+
+      - name: Assign Pengli documents idempotently
+        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0079_pengli_document_assignment.sql
+
+      - name: Seed verified Pengli PDF mappings
+        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0080_seed_pengli_book_map.sql
 
       - name: Verify target D1 is initialized
         shell: bash

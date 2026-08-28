@@ -46,4 +46,3 @@ export async function POST(request: Request) {
   for (const key of oldPdfKeys) if (key !== storageKey) await env.BUCKET.delete(key);
   return Response.json({ ok: true });
 }
-

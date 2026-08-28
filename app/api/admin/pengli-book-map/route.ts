@@ -4,14 +4,14 @@ import { requireAdmin } from "../../../../lib/member-auth";
 
 const defaultSections = [
   { sectionKey: "front_matter", title: "封面、序言與目錄（不供 AI 回答）", sectionType: "front_matter", sortOrder: 0, pdfStartPage: 1, pdfEndPage: 22, verified: true },
-  { sectionKey: "theme_1", title: "行政法理論基礎與行政組織法", sectionType: "body", sortOrder: 1, pdfStartPage: 23, pdfEndPage: 0, verified: false },
-  { sectionKey: "theme_2", title: "行政處分", sectionType: "body", sortOrder: 2, pdfStartPage: 0, pdfEndPage: 0, verified: false },
-  { sectionKey: "theme_3", title: "行政契約與行政命令", sectionType: "body", sortOrder: 3, pdfStartPage: 0, pdfEndPage: 0, verified: false },
-  { sectionKey: "theme_4", title: "行政罰法", sectionType: "body", sortOrder: 4, pdfStartPage: 0, pdfEndPage: 0, verified: false },
-  { sectionKey: "theme_5", title: "行政執行法", sectionType: "body", sortOrder: 5, pdfStartPage: 0, pdfEndPage: 0, verified: false },
-  { sectionKey: "theme_6", title: "訴願法與行政訴訟法", sectionType: "body", sortOrder: 6, pdfStartPage: 0, pdfEndPage: 0, verified: false },
-  { sectionKey: "theme_7", title: "國家賠償法與損失補償", sectionType: "body", sortOrder: 7, pdfStartPage: 0, pdfEndPage: 0, verified: false },
-  { sectionKey: "theme_8", title: "新進實務見解整理", sectionType: "body", sortOrder: 8, pdfStartPage: 0, pdfEndPage: 0, verified: false },
+  { sectionKey: "theme_1", title: "行政法理論基礎與行政組織法", sectionType: "body", sortOrder: 1, pdfStartPage: 23, pdfEndPage: 84, verified: true },
+  { sectionKey: "theme_2", title: "行政處分", sectionType: "body", sortOrder: 2, pdfStartPage: 85, pdfEndPage: 172, verified: true },
+  { sectionKey: "theme_3", title: "行政契約與行政命令", sectionType: "body", sortOrder: 3, pdfStartPage: 173, pdfEndPage: 233, verified: true },
+  { sectionKey: "theme_4", title: "行政罰法", sectionType: "body", sortOrder: 4, pdfStartPage: 234, pdfEndPage: 302, verified: true },
+  { sectionKey: "theme_5", title: "行政執行法", sectionType: "body", sortOrder: 5, pdfStartPage: 303, pdfEndPage: 332, verified: true },
+  { sectionKey: "theme_6", title: "訴願法與行政訴訟法", sectionType: "body", sortOrder: 6, pdfStartPage: 333, pdfEndPage: 420, verified: true },
+  { sectionKey: "theme_7", title: "國家賠償法與損失補償", sectionType: "body", sortOrder: 7, pdfStartPage: 421, pdfEndPage: 456, verified: true },
+  { sectionKey: "theme_8", title: "新進實務見解整理", sectionType: "body", sortOrder: 8, pdfStartPage: 457, pdfEndPage: 495, verified: true },
 ] as const;
 
 async function book(auth: Awaited<ReturnType<typeof requireAdmin>>) {
@@ -63,4 +63,3 @@ export async function PUT(request: Request) {
   for (const value of values) await auth.db.insert(documentSectionMappings).values(value).onConflictDoUpdate({ target: [documentSectionMappings.documentId, documentSectionMappings.sectionKey], set: value });
   return Response.json({ ok: true, sections: values }, { headers: { "cache-control": "no-store" } });
 }
-

@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documentAssignments, documents } from "../../../../db/schema";
 
-const categories = new Set(["law", "pengli", "medtech", "accounting", "data-structure"]);
+const categories = new Set(["law", "medtech", "accounting", "data-structure", "pengli"]);
 
 export async function GET(request: Request) {
   const documentId = Number(new URL(request.url).searchParams.get("documentId"));

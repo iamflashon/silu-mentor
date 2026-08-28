@@ -775,6 +775,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
   const [bookModelMode, setBookModelMode] = useState<BookModelMode>("luna");
   const [bookTeachingLevel, setBookTeachingLevel] = useState<"beginner" | "intermediate" | "advanced" | "super" | null>(null);
   const [bookTestNotice, setBookTestNotice] = useState("");
+  const [lawScholarReflectionEnabled, setLawScholarReflectionEnabled] = useState(true);
   const [challengeStudentAnswer, setChallengeStudentAnswer] = useState("");
   const [challengeAnswers, setChallengeAnswers] = useState<Partial<Record<"luna" | "sol", ChallengeRun>>>({});
   const [challengeVote, setChallengeVote] = useState<"luna" | "sol" | "both" | "neither" | "">("");
@@ -820,6 +821,13 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
     // full learning-center page should restore a tab from the query string.
     if (!standalone) setActiveTab(requestedPlanTab());
   }, [standalone]);
+  useEffect(() => {
+    void fetch("/api/ai-access", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const data = await response.json() as { plan?: { lawScholarReflectionEnabled?: boolean } };
+      setLawScholarReflectionEnabled(data.plan?.lawScholarReflectionEnabled !== false);
+    }).catch(() => undefined);
+  }, []);
   useEffect(() => {
     let localPreference: { pinned?: boolean; modelMode?: string; teachingLevel?: string | null } | null = null;
     try {
@@ -2404,6 +2412,7 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
           chapterText: selectedChapter.text,
           level: bookTeachingLevel ?? undefined,
           modelMode: bookModelMode,
+          requestKey: crypto.randomUUID(),
         }),
       });
       const result = await response.json() as { reply?: string; error?: string; model?: string; sessionId?: number | null; usage?: BookUsage };
@@ -4442,11 +4451,11 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                                     <label className="model-settings-pin"><input type="checkbox" checked={bookSettingsPinned} onChange={(event) => toggleBookSettingsPinned(event.target.checked)} disabled={bookChatLoading} /><span>固定此角色與模型</span></label>
                                     <small>{bookSettingsPinned ? "已固定；取消勾選後即可重新選擇。" : "固定後所有智能書都沿用目前的學生角色與回答模型。"}</small>
                                   </div>
-                                  <small>{bookTestNotice || "下方留白按「送出訊息」，AI 學霸會直接回答 AI 導師的問題。"}</small>
+                                  <small>{bookTestNotice || "按「學霸怎麼想？」可查看示範判斷、思考路徑與延伸反問；本次計入陪練 1 輪。"}</small>
                                 </>}
                               </section>}
                               <div className="book-dialogue-composer-actions">
-                                <span>{bookSelectedMessageIndex === null ? "留白送出：回答 AI 導師最新問題" : "已指定一則 AI 導師訊息；留白送出即可回答"}</span>
+                                <span>{bookSelectedMessageIndex === null ? "可自行回答，或使用反思助手查看答題思路" : "已指定一則 AI 導師訊息"}</span>
                                 {selectedBookIsProblemSolving && bookMessages.some((message) => message.role === "mentor") && (
                                   <button
                                     type="button"
@@ -4457,18 +4466,19 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
                                     跳過追問，進入完整解題
                                   </button>
                                 )}
-                                <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || (!bookInput.trim() && (!simulationToolsEnabled || !bookMessages.some((message) => message.role === "mentor")))}>送出訊息</button>
+                                {simulationToolsEnabled && lawScholarReflectionEnabled && bookMessages.some((message) => message.role === "mentor") && <button type="button" className="scholar-reflection-button" onClick={() => void answerBookTeacherMessage()} disabled={bookChatLoading}><b>霸</b><span><strong>學霸怎麼想？</strong><small>本次計入陪練 1 輪</small></span></button>}
+                                <button type="button" className="scholar-follow-up-button" onClick={() => void submitBookMessage()} disabled={bookChatLoading || !bookInput.trim()}>送出訊息</button>
                               </div>
                               <form className="book-dialogue-form" onSubmit={sendBookMessage}>
                                 <textarea
                                   value={bookInput}
                                   onChange={(event) => setBookInput(event.target.value)}
-                                  placeholder={simulationToolsEnabled ? (bookSelectedMessageIndex === null ? "回答 AI 導師的問題……（留白由 AI 學霸直接回答）" : "回答指定的 AI 導師問題……（留白由 AI 學霸直接回答）") : "回答 AI 導師的問題……"}
+                                  placeholder={bookSelectedMessageIndex === null ? "回答 AI 導師的問題……" : "回答指定的 AI 導師問題……"}
                                   disabled={bookChatLoading}
                                   rows={1}
-                                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitBookMessage(); } }}
+                                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && bookInput.trim()) { event.preventDefault(); void submitBookMessage(); } }}
                                 />
-                                <button type="submit" aria-label="送出訊息" disabled={bookChatLoading || (!bookInput.trim() && (!simulationToolsEnabled || !bookMessages.some((message) => message.role === "mentor")))}>↑</button>
+                                <button type="submit" aria-label="送出訊息" disabled={bookChatLoading || !bookInput.trim()}>↑</button>
                               </form>
                             </div>
                           </div>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
 
 type Attachment = { id: number; url: string };
 type Note = { id: number; sourceType?: string; title: string; content: string; originalContent?: string; subject: string; tags: string; sourceLabel: string; updatedAt: string; attachments?: Attachment[] };
@@ -10,9 +9,6 @@ type Filter = "all" | "favorite" | "note";
 const emptyDraft = (): Note => ({ id: 0, sourceType: "note", title: "", content: "", subject: "綜合", tags: "", sourceLabel: "", updatedAt: new Date().toISOString(), attachments: [] });
 
 export default function NotesPage() {
-  const pathname = usePathname();
-  const isPengli = pathname.startsWith("/teachers/pengli/notes");
-  const category = isPengli ? "pengli" : "law";
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -27,12 +23,12 @@ export default function NotesPage() {
 
   async function loadNotes() {
     setLoading(true);
-    const response = await fetch(`/api/notes?category=${category}`);
+    const response = await fetch("/api/notes?category=law");
     if (response.ok) setNotes(((await response.json()) as { notes?: Note[] }).notes ?? []);
     setLoading(false);
   }
 
-  useEffect(() => { void loadNotes(); }, [category]);
+  useEffect(() => { void loadNotes(); }, []);
 
   const filtered = useMemo(() => notes.filter((note) => {
     if (filter === "favorite" && note.sourceType !== "favorite") return false;
@@ -59,7 +55,7 @@ export default function NotesPage() {
     const ids = [...selectedIds];
     if (!ids.length || !window.confirm(`確定要刪除選取的 ${ids.length} 則筆記嗎？\n\n原始收藏、AI 整理內容與附件都會一併刪除，且無法復原。`)) return;
     setDeleting(true); setMessage("");
-    const response = await fetch("/api/notes", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, category }) });
+    const response = await fetch("/api/notes", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, category: "law" }) });
     const result = await response.json().catch(() => ({})) as { ids?: number[]; error?: string };
     setDeleting(false);
     if (!response.ok) { setMessage(result.error ?? "目前無法刪除，請稍後再試。"); return; }
@@ -72,7 +68,7 @@ export default function NotesPage() {
     if (!draft?.title.trim() || !draft.content.trim()) { setMessage("請填寫標題與筆記內容。"); return; }
     setSaving(true); setMessage("");
     const create = !draft.id;
-    const response = await fetch("/api/notes", { method: create ? "POST" : "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: draft.id, category, sourceId: !draft.id && isPengli ? `pengli-manual-${crypto.randomUUID()}` : undefined, sourceType: draft.sourceType || "note", title: draft.title, content: draft.content, subject: draft.subject, tags: draft.tags, sourceLabel: draft.sourceLabel }) });
+    const response = await fetch("/api/notes", { method: create ? "POST" : "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: draft.id, category: "law", sourceType: draft.sourceType || "note", title: draft.title, content: draft.content, subject: draft.subject, tags: draft.tags, sourceLabel: draft.sourceLabel }) });
     setSaving(false);
     if (!response.ok) { setMessage("目前無法儲存，請稍後再試。"); return; }
     await loadNotes(); setDraft(null);
@@ -80,12 +76,12 @@ export default function NotesPage() {
 
   async function remove() {
     if (!draft?.id || !window.confirm("確定刪除這則筆記？刪除後無法復原。")) return;
-    const response = await fetch(`/api/notes?id=${draft.id}&category=${category}`, { method: "DELETE" });
+    const response = await fetch(`/api/notes?id=${draft.id}&category=law`, { method: "DELETE" });
     if (response.ok) { setNotes((items) => items.filter((item) => item.id !== draft.id)); setDraft(null); }
   }
 
   return <main className="notes-page">
-    <header className="notes-page-header">{isPengli ? <nav className="notes-return-links" aria-label="返回學習"><a href="/teachers/pengli/coach" className="notes-home-link notes-coach-link"><span>狸</span><b>回 AI 教練<br />繼續對話</b></a><a href="/teachers/pengli">回彭狸專區首頁</a></nav> : <a href="/law" className="notes-home-link"><span>律</span>回首頁</a>}<div><p>MY STUDY NOTES</p><h1>{isPengli ? "彭狸老師・我的筆記" : "我的筆記"}</h1><small>{isPengli ? "只收錄彭狸老師專區的行政法收藏與整理。" : "收藏與筆記集中在這裡，不必進入學習專區。"}</small></div><button type="button" onClick={() => setDraft(emptyDraft())}>＋ 新增筆記</button></header>
+    <header className="notes-page-header"><a href="/law" className="notes-home-link"><span>律</span>回首頁</a><div><p>MY STUDY NOTES</p><h1>我的筆記</h1><small>收藏與筆記集中在這裡，不必進入學習專區。</small></div><button type="button" onClick={() => setDraft(emptyDraft())}>＋ 新增筆記</button></header>
     <section className="notes-toolbar"><div className="notes-filters" role="group" aria-label="筆記類型"><button className={filter === "all" ? "active" : ""} onClick={() => chooseFilter("all")}>全部 <b>{notes.length}</b></button><button className={filter === "favorite" ? "active" : ""} onClick={() => chooseFilter("favorite")}>快速收藏 <b>{notes.filter((note) => note.sourceType === "favorite").length}</b></button><button className={filter === "note" ? "active" : ""} onClick={() => chooseFilter("note")}>我的整理 <b>{notes.filter((note) => note.sourceType !== "favorite").length}</b></button></div><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); setSelectedIds(new Set()); }} placeholder="搜尋標題、內容、科目、標籤或來源…" aria-label="搜尋我的筆記" /></section>
     {!loading && filtered.length > 0 && <section className="notes-bulkbar"><label><input type="checkbox" checked={filtered.every((note) => selectedIds.has(note.id))} onChange={toggleAllFiltered} />全選目前結果（{filtered.length}）</label><span>已選 {selectedIds.size} 則</span><button type="button" disabled={!selectedIds.size || deleting} onClick={() => void removeSelected()}>{deleting ? "刪除中…" : "一鍵刪除已選"}</button>{message && <small>{message}</small>}</section>}
     {loading ? <div className="notes-empty">正在讀取我的筆記…</div> : visible.length ? <section className="standalone-note-list">{visible.map((note) => <article className={selectedIds.has(note.id) ? "selected" : ""} key={note.id} onClick={() => setDraft(note)}><label className="note-select" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={selectedIds.has(note.id)} onChange={() => toggleSelected(note.id)} aria-label={`選取「${note.title}」`} /><span>選取</span></label><div className="standalone-note-tags"><span>{note.sourceType === "favorite" ? "快速收藏" : "我的筆記"}</span><em>{note.subject}</em>{note.tags && <i>{note.tags}</i>}</div><h2>{note.title}</h2><p>{note.content}</p>{note.attachments?.[0] && <img src={note.attachments[0].url} alt="筆記附件" loading="lazy" />}{note.sourceLabel && <small>來源：{note.sourceLabel}</small>}<button type="button">查看／編輯</button></article>)}</section> : <div className="notes-empty"><b>{query ? "找不到符合條件的筆記" : "還沒有筆記"}</b><span>{query ? "可改用科目、爭點或來源名稱搜尋。" : "你可以在任何內容按「快速收藏」或「整理成筆記」，也能從這裡新增空白筆記。"}</span></div>}

@@ -4,6 +4,8 @@ import { chatMessages, chatSessions, usageLogs } from "../../../../db/schema";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { syncBookLearningRecord } from "../../../../lib/book-learning-record";
+import { getAiPlan } from "../../../../lib/ai-access";
+import { finishAiCoachRound, prepareAiUse } from "../../../../lib/ai-access-gate";
 
 type Provider = "luna" | "sonnet" | "deepseek";
 type TeachingLevel = "beginner" | "intermediate" | "advanced" | "super";
@@ -147,7 +149,12 @@ export async function POST(request: Request) {
       chapterText?: string;
       level?: TeachingLevel;
       modelMode?: string;
+      requestKey?: string;
     };
+    const gate = await prepareAiUse(request, "law");
+    if (gate instanceof Response) return gate;
+    const plan = await getAiPlan(gate.db);
+    if (plan.lawScholarReflectionEnabled === false) return Response.json({ error: "「學霸怎麼想？」目前已由管理員關閉。" }, { status: 403 });
     const teacherText = String(body.teacherText ?? "").trim();
     const provider = providerFrom(body.modelMode);
     if (!teacherText) return Response.json({ error: "目前沒有可回答的 AI 導師問題" }, { status: 400 });
@@ -162,9 +169,9 @@ export async function POST(request: Request) {
 要求：
 1. 先直接回答老師的問題，再補充必要的規範、要件與題目涵攝；如果問題要求判斷，必須明確說出結論。
 2. ${levelRule(body.level)}
-3. 不要重新出題、不要把回答改寫成追問、不要只說「這是好問題」，也不要自行增加老師沒有問的新爭點。
+3. 固定使用「我的判斷」、「我怎麼想到的」、「我還想問老師」三段。最後一段只提出一個延伸或反例問題，不要另開無關爭點。
 4. 不要重述整段老師問題，不要輸出「選取內容」「處理要求」或任何內部提示文字。
-5. 保持自然對話，控制在 170 至 330 字；不要使用 Markdown 標題、星號、反引號或長篇條列。
+5. 保持自然對話，控制在 220 至 380 字；不要使用 Markdown 符號。
 
 目前教材：${resourceTitle}
 目前章節：${segmentTitle}
@@ -191,6 +198,7 @@ ${chapterText ? `章節核對內容：\n${chapterText}` : "章節原文尚未完
       }
     }
     const estimatedCostUsdMicros = estimateCostUsdMicros(result.model, result);
+    const round = await finishAiCoachRound(gate, { action: "law_scholar_reflection", description: "司律學霸反思 1 輪", requestKey: body.requestKey });
     const userKey = request.headers.get("oai-authenticated-user-email") ?? "default-owner";
     const db = await getDb();
     if (body.sessionId) {
@@ -208,7 +216,7 @@ ${chapterText ? `章節核對內容：\n${chapterText}` : "章節原文尚未完
       }
     }
     await db.insert(usageLogs).values({ model: result.model, source: `智能書｜AI 學霸回答老師問題｜${resourceTitle}`, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens, fileSearchCalls: 0, estimatedCostUsdMicros });
-    return Response.json({ reply: result.text, role: "scholar", sessionId: body.sessionId ?? null, model: result.model, usage: { ...result, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
+    return Response.json({ reply: result.text, role: "scholar", sessionId: body.sessionId ?? null, model: result.model, round, usage: { ...result, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "AI 學霸暫時無法回答老師的問題" }, { status: 500 });
   }

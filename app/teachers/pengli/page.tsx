@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import PengliCover from "./PengliCover";
 import "./pengli.css";
+import PengliCover from "./PengliCover";
 
 export const metadata: Metadata = {
   title: "彭狸老師行政法考點衝刺",
@@ -47,7 +47,7 @@ export default function PengliTeacherPage() {
       </div>
       <div className="pengli-book-stage">
         <div className="pengli-book-halo" aria-hidden="true" />
-        <PengliCover className="pengli-hero-managed-cover" />
+        <PengliCover />
         <div className="pengli-teacher-note"><small>AUTHOR</small><strong>彭狸</strong><span>臺大法律研究所公法組</span></div>
       </div>
     </section>
@@ -55,24 +55,24 @@ export default function PengliTeacherPage() {
     <section className="pengli-workspace" id="curriculum">
       <header>
         <div><span>LEARNING PATH</span><h2>八大主題學習路徑</h2></div>
-        <p>八大主題全部開放任選；選定主題進入 AI 教練，可免費提問 10 次。</p>
+        <p>八大主題全部開放自由選擇；只有實際送出 AI 問題時，才會計入可用提問次數。</p>
       </header>
       <div className="pengli-layout">
         <div className="pengli-theme-list">
-          {themes.map(([number, title, summary]) => <article className="available" key={number}>
+          {themes.map(([number, title, summary]) => <Link className="theme-card" href={`/teachers/pengli/coach?topic=${encodeURIComponent(title)}`} key={number}>
             <span>{number}</span>
             <div><h3>{title}</h3><p>{summary}</p></div>
-            <Link href={`/teachers/pengli/coach?topic=${encodeURIComponent(title)}`} aria-label={`選擇主題：${title}`}>選擇</Link>
-          </article>)}
+            <b>進入</b>
+          </Link>)}
         </div>
         <aside className="pengli-progress-card">
-          <span>免費體驗方式</span>
-          <strong>任選一個主題</strong>
+          <span>我的衝刺進度</span>
+          <strong>免費提問</strong>
           <div className="pengli-progress"><i style={{width:"0%"}} /></div>
-          <small>首次實際提問時啟用 10 次</small>
+          <small>第一次實際提問後，該主題可免費問 10 次</small>
           <hr/>
-          <ul><li>八大主題皆可選擇</li><li>只依老師教材範圍回答</li><li>未找到對應書頁不扣次</li></ul>
-          <a href="#curriculum">從八大主題中選擇</a>
+          <ul><li>考點閱讀與老師提醒</li><li>破題步驟練習</li><li>申論架構自我檢查</li></ul>
+          <a href="#curriculum">選擇任一主題</a>
         </aside>
       </div>
     </section>

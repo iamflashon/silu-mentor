@@ -27,6 +27,11 @@ function safeName(value: string) {
   return value.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
 }
 
+function isPengliMaterial(...values: Array<string | null | undefined>) {
+  const signature = values.filter(Boolean).join(" ").normalize("NFKC");
+  return /彭狸|59ML170502|行政法考點(?:（考前衝刺）)?演習書/u.test(signature);
+}
+
 export async function GET(request: Request) {
   try {
     const db = await getDb("primary");
@@ -215,6 +220,13 @@ export async function POST(request: Request) {
         documentType,
         status: "uploaded",
       }).returning();
+      const assignments = [
+        { documentId: row.id, examCategory, subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true, sortOrder: 0 },
+        ...(isPengliMaterial(file.name, requestedBookTitle, subject)
+          ? [{ documentId: row.id, examCategory: "pengli", subject: "行政法", usageType: "教材檢索", visibility: "members", aiSearchEnabled: true, sortOrder: 1 }]
+          : []),
+      ];
+      await db.insert(documentAssignments).values(assignments);
       return Response.json({ document: { id: row.id, name: row.fileName, status: row.status } }, { status: 201 });
     } catch (error) {
       await bucket.delete(key);
@@ -261,12 +273,11 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; bookTitle?: string; tags?: string[] };
+    const body = await request.json() as { id?: number; homepageSearchEnabled?: boolean; bookTitle?: string };
     const id = Number(body.id);
     const hasBookTitle = typeof body.bookTitle === "string";
-    const hasTags = Array.isArray(body.tags);
     const hasHomepageSearchSetting = typeof body.homepageSearchEnabled === "boolean";
-    if (!Number.isInteger(id) || id < 1 || (!hasBookTitle && !hasTags && !hasHomepageSearchSetting)) {
+    if (!Number.isInteger(id) || id < 1 || (!hasBookTitle && !hasHomepageSearchSetting)) {
       return Response.json({ error: "教材設定資料不正確" }, { status: 400 });
     }
     const db = await getDb();
@@ -276,12 +287,7 @@ export async function PATCH(request: Request) {
       const bookTitle = normalizeDocumentTitle(String(body.bookTitle ?? ""));
       if (!bookTitle) return Response.json({ error: "請輸入書籍名稱" }, { status: 400 });
       await db.update(documents).set({ bookTitle }).where(eq(documents.id, id));
-      if (!hasTags && !hasHomepageSearchSetting) return Response.json({ id, bookTitle });
-    }
-    if (hasTags) {
-      const tags = [...new Set((body.tags ?? []).map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 20);
-      await db.update(documents).set({ tagsJson: JSON.stringify(tags) }).where(eq(documents.id, id));
-      if (!hasHomepageSearchSetting) return Response.json({ id, bookTitle: hasBookTitle ? normalizeDocumentTitle(String(body.bookTitle ?? "")) : document.bookTitle, tags });
+      if (!hasHomepageSearchSetting) return Response.json({ id, bookTitle });
     }
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
     if (body.homepageSearchEnabled && document.status !== "completed") {

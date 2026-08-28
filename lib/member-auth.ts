@@ -84,6 +84,13 @@ export async function requireAdmin(request: Request) {
   return auth;
 }
 
+export async function requirePengliTeacher(request: Request) {
+  const auth = await requireMember(request);
+  if ("error" in auth) return auth;
+  if (auth.member.role !== "teacher") return { error: Response.json({ error: "此頁僅開放老師帳號" }, { status: 403 }) } as const;
+  return auth;
+}
+
 export async function requireMedtechMember(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth;

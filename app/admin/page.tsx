@@ -3267,7 +3267,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     }
   }
 
-  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "medtech" | "accounting") {
+  async function toggleDocumentAssignment(file: Uploaded, category: "law" | "medtech" | "accounting" | "pengli") {
     try {
       const response = await fetch(`/api/documents/assignments?documentId=${file.id}`, { cache: "no-store" });
       const loaded = await response.json() as { assignments?: Array<{ examCategory: string; subject: string; usageType?: string; visibility?: string; aiSearchEnabled?: boolean }>; error?: string };
@@ -4418,7 +4418,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                 )}
               </div>
               <p className="panel-sub">
-                每本書只上傳一次；可同時關聯司律、醫檢師與會計平台。系統保留 PDF 原始頁碼，並可再拆成約 760 字的重疊片段，兼顧精準命中與上下文完整。
+                每本書只上傳一次；可同時關聯司律、醫檢師、會計與彭狸專區。系統保留 PDF 原始頁碼，並可再拆成約 760 字的重疊片段，兼顧精準命中與上下文完整。
               </p>
               {categoryFiles.length === 0 ? (
                 <div className="empty-state">
@@ -4430,6 +4430,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                 <div className="file-list">
                   {visibleFiles.map((file) => {
                     const ready = file.status === "completed";
+                    const searchable = ready || Boolean(file.fineSearchUnitCount) || Boolean(file.fullTextIndexed) || Boolean(file.vectorIndexed);
                     const failed = file.status === "failed";
                     const waiting = ["uploaded", "queued"].includes(file.processingStage ?? file.status);
                     const stageLabel = file.processingStage === "extracting"
@@ -4470,12 +4471,12 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                             {(file.examCategory === "medtech" ? "醫檢師" : file.examCategory === "accounting" ? "會計" : "司律")} · {file.subject} · {file.size}
                           </span>
                           <small>{stageLabel}{file.error ? ` · ${file.error}` : ""}</small>
-                          {ready && (
+                          {searchable && (
                             <small className="document-index-summary">
-                              {file.fullTextIndexed ? "✓ 全文索引完成" : "○ 全文索引待確認"} · {file.vectorIndexed ? "✓ 向量索引完成" : "⚠ 向量索引待確認"}
+                              {file.fineSearchUnitCount ? `✓ ${file.fineSearchUnitCount.toLocaleString()} 個頁面片段可搜尋` : file.fullTextIndexed ? "✓ 全文索引可搜尋" : "✓ 向量索引可搜尋"}{ready ? " · 全部處理完成" : " · 後續結構分析中"}
                             </small>
                           )}
-                          {(ready || file.processingStage === "analyzing") && (
+                          {(searchable || file.processingStage === "analyzing") && (
                             <small className="document-facts">
                               {file.pageCount ? `${file.pageCount} 頁 · ` : ""}
                               {file.extractedChars ? `${file.extractedChars.toLocaleString()} 字 · ` : file.name.toLowerCase().endsWith(".pdf") || file.name.toLowerCase().endsWith(".zip") ? "PDF文字由索引服務擷取 · " : ""}
@@ -4483,7 +4484,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                               {file.tags?.length ? ` · ${file.tags.slice(0, 5).join("、")}` : ""}
                             </small>
                           )}
-                          {ready && (
+                          {searchable && (
                             <div className="document-granular-index">
                               <div>
                                 <strong>精準搜尋索引</strong>
@@ -4494,10 +4495,10 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                               </button>
                             </div>
                           )}
-                          {ready && (
+                          {searchable && (
                             <div className="document-platform-links">
                               <strong>使用平台</strong>
-                              {([['law', '司律'], ['medtech', '醫檢師'], ['accounting', '會計']] as const).map(([value, label]) => {
+                              {([['law', '司律'], ['medtech', '醫檢師'], ['accounting', '會計'], ['pengli', '彭狸專區']] as const).map(([value, label]) => {
                                 const enabled = (file.assignmentCategories?.length ? file.assignmentCategories : [file.examCategory ?? 'law']).includes(value);
                                 return <button key={value} type="button" className={enabled ? "active" : ""} onClick={() => void toggleDocumentAssignment(file, value)}>{enabled ? "✓ " : "+ "}{label}</button>;
                               })}
@@ -4585,7 +4586,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                           )}
                         </div>
                         <div className="file-card-actions">
-                          {ready && (
+                          {searchable && (
                             <label className={`homepage-search-toggle ${file.homepageSearchEnabled ? "enabled" : ""}`}>
                               <input type="checkbox" checked={Boolean(file.homepageSearchEnabled)} onChange={() => void toggleHomepageDocument(file)} />
                               <span>{file.homepageSearchEnabled ? "首頁可搜尋" : "允許首頁搜尋"}</span>
@@ -4594,8 +4595,8 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                           {failed ? (
                             <button className="index-btn" onClick={() => startIndex(file.id)}>重新處理</button>
                           ) : (
-                            <span className={`status ${ready ? "" : "pending"}`}>
-                              {ready ? "索引完成" : waiting ? "等待處理" : "處理中"}
+                            <span className={`status ${searchable ? "" : "pending"}`}>
+                              {ready ? "索引完成" : searchable ? "索引可用・分析中" : waiting ? "等待處理" : "處理中"}
                             </span>
                           )}
                         </div>

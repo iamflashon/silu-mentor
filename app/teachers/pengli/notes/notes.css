@@ -26,27 +26,18 @@
   color: #075f68;
   font-weight: 800;
 }
-.pengli-notes .grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-}
-.pengli-notes article,
+.pengli-notes .notes-search{margin:0 0 24px}
+.pengli-notes .notes-search>label{display:block;margin:0 0 8px;color:#51717a;font-size:13px;font-weight:800}
+.pengli-notes .notes-search>div{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 14px;border:1px solid #b9cfd2;border-radius:12px;background:#fff;box-shadow:0 7px 20px #133e500b}
+.pengli-notes .notes-search span{color:#56818a;font-size:24px}
+.pengli-notes .notes-search input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:#153c51;font-size:15px}
+.pengli-notes .notes-search button{border:0;background:transparent;color:#087467;font-weight:800;cursor:pointer}
 .pengli-notes .empty {
   border: 1px solid #cbdadd;
   border-radius: 16px;
   background: #fff;
   padding: 22px;
   box-shadow: 0 10px 30px #133e5010;
-}
-.pengli-notes article.unread {
-  border: 2px solid #e0a92e;
-  box-shadow: 0 0 0 5px #fff1b8;
-}
-.pengli-notes article > p {
-  white-space: pre-wrap;
-  line-height: 1.7;
-  color: #49636d;
 }
 .pengli-notes .status {
   display: inline-block;
@@ -56,31 +47,60 @@
   padding: 6px 10px;
   font-weight: 900;
 }
-.pengli-notes article.unread .status {
+.pengli-notes .title-row.unread .status {
   background: #d89112;
   color: white;
-}
-.pengli-notes .teacher {
-  margin-top: 16px;
-  padding: 16px;
-  border-left: 4px solid #d5a437;
-  background: #fff8e7;
-}
-.pengli-notes .teacher p {
-  white-space: pre-wrap;
-  line-height: 1.75;
 }
 .pengli-notes .saved-notes {
   margin-bottom: 28px;
 }
-.pengli-notes .saved-notes article {
-  border-color: #8fc9c2;
+.pengli-notes .note-group {
+  overflow: hidden;
+  border: 1px solid #cbdadd;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px #133e5010;
 }
-.pengli-notes article > small {
-  display: block;
-  margin-top: 14px;
-  color: #668087;
-}
+.pengli-notes .group-heading {display:flex;align-items:center;justify-content:space-between;padding:20px 22px;border-bottom:1px solid #e4edef;background:#f8fbfb}
+.pengli-notes .group-heading small{color:#548088;font-weight:800;letter-spacing:.08em}
+.pengli-notes .group-heading h2{margin:3px 0 0;font-size:22px}
+.pengli-notes .group-heading>span{color:#668087;font-size:13px}
+.pengli-notes .title-list{display:flex;flex-direction:column}
+.pengli-notes .title-row{width:100%;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:17px 22px;border:0;border-bottom:1px solid #e8eff0;background:#fff;color:#153c51;text-align:left;cursor:pointer}
+.pengli-notes .title-row:last-child{border-bottom:0}
+.pengli-notes .title-row:hover{background:#f4faf9}
+.pengli-notes .title-row.unread{background:#fffbef}
+.pengli-notes .title-row h3{margin:8px 0 0;font-size:17px;line-height:1.45}
+.pengli-notes .title-row p{max-width:720px;margin:6px 0 0;color:#698087;font-size:13px;line-height:1.55}
+.pengli-notes .row-meta{display:flex;align-items:center;gap:15px;flex:0 0 auto;color:#789098}
+.pengli-notes .row-meta time{font-size:12px}
+.pengli-notes .row-meta i{font-size:28px;font-style:normal;color:#78a4aa}
+.pengli-notes .note-detail-backdrop{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:24px;background:#0d2938a6}
+.pengli-notes .note-detail{width:min(760px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;overflow:hidden;border-radius:18px;background:#fff;box-shadow:0 25px 80px #061c28aa}
+.pengli-notes .note-detail>header{align-items:flex-start;margin:0;padding:22px 24px;border-bottom:1px solid #dce7e9;background:#f7fbfb}
+.pengli-notes .note-detail h2{margin:6px 36px 0 0;font-size:25px;line-height:1.4}
+.pengli-notes .detail-close{width:38px;height:38px;flex:0 0 auto;border:1px solid #a9c5c9;border-radius:50%;background:#fff;color:#245666;font-size:24px;cursor:pointer}
+.pengli-notes .note-detail-body{overflow-y:auto;padding:24px}
+.pengli-notes .note-detail-body>p,.pengli-notes .note-detail-body section p{white-space:pre-wrap;color:#49636d;line-height:1.8}
+.pengli-notes .note-detail-body section{padding:0 0 18px;margin:0 0 18px;border-bottom:1px solid #e5edef}
+.pengli-notes .note-detail-body section:last-child{margin-bottom:0;border-bottom:0}
+.pengli-notes .note-detail-body .teacher{padding:18px;border:0;border-left:4px solid #d5a437;background:#fff8e7}
+.pengli-notes .note-detail-body>small{display:block;margin-top:16px;color:#668087}
+.pengli-notes .edit-field{display:block;color:#315b67;font-size:13px;font-weight:850}
+.pengli-notes .edit-field input,.pengli-notes .edit-field textarea{width:100%;box-sizing:border-box;margin-top:8px;padding:12px 13px;border:1px solid #b9ced1;border-radius:10px;outline:0;background:#fff;color:#254b58;font:inherit;font-size:15px;font-weight:400;line-height:1.7;resize:vertical}
+.pengli-notes .edit-field input:focus,.pengli-notes .edit-field textarea:focus{border-color:#168b7e;box-shadow:0 0 0 3px #dff3ef}
+.pengli-notes .edit-field+.edit-field{margin-top:18px}
+.pengli-notes .edit-field.supplement{padding:18px;border-radius:12px;background:#eef8f6}
+.pengli-notes .pagination{display:flex;align-items:center;justify-content:center;gap:16px;padding:15px;border-top:1px solid #e2ebed;background:#fafcfc}
+.pengli-notes .pagination button{padding:7px 13px;border:1px solid #9ebfc3;border-radius:8px;background:#fff;color:#12666b;font-weight:800;cursor:pointer}
+.pengli-notes .pagination button:disabled{opacity:.4;cursor:default}
+.pengli-notes .pagination span{color:#647d84;font-size:13px}
+.pengli-notes .note-detail>footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;border-top:1px solid #dce7e9;background:#f7fbfb}
+.pengli-notes .note-detail>footer>div{display:flex;gap:10px;margin-left:auto}
+.pengli-notes .note-detail>footer>span{font-size:13px;font-weight:800}.pengli-notes .note-detail>footer>span.saved{color:#087467}.pengli-notes .note-detail>footer>span.error{color:#a6362d}
+.pengli-notes .note-detail>footer button{min-width:110px;padding:10px 18px;border:1px solid #8eb8bc;border-radius:9px;background:#fff;color:#075f68;font-weight:800;cursor:pointer}
+.pengli-notes .note-detail>footer button.save-detail{border-color:#087467;background:#087467;color:#fff}
+.pengli-notes .note-detail>footer button:disabled{opacity:.55;cursor:wait}
 @media (max-width: 720px) {
   .pengli-notes {
     padding: 24px 14px;
@@ -92,7 +112,13 @@
   .pengli-notes h1 {
     font-size: 32px;
   }
-  .pengli-notes .grid {
-    grid-template-columns: 1fr;
-  }
+  .pengli-notes .title-row{align-items:flex-start;padding:15px 16px}
+  .pengli-notes .title-row p{font-size:12px}
+  .pengli-notes .row-meta time{display:none}
+  .pengli-notes .note-detail-backdrop{padding:10px}
+  .pengli-notes .note-detail{max-height:calc(100vh - 20px)}
+  .pengli-notes .note-detail>header,.pengli-notes .note-detail-body,.pengli-notes .note-detail>footer{padding-left:18px;padding-right:18px}
+  .pengli-notes .note-detail>footer{align-items:stretch;flex-direction:column}
+  .pengli-notes .note-detail>footer>div{width:100%;margin-left:0}
+  .pengli-notes .note-detail>footer button{min-width:0;flex:1}
 }

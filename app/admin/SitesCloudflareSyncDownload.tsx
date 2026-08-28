@@ -1,7 +1,6 @@
 "use client";
 
 import { ChangeEvent, useState } from "react";
-import "./sites-cloudflare-sync.css";
 
 type SyncConfig = { sourceUrl?: string; sitesUrl?: string; token: string; expiresAt?: string };
 type MissingDocument = { id: number; fileName: string; storageKey: string };

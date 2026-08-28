@@ -4,7 +4,7 @@ const tabs = [
   ["products", "/admin/products", "書籍與商品"],
   ["members", "/admin/members", "會員總管理"],
   ["qa", "/admin/qa-test-applications", "QA 測試申請"],
-  ["pengli-questions", "/admin/pengli-questions", "彭狸學生疑問"],
+  ["teacher-materials", "/admin/teacher-materials", "老師教材管理"],
   ["ai-access", "/admin/ai-access", "AI 方案與啟用碼"],
   ["portal-cards", "/admin/portal-cards", "首頁卡片管理"],
 ] as const;

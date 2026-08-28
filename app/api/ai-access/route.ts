@@ -125,10 +125,9 @@ async function state(auth: Auth) {
     plan,
     aiAccess: { ...publicAiAccess(ai), coachRoundsTarget: plan.coachRounds },
     pengliTrial: {
-      available: !auth.member.canAdmin && plan.enabled && plan.categories.includes("pengli") && !ai && !pengliTrial,
-      quota: PENGLI_FREE_TRIAL_QUOTA,
-      started: Boolean(pengliTrial),
+      available: !auth.member.canAdmin && !pengliTrial && !ai,
       selectedTopic: pengliTrial?.topic ?? null,
+      quota: PENGLI_FREE_TRIAL_QUOTA,
     },
     medtechAccess: medtech
       ? {

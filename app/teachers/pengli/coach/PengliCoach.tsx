@@ -100,10 +100,10 @@ export default function PengliCoach() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
-  const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
-  const [aiPlanEnabled, setAiPlanEnabled] = useState(false);
   const [freeTrialAvailable, setFreeTrialAvailable] = useState(false);
   const [freeTrialTopic, setFreeTrialTopic] = useState("");
+  const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
+  const [aiPlanEnabled, setAiPlanEnabled] = useState(false);
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
   const [bookVerificationVisible, setBookVerificationVisible] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
@@ -165,6 +165,7 @@ export default function PengliCoach() {
             remaining: data.aiAccess.remaining,
           };
           setAccess(nextAccess);
+          if (data?.plan?.enabled === true && nextAccess.remaining === 0 && !data?.pengliTrial?.available) setQuotaDialogOpen(true);
         }
         setFreeTrialAvailable(data?.pengliTrial?.available === true);
         setFreeTrialTopic(String(data?.pengliTrial?.selectedTopic ?? ""));
@@ -201,8 +202,8 @@ export default function PengliCoach() {
   const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? "—";
 
   function requireAiUse(required = 1) {
+    if (freeTrialAvailable && activeTopic) return true;
     if (aiPlanEnabled && access?.remaining != null && access.remaining < required) {
-      if (freeTrialAvailable && activeTopic) return true;
       setQuotaDialogOpen(true);
       setError("");
       return false;
@@ -212,11 +213,11 @@ export default function PengliCoach() {
 
   function applyAccess(nextAccess?: Access) {
     if (!nextAccess) return;
-    setAccess(nextAccess);
     if (freeTrialAvailable && activeTopic) {
       setFreeTrialAvailable(false);
       setFreeTrialTopic(activeTopic);
     }
+    setAccess(nextAccess);
     if (nextAccess.remaining === 0) setQuotaDialogOpen(true);
   }
 

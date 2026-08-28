@@ -68,7 +68,7 @@ export default function MedtechDeviceGuard() {
   return <div className="medtech-device-lock-backdrop" role="presentation"><section className="medtech-device-lock-dialog" role="dialog" aria-modal="true" aria-labelledby="medtech-device-lock-title">
     <span className="medtech-device-lock-kicker">帳號使用提醒</span>
     <h2 id="medtech-device-lock-title">此帳號已在 {status.maxDevices} 台裝置使用</h2>
-    <p>為保障您的帳號與付費內容，單一帳號最多同時登入 {status.maxDevices} 台裝置。請選擇一台登出，再在本機繼續學習。</p>
+    <p>為保障題目包與 7 天使用權，單一帳號最多同時登入 {status.maxDevices} 台裝置。請選擇一台登出，再在本機繼續學習。</p>
     {status.anomaly?.flagged && <div className="medtech-device-lock-alert">系統已記錄一筆異常登入風險提示：{status.anomaly.reason}。若不是本人操作，請聯絡管理員。</div>}
     <div className="medtech-device-lock-list">{status.sessions.map((session) => <article key={session.id}><div><b>{session.deviceLabel}</b><small>最近使用：{taipeiTime(session.lastSeenAt)}</small></div><button type="button" onClick={() => void kick(session.id)} disabled={busyId !== null}>{busyId === session.id ? "登出中…" : "登出這台"}</button></article>)}</div>
     {message && <p className="medtech-device-lock-message">{message}</p>}
