@@ -11,7 +11,7 @@ import {
   aiPurchaseOffer,
   getActiveAiEntitlement,
   getAiPlan,
-  hasPengliFreeTrial,
+  getPengliFreeTrial,
   grantAiAccess,
   PENGLI_FREE_TRIAL_QUOTA,
   publicAiAccess,
@@ -84,10 +84,10 @@ async function selectableUnits(auth: Auth) {
 }
 async function state(auth: Auth) {
   const now = new Date();
-  const [basePlan, ai, pengliTrialStarted, [medtech], voucherRows, [previousPurchase]] = await Promise.all([
+  const [basePlan, ai, pengliTrial, [medtech], voucherRows, [previousPurchase]] = await Promise.all([
     getAiPlan(auth.db),
     getActiveAiEntitlement(auth.db, auth.member.id),
-    hasPengliFreeTrial(auth.db, auth.member.id),
+    getPengliFreeTrial(auth.db, auth.member.id),
     auth.db
       .select()
       .from(medtechMemberEntitlements)
@@ -125,9 +125,10 @@ async function state(auth: Auth) {
     plan,
     aiAccess: { ...publicAiAccess(ai), coachRoundsTarget: plan.coachRounds },
     pengliTrial: {
-      available: !auth.member.canAdmin && plan.enabled && plan.categories.includes("pengli") && !ai && !pengliTrialStarted,
+      available: !auth.member.canAdmin && plan.enabled && plan.categories.includes("pengli") && !ai && !pengliTrial,
       quota: PENGLI_FREE_TRIAL_QUOTA,
-      started: pengliTrialStarted,
+      started: Boolean(pengliTrial),
+      selectedTopic: pengliTrial?.topic ?? null,
     },
     medtechAccess: medtech
       ? {
