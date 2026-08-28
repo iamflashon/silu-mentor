@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documentAssignments, documentSearchUnits, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
@@ -227,17 +227,17 @@ async function pengliEvidence(query: string) {
   });
   try {
   const db = await getDb("primary");
-  const [directBook] = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
+  const directBooks = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
     .from(documents)
     .where(or(like(documents.fileName, "%59ML170502%"), like(documents.bookTitle, "%行政法考點%")))
-    .orderBy(desc(documents.id)).limit(1);
-  const [assignedBook] = directBook ? [] : await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
+    .orderBy(desc(documents.id)).limit(10);
+  const assignedBooks = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName })
     .from(documentAssignments)
     .innerJoin(documents, eq(documents.id, documentAssignments.documentId))
     .where(and(eq(documentAssignments.examCategory, "pengli"), eq(documentAssignments.aiSearchEnabled, true)))
-    .orderBy(desc(documents.id)).limit(1);
-  const book = directBook ?? assignedBook;
-  if (!book) return empty();
+    .orderBy(desc(documents.id)).limit(10);
+  const books = [...new Map([...assignedBooks, ...directBooks].map((book) => [book.id, book])).values()];
+  if (!books.length) return empty();
 
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const legalPhrases = [
@@ -260,18 +260,22 @@ async function pengliEvidence(query: string) {
       .filter((term) => term.length >= 2 && term.length <= 18),
   ])].slice(0, 8);
   // D1 查詢只使用少量核心詞，避免學霸代答把整段對話展開成過長的 OR 條件。
-  const conditions = terms.map((term) =>
-    like(documentSearchUnits.normalizedText, `%${term}%`)
-  );
+  const conditions = terms.map((term) => or(
+    like(documentSearchUnits.normalizedText, `%${term}%`),
+    like(documentSearchUnits.text, `%${term}%`),
+    like(documentSearchUnits.title, `%${term}%`),
+    like(documentSearchUnits.hierarchyPath, `%${term}%`),
+  ));
   const candidates = conditions.length ? await db.select({
+    documentId: documentSearchUnits.documentId,
     pageStart: documentSearchUnits.pageStart,
     pageEnd: documentSearchUnits.pageEnd,
     title: documentSearchUnits.title,
     hierarchyPath: documentSearchUnits.hierarchyPath,
     text: documentSearchUnits.text,
   }).from(documentSearchUnits)
-    .where(and(eq(documentSearchUnits.documentId, book.id), or(...conditions)))
-    .orderBy(documentSearchUnits.sequence).limit(30) : [];
+    .where(and(inArray(documentSearchUnits.documentId, books.map((book) => book.id)), or(...conditions)))
+    .orderBy(documentSearchUnits.sequence).limit(60) : [];
   const rows = candidates
     .map((row) => {
       const haystack = `${row.title} ${row.hierarchyPath} ${row.text}`.normalize("NFKC").toLocaleLowerCase("zh-Hant");
@@ -280,8 +284,9 @@ async function pengliEvidence(query: string) {
     })
     .sort((a, b) => b.score - a.score || (a.row.pageStart ?? 9999) - (b.row.pageStart ?? 9999))
     .slice(0, 6)
-    .map(({ row }) => row);
-  return { documentId: book.id, title: book.title || book.fileName || "行政法考點演習書（二版）｜彭狸", rows, searchFailed: false };
+    .map(({ row: { documentId: _documentId, ...row } }) => row);
+  const matchedBook = books.find((book) => book.id === candidates[0]?.documentId) ?? books[0];
+  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, searchFailed: false };
   } catch (error) {
     console.error("Pengli evidence lookup failed", error);
     return empty(true);
