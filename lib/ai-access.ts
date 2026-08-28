@@ -39,27 +39,41 @@ export async function getPengliFreeTrial(db: Db, memberId: number) {
   return row ?? null;
 }
 
+export async function hasPengliFreeTrial(db: Db, memberId: number) {
+  const markerKey = `pengli_free_trial_member:${memberId}`;
+  const [marker] = await db.select({ key: appSettings.key }).from(appSettings).where(eq(appSettings.key, markerKey)).limit(1);
+  if (marker) return true;
+  return Boolean(await getPengliFreeTrial(db, memberId));
+}
+
 export async function ensurePengliFreeTrial(db: Db, memberId: number) {
   const plan = await getAiPlan(db);
   if (!plan.enabled || !plan.categories.includes("pengli")) return null;
   const active = await getActiveAiEntitlement(db, memberId);
   if (active) return active;
-  const previous = await getPengliFreeTrial(db, memberId);
-  if (previous) return null;
+  if (await hasPengliFreeTrial(db, memberId)) return null;
+  const markerKey = `pengli_free_trial_member:${memberId}`;
   const now = new Date();
+  const [marker] = await db.insert(appSettings).values({ key: markerKey, value: "granted", updatedAt: now }).onConflictDoNothing().returning();
+  if (!marker) return null;
   const expiresAt = new Date(now.getTime() + 90 * 86_400_000);
-  const [created] = await db.insert(aiAccessEntitlements).values({
-    memberId,
-    status: "active",
-    source: PENGLI_FREE_TRIAL_SOURCE,
-    quotaTotal: PENGLI_FREE_TRIAL_QUOTA,
-    quotaUsed: 0,
-    startsAt: now,
-    expiresAt,
-    referenceId: "pengli-any-topic-10",
-    note: "彭狸老師專區：八大主題任選，免費提問 10 次",
-  }).returning();
-  return created ?? null;
+  try {
+    const [created] = await db.insert(aiAccessEntitlements).values({
+      memberId,
+      status: "active",
+      source: PENGLI_FREE_TRIAL_SOURCE,
+      quotaTotal: PENGLI_FREE_TRIAL_QUOTA,
+      quotaUsed: 0,
+      startsAt: now,
+      expiresAt,
+      referenceId: "pengli-any-topic-10",
+      note: "彭狸老師專區：八大主題任選，免費提問 10 次",
+    }).returning();
+    return created ?? null;
+  } catch (cause) {
+    await db.delete(appSettings).where(eq(appSettings.key, markerKey));
+    throw cause;
+  }
 }
 
 export async function getActiveAiEntitlement(db: Db, memberId: number, now = new Date()) {
