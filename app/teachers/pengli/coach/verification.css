@@ -1,0 +1,21 @@
+.pengli-verification-progress {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 13px;
+  border: 1px solid #a9d2cc;
+  border-radius: 10px;
+  background: #eef9f7;
+}
+
+.pengli-verification-progress strong { color: #08756a; font-size: 13px; }
+.pengli-verification-progress ol { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pengli-verification-progress li { padding: 7px 5px; border-radius: 7px; color: #7c9094; background: #e3e9e9; font-size: 10px; font-weight: 800; text-align: center; }
+.pengli-verification-progress li.active { color: #fff; background: #128a7e; }
+.pengli-verification-trace { display: grid; gap: 5px; margin: 10px 0; padding: 11px 13px; border-left: 4px solid #128a7e; border-radius: 8px; background: #edf8f6; }
+.pengli-verification-trace b { color: #08756a; }
+.pengli-verification-trace span,
+.pengli-verification-trace small { color: #527177; font-size: 12px; }
+.pengli-verification h4 { margin: 14px 0 6px; color: #315d69; font-size: 13px; }
+.pengli-verification li { margin-bottom: 7px; }
+.pengli-verification li a { color: #076e69; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
