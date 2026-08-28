@@ -27,6 +27,11 @@ function safeName(value: string) {
   return value.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120);
 }
 
+function isPengliMaterial(...values: Array<string | null | undefined>) {
+  const signature = values.filter(Boolean).join(" ").normalize("NFKC");
+  return /彭狸|59ML170502|行政法考點(?:（考前衝刺）)?演習書/u.test(signature);
+}
+
 export async function GET(request: Request) {
   try {
     const db = await getDb("primary");
@@ -215,6 +220,13 @@ export async function POST(request: Request) {
         documentType,
         status: "uploaded",
       }).returning();
+      const assignments = [
+        { documentId: row.id, examCategory, subject, usageType: "教材檢索", visibility: "members", aiSearchEnabled: true, sortOrder: 0 },
+        ...(isPengliMaterial(file.name, requestedBookTitle, subject)
+          ? [{ documentId: row.id, examCategory: "pengli", subject: "行政法", usageType: "教材檢索", visibility: "members", aiSearchEnabled: true, sortOrder: 1 }]
+          : []),
+      ];
+      await db.insert(documentAssignments).values(assignments);
       return Response.json({ document: { id: row.id, name: row.fileName, status: row.status } }, { status: 201 });
     } catch (error) {
       await bucket.delete(key);

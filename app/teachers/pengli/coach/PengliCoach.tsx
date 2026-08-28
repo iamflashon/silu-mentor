@@ -45,6 +45,8 @@ export default function PengliCoach() {
   const [access, setAccess] = useState<Access | null>(null);
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
+  const [activeTopic, setActiveTopic] = useState("");
+  const [topicLocation, setTopicLocation] = useState<{ pageStart: number; pageEnd?: number | null } | null>(null);
   const [replyTarget, setReplyTarget] = useState<CoachMessage | null>(null);
   const [doubtTarget, setDoubtTarget] = useState<CoachMessage | null>(null);
   const [doubtText, setDoubtText] = useState("");
@@ -74,7 +76,16 @@ export default function PengliCoach() {
             })),
         );
       const topic = new URLSearchParams(window.location.search).get("topic");
-      if (topic) setInput(`我正在學「${topic}」，請先用一個問題帶我判斷。`);
+      if (topic) {
+        setActiveTopic(topic);
+        setInput(`我正在學「${topic}」，請先用一個問題帶我判斷。`);
+        void fetch(`/api/teachers/pengli/coach?topic=${encodeURIComponent(topic)}`, { cache: "no-store" })
+          .then(async (response) => response.ok ? response.json() : null)
+          .then((data) => {
+            if (data?.located && Number.isFinite(data.pageStart)) setTopicLocation({ pageStart: data.pageStart, pageEnd: data.pageEnd });
+          })
+          .catch(() => undefined);
+      }
     } catch {
       /* 使用預設歡迎訊息 */
     }
@@ -110,6 +121,7 @@ export default function PengliCoach() {
       body: JSON.stringify({
         messages: next.slice(-12),
         requestKey: crypto.randomUUID(),
+        topic: activeTopic || undefined,
       }),
     });
     const data = (await response.json()) as {
@@ -191,6 +203,7 @@ export default function PengliCoach() {
         body: JSON.stringify({
           mode: "scholar-assist",
           messages: contextMessages,
+          topic: activeTopic || undefined,
         }),
       });
       const data = (await response.json()) as {
@@ -323,6 +336,8 @@ export default function PengliCoach() {
         </div>
         <div className="pengli-coach-scope">
           <b>目前教材範圍</b>
+          {activeTopic && <span className="active-topic">目前主題：{activeTopic}</span>}
+          {activeTopic && <span className="topic-page">{topicLocation ? `PDF 第 ${topicLocation.pageStart}${topicLocation.pageEnd && topicLocation.pageEnd !== topicLocation.pageStart ? `–${topicLocation.pageEnd}` : ""} 頁` : "正在定位教材頁碼…"}</span>}
           <span>行政法 8 大主題</span>
           <span>試學考點與解題脈絡</span>
           <span>老師提醒與作答架構</span>

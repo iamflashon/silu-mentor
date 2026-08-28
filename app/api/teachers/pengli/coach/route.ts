@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lte, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documentAssignments, documentSearchUnits, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
@@ -248,6 +248,18 @@ async function pengliEvidence(query: string) {
   if (!books.length) return empty();
 
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
+  const requestedPage = Number(normalized.match(/(?:pdf\s*)?第?\s*(\d{1,4})\s*頁/u)?.[1] ?? 0);
+  const themeHints = [
+    ["行政法理論基礎與行政組織法", /行政法理論基礎|行政組織法|原理原則/u, ["行政組織法", "原理原則"]],
+    ["行政處分", /行政處分/u, ["行政處分"]],
+    ["行政契約與行政命令", /行政契約|行政命令/u, ["行政契約", "行政命令"]],
+    ["行政罰法", /行政罰法|行政罰/u, ["行政罰法", "行政罰"]],
+    ["行政執行法", /行政執行法|行政執行/u, ["行政執行法", "行政執行"]],
+    ["訴願法與行政訴訟法", /訴願法|行政訴訟法|訴願|行政訴訟/u, ["訴願法", "行政訴訟法"]],
+    ["國家賠償法與損失補償", /國家賠償法|損失補償|國家賠償/u, ["國家賠償法", "損失補償"]],
+    ["新進實務見解整理", /新進實務|實務見解/u, ["新進實務見解整理", "實務見解"]],
+  ] as const;
+  const matchedTheme = themeHints.find(([, pattern]) => pattern.test(normalized));
   const legalPhrases = [
     "禁止繼續使用擴音設施", "繼續使用擴音設施", "擴音設施", "噪音管制法",
     "行政法上請求權", "公法上請求權", "課予義務訴訟", "一般給付訴訟",
@@ -255,14 +267,25 @@ async function pengliEvidence(query: string) {
     "法律保留原則", "層級化法律保留", "明確性原則", "外部性",
   ].filter((phrase) => normalized.includes(phrase));
   const topicHints: string[] = [];
+  if (matchedTheme) topicHints.push(matchedTheme[0], ...matchedTheme[2]);
   if (/擴音|噪音|禁止繼續使用/u.test(normalized)) topicHints.push("禁止繼續使用擴音設施", "行政法上請求權", "訴訟類型", "課予義務訴訟");
   if (/公私法|請求權基礎|758/u.test(normalized)) topicHints.push("公私法區分", "請求權基礎", "新主體說", "758");
   if (/法律保留|443/u.test(normalized)) topicHints.push("法律保留原則", "層級化法律保留", "443");
   if (/明確性/u.test(normalized)) topicHints.push("明確性原則", "可理解", "可預見", "司法審查");
   if (/行政處分|外部性/u.test(normalized)) topicHints.push("行政處分", "外部性");
+  const longPhraseWindows = (normalized.match(/[\p{Script=Han}]{4,}/gu) ?? []).flatMap((phrase) => {
+    if (phrase.length <= 18) return [phrase];
+    const windows: string[] = [];
+    for (let index = 0; index < phrase.length; index += 6) {
+      const window = phrase.slice(index, index + 14);
+      if (window.length >= 4) windows.push(window);
+    }
+    return windows;
+  });
   const terms = [...new Set([
     ...legalPhrases,
     ...topicHints,
+    ...longPhraseWindows,
     ...normalized.split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
       .map((term) => term.replace(/^(我正在學|請先用|一個問題|帶我判斷|請問|老師)/u, "").trim())
       .filter((term) => term.length >= 2 && term.length <= 18),
@@ -274,7 +297,13 @@ async function pengliEvidence(query: string) {
     like(documentSearchUnits.title, `%${term}%`),
     like(documentSearchUnits.hierarchyPath, `%${term}%`),
   ));
-  const candidates = conditions.length ? await db.select({
+  const pageCondition = requestedPage > 0
+    ? or(
+        eq(documentSearchUnits.pageStart, requestedPage),
+        and(lte(documentSearchUnits.pageStart, requestedPage), gte(documentSearchUnits.pageEnd, requestedPage)),
+      )
+    : undefined;
+  const candidates = (pageCondition || conditions.length) ? await db.select({
     documentId: documentSearchUnits.documentId,
     pageStart: documentSearchUnits.pageStart,
     pageEnd: documentSearchUnits.pageEnd,
@@ -282,12 +311,21 @@ async function pengliEvidence(query: string) {
     hierarchyPath: documentSearchUnits.hierarchyPath,
     text: documentSearchUnits.text,
   }).from(documentSearchUnits)
-    .where(and(inArray(documentSearchUnits.documentId, books.map((book) => book.id)), or(...conditions)))
+    .where(and(
+      inArray(documentSearchUnits.documentId, books.map((book) => book.id)),
+      pageCondition ?? or(...conditions),
+    ))
     .orderBy(documentSearchUnits.sequence).limit(60) : [];
   const rows = candidates
     .map((row) => {
       const haystack = `${row.title} ${row.hierarchyPath} ${row.text}`.normalize("NFKC").toLocaleLowerCase("zh-Hant");
-      const score = terms.reduce((total, term, index) => total + (haystack.includes(term) ? Math.max(1, 10 - index) : 0), 0);
+      const themeTitle = matchedTheme?.[0] ?? "";
+      const heading = `${row.title} ${row.hierarchyPath}`.normalize("NFKC").toLocaleLowerCase("zh-Hant");
+      const opening = row.text.slice(0, 260).normalize("NFKC").toLocaleLowerCase("zh-Hant");
+      const score = (requestedPage > 0 && row.pageStart === requestedPage ? 200 : 0)
+        + terms.reduce((total, term, index) => total + (haystack.includes(term) ? Math.max(1, 10 - index) : 0), 0)
+        + (themeTitle && heading.includes(themeTitle) ? 80 : 0)
+        + (themeTitle && opening.includes(themeTitle) ? 35 : 0);
       return { row, score };
     })
     .sort((a, b) => b.score - a.score || (a.row.pageStart ?? 9999) - (b.row.pageStart ?? 9999))
@@ -309,6 +347,23 @@ const teacherContext = `
 2. 法律保留原則：以釋字第443號的層級化法律保留為核心；依人身自由、其他自由權利、技術細節與重大給付行政事項調整規範密度。地方自治事項另注意自治條例與釋字第806號。
 3. 明確性原則：概念容許解釋不當然違反明確性；應從受規範者可理解、可預見及可經司法審查等方向說明。
 `;
+
+export async function GET(request: Request) {
+  const auth = await requireMember(request);
+  if ("error" in auth) return auth.error;
+  const topic = new URL(request.url).searchParams.get("topic")?.trim().slice(0, 120) ?? "";
+  if (!topic) return Response.json({ error: "請提供主題名稱。" }, { status: 400 });
+  const evidence = await pengliEvidence(topic);
+  const first = evidence.rows.find((row) => row.pageStart != null);
+  if (!first) return Response.json({ topic, located: false });
+  return Response.json({
+    topic,
+    located: true,
+    pageStart: first.pageStart,
+    pageEnd: first.pageEnd,
+    source: evidence.title,
+  });
+}
 
 export async function POST(request: Request) {
   try {
@@ -421,8 +476,12 @@ export async function POST(request: Request) {
 
     const latestStudentText = [...rawMessages].reverse().find((message) => message.role !== "coach")?.text;
     const shortHelpReply = body.mode !== "plain-explain" && isShortHelpReply(String(latestStudentText ?? ""));
-    const searchMessages = shortHelpReply ? rawMessages.slice(0, -1).slice(-4) : rawMessages.slice(-2);
-    const searchText = searchMessages.map((message) => String(message.text ?? "")).join(" ");
+    const searchMessages = shortHelpReply
+      ? rawMessages.slice(0, -1).slice(-4)
+      : latestStudentText
+        ? [{ role: "student", text: latestStudentText }]
+        : rawMessages.slice(-1);
+    const searchText = [String(body.topic ?? "").trim(), ...searchMessages.map((message) => String(message.text ?? ""))].filter(Boolean).join(" ");
     const evidence = await pengliEvidence(searchText);
     const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
     const coachAiFallback = body.mode !== "plain-explain" && !evidence.rows.length;
@@ -435,7 +494,7 @@ export async function POST(request: Request) {
     }, { status: 409 });
 
     const evidenceText = evidence.rows.map((row, index) => {
-      const page = row.pageStart ? `本書第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "本書頁碼待索引補正";
+      const page = row.pageStart ? `PDF 第 ${row.pageStart}${row.pageEnd && row.pageEnd !== row.pageStart ? `–${row.pageEnd}` : ""} 頁` : "PDF 頁碼待索引補正";
       return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.slice(0, 800)}`;
     }).join("\n\n");
     const model = "gpt-5.6-luna";
@@ -512,7 +571,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const access = await finishAiUse(gate, { action: "pengli_coach", description: "彭狸 AI 分身陪練，成功扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
     const citedPage = citedMatch ? `${citedMatch[1]}${citedMatch[2] ? `–${citedMatch[2]}` : ""}` : fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
-    const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : `行政法考點演習書（二版）》第${citedPage}頁`;
+    const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
     return Response.json({ reply, source, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     console.error("Pengli coach request failed", error);
