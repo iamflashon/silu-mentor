@@ -186,6 +186,7 @@ export default function PengliCoach() {
         topic: activeTopic || undefined,
         pageHint: bookTest?.expectedPage || undefined,
         testAnswerAnchor: bookTest?.answerAnchor || undefined,
+        boundaryTest: next.at(-1)?.source === "學霸越界測試（學生角色）",
       }),
     });
     const data = (await response.json()) as {

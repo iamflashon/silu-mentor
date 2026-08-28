@@ -521,7 +521,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testAnswerAnchor?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testAnswerAnchor?: string; boundaryTest?: boolean };
     if (body.mode === "scholar-assist" && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -666,6 +666,13 @@ export async function POST(request: Request) {
       reply: "這個問題不屬於彭狸老師行政法教材範圍，我先不回答，避免把其他科目或模型的一般知識混進教材學習。請改問行政法問題，或回到對應的科目專區；這次不扣使用次數。",
       source: "超出行政法教材範圍｜已拒絕回答",
       outOfScope: true,
+      retrievedPages: [],
+    }, { headers: { "Cache-Control": "no-store" } });
+    if (body.mode !== "plain-explain" && body.boundaryTest === true) return Response.json({
+      reply: "目前彭狸老師教材沒有這個問題的直接內容。我不會因為出現『行政機關』或『行政處分』等相近詞，就拿不相關的教材頁面補成答案。你可以選擇查證官方資料，或轉請彭狸老師回答；這次不扣使用次數。",
+      source: "教材全文未命中｜未引用教材頁碼",
+      evidenceMissing: true,
+      missingQuestion: searchText.slice(0, 2000),
       retrievedPages: [],
     }, { headers: { "Cache-Control": "no-store" } });
     let evidence = await pengliEvidence(searchText, String(body.topic ?? ""), Number.isFinite(pageHint) && pageHint > 0 ? Math.floor(pageHint) : 0);
