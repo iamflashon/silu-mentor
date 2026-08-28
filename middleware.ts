@@ -16,6 +16,22 @@ const PUBLIC_QA_PATHS = [
   "/api/sync/textbooks",
 ];
 
+const NO_CACHE_PATHS = [
+  "/teachers/pengli/ai-access",
+  "/teachers/pengli/coach",
+];
+
+function continueRequest(requestHeaders: Headers, pathname: string) {
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  if (NO_CACHE_PATHS.includes(pathname)) {
+    response.headers.set("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
+    response.headers.set("cdn-cache-control", "no-store");
+    response.headers.set("cloudflare-cdn-cache-control", "no-store");
+    response.headers.set("x-silu-rules-version", "2026-08-28-v2");
+  }
+  return response;
+}
+
 function isQaAllowedPath(pathname: string) {
   return PUBLIC_QA_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
     || pathname.startsWith("/cdn-cgi/access/")
@@ -45,7 +61,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isQaAllowedPath(request.nextUrl.pathname)) {
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    return continueRequest(requestHeaders, request.nextUrl.pathname);
   }
 
   const authenticatedRequest = new Request(request.url, {
@@ -54,7 +70,7 @@ export async function middleware(request: NextRequest) {
   });
   if (await isAdminEntryAuthenticated(authenticatedRequest)) {
     requestHeaders.set("x-silu-admin-entry", "1");
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    return continueRequest(requestHeaders, request.nextUrl.pathname);
   }
 
   if (request.nextUrl.pathname.startsWith("/api/")) {
