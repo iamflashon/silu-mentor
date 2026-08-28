@@ -526,8 +526,8 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; boundaryTest?: boolean; boundaryQuestion?: string };
-    if (body.mode === "scholar-assist" && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; boundaryTest?: boolean; boundaryQuestion?: string };
+    if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
     const gate = await prepareAiUse(request, "pengli");
@@ -631,6 +631,31 @@ export async function POST(request: Request) {
       const scholarDraft = plainText(outputText(payload));
       if (!scholarDraft) return Response.json({ error: "目前無法產生學生代答，請再按一次。" }, { status: 502 });
       return Response.json({ scholarDraft, source: "目前對話上下文" });
+    }
+
+    if (body.mode === "scholar-follow-up") {
+      const pageLabel = Number(body.pageHint ?? 0) > 0 ? `PDF 第 ${Math.floor(Number(body.pageHint))} 頁` : "目前書頁";
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model: "gpt-5.6-luna",
+        instructions: `你是正在拿著彭狸老師教材學習的學生。請沿著老師剛才的回答，再提出一個自然、簡短而且真的有助於理解的追問。
+
+本輪固定範圍：${pageLabel}；考點「${String(body.testIssueTitle || "目前考點").slice(0, 120)}」；段落類型「${String(body.testBodyRole || "考點正文").slice(0, 80)}」。
+本頁可核對短語：「${String(body.testAnswerAnchor || "").slice(0, 100)}」
+本頁節錄：${String(body.testSourceExcerpt || "").slice(0, 1600)}
+
+規則：
+1. 只問一題，限 25 至 80 個中文字，不回答問題。
+2. 必須鎖定同一頁、同一考點；不得要求換頁、整章摘要或教材外資料。
+3. 優先追問老師上一答中的判斷理由、適用方式、考場寫法，或本頁兩個概念的差異。
+4. 不得重複對話中已經問過的題目，不得再問「這頁在說什麼」。
+5. 不得虛構本頁沒有的法條、案例、見解或名詞。
+6. 只輸出學生要問老師的那一句，不加稱呼、標題、來源、頁碼或 Markdown。`,
+        input: messages,
+        max_output_tokens: 140,
+      }) }) as Record<string, unknown>;
+      const scholarFollowUp = plainText(outputText(payload)).replace(/^「|」$/gu, "").trim();
+      if (!scholarFollowUp) return Response.json({ error: "目前無法產生接續問題，請再按一次。" }, { status: 502 });
+      return Response.json({ scholarFollowUp, source: `${pageLabel}｜目前對話上下文` });
     }
 
     const latestStudentText = [...rawMessages].reverse().find((message) => message.role !== "coach")?.text;

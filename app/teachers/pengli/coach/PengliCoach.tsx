@@ -22,6 +22,9 @@ type CoachMessage = {
     answerAnchor: string;
     questionKind: "case_facts" | "issue_prompt" | "explanation";
     sourceExcerpt: string;
+    documentId: number;
+    issueTitle: string;
+    bodyRole: string;
   };
 };
 type BookTestMeta = { documentId: number; expectedPage: number; bookPageLabel: string; answerAnchor: string; questionKind: "case_facts" | "issue_prompt" | "explanation"; sourceExcerpt: string; issueTitle: string; bodyRole: string };
@@ -170,6 +173,14 @@ export default function PengliCoach() {
     () => messages.some((message) => message.role === "student"),
     [messages],
   );
+  const latestPassedBookTest = useMemo(
+    () => [...messages].reverse().find((message) => (
+      message.role === "coach"
+      && message.testVerification?.passed
+      && Number(message.testVerification.documentId) > 0
+    ))?.testVerification,
+    [messages],
+  );
   const starters = activeTopic ? topicStarters[activeTopic] ?? [
     `請先整理「${activeTopic}」的核心判斷架構。`,
     `「${activeTopic}」最常見的申論爭點有哪些？`,
@@ -235,6 +246,9 @@ export default function PengliCoach() {
       answerAnchor: bookTest.answerAnchor,
       questionKind: bookTest.questionKind,
       sourceExcerpt: bookTest.sourceExcerpt,
+      documentId: bookTest.documentId,
+      issueTitle: bookTest.issueTitle,
+      bodyRole: bookTest.bodyRole,
     } : undefined;
     const displayedReply = testVerification && !testVerification.passed
       ? "本頁文字目前無法完成核對，系統已停止回答；本次不扣使用次數。"
@@ -318,19 +332,23 @@ export default function PengliCoach() {
     await ask(question, undefined, "scholar", "學霸越界測試（學生角色）");
   }
 
-  async function askScholarToAnswer() {
+  async function askScholarFollowUp() {
     if (thinking || scholarThinking) return;
-    const latestCoach = [...messages]
-      .reverse()
-      .find((message) => message.role === "coach");
-    const targetCoach = replyTarget?.role === "coach" ? replyTarget : latestCoach;
-    if (!targetCoach) return;
-    const contextMessages = replyTarget
-      ? [
-          ...messages.filter((message) => message.id !== targetCoach.id).slice(-10),
-          targetCoach,
-        ]
-      : messages.slice(-12);
+    const target = latestPassedBookTest;
+    if (!target) {
+      setError("請先按「學霸照書問」，完成一次書頁核對後才能繼續追問。");
+      return;
+    }
+    const bookTest: BookTestMeta = {
+      documentId: target.documentId,
+      expectedPage: target.expectedPage,
+      bookPageLabel: target.bookPageLabel,
+      answerAnchor: target.answerAnchor,
+      questionKind: target.questionKind,
+      sourceExcerpt: target.sourceExcerpt,
+      issueTitle: target.issueTitle,
+      bodyRole: target.bodyRole,
+    };
     setScholarThinking(true);
     setError("");
     try {
@@ -338,38 +356,43 @@ export default function PengliCoach() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          mode: "scholar-assist",
-          messages: contextMessages,
+          mode: "scholar-follow-up",
+          messages: messages.slice(-12),
           topic: activeTopic || undefined,
+          pageHint: bookTest.expectedPage,
+          testAnswerAnchor: bookTest.answerAnchor,
+          testIssueTitle: bookTest.issueTitle,
+          testBodyRole: bookTest.bodyRole,
+          testSourceExcerpt: bookTest.sourceExcerpt,
         }),
       });
       const data = (await response.json()) as {
-        scholarDraft?: string;
+        scholarFollowUp?: string;
         error?: string;
         purchaseUrl?: string;
       };
-      if (!response.ok || !data.scholarDraft) {
+      if (!response.ok || !data.scholarFollowUp) {
         if (data.purchaseUrl)
           window.location.href = "/teachers/pengli/ai-access";
-        throw new Error(data.error || "AI 學霸目前無法代答。");
+        throw new Error(data.error || "學霸目前無法繼續追問。");
       }
       const next = [
         ...messages,
         {
           id: crypto.randomUUID(),
           role: "scholar" as const,
-          text: data.scholarDraft,
-          source: "學霸代答（學生角色）",
+          text: data.scholarFollowUp,
+          source: "學霸繼續追問（學生角色）",
         },
       ];
       setMessages(next);
       setReplyTarget(null);
       setScholarThinking(false);
       setThinking(true);
-      await requestCoach(next);
+      await requestCoach(next, bookTest);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "AI 學霸目前無法代答。",
+        cause instanceof Error ? cause.message : "學霸目前無法繼續追問。",
       );
     } finally {
       setScholarThinking(false);
@@ -592,7 +615,11 @@ export default function PengliCoach() {
                   {message.role === "coach"
                     ? "彭狸 AI 教練"
                     : message.role === "scholar"
-                      ? "我的回答（學霸幫我答）"
+                      ? message.source?.startsWith("學霸繼續追問")
+                        ? "我的問題（學霸繼續問）"
+                        : message.source?.startsWith("學霸越界")
+                          ? "我的問題（學霸越界測試）"
+                          : "我的問題（學霸照書問）"
                       : "我的問題"}
                 </small>
                 <p>{message.text}</p>
@@ -652,8 +679,8 @@ export default function PengliCoach() {
             <article className="student thinking">
               <div className="pengli-coach-avatar">我</div>
               <div>
-                <small>我的回答（學霸幫我答）</small>
-                <p>正在替我整理回答與要問老師的問題……</p>
+                <small>我的問題（學霸繼續問）</small>
+                <p>正在沿著同一書頁準備下一個問題……</p>
               </div>
             </article>
           )}
@@ -789,6 +816,16 @@ export default function PengliCoach() {
             >
               <b>界</b>
               <span>學霸越界問</span>
+            </button>
+            <button
+              type="button"
+              className="pengli-follow-up-test-button"
+              title={latestPassedBookTest ? "沿用剛才核對成功的同一書頁與考點繼續追問" : "請先完成一次學霸照書問"}
+              onClick={() => void askScholarFollowUp()}
+              disabled={thinking || scholarThinking || bookTestLoading || !latestPassedBookTest}
+            >
+              <b>續</b>
+              <span>{scholarThinking ? "追問中…" : "學霸繼續問"}</span>
             </button>
           </div>
           <textarea
