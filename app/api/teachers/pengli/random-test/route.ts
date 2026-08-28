@@ -78,9 +78,11 @@ export async function POST(request: Request) {
   const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 3200);
   const answerAnchor = answerAnchorFromPage(sourceText);
   const questionKind: TestQuestionKind = "explanation";
-  const bookPageLabel = `${selectedThemeIndex + 1}-${sample.page - mapped.pdfStartPage + 1}`;
+  const themeNumber = selectedThemeIndex + 1;
+  const themePage = sample.page - mapped.pdfStartPage + 1;
+  const bookPageLabel = `${themeNumber}-${themePage}`;
   return Response.json({
-    question: `書內第 ${bookPageLabel} 頁，請老師告訴我這一頁在說什麼？`,
+    question: `老師，主題 ${themeNumber} 的第 ${themePage} 頁在說什麼？`,
     questionKind,
     bookPageLabel,
     expectedPage: sample.page,

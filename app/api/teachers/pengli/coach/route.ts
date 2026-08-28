@@ -273,13 +273,15 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0) {
   const normalizedScope = scopeTopic.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const scopeThemeIndex = normalizedScope ? PENGLI_THEME_TITLES.findIndex((title) => normalizedScope.includes(title.toLocaleLowerCase("zh-Hant")) || title.toLocaleLowerCase("zh-Hant").includes(normalizedScope)) : -1;
   const printedMatch = normalized.match(/(?:書(?:本|內)?\s*)?第?\s*([1-8])\s*[-－—]\s*(\d{1,3})\s*頁?/u);
+  const themePageMatch = normalized.match(/主題\s*([1-8])\s*(?:的)?\s*第?\s*(\d{1,3})\s*頁/u);
   const explicitPdfPage = Number(normalized.match(/pdf\s*第?\s*(\d{1,4})\s*頁/u)?.[1] || 0);
   const ordinaryPage = Number(normalized.match(/第\s*(\d{1,4})\s*頁/u)?.[1] || 0);
   let requestedPage = Number(pageHint || explicitPdfPage || 0);
   let bookPageLabel = "";
   let requestedMapping: typeof documentSectionMappings.$inferSelect | undefined;
-  if (!requestedPage && printedMatch) {
-    const themeNumber = Number(printedMatch[1]), localPage = Number(printedMatch[2]);
+  if (!requestedPage && (themePageMatch || printedMatch)) {
+    const matchedBookPage = themePageMatch || printedMatch;
+    const themeNumber = Number(matchedBookPage?.[1]), localPage = Number(matchedBookPage?.[2]);
     [requestedMapping] = await db.select().from(documentSectionMappings).where(and(
       inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
       eq(documentSectionMappings.sectionKey, `theme_${themeNumber}`),
@@ -752,7 +754,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const startedAt = Date.now();
     const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
       model,
-        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.requestedPage > 0 ? `學生已指定正在閱讀 PDF 第 ${evidence.requestedPage} 頁；只能回答本輪提供的該頁教材內容，不得轉答其他頁。${pageFocusMatched ? "先直接解釋學生提到的考點，再問一個能推進理解的小問題。" : "學生只表示這一頁看不懂；不要要求他重貼內容，先用2至3句說明該頁主要內容與最重要的一個考點，再問他是卡在概念、判斷步驟或例子。"}` : ""}${body.testAnswerAnchor ? `本輪是書頁內容驗證。先用一至兩句直接回答學生問題，回答核心只能圍繞本頁原文核對短語「${String(body.testAnswerAnchor).slice(0, 60)}」，並須逐字包含這段短語。不得改答同頁其他爭點、不得羅列問題沒有詢問的其他事實，也不得只反問。若本頁資訊不足，只能明確說明本頁能確認到哪裡，不可自行補足；完成核心回答後才可問一個簡短追問。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
+        instructions: `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${evidence.requestedPage > 0 ? `學生已指定正在閱讀 PDF 第 ${evidence.requestedPage} 頁；只能回答本輪提供的該頁教材內容，不得轉答其他頁。${pageFocusMatched ? "先直接解釋學生提到的考點，再問一個能推進理解的小問題。" : "學生只表示這一頁看不懂；不要要求他重貼內容，先用2至3句說明該頁主要內容與最重要的一個考點，再問他是卡在概念、判斷步驟或例子。"}` : ""}${body.testAnswerAnchor ? `本輪是書頁內容驗證。先用一至兩句直接回答學生問題，回答核心只能圍繞本頁原文核對短語「${String(body.testAnswerAnchor).slice(0, 60)}」，並須逐字包含這段短語。不得改答同頁其他爭點、不得羅列問題沒有詢問的其他事實，也不得只反問。若本頁資訊不足，只能明確說明本頁能確認到哪裡，不可自行補足；完成核心回答後才可問一個簡短追問。` : ""}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`,
       input: messages,
       max_output_tokens: 500,
     }) }) as Record<string, unknown>;
