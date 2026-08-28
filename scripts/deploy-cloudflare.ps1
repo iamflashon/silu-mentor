@@ -42,17 +42,19 @@ if ($null -eq $bucket -or $bucket.bucket_name -ne "silu-mentor-r2") {
 $buildFiles = Get-ChildItem $distPath -Recurse -File |
     Where-Object { $_.Extension -in ".js", ".html", ".json" }
 
-$oldRule = $buildFiles |
-    Select-String -SimpleMatch -Pattern "完成 5 輪才扣 1 次", "每 5 輪才扣 1 次" |
-    Select-Object -First 1
-if ($null -ne $oldRule) {
+$oldRuleMatches = @($buildFiles |
+    Select-String -SimpleMatch -Pattern "完成 5 輪才扣 1 次", "每 5 輪才扣 1 次")
+$newRuleMatches = @($buildFiles |
+    Select-String -SimpleMatch -Pattern "規則版本：2026-08-28")
+
+Write-Host "舊規則命中數：" $oldRuleMatches.Count
+Write-Host "新版規則命中數：" $newRuleMatches.Count
+
+if ($oldRuleMatches.Count -gt 0) {
+    $oldRuleMatches | Select-Object -First 5 Path, LineNumber | Format-List
     throw "建置內容仍含舊規則，停止部署"
 }
-
-$newRule = $buildFiles |
-    Select-String -SimpleMatch -Pattern "規則版本：2026-08-28" |
-    Select-Object -First 1
-if ($null -eq $newRule) {
+if ($newRuleMatches.Count -eq 0) {
     throw "建置內容找不到新版規則，停止部署"
 }
 
