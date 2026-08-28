@@ -71,6 +71,14 @@ function exactAnchorCandidates(sourceText: string) {
     });
 }
 
+type TestQuestionKind = "case_facts" | "issue_prompt" | "explanation";
+
+function sourceExcerptAround(text: string, anchor: string) {
+  const index = text.indexOf(anchor);
+  const start = Math.max(0, index - 150);
+  return `${start > 0 ? "…" : ""}${text.slice(start, Math.min(text.length, start + 620))}${start + 620 < text.length ? "…" : ""}`;
+}
+
 export async function POST(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
@@ -117,46 +125,61 @@ export async function POST(request: Request) {
   const scoped = records.filter((record) => record.page >= effectiveStartPage && record.page <= mapped.pdfEndPage && !isNavigationPage(record.text) && record.text.replace(/\s+/gu, " ").length >= 120);
   const substantive = scoped.filter((record) => isSubstantivePage(record.text));
   const pagePool = substantive.length ? substantive : scoped;
-  const sample = pagePool[Math.floor(Math.random() * pagePool.length)];
-  if (!sample) return Response.json({ error: "目前主題尚未建立可抽樣的頁數範圍。" }, { status: 409 });
-  const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 2400);
-  const anchors = exactAnchorCandidates(sourceText);
-  if (!anchors.length) {
-    const fallbackAnchor = (sourceText.match(/[\p{Script=Han}]{10,32}/gu) ?? [])[0];
-    if (fallbackAnchor) anchors.push(fallbackAnchor);
-  }
-  if (!anchors.length) return Response.json({ error: "抽樣頁面暫時沒有可形成問題的正文。" }, { status: 409 });
-  const anchorPool = anchors.slice(0, Math.min(12, anchors.length));
-  const anchorPhrase = anchorPool[Math.floor(Math.random() * anchorPool.length)];
-  let question = "";
-  for (let attempt = 0; attempt < 2 && !question; attempt += 1) {
+  const shuffled = [...pagePool].sort(() => Math.random() - 0.5);
+  let chosen: { sample: (typeof pagePool)[number]; sourceText: string; question: string; answerAnchor: string; questionKind: TestQuestionKind } | null = null;
+  for (const sample of shuffled.slice(0, Math.min(3, shuffled.length))) {
+    const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 3200);
     try {
       const payload = await openAIJson("/responses", {
         method: "POST",
         body: JSON.stringify({
           model: "gpt-5.6-luna",
-          instructions: "你是教材真實演練出題員。只依提供的單頁教材原文，產生一個自然、具體、學生會在對話框詢問的行政法問題。問題不得提到頁碼、抽樣、測試或已知答案，也不得抄出整段答案。題目必須逐字保留指定的原文考點短語，不得改寫、增刪或更換字詞。",
-          input: `必須逐字放入問題的原文考點短語：${anchorPhrase}\n\n教材頁面原文：\n${sourceText}`,
+          instructions: `你是教材真實演練出題員。只能依提供的單頁教材原文出題，不得使用一般法律知識補足本頁沒有寫出的內容。
+
+先判斷頁面性質：
+1. case_facts：案例人物、函文、處分或事件事實。只能詢問本頁明載的具體事實、行為或文件。
+2. issue_prompt：頁面主要列出待作答問題或爭點。只能詢問本頁要求分析哪個爭點，不得要求回答尚未出現的法律結論。
+3. explanation：頁面已經出現規則、判準、理由或結論。只有這類頁面才能詢問概念、要件、層次或判斷方法。
+
+產生一個學生會自然詢問、而且完全能由本頁回答的問題。不得提到頁碼、抽樣、測試或「依原文」。answerAnchor 必須是本頁連續逐字出現、8至50字、能直接回答問題的核心原句；不得只是章節標題，也不得把完整 answerAnchor 直接寫進問題。`,
+          input: `教材單頁原文：\n${sourceText}`,
           text: { format: { type: "json_schema", name: "pengli_random_book_test", strict: true, schema: {
             type: "object", additionalProperties: false,
-            properties: { question: { type: "string", minLength: 12, maxLength: 120 } },
-            required: ["question"],
+            properties: {
+              questionKind: { type: "string", enum: ["case_facts", "issue_prompt", "explanation"] },
+              question: { type: "string", minLength: 12, maxLength: 120 },
+              answerAnchor: { type: "string", minLength: 8, maxLength: 50 },
+            },
+            required: ["questionKind", "question", "answerAnchor"],
           } } },
-          max_output_tokens: 220,
+          max_output_tokens: 300,
         }),
       }) as Record<string, unknown>;
-      const generated = JSON.parse(outputText(payload)) as { question?: string };
+      const generated = JSON.parse(outputText(payload)) as { questionKind?: TestQuestionKind; question?: string; answerAnchor?: string };
       const candidate = String(generated.question ?? "").trim();
-      if (candidate.includes(anchorPhrase)) question = candidate;
-    } catch { /* 自動重試，最後使用原文保底題目 */ }
+      const answerAnchor = String(generated.answerAnchor ?? "").replace(/\s+/gu, " ").trim();
+      const questionKind = generated.questionKind;
+      if (!questionKind || !["case_facts", "issue_prompt", "explanation"].includes(questionKind)) continue;
+      if (!sourceText.includes(answerAnchor) || answerAnchor.length < 8 || answerAnchor.length > 50 || candidate.includes(answerAnchor)) continue;
+      chosen = { sample, sourceText, question: candidate, answerAnchor, questionKind };
+      break;
+    } catch { /* 改抽同主題的另一個正文頁 */ }
   }
-  if (!question) question = `教材所說的「${anchorPhrase}」應如何理解？判斷時要注意哪些要件或層次？`;
+  if (!chosen) {
+    const sample = shuffled[0];
+    if (!sample) return Response.json({ error: "目前主題尚未建立可抽樣的頁數範圍。" }, { status: 409 });
+    const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 3200);
+    const answerAnchor = exactAnchorCandidates(sourceText)[0] ?? (sourceText.match(/[\p{Script=Han}]{10,32}/gu) ?? [])[0];
+    if (!answerAnchor) return Response.json({ error: "抽樣頁面暫時沒有可形成問題的正文。" }, { status: 409 });
+    chosen = { sample, sourceText, answerAnchor, questionKind: "case_facts", question: "這一頁記載的具體事實或待判斷爭點是什麼？請先說明本頁確實寫出的內容。" };
+  }
   return Response.json({
-    question,
-    expectedPage: sample.page,
-    expectedPageEnd: sample.pageEnd,
-    anchorPhrase,
-    sourceExcerpt: sourceText.slice(0, 420),
-    sourceTitle: sample.title || book.title || book.fileName || "行政法考點演習書（二版）",
+    question: chosen.question,
+    questionKind: chosen.questionKind,
+    expectedPage: chosen.sample.page,
+    expectedPageEnd: chosen.sample.pageEnd,
+    answerAnchor: chosen.answerAnchor,
+    sourceExcerpt: sourceExcerptAround(chosen.sourceText, chosen.answerAnchor),
+    sourceTitle: chosen.sample.title || book.title || book.fileName || "行政法考點演習書（二版）",
   }, { headers: { "Cache-Control": "no-store" } });
 }

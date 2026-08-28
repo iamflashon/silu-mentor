@@ -11,15 +11,18 @@ type CoachMessage = {
   replyTo?: { id: string; excerpt: string };
   testVerification?: {
     passed: boolean;
+    pageMatched: boolean;
+    citationMatched: boolean;
+    contentMatched: boolean;
     expectedPage: number;
     citedPage: number | null;
     retrievedPages: number[];
-    anchorPhrase: string;
-    answerMentionsAnchor: boolean;
+    answerAnchor: string;
+    questionKind: "case_facts" | "issue_prompt" | "explanation";
     sourceExcerpt: string;
   };
 };
-type BookTestMeta = { expectedPage: number; anchorPhrase: string; sourceExcerpt: string };
+type BookTestMeta = { expectedPage: number; answerAnchor: string; questionKind: "case_facts" | "issue_prompt" | "explanation"; sourceExcerpt: string };
 type Usage = {
   inputTokens: number;
   cachedTokens: number;
@@ -134,6 +137,7 @@ export default function PengliCoach() {
         requestKey: crypto.randomUUID(),
         topic: activeTopic || undefined,
         pageHint: bookTest?.expectedPage || undefined,
+        testAnswerAnchor: bookTest?.answerAnchor || undefined,
       }),
     });
     const data = (await response.json()) as {
@@ -152,14 +156,19 @@ export default function PengliCoach() {
     }
     const citedPage = Number(data.source?.match(/PDF 第\s*(\d+)/u)?.[1] ?? 0) || null;
     const retrievedPages = (data.retrievedPages ?? []).filter((page) => Number.isFinite(page));
-    const answerMentionsAnchor = bookTest ? data.reply.normalize("NFKC").replace(/\s+/gu, "").includes(bookTest.anchorPhrase.normalize("NFKC").replace(/\s+/gu, "")) : false;
+    const contentMatched = bookTest ? data.reply.normalize("NFKC").replace(/\s+/gu, "").includes(bookTest.answerAnchor.normalize("NFKC").replace(/\s+/gu, "")) : false;
+    const pageMatched = bookTest ? retrievedPages[0] === bookTest.expectedPage : false;
+    const citationMatched = bookTest ? citedPage === bookTest.expectedPage : false;
     const testVerification = bookTest ? {
-      passed: retrievedPages[0] === bookTest.expectedPage && citedPage === bookTest.expectedPage && answerMentionsAnchor,
+      passed: pageMatched && citationMatched && contentMatched,
+      pageMatched,
+      citationMatched,
+      contentMatched,
       expectedPage: bookTest.expectedPage,
       citedPage,
       retrievedPages,
-      anchorPhrase: bookTest.anchorPhrase,
-      answerMentionsAnchor,
+      answerAnchor: bookTest.answerAnchor,
+      questionKind: bookTest.questionKind,
       sourceExcerpt: bookTest.sourceExcerpt,
     } : undefined;
     setMessages((current) => [
@@ -214,9 +223,9 @@ export default function PengliCoach() {
     setError("");
     try {
       const response = await fetch("/api/teachers/pengli/random-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic: activeTopic || undefined }) });
-      const data = await response.json() as { question?: string; expectedPage?: number; anchorPhrase?: string; sourceExcerpt?: string; error?: string };
-      if (!response.ok || !data.question || !data.expectedPage || !data.anchorPhrase) throw new Error(data.error || "無法產生書頁驗證題目。");
-      await ask(data.question, { expectedPage: data.expectedPage, anchorPhrase: data.anchorPhrase, sourceExcerpt: data.sourceExcerpt ?? "" });
+      const data = await response.json() as { question?: string; questionKind?: "case_facts" | "issue_prompt" | "explanation"; expectedPage?: number; answerAnchor?: string; sourceExcerpt?: string; error?: string };
+      if (!response.ok || !data.question || !data.questionKind || !data.expectedPage || !data.answerAnchor) throw new Error(data.error || "無法產生書頁驗證題目。");
+      await ask(data.question, { expectedPage: data.expectedPage, answerAnchor: data.answerAnchor, questionKind: data.questionKind, sourceExcerpt: data.sourceExcerpt ?? "" });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "無法產生書頁驗證題目。");
     } finally {
@@ -475,13 +484,13 @@ export default function PengliCoach() {
                 {message.source && <span>（根據《{message.source}）</span>}
                 {message.testVerification && (
                   <div className={`pengli-book-test-result ${message.testVerification.passed ? "pass" : "fail"}`}>
-                    <strong>{message.testVerification.passed ? "✓ 原文、頁碼、回答內容完全一致" : "⚠ 精準教材驗證未通過"}</strong>
-                    <span>原始逐頁檔：PDF 第 {message.testVerification.expectedPage} 頁</span>
-                    <span>私密 PDF 原頁：{message.testVerification.retrievedPages[0] ? `PDF 第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
-                    <span>系統引用頁：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
+                    <strong>{message.testVerification.passed ? "✓ 頁碼、搜尋與回答內容全部通過" : "⚠ 書頁內容驗證未完全通過"}</strong>
+                    <span>{message.testVerification.pageMatched ? "✓" : "✕"} 搜尋頁面：原始 PDF 第 {message.testVerification.expectedPage} 頁 → {message.testVerification.retrievedPages[0] ? `命中第 ${message.testVerification.retrievedPages[0]} 頁` : "未命中"}</span>
+                    <span>{message.testVerification.citationMatched ? "✓" : "✕"} 系統引用：{message.testVerification.citedPage ? `PDF 第 ${message.testVerification.citedPage} 頁` : "未標示"}</span>
+                    <span>{message.testVerification.contentMatched ? "✓" : "✕"} 回答內容：{message.testVerification.contentMatched ? "包含本頁可核對答案" : "未包含本頁可核對答案"}</span>
                     <span>其他候選頁：{message.testVerification.retrievedPages.slice(1).length ? message.testVerification.retrievedPages.slice(1).map((page) => `第 ${page} 頁`).join("、") : "無"}</span>
-                    <small>核對考點：{message.testVerification.anchorPhrase}</small>
-                    <small>回答包含原文考點：{message.testVerification.answerMentionsAnchor ? "是" : "否"}</small>
+                    <small>題型：{message.testVerification.questionKind === "explanation" ? "解題說明" : message.testVerification.questionKind === "issue_prompt" ? "待分析爭點" : "案例事實"}</small>
+                    <small>核對答案原文：{message.testVerification.answerAnchor}</small>
                     <details><summary>查看抽樣頁原文</summary><p>{message.testVerification.sourceExcerpt}</p></details>
                   </div>
                 )}
