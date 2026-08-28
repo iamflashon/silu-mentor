@@ -85,4 +85,4 @@ jobs:
           echo "$result" | jq -e '.. | objects | select(.name? == "document_section_mappings")' >/dev/null
 
       - name: Deploy exact artifact to workers.dev
-        run: npm exec -- wrangler deploy --config ./dist/server/wrangler.json
+        run: npm exec -- wrangler deploy --config ./dist/server/wrangler.json --compatibility-date 2026-08-28
