@@ -866,11 +866,16 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const testSourceExcerpt = String(body.testSourceExcerpt ?? "").trim().slice(0, 900);
     const testAnswerAnchor = String(body.testAnswerAnchor ?? "").trim().slice(0, 80);
     const testContinuation = body.testContinuation === true;
+    const interactionRule = testAnswerAnchor && !testContinuation
+      ? "學生本輪是在依書頁提出問題，不是在回答教練；像真人老師自然接話並直接回答。可從『這一頁的重點是』『這裡要先分清楚』『本頁先處理的是』開始，禁止用『你的定位正確』『你的理解正確』『你的判斷正確』『你答得對』等系統式評語開頭。"
+      : testContinuation
+        ? "學生本輪已先回答再提出新問題；像真人老師自然承接。若答案有錯才用一句話指出哪裡要修正；若答案正確就直接回答新問題，不要先說『你的理解正確』『你的定位正確』『你的判斷正確』或其他制式稱讚。"
+        : "先判斷學生是在回答上一問或提出新問題；只有確實回答上一問且有必要時才給簡短回饋，新問題則像真人老師一樣直接回答，不要先做系統式正誤宣告。";
     const testRule = testAnswerAnchor ? testContinuation
       ? `本輪是同一個已通過核對書頁的接續對話。仍須鎖定考點「${testIssueTitle || "未命名考點"}」與本頁內容，但核對短語「${testAnswerAnchor}」已在前輪出現，本輪不得再次逐字重貼或重新介紹前提。直接回答學生這次的新問題；只有學生答錯、混淆前提或明確要求重述時，才用一句話簡短提醒。${testSourceExcerpt ? `本頁節錄僅供承接判斷：\n${testSourceExcerpt}\n` : ""}`
       : `本輪是書頁內容驗證。目錄已確認本頁隸屬考點「${testIssueTitle || "未命名考點"}」，本頁類型為「${testBodyRole || "考點正文"}」。這兩項是系統已核對的定位，不得否定、不得改稱為其他考點。核對短語「${testAnswerAnchor}」必須逐字出現在回答中，以證明回答確實取自本頁；但仍須用白話解釋它在本頁的作用。${testSourceExcerpt ? `抽樣頁原文如下：\n${testSourceExcerpt}\n` : ""}若本頁只是案例事實，說明案例正在問什麼；若是考點破解，說明題目測什麼及書中解題順序。若單頁不足以完成解釋，明說本頁只能確認到哪裡，不得拿其他考點補答案。`
       : "";
-    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
+    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}${interactionRule}回答精簡、口語，一次只教一個判斷步驟；回答完可問一個能推進理解的小問題，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
     let payload: Record<string, unknown> = {};
     let reply = "";
     for (let attempt = 0; attempt < (testAnswerAnchor && !testContinuation ? 2 : 1); attempt += 1) {
