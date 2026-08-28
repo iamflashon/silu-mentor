@@ -508,7 +508,7 @@ export default function PengliCoach() {
                 </button>
               )) : (
                 <a className="choose-topic" href="/teachers/pengli#curriculum">
-                  <span>請先選擇一個主題，我會依該主題提供三個專業練習問題。</span>
+                  <span>請先選擇一個主題，我會依該主題提供三個練習問題。</span>
                   <b>選擇八大主題 →</b>
                 </a>
               )}

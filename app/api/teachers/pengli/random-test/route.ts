@@ -2,62 +2,22 @@ import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documentAssignments, documentSectionMappings, documents } from "../../../../../db/schema";
 import { requireMember } from "../../../../../lib/member-auth";
-import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
-
-function outputText(payload: Record<string, unknown>) {
-  if (typeof payload.output_text === "string") return payload.output_text.trim();
-  const output = Array.isArray(payload.output) ? payload.output : [];
-  return output.flatMap((item) => item && typeof item === "object" && Array.isArray((item as { content?: unknown[] }).content)
-    ? (item as { content: Array<Record<string, unknown>> }).content
-    : []).map((item) => typeof item.text === "string" ? item.text : "").join("").trim();
-}
 
 const themeTitles = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
 const bookBodyStartPage = 23;
-
-function isNavigationPage(text: string) {
-  const normalized = text.replace(/\s+/gu, " ").trim();
-  const dotLeaders = (normalized.match(/(?:\.{4,}|…{2,}|·{4,})/gu) ?? []).length;
-  const compactPageRefs = (normalized.match(/\b\d{1,2}-\d{1,3}\b/gu) ?? []).length;
-  const themeCount = themeTitles.filter((title) => normalized.includes(title)).length;
-  return /目\s*錄|contents/iu.test(normalized.slice(0, 280)) || dotLeaders >= 2 || compactPageRefs >= 5 || themeCount >= 3;
-}
 
 function themeIndex(topic: string) {
   const normalized = topic.normalize("NFKC");
   return themeTitles.findIndex((title) => normalized.includes(title) || title.includes(normalized));
 }
 
-function isSubstantivePage(text: string) {
-  const normalized = text.replace(/\s+/gu, " ").trim();
-  const sentenceCount = (normalized.match(/[。；！？]/gu) ?? []).length;
-  return !isNavigationPage(normalized) && normalized.length >= 220 && sentenceCount >= 1;
-}
-
 type TestQuestionKind = "case_facts" | "issue_prompt" | "explanation";
 
-function questionFingerprint(value: string) {
-  return value.normalize("NFKC")
-    .replace(/^書內第\s*[1-8]-\d+\s*頁[，,:：\s]*/u, "")
-    .replace(/[\s、，。；：,.!?！？「」『』（）()]/gu, "")
-    .replace(/^(?:請問|請說明|本頁|這一頁|教材中)/u, "");
-}
-
-function isSimilarQuestion(candidate: string, previous: string[]) {
-  const target = questionFingerprint(candidate);
-  return previous.some((item) => {
-    const prior = questionFingerprint(item);
-    if (!target || !prior) return false;
-    if (target === prior) return true;
-    const shorter = target.length <= prior.length ? target : prior;
-    const longer = target.length > prior.length ? target : prior;
-    if (shorter.length >= 12 && longer.includes(shorter)) return true;
-    const pairs = (value: string) => new Set(Array.from({ length: Math.max(0, value.length - 1) }, (_, index) => value.slice(index, index + 2)));
-    const targetPairs = pairs(target), priorPairs = pairs(prior);
-    const overlap = [...targetPairs].filter((pair) => priorPairs.has(pair)).length;
-    const union = new Set([...targetPairs, ...priorPairs]).size;
-    return union > 0 && overlap / union >= 0.72;
-  });
+function answerAnchorFromPage(text: string) {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  const clauses = normalized.split(/(?<=[。；！？])/u).map((item) => item.trim()).filter((item) => item.length >= 8);
+  const concise = clauses.find((item) => item.length <= 50);
+  return (concise ?? clauses[0] ?? normalized).slice(0, 50).trim();
 }
 
 function sourceExcerptAround(text: string, anchor: string) {
@@ -69,7 +29,6 @@ function sourceExcerptAround(text: string, anchor: string) {
 export async function POST(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
-  if (!await getOpenAIKey()) return Response.json({ error: "尚未設定 AI 模型。" }, { status: 503 });
 
   const db = await getDb("primary");
   const assigned = await db.select({ id: documents.id, title: documents.bookTitle, fileName: documents.fileName, storageKey: documents.storageKey })
@@ -84,10 +43,9 @@ export async function POST(request: Request) {
   const books = [...new Map([...assigned, ...direct].map((book) => [book.id, book])).values()];
   if (!books.length) return Response.json({ error: "尚未找到彭狸老師教材。" }, { status: 409 });
 
-  const requestBody = await request.json().catch(() => ({})) as { topic?: unknown; excludedPages?: unknown; excludedQuestions?: unknown };
+  const requestBody = await request.json().catch(() => ({})) as { topic?: unknown; excludedPages?: unknown };
   const requestedTopic = String(requestBody.topic ?? "").trim();
   const excludedPages = new Set((Array.isArray(requestBody.excludedPages) ? requestBody.excludedPages : []).map(Number).filter((page) => Number.isInteger(page) && page > 0).slice(-24));
-  const excludedQuestions = (Array.isArray(requestBody.excludedQuestions) ? requestBody.excludedQuestions : []).map(String).filter(Boolean).slice(-24);
   const selectedThemeIndex = themeIndex(requestedTopic);
   if (selectedThemeIndex < 0) return Response.json({ error: "目前無法確認正在學習的主題。" }, { status: 409 });
   const [mapped] = await db.select().from(documentSectionMappings).where(and(
@@ -112,73 +70,23 @@ export async function POST(request: Request) {
   if (!records.length) return Response.json({ error: "原始逐頁索引檔沒有可核對內容。" }, { status: 409 });
 
   const effectiveStartPage = Math.max(bookBodyStartPage, mapped.pdfStartPage);
-  const scoped = records.filter((record) => record.page >= effectiveStartPage && record.page <= mapped.pdfEndPage && !isNavigationPage(record.text) && record.text.replace(/\s+/gu, " ").length >= 120);
-  const substantive = scoped.filter((record) => isSubstantivePage(record.text));
-  const completePool = substantive.length ? substantive : scoped;
+  const completePool = records.filter((record) => record.page >= effectiveStartPage && record.page <= mapped.pdfEndPage && record.text.replace(/\s+/gu, " ").trim().length >= 8);
   const freshPool = completePool.filter((record) => !excludedPages.has(record.page));
   const pagePool = freshPool.length ? freshPool : completePool;
-  const shuffled = [...pagePool].sort((left, right) => {
-    const score = (text: string) => {
-      const normalized = text.replace(/\s+/gu, " ");
-      const reasoning = (normalized.match(/(?:係指|要件|判斷|原則|例外|因此|故|理由|應先|其次|是否|法律效果)/gu) ?? []).length;
-      const weak = (normalized.match(/(?:版權頁|空白頁|本頁故意留白)/gu) ?? []).length;
-      return reasoning * 3 - weak * 20 + Math.random() * 10;
-    };
-    return score(right.text) - score(left.text);
-  });
-  let chosen: { sample: (typeof pagePool)[number]; sourceText: string; question: string; answerAnchor: string; questionKind: TestQuestionKind } | null = null;
-  for (const sample of shuffled.slice(0, Math.min(5, shuffled.length))) {
-    const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 3200);
-    try {
-      const payload = await openAIJson("/responses", {
-        method: "POST",
-        body: JSON.stringify({
-          model: "gpt-5.6-luna",
-          instructions: `你是具備臺灣行政法訓練的教材真實演練出題員。只能依提供的單頁教材原文出題，不得使用一般法律知識補足本頁沒有寫出的內容。
-
-先判斷頁面性質：
-1. case_facts：案例人物、函文、處分或事件事實。只能詢問本頁明載的具體事實、行為或文件。
-2. issue_prompt：頁面主要列出待作答問題或爭點。只能詢問本頁要求分析哪個爭點，不得要求回答尚未出現的法律結論。
-3. explanation：頁面已經出現規則、判準、理由或結論。只有這類頁面才能詢問概念、要件、層次或判斷方法。
-
-usable 只有在本頁具有足以形成完整問題與答案的內容時才能為 true；若只有章節標題、頁尾、空白、殘句，或答案明顯要到其他頁才會出現，必須回傳 false，系統會自動改抽別頁。
-
-usable=true 時，產生一個學生會自然詢問、而且完全能由本頁回答的專業問題。優先詢問法律爭點、判斷順序、規則與例外、理由、法律效果，或案例事實如何形成爭議；避免只問名詞抄寫或簡單是非題。案例題幹頁不得要求作出本頁尚未提供的最終法律結論。不得提到抽樣、測試或「依原文」。answerAnchor 必須是本頁連續逐字出現、8至50字、能直接回答問題的核心原句；不得只是章節標題，也不得把完整 answerAnchor 直接寫進問題。`,
-          input: `${excludedQuestions.length ? `最近已問過的問題（不得重複或只換句話說）：\n${excludedQuestions.map((item, index) => `${index + 1}. ${item}`).join("\n")}\n\n` : ""}教材單頁原文：\n${sourceText}`,
-          text: { format: { type: "json_schema", name: "pengli_random_book_test", strict: true, schema: {
-            type: "object", additionalProperties: false,
-            properties: {
-              usable: { type: "boolean" },
-              questionKind: { type: "string", enum: ["case_facts", "issue_prompt", "explanation"] },
-              question: { type: "string", minLength: 0, maxLength: 120 },
-              answerAnchor: { type: "string", minLength: 0, maxLength: 50 },
-            },
-            required: ["usable", "questionKind", "question", "answerAnchor"],
-          } } },
-          max_output_tokens: 300,
-        }),
-      }) as Record<string, unknown>;
-      const generated = JSON.parse(outputText(payload)) as { usable?: boolean; questionKind?: TestQuestionKind; question?: string; answerAnchor?: string };
-      if (generated.usable !== true) continue;
-      const candidate = String(generated.question ?? "").trim();
-      const answerAnchor = String(generated.answerAnchor ?? "").replace(/\s+/gu, " ").trim();
-      const questionKind = generated.questionKind;
-      if (!questionKind || !["case_facts", "issue_prompt", "explanation"].includes(questionKind)) continue;
-      if (!sourceText.includes(answerAnchor) || answerAnchor.length < 8 || answerAnchor.length > 50 || candidate.includes(answerAnchor) || isSimilarQuestion(candidate, excludedQuestions)) continue;
-      chosen = { sample, sourceText, question: candidate, answerAnchor, questionKind };
-      break;
-    } catch { /* 改抽同主題的另一個正文頁 */ }
-  }
-  if (!chosen) return Response.json({ error: "這次抽到的頁面沒有形成新的專業問題，系統已避免重複出題；請再按一次改抽其他頁。" }, { status: 409 });
-  const bookPageLabel = `${selectedThemeIndex + 1}-${chosen.sample.page - mapped.pdfStartPage + 1}`;
+  if (!pagePool.length) return Response.json({ error: "目前主題頁段沒有可供說明的逐頁文字。" }, { status: 409 });
+  const sample = pagePool[Math.floor(Math.random() * pagePool.length)];
+  const sourceText = sample.text.replace(/\s+/gu, " ").trim().slice(0, 3200);
+  const answerAnchor = answerAnchorFromPage(sourceText);
+  const questionKind: TestQuestionKind = "explanation";
+  const bookPageLabel = `${selectedThemeIndex + 1}-${sample.page - mapped.pdfStartPage + 1}`;
   return Response.json({
-    question: `書內第 ${bookPageLabel} 頁，${chosen.question}`,
-    questionKind: chosen.questionKind,
+    question: `書內第 ${bookPageLabel} 頁，請老師告訴我這一頁在說什麼？`,
+    questionKind,
     bookPageLabel,
-    expectedPage: chosen.sample.page,
-    expectedPageEnd: chosen.sample.pageEnd,
-    answerAnchor: chosen.answerAnchor,
-    sourceExcerpt: sourceExcerptAround(chosen.sourceText, chosen.answerAnchor),
-    sourceTitle: chosen.sample.title || book.title || book.fileName || "行政法考點演習書（二版）",
+    expectedPage: sample.page,
+    expectedPageEnd: sample.pageEnd,
+    answerAnchor,
+    sourceExcerpt: sourceExcerptAround(sourceText, answerAnchor),
+    sourceTitle: sample.title || book.title || book.fileName || "行政法考點演習書（二版）",
   }, { headers: { "Cache-Control": "no-store" } });
 }
