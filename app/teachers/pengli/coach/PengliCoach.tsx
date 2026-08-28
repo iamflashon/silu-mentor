@@ -223,6 +223,7 @@ export default function PengliCoach() {
 
   async function requestCoach(next: CoachMessage[], bookTest?: BookTestMeta) {
     const latestQuestion = next.at(-1)?.text ?? "";
+    const continuesVerifiedBookTest = next.at(-1)?.source === "學霸繼續追問（學生角色）";
     const refersToPreviousQuestion = /這題|這個問題|上述|上題|剛才|前面|考點破解|怎麼寫|怎麼答|怎麼解/u.test(latestQuestion);
     const continuesBoundaryTest = next.at(-1)?.source === "學霸越界測試（學生角色）"
       || (refersToPreviousQuestion && next.slice(-4, -1).some((message) => message.source === "學霸越界測試（學生角色）"));
@@ -242,6 +243,7 @@ export default function PengliCoach() {
         testIssueTitle: bookTest?.issueTitle || undefined,
         testBodyRole: bookTest?.bodyRole || undefined,
         testSourceExcerpt: bookTest?.sourceExcerpt || undefined,
+        testContinuation: continuesVerifiedBookTest,
         boundaryTest: continuesBoundaryTest,
         boundaryQuestion,
       }),
@@ -268,7 +270,7 @@ export default function PengliCoach() {
     }
     const citedPage = Number(data.source?.match(/PDF 第\s*(\d+)/u)?.[1] ?? 0) || null;
     const retrievedPages = (data.retrievedPages ?? []).filter((page) => Number.isFinite(page));
-    const contentMatched = bookTest ? data.testVerified !== false && data.reply.normalize("NFKC").replace(/\s+/gu, "").includes(bookTest.answerAnchor.normalize("NFKC").replace(/\s+/gu, "")) : false;
+    const contentMatched = bookTest ? data.testVerified !== false && (continuesVerifiedBookTest || data.reply.normalize("NFKC").replace(/\s+/gu, "").includes(bookTest.answerAnchor.normalize("NFKC").replace(/\s+/gu, ""))) : false;
     const pageMatched = bookTest ? retrievedPages[0] === bookTest.expectedPage : false;
     const citationMatched = bookTest ? citedPage === bookTest.expectedPage : false;
     const testVerification = bookTest ? {

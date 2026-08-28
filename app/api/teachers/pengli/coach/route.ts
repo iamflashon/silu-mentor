@@ -525,7 +525,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; boundaryTest?: boolean; boundaryQuestion?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -865,11 +865,15 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const testBodyRole = String(body.testBodyRole ?? "").trim().slice(0, 40);
     const testSourceExcerpt = String(body.testSourceExcerpt ?? "").trim().slice(0, 900);
     const testAnswerAnchor = String(body.testAnswerAnchor ?? "").trim().slice(0, 80);
-    const testRule = testAnswerAnchor ? `本輪是書頁內容驗證。目錄已確認本頁隸屬考點「${testIssueTitle || "未命名考點"}」，本頁類型為「${testBodyRole || "考點正文"}」。這兩項是系統已核對的定位，不得否定、不得改稱為其他考點。核對短語「${testAnswerAnchor}」必須逐字出現在回答中，以證明回答確實取自本頁；但仍須用白話解釋它在本頁的作用。${testSourceExcerpt ? `抽樣頁原文如下：\n${testSourceExcerpt}\n` : ""}若本頁只是案例事實，說明案例正在問什麼；若是考點破解，說明題目測什麼及書中解題順序。若單頁不足以完成解釋，明說本頁只能確認到哪裡，不得拿其他考點補答案。` : "";
+    const testContinuation = body.testContinuation === true;
+    const testRule = testAnswerAnchor ? testContinuation
+      ? `本輪是同一個已通過核對書頁的接續對話。仍須鎖定考點「${testIssueTitle || "未命名考點"}」與本頁內容，但核對短語「${testAnswerAnchor}」已在前輪出現，本輪不得再次逐字重貼或重新介紹前提。直接回答學生這次的新問題；只有學生答錯、混淆前提或明確要求重述時，才用一句話簡短提醒。${testSourceExcerpt ? `本頁節錄僅供承接判斷：\n${testSourceExcerpt}\n` : ""}`
+      : `本輪是書頁內容驗證。目錄已確認本頁隸屬考點「${testIssueTitle || "未命名考點"}」，本頁類型為「${testBodyRole || "考點正文"}」。這兩項是系統已核對的定位，不得否定、不得改稱為其他考點。核對短語「${testAnswerAnchor}」必須逐字出現在回答中，以證明回答確實取自本頁；但仍須用白話解釋它在本頁的作用。${testSourceExcerpt ? `抽樣頁原文如下：\n${testSourceExcerpt}\n` : ""}若本頁只是案例事實，說明案例正在問什麼；若是考點破解，說明題目測什麼及書中解題順序。若單頁不足以完成解釋，明說本頁只能確認到哪裡，不得拿其他考點補答案。`
+      : "";
     const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}回答精簡、口語，一次只教一個判斷步驟；先針對學生剛才的回答給回饋，再問一個問題引導下一步，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
     let payload: Record<string, unknown> = {};
     let reply = "";
-    for (let attempt = 0; attempt < (testAnswerAnchor ? 2 : 1); attempt += 1) {
+    for (let attempt = 0; attempt < (testAnswerAnchor && !testContinuation ? 2 : 1); attempt += 1) {
       payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model,
         instructions: `${instructions}${attempt ? "\n上次回答未通過書頁核對。這次必須保留目錄指定考點，並逐字放入核對短語。" : ""}`,
@@ -881,7 +885,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       const compactReply = reply.normalize("NFKC").replace(/\s+/gu, "");
       const compactAnchor = testAnswerAnchor.normalize("NFKC").replace(/\s+/gu, "");
       const deniesMappedIssue = Boolean(testIssueTitle) && new RegExp(`(?:不是|並非)(?:在)?(?:說|談|討論)?[「『]?${testIssueTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u").test(reply);
-      if (!testAnswerAnchor || (compactReply.includes(compactAnchor) && !deniesMappedIssue)) break;
+      if (!testAnswerAnchor || (testContinuation ? !deniesMappedIssue : compactReply.includes(compactAnchor) && !deniesMappedIssue)) break;
       reply = "";
     }
     if (!reply && testAnswerAnchor) reply = `這一頁仍屬於「${testIssueTitle || "本考點"}」${testBodyRole ? `的「${testBodyRole}」` : ""}。本頁可直接核對的內容是：「${testAnswerAnchor}」。因此只能先依這段原文理解本頁，不能自行改判成其他考點；若要完整作答，還要接著核對前後頁的說明。`;
@@ -892,7 +896,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       Number.isFinite(pageHint)
       && pageHint > 0
       && retrievedPages[0] === Math.floor(pageHint)
-      && compactVerifiedReply.includes(testAnswerAnchor.normalize("NFKC").replace(/\s+/gu, ""))
+      && (testContinuation || compactVerifiedReply.includes(testAnswerAnchor.normalize("NFKC").replace(/\s+/gu, "")))
     );
     if (!testVerified) return Response.json({
       reply: "本頁文字目前無法完成核對，系統已停止回答；本次不扣使用次數。",
