@@ -29,6 +29,7 @@ type CoachMessage = {
   };
 };
 type BookTestMeta = { documentId: number; expectedPage: number; bookPageLabel: string; answerAnchor: string; questionKind: "case_facts" | "issue_prompt" | "explanation"; sourceExcerpt: string; issueTitle: string; bodyRole: string };
+type TopicGuide = { summary: string; keyPoints: string[]; firstPoint: string; source: string };
 type Usage = {
   inputTokens: number;
   cachedTokens: number;
@@ -42,68 +43,22 @@ type Access = {
 const storageKey = "pengli-ai-coach-history-v1";
 const topicStorageKey = "pengli-ai-coach-active-topic-v1";
 
-const topicStarters: Record<string, string[]> = {
-  "行政法理論基礎與行政組織法": [
-    "公法與私法的區分，應依序檢查哪些判準？",
-    "法律保留原則在申論題中應如何分層審查？",
-    "行政機關與內部單位的權限差異應如何判斷？",
-  ],
-  行政處分: [
-    "一個行政行為是否構成行政處分，應依序判斷哪些要件？",
-    "行政處分無效與得撤銷，應如何區分並安排作答？",
-    "行政處分附款的合法性，應從哪些層次審查？",
-  ],
-  行政契約與行政命令: [
-    "行政契約與行政處分，應依哪些特徵區分？",
-    "法規命令與行政規則的效力有何不同？",
-    "行政契約無效時，申論題應如何安排審查順序？",
-  ],
-  行政罰法: [
-    "行政罰的責任要件，應依序審查哪些事項？",
-    "一行為不二罰原則，應先確認哪些判斷要素？",
-    "行政罰的裁處時效，應如何計算與審查？",
-  ],
-  行政執行法: [
-    "行政執行的義務類型，應如何辨認？",
-    "代履行與直接強制，應如何區分？",
-    "即時強制的合法性，應依哪些要件判斷？",
-  ],
-  訴願法與行政訴訟法: [
-    "訴願是否合法，應先檢查哪些程序要件？",
-    "撤銷訴訟與課予義務訴訟，應如何選擇？",
-    "暫時權利保護的必要性，應如何判斷？",
-  ],
-  國家賠償法與損失補償: [
-    "公務員違法行為的國家賠償責任，應如何審查？",
-    "公共設施設置或管理欠缺，應如何認定？",
-    "損失補償與國家賠償，應如何區分？",
-  ],
-  新進實務見解整理: [
-    "本主題的新進實務見解，改變了哪些既有判斷標準？",
-    "引用新進實務見解時，應如何整理爭點與裁判理由？",
-    "實務見解與傳統學說不同時，申論題應如何呈現？",
-  ],
-};
-
-const topicGoals: Record<string, string> = {
-  "行政法理論基礎與行政組織法": "建立公私法區分、法律保留與行政組織權限的判斷順序",
-  行政處分: "辨認行政處分的要件，並接續安排效力、合法性與救濟",
-  行政契約與行政命令: "區分行政契約、行政處分、法規命令與行政規則",
-  行政罰法: "掌握責任要件、一行為不二罰與裁處時效的審查順序",
-  行政執行法: "辨認義務類型，並選擇正確的行政執行手段",
-  訴願法與行政訴訟法: "依權利受侵害的型態，選出正確的救濟程序與訴訟類型",
-  國家賠償法與損失補償: "區分國家賠償與損失補償，並逐項檢查成立要件",
-  新進實務見解整理: "掌握新見解如何改變既有標準，並把裁判理由轉成申論語言",
-};
-
-function makeTopicWarmupMessage(topic: string): CoachMessage {
-  const warmup = topicStarters[topic]?.[0] ?? `「${topic}」的核心判斷架構應如何安排？`;
-  const goal = topicGoals[topic] ?? `掌握「${topic}」的核心爭點與作答順序`;
+function makeTopicLoadingMessage(topic: string): CoachMessage {
   return {
     id: crypto.randomUUID(),
     role: "coach",
-    text: `今天要練的是「${topic}」。這一章會帶你${goal}。\n\n先來一題熱身：${warmup}`,
-    source: "彭狸 AI 教練｜章節熱身",
+    text: `今天要練的是「${topic}」。我先讀取彭狸老師這一章的教材內容，整理好本章實際重點後，再請你選擇想先學的部分。`,
+    source: "正在讀取彭狸老師教材",
+  };
+}
+
+function makeTopicGuideMessage(topic: string, guide: TopicGuide): CoachMessage {
+  const points = guide.keyPoints.map((point, index) => `${["一", "二", "三", "四", "五"][index]}、${point}`).join("\n");
+  return {
+    id: crypto.randomUUID(),
+    role: "coach",
+    text: `今天要練的是「${topic}」。\n\n我先依彭狸老師這一章的教材，整理出目前可以學的重點：\n${points}\n\n${guide.summary}\n\n你有沒有指定的內容想先學？如果沒有，就選「沒有指定，請教練安排」，我會依教材脈絡從適合的重點開始。`,
+    source: guide.source,
   };
 }
 
@@ -134,6 +89,7 @@ export default function PengliCoach() {
   const [chatMaximized, setChatMaximized] = useState(false);
   const [activeTopic, setActiveTopic] = useState("");
   const [topicLocation, setTopicLocation] = useState<{ pageStart: number; pageEnd?: number | null } | null>(null);
+  const [topicGuide, setTopicGuide] = useState<TopicGuide | null>(null);
   const [replyTarget, setReplyTarget] = useState<CoachMessage | null>(null);
   const [doubtTarget, setDoubtTarget] = useState<CoachMessage | null>(null);
   const [doubtText, setDoubtText] = useState("");
@@ -148,6 +104,37 @@ export default function PengliCoach() {
     escalated?: boolean;
   } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  async function loadTopicGuide(topic: string, resetConversation: boolean) {
+    if (resetConversation) {
+      setTopicGuide(null);
+      setMessages([makeTopicLoadingMessage(topic)]);
+    }
+    try {
+      const response = await fetch(`/api/teachers/pengli/coach?topic=${encodeURIComponent(topic)}`, { cache: "no-store" });
+      const data = await response.json() as { located?: boolean; pageStart?: number; pageEnd?: number | null; source?: string; guide?: { summary?: string; keyPoints?: string[]; firstPoint?: string }; error?: string };
+      if (!response.ok) throw new Error(data.error || "目前無法讀取教材章節。");
+      if (data.located && Number.isFinite(data.pageStart)) setTopicLocation({ pageStart: Number(data.pageStart), pageEnd: data.pageEnd });
+      const keyPoints = Array.isArray(data.guide?.keyPoints) ? data.guide.keyPoints.filter((point): point is string => typeof point === "string" && point.trim().length > 0).slice(0, 5) : [];
+      if (!data.located || keyPoints.length < 3 || !data.guide?.summary || !data.guide?.firstPoint) {
+        if (resetConversation) setMessages([{
+          id: crypto.randomUUID(), role: "coach",
+          text: `今天要練的是「${topic}」，但目前尚未完成這一章的教材重點定位。我先不使用一般知識代替老師內容，請稍後再試或回報彭狸老師確認。`,
+          source: "彭狸老師教材｜章節重點尚未定位",
+        }]);
+        return;
+      }
+      const guide: TopicGuide = { summary: data.guide.summary, keyPoints, firstPoint: data.guide.firstPoint, source: `${data.source || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}` };
+      setTopicGuide(guide);
+      if (resetConversation) setMessages([makeTopicGuideMessage(topic, guide)]);
+    } catch {
+      if (resetConversation) setMessages([{
+        id: crypto.randomUUID(), role: "coach",
+        text: `今天要練的是「${topic}」，但目前教材讀取尚未完成。我先不出通用熱身題，請稍後再按一次「另開練習」。`,
+        source: "彭狸老師教材｜讀取未完成",
+      }]);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -173,15 +160,10 @@ export default function PengliCoach() {
         setActiveTopic(topic);
         localStorage.setItem(topicStorageKey, topic);
         if (urlTopic && !continuingSameTopic) {
-          setMessages([makeTopicWarmupMessage(topic)]);
+          setMessages([makeTopicLoadingMessage(topic)]);
           setInput("");
         }
-        void fetch(`/api/teachers/pengli/coach?topic=${encodeURIComponent(topic)}`, { cache: "no-store" })
-          .then(async (response) => response.ok ? response.json() : null)
-          .then((data) => {
-            if (data?.located && Number.isFinite(data.pageStart)) setTopicLocation({ pageStart: data.pageStart, pageEnd: data.pageEnd });
-          })
-          .catch(() => undefined);
+        void loadTopicGuide(topic, Boolean(urlTopic && !continuingSameTopic));
       }
     } catch {
       /* 使用預設歡迎訊息 */
@@ -240,11 +222,9 @@ export default function PengliCoach() {
     )),
     [messages],
   );
-  const starters = activeTopic ? topicStarters[activeTopic] ?? [
-    `請先整理「${activeTopic}」的核心判斷架構。`,
-    `「${activeTopic}」最常見的申論爭點有哪些？`,
-    `請從「${activeTopic}」出一題帶我逐步判斷。`,
-  ] : [];
+  const starters = topicGuide
+    ? [...topicGuide.keyPoints.map((point) => `我想先學「${point}」`), "沒有指定，請教練安排"]
+    : [];
   const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? null;
   const unmeteredAccess = !accessChecking && !aiPlanEnabled && !aiAccessActive && !freeTrialAvailable;
   const remainingLabel = accessChecking || displayedRemaining == null ? "查詢中" : unmeteredAccess ? "不限次" : `${displayedRemaining} 次`;
@@ -665,16 +645,12 @@ export default function PengliCoach() {
         <button
           type="button"
           onClick={() => {
-            setMessages([
-              activeTopic
-                ? makeTopicWarmupMessage(activeTopic)
-                : {
-                    id: crypto.randomUUID(),
-                    role: "coach",
-                    text: "請先從八大主題選擇一章，我會直接帶你開始熱身。",
-                    source: "彭狸 AI 教練",
-                  },
-            ]);
+            if (activeTopic) void loadTopicGuide(activeTopic, true);
+            else setMessages([{
+              id: crypto.randomUUID(), role: "coach",
+              text: "請先從八大主題選擇一章，我會先讀取該章教材、說明可學重點，再請你選擇。",
+              source: "彭狸 AI 教練",
+            }]);
             setUsage(null);
             setError("");
           }}
@@ -704,7 +680,7 @@ export default function PengliCoach() {
         <div className="pengli-coach-thread" aria-live="polite">
           {!hasConversation && (
             <div className="pengli-coach-starters">
-              {activeTopic ? starters.map((starter) => (
+              {activeTopic && starters.length ? starters.map((starter) => (
                 <button
                   type="button"
                   key={starter}
@@ -713,9 +689,11 @@ export default function PengliCoach() {
                   {starter}
                   <b>→</b>
                 </button>
-              )) : (
+              )) : activeTopic ? (
+                <div className="choose-topic"><span>正在依彭狸老師教材整理本章重點…</span></div>
+              ) : (
                 <a className="choose-topic" href="/teachers/pengli#curriculum">
-                  <span>請先選擇一個主題，我會依該主題提供三個練習問題。</span>
+                  <span>請先選擇一個主題，我會先說明該章教材有哪些可學重點。</span>
                   <b>選擇八大主題 →</b>
                 </a>
               )}

@@ -23,6 +23,11 @@ function isShortHelpReply(text: string) {
   return /^(?:(我)?(不知道|不會|不懂|沒想法|想不到|請提示|給我提示|可以提示嗎)|我不懂[，,、\s]*請老師(?:再)?說明(?:這題應該先從哪個判斷步驟開始)?)[。！!？?\s]*$/u.test(text.trim());
 }
 
+function isCoachArrangementRequest(text: string) {
+  return /^(?:沒有(?:指定)?|沒有特別想學的|都可以|請教練安排|由教練安排|照教材(?:順序)?開始|你幫我安排)[，,、\s]*(?:請)?(?:由)?教練安排[。！!？?\s]*$/u.test(text.trim())
+    || /^(?:沒有(?:指定)?|都可以)[。！!？?\s]*$/u.test(text.trim());
+}
+
 function clearlyOutsidePengliScope(text: string) {
   const normalized = text.normalize("NFKC");
   return /出師表|唐詩|宋詞|國文作文|會計分錄|折舊費用|借貸平衡|合併報表|血液檢驗|血球分類|抗原抗體|英文文法|二次方程式|微積分|Python|食譜|天氣預報|共同正犯|殺人罪|竊盜罪|刑事訴訟法/u.test(normalized);
@@ -233,6 +238,58 @@ const pengliScholarFollowUpFormat = {
     required: ["answer", "question"],
   },
 };
+
+type PengliTopicGuide = {
+  summary: string;
+  keyPoints: string[];
+  firstPoint: string;
+};
+
+const pengliTopicGuideFormat = {
+  type: "json_schema",
+  name: "pengli_topic_guide",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      summary: { type: "string" },
+      keyPoints: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 5 },
+      firstPoint: { type: "string" },
+    },
+    required: ["summary", "keyPoints", "firstPoint"],
+  },
+};
+
+function parseTopicGuide(text: string): PengliTopicGuide | null {
+  try {
+    const value = JSON.parse(text.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim()) as Partial<PengliTopicGuide>;
+    const keyPoints = Array.isArray(value.keyPoints)
+      ? [...new Set(value.keyPoints.map((item) => plainText(String(item)).trim()).filter((item) => item.length >= 4 && item.length <= 36))].slice(0, 5)
+      : [];
+    const summary = plainText(String(value.summary ?? "")).trim();
+    const firstPoint = plainText(String(value.firstPoint ?? "")).trim();
+    if (keyPoints.length < 3 || summary.length < 12 || !keyPoints.includes(firstPoint)) return null;
+    return { summary, keyPoints, firstPoint };
+  } catch {
+    return null;
+  }
+}
+
+function fallbackTopicGuide(topic: string, rows: { hierarchyPath: string; title: string; text: string }[]): PengliTopicGuide | null {
+  const generic = /^(?:主題[一二三四五六七八九十\d]+|概說|問題意識|學說見解|實務見解|考點破解|擬答|行政法考點|行政處分)$/u;
+  const labels = rows.flatMap((row) => `${row.hierarchyPath}｜${row.title}`.split(/[>／/｜]/u))
+    .map((item) => item.replace(/^\s*(?:考點\s*\d+[：:]?|第[一二三四五六七八九十\d]+節[：:]?)\s*/u, "").trim())
+    .filter((item) => item.length >= 4 && item.length <= 36 && item !== topic && !generic.test(item));
+  const enumerated = rows.flatMap((row) => [...row.text.matchAll(/[一二三四五六七八九十]\s*[、.)）]\s*([^，。；：\n]{4,30})/gu)].map((match) => match[1].trim()));
+  const keyPoints = [...new Set([...labels, ...enumerated])].slice(0, 5);
+  if (keyPoints.length < 3) return null;
+  return {
+    summary: `以下重點均取自彭狸老師「${topic}」章節目前命中的教材內容。`,
+    keyPoints,
+    firstPoint: keyPoints[0],
+  };
+}
 
 function parseScholarFollowUp(text: string) {
   const cleaned = text.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim();
@@ -567,12 +624,29 @@ export async function GET(request: Request) {
   const evidence = await pengliEvidence(topic, topic);
   const first = evidence.rows.find((row) => row.pageStart != null);
   if (!first) return Response.json({ topic, located: false });
+  let guide = fallbackTopicGuide(topic, evidence.rows);
+  if (await getOpenAIKey()) {
+    const excerpts = evidence.rows.slice(0, 6).map((row, index) => `【教材片段 ${index + 1}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.replace(/\s+/gu, " ").slice(0, 900)}`).join("\n\n");
+    try {
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model: "gpt-5.6-luna",
+        instructions: `你是教材編輯，只能依提供的彭狸老師教材片段整理「${topic}」的學習導覽，不得加入模型一般知識、外部法條或片段未出現的概念。summary 用一句話說明本章教材的實際學習範圍；keyPoints 列出 3 至 5 個教材明確出現的具體重點，每點 6 至 24 字，沿用教材用語，不得只寫「基本概念」「核心爭點」等空泛詞；firstPoint 必須逐字選自 keyPoints，並選最適合先學的前置重點。`,
+        input: excerpts,
+        text: { format: pengliTopicGuideFormat },
+        max_output_tokens: 500,
+      }) }) as Record<string, unknown>;
+      guide = parseTopicGuide(outputText(payload)) ?? guide;
+    } catch (error) {
+      console.error("Pengli topic guide generation failed", error);
+    }
+  }
   return Response.json({
     topic,
     located: true,
     pageStart: evidence.themeStartPage ?? first.pageStart,
     pageEnd: evidence.themeEndPage ?? first.pageEnd,
     source: evidence.title,
+    guide,
   });
 }
 
@@ -743,7 +817,8 @@ ${scopeInstruction}
 
     const latestStudentText = [...rawMessages].reverse().find((message) => message.role !== "coach")?.text;
     const shortHelpReply = body.mode !== "plain-explain" && isShortHelpReply(String(latestStudentText ?? ""));
-    const searchMessages = shortHelpReply
+    const arrangeTopic = body.mode !== "plain-explain" && isCoachArrangementRequest(String(latestStudentText ?? ""));
+    const searchMessages = shortHelpReply || arrangeTopic
       ? rawMessages.slice(0, -1).slice(-4)
       : latestStudentText
         ? [{ role: "student", text: latestStudentText }]
@@ -944,7 +1019,9 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const testBodyRole = String(body.testBodyRole ?? "").trim().slice(0, 40);
     const testSourceExcerpt = String(body.testSourceExcerpt ?? "").trim().slice(0, 900);
     const testAnswerAnchor = String(body.testAnswerAnchor ?? "").trim().slice(0, 80);
-    const interactionRule = testAnswerAnchor && !testContinuation
+    const interactionRule = arrangeTopic
+      ? "學生已表示沒有指定內容，請教練安排。直接依本輪教材片段選擇最適合先學的前置重點：先用 2 至 4 句說明本章為何從這裡開始，再問一個只檢查這個重點的簡短問題。不得要求學生再選一次，也不得跳到教材外的通用熱身題。"
+      : testAnswerAnchor && !testContinuation
       ? "學生本輪是在依書頁提出問題，不是在回答教練；像真人老師自然接話並直接回答。可從『這一頁的重點是』『這裡要先分清楚』『本頁先處理的是』開始，禁止用『你的定位正確』『你的理解正確』『你的判斷正確』『你答得對』等系統式評語開頭。"
       : testContinuation
         ? "學生本輪已先回答再提出新問題；像真人老師自然承接。若答案有錯才用一句話指出哪裡要修正；若答案正確就直接回答新問題，不要先說『你的理解正確』『你的定位正確』『你的判斷正確』或其他制式稱讚。"
