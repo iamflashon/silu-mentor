@@ -813,6 +813,7 @@ ${scopeInstruction}
         : rawMessages.slice(-1);
     const searchText = searchMessages.map((message) => String(message.text ?? "")).filter(Boolean).join(" ");
     const pageHint = Number(body.pageHint ?? 0);
+    const testContinuation = body.testContinuation === true;
     const normalizedPageQuestion = searchText.normalize("NFKC");
     const ambiguousDashPage = normalizedPageQuestion.match(/(?:第\s*)?(\d{1,4})\s*[-－—]\s*(\d{1,4})\s*頁/u);
     if (body.mode !== "plain-explain" && !(Number.isFinite(pageHint) && pageHint > 0) && ambiguousDashPage && !/書內頁碼|主題\s*[1-8]/u.test(normalizedPageQuestion)) {
@@ -896,7 +897,7 @@ ${scopeInstruction}
       }),
       pageStatus: evidence.pageStatus,
     }, { headers: { "Cache-Control": "no-store" } });
-    if (body.mode !== "plain-explain" && !evidence.rows.length) return Response.json({
+    if (body.mode !== "plain-explain" && !evidence.rows.length && !testContinuation) return Response.json({
       reply: "我已搜尋目前主題及整本教材，暫時找不到這個問題的直接資料。為避免 AI 幻覺，我不會用一般知識補成教材答案。你可以選擇查證官方資料，或轉請彭狸老師回答；這次不扣使用次數。",
       source: "未找到對應書頁",
       evidenceMissing: true,
@@ -1006,7 +1007,6 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const testBodyRole = String(body.testBodyRole ?? "").trim().slice(0, 40);
     const testSourceExcerpt = String(body.testSourceExcerpt ?? "").trim().slice(0, 900);
     const testAnswerAnchor = String(body.testAnswerAnchor ?? "").trim().slice(0, 80);
-    const testContinuation = body.testContinuation === true;
     const interactionRule = testAnswerAnchor && !testContinuation
       ? "學生本輪是在依書頁提出問題，不是在回答教練；像真人老師自然接話並直接回答。可從『這一頁的重點是』『這裡要先分清楚』『本頁先處理的是』開始，禁止用『你的定位正確』『你的理解正確』『你的判斷正確』『你答得對』等系統式評語開頭。"
       : testContinuation
@@ -1016,7 +1016,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       ? `本輪是同一個已通過核對書頁的接續對話。仍須鎖定考點「${testIssueTitle || "未命名考點"}」與本頁內容，但核對短語「${testAnswerAnchor}」已在前輪出現，本輪不得再次逐字重貼或重新介紹前提。直接回答學生這次的新問題；只有學生答錯、混淆前提或明確要求重述時，才用一句話簡短提醒。${testSourceExcerpt ? `本頁節錄僅供承接判斷：\n${testSourceExcerpt}\n` : ""}`
       : `本輪是書頁內容驗證。目錄已確認本頁隸屬考點「${testIssueTitle || "未命名考點"}」，本頁類型為「${testBodyRole || "考點正文"}」。這兩項是系統已核對的定位，不得否定、不得改稱為其他考點。核對短語「${testAnswerAnchor}」必須逐字出現在回答中，以證明回答確實取自本頁；但仍須用白話解釋它在本頁的作用。${testSourceExcerpt ? `抽樣頁原文如下：\n${testSourceExcerpt}\n` : ""}若本頁只是案例事實，說明案例正在問什麼；若是考點破解，說明題目測什麼及書中解題順序。若單頁不足以完成解釋，明說本頁只能確認到哪裡，不得拿其他考點補答案。`
       : "";
-    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}${interactionRule}回答精簡、口語，一次只教一個判斷步驟；回答完可問一個能推進理解的小問題，不要一次傾倒完整擬答。每次回答必須寫完最後一句，不得停在「的」、「對」、「與」、「或」等未完詞句。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
+    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `這是教練主動提出熱身題後的接續對話；即使教材沒有逐字答案，也必須依目前章節、前文與臺灣行政法基礎觀念，用白話回答學生的作答方法或概念問題。前台會標示為「AI 作答建議」，不得冒充彭狸老師教材原文，不得虛構法條、裁判或頁碼，也不得改成查證官方資料或轉請老師。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}${interactionRule}回答精簡、口語，一次只教一個判斷步驟；回答完可問一個能推進理解的小問題，不要一次傾倒完整擬答。每次回答必須寫完最後一句，不得停在「的」、「對」、「與」、「或」等未完詞句。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
     let payload: Record<string, unknown> = {};
     let reply = "";
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1064,7 +1064,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const access = await finishAiUse(gate, { action: "pengli_coach", description: "彭狸 AI 分身陪練，成功扣 1 次", requestKey: String(body.requestKey ?? crypto.randomUUID()) });
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
     const citedPage = fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
-    const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : evidence.bookPageLabel ? `行政法考點演習書（二版）》書內第 ${evidence.bookPageLabel} 頁（PDF 第 ${citedPage} 頁）` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
+    const source = coachAiFallback ? "AI 作答建議｜依目前章節與對話" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : evidence.bookPageLabel ? `行政法考點演習書（二版）》書內第 ${evidence.bookPageLabel} 頁（PDF 第 ${citedPage} 頁）` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
     return Response.json({ reply, source, sourceMode: evidence.sourceMode, pageStatus: evidence.pageStatus, retrievedPages, testVerified: testAnswerAnchor ? true : undefined, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     console.error("Pengli coach request failed", error);
