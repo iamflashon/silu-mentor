@@ -6849,6 +6849,45 @@ a {
   box-shadow: 0 5px 14px rgba(25, 59, 88, 0.18);
 }
 
+/* The central legal-source switcher belongs in the document flow.  It used
+   to inherit the management sidebar treatment and float over the page title. */
+.central-source-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto 22px;
+  padding: 7px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  border: 1px solid #d5e2e8;
+  border-radius: 14px;
+  background: #edf3f6;
+}
+.central-source-tabs button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 9px 15px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #587285;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.central-source-tabs button:hover {
+  background: #e2edf2;
+  color: #193b58;
+}
+.central-source-tabs button.active {
+  background: #193b58;
+  color: #fff;
+  box-shadow: 0 5px 14px rgba(25, 59, 88, 0.16);
+}
+
 .independent-admin-shell .admin-main {
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
@@ -8139,6 +8178,15 @@ a {
   .admin-tabs > a {
     text-align: center;
     padding: 9px 7px;
+    font-size: 11px;
+  }
+  .central-source-tabs {
+    gap: 6px;
+    margin-bottom: 18px;
+  }
+  .central-source-tabs button {
+    min-height: 38px;
+    padding: 8px 11px;
     font-size: 11px;
   }
   .independent-admin-shell .admin-main {
