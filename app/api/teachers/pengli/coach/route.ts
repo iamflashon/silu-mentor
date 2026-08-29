@@ -103,6 +103,10 @@ function officialWebSources(payload: Record<string, unknown>) {
 
 type ArticleReference = { lawName: string; articleNo: string; term: string };
 
+const OFFICIAL_LAW_PCODES: Record<string, string> = {
+  "行政程序法": "A0030055",
+};
+
 function exactArticleReferences(question: string, reply: string): ArticleReference[] {
   const value = `${question} ${reply}`.normalize("NFKC");
   const knownLawNames = ["行政程序法", "行政訴訟法", "行政罰法", "行政執行法", "訴願法", "國家賠償法", "政府資訊公開法", "中央法規標準法", "地方制度法"];
@@ -124,7 +128,21 @@ function verificationTerms(question: string, reply: string) {
   const stop = /^(老師|回答|問題|是否|可以|認為|規定|資料|法律|行政法|查證|說明|內容|學生|目前|如果|因為|本題|官方)$/u;
   const words = question.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
     .map((term) => term.trim()).filter((term) => term.length >= 2 && term.length <= 14 && !stop.test(term));
-  return [...new Set([...articleReferences, ...exact, ...words])].slice(0, 3);
+  const precise = [...new Set([...articleReferences, ...exact])];
+  return precise.length ? precise.slice(0, 3) : [...new Set(words)].slice(0, 3);
+}
+
+function canonicalOfficialArticleSources(references: ArticleReference[]) {
+  return references.flatMap((reference) => {
+    const pcode = OFFICIAL_LAW_PCODES[reference.lawName];
+    if (!pcode) return [];
+    const flno = reference.articleNo.replace(/之/gu, "-");
+    return [{
+      label: `${reference.term}｜全國法規資料庫`,
+      url: `https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=${encodeURIComponent(pcode)}&flno=${encodeURIComponent(flno)}`,
+      excerpt: "全國法規資料庫現行條文頁面",
+    }];
+  });
 }
 
 function sourceMatchesExplicitReferences(source: { label: string; url: string; context?: string }, articles: ArticleReference[], cases: string[]) {
@@ -803,6 +821,7 @@ export async function POST(request: Request) {
       if (useOfficialWeb) sources = officialWebSources(payload)
         .filter((source) => sourceMatchesExplicitReferences(source, articleReferences, exactCases))
         .map((source) => ({ ...source, excerpt: "官方外網補充" }));
+      sources = [...canonicalOfficialArticleSources(articleReferences), ...sources];
       const uniqueSources = new Map<string, ReturnType<typeof localizedSource>>();
       for (const source of sources.filter((source) => Boolean(source.url))) {
         const localized = localizedSource({ ...source, url: String(source.url) });
