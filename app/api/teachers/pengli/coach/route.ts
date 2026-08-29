@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, inArray, like, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lt, lte, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, pengliVerificationDailyAttempts, usageLogs } from "../../../../../db/schema";
+import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
@@ -11,66 +11,6 @@ import { PENGLI_THEME_TITLES } from "../../../../../lib/pengli-book-toc";
 type InputMessage = { role?: unknown; text?: unknown };
 
 const PENGLI_BOOK_BODY_START_PAGE = 23;
-const VERIFICATION_FAILURE_LIMIT = 2;
-type AppDb = Awaited<ReturnType<typeof getDb>>;
-
-function taipeiDateKey() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
-async function verificationFailureState(db: AppDb, memberId: number) {
-  const attemptDate = taipeiDateKey();
-  const [row] = await db.select({ failureCount: pengliVerificationDailyAttempts.failureCount })
-    .from(pengliVerificationDailyAttempts)
-    .where(and(
-      eq(pengliVerificationDailyAttempts.memberId, memberId),
-      eq(pengliVerificationDailyAttempts.attemptDate, attemptDate),
-    )).limit(1);
-  const failures = Math.max(0, Number(row?.failureCount ?? 0));
-  return {
-    verificationFailures: failures,
-    verificationAttemptsRemaining: Math.max(0, VERIFICATION_FAILURE_LIMIT - failures),
-    verificationLocked: failures >= VERIFICATION_FAILURE_LIMIT,
-  };
-}
-
-async function recordVerificationFailure(db: AppDb, memberId: number) {
-  const now = new Date();
-  const attemptDate = taipeiDateKey();
-  await db.insert(pengliVerificationDailyAttempts).values({
-    memberId,
-    attemptDate,
-    failureCount: 1,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [pengliVerificationDailyAttempts.memberId, pengliVerificationDailyAttempts.attemptDate],
-    set: {
-      failureCount: sql`${pengliVerificationDailyAttempts.failureCount} + 1`,
-      updatedAt: now,
-    },
-  });
-  return verificationFailureState(db, memberId);
-}
-
-async function verificationFailureResponse(db: AppDb, memberId: number, error: string, code: string, status: number, extra: Record<string, unknown> = {}) {
-  const failureState = await recordVerificationFailure(db, memberId);
-  return Response.json({
-    error: failureState.verificationLocked
-      ? "今天兩次官方查證都未找到可驗證資料，已停止繼續查證。是否將這次的問題代轉彭狸老師回答？"
-      : error,
-    code,
-    ...failureState,
-    canEscalate: failureState.verificationLocked,
-    ...extra,
-  }, { status });
-}
-
 function isPengliNavigationPage(text: string) {
   const normalized = text.replace(/\s+/gu, " ").trim();
   const dotLeaders = (normalized.match(/(?:\.{4,}|…{2,}|·{4,})/gu) ?? []).length;
@@ -622,9 +562,6 @@ export async function GET(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
   const params = new URL(request.url).searchParams;
-  if (params.get("verificationStatus") === "1") {
-    return Response.json(await verificationFailureState(auth.db, auth.member.id));
-  }
   const topic = params.get("topic")?.trim().slice(0, 120) ?? "";
   if (!topic) return Response.json({ error: "請提供主題名稱。" }, { status: 400 });
   const evidence = await pengliEvidence(topic, topic);
@@ -660,13 +597,6 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
 
     if (body.mode === "verify-doubt" || body.mode === "official-answer") {
-      const currentFailureState = await verificationFailureState(auth.db, auth.member.id);
-      if (currentFailureState.verificationLocked) return Response.json({
-        error: "今天兩次官方查證都未找到可驗證資料，已停止繼續查證。是否將這次的問題代轉彭狸老師回答？",
-        code: "VERIFY_DAILY_FAILURE_LIMIT",
-        ...currentFailureState,
-        canEscalate: true,
-      }, { status: 429 });
       if (gate.metered && gate.memberId) {
         const entitlement = await getActiveAiEntitlement(gate.db, gate.memberId);
         const remaining = entitlement ? entitlement.quotaTotal - entitlement.quotaUsed : 0;
@@ -717,8 +647,8 @@ export async function POST(request: Request) {
           max_output_tokens: 380,
         }) }) as Record<string, unknown>;
       } catch {
-        if (controller.signal.aborted) return verificationFailureResponse(auth.db, auth.member.id, "官方資料查證逾時，此次沒有計入使用次數。今天還可再嘗試 1 次。", "VERIFY_TIMEOUT", 504);
-        return verificationFailureResponse(auth.db, auth.member.id, "目前無法連接查證服務，此次沒有計入使用次數。請稍後再試。", "VERIFY_SERVICE_ERROR", 502);
+        if (controller.signal.aborted) return Response.json({ error: "官方資料查證逾時，此次不扣使用次數。請稍後再試。", code: "VERIFY_TIMEOUT" }, { status: 504 });
+        return Response.json({ error: "目前無法連接官方資料查證服務，此次不扣使用次數。請稍後再試。", code: "VERIFY_SERVICE_ERROR" }, { status: 502 });
       } finally {
         clearTimeout(timeout);
       }
@@ -729,12 +659,19 @@ export async function POST(request: Request) {
         uniqueSources.set(localized.url, localized);
       }
       sources = [...uniqueSources.values()].slice(0, 3);
-      const verification = compactVerification(localizeOfficialCitations(outputText(payload)));
-      if (!verification) return verificationFailureResponse(auth.db, auth.member.id, "查證暫時沒有完成，此次不扣使用次數。今天還可再嘗試 1 次。", "VERIFY_EMPTY_RESULT", 502);
-      if (!sources.length) return verificationFailureResponse(auth.db, auth.member.id, "官方網站已完成查詢，但沒有取得可開啟驗證的官方網址，因此不扣使用次數。今天還可再嘗試 1 次。", "VERIFY_NO_OFFICIAL_SOURCE", 502, { searchTrace: { mode: "official_web", terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] } });
+      const generatedVerification = compactVerification(localizeOfficialCitations(outputText(payload)));
+      const noOfficialSource = sources.length === 0;
+      const verification = noOfficialSource
+        ? "本次已搜尋相關法條、判決與裁判，但目前沒有找到足以核對這個問題的官方資料。本次不扣使用次數；你可以回到 AI 教練繼續釐清概念，或轉請彭狸老師確認。"
+        : generatedVerification || "已找到可核對的官方資料，請直接開啟下方來源確認原文。";
+      const searchTrace = { mode: useOfficialWeb ? "official_web" as const : "synchronized_official_data" as const, terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] };
+      if (noOfficialSource) {
+        const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: "[]", status: "verified" }).returning();
+        return Response.json({ verification, sources: [], noOfficialSource: true, officialWebFallback: useOfficialWeb, searchTrace, ticketId: ticket.id });
+      }
       const access = await finishAiUse(gate, { action: "pengli_official_verification", description: "彭狸官方資料查證，成功扣 2 次", quantity: 2, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: JSON.stringify(sources.map(({ label, url }) => ({ label, url }))), status: "verified" }).returning();
-      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), officialWebFallback: useOfficialWeb, searchTrace: { mode: useOfficialWeb ? "official_web" : "synchronized_official_data", terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] }, ticketId: ticket.id, access, ...currentFailureState });
+      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), noOfficialSource: false, officialWebFallback: useOfficialWeb, searchTrace, ticketId: ticket.id, access });
     }
 
     const selectedText = String(body.selectedText ?? "").trim().slice(0, 1200);

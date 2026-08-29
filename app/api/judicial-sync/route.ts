@@ -76,6 +76,35 @@ async function runtimeCredentials() {
   };
 }
 
+async function runtimeWakeToken() {
+  const { env } = await import("cloudflare:workers");
+  return env.JUDICIAL_SYNC_WAKE_TOKEN ?? process.env.JUDICIAL_SYNC_WAKE_TOKEN ?? "";
+}
+
+async function secureEqual(left: string, right: string) {
+  if (!left || !right) return false;
+  const encoder = new TextEncoder();
+  const [leftHash, rightHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(left)),
+    crypto.subtle.digest("SHA-256", encoder.encode(right)),
+  ]);
+  const leftBytes = new Uint8Array(leftHash);
+  const rightBytes = new Uint8Array(rightHash);
+  let difference = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < leftBytes.length; index++) difference |= leftBytes[index] ^ rightBytes[index];
+  return difference === 0;
+}
+
+function isAdminRequest(request: Request) {
+  return request.headers.get("x-silu-admin-entry") === "1";
+}
+
+async function isWakeRequest(request: Request) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("wake") !== "1") return false;
+  return secureEqual(url.searchParams.get("token") ?? "", await runtimeWakeToken());
+}
+
 async function auth() {
   const { user, password } = await runtimeCredentials();
   if (!user || !password) throw new Error("尚未設定 JUDICIAL_API_USER 或 JUDICIAL_API_PASSWORD");
@@ -272,7 +301,22 @@ async function downloadDocument(db: Awaited<ReturnType<typeof getDb>>, token: st
   return "imported" as const;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const wake = await isWakeRequest(request);
+  if (wake) {
+    return POST(new Request(request.url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-scheduled-sync": "1",
+        "x-sync-source": "hourly-wake",
+      },
+      body: JSON.stringify({ action: "sync", limit: DEFAULT_BATCH_SIZE }),
+    }));
+  }
+  if (!isAdminRequest(request)) {
+    return Response.json({ error: "未授權" }, { status: 401, headers: { "cache-control": "no-store" } });
+  }
   const db = await getDb();
   const [count] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases);
   const settings = await db.select().from(appSettings).where(sql`${appSettings.key} like 'judicial_%'`).orderBy(desc(appSettings.updatedAt));
@@ -293,6 +337,9 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = await request.json() as { action?: string; limit?: number };
   const scheduled = request.headers.get("x-scheduled-sync") === "1";
+  if (!scheduled && !isAdminRequest(request)) {
+    return Response.json({ error: "未授權" }, { status: 401, headers: { "cache-control": "no-store" } });
+  }
   const taipeiHour = new Date(Date.now() + 8 * 3600_000).getUTCHours();
   if (taipeiHour >= 6 && body.action !== "test") {
     return Response.json({ error: "司法院 API 僅於每日 00:00 至 06:00 開放，請於服務時間執行" }, { status: 409 });
@@ -302,6 +349,10 @@ export async function POST(request: Request) {
   let lockAcquired = false;
   try {
     if (body.action !== "test") {
+      if (scheduled) {
+        await setSetting(db, "judicial_last_schedule_trigger_at", new Date().toISOString());
+        await setSetting(db, "judicial_last_schedule_source", request.headers.get("x-sync-source") || "scheduled");
+      }
       // Once the current day's queue and retry queue are both complete, the
       // five-minute cron must stay idle instead of downloading the same JList
       // repeatedly. A new Taipei date starts a fresh queue automatically.
@@ -330,7 +381,7 @@ export async function POST(request: Request) {
 
     let failures = await getFailures(db);
     const { queue, cursor: initialCursor } = await loadQueue(db, token, failures);
-    const limit = Math.max(1, Math.min(100, Number(body.limit) || DEFAULT_BATCH_SIZE));
+    const limit = Math.max(1, Math.min(DEFAULT_BATCH_SIZE, Number(body.limit) || DEFAULT_BATCH_SIZE));
     await setSetting(db, "judicial_last_error", "");
     let cursor = initialCursor;
     let imported = 0;
