@@ -45,9 +45,12 @@ const topicStorageKey = "pengli-ai-coach-active-topic-v1";
 
 function isClickableLearningPoint(value: string) {
   const normalized = value.normalize("NFKC").trim();
+  const citationSignals = [/[，,]/u, /\d+\s*版/u, /\d{4}\s*年/u, /\d+\s*月/u, /\d+\s*頁/u, /(?:著|編|譯|總論|專論)/u]
+    .filter((pattern) => pattern.test(normalized)).length;
   return normalized.length >= 4
     && normalized.length <= 36
-    && !/\bPDF\b|頁碼|第\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁|^\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁?\s*$/iu.test(normalized);
+    && citationSignals < 3
+    && !/\bPDF\b|頁碼|\d+\s*(?:[-–—至到]\s*\d+\s*)?頁|^\s*\d+\s*$/iu.test(normalized);
 }
 
 function makeTopicLoadingMessage(topic: string): CoachMessage {
