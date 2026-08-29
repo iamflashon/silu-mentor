@@ -23,7 +23,7 @@ export const defaultPengliModules: PortalModule[] = [
   { id: "pdf-reference", enabled: true, order: 2, label: "PDF 對照閱讀", description: "閱讀教材並直接跳到引用頁數。", href: "/teachers/pengli/notes", action: "route", icon: "PDF" },
   { id: "entitlements", enabled: true, order: 3, label: "提問權益與點數", description: "查看免費提問、點數與使用期限。", href: "/teachers/pengli/ai-access", action: "route", icon: "點" },
   { id: "plain-language", enabled: true, order: 4, label: "白話解釋", description: "把法條與實務見解轉成易懂說明。", href: "/teachers/pengli/coach?mode=plain", action: "route", icon: "白" },
-  { id: "law-search", enabled: true, order: 5, label: "法規搜尋", description: "搜尋全國法規與司法院資料來源。", href: "/law-search?from=pengli", action: "search", icon: "法" },
+  { id: "law-search", enabled: true, order: 5, label: "法規搜尋", description: "進入法律工具，搜尋全國法規與司法院資料來源。", href: "/law", action: "search", icon: "法" },
   { id: "notes", enabled: true, order: 6, label: "我的筆記", description: "保存法條、頁數與 AI 解釋。", href: "/teachers/pengli/notes", action: "route", icon: "記" },
   { id: "question-bank", enabled: false, order: 7, label: "行政法題庫", description: "把教材考點整理成可練習題目。", href: "/teachers/pengli/questions", action: "route", icon: "題" },
 ];
