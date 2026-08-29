@@ -95,11 +95,9 @@ export default function PengliCoach() {
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
   const [accessChecking, setAccessChecking] = useState(true);
-  const [aiAccessActive, setAiAccessActive] = useState(false);
   const [freeTrialAvailable, setFreeTrialAvailable] = useState(false);
   const [freeTrialTopic, setFreeTrialTopic] = useState("");
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
-  const [aiPlanEnabled, setAiPlanEnabled] = useState(false);
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
   const [bookVerificationVisible, setBookVerificationVisible] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
@@ -197,12 +195,10 @@ export default function PengliCoach() {
       if (!Number.isFinite(remaining)) throw new Error("AI_ACCESS_INVALID");
       const nextAccess = { remaining };
       setAccess(nextAccess);
-      setAiAccessActive(data.aiAccess.active === true);
       if ((data?.plan?.enabled === true || data.aiAccess.active === true) && remaining === 0 && !data?.pengliTrial?.available) setQuotaDialogOpen(true);
       setFreeTrialAvailable(data?.pengliTrial?.available === true);
       setFreeTrialTopic(String(data?.pengliTrial?.selectedTopic ?? ""));
       if (data?.plan) {
-        setAiPlanEnabled(data.plan.enabled === true);
         setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
         setBookVerificationVisible(data.plan.pengliBookVerificationEnabled !== false);
       }
@@ -243,9 +239,8 @@ export default function PengliCoach() {
     ? [...topicGuide.keyPoints.map((point) => `我想先學「${point}」`), "沒有指定，請教練安排"]
     : [];
   const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? null;
-  const unmeteredAccess = !accessChecking && !aiPlanEnabled && !aiAccessActive && !freeTrialAvailable;
-  const remainingLabel = accessChecking || displayedRemaining == null ? "查詢中" : unmeteredAccess ? "不限次" : `${displayedRemaining} 次`;
-  const quotaExhausted = (aiPlanEnabled || aiAccessActive) && !freeTrialAvailable && access?.remaining === 0;
+  const remainingLabel = accessChecking || displayedRemaining == null ? "查詢中" : `${displayedRemaining} 次`;
+  const quotaExhausted = !freeTrialAvailable && access?.remaining === 0;
 
   function requireAiUse(required = 1) {
     if (freeTrialAvailable && activeTopic) return true;
@@ -254,7 +249,7 @@ export default function PengliCoach() {
       void refreshAccessState();
       return false;
     }
-    if (quotaExhausted || ((aiPlanEnabled || aiAccessActive) && access.remaining < required)) {
+    if (quotaExhausted || access.remaining < required) {
       setQuotaDialogOpen(true);
       setError("");
       return false;
@@ -273,7 +268,6 @@ export default function PengliCoach() {
       setFreeTrialTopic(activeTopic);
     }
     setAccess(nextAccess);
-    setAiAccessActive(true);
     setAccessChecking(false);
     if (nextAccess.remaining === 0) setQuotaDialogOpen(true);
   }
@@ -784,6 +778,7 @@ export default function PengliCoach() {
                     <button
                       type="button"
                       className="pengli-inline-followup"
+                      disabled={quotaExhausted}
                       onClick={() => {
                         setReplyTarget(message);
                         setDoubtTarget(null);
@@ -796,6 +791,7 @@ export default function PengliCoach() {
                       && !(message.pageStatus == null && /PDF 第\s*\d+/u.test(message.source || "")) && (
                       <button
                         type="button"
+                        disabled={quotaExhausted}
                         onClick={() => {
                           setDoubtTarget(message);
                           setVerificationTeacherSubmitted(false);
