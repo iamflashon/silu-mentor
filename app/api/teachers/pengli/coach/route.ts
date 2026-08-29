@@ -1018,9 +1018,22 @@ ${scopeInstruction}
       retrievedPages: [],
       pageStatus: "outside",
     }, { headers: { "Cache-Control": "no-store" } });
-    const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
+    const interpretationMatch = body.mode === "plain-explain"
+      ? searchText.normalize("NFKC").match(/(?:司法院)?釋字第?\s*(\d+)\s*號/u)
+      : null;
+    const interpretationTerm = interpretationMatch ? `釋字第${interpretationMatch[1]}號` : "";
+    const officialPlainRows = interpretationTerm ? await auth.db.select({
+      title: legalDocuments.title,
+      sourceUrl: legalDocuments.sourceUrl,
+      content: legalArticles.content,
+    }).from(legalArticles).innerJoin(legalDocuments, eq(legalArticles.documentId, legalDocuments.id)).where(and(
+      eq(legalDocuments.sourceKey, "constitutional-interpretations"),
+      or(like(legalDocuments.title, `%${interpretationTerm}%`), like(legalArticles.content, `%${interpretationTerm}%`)),
+    )).limit(2) : [];
+    const hasOfficialPlainEvidence = officialPlainRows.length > 0;
+    const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true && !hasOfficialPlainEvidence;
     const coachAiFallback = body.mode !== "plain-explain" && !evidence.rows.length;
-    if (!evidence.rows.length && !plainAiFallback && body.mode === "plain-explain") return Response.json({
+    if (!evidence.rows.length && !hasOfficialPlainEvidence && !plainAiFallback && body.mode === "plain-explain") return Response.json({
       error: body.mode === "plain-explain"
         ? "這段文字尚未命中彭狸老師教材。是否改由 AI 依臺灣行政法一般知識試著白話解釋？"
         : "已找到彭狸老師的書，但本題尚未命中頁面索引。請換成更明確的考點名稱後再試。",
@@ -1055,11 +1068,14 @@ ${scopeInstruction}
       const excerpt = normalizedRow.slice(start, Math.min(normalizedRow.length, start + 520));
       return `【教材片段 ${index + 1}｜${page}｜${row.hierarchyPath || row.title || "考點"}】\n${start > 0 ? "…" : ""}${excerpt}${start + excerpt.length < normalizedRow.length ? "…" : ""}`;
     }).join("\n\n");
+    const officialPlainEvidenceText = officialPlainRows.map((row, index) => `【中央官方法律資料 ${index + 1}｜${row.title}】\n${row.content.slice(0, 1800)}\n官方來源：${row.sourceUrl}`).join("\n\n");
     const model = "gpt-5.6-luna";
 
     if (body.mode === "plain-explain") {
       const startedAt = Date.now();
-      const verificationRule = plainAiFallback
+      const verificationRule = hasOfficialPlainEvidence
+        ? `已命中中央官方法律資料庫的「${interpretationTerm}」；verification 必須寫明已依司法院大法官解釋原文核對。`
+        : plainAiFallback
         ? "本段未命中彭狸老師教材；verification 必須明確寫「AI 補充，未命中彭狸老師教材，仍須核對法規與實務」。"
         : "本段已提供彭狸老師教材片段；verification 寫明已依《行政法考點演習書（二版）》教材片段核對，不得宣稱核對了未提供的法規或裁判原文。";
       const requestBody = {
@@ -1081,10 +1097,10 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
 一、相近概念的區分或體系位置；
 二、考場判斷步驟與作答方法；
 三、常見誤判、例外、爭議或變化題。
-不得虛構法條、裁判、教材頁碼或老師觀點。${plainAiFallback ? "" : `\n\n【彭狸老師專屬教材】\n${evidenceText}`}`,
+不得虛構法條、裁判、教材頁碼或老師觀點。${officialPlainEvidenceText ? `\n\n【全平台共用的中央官方法律資料】\n${officialPlainEvidenceText}` : ""}${plainAiFallback || !evidenceText ? "" : `\n\n【彭狸老師專屬教材】\n${evidenceText}`}`,
         input: `【學生框選文字】\n${selectedText}`,
         text: { format: pengliPlainResponseFormat },
-        max_output_tokens: 850,
+        max_output_tokens: 1400,
       };
       let payload: Record<string, unknown> = {};
       let parsed: PengliPlainExplanation | null = null;
@@ -1104,7 +1120,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
         notePoints,
         access,
         aiFallback: plainAiFallback,
-        sourceStatus: plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材",
+        sourceStatus: hasOfficialPlainEvidence ? `中央官方法律資料庫｜${interpretationTerm}` : plainAiFallback ? "AI 補充，未命中彭狸老師教材" : "彭狸老師教材",
         usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 },
       });
     }
