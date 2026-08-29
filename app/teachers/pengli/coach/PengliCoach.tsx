@@ -248,6 +248,12 @@ export default function PengliCoach() {
     ))?.testVerification,
     [messages],
   );
+  const hasCoachQuestion = useMemo(
+    () => [...messages].reverse().some((message) => (
+      message.role === "coach" && /[？?]/u.test(message.text)
+    )),
+    [messages],
+  );
   const starters = activeTopic ? topicStarters[activeTopic] ?? [
     `請先整理「${activeTopic}」的核心判斷架構。`,
     `「${activeTopic}」最常見的申論爭點有哪些？`,
@@ -449,11 +455,11 @@ export default function PengliCoach() {
     if (thinking || scholarThinking) return;
     if (!requireAiUse()) return;
     const target = latestPassedBookTest;
-    if (!target) {
-      setError("請先按「學霸照書問」，完成一次書頁核對後才能繼續追問。");
+    if (!hasCoachQuestion) {
+      setError("目前還沒有教練問題可以回答。");
       return;
     }
-    const bookTest: BookTestMeta = {
+    const bookTest: BookTestMeta | undefined = target ? {
       documentId: target.documentId,
       expectedPage: target.expectedPage,
       bookPageLabel: target.bookPageLabel,
@@ -462,7 +468,7 @@ export default function PengliCoach() {
       sourceExcerpt: target.sourceExcerpt,
       issueTitle: target.issueTitle,
       bodyRole: target.bodyRole,
-    };
+    } : undefined;
     setScholarThinking(true);
     setError("");
     try {
@@ -473,11 +479,11 @@ export default function PengliCoach() {
           mode: "scholar-follow-up",
           messages: messages.slice(-12),
           topic: activeTopic || undefined,
-          pageHint: bookTest.expectedPage,
-          testAnswerAnchor: bookTest.answerAnchor,
-          testIssueTitle: bookTest.issueTitle,
-          testBodyRole: bookTest.bodyRole,
-          testSourceExcerpt: bookTest.sourceExcerpt,
+          pageHint: bookTest?.expectedPage,
+          testAnswerAnchor: bookTest?.answerAnchor,
+          testIssueTitle: bookTest?.issueTitle,
+          testBodyRole: bookTest?.bodyRole,
+          testSourceExcerpt: bookTest?.sourceExcerpt,
         }),
       });
       const data = (await response.json()) as {
@@ -1009,9 +1015,9 @@ export default function PengliCoach() {
             <button
               type="button"
               className="pengli-follow-up-test-button"
-              title={latestPassedBookTest ? "沿用剛才核對成功的同一書頁與考點繼續追問" : "請先完成一次學霸照書問"}
+              title={latestPassedBookTest ? "沿用剛才核對成功的同一書頁與考點回答再追問" : "回答教練目前的問題，再接著追問"}
               onClick={() => void askScholarFollowUp()}
-              disabled={thinking || scholarThinking || bookTestLoading || !latestPassedBookTest || quotaExhausted}
+              disabled={thinking || scholarThinking || bookTestLoading || !hasCoachQuestion || quotaExhausted}
             >
               <b>續</b>
               <span>{scholarThinking ? "回答並追問中…" : "學霸回答再問"}</span>
