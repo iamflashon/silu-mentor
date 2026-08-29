@@ -560,7 +560,7 @@ export default function GlobalSelectionTools() {
     }
     setSaveState("saved");
     setNoteDraft(null);
-    window.setTimeout(() => setSaveState(""), 1800);
+    if (!isPengli) window.setTimeout(() => setSaveState(""), 1800);
   }
 
   async function saveMedtechSelection() {
@@ -612,6 +612,8 @@ export default function GlobalSelectionTools() {
     setLawQuery("");
     setJudicialQuery(null);
     setLawFeedback("");
+    setSaveState("");
+    setSaveMessage("");
   };
   return (
     <>
