@@ -20,3 +20,7 @@
 .pengli-verification li { margin-bottom: 7px; }
 .pengli-verification li a { color: #076e69; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
 .pengli-verification .pengli-verification-close { display: block; width: 100%; margin-top: 16px; border: 1px solid #8fbdb8; color: #245d59; background: #fff; }
+.pengli-verification-escalation { display: grid; gap: 9px; margin-top: 12px; padding: 13px; border: 1px solid #e3b7a9; border-radius: 10px; background: #fff4ef; }
+.pengli-verification-escalation strong { color: #8a3f2d; line-height: 1.6; }
+.pengli-verification-escalation span { color: #34675f; font-weight: 700; }
+.pengli-verification-escalation button { justify-self: start; border: 0; border-radius: 9px; padding: 10px 15px; color: #fff; background: #087d72; font-weight: 800; cursor: pointer; }

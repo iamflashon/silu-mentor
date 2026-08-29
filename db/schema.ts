@@ -973,6 +973,18 @@ export const pengliTeacherQuestions = sqliteTable("pengli_teacher_questions", {
   index("pengli_teacher_questions_status_created_idx").on(table.status, table.createdAt),
 ]);
 
+export const pengliVerificationDailyAttempts = sqliteTable("pengli_verification_daily_attempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  attemptDate: text("attempt_date").notNull(),
+  failureCount: integer("failure_count").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("pengli_verification_daily_member_date_unique").on(table.memberId, table.attemptDate),
+  index("pengli_verification_daily_date_idx").on(table.attemptDate),
+]);
+
 export const noteAttachments = sqliteTable("note_attachments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   noteId: integer("note_id")
