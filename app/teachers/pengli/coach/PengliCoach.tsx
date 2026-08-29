@@ -101,6 +101,8 @@ export default function PengliCoach() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
+  const [accessChecking, setAccessChecking] = useState(true);
+  const [aiAccessActive, setAiAccessActive] = useState(false);
   const [freeTrialAvailable, setFreeTrialAvailable] = useState(false);
   const [freeTrialTopic, setFreeTrialTopic] = useState("");
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
@@ -160,26 +162,34 @@ export default function PengliCoach() {
     }
   }, []);
 
+  async function refreshAccessState() {
+    setAccessChecking(true);
+    try {
+      const response = await fetch("/api/ai-access", { cache: "no-store" });
+      const data = response.ok ? await response.json() : null;
+      if (!data?.aiAccess) throw new Error("AI_ACCESS_UNAVAILABLE");
+      const remaining = Number(data.aiAccess.remaining);
+      if (!Number.isFinite(remaining)) throw new Error("AI_ACCESS_INVALID");
+      const nextAccess = { remaining };
+      setAccess(nextAccess);
+      setAiAccessActive(data.aiAccess.active === true);
+      if ((data?.plan?.enabled === true || data.aiAccess.active === true) && remaining === 0 && !data?.pengliTrial?.available) setQuotaDialogOpen(true);
+      setFreeTrialAvailable(data?.pengliTrial?.available === true);
+      setFreeTrialTopic(String(data?.pengliTrial?.selectedTopic ?? ""));
+      if (data?.plan) {
+        setAiPlanEnabled(data.plan.enabled === true);
+        setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
+        setBookVerificationVisible(data.plan.pengliBookVerificationEnabled !== false);
+      }
+    } catch {
+      setError("正在重新確認 AI 使用次數，請稍後再試。");
+    } finally {
+      setAccessChecking(false);
+    }
+  }
+
   useEffect(() => {
-    void fetch("/api/ai-access", { cache: "no-store" })
-      .then(async (response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (data?.aiAccess) {
-          const nextAccess = {
-            remaining: data.aiAccess.remaining,
-          };
-          setAccess(nextAccess);
-          if (data?.plan?.enabled === true && nextAccess.remaining === 0 && !data?.pengliTrial?.available) setQuotaDialogOpen(true);
-        }
-        setFreeTrialAvailable(data?.pengliTrial?.available === true);
-        setFreeTrialTopic(String(data?.pengliTrial?.selectedTopic ?? ""));
-        if (data?.plan) {
-          setAiPlanEnabled(data.plan.enabled === true);
-          setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
-          setBookVerificationVisible(data.plan.pengliBookVerificationEnabled !== false);
-        }
-      })
-      .catch(() => undefined);
+    void refreshAccessState();
   }, []);
   useEffect(() => {
     if (!doubtTarget) return;
@@ -214,12 +224,19 @@ export default function PengliCoach() {
     `「${activeTopic}」最常見的申論爭點有哪些？`,
     `請從「${activeTopic}」出一題帶我逐步判斷。`,
   ] : [];
-  const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? "—";
-  const quotaExhausted = aiPlanEnabled && !freeTrialAvailable && access?.remaining === 0;
+  const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? null;
+  const unmeteredAccess = !accessChecking && !aiPlanEnabled && !aiAccessActive && !freeTrialAvailable;
+  const remainingLabel = accessChecking || displayedRemaining == null ? "查詢中" : unmeteredAccess ? "不限次" : `${displayedRemaining} 次`;
+  const quotaExhausted = (aiPlanEnabled || aiAccessActive) && !freeTrialAvailable && access?.remaining === 0;
 
   function requireAiUse(required = 1) {
     if (freeTrialAvailable && activeTopic) return true;
-    if (quotaExhausted || (aiPlanEnabled && access?.remaining != null && access.remaining < required)) {
+    if (accessChecking || access?.remaining == null) {
+      setError("正在確認剩餘次數，請稍後再送出。");
+      void refreshAccessState();
+      return false;
+    }
+    if (quotaExhausted || ((aiPlanEnabled || aiAccessActive) && access.remaining < required)) {
       setQuotaDialogOpen(true);
       setError("");
       return false;
@@ -229,11 +246,17 @@ export default function PengliCoach() {
 
   function applyAccess(nextAccess?: Access) {
     if (!nextAccess) return;
+    if (nextAccess.remaining == null || !Number.isFinite(nextAccess.remaining)) {
+      void refreshAccessState();
+      return;
+    }
     if (freeTrialAvailable && activeTopic) {
       setFreeTrialAvailable(false);
       setFreeTrialTopic(activeTopic);
     }
     setAccess(nextAccess);
+    setAiAccessActive(true);
+    setAccessChecking(false);
     if (nextAccess.remaining === 0) setQuotaDialogOpen(true);
   }
 
@@ -646,7 +669,7 @@ export default function PengliCoach() {
         </div>
         <div className="pengli-coach-access">
           <b>AI 使用次數</b>
-          <strong>{displayedRemaining} 次</strong>
+          <strong>{remainingLabel}</strong>
           {freeTrialTopic && <small>免費主題：{freeTrialTopic}</small>}
           <span>一般回答 1 次・官方查證 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／輸入兌換碼</a>
@@ -856,7 +879,7 @@ export default function PengliCoach() {
                       : "使用 2 次查證官方資料"}
                 </button>
                 {doubtLoading && <div className="pengli-verification-progress" role="status"><strong>{verificationStage <= 1 ? "正在整理查詢關鍵字…" : verificationStage === 2 ? "正在比對已同步的法規與裁判…" : "正在搜尋司法院、憲法法庭與全國法規資料庫…"}</strong><ol><li className={verificationStage >= 1 ? "active" : ""}>整理疑問</li><li className={verificationStage >= 2 ? "active" : ""}>比對平台資料</li><li className={verificationStage >= 3 ? "active" : ""}>查詢官方網站</li></ol></div>}
-                <p className="pengli-verification-status">目前剩餘 {displayedRemaining} 次；查到可驗證的官方資料才扣 2 次。查不到不扣使用次數，但每日最多失敗 2 次{verificationFailures ? `（今日已失敗 ${Math.min(verificationFailures, 2)} 次）` : ""}。</p>
+                <p className="pengli-verification-status">目前剩餘 {remainingLabel}；查到可驗證的官方資料才扣 2 次。查不到不扣使用次數，但每日最多失敗 2 次{verificationFailures ? `（今日已失敗 ${Math.min(verificationFailures, 2)} 次）` : ""}。</p>
                 {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">AI 使用次數不足，前往購買／兌換</a>}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
                 {verificationLocked && (
@@ -917,7 +940,7 @@ export default function PengliCoach() {
         )}
         <div className="pengli-coach-usage-bar" aria-label="AI 使用狀態">
           <span>
-            AI 使用次數剩餘 <strong>{displayedRemaining} 次</strong>
+            AI 使用次數剩餘 <strong>{remainingLabel}</strong>
           </span>
           <span>一般回答扣 1 次・官方查證成功扣 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／兌換</a>
@@ -987,7 +1010,7 @@ export default function PengliCoach() {
           <a className="pengli-mobile-access" href="/teachers/pengli/ai-access">
             購買／兌換碼
           </a>
-          <small>AI 使用次數剩餘 {displayedRemaining} 次</small>
+          <small>AI 使用次數剩餘 {remainingLabel}</small>
         </footer>
       </div>
       {quotaDialogOpen && (
