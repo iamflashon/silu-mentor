@@ -766,19 +766,21 @@ export async function POST(request: Request) {
     }
 
     if (body.mode === "scholar-follow-up") {
-      const pageLabel = Number(body.pageHint ?? 0) > 0 ? `PDF 第 ${Math.floor(Number(body.pageHint))} 頁` : "目前書頁";
+      const hasVerifiedPage = Number(body.pageHint ?? 0) > 0 && Boolean(String(body.testSourceExcerpt || "").trim());
+      const pageLabel = hasVerifiedPage ? `PDF 第 ${Math.floor(Number(body.pageHint))} 頁` : `目前主題「${String(body.topic || "行政法").slice(0, 120)}」`;
+      const scopeInstruction = hasVerifiedPage
+        ? `本輪固定範圍：${pageLabel}；考點「${String(body.testIssueTitle || "目前考點").slice(0, 120)}」；段落類型「${String(body.testBodyRole || "考點正文").slice(0, 80)}」。\n本頁可核對短語：「${String(body.testAnswerAnchor || "").slice(0, 100)}」\n本頁節錄：${String(body.testSourceExcerpt || "").slice(0, 1600)}`
+        : `本輪依目前對話與主題「${String(body.topic || "行政法").slice(0, 120)}」作答。教練已經提出熱身題，不必等待書頁核對，也不得因沒有頁碼而拒答。`;
       const instructions = `你是正在拿著彭狸老師教材學習的學生。這個功能不是立刻亂出下一題，而是要先完整回答彭狸 AI 教練最後問你的問題，再沿著同一考點提出一個新的追問。
 
-本輪固定範圍：${pageLabel}；考點「${String(body.testIssueTitle || "目前考點").slice(0, 120)}」；段落類型「${String(body.testBodyRole || "考點正文").slice(0, 80)}」。
-本頁可核對短語：「${String(body.testAnswerAnchor || "").slice(0, 100)}」
-本頁節錄：${String(body.testSourceExcerpt || "").slice(0, 1600)}
+${scopeInstruction}
 
 規則：
 1. 先找出對話中「彭狸 AI 教練」最後一個明確問句，第一段必須直接回答它；不可跳過回答、不可只改寫老師的問題。
-2. 回答要有明確結論與至少一個理由，限 70 至 180 個中文字。若教材節錄不足，只能依老師上一答已說明的內容回答，不得自行補造。
-3. 第二段才提出一個新問題，限 25 至 70 個中文字；問題必須由第一段回答自然延伸，並鎖定同一頁、同一考點。
-4. 追問可問判斷理由、適用方式、考場寫法或本頁概念差異，但不得要求換頁、整章摘要或教材外資料。
-5. 不得重複對話中已經問過的問題，不得再問「這頁在說什麼」，不得新增本頁與老師回答都沒有出現的法條、金額、案例、見解或名詞。
+2. 回答要有明確結論與至少一個理由，限 70 至 180 個中文字。${hasVerifiedPage ? "若教材節錄不足，只能依老師上一答已說明的內容回答，不得自行補造。" : "依目前主題的基礎觀念與教練題目作答；不確定細節時用白話說明，不得虛構法條或裁判。"}
+3. 第二段才提出一個新問題，限 25 至 70 個中文字；問題必須由第一段回答自然延伸，並鎖定同一主題；有核對書頁時才限於同一頁。
+4. 追問可問判斷理由、適用方式、考場寫法或概念差異，但不得要求整章摘要或教材外資料。
+5. 不得重複對話中已經問過的問題，不得再問「這頁在說什麼」，不得新增對話與已提供教材都沒有出現的法條、金額、案例、見解或名詞。
 6. 不得留下半句、條列片段或只有結論沒有理由的回答。
 7. answer 欄位只放完整回答；question 欄位只放一個接續問題。不要在欄位內重複「我的回答」或「我想再問老師」，不使用 Markdown、來源或頁碼。`;
       let result: { answer: string; question: string } | null = null;
