@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { getActiveAiEntitlement, getAiPlan, consumeAiAccess, progressAiCoach, canUseCoachWebSearch, recordCoachWebSearch } from "./ai-access";
+import { getActiveAiEntitlement, getAiPlan, getUnexpiredAiEntitlement, consumeAiAccess, progressAiCoach, canUseCoachWebSearch, recordCoachWebSearch } from "./ai-access";
 import { requireMember } from "./member-auth";
 
 export type AiUseGate =
@@ -13,9 +13,10 @@ export async function prepareAiUse(request: Request, category: string): Promise<
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
   const entitlement = await getActiveAiEntitlement(auth.db, auth.member.id);
+  const unexpiredEntitlement = entitlement ?? await getUnexpiredAiEntitlement(auth.db, auth.member.id);
   // 管理員平常測試不計次；若主動兌換／購買有效方案，就視同學生計次，
   // 讓管理員能完整驗證前台輪次與扣除流程。
-  if (auth.member.canAdmin && !entitlement) return { metered: false, memberId: auth.member.id, db: auth.db };
+  if (auth.member.canAdmin && !unexpiredEntitlement) return { metered: false, memberId: auth.member.id, db: auth.db };
   if (!entitlement) {
     return Response.json({
       error: "本次 AI 試問方案尚未啟用、已到期或次數已用完，請購買新一期方案或輸入啟用碼。",

@@ -215,10 +215,11 @@ export default function PengliCoach() {
     `請從「${activeTopic}」出一題帶我逐步判斷。`,
   ] : [];
   const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? "—";
+  const quotaExhausted = aiPlanEnabled && !freeTrialAvailable && access?.remaining === 0;
 
   function requireAiUse(required = 1) {
     if (freeTrialAvailable && activeTopic) return true;
-    if (aiPlanEnabled && access?.remaining != null && access.remaining < required) {
+    if (quotaExhausted || (aiPlanEnabled && access?.remaining != null && access.remaining < required)) {
       setQuotaDialogOpen(true);
       setError("");
       return false;
@@ -936,7 +937,7 @@ export default function PengliCoach() {
               className="pengli-book-test-button"
               title="由學霸抽取目前主題的教材頁面提問"
               onClick={() => void runBookContentTest()}
-              disabled={thinking || scholarThinking || bookTestLoading}
+              disabled={thinking || scholarThinking || bookTestLoading || quotaExhausted}
             >
               <b>書</b>
               <span>{bookTestLoading ? "抽頁中…" : "學霸照書問"}</span>
@@ -946,7 +947,7 @@ export default function PengliCoach() {
               className="pengli-boundary-test-button"
               title="隨機提出非本科或教材未收錄的混淆問題，測試拒答與查證流程"
               onClick={() => void runBoundaryTest()}
-              disabled={thinking || scholarThinking || bookTestLoading}
+              disabled={thinking || scholarThinking || bookTestLoading || quotaExhausted}
             >
               <b>界</b>
               <span>學霸越界問</span>
@@ -956,7 +957,7 @@ export default function PengliCoach() {
               className="pengli-follow-up-test-button"
               title={latestPassedBookTest ? "沿用剛才核對成功的同一書頁與考點繼續追問" : "請先完成一次學霸照書問"}
               onClick={() => void askScholarFollowUp()}
-              disabled={thinking || scholarThinking || bookTestLoading || !latestPassedBookTest}
+              disabled={thinking || scholarThinking || bookTestLoading || !latestPassedBookTest || quotaExhausted}
             >
               <b>續</b>
               <span>{scholarThinking ? "回答並追問中…" : "學霸回答再問"}</span>
@@ -976,7 +977,7 @@ export default function PengliCoach() {
           />
           <button
             type="submit"
-            disabled={!input.trim() || thinking || scholarThinking}
+            disabled={!input.trim() || thinking || scholarThinking || quotaExhausted}
           >
             送出
           </button>
