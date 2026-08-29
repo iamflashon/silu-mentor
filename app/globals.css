@@ -33596,6 +33596,75 @@ a {
 .law-lookup-status.error {
   color: #9a4541;
 }
+.law-lookup-thinking {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 34px 24px 38px;
+  color: #57727c;
+  text-align: center;
+}
+.law-lookup-thinking-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #d6e8e5;
+  border-top-color: #2b776f;
+  border-radius: 50%;
+  animation: law-lookup-spin 0.85s linear infinite;
+}
+.law-lookup-thinking strong {
+  color: #285e66;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.law-lookup-thinking small {
+  max-width: 390px;
+  color: #71878d;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.law-lookup-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 5px;
+}
+.law-lookup-thinking-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: law-lookup-dot 1.2s ease-in-out infinite;
+}
+.law-lookup-thinking-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.law-lookup-thinking-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+@keyframes law-lookup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes law-lookup-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .law-lookup-thinking-spinner,
+  .law-lookup-thinking-dots i {
+    animation: none;
+  }
+}
 @media (max-width: 760px) {
   .law-lookup-backdrop {
     align-items: end;

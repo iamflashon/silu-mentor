@@ -734,13 +734,36 @@ export default function GlobalSelectionTools() {
               </button>
             </header>
             {lookup.loading ? (
-              <p className="law-lookup-status">
-                {isMedtech
-                  ? "正在整理中文、英文與臨床檢驗重點…"
-                  : lookup.mode === "explain"
-                    ? "正在辨識法律類型並進行白話拆解…"
-                    : "正在查詢已下載的法規／裁判資料…"}
-              </p>
+              <div
+                className="law-lookup-thinking"
+                role="status"
+                aria-live="polite"
+              >
+                <span className="law-lookup-thinking-spinner" aria-hidden="true" />
+                <strong>
+                  {isMedtech
+                    ? "正在整理檢驗重點"
+                    : isPengli && lookup.mode === "explain"
+                      ? "彭狸教練正在思考"
+                      : lookup.mode === "explain"
+                        ? "AI 正在整理白話說明"
+                        : "正在查詢資料"}
+                  <span className="law-lookup-thinking-dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </strong>
+                <small>
+                  {isPengli && lookup.mode === "explain"
+                    ? "先查找老師教材，再整理成容易理解的說法，請稍候。"
+                    : isMedtech
+                      ? "正在核對中文、英文與臨床檢驗內容，請稍候。"
+                      : lookup.mode === "explain"
+                        ? "正在辨識內容並進行白話拆解，請稍候。"
+                        : "正在查詢已下載的法規與裁判資料，請稍候。"}
+                </small>
+              </div>
             ) : lookup.mode === "explain" &&
               !lookup.article &&
               !lookup.decision ? (
