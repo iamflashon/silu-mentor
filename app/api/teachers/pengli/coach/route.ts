@@ -278,12 +278,19 @@ function parseTopicGuide(text: string): PengliTopicGuide | null {
 
 function containsPageReference(value: string) {
   const normalized = value.normalize("NFKC").trim();
-  return /\bPDF\b|頁碼|第\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁|^\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁?\s*$/iu.test(normalized);
+  return /\bPDF\b|頁碼|\d+\s*(?:[-–—至到]\s*\d+\s*)?頁|^\s*\d+\s*$/iu.test(normalized);
+}
+
+function isBibliographicReference(value: string) {
+  const normalized = value.normalize("NFKC").trim();
+  const citationSignals = [/[，,]/u, /\d+\s*版/u, /\d{4}\s*年/u, /\d+\s*月/u, /\d+\s*頁/u, /(?:著|編|譯|總論|專論)/u]
+    .filter((pattern) => pattern.test(normalized)).length;
+  return citationSignals >= 3;
 }
 
 function isSemanticTopicPoint(value: string) {
   const normalized = value.normalize("NFKC").trim();
-  if (normalized.length < 4 || normalized.length > 36 || containsPageReference(normalized)) return false;
+  if (normalized.length < 4 || normalized.length > 36 || containsPageReference(normalized) || isBibliographicReference(normalized)) return false;
   return !/^(?:教材(?:內容|片段|重點|範圍)?|本章(?:內容|重點)?|章節(?:內容|重點)?|主題[一二三四五六七八九十\d]+|概說|問題意識|學說見解|實務見解|考點破解|擬答|行政法考點|行政處分)$/u.test(normalized);
 }
 
@@ -641,7 +648,7 @@ export async function GET(request: Request) {
     try {
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model: "gpt-5.6-luna",
-        instructions: `你是教材編輯，只能依提供的彭狸老師教材正文整理「${topic}」的學習導覽，不得加入模型一般知識、外部法條或正文未出現的概念。學生可能沒有帶書，所以每個選項單獨看就必須知道會學到哪一個法律概念或爭點。summary 用一句話說明本章教材的實際學習範圍；keyPoints 列出 3 至 5 個正文明確出現、可以直接開始教學的具體法律內容，每點 6 至 24 字並沿用教材用語。嚴禁把 PDF、頁碼、章節位置、教材片段編號或「基本概念」「核心爭點」等空泛詞當作 keyPoint，也不得在 summary 中列頁碼。firstPoint 必須逐字選自 keyPoints，並選最適合先學的前置重點。`,
+        instructions: `你是教材編輯，只能依提供的彭狸老師教材正文整理「${topic}」的學習導覽，不得加入模型一般知識、外部法條或正文未出現的概念。學生可能沒有帶書，所以每個選項單獨看就必須知道會學到哪一個法律概念或爭點。summary 用一句話說明本章教材的實際學習範圍；keyPoints 列出 3 至 5 個正文明確出現、可以直接開始教學的具體法律內容，每點 6 至 24 字並沿用教材用語。正文中的作者、書名、版次、出版年月及頁數屬於參考文獻，不是學習重點，絕對不得列入 keyPoints。也嚴禁把 PDF、頁碼、章節位置、教材片段編號或「基本概念」「核心爭點」等空泛詞當作 keyPoint，且不得在 summary 中列頁碼或參考文獻。firstPoint 必須逐字選自 keyPoints，並選最適合先學的前置重點。`,
         input: excerpts,
         text: { format: pengliTopicGuideFormat },
         max_output_tokens: 500,
