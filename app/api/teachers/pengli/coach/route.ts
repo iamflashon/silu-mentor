@@ -69,22 +69,23 @@ function compactVerification(value: string, maxLength = 360) {
 const OFFICIAL_LEGAL_DOMAINS = ["law.moj.gov.tw", "moj.gov.tw", "judicial.gov.tw"];
 
 function officialWebSources(payload: Record<string, unknown>) {
-  const found = new Map<string, { label: string; url: string; context: string }>();
-  const add = (title: unknown, url: unknown, context = "") => {
+  const searched = new Map<string, { label: string; url: string; context: string }>();
+  const cited = new Map<string, { label: string; url: string; context: string }>();
+  const add = (target: typeof searched, title: unknown, url: unknown, context = "") => {
     const href = cleanOfficialUrl(typeof url === "string" ? url.trim() : "");
     if (!href) return;
     try {
       const host = new URL(href).hostname.toLowerCase();
       if (!OFFICIAL_LEGAL_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`))) return;
-      const current = found.get(href);
-      found.set(href, { label: String(title || current?.label || host).trim() || host, url: href, context: context || current?.context || "" });
+      const current = target.get(href);
+      target.set(href, { label: String(title || current?.label || host).trim() || host, url: href, context: context || current?.context || "" });
     } catch { /* 忽略非網址資料 */ }
   };
   for (const item of Array.isArray(payload.output) ? payload.output : []) {
     if (!item || typeof item !== "object") continue;
     const action = (item as { action?: { sources?: unknown[] } }).action;
     for (const source of Array.isArray(action?.sources) ? action.sources : []) {
-      if (source && typeof source === "object") add((source as { title?: unknown }).title, (source as { url?: unknown }).url);
+      if (source && typeof source === "object") add(searched, (source as { title?: unknown }).title, (source as { url?: unknown }).url);
     }
     for (const content of Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []) {
       if (!content || typeof content !== "object") continue;
@@ -92,20 +93,65 @@ function officialWebSources(payload: Record<string, unknown>) {
       for (const annotation of Array.isArray((content as { annotations?: unknown[] }).annotations) ? (content as { annotations: unknown[] }).annotations : []) {
         if (annotation && typeof annotation === "object" && (annotation as { type?: unknown }).type === "url_citation") {
           const start = Number((annotation as { start_index?: unknown }).start_index ?? contentText.length);
-          add((annotation as { title?: unknown }).title, (annotation as { url?: unknown }).url, contentText.slice(Math.max(0, start - 180), start));
+          add(cited, (annotation as { title?: unknown }).title, (annotation as { url?: unknown }).url, contentText.slice(Math.max(0, start - 220), start));
         }
       }
     }
   }
-  return [...found.values()].slice(0, 8);
+  return [...(cited.size ? cited : searched).values()].slice(0, 8);
+}
+
+type ArticleReference = { lawName: string; articleNo: string; term: string };
+
+function exactArticleReferences(question: string, reply: string): ArticleReference[] {
+  const value = `${question} ${reply}`.normalize("NFKC");
+  const knownLawNames = ["行政程序法", "行政訴訟法", "行政罰法", "行政執行法", "訴願法", "國家賠償法", "政府資訊公開法", "中央法規標準法", "地方制度法"];
+  const found = new Map<string, ArticleReference>();
+  for (const match of value.matchAll(/([\p{Script=Han}]{2,20}(?:法|條例|通則|規則|辦法))第\s*(\d+)(?:\s*之\s*(\d+))?\s*條/gu)) {
+    const rawLawName = match[1];
+    const lawName = knownLawNames.find((name) => rawLawName.includes(name))
+      || rawLawName.replace(/^(?:是以|始符|依據|依照|依|參照|按照|違反|適用|準用|類推|所稱|本於)+/u, "");
+    const articleNo = `${match[2]}${match[3] ? `之${match[3]}` : ""}`;
+    const term = `${lawName}第${articleNo}條`;
+    found.set(term, { lawName, articleNo, term });
+  }
+  return [...found.values()];
 }
 
 function verificationTerms(question: string, reply: string) {
-  const exact = `${question} ${reply}`.normalize("NFKC").match(/[\p{Script=Han}]{1,18}法第\s*\d+(?:[-之]\d+)?\s*條|(?:釋字|憲判字)第?\s*\d+\s*號|\d{2,3}年度[^，。；：\s]{1,10}字第\s*\d+\s*號/gu) ?? [];
+  const articleReferences = exactArticleReferences(question, reply).map((reference) => reference.term);
+  const exact = `${question} ${reply}`.normalize("NFKC").match(/(?:釋字|憲判字)第?\s*\d+\s*號|\d{2,3}年度[^，。；：\s]{1,10}字第\s*\d+\s*號/gu) ?? [];
   const stop = /^(老師|回答|問題|是否|可以|認為|規定|資料|法律|行政法|查證|說明|內容|學生|目前|如果|因為|本題|官方)$/u;
   const words = question.normalize("NFKC").split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
     .map((term) => term.trim()).filter((term) => term.length >= 2 && term.length <= 14 && !stop.test(term));
-  return [...new Set([...exact, ...words])].slice(0, 3);
+  return [...new Set([...articleReferences, ...exact, ...words])].slice(0, 3);
+}
+
+function sourceMatchesExplicitReferences(source: { label: string; url: string; context?: string }, articles: ArticleReference[], cases: string[]) {
+  if (!articles.length && !cases.length) return true;
+  const searchable = `${source.label} ${source.context || ""} ${decodeURIComponent(source.url)}`.normalize("NFKC").replace(/\s+/gu, "");
+  if (cases.some((caseNo) => searchable.includes(caseNo.replace(/\s+/gu, "")))) return true;
+  return articles.some(({ lawName, articleNo, term }) => {
+    if (searchable.includes(term.replace(/\s+/gu, ""))) return true;
+    try {
+      const url = new URL(source.url);
+      const linkedArticle = url.searchParams.get("flno") || url.searchParams.get("lawNumber") || url.searchParams.get("LawNo");
+      const sameArticle = linkedArticle?.replace(/\s+/gu, "") === articleNo.replace(/之/gu, "-");
+      const knownAdministrativeProcedureLaw = lawName === "行政程序法" && url.searchParams.get("pcode")?.toUpperCase() === "A0030055";
+      return Boolean(sameArticle && (knownAdministrativeProcedureLaw || searchable.includes(lawName)));
+    } catch { return false; }
+  });
+}
+
+function isInterpretiveTeachingClaim(value: string) {
+  return /(?:本頁|本書|教材|老師|學說|見解|目的性限縮|旨趣|立法目的|信賴保護|應僅以|應限於|解釋上)/u.test(value);
+}
+
+function onlyBareStatuteSources(sources: { label: string; url: string }[]) {
+  return sources.length > 0 && sources.every((source) => {
+    try { return new URL(source.url).hostname.toLowerCase() === "law.moj.gov.tw"; }
+    catch { return false; }
+  });
 }
 
 function exactCaseReferences(question: string, reply: string) {
@@ -678,7 +724,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -701,11 +747,15 @@ export async function POST(request: Request) {
         if (remaining < 2) return Response.json({ error: "AI 使用次數不足；官方資料查證需要 2 次。", code: "AI_ACCESS_INSUFFICIENT", purchaseUrl: "/teachers/pengli/ai-access" }, { status: 402 });
       }
       const aiReply = String(body.aiReply ?? "").trim().slice(0, 6000);
+      const sourceLabel = String(body.sourceLabel ?? "").trim().slice(0, 300);
       const studentQuestion = String(body.studentQuestion ?? "").trim().slice(0, 2000);
       if (!aiReply || !studentQuestion) return Response.json({ error: "請先選擇 AI 回覆並輸入你的疑問。" }, { status: 400 });
       const terms = verificationTerms(studentQuestion, aiReply);
+      const articleReferences = exactArticleReferences(studentQuestion, aiReply);
       const exactCases = exactCaseReferences(studentQuestion, aiReply);
-      const articleConditions = terms.map((term) => or(like(legalDocuments.title, `%${term}%`), like(legalArticles.content, `%${term}%`)));
+      const articleConditions = articleReferences.length
+        ? articleReferences.map((reference) => and(like(legalDocuments.title, `%${reference.lawName}%`), like(legalArticles.articleNo, `%${reference.articleNo}%`)))
+        : terms.map((term) => or(like(legalDocuments.title, `%${term}%`), like(legalArticles.content, `%${term}%`)));
       const caseTerms = exactCases.length ? exactCases : terms.slice(0, 2);
       const caseConditions = caseTerms.map((term) => or(like(judicialCases.title, `%${term}%`), like(judicialCases.caseNo, `%${term}%`)));
       let platformLookupFailed = false;
@@ -740,8 +790,8 @@ export async function POST(request: Request) {
           } : {}),
           instructions: body.mode === "official-answer"
             ? `你是臺灣行政法官方資料查證員。教材全文未命中這個問題，只能依可核對的官方法規或裁判回答，不得使用模型記憶補足。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料回答。"}第一段以「官方資料補充：」開頭直接回答；第二段簡要說明依據；若資料不足，必須明寫「目前官方資料仍無法確認，建議轉請彭狸老師回答」。不得虛構法條、裁判、老師見解或教材頁碼，不得整段抄錄官方資料。全文 140 至 240 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`
-            : `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}輸出依序只有三段：第一段以「查證結論：大致正確／需要修正／目前無法確認」擇一；第二段用兩個短句說明關鍵理由；第三段只寫需修正處或學生下一步。不得整段抄錄官方資料、不得重複原 AI 回覆、不得列出搜尋過程。資料不足就直說可轉交彭狸老師。全文 140 至 240 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
-          input: body.mode === "official-answer" ? `【待查問題】\n${studentQuestion}` : `【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
+            : `你是臺灣行政法答案查證員。比較「原 AI 回覆」與「學生質疑」。${useOfficialWeb ? "平台同步資料未命中；本次必須搜尋且只能引用法務部全國法規資料庫、法務部或司法院官方網站。" : "只依下列平台已同步的官方法規／裁判資料驗證。"}\n\n判定規則：\n1. 必須區分「法條明文」、「裁判或函釋見解」與「教材／老師採取的學說或目的性限縮解釋」。法條沒有明文採取某項限縮，不等於該限縮見解錯誤。\n2. 不得只憑法條文義、條文未記載或概括連結其他條文，就推翻教材的解釋論見解。若官方資料只確認法條文字，應判為「存在不同見解」或「目前無法確認」。\n3. 只有直接相關的官方裁判、函釋或法條明文，明確與原回覆的同一命題衝突時，才能判「需要修正」。來源條號、案號或討論爭點不一致，不得引用，也不得判定原回覆錯誤。\n4. 原回覆若來自彭狸老師教材，應寫明「本書採取的見解」；查到不同官方實務時並列說明，不得冒充教材內容或擅自改寫老師立場。\n5. 學說或解釋爭議沒有足以定論的官方資料時，必須保留爭議並建議轉請彭狸老師確認。\n\n輸出依序只有三段：第一段以「查證結論：大致正確／存在不同見解／需要修正／目前無法確認」擇一；第二段用兩個短句說明關鍵理由；第三段只寫需修正處或學生下一步。不得整段抄錄官方資料、不得重複原 AI 回覆、不得列出搜尋過程。全文 140 至 260 字，不使用 Markdown。${evidence ? `\n\n${evidence}` : ""}`,
+          input: body.mode === "official-answer" ? `【待查問題】\n${studentQuestion}` : `【原 AI 回覆來源】\n${sourceLabel || "未標示"}\n\n【原 AI 回覆】\n${aiReply}\n\n【學生質疑】\n${studentQuestion}`,
           max_output_tokens: 380,
         }) }) as Record<string, unknown>;
       } catch {
@@ -750,14 +800,22 @@ export async function POST(request: Request) {
       } finally {
         clearTimeout(timeout);
       }
-      if (useOfficialWeb) sources = officialWebSources(payload).map((source) => ({ ...source, excerpt: "官方外網補充" }));
+      if (useOfficialWeb) sources = officialWebSources(payload)
+        .filter((source) => sourceMatchesExplicitReferences(source, articleReferences, exactCases))
+        .map((source) => ({ ...source, excerpt: "官方外網補充" }));
       const uniqueSources = new Map<string, ReturnType<typeof localizedSource>>();
       for (const source of sources.filter((source) => Boolean(source.url))) {
         const localized = localizedSource({ ...source, url: String(source.url) });
         uniqueSources.set(localized.url, localized);
       }
       sources = [...uniqueSources.values()].slice(0, 3);
-      const generatedVerification = compactVerification(localizeOfficialCitations(outputText(payload)));
+      let generatedVerification = compactVerification(localizeOfficialCitations(outputText(payload)));
+      if (body.mode === "verify-doubt"
+        && generatedVerification.startsWith("查證結論：需要修正")
+        && isInterpretiveTeachingClaim(aiReply)
+        && onlyBareStatuteSources(sources)) {
+        generatedVerification = "查證結論：存在不同見解\n官方法條只能確認條文文義，不能單獨否定教材採取的目的性限縮或學說見解。現有官方資料未直接處理這項解釋爭議，因此不得判定教材錯誤；作答時應標明這是本書所採見解，必要時再轉請彭狸老師確認。";
+      }
       const noOfficialSource = sources.length === 0;
       const verification = noOfficialSource
         ? "本次已搜尋相關法條、判決與裁判，但目前沒有找到足以核對這個問題的官方資料。本次不扣使用次數；你可以回到 AI 教練繼續釐清概念，或轉請彭狸老師確認。"

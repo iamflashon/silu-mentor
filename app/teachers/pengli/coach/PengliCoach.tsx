@@ -545,6 +545,7 @@ export default function PengliCoach() {
           mode: doubtTarget.evidenceMissing ? "official-answer" : "verify-doubt",
           messageKey: doubtTarget.id,
           aiReply: doubtTarget.text,
+          sourceLabel: doubtTarget.source || "彭狸 AI 教練回覆",
           studentQuestion: doubtText,
           topic:
             new URLSearchParams(window.location.search).get("topic") ||
