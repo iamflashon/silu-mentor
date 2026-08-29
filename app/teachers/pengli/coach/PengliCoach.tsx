@@ -43,6 +43,13 @@ type Access = {
 const storageKey = "pengli-ai-coach-history-v1";
 const topicStorageKey = "pengli-ai-coach-active-topic-v1";
 
+function isClickableLearningPoint(value: string) {
+  const normalized = value.normalize("NFKC").trim();
+  return normalized.length >= 4
+    && normalized.length <= 36
+    && !/\bPDF\b|頁碼|第\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁|^\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁?\s*$/iu.test(normalized);
+}
+
 function makeTopicLoadingMessage(topic: string): CoachMessage {
   return {
     id: crypto.randomUUID(),
@@ -115,8 +122,8 @@ export default function PengliCoach() {
       const data = await response.json() as { located?: boolean; pageStart?: number; pageEnd?: number | null; source?: string; guide?: { summary?: string; keyPoints?: string[]; firstPoint?: string }; error?: string };
       if (!response.ok) throw new Error(data.error || "目前無法讀取教材章節。");
       if (data.located && Number.isFinite(data.pageStart)) setTopicLocation({ pageStart: Number(data.pageStart), pageEnd: data.pageEnd });
-      const keyPoints = Array.isArray(data.guide?.keyPoints) ? data.guide.keyPoints.filter((point): point is string => typeof point === "string" && point.trim().length > 0).slice(0, 5) : [];
-      if (!data.located || keyPoints.length < 3 || !data.guide?.summary || !data.guide?.firstPoint) {
+      const keyPoints = Array.isArray(data.guide?.keyPoints) ? data.guide.keyPoints.filter((point): point is string => typeof point === "string" && isClickableLearningPoint(point)).slice(0, 5) : [];
+      if (!data.located || keyPoints.length < 3 || !data.guide?.summary || !data.guide?.firstPoint || !keyPoints.includes(data.guide.firstPoint)) {
         if (resetConversation) setMessages([{
           id: crypto.randomUUID(), role: "coach",
           text: `今天要練的是「${topic}」，但目前尚未完成這一章的教材重點定位。我先不使用一般知識代替老師內容，請稍後再試或回報彭狸老師確認。`,
@@ -623,7 +630,12 @@ export default function PengliCoach() {
         <div className="pengli-coach-scope">
           <b>目前教材範圍</b>
           {activeTopic ? <span className="active-topic">目前主題：{activeTopic}</span> : <a className="topic-required" href="/teachers/pengli#curriculum">尚未選擇主題，請先從八大主題進入</a>}
-          {activeTopic && <span className="topic-page">{topicLocation ? `PDF 第 ${topicLocation.pageStart}${topicLocation.pageEnd && topicLocation.pageEnd !== topicLocation.pageStart ? `–${topicLocation.pageEnd}` : ""} 頁` : "正在定位教材頁碼…"}</span>}
+          {activeTopic && topicLocation && (
+            <details className="topic-page">
+              <summary>教材位置（有書時參考）</summary>
+              <span>PDF 第 {topicLocation.pageStart}{topicLocation.pageEnd && topicLocation.pageEnd !== topicLocation.pageStart ? `–${topicLocation.pageEnd}` : ""} 頁</span>
+            </details>
+          )}
           <span>行政法 8 大主題</span>
           <span>試學考點與解題脈絡</span>
           <span>老師提醒與作答架構</span>
