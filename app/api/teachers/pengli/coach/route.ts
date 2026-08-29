@@ -94,6 +94,12 @@ function outputText(payload: Record<string, unknown>) {
   return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : []).map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim();
 }
 
+function outputWasTruncated(payload: Record<string, unknown>) {
+  if (payload.status !== "incomplete") return false;
+  const details = payload.incomplete_details;
+  return Boolean(details && typeof details === "object" && (details as { reason?: unknown }).reason === "max_output_tokens");
+}
+
 function plainText(value: string) {
   return value.replace(/\*\*/gu, "").replace(/^#{1,6}\s*/gmu, "").replace(/^>\s?/gmu, "").trim();
 }
@@ -945,21 +951,25 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       ? `本輪是同一個已通過核對書頁的接續對話。仍須鎖定考點「${testIssueTitle || "未命名考點"}」與本頁內容，但核對短語「${testAnswerAnchor}」已在前輪出現，本輪不得再次逐字重貼或重新介紹前提。直接回答學生這次的新問題；只有學生答錯、混淆前提或明確要求重述時，才用一句話簡短提醒。${testSourceExcerpt ? `本頁節錄僅供承接判斷：\n${testSourceExcerpt}\n` : ""}`
       : `本輪是書頁內容驗證。目錄已確認本頁隸屬考點「${testIssueTitle || "未命名考點"}」，本頁類型為「${testBodyRole || "考點正文"}」。這兩項是系統已核對的定位，不得否定、不得改稱為其他考點。核對短語「${testAnswerAnchor}」必須逐字出現在回答中，以證明回答確實取自本頁；但仍須用白話解釋它在本頁的作用。${testSourceExcerpt ? `抽樣頁原文如下：\n${testSourceExcerpt}\n` : ""}若本頁只是案例事實，說明案例正在問什麼；若是考點破解，說明題目測什麼及書中解題順序。若單頁不足以完成解釋，明說本頁只能確認到哪裡，不得拿其他考點補答案。`
       : "";
-    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}${interactionRule}回答精簡、口語，一次只教一個判斷步驟；回答完可問一個能推進理解的小問題，不要一次傾倒完整擬答。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
+    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `${evidence.searchFailed ? "本輪教材索引服務暫時無法使用" : "本輪整本書索引未命中"}；可依目前對話上下文與臺灣行政法一般知識繼續提供一個小提示，但必須明確標示「AI 補充，未命中彭狸老師教材」，不得虛構教材內容或頁碼。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}${interactionRule}回答精簡、口語，一次只教一個判斷步驟；回答完可問一個能推進理解的小問題，不要一次傾倒完整擬答。每次回答必須寫完最後一句，不得停在「的」、「對」、「與」、「或」等未完詞句。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
     let payload: Record<string, unknown> = {};
     let reply = "";
-    for (let attempt = 0; attempt < (testAnswerAnchor && !testContinuation ? 2 : 1); attempt += 1) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model,
-        instructions: `${instructions}${attempt ? "\n上次回答未通過書頁核對。這次必須保留目錄指定考點，並逐字放入核對短語。" : ""}`,
+        instructions: `${instructions}${attempt ? "\n上次回答未完整或未通過書頁核對。這次必須完整寫完最後一句；若是書頁核對，也必須保留目錄指定考點與核對短語。" : ""}`,
         input: messages,
-        max_output_tokens: 500,
+        max_output_tokens: attempt ? 900 : 700,
       }) }) as Record<string, unknown>;
       const rawReply = plainText(outputText(payload).replace(/【教練回應】/gu, "").replace(/【學霸追問】[\s\S]*$/u, ""));
       reply = rawReply.replace(/\s*[（(]?\s*依據[：:][^\n]*第\s*\d+(?:\s*[–—-]\s*\d+)?\s*頁\s*[）)]?\s*$/u, "").trim();
       const compactReply = reply.normalize("NFKC").replace(/\s+/gu, "");
       const compactAnchor = testAnswerAnchor.normalize("NFKC").replace(/\s+/gu, "");
       const deniesMappedIssue = Boolean(testIssueTitle) && new RegExp(`(?:不是|並非)(?:在)?(?:說|談|討論)?[「『]?${testIssueTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u").test(reply);
+      if (outputWasTruncated(payload)) {
+        reply = "";
+        continue;
+      }
       if (!testAnswerAnchor || (testContinuation ? !deniesMappedIssue : compactReply.includes(compactAnchor) && !deniesMappedIssue)) break;
       reply = "";
     }
