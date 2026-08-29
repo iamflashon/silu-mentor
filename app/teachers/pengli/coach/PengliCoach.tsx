@@ -938,7 +938,7 @@ export default function PengliCoach() {
               className="pengli-book-test-button"
               title="由學霸抽取目前主題的教材頁面提問"
               onClick={() => void runBookContentTest()}
-              disabled={thinking || scholarThinking || bookTestLoading || quotaExhausted}
+              disabled={thinking || scholarThinking || bookTestLoading}
             >
               <b>書</b>
               <span>{bookTestLoading ? "抽頁中…" : "學霸照書問"}</span>
@@ -948,7 +948,7 @@ export default function PengliCoach() {
               className="pengli-boundary-test-button"
               title="隨機提出非本科或教材未收錄的混淆問題，測試拒答與查證流程"
               onClick={() => void runBoundaryTest()}
-              disabled={thinking || scholarThinking || bookTestLoading || quotaExhausted}
+              disabled={thinking || scholarThinking || bookTestLoading}
             >
               <b>界</b>
               <span>學霸越界問</span>
@@ -958,7 +958,7 @@ export default function PengliCoach() {
               className="pengli-follow-up-test-button"
               title={latestPassedBookTest ? "沿用剛才核對成功的同一書頁與考點回答再追問" : "回答教練目前的問題，再接著追問"}
               onClick={() => void askScholarFollowUp()}
-              disabled={thinking || scholarThinking || bookTestLoading || !hasCoachQuestion || quotaExhausted}
+              disabled={thinking || scholarThinking || bookTestLoading || !hasCoachQuestion}
             >
               <b>續</b>
               <span>{scholarThinking ? "回答並追問中…" : "學霸回答再問"}</span>
