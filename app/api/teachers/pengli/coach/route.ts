@@ -265,23 +265,34 @@ function parseTopicGuide(text: string): PengliTopicGuide | null {
   try {
     const value = JSON.parse(text.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim()) as Partial<PengliTopicGuide>;
     const keyPoints = Array.isArray(value.keyPoints)
-      ? [...new Set(value.keyPoints.map((item) => plainText(String(item)).trim()).filter((item) => item.length >= 4 && item.length <= 36))].slice(0, 5)
+      ? [...new Set(value.keyPoints.map((item) => plainText(String(item)).trim()).filter(isSemanticTopicPoint))].slice(0, 5)
       : [];
     const summary = plainText(String(value.summary ?? "")).trim();
     const firstPoint = plainText(String(value.firstPoint ?? "")).trim();
-    if (keyPoints.length < 3 || summary.length < 12 || !keyPoints.includes(firstPoint)) return null;
+    if (keyPoints.length < 3 || summary.length < 12 || containsPageReference(summary) || !keyPoints.includes(firstPoint)) return null;
     return { summary, keyPoints, firstPoint };
   } catch {
     return null;
   }
 }
 
+function containsPageReference(value: string) {
+  const normalized = value.normalize("NFKC").trim();
+  return /\bPDF\b|頁碼|第\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁|^\s*\d+\s*(?:[-–—至到]\s*\d+\s*)?頁?\s*$/iu.test(normalized);
+}
+
+function isSemanticTopicPoint(value: string) {
+  const normalized = value.normalize("NFKC").trim();
+  if (normalized.length < 4 || normalized.length > 36 || containsPageReference(normalized)) return false;
+  return !/^(?:教材(?:內容|片段|重點|範圍)?|本章(?:內容|重點)?|章節(?:內容|重點)?|主題[一二三四五六七八九十\d]+|概說|問題意識|學說見解|實務見解|考點破解|擬答|行政法考點|行政處分)$/u.test(normalized);
+}
+
 function fallbackTopicGuide(topic: string, rows: { hierarchyPath: string; title: string; text: string }[]): PengliTopicGuide | null {
-  const generic = /^(?:主題[一二三四五六七八九十\d]+|概說|問題意識|學說見解|實務見解|考點破解|擬答|行政法考點|行政處分)$/u;
   const labels = rows.flatMap((row) => `${row.hierarchyPath}｜${row.title}`.split(/[>／/｜]/u))
     .map((item) => item.replace(/^\s*(?:考點\s*\d+[：:]?|第[一二三四五六七八九十\d]+節[：:]?)\s*/u, "").trim())
-    .filter((item) => item.length >= 4 && item.length <= 36 && item !== topic && !generic.test(item));
-  const enumerated = rows.flatMap((row) => [...row.text.matchAll(/[一二三四五六七八九十]\s*[、.)）]\s*([^，。；：\n]{4,30})/gu)].map((match) => match[1].trim()));
+    .filter((item) => item !== topic && isSemanticTopicPoint(item));
+  const enumerated = rows.flatMap((row) => [...row.text.matchAll(/[一二三四五六七八九十]\s*[、.)）]\s*([^，。；：\n]{4,30})/gu)]
+    .map((match) => match[1].trim()).filter(isSemanticTopicPoint));
   const keyPoints = [...new Set([...labels, ...enumerated])].slice(0, 5);
   if (keyPoints.length < 3) return null;
   return {
@@ -626,11 +637,11 @@ export async function GET(request: Request) {
   if (!first) return Response.json({ topic, located: false });
   let guide = fallbackTopicGuide(topic, evidence.rows);
   if (await getOpenAIKey()) {
-    const excerpts = evidence.rows.slice(0, 6).map((row, index) => `【教材片段 ${index + 1}｜${row.hierarchyPath || row.title || "考點"}】\n${row.text.replace(/\s+/gu, " ").slice(0, 900)}`).join("\n\n");
+    const excerpts = evidence.rows.slice(0, 6).map((row, index) => `【教材正文片段 ${index + 1}】\n${row.text.replace(/\s+/gu, " ").slice(0, 900)}`).join("\n\n");
     try {
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model: "gpt-5.6-luna",
-        instructions: `你是教材編輯，只能依提供的彭狸老師教材片段整理「${topic}」的學習導覽，不得加入模型一般知識、外部法條或片段未出現的概念。summary 用一句話說明本章教材的實際學習範圍；keyPoints 列出 3 至 5 個教材明確出現的具體重點，每點 6 至 24 字，沿用教材用語，不得只寫「基本概念」「核心爭點」等空泛詞；firstPoint 必須逐字選自 keyPoints，並選最適合先學的前置重點。`,
+        instructions: `你是教材編輯，只能依提供的彭狸老師教材正文整理「${topic}」的學習導覽，不得加入模型一般知識、外部法條或正文未出現的概念。學生可能沒有帶書，所以每個選項單獨看就必須知道會學到哪一個法律概念或爭點。summary 用一句話說明本章教材的實際學習範圍；keyPoints 列出 3 至 5 個正文明確出現、可以直接開始教學的具體法律內容，每點 6 至 24 字並沿用教材用語。嚴禁把 PDF、頁碼、章節位置、教材片段編號或「基本概念」「核心爭點」等空泛詞當作 keyPoint，也不得在 summary 中列頁碼。firstPoint 必須逐字選自 keyPoints，並選最適合先學的前置重點。`,
         input: excerpts,
         text: { format: pengliTopicGuideFormat },
         max_output_tokens: 500,
