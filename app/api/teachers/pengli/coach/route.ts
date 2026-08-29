@@ -80,7 +80,7 @@ function isPengliNavigationPage(text: string) {
 }
 
 function isShortHelpReply(text: string) {
-  return /^(我)?(不知道|不會|不懂|沒想法|想不到|請提示|給我提示|可以提示嗎)[。！!？?\s]*$/u.test(text.trim());
+  return /^(?:(我)?(不知道|不會|不懂|沒想法|想不到|請提示|給我提示|可以提示嗎)|我不懂[，,、\s]*請老師(?:再)?說明(?:這題應該先從哪個判斷步驟開始)?)[。！!？?\s]*$/u.test(text.trim());
 }
 
 function clearlyOutsidePengliScope(text: string) {
@@ -783,17 +783,22 @@ export async function POST(request: Request) {
 7. answer 欄位只放完整回答；question 欄位只放一個接續問題。不要在欄位內重複「我的回答」或「我想再問老師」，不使用 Markdown、來源或頁碼。`;
       let result: { answer: string; question: string } | null = null;
       for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
-        const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
-          model: "gpt-5.6-luna",
-          instructions: attempt === 0 ? instructions : `${instructions}\n\n前一次輸出未完成。這次務必讓 answer 有明確結論與理由，question 是一個完整問句。`,
-          input: messages,
-          text: { format: pengliScholarFollowUpFormat },
-          max_output_tokens: attempt === 0 ? 900 : 1200,
-        }) }) as Record<string, unknown>;
-        result = parseScholarFollowUp(outputText(payload));
+        try {
+          const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+            model: "gpt-5.6-luna",
+            instructions: attempt === 0 ? instructions : `${instructions}\n\n前一次輸出未完成。這次務必讓 answer 有明確結論與理由，question 是一個完整問句。`,
+            input: messages,
+            text: { format: pengliScholarFollowUpFormat },
+            max_output_tokens: attempt === 0 ? 900 : 1200,
+          }) }) as Record<string, unknown>;
+          result = parseScholarFollowUp(outputText(payload));
+        } catch {
+          result = null;
+        }
       }
-      if (!result) return Response.json({ error: "學霸暫時無法完成回答，系統已自動重試；本次不扣使用次數，請稍後再試。" }, { status: 502 });
-      const scholarFollowUp = `我的回答：${result.answer}\n\n我想再問老師：${result.question}`;
+      const scholarFollowUp = result
+        ? `我的回答：${result.answer}\n\n我想再問老師：${result.question}`
+        : "我不懂，請老師再說明這題應該先從哪個判斷步驟開始？";
       return Response.json({ scholarFollowUp, source: `${pageLabel}｜目前對話上下文` });
     }
 
