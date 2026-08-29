@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { messageKey?: unknown; conversationKey?: unknown; topic?: unknown; studentQuestion?: unknown; aiReply?: unknown };
+  const body = await request.json() as { messageKey?: unknown; conversationKey?: unknown; topic?: unknown; studentQuestion?: unknown; aiReply?: unknown; submissionKind?: unknown };
   const messageKey = String(body.messageKey ?? "").slice(0, 120);
   const studentQuestion = String(body.studentQuestion ?? "").trim().slice(0, 2000);
   if (!messageKey || !studentQuestion) return Response.json({ error: "找不到要轉交老師的問題。" }, { status: 400 });
@@ -32,7 +32,9 @@ export async function POST(request: Request) {
     topic: String(body.topic ?? "行政法").slice(0, 120),
     aiReply: String(body.aiReply ?? "未找到對應書頁").slice(0, 6000),
     studentQuestion,
-    verificationResult: "教材全文檢索未命中；依學生選擇直接轉請老師回答。",
+    verificationResult: body.submissionKind === "ai-interpretation-question"
+      ? "學生認為 AI 回覆可能有誤，想請老師說明 AI 為何如此解讀並提供正確觀點。"
+      : "教材全文檢索未命中；依學生選擇直接轉請老師回答。",
     verificationSourcesJson: "[]",
     status: "pending_review",
   }).returning({ id: pengliTeacherQuestions.id });
