@@ -163,7 +163,15 @@ const worker = {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const judicialCrons = new Set(["*/1 16-21 * * *"]);
+    // Accept the current one-minute schedule and the previous five-minute
+    // schedules during Cloudflare's trigger propagation window. Previously the
+    // Wrangler config emitted the five-minute values while this handler only
+    // accepted the one-minute value, so every real Cron event was ignored.
+    const judicialCrons = new Set([
+      "*/1 16-21 * * *",
+      "30-59/5 16 * * *",
+      "*/5 17-21 * * *",
+    ]);
     if (!judicialCrons.has(controller.cron)) return;
     ctx.waitUntil(
       (async () => {
