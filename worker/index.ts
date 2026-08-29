@@ -21,6 +21,7 @@ interface Env {
   BUCKET: R2Bucket;
   JUDICIAL_API_USER?: string;
   JUDICIAL_API_PASSWORD?: string;
+  JUDICIAL_SYNC_WAKE_TOKEN?: string;
   ENTRY_ADMIN_EMAIL?: string;
   ENTRY_ADMIN_PASSWORD?: string;
   ENTRY_SESSION_SECRET?: string;
@@ -110,6 +111,11 @@ async function addAdminEntryContext(request: Request, env: Env) {
   const headers = new Headers(request.headers);
   headers.delete("x-silu-admin-entry");
   headers.delete("x-silu-member-id");
+  // Scheduled-only headers must never be accepted from a public request. The
+  // scheduled handler below dispatches directly to the app router and bypasses
+  // this sanitising boundary.
+  headers.delete("x-scheduled-sync");
+  headers.delete("x-sync-source");
   if (await isAdminSessionCookie(request, env.ENTRY_SESSION_SECRET)) headers.set("x-silu-admin-entry", "1");
   const session = await getMemberSession(request, env);
   if (session) {
@@ -157,14 +163,26 @@ const worker = {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    const judicialCrons = new Set(["*/1 16-21 * * *"]);
+    // Accept the current one-minute schedule and the previous five-minute
+    // schedules during Cloudflare's trigger propagation window. Previously the
+    // Wrangler config emitted the five-minute values while this handler only
+    // accepted the one-minute value, so every real Cron event was ignored.
+    const judicialCrons = new Set([
+      "*/1 16-21 * * *",
+      "30-59/5 16 * * *",
+      "*/5 17-21 * * *",
+    ]);
     if (!judicialCrons.has(controller.cron)) return;
     ctx.waitUntil(
       (async () => {
         const response = await handler.fetch(
           new Request("https://silu-mentor.internal/api/judicial-sync", {
             method: "POST",
-            headers: { "content-type": "application/json", "x-scheduled-sync": "1" },
+            headers: {
+              "content-type": "application/json",
+              "x-scheduled-sync": "1",
+              "x-sync-source": "worker-cron",
+            },
             body: JSON.stringify({ action: "sync", limit: 120 }),
           }),
           env,

@@ -10,8 +10,7 @@
 	"keep_vars": true,
 	"triggers": {
 		"crons": [
-			"30-59/5 16 * * *",
-			"*/5 17-21 * * *"
+			"*/1 16-21 * * *"
 		]
 	},
 	"d1_databases": [

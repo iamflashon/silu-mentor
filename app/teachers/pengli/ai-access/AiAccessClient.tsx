@@ -64,10 +64,10 @@ export default function AiAccessClient() {
   return <><div className="pengli-ai-access-grid">
     <section className="pengli-ai-plan-card">
       <span>AI PRACTICE PASS</span><h1>彭狸 AI 陪練次數</h1>
-      <p>所有功能都使用同一種 AI 次數：一般 AI 成功回答扣 1 次；查證官方資料成功扣 2 次。</p>
-      <small className="pengli-rule-version">規則版本：2026-08-28</small>
+      <p>所有功能都使用同一種 AI 次數：一般 AI 成功回答扣 1 次；找到可核對的官方資料才扣 2 次。</p>
+      <small className="pengli-rule-version">規則版本：2026-08-29</small>
       <div className="pengli-ai-balance"><small>目前剩餘</small><strong>{access?.active ? access.remaining : 0}<em> 次</em></strong><span>{access?.active && access.expiresAt ? `可使用至 ${new Date(access.expiresAt).toLocaleDateString("zh-TW")}` : "目前沒有有效方案"}</span></div>
-      <ul><li>一般對話、針對這段追問：成功扣 1 次</li><li>白話解釋、學霸代答：成功扣 1 次</li><li>官方資料查證：成功且附官方網址才扣 2 次</li><li>失敗、逾時或查無精準資料：不扣次，但每日最多失敗 2 次；達上限後可代轉問老師</li></ul>
+      <ul><li>一般對話、針對這段追問：成功扣 1 次</li><li>白話解釋、學霸代答：成功扣 1 次</li><li>官方資料查證：找到法條、判決或裁判並附官方網址才扣 2 次</li><li>沒有查到相關官方資料：直接告知且不扣次數，不列入失敗次數</li></ul>
     </section>
     <section className="pengli-ai-purchase-card">
       <span>{plan?.promoActive ? "限時首購優惠" : "購買 AI 次數"}</span><h2>{plan?.promoActive ? `NT$${plan.price}｜${plan.standardQuota} 次再送 ${plan.bonusQuota} 次` : plan?.name || "AI 使用方案"}</h2>

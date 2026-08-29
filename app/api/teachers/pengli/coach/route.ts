@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, inArray, like, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lt, lte, or } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, pengliVerificationDailyAttempts, usageLogs } from "../../../../../db/schema";
+import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
@@ -11,66 +11,6 @@ import { PENGLI_THEME_TITLES } from "../../../../../lib/pengli-book-toc";
 type InputMessage = { role?: unknown; text?: unknown };
 
 const PENGLI_BOOK_BODY_START_PAGE = 23;
-const VERIFICATION_FAILURE_LIMIT = 2;
-type AppDb = Awaited<ReturnType<typeof getDb>>;
-
-function taipeiDateKey() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
-async function verificationFailureState(db: AppDb, memberId: number) {
-  const attemptDate = taipeiDateKey();
-  const [row] = await db.select({ failureCount: pengliVerificationDailyAttempts.failureCount })
-    .from(pengliVerificationDailyAttempts)
-    .where(and(
-      eq(pengliVerificationDailyAttempts.memberId, memberId),
-      eq(pengliVerificationDailyAttempts.attemptDate, attemptDate),
-    )).limit(1);
-  const failures = Math.max(0, Number(row?.failureCount ?? 0));
-  return {
-    verificationFailures: failures,
-    verificationAttemptsRemaining: Math.max(0, VERIFICATION_FAILURE_LIMIT - failures),
-    verificationLocked: failures >= VERIFICATION_FAILURE_LIMIT,
-  };
-}
-
-async function recordVerificationFailure(db: AppDb, memberId: number) {
-  const now = new Date();
-  const attemptDate = taipeiDateKey();
-  await db.insert(pengliVerificationDailyAttempts).values({
-    memberId,
-    attemptDate,
-    failureCount: 1,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [pengliVerificationDailyAttempts.memberId, pengliVerificationDailyAttempts.attemptDate],
-    set: {
-      failureCount: sql`${pengliVerificationDailyAttempts.failureCount} + 1`,
-      updatedAt: now,
-    },
-  });
-  return verificationFailureState(db, memberId);
-}
-
-async function verificationFailureResponse(db: AppDb, memberId: number, error: string, code: string, status: number, extra: Record<string, unknown> = {}) {
-  const failureState = await recordVerificationFailure(db, memberId);
-  return Response.json({
-    error: failureState.verificationLocked
-      ? "今天兩次官方查證都未找到可驗證資料，已停止繼續查證。是否將這次的問題代轉彭狸老師回答？"
-      : error,
-    code,
-    ...failureState,
-    canEscalate: failureState.verificationLocked,
-    ...extra,
-  }, { status });
-}
-
 function isPengliNavigationPage(text: string) {
   const normalized = text.replace(/\s+/gu, " ").trim();
   const dotLeaders = (normalized.match(/(?:\.{4,}|…{2,}|·{4,})/gu) ?? []).length;
@@ -622,9 +562,6 @@ export async function GET(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
   const params = new URL(request.url).searchParams;
-  if (params.get("verificationStatus") === "1") {
-    return Response.json(await verificationFailureState(auth.db, auth.member.id));
-  }
   const topic = params.get("topic")?.trim().slice(0, 120) ?? "";
   if (!topic) return Response.json({ error: "請提供主題名稱。" }, { status: 400 });
   const evidence = await pengliEvidence(topic, topic);
@@ -660,13 +597,6 @@ export async function POST(request: Request) {
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
 
     if (body.mode === "verify-doubt" || body.mode === "official-answer") {
-      const currentFailureState = await verificationFailureState(auth.db, auth.member.id);
-      if (currentFailureState.verificationLocked) return Response.json({
-        error: "今天兩次官方查證都未找到可驗證資料，已停止繼續查證。是否將這次的問題代轉彭狸老師回答？",
-        code: "VERIFY_DAILY_FAILURE_LIMIT",
-        ...currentFailureState,
-        canEscalate: true,
-      }, { status: 429 });
       if (gate.metered && gate.memberId) {
         const entitlement = await getActiveAiEntitlement(gate.db, gate.memberId);
         const remaining = entitlement ? entitlement.quotaTotal - entitlement.quotaUsed : 0;
@@ -717,8 +647,8 @@ export async function POST(request: Request) {
           max_output_tokens: 380,
         }) }) as Record<string, unknown>;
       } catch {
-        if (controller.signal.aborted) return verificationFailureResponse(auth.db, auth.member.id, "官方資料查證逾時，此次沒有計入使用次數。今天還可再嘗試 1 次。", "VERIFY_TIMEOUT", 504);
-        return verificationFailureResponse(auth.db, auth.member.id, "目前無法連接查證服務，此次沒有計入使用次數。請稍後再試。", "VERIFY_SERVICE_ERROR", 502);
+        if (controller.signal.aborted) return Response.json({ error: "官方資料查證逾時，此次不扣使用次數。請稍後再試。", code: "VERIFY_TIMEOUT" }, { status: 504 });
+        return Response.json({ error: "目前無法連接官方資料查證服務，此次不扣使用次數。請稍後再試。", code: "VERIFY_SERVICE_ERROR" }, { status: 502 });
       } finally {
         clearTimeout(timeout);
       }
@@ -729,12 +659,19 @@ export async function POST(request: Request) {
         uniqueSources.set(localized.url, localized);
       }
       sources = [...uniqueSources.values()].slice(0, 3);
-      const verification = compactVerification(localizeOfficialCitations(outputText(payload)));
-      if (!verification) return verificationFailureResponse(auth.db, auth.member.id, "查證暫時沒有完成，此次不扣使用次數。今天還可再嘗試 1 次。", "VERIFY_EMPTY_RESULT", 502);
-      if (!sources.length) return verificationFailureResponse(auth.db, auth.member.id, "官方網站已完成查詢，但沒有取得可開啟驗證的官方網址，因此不扣使用次數。今天還可再嘗試 1 次。", "VERIFY_NO_OFFICIAL_SOURCE", 502, { searchTrace: { mode: "official_web", terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] } });
+      const generatedVerification = compactVerification(localizeOfficialCitations(outputText(payload)));
+      const noOfficialSource = sources.length === 0;
+      const verification = noOfficialSource
+        ? "本次已搜尋相關法條、判決與裁判，但目前沒有找到足以核對這個問題的官方資料。本次不扣使用次數；你可以回到 AI 教練繼續釐清概念，或轉請彭狸老師確認。"
+        : generatedVerification || "已找到可核對的官方資料，請直接開啟下方來源確認原文。";
+      const searchTrace = { mode: useOfficialWeb ? "official_web" as const : "synchronized_official_data" as const, terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] };
+      if (noOfficialSource) {
+        const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: "[]", status: "verified" }).returning();
+        return Response.json({ verification, sources: [], noOfficialSource: true, officialWebFallback: useOfficialWeb, searchTrace, ticketId: ticket.id });
+      }
       const access = await finishAiUse(gate, { action: "pengli_official_verification", description: "彭狸官方資料查證，成功扣 2 次", quantity: 2, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
       const [ticket] = await auth.db.insert(pengliTeacherQuestions).values({ memberId: auth.member.id, conversationKey: String(body.conversationKey ?? "").slice(0, 120), messageKey: String(body.messageKey ?? crypto.randomUUID()).slice(0, 120), topic: String(body.topic ?? "行政法").slice(0, 120), aiReply, studentQuestion, verificationResult: verification, verificationSourcesJson: JSON.stringify(sources.map(({ label, url }) => ({ label, url }))), status: "verified" }).returning();
-      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), officialWebFallback: useOfficialWeb, searchTrace: { mode: useOfficialWeb ? "official_web" : "synchronized_official_data", terms, platformLookupFailed, checkedAgencies: ["司法院", "憲法法庭", "全國法規資料庫", "法務部"] }, ticketId: ticket.id, access, ...currentFailureState });
+      return Response.json({ verification, sources: sources.map(({ label, url }) => ({ label, url })), noOfficialSource: false, officialWebFallback: useOfficialWeb, searchTrace, ticketId: ticket.id, access });
     }
 
     const selectedText = String(body.selectedText ?? "").trim().slice(0, 1200);
@@ -1012,11 +949,18 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       : testContinuation
         ? "學生本輪已先回答再提出新問題；像真人老師自然承接。若答案有錯才用一句話指出哪裡要修正；若答案正確就直接回答新問題，不要先說『你的理解正確』『你的定位正確』『你的判斷正確』或其他制式稱讚。"
         : "先判斷學生是在回答上一問或提出新問題；只有確實回答上一問且有必要時才給簡短回饋，新問題則像真人老師一樣直接回答，不要先做系統式正誤宣告。";
+    const legalTeachingRule = `法律教學判斷規則：
+1. 先判斷學生問的是「概念／答題方法」還是「特定法條、裁判、修法或個案結論」。概念與答題方法應直接依教材、對話與行政法基礎架構回答，不得因缺少案號、完整事實或官方資料就拒答，也不得把學生推去查官方資料。
+2. 個案事實不足時，先說明目前能確定的判斷架構，再只追問一個真正會改變結論的關鍵事實；禁止一開始連續索取處分、法條、緊急狀況等多項資料而中斷教學。
+3. 不得只以法條使用「應」或「得」就斷定羈束或裁量；還要說明規範目的、法律效果結構、個案限制及是否仍有兩種以上合法選項。
+4. 談裁量收縮至零時，只有在個案中僅剩一種合法決定，才可說裁量可能收縮至零。可依重大法益與急迫危險、平等原則與行政自我拘束、比例原則、保護義務及其他個案特殊因素判斷。
+5. 不得把「裁量收縮至零」直接等同「人民必然可以請求特定處分」；若涉及行政救濟，還要區分是否具有公法上請求權、訴訟類型及法院可作成的判決。
+6. 回答採「先回答當前問題→給判斷順序→用一個問題推進」；不要突然改寫成法律諮詢表單、完整申論稿或長篇教科書。`;
     const testRule = testAnswerAnchor ? testContinuation
       ? `本輪是同一個已通過核對書頁的接續對話。仍須鎖定考點「${testIssueTitle || "未命名考點"}」與本頁內容，但核對短語「${testAnswerAnchor}」已在前輪出現，本輪不得再次逐字重貼或重新介紹前提。直接回答學生這次的新問題；只有學生答錯、混淆前提或明確要求重述時，才用一句話簡短提醒。${testSourceExcerpt ? `本頁節錄僅供承接判斷：\n${testSourceExcerpt}\n` : ""}`
       : `本輪是書頁內容驗證。目錄已確認本頁隸屬考點「${testIssueTitle || "未命名考點"}」，本頁類型為「${testBodyRole || "考點正文"}」。這兩項是系統已核對的定位，不得否定、不得改稱為其他考點。核對短語「${testAnswerAnchor}」必須逐字出現在回答中，以證明回答確實取自本頁；但仍須用白話解釋它在本頁的作用。${testSourceExcerpt ? `抽樣頁原文如下：\n${testSourceExcerpt}\n` : ""}若本頁只是案例事實，說明案例正在問什麼；若是考點破解，說明題目測什麼及書中解題順序。若單頁不足以完成解釋，明說本頁只能確認到哪裡，不得拿其他考點補答案。`
       : "";
-    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `這是教練主動提出熱身題後的接續對話；即使教材沒有逐字答案，也必須依目前章節、前文與臺灣行政法基礎觀念，用白話回答學生的作答方法或概念問題。前台會標示為「AI 作答建議」，不得冒充彭狸老師教材原文，不得虛構法條、裁判或頁碼，也不得改成查證官方資料或轉請老師。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}${interactionRule}回答精簡、口語，一次只教一個判斷步驟；回答完可問一個能推進理解的小問題，不要一次傾倒完整擬答。每次回答必須寫完最後一句，不得停在「的」、「對」、「與」、「或」等未完詞句。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
+    const instructions = `你是「彭狸 AI 教練」，是依彭狸老師教材建立的 AI 分身，不是真人老師。${coachAiFallback ? `這是教練主動提出熱身題後的接續對話；即使教材沒有逐字答案，也必須依目前章節、前文與臺灣行政法基礎觀念，用白話回答學生的作答方法或概念問題。前台會標示為「AI 作答建議」，不得冒充彭狸老師教材原文，不得虛構法條、裁判或頁碼，也不得改成查證官方資料或轉請老師。` : "只能用本次提供的彭狸老師《行政法考點演習書（二版）》片段引導學生，不得混用其他司律老師教材，也不得用一般知識補足教材未記載的內容。"}${evidence.bookPageLabel && !evidence.bookPageLabel.includes("至") ? `重要：學生所說的「書內頁碼 ${evidence.bookPageLabel}」是一個章節式單一頁碼；連字號前是主題編號、後是該主題內頁碼，絕對不是第 ${evidence.bookPageLabel.split("-")[0]} 頁到第 ${evidence.bookPageLabel.split("-")[1]} 頁的範圍。系統已精準換算為 PDF 第 ${evidence.requestedPage} 頁並提供原文，必須直接說明內容，不得聲稱找不到或要求學生另給頁碼。` : ""}${requestedPageRule}${testRule}${interactionRule}\n${legalTeachingRule}\n回答精簡、口語，一次只教一個判斷步驟；回答完可問一個能推進理解的小問題，不要一次傾倒完整擬答。每次回答必須寫完最後一句，不得停在「的」、「對」、「與」、「或」等未完詞句。${shortHelpReply ? "學生只是在表示不知道或請求提示；直接承接上一輪問題，縮小成一個更容易回答的判斷入口，不要要求學生重述題目。" : ""}${pageFocusMatched ? "必須沿用學生問題中逐字引用的教材短語，讓學生能在書上核對。" : ""}正文中不要插入任何來源或頁碼；頁碼由系統依實際命中的原始教材頁面固定標示，禁止自行猜測或輸出頁碼。禁止使用 Markdown 符號（包括 **、#、>），不要生成 AI 學霸內容。\n${teacherContext}\n\n【本輪彭狸老師專屬教材】\n${evidenceText}`;
     let payload: Record<string, unknown> = {};
     let reply = "";
     for (let attempt = 0; attempt < 2; attempt += 1) {

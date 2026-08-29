@@ -140,9 +140,6 @@ export default function PengliCoach() {
   const [doubtLoading, setDoubtLoading] = useState(false);
   const [verificationStage, setVerificationStage] = useState(0);
   const [doubtError, setDoubtError] = useState("");
-  const [verificationFailures, setVerificationFailures] = useState(0);
-  const [verificationLocked, setVerificationLocked] = useState(false);
-  const [verificationTeacherSubmitted, setVerificationTeacherSubmitted] = useState(false);
   const [verification, setVerification] = useState<{
     ticketId: number;
     text: string;
@@ -220,17 +217,6 @@ export default function PengliCoach() {
   useEffect(() => {
     void refreshAccessState();
   }, []);
-  useEffect(() => {
-    if (!doubtTarget) return;
-    void fetch("/api/teachers/pengli/coach?verificationStatus=1", { cache: "no-store" })
-      .then(async (response) => response.ok ? response.json() : null)
-      .then((data) => {
-        if (!data) return;
-        setVerificationFailures(Math.max(0, Number(data.verificationFailures ?? 0)));
-        setVerificationLocked(data.verificationLocked === true);
-      })
-      .catch(() => undefined);
-  }, [doubtTarget]);
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(messages.slice(-40)));
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -575,14 +561,8 @@ export default function PengliCoach() {
         sources?: { label: string; url?: string }[];
         access?: Access;
         searchTrace?: { mode: "official_web" | "synchronized_official_data"; terms: string[]; platformLookupFailed?: boolean; checkedAgencies: string[] };
-        verificationFailures?: number;
-        verificationAttemptsRemaining?: number;
-        verificationLocked?: boolean;
-        canEscalate?: boolean;
         error?: string;
       };
-      if (Number.isFinite(Number(data.verificationFailures))) setVerificationFailures(Math.max(0, Number(data.verificationFailures)));
-      if (data.verificationLocked === true) setVerificationLocked(true);
       if (!response.ok || !data.verification || !data.ticketId)
         throw new Error(data.error || "目前無法完成查證。");
       setVerification({
@@ -644,33 +624,6 @@ export default function PengliCoach() {
         : item));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "目前無法轉請老師回答。");
-    }
-  }
-
-  async function sendCurrentDoubtToTeacher() {
-    if (!doubtTarget || verificationTeacherSubmitted) return;
-    const studentQuestion = doubtText.trim() || doubtTarget.evidenceMissing?.question || "請老師協助確認這則回答。";
-    setDoubtError("");
-    try {
-      const response = await fetch("/api/teachers/pengli/questions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          messageKey: doubtTarget.id,
-          conversationKey: storageKey,
-          topic: activeTopic || "行政法",
-          studentQuestion,
-          aiReply: doubtTarget.text,
-        }),
-      });
-      const data = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(data.error || "目前無法轉請老師回答。");
-      setVerificationTeacherSubmitted(true);
-      setMessages((current) => current.map((item) => item.id === doubtTarget.id && item.evidenceMissing
-        ? { ...item, evidenceMissing: { ...item.evidenceMissing, teacherSubmitted: true } }
-        : item));
-    } catch (cause) {
-      setDoubtError(cause instanceof Error ? cause.message : "目前無法轉請老師回答。");
     }
   }
 
@@ -907,32 +860,20 @@ export default function PengliCoach() {
                 <button
                   type="button"
                   onClick={() => void verifyDoubt()}
-                  disabled={!doubtText.trim() || doubtLoading || verificationLocked || (access?.remaining != null && access.remaining < 2)}
+                  disabled={!doubtText.trim() || doubtLoading || (access?.remaining != null && access.remaining < 2)}
                 >
                   {doubtLoading
                     ? "正在查證官方法規與裁判…"
-                    : verificationLocked
-                      ? "今日查證已停止"
-                      : "使用 2 次查證官方資料"}
+                    : "查證相關法條與裁判"}
                 </button>
                 {doubtLoading && <div className="pengli-verification-progress" role="status"><strong>{verificationStage <= 1 ? "正在整理查詢關鍵字…" : verificationStage === 2 ? "正在比對已同步的法規與裁判…" : "正在搜尋司法院、憲法法庭與全國法規資料庫…"}</strong><ol><li className={verificationStage >= 1 ? "active" : ""}>整理疑問</li><li className={verificationStage >= 2 ? "active" : ""}>比對平台資料</li><li className={verificationStage >= 3 ? "active" : ""}>查詢官方網站</li></ol></div>}
-                <p className="pengli-verification-status">目前剩餘 {remainingLabel}；查到可驗證的官方資料才扣 2 次。查不到不扣使用次數，但每日最多失敗 2 次{verificationFailures ? `（今日已失敗 ${Math.min(verificationFailures, 2)} 次）` : ""}。</p>
+                <p className="pengli-verification-status">目前剩餘 {remainingLabel}；找到可核對的官方法條、判決或裁判才扣 2 次。沒有查到會直接告知，且不扣使用次數。</p>
                 {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">AI 使用次數不足，前往購買／兌換</a>}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
-                {verificationLocked && (
-                  <div className="pengli-verification-escalation">
-                    <strong>兩次查證都未找到可驗證的官方資料。是否將這次的問題代轉彭狸老師回答？</strong>
-                    {verificationTeacherSubmitted ? (
-                      <span>已轉請老師回答，後續回覆會顯示在「我的筆記」。</span>
-                    ) : (
-                      <button type="button" onClick={() => void sendCurrentDoubtToTeacher()}>代轉問彭狸老師</button>
-                    )}
-                  </div>
-                )}
               </>
             ) : (
               <div className="pengli-verification">
-                <h3>AI 外部查證結果</h3>
+                <h3>官方資料查證結果</h3>
                 {verification.searchTrace && <div className="pengli-verification-trace"><b>{verification.searchTrace.mode === "official_web" ? "已查詢官方網站" : "已比對平台同步官方資料"}</b><span>查詢詞：{verification.searchTrace.terms.length ? verification.searchTrace.terms.join("、") : "依完整疑問搜尋"}</span><small>範圍：{verification.searchTrace.checkedAgencies.join("、")}</small></div>}
                 <p>{verification.text}</p>
                 {verification.sources.length > 0 && (
