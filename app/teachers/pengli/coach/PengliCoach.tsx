@@ -8,6 +8,7 @@ type CoachMessage = {
   role: "student" | "coach" | "scholar";
   text: string;
   source?: string;
+  pageStatus?: "confirmed" | "unknown" | "outside";
   evidenceMissing?: { question: string; teacherSubmitted?: boolean };
   replyTo?: { id: string; excerpt: string };
   testVerification?: {
@@ -273,6 +274,7 @@ export default function PengliCoach() {
       purchaseUrl?: string;
       retrievedPages?: number[];
       sourceMode?: "index" | "private_pdf_page";
+      pageStatus?: "confirmed" | "unknown" | "outside";
       evidenceMissing?: boolean;
       missingQuestion?: string;
       testVerified?: boolean;
@@ -315,6 +317,7 @@ export default function PengliCoach() {
         role: "coach",
         text: displayedReply,
         source: data.source,
+        pageStatus: data.pageStatus,
         evidenceMissing: data.evidenceMissing ? { question: data.missingQuestion || next.at(-1)?.text || "" } : undefined,
         testVerification,
       },
@@ -774,7 +777,9 @@ export default function PengliCoach() {
                     >
                       ↩ 針對這段追問
                     </button>
-                    {!message.testVerification?.passed && (
+                    {!message.testVerification?.passed
+                      && message.pageStatus !== "confirmed"
+                      && !(message.pageStatus == null && /PDF 第\s*\d+/u.test(message.source || "")) && (
                       <button
                         type="button"
                         onClick={() => {
