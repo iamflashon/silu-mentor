@@ -279,6 +279,35 @@ const pengliPlainResponseFormat = {
   },
 };
 
+const pengliScholarFollowUpFormat = {
+  type: "json_schema",
+  name: "pengli_scholar_follow_up",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      answer: { type: "string" },
+      question: { type: "string" },
+    },
+    required: ["answer", "question"],
+  },
+};
+
+function parseScholarFollowUp(text: string) {
+  const cleaned = text.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim();
+  try {
+    const value = JSON.parse(cleaned) as { answer?: unknown; question?: unknown };
+    const answer = plainText(typeof value.answer === "string" ? value.answer : "").trim();
+    let question = plainText(typeof value.question === "string" ? value.question : "").trim();
+    if (question && !/[？?]$/u.test(question)) question = `${question}？`;
+    if (answer.length < 24 || question.length < 10) return null;
+    return { answer, question };
+  } catch {
+    return null;
+  }
+}
+
 function parsePengliPlainExplanation(text: string): PengliPlainExplanation | null {
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   try {
@@ -738,9 +767,7 @@ export async function POST(request: Request) {
 
     if (body.mode === "scholar-follow-up") {
       const pageLabel = Number(body.pageHint ?? 0) > 0 ? `PDF 第 ${Math.floor(Number(body.pageHint))} 頁` : "目前書頁";
-      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
-        model: "gpt-5.6-luna",
-        instructions: `你是正在拿著彭狸老師教材學習的學生。這個功能不是立刻亂出下一題，而是要先完整回答彭狸 AI 教練最後問你的問題，再沿著同一考點提出一個新的追問。
+      const instructions = `你是正在拿著彭狸老師教材學習的學生。這個功能不是立刻亂出下一題，而是要先完整回答彭狸 AI 教練最後問你的問題，再沿著同一考點提出一個新的追問。
 
 本輪固定範圍：${pageLabel}；考點「${String(body.testIssueTitle || "目前考點").slice(0, 120)}」；段落類型「${String(body.testBodyRole || "考點正文").slice(0, 80)}」。
 本頁可核對短語：「${String(body.testAnswerAnchor || "").slice(0, 100)}」
@@ -753,20 +780,20 @@ export async function POST(request: Request) {
 4. 追問可問判斷理由、適用方式、考場寫法或本頁概念差異，但不得要求換頁、整章摘要或教材外資料。
 5. 不得重複對話中已經問過的問題，不得再問「這頁在說什麼」，不得新增本頁與老師回答都沒有出現的法條、金額、案例、見解或名詞。
 6. 不得留下半句、條列片段或只有結論沒有理由的回答。
-7. 嚴格使用以下兩段格式，不使用 Markdown、來源或頁碼：
-我的回答：［完整回答老師最後一問］
-
-我想再問老師：［只問一個接續問題］`,
-        input: messages,
-        max_output_tokens: 420,
-      }) }) as Record<string, unknown>;
-      const scholarFollowUp = plainText(outputText(payload)).replace(/^「|」$/gu, "").trim();
-      const answerMatch = scholarFollowUp.match(/我的回答：\s*([\s\S]+?)\s*我想再問老師：\s*([\s\S]+)/u);
-      const scholarAnswer = answerMatch?.[1]?.trim() ?? "";
-      const scholarQuestion = answerMatch?.[2]?.trim() ?? "";
-      if (scholarAnswer.length < 30 || scholarQuestion.length < 12 || !/[？?]$/u.test(scholarQuestion)) {
-        return Response.json({ error: "學霸這次沒有先完整回答老師，請再按一次。" }, { status: 502 });
+7. answer 欄位只放完整回答；question 欄位只放一個接續問題。不要在欄位內重複「我的回答」或「我想再問老師」，不使用 Markdown、來源或頁碼。`;
+      let result: { answer: string; question: string } | null = null;
+      for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+        const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+          model: "gpt-5.6-luna",
+          instructions: attempt === 0 ? instructions : `${instructions}\n\n前一次輸出未完成。這次務必讓 answer 有明確結論與理由，question 是一個完整問句。`,
+          input: messages,
+          text: { format: pengliScholarFollowUpFormat },
+          max_output_tokens: attempt === 0 ? 900 : 1200,
+        }) }) as Record<string, unknown>;
+        result = parseScholarFollowUp(outputText(payload));
       }
+      if (!result) return Response.json({ error: "學霸暫時無法完成回答，系統已自動重試；本次不扣使用次數，請稍後再試。" }, { status: 502 });
+      const scholarFollowUp = `我的回答：${result.answer}\n\n我想再問老師：${result.question}`;
       return Response.json({ scholarFollowUp, source: `${pageLabel}｜目前對話上下文` });
     }
 
