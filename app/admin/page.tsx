@@ -577,9 +577,6 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
   const questionBankMode = workspaceMode === "question-bank";
   const memberMode = workspaceMode === "members";
   const independentMode = libraryMode || questionBankMode || memberMode;
-  useEffect(() => {
-    if (workspaceMode === "management") window.location.replace("/admin/library");
-  }, [workspaceMode]);
   const [activeTab, setActiveTab] = useState<
     | "documents"
     | "resources"
@@ -1068,7 +1065,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
 
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
-    if (requested === "questions" || requested === "question-bank" || requested === "documents") setActiveTab(requested);
+    if (requested === "questions" || requested === "question-bank" || requested === "documents" || requested === "legal" || requested === "judicial") setActiveTab(requested);
   }, []);
 
   useEffect(() => {
@@ -3636,10 +3633,6 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     }
   }
 
-  if (workspaceMode === "management") {
-    return <main className="admin-route-forward"><span>正在進入中央教材庫…</span></main>;
-  }
-
   return (
     <main className={`admin-shell ${independentMode ? "independent-admin-shell" : ""} ${libraryMode ? "library-admin-shell" : ""} ${questionBankMode ? "question-bank-admin-shell" : ""}`}>
       <header className="topbar">
@@ -3647,19 +3640,24 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <span className="brand-mark">智</span>
           <span>iBrain AI</span>
         </a>
-        <a href={independentMode ? "/admin" : "/platform"} className="back-link">
-          {independentMode ? "返回總管理後台 →" : "返回平台入口 →"}
+        <a href={independentMode ? "/admin" : "/law"} className="back-link">
+          {independentMode ? "返回司律管理後台 →" : "返回司律備考 →"}
         </a>
       </header>
       <div className="admin-main">
         <div className="admin-title">
           <div>
-            <p>{libraryMode ? "CENTRAL KNOWLEDGE INFRASTRUCTURE" : questionBankMode ? "CENTRAL QUESTION BANK" : memberMode ? "CENTRAL MEMBER DIRECTORY" : "COMPANY MANAGEMENT CENTER"}</p>
-            <h1>{libraryMode ? "中央教材向量資料庫" : questionBankMode ? "跨類科總題庫管理" : memberMode ? "全平台會員總管理" : "iBrain 總管理後台"}</h1>
-            <span>{libraryMode ? "獨立處理公司教材的文字抽取、最小單位切片、全文索引、向量索引與檢索驗證。" : questionBankMode ? "以共用資料庫集中管理全部類科的文件題庫、網址題庫、拆題、校對、版本與發布狀態。" : memberMode ? "集中查看全部會員、所屬類科、班級、帳號狀態與管理權限。" : "跨平台集中管理教材、會員、AI 模型與營運資料；類科專屬內容仍在各自工作區處理。"}</span>
+            <p>{libraryMode ? "CENTRAL KNOWLEDGE INFRASTRUCTURE" : questionBankMode ? "CENTRAL QUESTION BANK" : memberMode ? "CENTRAL MEMBER DIRECTORY" : "LAW PLATFORM ADMIN"}</p>
+            <h1>{libraryMode ? "中央教材與官方法律資料庫" : questionBankMode ? "跨類科總題庫管理" : memberMode ? "全平台會員總管理" : "司律管理後台"}</h1>
+            <span>{libraryMode ? "集中管理全平台教材，以及可供所有法律專區共用的全國法規、大法官解釋與司法院裁判。" : questionBankMode ? "以共用資料庫集中管理全部類科的文件題庫、網址題庫、拆題、校對、版本與發布狀態。" : memberMode ? "集中查看全部會員、所屬類科、班級、帳號狀態與管理權限。" : "管理司律專屬教材、題庫、課程、AI 回答覆核與首頁內容；官方法律資料改由中央資料庫統一維護。"}</span>
           </div>
         </div>
         {independentMode && <CentralAdminTabs active={libraryMode ? "library" : questionBankMode ? "question-bank" : "members"} />}
+        {libraryMode && <nav className="admin-tabs" aria-label="中央教材與官方法律資料切換">
+          <button className={activeTab === "documents" ? "active" : ""} onClick={() => setActiveTab("documents")}>教材資料庫</button>
+          <button className={activeTab === "legal" ? "active" : ""} onClick={() => setActiveTab("legal")}>全國法規與大法官解釋</button>
+          <button className={activeTab === "judicial" ? "active" : ""} onClick={() => setActiveTab("judicial")}>司法院裁判</button>
+        </nav>}
         {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
           <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
           <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>
@@ -3733,18 +3731,6 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             資源同步
           </button>
           <span className="admin-nav-section">司律專屬</span>
-          <button
-            className={activeTab === "legal" ? "active" : ""}
-            onClick={() => setActiveTab("legal")}
-          >
-            法規與憲法法庭
-          </button>
-          <button
-            className={activeTab === "judicial" ? "active" : ""}
-            onClick={() => setActiveTab("judicial")}
-          >
-            司法院裁判
-          </button>
           <button
             className={activeTab === "sources" ? "active" : ""}
             onClick={() => setActiveTab("sources")}
