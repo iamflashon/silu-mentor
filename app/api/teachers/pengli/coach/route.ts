@@ -317,6 +317,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
     bookPageLabel: "",
     navigationPage: false,
     sourceMode: "index" as "index" | "private_pdf_page",
+    pageStatus: "unknown" as "confirmed" | "unknown" | "outside",
     searchFailed,
   });
   try {
@@ -370,7 +371,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
     )).limit(1);
     if (requestedMapping?.sectionType === "body") bookPageLabel = `${requestedMapping.sortOrder}-${requestedPage - requestedMapping.pdfStartPage + 1}`;
   }
-  if (requestedMapping && (requestedPage < requestedMapping.pdfStartPage || requestedPage > requestedMapping.pdfEndPage)) return { ...empty(), requestedPage, bookPageLabel };
+  if (requestedMapping && (requestedPage < requestedMapping.pdfStartPage || requestedPage > requestedMapping.pdfEndPage)) return { ...empty(), requestedPage, bookPageLabel, pageStatus: "outside" as const };
   if (requestedPage > 0) {
     const orderedSourceBooks = [...books].sort((left, right) => {
       if (preferredDocumentId && left.id !== right.id) return left.id === preferredDocumentId ? -1 : right.id === preferredDocumentId ? 1 : 0;
@@ -383,6 +384,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
       ? orderedSourceBooks.filter((book) => book.id === preferredDocumentId)
       : orderedSourceBooks;
     const { env } = await import("cloudflare:workers");
+    let highestIndexedPage = 0;
     for (const book of sourceBooks) {
       if (!/\.local-index\.jsonl$/iu.test(book.fileName) || !book.storageKey) continue;
       const object = await env.BUCKET?.get(book.storageKey);
@@ -393,6 +395,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
           const record = JSON.parse(line) as { page_start?: unknown; page_end?: unknown; title?: unknown; hierarchy_path?: unknown; text?: unknown };
           const pageStart = Number(record.page_start) || index + 1;
           const pageEnd = Number(record.page_end) || pageStart;
+          highestIndexedPage = Math.max(highestIndexedPage, pageEnd);
           if (requestedPage < pageStart || requestedPage > pageEnd || typeof record.text !== "string") continue;
           const text = record.text.replace(/\\n/gu, "\n").trim();
           if (!text) continue;
@@ -404,6 +407,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
             bookPageLabel,
             navigationPage: true,
             sourceMode: "private_pdf_page" as const,
+            pageStatus: "confirmed" as const,
           };
           return {
             documentId: book.id,
@@ -415,12 +419,19 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
             bookPageLabel,
             navigationPage: false,
             sourceMode: "private_pdf_page" as const,
+            pageStatus: "confirmed" as const,
             searchFailed: false,
           };
         } catch { /* 略過無法解析的原始頁面列 */ }
       }
     }
-    return { ...empty(), requestedPage, bookPageLabel };
+    return {
+      ...empty(),
+      requestedPage,
+      bookPageLabel,
+      sourceMode: "private_pdf_page" as const,
+      pageStatus: highestIndexedPage > 0 && requestedPage > highestIndexedPage ? "outside" as const : "unknown" as const,
+    };
   }
   const themeHints = [
     ["行政法理論基礎與行政組織法", /行政法理論基礎|行政組織法|原理原則/u, ["行政組織法", "原理原則"]],
@@ -554,7 +565,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
     .slice(0, 6)
     .map(({ row: { documentId: _documentId, ...row } }) => row);
   const matchedBook = books.find((book) => book.id === candidates[0]?.documentId) ?? books[0];
-  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, bookPageLabel: "", navigationPage: false, sourceMode: "index" as const, searchFailed: false };
+  return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, bookPageLabel: "", navigationPage: false, sourceMode: "index" as const, pageStatus: rows.length > 0 && rows.every((row) => row.pageStart != null) ? "confirmed" as const : "unknown" as const, searchFailed: false };
   } catch (error) {
     console.error("Pengli evidence lookup failed", error);
     return empty(true);
@@ -811,6 +822,11 @@ export async function POST(request: Request) {
         rows: pageEvidence.flatMap((item) => item.rows),
         navigationPage: pageEvidence.some((item) => item.navigationPage),
         searchFailed: pageEvidence.some((item) => item.searchFailed),
+        pageStatus: pageEvidence.some((item) => item.pageStatus === "outside")
+          ? "outside"
+          : pageEvidence.every((item) => item.pageStatus === "confirmed")
+            ? "confirmed"
+            : "unknown",
         bookPageLabel: pageEvidence.every((item) => item.bookPageLabel)
           ? `${pageEvidence[0].bookPageLabel} 至 ${pageEvidence.at(-1)?.bookPageLabel}`
           : "",
@@ -820,6 +836,7 @@ export async function POST(request: Request) {
       reply: `PDF 第 ${evidence.requestedPage} 頁屬於封面、序言或目錄區，不作為教材正文回答。請告訴我正文頁數；這次不扣使用次數。`,
       source: "前置頁／目錄，不列入教材正文",
       retrievedPages: [],
+      pageStatus: evidence.pageStatus,
     }, { headers: { "Cache-Control": "no-store" } });
     if (evidence.requestedPage > 0 && !evidence.rows.length) return Response.json({
       ...(body.testAnswerAnchor ? {
@@ -828,16 +845,21 @@ export async function POST(request: Request) {
         retrievedPages: [],
         testVerified: false,
       } : {
-        error: `私密教材 PDF 找不到第 ${evidence.requestedPage} 頁原文；本次不會改查其他頁，也不會扣除使用次數。`,
-        code: "PENGLI_PDF_PAGE_NOT_FOUND",
+        reply: evidence.pageStatus === "outside"
+          ? `你指定的第 ${evidence.requestedPage} 頁不在本書頁數範圍內，請重新確認是書內頁碼還是 PDF 頁碼；這次不扣使用次數。`
+          : `目前無法確認第 ${evidence.requestedPage} 頁的教材原文，我先不回答，避免引用錯頁；這次不扣使用次數。`,
+        source: evidence.pageStatus === "outside" ? "頁碼不在本書範圍" : "教材頁碼無法確認",
+        retrievedPages: [],
       }),
-    }, { status: body.testAnswerAnchor ? 200 : 409, headers: { "Cache-Control": "no-store" } });
+      pageStatus: evidence.pageStatus,
+    }, { headers: { "Cache-Control": "no-store" } });
     if (body.mode !== "plain-explain" && !evidence.rows.length) return Response.json({
       reply: "我已搜尋目前主題及整本教材，暫時找不到這個問題的直接資料。為避免 AI 幻覺，我不會用一般知識補成教材答案。你可以選擇查證官方資料，或轉請彭狸老師回答；這次不扣使用次數。",
       source: "未找到對應書頁",
       evidenceMissing: true,
       missingQuestion: searchText.slice(0, 2000),
       retrievedPages: [],
+      pageStatus: "outside",
     }, { headers: { "Cache-Control": "no-store" } });
     const plainAiFallback = body.mode === "plain-explain" && body.allowAiFallback === true;
     const coachAiFallback = body.mode !== "plain-explain" && !evidence.rows.length;
@@ -999,7 +1021,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
     const fallbackPage = evidence.rows.find((row) => row.pageStart)?.pageStart;
     const citedPage = fallbackPage ? String(fallbackPage) : "頁碼待索引補正";
     const source = coachAiFallback ? "AI 補充，未命中彭狸老師教材" : citedPage === "頁碼待索引補正" ? `行政法考點演習書（二版）》${citedPage}` : evidence.bookPageLabel ? `行政法考點演習書（二版）》書內第 ${evidence.bookPageLabel} 頁（PDF 第 ${citedPage} 頁）` : `行政法考點演習書（二版）》PDF 第 ${citedPage} 頁`;
-    return Response.json({ reply, source, sourceMode: evidence.sourceMode, retrievedPages, testVerified: testAnswerAnchor ? true : undefined, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
+    return Response.json({ reply, source, sourceMode: evidence.sourceMode, pageStatus: evidence.pageStatus, retrievedPages, testVerified: testAnswerAnchor ? true : undefined, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: costMicros / 1_000_000 } });
   } catch (error) {
     console.error("Pengli coach request failed", error);
     return Response.json({ error: "教材搜尋暫時沒有完成，請再按一次；若仍無法回答，請換成較精簡的考點名稱。" }, { status: 500 });
