@@ -124,6 +124,7 @@ export default function PengliCoach() {
     searchTrace?: { mode: "official_web" | "synchronized_official_data"; terms: string[]; platformLookupFailed?: boolean; checkedAgencies: string[] };
     escalated?: boolean;
   } | null>(null);
+  const [verificationNoteStatus, setVerificationNoteStatus] = useState<"idle" | "saving" | "saved">("idle");
   const endRef = useRef<HTMLDivElement>(null);
 
   async function loadTopicGuide(topic: string, resetConversation: boolean) {
@@ -570,6 +571,7 @@ export default function PengliCoach() {
         sources: data.sources || [],
         searchTrace: data.searchTrace,
       });
+      setVerificationNoteStatus("idle");
       applyAccess(data.access);
     } catch (cause) {
       setDoubtError(cause instanceof DOMException && cause.name === "AbortError"
@@ -625,6 +627,38 @@ export default function PengliCoach() {
       setVerification({ ...verification, escalated: true });
     } catch (cause) {
       setDoubtError(cause instanceof Error ? cause.message : "目前無法送交確認，請稍後再試。");
+    }
+  }
+
+  async function saveVerificationNote() {
+    if (!verification || verificationNoteStatus !== "idle") return;
+    setVerificationNoteStatus("saving");
+    setDoubtError("");
+    const queryLabel = verification.searchTrace?.terms.filter(Boolean).join("、") || activeTopic || "行政法官方資料查證";
+    const sourceText = verification.sources.length
+      ? verification.sources.map((source) => `- ${source.label}${source.url ? `\n  ${source.url}` : ""}`).join("\n")
+      : "- 本次沒有附可開啟的官方來源";
+    try {
+      const response = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceType: "note",
+          sourceId: `pengli-verification-${verification.ticketId}`,
+          title: `官方資料查證：${queryLabel}`.slice(0, 120),
+          content: `我的查證問題\n${doubtText.trim()}\n\n查證結果\n${verification.text}\n\n官方來源\n${sourceText}`,
+          originalContent: doubtTarget?.text || "",
+          subject: "行政法",
+          tags: "彭狸老師專區,官方資料查證,法規與裁判",
+          sourceLabel: "彭狸老師專區｜官方資料查證",
+        }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "目前無法加入筆記。");
+      setVerificationNoteStatus("saved");
+    } catch (cause) {
+      setVerificationNoteStatus("idle");
+      setDoubtError(cause instanceof Error ? cause.message : "目前無法加入筆記。");
     }
   }
 
@@ -962,15 +996,18 @@ export default function PengliCoach() {
                     ))}
                   </ul></>
                 )}
-                {verification.escalated ? (
-                  <strong>
-                    已送交管理員確認；確認後會轉交彭狸老師，回覆會在「我的筆記」通知你。
-                  </strong>
-                ) : (
-                  <button type="button" onClick={() => void escalateDoubt()}>
-                    仍有疑問，申請轉請彭狸老師
-                  </button>
-                )}
+                <button type="button" onClick={() => void saveVerificationNote()} disabled={verificationNoteStatus !== "idle"}>
+                  {verificationNoteStatus === "saving" ? "正在加入筆記…" : verificationNoteStatus === "saved" ? "已加入我的筆記" : "加入我的筆記"}
+                </button>
+                {/(?:存在不同見解|需要修正|目前無法確認|仍無法確認|資料不足)/u.test(verification.text) && (verification.escalated ? (
+                    <strong>
+                      已送交管理員確認；確認後會轉交彭狸老師，回覆會在「我的筆記」通知你。
+                    </strong>
+                  ) : (
+                    <button type="button" onClick={() => void escalateDoubt()}>
+                      對見解仍有疑問，轉請彭狸老師確認
+                    </button>
+                  ))}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
                 <button
                   type="button"
@@ -978,6 +1015,7 @@ export default function PengliCoach() {
                   onClick={() => {
                     setDoubtTarget(null);
                     setVerification(null);
+                    setVerificationNoteStatus("idle");
                     setTeacherQuestionSubmitted(false);
                     setDoubtError("");
                   }}
