@@ -104,6 +104,15 @@ function plainText(value: string) {
   return value.replace(/\*\*/gu, "").replace(/^#{1,6}\s*/gmu, "").replace(/^>\s?/gmu, "").trim();
 }
 
+function removeUnsupportedTrailingForeignText(value: string, evidenceText: string) {
+  const match = value.match(/([。！？；])\s+((?:[\p{Script=Latin}][\p{Script=Latin}\p{M}'’-]{2,})(?:\s+[\p{Script=Latin}][\p{Script=Latin}\p{M}'’-]{2,}){0,3})[.!?]?\s*$/u);
+  if (!match || match.index == null) return value;
+  const foreignText = match[2].normalize("NFKC").toLocaleLowerCase();
+  const normalizedEvidence = evidenceText.normalize("NFKC").toLocaleLowerCase();
+  if (normalizedEvidence.includes(foreignText)) return value;
+  return `${value.slice(0, match.index)}${match[1]}`.trim();
+}
+
 function compactVerification(value: string, maxLength = 360) {
   const cleaned = plainText(value).replace(/\n{3,}/gu, "\n\n").trim();
   if (cleaned.length <= maxLength) return cleaned;
@@ -985,6 +994,7 @@ notePoints 必須恰好三點，每個陣列項目只放內容、禁止自行加
       }) }) as Record<string, unknown>;
       const rawReply = plainText(outputText(payload).replace(/【教練回應】/gu, "").replace(/【學霸追問】[\s\S]*$/u, ""));
       reply = rawReply.replace(/\s*[（(]?\s*依據[：:][^\n]*第\s*\d+(?:\s*[–—-]\s*\d+)?\s*頁\s*[）)]?\s*$/u, "").trim();
+      reply = removeUnsupportedTrailingForeignText(reply, evidenceText);
       const compactReply = reply.normalize("NFKC").replace(/\s+/gu, "");
       const compactAnchor = testAnswerAnchor.normalize("NFKC").replace(/\s+/gu, "");
       const deniesMappedIssue = Boolean(testIssueTitle) && new RegExp(`(?:不是|並非)(?:在)?(?:說|談|討論)?[「『]?${testIssueTitle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u").test(reply);
