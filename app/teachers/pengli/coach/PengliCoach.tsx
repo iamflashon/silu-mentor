@@ -59,6 +59,11 @@ function isClickableLearningPoint(value: string) {
     && !/\bPDF\b|頁碼|\d+\s*(?:[-–—至到]\s*\d+\s*)?頁|^\s*\d+\s*$/iu.test(normalized);
 }
 
+function hasOfficialLegalReference(message: CoachMessage) {
+  const value = `${message.text}\n${message.source || ""}`;
+  return /(?:[\p{Script=Han}]{1,24}法第\s*\d+(?:\s*之\s*\d+)?\s*條|判決|裁定|裁判|釋字第?\s*\d+\s*號|憲判字第?\s*\d+\s*號|\d{2,3}\s*年度[^，。；：\s]{1,16}字第\s*\d+\s*號)/u.test(value);
+}
+
 function makeTopicLoadingMessage(topic: string): CoachMessage {
   return {
     id: crypto.randomUUID(),
@@ -95,11 +100,9 @@ export default function PengliCoach() {
   const [error, setError] = useState("");
   const [access, setAccess] = useState<Access | null>(null);
   const [accessChecking, setAccessChecking] = useState(true);
-  const [aiAccessActive, setAiAccessActive] = useState(false);
   const [freeTrialAvailable, setFreeTrialAvailable] = useState(false);
   const [freeTrialTopic, setFreeTrialTopic] = useState("");
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
-  const [aiPlanEnabled, setAiPlanEnabled] = useState(false);
   const [scholarAssistEnabled, setScholarAssistEnabled] = useState(true);
   const [bookVerificationVisible, setBookVerificationVisible] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
@@ -108,8 +111,10 @@ export default function PengliCoach() {
   const [topicGuide, setTopicGuide] = useState<TopicGuide | null>(null);
   const [replyTarget, setReplyTarget] = useState<CoachMessage | null>(null);
   const [doubtTarget, setDoubtTarget] = useState<CoachMessage | null>(null);
+  const [doubtMode, setDoubtMode] = useState<"teacher" | "official">("teacher");
   const [doubtText, setDoubtText] = useState("");
   const [doubtLoading, setDoubtLoading] = useState(false);
+  const [teacherQuestionSubmitted, setTeacherQuestionSubmitted] = useState(false);
   const [verificationStage, setVerificationStage] = useState(0);
   const [doubtError, setDoubtError] = useState("");
   const [verification, setVerification] = useState<{
@@ -197,12 +202,10 @@ export default function PengliCoach() {
       if (!Number.isFinite(remaining)) throw new Error("AI_ACCESS_INVALID");
       const nextAccess = { remaining };
       setAccess(nextAccess);
-      setAiAccessActive(data.aiAccess.active === true);
       if ((data?.plan?.enabled === true || data.aiAccess.active === true) && remaining === 0 && !data?.pengliTrial?.available) setQuotaDialogOpen(true);
       setFreeTrialAvailable(data?.pengliTrial?.available === true);
       setFreeTrialTopic(String(data?.pengliTrial?.selectedTopic ?? ""));
       if (data?.plan) {
-        setAiPlanEnabled(data.plan.enabled === true);
         setScholarAssistEnabled(data.plan.scholarAssistEnabled !== false);
         setBookVerificationVisible(data.plan.pengliBookVerificationEnabled !== false);
       }
@@ -243,9 +246,8 @@ export default function PengliCoach() {
     ? [...topicGuide.keyPoints.map((point) => `我想先學「${point}」`), "沒有指定，請教練安排"]
     : [];
   const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? null;
-  const unmeteredAccess = !accessChecking && !aiPlanEnabled && !aiAccessActive && !freeTrialAvailable;
-  const remainingLabel = accessChecking || displayedRemaining == null ? "查詢中" : unmeteredAccess ? "不限次" : `${displayedRemaining} 次`;
-  const quotaExhausted = (aiPlanEnabled || aiAccessActive) && !freeTrialAvailable && access?.remaining === 0;
+  const remainingLabel = accessChecking || displayedRemaining == null ? "查詢中" : `${displayedRemaining} 次`;
+  const quotaExhausted = !freeTrialAvailable && access?.remaining === 0;
 
   function requireAiUse(required = 1) {
     if (freeTrialAvailable && activeTopic) return true;
@@ -254,7 +256,7 @@ export default function PengliCoach() {
       void refreshAccessState();
       return false;
     }
-    if (quotaExhausted || ((aiPlanEnabled || aiAccessActive) && access.remaining < required)) {
+    if (quotaExhausted || access.remaining < required) {
       setQuotaDialogOpen(true);
       setError("");
       return false;
@@ -273,7 +275,6 @@ export default function PengliCoach() {
       setFreeTrialTopic(activeTopic);
     }
     setAccess(nextAccess);
-    setAiAccessActive(true);
     setAccessChecking(false);
     if (nextAccess.remaining === 0) setQuotaDialogOpen(true);
   }
@@ -583,6 +584,33 @@ export default function PengliCoach() {
     }
   }
 
+  async function submitDoubtToTeacher() {
+    if (!doubtTarget || !doubtText.trim() || doubtLoading || teacherQuestionSubmitted) return;
+    setDoubtLoading(true);
+    setDoubtError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/questions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messageKey: `${doubtTarget.id}:teacher-question`,
+          conversationKey: storageKey,
+          topic: activeTopic || "行政法",
+          studentQuestion: doubtText,
+          aiReply: doubtTarget.text,
+          submissionKind: "ai-interpretation-question",
+        }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "目前無法轉請老師說明。");
+      setTeacherQuestionSubmitted(true);
+    } catch (cause) {
+      setDoubtError(cause instanceof Error ? cause.message : "目前無法轉請老師說明。");
+    } finally {
+      setDoubtLoading(false);
+    }
+  }
+
   async function escalateDoubt() {
     if (!verification) return;
     setDoubtError("");
@@ -770,9 +798,11 @@ export default function PengliCoach() {
                   <nav className="pengli-missing-actions">
                     <button type="button" disabled={message.evidenceMissing.teacherSubmitted} onClick={() => {
                       setDoubtTarget(message);
-                      setVerificationTeacherSubmitted(message.evidenceMissing?.teacherSubmitted === true);
+                      setDoubtMode("official");
+                      setTeacherQuestionSubmitted(false);
                       setDoubtText(message.evidenceMissing?.question || "");
                       setVerification(null);
+                      setDoubtError("");
                     }}>查證官方資料</button>
                     <button type="button" disabled={message.evidenceMissing.teacherSubmitted} onClick={() => void sendMissingQuestionToTeacher(message)}>
                       {message.evidenceMissing.teacherSubmitted ? "已轉請老師回答" : "轉請老師回答"}
@@ -784,6 +814,7 @@ export default function PengliCoach() {
                     <button
                       type="button"
                       className="pengli-inline-followup"
+                      disabled={quotaExhausted}
                       onClick={() => {
                         setReplyTarget(message);
                         setDoubtTarget(null);
@@ -796,14 +827,33 @@ export default function PengliCoach() {
                       && !(message.pageStatus == null && /PDF 第\s*\d+/u.test(message.source || "")) && (
                       <button
                         type="button"
+                        disabled={quotaExhausted}
                         onClick={() => {
                           setDoubtTarget(message);
-                          setVerificationTeacherSubmitted(false);
+                          setDoubtMode("teacher");
+                          setTeacherQuestionSubmitted(false);
                           setDoubtText("");
                           setVerification(null);
+                          setDoubtError("");
                         }}
                       >
-                        ？ 我有疑問
+                        ？ 我覺得 AI 不對
+                      </button>
+                    )}
+                    {hasOfficialLegalReference(message) && (
+                      <button
+                        type="button"
+                        disabled={quotaExhausted}
+                        onClick={() => {
+                          setDoubtTarget(message);
+                          setDoubtMode("official");
+                          setTeacherQuestionSubmitted(false);
+                          setDoubtText("");
+                          setVerification(null);
+                          setDoubtError("");
+                        }}
+                      >
+                        查證法規／裁判
                       </button>
                     )}
                   </nav>
@@ -840,17 +890,37 @@ export default function PengliCoach() {
               onClick={() => {
                 setDoubtTarget(null);
                 setVerification(null);
+                setTeacherQuestionSubmitted(false);
                 setDoubtError("");
               }}
             >
               ×
             </button>
-            <b>{doubtTarget.evidenceMissing ? "未找到對應書頁：查證官方資料" : "針對這則 AI 回覆提出疑問"}</b>
+            <b>{doubtMode === "teacher" ? "請彭狸老師說明這段 AI 回覆" : "查證這段回覆引用的法規／裁判"}</b>
             <blockquote>
               {doubtTarget.text.slice(0, 300)}
               {doubtTarget.text.length > 300 ? "…" : ""}
             </blockquote>
-            {!verification ? (
+            {doubtMode === "teacher" ? (
+              <>
+                <p>告訴老師你認為哪裡不對，或想問「AI 為什麼會這樣解讀？」老師會針對這段回覆說明。</p>
+                <textarea
+                  value={doubtText}
+                  onChange={(event) => setDoubtText(event.target.value)}
+                  placeholder="例如：AI 為什麼認為機關仍有裁量？我覺得這裡應該是羈束處分……"
+                  disabled={teacherQuestionSubmitted}
+                />
+                <button
+                  type="button"
+                  onClick={() => void submitDoubtToTeacher()}
+                  disabled={!doubtText.trim() || doubtLoading || teacherQuestionSubmitted || quotaExhausted}
+                >
+                  {teacherQuestionSubmitted ? "已轉請彭狸老師說明" : doubtLoading ? "正在送出…" : "轉請彭狸老師說明"}
+                </button>
+                {teacherQuestionSubmitted && <strong>老師回覆後，會在「我的筆記」通知你。</strong>}
+                {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
+              </>
+            ) : !verification ? (
               <>
                 <textarea
                   value={doubtText}
@@ -907,6 +977,7 @@ export default function PengliCoach() {
                   onClick={() => {
                     setDoubtTarget(null);
                     setVerification(null);
+                    setTeacherQuestionSubmitted(false);
                     setDoubtError("");
                   }}
                 >
