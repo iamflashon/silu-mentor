@@ -36,6 +36,11 @@ export async function getActiveAiEntitlement(db: Db, memberId: number, now = new
   return row ?? null;
 }
 
+export async function getUnexpiredAiEntitlement(db: Db, memberId: number, now = new Date()) {
+  const [row] = await db.select().from(aiAccessEntitlements).where(and(eq(aiAccessEntitlements.memberId, memberId), eq(aiAccessEntitlements.status,"active"), gt(aiAccessEntitlements.expiresAt, now))).orderBy(desc(aiAccessEntitlements.expiresAt)).limit(1);
+  return row ?? null;
+}
+
 export async function getPengliFreeTrial(db: Db, memberId: number) {
   const [row] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, `${PENGLI_FREE_TRIAL_KEY_PREFIX}${memberId}`)).limit(1);
   if (!row) return null;
