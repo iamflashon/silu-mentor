@@ -43,8 +43,14 @@ type Access = {
 const storageKey = "pengli-ai-coach-history-v1";
 const topicStorageKey = "pengli-ai-coach-active-topic-v1";
 
+function cleanLearningPoint(value: string) {
+  return value.normalize("NFKC")
+    .replace(/^[\s\-‐‑‒–—―_─━═=·•．…]+|[\s\-‐‑‒–—―_─━═=·•．…]+$/gu, "")
+    .trim();
+}
+
 function isClickableLearningPoint(value: string) {
-  const normalized = value.normalize("NFKC").trim();
+  const normalized = cleanLearningPoint(value);
   const citationSignals = [/[，,]/u, /\d+\s*版/u, /\d{4}\s*年/u, /\d+\s*月/u, /\d+\s*頁/u, /(?:著|編|譯|總論|專論)/u]
     .filter((pattern) => pattern.test(normalized)).length;
   return normalized.length >= 4
@@ -125,8 +131,9 @@ export default function PengliCoach() {
       const data = await response.json() as { located?: boolean; pageStart?: number; pageEnd?: number | null; source?: string; guide?: { summary?: string; keyPoints?: string[]; firstPoint?: string }; error?: string };
       if (!response.ok) throw new Error(data.error || "目前無法讀取教材章節。");
       if (data.located && Number.isFinite(data.pageStart)) setTopicLocation({ pageStart: Number(data.pageStart), pageEnd: data.pageEnd });
-      const keyPoints = Array.isArray(data.guide?.keyPoints) ? data.guide.keyPoints.filter((point): point is string => typeof point === "string" && isClickableLearningPoint(point)).slice(0, 5) : [];
-      if (!data.located || keyPoints.length < 3 || !data.guide?.summary || !data.guide?.firstPoint || !keyPoints.includes(data.guide.firstPoint)) {
+      const keyPoints = Array.isArray(data.guide?.keyPoints) ? data.guide.keyPoints.filter((point): point is string => typeof point === "string").map(cleanLearningPoint).filter((point) => point !== topic && isClickableLearningPoint(point)).slice(0, 5) : [];
+      const firstPoint = cleanLearningPoint(data.guide?.firstPoint || "");
+      if (!data.located || keyPoints.length < 3 || !data.guide?.summary || !firstPoint || !keyPoints.includes(firstPoint)) {
         if (resetConversation) setMessages([{
           id: crypto.randomUUID(), role: "coach",
           text: `今天要練的是「${topic}」，但目前尚未完成這一章的教材重點定位。我先不使用一般知識代替老師內容，請稍後再試或回報彭狸老師確認。`,
@@ -134,7 +141,7 @@ export default function PengliCoach() {
         }]);
         return;
       }
-      const guide: TopicGuide = { summary: data.guide.summary, keyPoints, firstPoint: data.guide.firstPoint, source: `${data.source || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}` };
+      const guide: TopicGuide = { summary: data.guide.summary, keyPoints, firstPoint, source: `${data.source || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}` };
       setTopicGuide(guide);
       if (resetConversation) setMessages([makeTopicGuideMessage(topic, guide)]);
     } catch {

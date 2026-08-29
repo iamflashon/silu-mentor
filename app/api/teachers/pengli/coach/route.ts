@@ -265,15 +265,21 @@ function parseTopicGuide(text: string): PengliTopicGuide | null {
   try {
     const value = JSON.parse(text.replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, "").trim()) as Partial<PengliTopicGuide>;
     const keyPoints = Array.isArray(value.keyPoints)
-      ? [...new Set(value.keyPoints.map((item) => plainText(String(item)).trim()).filter(isSemanticTopicPoint))].slice(0, 5)
+      ? [...new Set(value.keyPoints.map((item) => cleanTopicPoint(String(item))).filter(isSemanticTopicPoint))].slice(0, 5)
       : [];
     const summary = plainText(String(value.summary ?? "")).trim();
-    const firstPoint = plainText(String(value.firstPoint ?? "")).trim();
+    const firstPoint = cleanTopicPoint(String(value.firstPoint ?? ""));
     if (keyPoints.length < 3 || summary.length < 12 || containsPageReference(summary) || !keyPoints.includes(firstPoint)) return null;
     return { summary, keyPoints, firstPoint };
   } catch {
     return null;
   }
+}
+
+function cleanTopicPoint(value: string) {
+  return plainText(value).normalize("NFKC")
+    .replace(/^[\s\-‐‑‒–—―_─━═=·•．…]+|[\s\-‐‑‒–—―_─━═=·•．…]+$/gu, "")
+    .trim();
 }
 
 function containsPageReference(value: string) {
@@ -296,10 +302,10 @@ function isSemanticTopicPoint(value: string) {
 
 function fallbackTopicGuide(topic: string, rows: { hierarchyPath: string; title: string; text: string }[]): PengliTopicGuide | null {
   const labels = rows.flatMap((row) => `${row.hierarchyPath}｜${row.title}`.split(/[>／/｜]/u))
-    .map((item) => item.replace(/^\s*(?:考點\s*\d+[：:]?|第[一二三四五六七八九十\d]+節[：:]?)\s*/u, "").trim())
+    .map((item) => cleanTopicPoint(item.replace(/^\s*(?:考點\s*\d+[：:]?|第[一二三四五六七八九十\d]+節[：:]?)\s*/u, "")))
     .filter((item) => item !== topic && isSemanticTopicPoint(item));
   const enumerated = rows.flatMap((row) => [...row.text.matchAll(/[一二三四五六七八九十]\s*[、.)）]\s*([^，。；：\n]{4,30})/gu)]
-    .map((match) => match[1].trim()).filter(isSemanticTopicPoint));
+    .map((match) => cleanTopicPoint(match[1])).filter(isSemanticTopicPoint));
   const keyPoints = [...new Set([...labels, ...enumerated])].slice(0, 5);
   if (keyPoints.length < 3) return null;
   return {
