@@ -85,6 +85,28 @@ const topicStarters: Record<string, string[]> = {
   ],
 };
 
+const topicGoals: Record<string, string> = {
+  "行政法理論基礎與行政組織法": "建立公私法區分、法律保留與行政組織權限的判斷順序",
+  行政處分: "辨認行政處分的要件，並接續安排效力、合法性與救濟",
+  行政契約與行政命令: "區分行政契約、行政處分、法規命令與行政規則",
+  行政罰法: "掌握責任要件、一行為不二罰與裁處時效的審查順序",
+  行政執行法: "辨認義務類型，並選擇正確的行政執行手段",
+  訴願法與行政訴訟法: "依權利受侵害的型態，選出正確的救濟程序與訴訟類型",
+  國家賠償法與損失補償: "區分國家賠償與損失補償，並逐項檢查成立要件",
+  新進實務見解整理: "掌握新見解如何改變既有標準，並把裁判理由轉成申論語言",
+};
+
+function makeTopicWarmupMessage(topic: string): CoachMessage {
+  const warmup = topicStarters[topic]?.[0] ?? `「${topic}」的核心判斷架構應如何安排？`;
+  const goal = topicGoals[topic] ?? `掌握「${topic}」的核心爭點與作答順序`;
+  return {
+    id: crypto.randomUUID(),
+    role: "coach",
+    text: `今天要練的是「${topic}」。這一章會帶你${goal}。\n\n先來一題熱身：${warmup}`,
+    source: "彭狸 AI 教練｜章節熱身",
+  };
+}
+
 export default function PengliCoach() {
   const [messages, setMessages] = useState<CoachMessage[]>([
     {
@@ -134,22 +156,29 @@ export default function PengliCoach() {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || "null") as
         CoachMessage[] | null;
-      if (Array.isArray(saved) && saved.length)
-        setMessages(
-          saved
-            .slice(-40)
-            .map((message) => ({
-              ...message,
-              id: message.id || crypto.randomUUID(),
-            })),
-        );
       const urlTopic = new URLSearchParams(window.location.search).get("topic")?.trim() || "";
       const savedTopic = localStorage.getItem(topicStorageKey)?.trim() || "";
       const topic = urlTopic || savedTopic;
+      const savedMessages = Array.isArray(saved)
+        ? saved.slice(-40).map((message) => ({
+            ...message,
+            id: message.id || crypto.randomUUID(),
+          }))
+        : [];
+      const continuingSameTopic = Boolean(
+        topic &&
+          topic === savedTopic &&
+          savedMessages.some((message) => message.role === "student"),
+      );
+      if (savedMessages.length && (!urlTopic || continuingSameTopic))
+        setMessages(savedMessages);
       if (topic) {
         setActiveTopic(topic);
         localStorage.setItem(topicStorageKey, topic);
-        if (urlTopic) setInput(`我正在學「${topic}」，請先用一個問題帶我判斷。`);
+        if (urlTopic && !continuingSameTopic) {
+          setMessages([makeTopicWarmupMessage(topic)]);
+          setInput("");
+        }
         void fetch(`/api/teachers/pengli/coach?topic=${encodeURIComponent(topic)}`, { cache: "no-store" })
           .then(async (response) => response.ok ? response.json() : null)
           .then((data) => {
@@ -678,12 +707,14 @@ export default function PengliCoach() {
           type="button"
           onClick={() => {
             setMessages([
-              {
-                id: crypto.randomUUID(),
-                role: "coach",
-                text: "新的練習開始了。請貼上行政法題目，或告訴我你正在讀哪一個考點。",
-                source: "彭狸 AI 教練",
-              },
+              activeTopic
+                ? makeTopicWarmupMessage(activeTopic)
+                : {
+                    id: crypto.randomUUID(),
+                    role: "coach",
+                    text: "請先從八大主題選擇一章，我會直接帶你開始熱身。",
+                    source: "彭狸 AI 教練",
+                  },
             ]);
             setUsage(null);
             setError("");
