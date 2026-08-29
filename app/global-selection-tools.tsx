@@ -113,6 +113,9 @@ export default function GlobalSelectionTools() {
     explaining: boolean;
     usage: ExplainUsage | null;
     access?: MedtechExplainAccess;
+    aiFallbackAvailable?: boolean;
+    aiFallback?: boolean;
+    sourceStatus?: string;
   } | null>(null);
   const [noteDraft, setNoteDraft] = useState<NoteDraft | null>(null);
   const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">(
@@ -337,7 +340,7 @@ export default function GlobalSelectionTools() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  async function explain() {
+  async function explain(allowAiFallback = false) {
     if (!selectedText || lookup?.explaining) return;
     dismiss();
     const current = lookup ?? {
@@ -354,7 +357,7 @@ export default function GlobalSelectionTools() {
     setLookup({
       ...current,
       mode: "explain",
-      loading: !lookup,
+      loading: allowAiFallback || !lookup,
       explaining: true,
       error: "",
     });
@@ -380,10 +383,11 @@ export default function GlobalSelectionTools() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(
           isPengli
-            ? {
+              ? {
                 selectedText,
                 mode: "plain-explain",
                 requestKey: crypto.randomUUID(),
+                allowAiFallback,
               }
             : isMedtech
               ? { selectedText }
@@ -426,6 +430,12 @@ export default function GlobalSelectionTools() {
                 ? data.analysis
                 : null,
             usage: valid ? (data.usage ?? null) : null,
+            aiFallbackAvailable: !valid && data.canAiFallback === true,
+            aiFallback: valid && data.aiFallback === true,
+            sourceStatus:
+              valid && typeof data.sourceStatus === "string"
+                ? data.sourceStatus
+                : "",
             access:
               valid && data.access && typeof data.access === "object"
                 ? (data.access as MedtechExplainAccess)
@@ -736,7 +746,26 @@ export default function GlobalSelectionTools() {
               !lookup.decision ? (
               <>
                 {lookup.error ? (
-                  <p className="law-lookup-status error">{lookup.error}</p>
+                  <>
+                    <p className="law-lookup-status error">{lookup.error}</p>
+                    {isPengli && lookup.aiFallbackAvailable && (
+                      <footer>
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => void explain(true)}
+                          disabled={lookup.explaining}
+                        >
+                          {lookup.explaining
+                            ? "AI 正在解釋…"
+                            : "確定，改由 AI 白話解釋"}
+                        </button>
+                        <button type="button" onClick={close}>
+                          取消
+                        </button>
+                      </footer>
+                    )}
+                  </>
                 ) : (
                   <section className="legal-analysis-card">
                     <small>框選內容</small>
@@ -799,6 +828,12 @@ export default function GlobalSelectionTools() {
                             ? "中會白話說明"
                             : "白話解釋"}
                       </b>
+                      {isPengli && lookup.aiFallback && (
+                        <small>
+                          {lookup.sourceStatus ||
+                            "AI 補充，未命中彭狸老師教材"}
+                        </small>
+                      )}
                       <p>{lookup.explanation}</p>
                       {lookup.analysis?.caveat && (
                         <small>{lookup.analysis.caveat}</small>
