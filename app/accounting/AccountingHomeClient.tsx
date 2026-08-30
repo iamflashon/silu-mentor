@@ -47,6 +47,9 @@ export default function AccountingHomeClient() {
             <small>ACCOUNTING AI TUTOR</small>
           </div>
         </div>
+        <nav>
+          <a href="/accounting">回會計首頁</a>
+        </nav>
       </header>
       <section className="accounting-hero accounting-help-hero">
         <div>

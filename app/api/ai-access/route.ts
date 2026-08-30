@@ -20,10 +20,7 @@ import { MEDTECH_DEFAULT_PRODUCT_KEY } from "../../../lib/medtech-product-settin
 import { listMedtechQuestionUnits } from "../../../lib/medtech-question-units";
 import { medtechPackDescription } from "../../../lib/medtech-usage";
 import { requireMember } from "../../../lib/member-auth";
-import {
-  accountingAiStatus,
-  grantAccountingAi,
-} from "../../../lib/accounting-ai-access";
+import { grantAccountingAi } from "../../../lib/accounting-ai-access";
 
 async function digest(value: string) {
   return Array.from(
@@ -252,15 +249,6 @@ export async function POST(request: Request) {
       { error: "目前已有使用中的 AI 方案，請於額度用完或到期後再兌換" },
       { status: 409 },
     );
-  if (
-    code.benefitType === "ai_access" &&
-    code.examCategory === "accounting" &&
-    (await accountingAiStatus(auth.db, auth.member.id)).active
-  )
-    return Response.json(
-      { error: "目前已有使用中的中會課業答疑方案，請於額度用完或到期後再兌換" },
-      { status: 409 },
-    );
   if (code.benefitType === "medtech_book") {
     const [active] = await auth.db
       .select()
@@ -327,8 +315,6 @@ export async function POST(request: Request) {
   try {
     if (code.benefitType === "ai_access") {
       if (code.examCategory === "accounting") {
-        const current = await accountingAiStatus(auth.db, auth.member.id);
-        if (current.active) throw new Error("ACTIVE_AI_PLAN_EXISTS");
         await grantAccountingAi(auth.db, auth.member.id, code.id, {
           quota: code.quota || 30,
           durationDays: code.durationDays,
