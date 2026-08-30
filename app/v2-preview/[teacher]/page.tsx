@@ -7,5 +7,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   if (!["pengli", "kangqing", "zhenghong"].includes(teacher)) notFound();
   const [catalog, config] = await Promise.all([getV2Catalog(), getV2Config()]);
   const key = teacher as V2TeacherKey;
-  return <TeacherWorkspace teacher={catalog.teachers[key]} modules={config.teachers[key].modules} brand={query.brand === "angle" ? "angle" : "get"} />;
+  const space = config.teachers[key];
+  if (!space.enabled || space.status !== "published") notFound();
+  return <TeacherWorkspace teacher={{ ...catalog.teachers[key], name: space.name, subject: space.subject }} zoneTitle={space.zoneTitle} summary={space.summary} modules={space.modules} brand={query.brand === "angle" ? "angle" : "get"} />;
 }
