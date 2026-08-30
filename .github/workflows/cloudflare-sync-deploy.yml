@@ -54,6 +54,9 @@ jobs:
       - name: Build latest Sites source
         run: npm run build
 
+      - name: Repair legal source registry when absent
+        run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0085_cloudflare_legal_sources_repair.sql
+
       - name: Apply accounting tables when absent
         shell: bash
         run: |
@@ -85,4 +88,4 @@ jobs:
         run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0084_accounting_source_missing_answers.sql
 
       - name: Deploy latest Worker
-        run: npm exec -- wrangler deploy --config ./dist/server/wrangler.json
+        run: npm exec -- wrangler deploy --keep-vars --config ./dist/server/wrangler.json
