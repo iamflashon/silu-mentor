@@ -25,7 +25,7 @@ export default async function AccountingHome() {
   return <main className="accounting-books-page">
     <header className="accounting-top">
       <a href="/accounting" className="accounting-brand"><span>中</span><div><b>中級會計練題館</b><small>BOOK PRACTICE</small></div></a>
-      <nav><a href="/accounting/qa">課頁答疑</a></nav>
+      <nav><a href="/accounting/qa">課業答疑</a></nav>
     </header>
     <section className="accounting-books-hero"><span>第一本書 · 選擇題訓練</span><h1>{p.title}</h1><p>{p.subtitle}</p></section>
     <article className="accounting-book-product">

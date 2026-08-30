@@ -38714,6 +38714,42 @@ a.is-action-pending {
   color: #e3ebe6;
   white-space: pre-wrap;
 }
+.accounting-rich-explanation {
+  max-width: 100%;
+  margin-top: 12px;
+  overflow-x: auto;
+  color: #eef7f2;
+  line-height: 1.7;
+}
+.accounting-rich-explanation p {
+  margin: 8px 0;
+  color: inherit;
+  white-space: normal;
+}
+.accounting-rich-explanation table {
+  width: auto;
+  max-width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+  color: inherit;
+}
+.accounting-rich-explanation th,
+.accounting-rich-explanation td {
+  padding: 4px 8px;
+  vertical-align: top;
+  color: inherit;
+}
+.accounting-practice-explanation > small {
+  display: block;
+  margin-top: 14px;
+  color: #d5e6df;
+}
+.accounting-practice-explanation > a {
+  display: inline-flex;
+  margin-top: 8px;
+  color: #f3d15c;
+  font-weight: 800;
+}
 .accounting-practice-card footer {
   display: flex;
   justify-content: space-between;

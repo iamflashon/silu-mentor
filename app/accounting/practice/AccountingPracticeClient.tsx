@@ -2,18 +2,260 @@
 import { useEffect, useState } from "react";
 import AccountingPurchaseButton from "../AccountingPurchaseButton";
 
-type Q = { id: number; year: string; examName: string; subject: string; questionNumber: string; stem: string; optionsJson: string | null; correctAnswer: string | null; explanation: string; teacherNotes: string };
+type Q = {
+  id: number;
+  year: string;
+  examName: string;
+  subject: string;
+  questionNumber: string;
+  stem: string;
+  optionsJson: string | null;
+  correctAnswer: string | null;
+  explanation: string;
+  teacherNotes: string;
+};
 const BOOK_TITLE = "會研所中級會計學題庫制霸";
-const CHAPTERS = ["第一章 財務報導之觀念架構", "第二章 財務報表的表達", "第三章 複利及年金", "第四章 收入認列與衡量", "第五章 現金及應收帳款", "第六章 存貨", "第七章 營業用資產", "第八章 無形資產、投資性不動產、生物資產", "第九章 金融資產 IFRS 9", "第十章 負債", "第十一章 股東權益與每股盈餘", "第十二章 租賃", "第十三章 員工福利", "第十四章 所得稅", "第十五章 現金流量表", "第十六章 會計變動及錯誤更正", "第十七章 財務報表分析", "第十八章 中會其他歷屆試題"];
+const CHAPTERS = [
+  "第一章 財務報導之觀念架構",
+  "第二章 財務報表的表達",
+  "第三章 複利及年金",
+  "第四章 收入認列與衡量",
+  "第五章 現金及應收帳款",
+  "第六章 存貨",
+  "第七章 營業用資產",
+  "第八章 無形資產、投資性不動產、生物資產",
+  "第九章 金融資產 IFRS 9",
+  "第十章 負債",
+  "第十一章 股東權益與每股盈餘",
+  "第十二章 租賃",
+  "第十三章 員工福利",
+  "第十四章 所得稅",
+  "第十五章 現金流量表",
+  "第十六章 會計變動及錯誤更正",
+  "第十七章 財務報表分析",
+  "第十八章 中會其他歷屆試題",
+];
 
 export default function AccountingPracticeClient() {
-  const [items, setItems] = useState<Q[]>([]); const [index, setIndex] = useState(0); const [selected, setSelected] = useState(""); const [chapter, setChapter] = useState(CHAPTERS[0]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [bookTotal, setBookTotal] = useState(0); const [chapterTotal, setChapterTotal] = useState(0); const [paidAccess, setPaidAccess] = useState(false); const [hasWholeBook, setHasWholeBook] = useState(false); const [trialAccess, setTrialAccess] = useState(true); const [trialLimit, setTrialLimit] = useState(10); const [notice, setNotice] = useState("正在載入本書已發布題目…");
-  async function load(target = 1, selectedChapter = chapter) { const chapterNumber = CHAPTERS.indexOf(selectedChapter) + 1; const response = await fetch(`/api/accounting/book-practice?page=${target}&chapterNumber=${chapterNumber}&chapter=${encodeURIComponent(selectedChapter)}`, { cache: "no-store" }); const data = await response.json() as { items?: Q[]; total?: number; bookTotal?: number; chapterTotal?: number; trialLimit?: number; paidAccess?: boolean; trialAccess?: boolean; hasWholeBook?: boolean }; const rows = data.items ?? []; setItems(rows); setTotal(data.total ?? 0); setBookTotal(data.bookTotal ?? 0); setChapterTotal(data.chapterTotal ?? 0); setTrialLimit(data.trialLimit ?? 10); setPaidAccess(Boolean(data.paidAccess)); setTrialAccess(Boolean(data.trialAccess)); setHasWholeBook(Boolean(data.hasWholeBook)); setIndex(0); setSelected(""); setPage(target); setNotice(rows.length ? (data.paidAccess ? `${selectedChapter}共 ${(data.chapterTotal ?? 0).toLocaleString()} 題；全書 ${(data.bookTotal ?? 0).toLocaleString()} 題。` : `免費體驗第一章前 ${data.trialLimit ?? 10} 題；可單買任一章或解鎖整本。`) : (data.chapterTotal ?? 0) > 0 ? `${selectedChapter}尚未解鎖，可單買本章或購買整本。` : "本章目前尚未完成題目分類。"); }
-  useEffect(() => { void load(); }, []);
-  const question = items[index]; let options: Record<string, string> = {}; try { options = JSON.parse(question?.optionsJson || "{}") as Record<string, string>; } catch {}
+  const [items, setItems] = useState<Q[]>([]);
+  const [index, setIndex] = useState(0);
+  const [selected, setSelected] = useState("");
+  const [chapter, setChapter] = useState(CHAPTERS[0]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [bookTotal, setBookTotal] = useState(0);
+  const [chapterTotal, setChapterTotal] = useState(0);
+  const [paidAccess, setPaidAccess] = useState(false);
+  const [hasWholeBook, setHasWholeBook] = useState(false);
+  const [trialAccess, setTrialAccess] = useState(true);
+  const [trialLimit, setTrialLimit] = useState(10);
+  const [notice, setNotice] = useState("正在載入本書已發布題目…");
+  async function load(target = 1, selectedChapter = chapter) {
+    const chapterNumber = CHAPTERS.indexOf(selectedChapter) + 1;
+    const response = await fetch(
+      `/api/accounting/book-practice?page=${target}&chapterNumber=${chapterNumber}&chapter=${encodeURIComponent(selectedChapter)}`,
+      { cache: "no-store" },
+    );
+    const data = (await response.json()) as {
+      items?: Q[];
+      total?: number;
+      bookTotal?: number;
+      chapterTotal?: number;
+      trialLimit?: number;
+      paidAccess?: boolean;
+      trialAccess?: boolean;
+      hasWholeBook?: boolean;
+    };
+    const rows = data.items ?? [];
+    setItems(rows);
+    setTotal(data.total ?? 0);
+    setBookTotal(data.bookTotal ?? 0);
+    setChapterTotal(data.chapterTotal ?? 0);
+    setTrialLimit(data.trialLimit ?? 10);
+    setPaidAccess(Boolean(data.paidAccess));
+    setTrialAccess(Boolean(data.trialAccess));
+    setHasWholeBook(Boolean(data.hasWholeBook));
+    setIndex(0);
+    setSelected("");
+    setPage(target);
+    setNotice(
+      rows.length
+        ? data.paidAccess
+          ? `${selectedChapter}共 ${(data.chapterTotal ?? 0).toLocaleString()} 題；全書 ${(data.bookTotal ?? 0).toLocaleString()} 題。`
+          : `免費體驗第一章前 ${data.trialLimit ?? 10} 題；可單買任一章或解鎖整本。`
+        : (data.chapterTotal ?? 0) > 0
+          ? `${selectedChapter}尚未解鎖，可單買本章或購買整本。`
+          : "本章目前尚未完成題目分類。",
+    );
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+  const question = items[index];
+  let options: Record<string, string> = {};
+  try {
+    options = JSON.parse(question?.optionsJson || "{}") as Record<
+      string,
+      string
+    >;
+  } catch {}
   const answered = Boolean(selected);
-  return <section className="accounting-practice-shell"><header><span>會研所中級會計・18 章題庫</span><h1>{BOOK_TITLE}</h1><p>{notice}</p></header><div className="accounting-bank-filters"><label>自選練習章節<select value={chapter} onChange={(event) => { const value = event.target.value; setChapter(value); void load(1, value); }}>{CHAPTERS.map((item) => <option value={item} key={item}>{item}</option>)}</select></label><span>{hasWholeBook ? "已解鎖整本 18 章" : paidAccess ? "本章已解鎖" : trialAccess ? `免費體驗前 ${trialLimit} 題` : "本章尚未解鎖"}</span></div>
-    {question ? <article className="accounting-practice-card"><small>{chapter}・第 {question.questionNumber} 題　·　第 {(page - 1) * 10 + index + 1}/{paidAccess ? chapterTotal : trialLimit} 題</small><h2>{question.stem}</h2><div className="accounting-options">{["A", "B", "C", "D"].filter((key) => options[key]).map((key) => <button className={answered ? (key === question.correctAnswer ? "correct" : key === selected ? "wrong" : "") : selected === key ? "selected" : ""} disabled={answered} onClick={() => setSelected(key)} key={key}><b>{key}</b><span>{options[key]}</span></button>)}</div>{answered && <section className="accounting-practice-explanation"><b>{selected === question.correctAnswer ? "答對了" : `這題答案是 ${question.correctAnswer || "尚待核對"}`}</b><p>{question.explanation || "老師原檔目前沒有獨立解析，可交給中會 QA 協助說明。"}</p><small>題庫來源：{BOOK_TITLE}</small><a href="/accounting/qa">針對本題詢問中會 QA</a></section>}<footer><button disabled={page === 1 && index === 0} onClick={() => { if (index > 0) { setIndex((value) => value - 1); setSelected(""); } else void load(page - 1); }}>上一題</button>{!paidAccess && index === items.length - 1 ? <a className="accounting-unlock" href="#chapter-purchase">選擇購買方案</a> : <button disabled={!selected} onClick={() => { if (index < items.length - 1) { setIndex((value) => value + 1); setSelected(""); } else if (page * 10 < total) void load(page + 1); }}>{index < items.length - 1 || page * 10 < total ? "下一題" : "完成本章練習"}</button>}</footer></article> : <div className="accounting-practice-empty"><b>{chapterTotal > 0 ? "本章尚未解鎖" : "本章尚未完成題目分類"}</b><p>{chapterTotal > 0 ? "可購買本章 30 天，或直接解鎖整本 18 章。" : "請回教材發布管理補上本章分類。"}</p></div>}
-    {!hasWholeBook && <section id="chapter-purchase" className="accounting-chapter-purchase"><div><span>單章方案</span><h2>{chapter}</h2><b>NT$39・30 天・本章全部 {chapterTotal.toLocaleString()} 題</b><AccountingPurchaseButton active={chapterTotal > 0} plan="chapter" chapterNumber={CHAPTERS.indexOf(chapter) + 1} label={chapterTotal > 0 ? "LINE Pay 購買本章 NT$39" : "本章整理中"} /></div><div><span>整本方案</span><h2>全部 18 章</h2><b>NT$249・90 天・全書 {bookTotal.toLocaleString()} 題</b><AccountingPurchaseButton active={bookTotal > 0} plan="book" label={bookTotal > 0 ? "LINE Pay 解鎖整本 NT$249" : "整本題庫整理中"} /></div></section>}
-  </section>;
+  return (
+    <section className="accounting-practice-shell">
+      <header>
+        <span>會研所中級會計・18 章題庫</span>
+        <h1>{BOOK_TITLE}</h1>
+        <p>{notice}</p>
+      </header>
+      <div className="accounting-bank-filters">
+        <label>
+          自選練習章節
+          <select
+            value={chapter}
+            onChange={(event) => {
+              const value = event.target.value;
+              setChapter(value);
+              void load(1, value);
+            }}
+          >
+            {CHAPTERS.map((item) => (
+              <option value={item} key={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span>
+          {hasWholeBook
+            ? "已解鎖整本 18 章"
+            : paidAccess
+              ? "本章已解鎖"
+              : trialAccess
+                ? `免費體驗前 ${trialLimit} 題`
+                : "本章尚未解鎖"}
+        </span>
+      </div>
+      {question ? (
+        <article className="accounting-practice-card">
+          <small>
+            {chapter}・第 {question.questionNumber} 題　·　第{" "}
+            {(page - 1) * 10 + index + 1}/
+            {paidAccess ? chapterTotal : trialLimit} 題
+          </small>
+          <h2>{question.stem}</h2>
+          <div className="accounting-options">
+            {["A", "B", "C", "D"]
+              .filter((key) => options[key])
+              .map((key) => (
+                <button
+                  className={
+                    answered
+                      ? key === question.correctAnswer
+                        ? "correct"
+                        : key === selected
+                          ? "wrong"
+                          : ""
+                      : selected === key
+                        ? "selected"
+                        : ""
+                  }
+                  disabled={answered}
+                  onClick={() => setSelected(key)}
+                  key={key}
+                >
+                  <b>{key}</b>
+                  <span>{options[key]}</span>
+                </button>
+              ))}
+          </div>
+          {answered && (
+            <section className="accounting-practice-explanation">
+              <b>
+                {selected === question.correctAnswer
+                  ? "答對了"
+                  : `這題答案是 ${question.correctAnswer || "尚待核對"}`}
+              </b>
+              {question.explanation ? (
+                <div className="accounting-rich-explanation" dangerouslySetInnerHTML={{ __html: question.explanation }} />
+              ) : (
+                <p>老師原檔目前沒有獨立解析，可交給課業答疑協助說明。</p>
+              )}
+              <small>題庫來源：{BOOK_TITLE}</small>
+              <a href="/accounting/qa">針對本題進入課業答疑</a>
+            </section>
+          )}
+          <footer>
+            <button
+              disabled={page === 1 && index === 0}
+              onClick={() => {
+                if (index > 0) {
+                  setIndex((value) => value - 1);
+                  setSelected("");
+                } else void load(page - 1);
+              }}
+            >
+              上一題
+            </button>
+            {!paidAccess && index === items.length - 1 ? (
+              <a className="accounting-unlock" href="#chapter-purchase">
+                選擇購買方案
+              </a>
+            ) : (
+              <button
+                disabled={!selected}
+                onClick={() => {
+                  if (index < items.length - 1) {
+                    setIndex((value) => value + 1);
+                    setSelected("");
+                  } else if (page * 10 < total) void load(page + 1);
+                }}
+              >
+                {index < items.length - 1 || page * 10 < total
+                  ? "下一題"
+                  : "完成本章練習"}
+              </button>
+            )}
+          </footer>
+        </article>
+      ) : (
+        <div className="accounting-practice-empty">
+          <b>{chapterTotal > 0 ? "本章尚未解鎖" : "本章尚未完成題目分類"}</b>
+          <p>
+            {chapterTotal > 0
+              ? "可購買本章 30 天，或直接解鎖整本 18 章。"
+              : "請回教材發布管理補上本章分類。"}
+          </p>
+        </div>
+      )}
+      {!hasWholeBook && (
+        <section id="chapter-purchase" className="accounting-chapter-purchase">
+          <div>
+            <span>單章方案</span>
+            <h2>{chapter}</h2>
+            <b>NT$39・30 天・本章全部 {chapterTotal.toLocaleString()} 題</b>
+            <AccountingPurchaseButton
+              active={chapterTotal > 0}
+              plan="chapter"
+              chapterNumber={CHAPTERS.indexOf(chapter) + 1}
+              label={
+                chapterTotal > 0 ? "LINE Pay 購買本章 NT$39" : "本章整理中"
+              }
+            />
+          </div>
+          <div>
+            <span>整本方案</span>
+            <h2>全部 18 章</h2>
+            <b>NT$249・90 天・全書 {bookTotal.toLocaleString()} 題</b>
+            <AccountingPurchaseButton
+              active={bookTotal > 0}
+              plan="book"
+              label={
+                bookTotal > 0 ? "LINE Pay 解鎖整本 NT$249" : "整本題庫整理中"
+              }
+            />
+          </div>
+        </section>
+      )}
+    </section>
+  );
 }

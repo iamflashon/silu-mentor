@@ -4,6 +4,7 @@ import { requireMember } from "../../../../lib/member-auth";
 import { ACCOUNTING_FIRST_PRODUCT_KEY, ACCOUNTING_FIRST_PRODUCT_TITLE, getAccountingProductSettings } from "../../../../lib/accounting-product-settings";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
 import { accountingChapterForNotes } from "../../../../lib/accounting-book-chapters";
+import { sanitizeRichHtml } from "../../../../lib/rich-html";
 
 export async function GET(request: Request) {
   const auth = await requireMember(request); if ("error" in auth) return auth.error;
@@ -19,5 +20,5 @@ export async function GET(request: Request) {
   const chapterRows = allRows.filter((item) => accountingChapterForNotes(item.teacherNotes)?.number === chapterNumber);
   const allowedTotal = paidAccess ? chapterRows.length : trialAccess ? Math.min(product.trialQuestions, chapterRows.length) : 0;
   const rows = canPractice ? chapterRows.slice(paidAccess ? (page - 1) * 10 : 0, paidAccess ? page * 10 : product.trialQuestions) : [];
-  return Response.json({ items: rows.map((item) => ({ ...item, stem: removeAccountingPageFurniture(item.stem) ?? "", explanation: removeAccountingPageFurniture(item.explanation) ?? "" })), total: allowedTotal, bookTotal: allRows.length, chapterTotal: chapterRows.length, trialLimit: product.trialQuestions, paidAccess, trialAccess, hasWholeBook: auth.member.role === "admin" || Boolean(wholeEntitlement), expiresAt: (wholeEntitlement || chapterEntitlement)?.expiresAt ?? null }, { headers: { "cache-control": "no-store" } });
+  return Response.json({ items: rows.map((item) => ({ ...item, stem: removeAccountingPageFurniture(item.stem) ?? "", explanation: sanitizeRichHtml(removeAccountingPageFurniture(item.explanation) ?? "") })), total: allowedTotal, bookTotal: allRows.length, chapterTotal: chapterRows.length, trialLimit: product.trialQuestions, paidAccess, trialAccess, hasWholeBook: auth.member.role === "admin" || Boolean(wholeEntitlement), expiresAt: (wholeEntitlement || chapterEntitlement)?.expiresAt ?? null }, { headers: { "cache-control": "no-store" } });
 }
