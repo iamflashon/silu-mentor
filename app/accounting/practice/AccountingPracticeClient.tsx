@@ -15,6 +15,28 @@ type Q = {
   teacherNotes: string;
 };
 const BOOK_TITLE = "會研所中級會計學題庫制霸";
+type PracticeMode = "ordered" | "random" | "options";
+const PRACTICE_MODES: Array<{
+  key: PracticeMode;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "ordered",
+    title: "1. 照順序練習",
+    description: "依本章原始題號逐題練習。",
+  },
+  {
+    key: "random",
+    title: "2. 隨機出題",
+    description: "題目順序重新打亂，選項維持 A～D。",
+  },
+  {
+    key: "options",
+    title: "3. 隨機選項",
+    description: "題目照原順序，A～D 選項重新排列。",
+  },
+];
 const CHAPTERS = [
   "第一章 財務報導之觀念架構",
   "第二章 財務報表的表達",
@@ -50,10 +72,17 @@ export default function AccountingPracticeClient() {
   const [trialAccess, setTrialAccess] = useState(true);
   const [trialLimit, setTrialLimit] = useState(10);
   const [notice, setNotice] = useState("正在載入本書已發布題目…");
-  async function load(target = 1, selectedChapter = chapter) {
+  const [mode, setMode] = useState<PracticeMode>("ordered");
+  const [seed, setSeed] = useState(() => Date.now() % 2147483647);
+  async function load(
+    target = 1,
+    selectedChapter = chapter,
+    selectedMode = mode,
+    selectedSeed = seed,
+  ) {
     const chapterNumber = CHAPTERS.indexOf(selectedChapter) + 1;
     const response = await fetch(
-      `/api/accounting/book-practice?page=${target}&chapterNumber=${chapterNumber}&chapter=${encodeURIComponent(selectedChapter)}`,
+      `/api/accounting/book-practice?page=${target}&chapterNumber=${chapterNumber}&chapter=${encodeURIComponent(selectedChapter)}&questionOrder=${selectedMode === "random" ? "random" : "ordered"}&seed=${selectedSeed}`,
       { cache: "no-store" },
     );
     const data = (await response.json()) as {
@@ -99,6 +128,29 @@ export default function AccountingPracticeClient() {
       string
     >;
   } catch {}
+  const displayOptions = Object.entries(options)
+    .filter(([key]) => ["A", "B", "C", "D"].includes(key))
+    .map(([originalKey, value]) => ({ originalKey, value }));
+  if (mode === "options" && question) {
+    const optionRank = (key: string) =>
+      Math.imul(
+        (question.id * 31 + key.charCodeAt(0) + seed) >>> 0,
+        2654435761,
+      ) >>> 0;
+    displayOptions.sort(
+      (a, b) => optionRank(a.originalKey) - optionRank(b.originalKey),
+    );
+  }
+  const displayedOptions = displayOptions.map((item, optionIndex) => ({
+    ...item,
+    key: String.fromCharCode(65 + optionIndex),
+  }));
+  const displayedCorrectAnswer =
+    displayedOptions.find(
+      (item) => item.originalKey === question?.correctAnswer,
+    )?.key ??
+    question?.correctAnswer ??
+    "";
   const answered = Boolean(selected);
   return (
     <section className="accounting-practice-shell">
@@ -115,7 +167,9 @@ export default function AccountingPracticeClient() {
             onChange={(event) => {
               const value = event.target.value;
               setChapter(value);
-              void load(1, value);
+              const nextSeed = Date.now() % 2147483647;
+              setSeed(nextSeed);
+              void load(1, value, mode, nextSeed);
             }}
           >
             {CHAPTERS.map((item) => (
@@ -135,6 +189,25 @@ export default function AccountingPracticeClient() {
                 : "本章尚未解鎖"}
         </span>
       </div>
+      <div className="accounting-practice-modes" aria-label="選擇練題方式">
+        {PRACTICE_MODES.map((item) => (
+          <button
+            type="button"
+            className={mode === item.key ? "active" : ""}
+            aria-pressed={mode === item.key}
+            key={item.key}
+            onClick={() => {
+              const nextSeed = Date.now() % 2147483647;
+              setMode(item.key);
+              setSeed(nextSeed);
+              void load(1, chapter, item.key, nextSeed);
+            }}
+          >
+            <b>{item.title}</b>
+            <small>{item.description}</small>
+          </button>
+        ))}
+      </div>
       {question ? (
         <article className="accounting-practice-card">
           <small>
@@ -144,39 +217,40 @@ export default function AccountingPracticeClient() {
           </small>
           <h2>{question.stem}</h2>
           <div className="accounting-options">
-            {["A", "B", "C", "D"]
-              .filter((key) => options[key])
-              .map((key) => (
-                <button
-                  className={
-                    answered
-                      ? key === question.correctAnswer
-                        ? "correct"
-                        : key === selected
-                          ? "wrong"
-                          : ""
-                      : selected === key
-                        ? "selected"
+            {displayedOptions.map((item) => (
+              <button
+                className={
+                  answered
+                    ? item.key === displayedCorrectAnswer
+                      ? "correct"
+                      : item.key === selected
+                        ? "wrong"
                         : ""
-                  }
-                  disabled={answered}
-                  onClick={() => setSelected(key)}
-                  key={key}
-                >
-                  <b>{key}</b>
-                  <span>{options[key]}</span>
-                </button>
-              ))}
+                    : selected === item.key
+                      ? "selected"
+                      : ""
+                }
+                disabled={answered}
+                onClick={() => setSelected(item.key)}
+                key={`${question.id}-${item.key}`}
+              >
+                <b>{item.key}</b>
+                <span>{item.value}</span>
+              </button>
+            ))}
           </div>
           {answered && (
             <section className="accounting-practice-explanation">
               <b>
-                {selected === question.correctAnswer
+                {selected === displayedCorrectAnswer
                   ? "答對了"
-                  : `這題答案是 ${question.correctAnswer || "尚待核對"}`}
+                  : `這題答案是 ${displayedCorrectAnswer || "尚待核對"}`}
               </b>
               {question.explanation ? (
-                <div className="accounting-rich-explanation" dangerouslySetInnerHTML={{ __html: question.explanation }} />
+                <div
+                  className="accounting-rich-explanation"
+                  dangerouslySetInnerHTML={{ __html: question.explanation }}
+                />
               ) : (
                 <p>老師原檔目前沒有獨立解析，可交給課業答疑協助說明。</p>
               )}
