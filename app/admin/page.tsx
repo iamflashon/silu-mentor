@@ -3640,8 +3640,8 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <span className="brand-mark">智</span>
           <span>iBrain AI</span>
         </a>
-        <a href={independentMode ? "/admin" : "/law"} className="back-link">
-          {independentMode ? "返回司律管理後台 →" : "返回司律備考 →"}
+        <a href={independentMode ? "/" : "/law"} className="back-link">
+          {independentMode ? "回首頁 →" : "返回司律備考 →"}
         </a>
       </header>
       <div className="admin-main">

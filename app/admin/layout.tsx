@@ -35,7 +35,6 @@ export default async function AdminLayout({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "9px 18px", color: "#dce9fb", background: "#172f52", fontSize: "13px" }}>
         <span>管理員已驗證｜{member.displayName || member.email}</span>
         <span style={{ display: "flex", gap: "14px" }}>
-          <Link href="/law" style={{ color: "#fff", textDecoration: "none" }}>返回學生平台</Link>
           <form action="/api/admin-entry/logout" method="post" style={{ margin: 0 }}><button type="submit" style={{ padding: 0, border: 0, background: "none", color: "#fff", font: "inherit", cursor: "pointer" }}>登出</button></form>
         </span>
       </div>
