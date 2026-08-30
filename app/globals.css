@@ -38639,7 +38639,7 @@ a.is-action-pending {
   margin-top: 22px;
 }
 .accounting-practice-shell {
-  width: min(920px, calc(100% - 32px)) !important;
+  width: min(1180px, calc(100% - 40px)) !important;
   margin: 36px auto !important;
   padding: 0 !important;
   border: 0 !important;
@@ -38720,13 +38720,74 @@ a.is-action-pending {
   margin-top: 17px;
 }
 .accounting-practice-card footer button,
-.accounting-practice-empty a {
+.accounting-practice-empty a,
+.accounting-unlock {
   padding: 11px 16px;
   border: 1px solid #caa139;
   border-radius: 9px;
   background: #f0cb52;
   color: #111;
   font-weight: 900;
+}
+.accounting-unlock {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.accounting-book-entry {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 11px 16px;
+  border-radius: 9px;
+  background: #f0cb52;
+  color: #173f30;
+  font-weight: 900;
+  text-decoration: none;
+}
+.accounting-payment-notice {
+  display: block;
+  margin-top: 8px;
+  color: #9c3f32;
+  line-height: 1.45;
+}
+.accounting-chapter-purchase {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 22px;
+}
+.accounting-chapter-purchase > div {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 22px;
+  border: 1px solid #dfcc94;
+  border-radius: 15px;
+  background: #fffdf8;
+}
+.accounting-chapter-purchase span {
+  color: #9a741d;
+  font-size: 12px;
+  font-weight: 900;
+}
+.accounting-chapter-purchase h2 {
+  margin: 0;
+  color: #173f30;
+  font-size: 20px;
+}
+.accounting-chapter-purchase button {
+  margin-top: 8px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: #08a45c;
+  color: #fff;
+  font-weight: 900;
+}
+.accounting-book-product aside button {
+  background: #08a45c !important;
+  border-color: #07864c !important;
+  color: #fff !important;
 }
 .accounting-practice-empty {
   padding: 45px;
@@ -39071,6 +39132,9 @@ a.is-action-pending {
 @media (max-width: 800px) {
   .accounting-bank-filters {
     grid-template-columns: 1fr !important;
+  }
+  .accounting-chapter-purchase {
+    grid-template-columns: 1fr;
   }
 }
 .accounting-bank-filters.word-only {
