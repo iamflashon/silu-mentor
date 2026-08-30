@@ -118,7 +118,9 @@ export default function CentralBookCatalog() {
     );
   }
   async function publish(book: Book) {
-    if (!window.confirm(`確定只發布「${book.title}」所屬的草稿題目？`)) return;
+    const preview = book.documentIds.map((id) => previews[id]).find(Boolean);
+    const remaining = preview?.draft ?? book.questions;
+    if (!window.confirm(`確定發布「${book.title}」剩餘的 ${remaining.toLocaleString()} 題草稿？已發布題目不會重複處理。`)) return;
     const key = normalized(book.title);
     setBusy(`publish:${key}`);
     const response = await fetch("/api/admin/publish-document-questions", {
@@ -133,6 +135,7 @@ export default function CentralBookCatalog() {
         ? `「${book.title}」已發布 ${data.updated ?? 0} 題${data.blocked ? `；另有 ${data.blocked} 題缺老師擬答，暫不發布` : ""}。`
         : (data.error ?? "發布失敗"),
     );
+    await load();
   }
   async function create(title: string, category: string) {
     if (!["accounting", "medtech"].includes(category))
@@ -247,14 +250,18 @@ export default function CentralBookCatalog() {
                 <div className="central-publish-actions">
                   <button
                     className="publish-book"
-                    disabled={!book.questions || busy === `publish:${key}` || Boolean(preview && !preview.ready)}
+                    disabled={!book.questions || busy === `publish:${key}` || Boolean(preview && (!preview.ready || preview.draft === 0))}
                     onClick={() => void publish(book)}
                   >
                     {busy === `publish:${key}`
                       ? "發布中…"
                       : preview && !preview.ready
                         ? "章節尚未對應完成"
-                        : `發布本書 ${book.questions.toLocaleString()} 題`}
+                        : preview
+                          ? preview.draft > 0
+                            ? `發布剩餘 ${preview.draft.toLocaleString()} 題`
+                            : "本書題目已全部發布"
+                          : `發布本書 ${book.questions.toLocaleString()} 題`}
                   </button>
                   {product ? (
                     <b className="ready">已有商品設定</b>

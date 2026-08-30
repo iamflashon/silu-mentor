@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, like } from "drizzle-orm";
+import { and, asc, eq, inArray, like, or } from "drizzle-orm";
 import { accountingMemberEntitlements, documents, examQuestions } from "../../../../db/schema";
 import { requireMember } from "../../../../lib/member-auth";
 import { ACCOUNTING_FIRST_PRODUCT_KEY, ACCOUNTING_FIRST_PRODUCT_TITLE, getAccountingProductSettings } from "../../../../lib/accounting-product-settings";
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const entitlements = await auth.db.select().from(accountingMemberEntitlements).where(and(eq(accountingMemberEntitlements.memberId, auth.member.id), eq(accountingMemberEntitlements.status, "active")));
   const wholeEntitlement = entitlements.find((item) => item.productKey === ACCOUNTING_FIRST_PRODUCT_KEY && item.expiresAt > now), chapterEntitlement = entitlements.find((item) => item.productKey === `${ACCOUNTING_FIRST_PRODUCT_KEY}:chapter:${chapterNumber}` && item.expiresAt > now);
   const paidAccess = auth.member.role === "admin" || Boolean(wholeEntitlement || chapterEntitlement), trialAccess = chapterNumber === 1, canPractice = paidAccess || trialAccess;
-  const docs = await auth.db.select({ id: documents.id }).from(documents).where(like(documents.bookTitle, `%${ACCOUNTING_FIRST_PRODUCT_TITLE}%`));
+  const docs = await auth.db.select({ id: documents.id }).from(documents).where(or(like(documents.bookTitle, `%${ACCOUNTING_FIRST_PRODUCT_TITLE}%`), like(documents.fileName, "%51MM320901%"), like(documents.fileName, `%${ACCOUNTING_FIRST_PRODUCT_TITLE}%`)));
   const sources = docs.map((row) => `document:${row.id}`);
   const baseWhere = sources.length ? and(inArray(examQuestions.sourceUrl, sources), eq(examQuestions.status, "published"), eq(examQuestions.examCategory, "accounting"), eq(examQuestions.examType, "mcq")) : eq(examQuestions.id, -1);
   const allRows = sources.length ? await auth.db.select().from(examQuestions).where(baseWhere).orderBy(asc(examQuestions.id)) : [];

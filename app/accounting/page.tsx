@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { requireMember } from "../../lib/member-auth";
 import { getAccountingProductSettings } from "../../lib/accounting-product-settings";
 import AccountingPurchaseButton from "./AccountingPurchaseButton";
-import { and, count, eq, inArray, like } from "drizzle-orm";
+import { and, count, eq, inArray, like, or } from "drizzle-orm";
 import { documents, examQuestions } from "../../db/schema";
 import "./books/page.css";
 
@@ -17,7 +17,7 @@ export default async function AccountingHome() {
   const auth = await requireMember(new Request("https://accounting.local/accounting", { headers: await headers() }));
   if ("error" in auth) return auth.error;
   const p = await getAccountingProductSettings(auth.db);
-  const docs = await auth.db.select({ id: documents.id }).from(documents).where(like(documents.bookTitle, "%會研所中級會計學題庫制霸%"));
+  const docs = await auth.db.select({ id: documents.id }).from(documents).where(or(like(documents.bookTitle, "%會研所中級會計學題庫制霸%"), like(documents.fileName, "%51MM320901%"), like(documents.fileName, "%會研所中級會計學題庫制霸%")));
   const sources = docs.map((row) => `document:${row.id}`);
   const [published] = sources.length ? await auth.db.select({ value: count() }).from(examQuestions).where(and(inArray(examQuestions.sourceUrl, sources), eq(examQuestions.status, "published"), eq(examQuestions.examCategory, "accounting"))) : [{ value: 0 }];
   const publishedQuestions = Number(published?.value ?? 0);
