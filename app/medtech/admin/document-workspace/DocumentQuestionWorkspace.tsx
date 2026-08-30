@@ -200,13 +200,23 @@ type QualityFilter =
   | "spacing"
   | "linebreak"
   | "type";
-type DismissibleQualityFilter = "garbled" | "spacing" | "linebreak" | "type";
+type DismissibleQualityFilter =
+  "missing-answer" | "garbled" | "spacing" | "linebreak" | "type";
 const dismissibleQualityWarnings = new Set<DismissibleQualityFilter>([
+  "missing-answer",
   "garbled",
   "spacing",
   "linebreak",
   "type",
 ]);
+function hasQualityAcknowledgement(
+  question: Question,
+  warning: DismissibleQualityFilter,
+) {
+  return (question.qualityAcknowledgements ?? []).some(
+    (item) => item.warning === warning,
+  );
+}
 function hasSuspiciousLineBreak(value: string) {
   return /[\u4e00-\u9fff](?:\s*<br\s*\/?\s*>\s*|\r?\n\s*)[\u4e00-\u9fff]/iu.test(
     value || "",
@@ -1070,7 +1080,14 @@ export default function DocumentQuestionWorkspace({
   }
   async function dismissQualityWarning(warning: DismissibleQualityFilter) {
     if (!current || !accounting) return;
-    if (!window.confirm("已核對左側原稿，確定本題內容正確並解除這一項警示嗎？"))
+    const sourceHasNoAnswer = warning === "missing-answer";
+    if (
+      !window.confirm(
+        sourceHasNoAnswer
+          ? "已核對左側原稿，確定原書本題沒有附答案嗎？註記後將不再列入缺答案。"
+          : "已核對左側原稿，確定本題內容正確並解除這一項警示嗎？",
+      )
+    )
       return;
     setSaving(true);
     const response = await fetch(paths.questions, {
@@ -1088,7 +1105,11 @@ export default function DocumentQuestionWorkspace({
       setQuestions((list) =>
         list.map((item) => (item.id === saved.id ? saved : item)),
       );
-      setNotice("已記錄老師確認：這一項是 AI 誤判；其他品質警示不受影響。");
+      setNotice(
+        sourceHasNoAnswer
+          ? "已註記「原書未附答案」；本題不再列入缺答案，其他品質警示不受影響。"
+          : "已記錄老師確認：這一項是 AI 誤判；其他品質警示不受影響。",
+      );
     } else setNotice(data.error || "解除警示失敗");
     setSaving(false);
   }
@@ -2165,7 +2186,9 @@ export default function DocumentQuestionWorkspace({
                                 )
                               }
                             >
-                              此題正確，解除此警示
+                              {reason.key === "missing-answer"
+                                ? "原書未附答案"
+                                : "此題正確，解除此警示"}
                             </button>
                           )}
                       </p>
@@ -2360,6 +2383,10 @@ export default function DocumentQuestionWorkspace({
                             <option key={x}>{x}</option>
                           ))}
                         </select>
+                        {hasQualityAcknowledgement(
+                          current,
+                          "missing-answer",
+                        ) && <small>已註記：原書未附答案</small>}
                       </label>
                     ) : (
                       <span />

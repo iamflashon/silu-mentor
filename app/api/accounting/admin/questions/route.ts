@@ -156,6 +156,7 @@ export async function PATCH(request: Request) {
       : "";
   if (dismissQualityWarning) {
     const dismissibleWarnings = new Set([
+      "missing-answer",
       "garbled",
       "spacing",
       "linebreak",
