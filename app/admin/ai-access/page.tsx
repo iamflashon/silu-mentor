@@ -197,7 +197,6 @@ export default function AiAccessAdminPage() {
             總管理共用規則，可套用司律、會計、醫檢師與資料結構；各類科不另建重複方案。
           </span>
         </div>
-        <a href="/admin">返回總管理後台 →</a>
       </header>
       <CentralAdminTabs active="ai-access" />
       {!policy ? (
