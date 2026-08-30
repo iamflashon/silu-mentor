@@ -2,7 +2,7 @@ import { clearAdminEntryCookie } from "../../../../lib/admin-entry-auth";
 
 function logout(request: Request) {
   const requestUrl = new URL(request.url);
-  const homeUrl = new URL("/platform", requestUrl.origin);
+  const homeUrl = new URL("/accounting", requestUrl.origin);
 
   return new Response(null, {
     status: 303,

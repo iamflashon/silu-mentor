@@ -3640,8 +3640,8 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <span className="brand-mark">智</span>
           <span>iBrain AI</span>
         </a>
-        <a href={independentMode ? "/admin" : "/law"} className="back-link">
-          {independentMode ? "返回司律管理後台 →" : "返回司律備考 →"}
+        <a href={independentMode ? "/" : "/law"} className="back-link">
+          {independentMode ? "回首頁 →" : "返回司律備考 →"}
         </a>
       </header>
       <div className="admin-main">
@@ -3653,7 +3653,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           </div>
         </div>
         {independentMode && <CentralAdminTabs active={libraryMode ? "library" : questionBankMode ? "question-bank" : "members"} />}
-        {libraryMode && <nav className="admin-tabs" aria-label="中央教材與官方法律資料切換">
+        {libraryMode && <nav className="central-source-tabs" aria-label="中央教材與官方法律資料切換">
           <button className={activeTab === "documents" ? "active" : ""} onClick={() => setActiveTab("documents")}>教材資料庫</button>
           <button className={activeTab === "legal" ? "active" : ""} onClick={() => setActiveTab("legal")}>全國法規與大法官解釋</button>
           <button className={activeTab === "judicial" ? "active" : ""} onClick={() => setActiveTab("judicial")}>司法院裁判</button>
@@ -6378,7 +6378,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             <div>
               <h2>司法院裁判資料</h2>
               <p className="panel-sub">
-                使用已儲存帳密取得 6 小時 Token；官方 API 每日 00:00 至
+                由 Cloudflare Worker 直接向司法院官方 API 取得資料；官方 API 每日 00:00 至
                 06:00 開放，系統會在開放後自動持續下載。
               </p>
             </div>
@@ -6424,7 +6424,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               onClick={() => runJudicial("sync")}
               disabled={syncingJudicial || !judicialStatus?.configured}
             >
-              {syncingJudicial ? "同步中…" : "立即下載一批"}
+              {syncingJudicial ? "同步中…" : "同步司法院資料"}
             </button>
           </div>
           {judicialStatus?.schedule?.enabled && (

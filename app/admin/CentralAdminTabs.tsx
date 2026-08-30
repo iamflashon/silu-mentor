@@ -1,7 +1,7 @@
 const tabs = [
   ["library", "/admin/library", "教材向量庫"],
   ["question-bank", "/admin/question-bank", "總題庫管理"],
-  ["products", "/admin/products", "書籍與商品"],
+  ["products", "/admin/products", "教材發布管理"],
   ["members", "/admin/members", "會員總管理"],
   ["qa", "/admin/qa-test-applications", "QA 測試申請"],
   ["teacher-materials", "/admin/teacher-materials", "老師教材管理"],

@@ -25,5 +25,15 @@
 .pengli-theme-list .theme-card>span{color:#547b96;font-family:serif;font-size:19px}
 .pengli-theme-list .theme-card>b{padding:5px 8px;border-radius:7px;color:#fff;background:#3c739a;font-size:9px}
 
-/* The managed cover may be taller than the original artwork; keep the author card readable. */
-.pengli-teacher-note{z-index:3}
+/* Match the current Cloudflare Pengli hero: author under title, full-size cover at right. */
+.pengli-inline-author{display:flex;align-items:baseline;gap:12px;margin-top:15px}
+.pengli-inline-author strong{color:#e3bf78;font-family:"Noto Serif TC","PMingLiU",serif;font-size:18px}
+.pengli-inline-author span{color:#b8cad6;font-size:12px}
+.pengli-book-stage{min-height:470px;grid-template-rows:1fr;place-items:center;padding:0}
+.pengli-book-stage>.pengli-managed-cover{grid-row:1;width:auto;min-height:0;transform:none;background:transparent}
+.pengli-book-stage .pengli-managed-cover>img{width:auto;height:var(--pengli-cover-height,455px);max-width:100%;max-height:none;object-fit:contain;background:transparent;transform:none}
+@media(max-width:680px){
+  .pengli-inline-author{align-items:flex-start;flex-direction:column;gap:3px;margin-top:12px}
+  .pengli-book-stage{min-height:340px}
+  .pengli-book-stage .pengli-managed-cover>img{width:auto;height:min(var(--pengli-cover-height,320px),320px)}
+}

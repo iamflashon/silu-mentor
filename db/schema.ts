@@ -24,32 +24,52 @@ export const members = sqliteTable("members", {
     .$defaultFn(() => new Date()),
 });
 
-export const accountingQaTrialDevices = sqliteTable("accounting_qa_trial_devices", {
-  deviceKey: text("device_key").primaryKey(),
-  ipHash: text("ip_hash").notNull().default(""),
-  userAgentHash: text("user_agent_hash").notNull().default(""),
-  usedCount: integer("used_count").notNull().default(0),
-  bonusCount: integer("bonus_count").notNull().default(0),
-  status: text("status").notNull().default("active"),
-  firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  lastSeenAt: integer("last_seen_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-});
+export const accountingQaTrialDevices = sqliteTable(
+  "accounting_qa_trial_devices",
+  {
+    deviceKey: text("device_key").primaryKey(),
+    ipHash: text("ip_hash").notNull().default(""),
+    userAgentHash: text("user_agent_hash").notNull().default(""),
+    usedCount: integer("used_count").notNull().default(0),
+    bonusCount: integer("bonus_count").notNull().default(0),
+    status: text("status").notNull().default("active"),
+    firstSeenAt: integer("first_seen_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+);
 
-export const accountingQaTrialRequests = sqliteTable("accounting_qa_trial_requests", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  deviceKey: text("device_key").notNull().references(() => accountingQaTrialDevices.deviceKey, { onDelete: "cascade" }),
-  displayName: text("display_name").notNull().default(""),
-  email: text("email").notNull().default(""),
-  reason: text("reason").notNull().default(""),
-  status: text("status").notNull().default("pending"),
-  grantCount: integer("grant_count").notNull().default(0),
-  requestedAt: integer("requested_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  resolvedAt: integer("resolved_at", { mode: "timestamp" }),
-  resolvedBy: text("resolved_by").notNull().default(""),
-}, (table) => [
-  index("accounting_qa_trial_requests_status_requested_idx").on(table.status, table.requestedAt),
-  index("accounting_qa_trial_requests_device_idx").on(table.deviceKey),
-]);
+export const accountingQaTrialRequests = sqliteTable(
+  "accounting_qa_trial_requests",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    deviceKey: text("device_key")
+      .notNull()
+      .references(() => accountingQaTrialDevices.deviceKey, {
+        onDelete: "cascade",
+      }),
+    displayName: text("display_name").notNull().default(""),
+    email: text("email").notNull().default(""),
+    reason: text("reason").notNull().default(""),
+    status: text("status").notNull().default("pending"),
+    grantCount: integer("grant_count").notNull().default(0),
+    requestedAt: integer("requested_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+    resolvedBy: text("resolved_by").notNull().default(""),
+  },
+  (table) => [
+    index("accounting_qa_trial_requests_status_requested_idx").on(
+      table.status,
+      table.requestedAt,
+    ),
+    index("accounting_qa_trial_requests_device_idx").on(table.deviceKey),
+  ],
+);
 
 export const memberPasswordResetRequests = sqliteTable(
   "member_password_reset_requests",
@@ -141,19 +161,35 @@ export const memberAccountDeletionAudits = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     deletionRef: text("deletion_ref").notNull().unique(),
     actorType: text("actor_type").notNull().default("member_self_service"),
-    requestChannel: text("request_channel").notNull().default("authenticated_member_portal"),
-    authenticationMethod: text("authentication_method").notNull().default("session_password_confirmation_phrase"),
+    requestChannel: text("request_channel")
+      .notNull()
+      .default("authenticated_member_portal"),
+    authenticationMethod: text("authentication_method")
+      .notNull()
+      .default("session_password_confirmation_phrase"),
     outcome: text("outcome").notNull().default("started"),
     ipHash: text("ip_hash").notNull().default(""),
     userAgentHash: text("user_agent_hash").notNull().default(""),
-    retainedPaymentOrders: integer("retained_payment_orders").notNull().default(0),
-    paymentDataAnonymized: integer("payment_data_anonymized", { mode: "boolean" }).notNull().default(false),
-    learningDataDeleted: integer("learning_data_deleted", { mode: "boolean" }).notNull().default(false),
-    requestedAt: integer("requested_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    retainedPaymentOrders: integer("retained_payment_orders")
+      .notNull()
+      .default(0),
+    paymentDataAnonymized: integer("payment_data_anonymized", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(false),
+    learningDataDeleted: integer("learning_data_deleted", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    requestedAt: integer("requested_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
     completedAt: integer("completed_at", { mode: "timestamp" }),
   },
   (table) => [
-    uniqueIndex("member_account_deletion_audits_ref_unique").on(table.deletionRef),
+    uniqueIndex("member_account_deletion_audits_ref_unique").on(
+      table.deletionRef,
+    ),
     index("member_account_deletion_audits_requested_idx").on(table.requestedAt),
   ],
 );
@@ -203,28 +239,47 @@ export const medtechProducts = sqliteTable("medtech_products", {
   accessDays: integer("access_days").notNull().default(30),
   trialQuestions: integer("trial_questions").notNull().default(30),
   status: text("status").notNull().default("active"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export const medtechMemberEntitlements = sqliteTable(
   "medtech_member_entitlements",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
     productKey: text("product_key").notNull(),
     status: text("status").notNull().default("active"),
     source: text("source").notNull().default("manual"),
-    startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    examCategory: text("exam_category").notNull().default("all"),
+    startsAt: integer("starts_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     note: text("note").notNull().default(""),
     updatedBy: text("updated_by").notNull().default(""),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
   },
   (table) => [
-    uniqueIndex("medtech_member_entitlements_member_product_unique").on(table.memberId, table.productKey),
-    index("medtech_member_entitlements_product_expiry_idx").on(table.productKey, table.expiresAt),
+    uniqueIndex("medtech_member_entitlements_member_product_unique").on(
+      table.memberId,
+      table.productKey,
+    ),
+    index("medtech_member_entitlements_product_expiry_idx").on(
+      table.productKey,
+      table.expiresAt,
+    ),
   ],
 );
 
@@ -245,47 +300,164 @@ export const accountingProducts = sqliteTable("accounting_products", {
   renewalMode: text("renewal_mode").notNull().default("extend"),
   status: text("status").notNull().default("draft"),
   sortOrder: integer("sort_order").notNull().default(10),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
-export const accountingMemberEntitlements = sqliteTable("accounting_member_entitlements", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
-  productKey: text("product_key").notNull(),
-  status: text("status").notNull().default("active"),
-  source: text("source").notNull().default("manual"),
-  startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
-  note: text("note").notNull().default(""),
-  updatedBy: text("updated_by").notNull().default(""),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  uniqueIndex("accounting_member_entitlements_member_product_unique").on(table.memberId, table.productKey),
-  index("accounting_member_entitlements_product_expiry_idx").on(table.productKey, table.expiresAt),
-]);
+export const accountingMemberEntitlements = sqliteTable(
+  "accounting_member_entitlements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    productKey: text("product_key").notNull(),
+    status: text("status").notNull().default("active"),
+    source: text("source").notNull().default("manual"),
+    startsAt: integer("starts_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    note: text("note").notNull().default(""),
+    updatedBy: text("updated_by").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("accounting_member_entitlements_member_product_unique").on(
+      table.memberId,
+      table.productKey,
+    ),
+    index("accounting_member_entitlements_product_expiry_idx").on(
+      table.productKey,
+      table.expiresAt,
+    ),
+  ],
+);
+
+export const accountingAiEntitlements = sqliteTable(
+  "accounting_ai_entitlements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" })
+      .unique(),
+    quotaTotal: integer("quota_total").notNull().default(30),
+    quotaUsed: integer("quota_used").notNull().default(0),
+    status: text("status").notNull().default("active"),
+    startsAt: integer("starts_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    source: text("source").notNull().default("line_pay"),
+    referenceId: text("reference_id").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+);
+
+export const accountingAiLedger = sqliteTable(
+  "accounting_ai_ledger",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    entitlementId: integer("entitlement_id")
+      .notNull()
+      .references(() => accountingAiEntitlements.id, { onDelete: "cascade" }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    requestKey: text("request_key").notNull(),
+    delta: integer("delta").notNull().default(-1),
+    balanceAfter: integer("balance_after").notNull(),
+    description: text("description").notNull().default("中會課業答疑"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("accounting_ai_ledger_request_unique").on(
+      table.memberId,
+      table.requestKey,
+    ),
+  ],
+);
+
+export const accountingPracticeAttempts = sqliteTable(
+  "accounting_practice_attempts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    questionId: integer("question_id")
+      .notNull()
+      .references(() => examQuestions.id, { onDelete: "cascade" }),
+    chapterNumber: integer("chapter_number").notNull(),
+    selectedAnswer: text("selected_answer").notNull(),
+    correctAnswer: text("correct_answer").notNull(),
+    isCorrect: integer("is_correct", { mode: "boolean" }).notNull(),
+    elapsedSeconds: integer("elapsed_seconds").notNull().default(0),
+    practiceMode: text("practice_mode").notNull().default("ordered"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("accounting_attempts_member_created_idx").on(
+      table.memberId,
+      table.createdAt,
+    ),
+    index("accounting_attempts_member_question_idx").on(
+      table.memberId,
+      table.questionId,
+    ),
+  ],
+);
 
 export const aiAccessEntitlements = sqliteTable(
   "ai_access_entitlements",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
     status: text("status").notNull().default("active"),
     source: text("source").notNull().default("manual"),
     quotaTotal: integer("quota_total").notNull().default(30),
     quotaUsed: integer("quota_used").notNull().default(0),
     coachRoundsUsed: integer("coach_rounds_used").notNull().default(0),
     coachWebSearchUsed: integer("coach_web_search_used").notNull().default(0),
-    startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    startsAt: integer("starts_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     referenceId: text("reference_id").notNull().default(""),
     note: text("note").notNull().default(""),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
   },
   (table) => [
-    index("ai_access_entitlements_member_expiry_idx").on(table.memberId, table.expiresAt),
+    index("ai_access_entitlements_member_expiry_idx").on(
+      table.memberId,
+      table.expiresAt,
+    ),
   ],
 );
 
@@ -293,18 +465,30 @@ export const aiAccessLedger = sqliteTable(
   "ai_access_ledger",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    entitlementId: integer("entitlement_id").notNull().references(() => aiAccessEntitlements.id, { onDelete: "cascade" }),
-    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    entitlementId: integer("entitlement_id")
+      .notNull()
+      .references(() => aiAccessEntitlements.id, { onDelete: "cascade" }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
     delta: integer("delta").notNull(),
     balanceAfter: integer("balance_after").notNull(),
     action: text("action").notNull(),
     requestKey: text("request_key").notNull().default(""),
     description: text("description").notNull().default(""),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
   },
   (table) => [
-    uniqueIndex("ai_access_ledger_request_unique").on(table.memberId, table.requestKey),
-    index("ai_access_ledger_member_created_idx").on(table.memberId, table.createdAt),
+    uniqueIndex("ai_access_ledger_request_unique").on(
+      table.memberId,
+      table.requestKey,
+    ),
+    index("ai_access_ledger_member_created_idx").on(
+      table.memberId,
+      table.createdAt,
+    ),
   ],
 );
 
@@ -324,51 +508,101 @@ export const activationCodes = sqliteTable(
     status: text("status").notNull().default("unused"),
     redeemBy: integer("redeem_by", { mode: "timestamp" }),
     redeemedAt: integer("redeemed_at", { mode: "timestamp" }),
-    redeemedByMemberId: integer("redeemed_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    redeemedByMemberId: integer("redeemed_by_member_id").references(
+      () => members.id,
+      { onDelete: "set null" },
+    ),
     selectedUnitKey: text("selected_unit_key").notNull().default(""),
     selectedUnitLabel: text("selected_unit_label").notNull().default(""),
     createdBy: text("created_by").notNull().default(""),
-    createdByMemberId: integer("created_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    createdByMemberId: integer("created_by_member_id").references(
+      () => members.id,
+      { onDelete: "set null" },
+    ),
     disabledBy: text("disabled_by").notNull().default(""),
     disabledReason: text("disabled_reason").notNull().default(""),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
   },
   (table) => [
-    index("activation_codes_status_created_idx").on(table.status, table.createdAt),
+    index("activation_codes_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
     index("activation_codes_redeemed_member_idx").on(table.redeemedByMemberId),
   ],
 );
 
-export const activationCodeBatches = sqliteTable("activation_code_batches", {
-  id: text("id").primaryKey(),
-  label: text("label").notNull(),
-  purpose: text("purpose").notNull(),
-  benefitType: text("benefit_type").notNull(),
-  quantity: integer("quantity").notNull(),
-  createdByMemberId: integer("created_by_member_id").references(() => members.id, { onDelete: "set null" }),
-  createdByEmail: text("created_by_email").notNull(),
-  dailyLimit: integer("daily_limit").notNull(),
-  monthlyLimit: integer("monthly_limit").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [index("activation_code_batches_creator_created_idx").on(table.createdByMemberId, table.createdAt)]);
+export const activationCodeBatches = sqliteTable(
+  "activation_code_batches",
+  {
+    id: text("id").primaryKey(),
+    label: text("label").notNull(),
+    purpose: text("purpose").notNull(),
+    benefitType: text("benefit_type").notNull(),
+    quantity: integer("quantity").notNull(),
+    createdByMemberId: integer("created_by_member_id").references(
+      () => members.id,
+      { onDelete: "set null" },
+    ),
+    createdByEmail: text("created_by_email").notNull(),
+    dailyLimit: integer("daily_limit").notNull(),
+    monthlyLimit: integer("monthly_limit").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("activation_code_batches_creator_created_idx").on(
+      table.createdByMemberId,
+      table.createdAt,
+    ),
+  ],
+);
 
-export const activationCodeAuditLogs = sqliteTable("activation_code_audit_logs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  codeId: text("code_id").references(() => activationCodes.id, { onDelete: "set null" }),
-  batchId: text("batch_id").references(() => activationCodeBatches.id, { onDelete: "set null" }),
-  actorMemberId: integer("actor_member_id").references(() => members.id, { onDelete: "set null" }),
-  actorEmail: text("actor_email").notNull(),
-  action: text("action").notNull(),
-  detailsJson: text("details_json").notNull().default("{}"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [index("activation_code_audit_code_created_idx").on(table.codeId, table.createdAt), index("activation_code_audit_actor_created_idx").on(table.actorMemberId, table.createdAt)]);
+export const activationCodeAuditLogs = sqliteTable(
+  "activation_code_audit_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    codeId: text("code_id").references(() => activationCodes.id, {
+      onDelete: "set null",
+    }),
+    batchId: text("batch_id").references(() => activationCodeBatches.id, {
+      onDelete: "set null",
+    }),
+    actorMemberId: integer("actor_member_id").references(() => members.id, {
+      onDelete: "set null",
+    }),
+    actorEmail: text("actor_email").notNull(),
+    action: text("action").notNull(),
+    detailsJson: text("details_json").notNull().default("{}"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("activation_code_audit_code_created_idx").on(
+      table.codeId,
+      table.createdAt,
+    ),
+    index("activation_code_audit_actor_created_idx").on(
+      table.actorMemberId,
+      table.createdAt,
+    ),
+  ],
+);
 
 export const aiPaymentOrders = sqliteTable(
   "ai_payment_orders",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    memberId: integer("member_id").references(() => members.id, { onDelete: "set null" }),
+    memberId: integer("member_id").references(() => members.id, {
+      onDelete: "set null",
+    }),
     orderId: text("order_id").notNull().unique(),
     transactionId: text("transaction_id"),
     environment: text("environment").notNull(),
@@ -380,12 +614,22 @@ export const aiPaymentOrders = sqliteTable(
     returnCode: text("return_code"),
     returnMessage: text("return_message"),
     paidAt: integer("paid_at", { mode: "timestamp" }),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
   },
   (table) => [
-    index("ai_payment_orders_member_created_idx").on(table.memberId, table.createdAt),
-    index("ai_payment_orders_status_created_idx").on(table.status, table.createdAt),
+    index("ai_payment_orders_member_created_idx").on(
+      table.memberId,
+      table.createdAt,
+    ),
+    index("ai_payment_orders_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
   ],
 );
 
@@ -523,9 +767,19 @@ export const documentSectionMappings = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (table) => [
-    uniqueIndex("document_section_mappings_document_key_unique").on(table.documentId, table.sectionKey),
-    index("document_section_mappings_document_order_idx").on(table.documentId, table.sortOrder),
-    index("document_section_mappings_document_pages_idx").on(table.documentId, table.pdfStartPage, table.pdfEndPage),
+    uniqueIndex("document_section_mappings_document_key_unique").on(
+      table.documentId,
+      table.sectionKey,
+    ),
+    index("document_section_mappings_document_order_idx").on(
+      table.documentId,
+      table.sortOrder,
+    ),
+    index("document_section_mappings_document_pages_idx").on(
+      table.documentId,
+      table.pdfStartPage,
+      table.pdfEndPage,
+    ),
   ],
 );
 
@@ -948,42 +1202,79 @@ export const savedNotes = sqliteTable("saved_notes", {
     .$defaultFn(() => new Date()),
 });
 
-export const pengliTeacherQuestions = sqliteTable("pengli_teacher_questions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
-  conversationKey: text("conversation_key").notNull().default(""),
-  messageKey: text("message_key").notNull(),
-  topic: text("topic").notNull().default("行政法"),
-  aiReply: text("ai_reply").notNull(),
-  studentQuestion: text("student_question").notNull(),
-  verificationResult: text("verification_result").notNull().default(""),
-  verificationSourcesJson: text("verification_sources_json").notNull().default("[]"),
-  status: text("status").notNull().default("verified"),
-  assignedTeacherId: integer("assigned_teacher_id").references(() => members.id, { onDelete: "set null" }),
-  adminReviewedAt: integer("admin_reviewed_at", { mode: "timestamp" }),
-  assignedAt: integer("assigned_at", { mode: "timestamp" }),
-  teacherReply: text("teacher_reply").notNull().default(""),
-  teacherRepliedAt: integer("teacher_replied_at", { mode: "timestamp" }),
-  studentReadAt: integer("student_read_at", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  index("pengli_teacher_questions_member_status_idx").on(table.memberId, table.status),
-  index("pengli_teacher_questions_teacher_status_idx").on(table.assignedTeacherId, table.status),
-  index("pengli_teacher_questions_status_created_idx").on(table.status, table.createdAt),
-]);
+export const pengliTeacherQuestions = sqliteTable(
+  "pengli_teacher_questions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    conversationKey: text("conversation_key").notNull().default(""),
+    messageKey: text("message_key").notNull(),
+    topic: text("topic").notNull().default("行政法"),
+    aiReply: text("ai_reply").notNull(),
+    studentQuestion: text("student_question").notNull(),
+    verificationResult: text("verification_result").notNull().default(""),
+    verificationSourcesJson: text("verification_sources_json")
+      .notNull()
+      .default("[]"),
+    status: text("status").notNull().default("verified"),
+    assignedTeacherId: integer("assigned_teacher_id").references(
+      () => members.id,
+      { onDelete: "set null" },
+    ),
+    adminReviewedAt: integer("admin_reviewed_at", { mode: "timestamp" }),
+    assignedAt: integer("assigned_at", { mode: "timestamp" }),
+    teacherReply: text("teacher_reply").notNull().default(""),
+    teacherRepliedAt: integer("teacher_replied_at", { mode: "timestamp" }),
+    studentReadAt: integer("student_read_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("pengli_teacher_questions_member_status_idx").on(
+      table.memberId,
+      table.status,
+    ),
+    index("pengli_teacher_questions_teacher_status_idx").on(
+      table.assignedTeacherId,
+      table.status,
+    ),
+    index("pengli_teacher_questions_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+  ],
+);
 
-export const pengliVerificationDailyAttempts = sqliteTable("pengli_verification_daily_attempts", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
-  attemptDate: text("attempt_date").notNull(),
-  failureCount: integer("failure_count").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-}, (table) => [
-  uniqueIndex("pengli_verification_daily_member_date_unique").on(table.memberId, table.attemptDate),
-  index("pengli_verification_daily_date_idx").on(table.attemptDate),
-]);
+export const pengliVerificationDailyAttempts = sqliteTable(
+  "pengli_verification_daily_attempts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "cascade" }),
+    attemptDate: text("attempt_date").notNull(),
+    failureCount: integer("failure_count").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("pengli_verification_daily_member_date_unique").on(
+      table.memberId,
+      table.attemptDate,
+    ),
+    index("pengli_verification_daily_date_idx").on(table.attemptDate),
+  ],
+);
 
 export const noteAttachments = sqliteTable("note_attachments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -1036,6 +1327,9 @@ export const examQuestions = sqliteTable("exam_questions", {
     .notNull()
     .default("missing"),
   simulatedTeacherNote: text("simulated_teacher_note").notNull().default(""),
+  qualityAcknowledgementsJson: text("quality_acknowledgements_json")
+    .notNull()
+    .default("[]"),
   sourceUrl: text("source_url").notNull().default(""),
   sourceOrder: integer("source_order"),
   reviewStatus: text("review_status").notNull().default("pending"),

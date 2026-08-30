@@ -95,6 +95,7 @@ export default function AiAccessAdminPage() {
     [redeemBy, setRedeemBy] = useState(""),
     [generated, setGenerated] = useState<string[]>([]),
     [benefitType, setBenefitType] = useState("medtech_pack_choice"),
+    [codeCategory, setCodeCategory] = useState("accounting"),
     [codeDuration, setCodeDuration] = useState(30);
   const applyPayload = (data: Payload) => {
     const products = data.medtechProducts ?? [];
@@ -159,7 +160,7 @@ export default function AiAccessAdminPage() {
       productKey:
         benefitType === "medtech_book" ? selectedProductKey : undefined,
       durationDays: codeDuration,
-      categories: policy?.categories ?? [],
+      category: benefitType === "ai_access" ? codeCategory : undefined,
     });
     if (data) {
       setGenerated(data.generatedCodes ?? []);
@@ -196,7 +197,6 @@ export default function AiAccessAdminPage() {
             總管理共用規則，可套用司律、會計、醫檢師與資料結構；各類科不另建重複方案。
           </span>
         </div>
-        <a href="/admin">返回總管理後台 →</a>
       </header>
       <CentralAdminTabs active="ai-access" />
       {!policy ? (
@@ -207,7 +207,10 @@ export default function AiAccessAdminPage() {
             <div>
               <p>SCHOLAR REFLECTION CONTROL</p>
               <h2>各專區「學霸怎麼想？」</h2>
-              <span>以學生身分示範判斷、說明思路並反問老師；成功完成後使用 1 次 AI 使用次數。</span>
+              <span>
+                以學生身分示範判斷、說明思路並反問老師；成功完成後使用 1 次 AI
+                使用次數。
+              </span>
             </div>
             <div className="ai-scholar-switches">
               <label className="ai-access-switch">
@@ -317,7 +320,10 @@ export default function AiAccessAdminPage() {
                   }
                 />
               </label>
-              <label>計次方式<input value="成功回答 1 次；官方查證 2 次" disabled /></label>
+              <label>
+                計次方式
+                <input value="成功回答 1 次；官方查證 2 次" disabled />
+              </label>
               <label>
                 續約方式
                 <input value="單次購買，不自動續約" disabled />
@@ -325,11 +331,69 @@ export default function AiAccessAdminPage() {
             </div>
             <fieldset className="ai-access-scope">
               <legend>限時首購優惠</legend>
-              <label><input type="checkbox" checked={policy.promoEnabled} onChange={(event)=>setPolicy({...policy,promoEnabled:event.target.checked})}/>啟用限時優惠</label>
-              <label>加贈次數<input type="number" min="0" value={policy.promoBonusQuota} onChange={(event)=>setPolicy({...policy,promoBonusQuota:Number(event.target.value)})}/></label>
-              <label>開始<input type="datetime-local" value={policy.promoStartsAt.slice(0,16)} onChange={(event)=>setPolicy({...policy,promoStartsAt:`${event.target.value}:00+08:00`})}/></label>
-              <label>結束<input type="datetime-local" value={policy.promoEndsAt.slice(0,16)} onChange={(event)=>setPolicy({...policy,promoEndsAt:`${event.target.value}:00+08:00`})}/></label>
-              <label><input type="checkbox" checked={policy.promoFirstPurchaseOnly} onChange={(event)=>setPolicy({...policy,promoFirstPurchaseOnly:event.target.checked})}/>每位會員限首購一次</label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={policy.promoEnabled}
+                  onChange={(event) =>
+                    setPolicy({ ...policy, promoEnabled: event.target.checked })
+                  }
+                />
+                啟用限時優惠
+              </label>
+              <label>
+                加贈次數
+                <input
+                  type="number"
+                  min="0"
+                  value={policy.promoBonusQuota}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      promoBonusQuota: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                開始
+                <input
+                  type="datetime-local"
+                  value={policy.promoStartsAt.slice(0, 16)}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      promoStartsAt: `${event.target.value}:00+08:00`,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                結束
+                <input
+                  type="datetime-local"
+                  value={policy.promoEndsAt.slice(0, 16)}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      promoEndsAt: `${event.target.value}:00+08:00`,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={policy.promoFirstPurchaseOnly}
+                  onChange={(event) =>
+                    setPolicy({
+                      ...policy,
+                      promoFirstPurchaseOnly: event.target.checked,
+                    })
+                  }
+                />
+                每位會員限首購一次
+              </label>
             </fieldset>
             <fieldset className="ai-access-scope">
               <legend>適用類科</legend>
@@ -372,12 +436,16 @@ export default function AiAccessAdminPage() {
               <article>
                 <b>AI 教練</b>
                 <strong>成功回答扣 1 次</strong>
-                <p>一般對話、指定訊息追問、學霸代答與白話解釋使用同一種次數。</p>
+                <p>
+                  一般對話、指定訊息追問、學霸代答與白話解釋使用同一種次數。
+                </p>
               </article>
               <article>
                 <b>官方資料查證</b>
                 <strong>成功查證扣 2 次</strong>
-                <p>必須產生可驗證的官方資料名稱與網址；失敗、逾時或查無精準結果不扣。</p>
+                <p>
+                  必須產生可驗證的官方資料名稱與網址；失敗、逾時或查無精準結果不扣。
+                </p>
               </article>
               <article>
                 <b>不扣次</b>
@@ -528,6 +596,22 @@ export default function AiAccessAdminPage() {
                         {product.title}
                       </option>
                     ))}
+                  </select>
+                </label>
+              )}
+              {benefitType === "ai_access" && (
+                <label>
+                  適用類科
+                  <select
+                    value={codeCategory}
+                    onChange={(event) => setCodeCategory(event.target.value)}
+                  >
+                    {categoryOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                    <option value="all">跨類科通用（特殊用途）</option>
                   </select>
                 </label>
               )}

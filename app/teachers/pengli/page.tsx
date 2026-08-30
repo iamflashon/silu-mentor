@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import "./pengli.css";
 import PengliCover from "./PengliCover";
+import PengliModules from "./PengliModules";
 
 export const metadata: Metadata = {
   title: "彭狸老師行政法考點衝刺",
@@ -34,6 +35,10 @@ export default function PengliTeacherPage() {
       <div className="pengli-hero-copy">
         <div className="pengli-kicker"><span>彭狸老師專區</span><i>2026 二版</i></div>
         <h1>行政法考點<br/><em>考前衝刺</em></h1>
+        <div className="pengli-inline-author">
+          <strong>彭狸老師</strong>
+          <span>臺大法律研究所公法組</span>
+        </div>
         <p>不是把整本書重新讀一次，而是沿著老師的問題意識，完成考點複習、破題判斷與申論演練。</p>
         <div className="pengli-hero-actions">
           <a href="#curriculum">任選主題試問</a>
@@ -47,10 +52,11 @@ export default function PengliTeacherPage() {
       </div>
       <div className="pengli-book-stage">
         <div className="pengli-book-halo" aria-hidden="true" />
-        <PengliCover />
-        <div className="pengli-teacher-note"><small>AUTHOR</small><strong>彭狸</strong><span>臺大法律研究所公法組</span></div>
+        <PengliCover className="pengli-hero-managed-cover" />
       </div>
     </section>
+
+    <PengliModules />
 
     <section className="pengli-workspace" id="curriculum">
       <header>

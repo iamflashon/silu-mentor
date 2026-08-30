@@ -20,6 +20,7 @@ import { MEDTECH_DEFAULT_PRODUCT_KEY } from "../../../lib/medtech-product-settin
 import { listMedtechQuestionUnits } from "../../../lib/medtech-question-units";
 import { medtechPackDescription } from "../../../lib/medtech-usage";
 import { requireMember } from "../../../lib/member-auth";
+import { grantAccountingAi } from "../../../lib/accounting-ai-access";
 
 async function digest(value: string) {
   return Array.from(
@@ -84,7 +85,14 @@ async function selectableUnits(auth: Auth) {
 }
 async function state(auth: Auth) {
   const now = new Date();
-  const [basePlan, ai, pengliTrial, [medtech], voucherRows, [previousPurchase]] = await Promise.all([
+  const [
+    basePlan,
+    ai,
+    pengliTrial,
+    [medtech],
+    voucherRows,
+    [previousPurchase],
+  ] = await Promise.all([
     getAiPlan(auth.db),
     getActiveAiEntitlement(auth.db, auth.member.id),
     getPengliFreeTrial(auth.db, auth.member.id),
@@ -117,7 +125,12 @@ async function state(auth: Auth) {
     auth.db
       .select({ id: aiPaymentOrders.id })
       .from(aiPaymentOrders)
-      .where(and(eq(aiPaymentOrders.memberId, auth.member.id), eq(aiPaymentOrders.status, "paid")))
+      .where(
+        and(
+          eq(aiPaymentOrders.memberId, auth.member.id),
+          eq(aiPaymentOrders.status, "paid"),
+        ),
+      )
       .limit(1),
   ]);
   const plan = aiPurchaseOffer(basePlan, Boolean(previousPurchase));
@@ -151,16 +164,14 @@ async function audit(
   action: string,
   details: Record<string, unknown> = {},
 ) {
-  await auth.db
-    .insert(activationCodeAuditLogs)
-    .values({
-      codeId: code.id,
-      batchId: code.batchId,
-      actorMemberId: auth.member.id,
-      actorEmail: auth.member.email,
-      action,
-      detailsJson: JSON.stringify(details),
-    });
+  await auth.db.insert(activationCodeAuditLogs).values({
+    codeId: code.id,
+    batchId: code.batchId,
+    actorMemberId: auth.member.id,
+    actorEmail: auth.member.email,
+    action,
+    detailsJson: JSON.stringify(details),
+  });
 }
 
 export async function GET(request: Request) {
@@ -226,7 +237,13 @@ export async function POST(request: Request) {
   }
   if (
     code.benefitType === "ai_access" &&
-    (await getActiveAiEntitlement(auth.db, auth.member.id))
+    code.examCategory !== "accounting" &&
+    (await getActiveAiEntitlement(
+      auth.db,
+      auth.member.id,
+      new Date(),
+      code.examCategory || "all",
+    ))
   )
     return Response.json(
       { error: "目前已有使用中的 AI 方案，請於額度用完或到期後再兌換" },
@@ -296,16 +313,23 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   try {
-    if (code.benefitType === "ai_access")
-      await grantAiAccess(auth.db, {
-        memberId: auth.member.id,
-        quota: code.quota || 30,
-        durationDays: code.durationDays,
-        source: "activation_code",
-        referenceId: code.id,
-        note: `啟用碼 ••••-${code.last4}`,
-      });
-    else if (code.benefitType === "medtech_book") {
+    if (code.benefitType === "ai_access") {
+      if (code.examCategory === "accounting") {
+        await grantAccountingAi(auth.db, auth.member.id, code.id, {
+          quota: code.quota || 30,
+          durationDays: code.durationDays,
+        });
+      } else
+        await grantAiAccess(auth.db, {
+          memberId: auth.member.id,
+          quota: code.quota || 30,
+          durationDays: code.durationDays,
+          source: "activation_code",
+          referenceId: code.id,
+          note: `啟用碼 ••••-${code.last4}`,
+          category: code.examCategory || "all",
+        });
+    } else if (code.benefitType === "medtech_book") {
       const now = new Date(),
         expiresAt = new Date(now.getTime() + code.durationDays * 86400000),
         productKey = code.productKey || MEDTECH_DEFAULT_PRODUCT_KEY;
@@ -361,20 +385,18 @@ export async function POST(request: Request) {
           target: [memberExamAccess.memberId, memberExamAccess.examCategory],
           set: { status: "active", updatedAt: new Date() },
         });
-      await auth.db
-        .insert(medtechPointLedger)
-        .values({
-          userKey: auth.userKey,
-          delta: 0,
-          balanceAfter: 0,
-          action: "question_pack_voucher",
-          description: medtechPackDescription(
-            chosen.packageName,
-            chosen.packNumber,
-          ),
-          sourceDetail: `30 題兌換券 ••••-${code.last4}；兌換單元：${chosen.label}；永久開通；固定題目：${chosen.questionIds.join(",")}`,
-          availableUntil: new Date("2099-12-31T23:59:59+08:00"),
-        });
+      await auth.db.insert(medtechPointLedger).values({
+        userKey: auth.userKey,
+        delta: 0,
+        balanceAfter: 0,
+        action: "question_pack_voucher",
+        description: medtechPackDescription(
+          chosen.packageName,
+          chosen.packNumber,
+        ),
+        sourceDetail: `30 題兌換券 ••••-${code.last4}；兌換單元：${chosen.label}；永久開通；固定題目：${chosen.questionIds.join(",")}`,
+        availableUntil: new Date("2099-12-31T23:59:59+08:00"),
+      });
     } else throw new Error("UNSUPPORTED_BENEFIT");
     await audit(auth, claimed, "redeemed", {
       benefitType: code.benefitType,

@@ -218,16 +218,14 @@ async function audit(
     details?: Record<string, unknown>;
   },
 ) {
-  await db
-    .insert(activationCodeAuditLogs)
-    .values({
-      codeId: input.codeId ?? null,
-      batchId: input.batchId ?? null,
-      actorMemberId: input.memberId,
-      actorEmail: input.email,
-      action: input.action,
-      detailsJson: JSON.stringify(input.details ?? {}),
-    });
+  await db.insert(activationCodeAuditLogs).values({
+    codeId: input.codeId ?? null,
+    batchId: input.batchId ?? null,
+    actorMemberId: input.memberId,
+    actorEmail: input.email,
+    action: input.action,
+    detailsJson: JSON.stringify(input.details ?? {}),
+  });
 }
 
 export async function GET(request: Request) {
@@ -268,7 +266,10 @@ export async function POST(request: Request) {
       ),
       coachRounds: 1,
       promoEnabled: input?.promoEnabled === true,
-      promoBonusQuota: Math.max(0, Math.min(1000, Number(input?.promoBonusQuota) || 0)),
+      promoBonusQuota: Math.max(
+        0,
+        Math.min(1000, Number(input?.promoBonusQuota) || 0),
+      ),
       promoStartsAt: String(input?.promoStartsAt ?? "").slice(0, 40),
       promoEndsAt: String(input?.promoEndsAt ?? "").slice(0, 40),
       promoFirstPurchaseOnly: input?.promoFirstPurchaseOnly !== false,
@@ -321,7 +322,22 @@ export async function POST(request: Request) {
         },
         { status: 409 },
       );
-    const examCategory = benefitType.startsWith("medtech") ? "medtech" : "";
+    const requestedCategory = String(body.category ?? "").trim();
+    const examCategory = benefitType.startsWith("medtech")
+      ? "medtech"
+      : benefitType === "ai_access"
+        ? requestedCategory
+        : "";
+    if (
+      benefitType === "ai_access" &&
+      ![...categories, "all"].includes(
+        examCategory as (typeof categories)[number] | "all",
+      )
+    )
+      return Response.json(
+        { error: "請先選擇兌換碼適用類科" },
+        { status: 400 },
+      );
     let productKey = benefitType === "medtech_pack_choice" ? "any-30" : "";
     if (benefitType === "medtech_book") {
       productKey = String(body.productKey ?? "").trim();
@@ -354,19 +370,17 @@ export async function POST(request: Request) {
         : null,
       batchId = crypto.randomUUID(),
       plaintext: string[] = [];
-    await auth.db
-      .insert(activationCodeBatches)
-      .values({
-        id: batchId,
-        label,
-        purpose,
-        benefitType,
-        quantity: count,
-        createdByMemberId: auth.member.id,
-        createdByEmail: auth.member.email,
-        dailyLimit: limits.daily,
-        monthlyLimit: limits.monthly,
-      });
+    await auth.db.insert(activationCodeBatches).values({
+      id: batchId,
+      label,
+      purpose,
+      benefitType,
+      quantity: count,
+      createdByMemberId: auth.member.id,
+      createdByEmail: auth.member.email,
+      dailyLimit: limits.daily,
+      monthlyLimit: limits.monthly,
+    });
     for (let i = 0; i < count; i++) {
       const prefix =
           benefitType === "medtech_pack_choice"
@@ -377,31 +391,29 @@ export async function POST(request: Request) {
         code = `IB-${prefix}-${randomPart()}-${randomPart()}`,
         id = crypto.randomUUID();
       plaintext.push(code);
-      await auth.db
-        .insert(activationCodes)
-        .values({
-          id,
-          batchId,
-          codeHash: await digest(code),
-          last4: code.slice(-4),
-          label,
-          benefitType,
-          examCategory,
-          productKey,
-          quota: benefitType === "ai_access" ? policy.quota : 0,
-          durationDays,
-          status: "unused",
-          redeemBy,
-          createdBy: auth.member.email,
-          createdByMemberId: auth.member.id,
-        });
+      await auth.db.insert(activationCodes).values({
+        id,
+        batchId,
+        codeHash: await digest(code),
+        last4: code.slice(-4),
+        label,
+        benefitType,
+        examCategory,
+        productKey,
+        quota: benefitType === "ai_access" ? policy.quota : 0,
+        durationDays,
+        status: "unused",
+        redeemBy,
+        createdBy: auth.member.email,
+        createdByMemberId: auth.member.id,
+      });
       await audit(auth.db, {
         codeId: id,
         batchId,
         memberId: auth.member.id,
         email: auth.member.email,
         action: "generated",
-        details: { label, purpose, benefitType, productKey },
+        details: { label, purpose, benefitType, productKey, examCategory },
       });
     }
     await audit(auth.db, {
@@ -409,7 +421,7 @@ export async function POST(request: Request) {
       memberId: auth.member.id,
       email: auth.member.email,
       action: "batch_generated",
-      details: { count, label, purpose, benefitType, productKey },
+      details: { count, label, purpose, benefitType, productKey, examCategory },
     });
     return Response.json({
       ...(await payload(auth.db, auth.member)),

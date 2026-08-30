@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { getOpenAIKey } from "../../../lib/openai";
-import { examQuestions } from "../../../db/schema";
+import { documents, examQuestions } from "../../../db/schema";
 import { removeAccountingPageFurniture } from "../../../lib/accounting-question";
 import { ACCOUNTING_WORD_BANK_SOURCE, importAccountingWordBank } from "../../../lib/accounting-word-bank";
 
@@ -70,6 +70,7 @@ export async function GET(request: Request) {
   const year = url.searchParams.get("year") || "all";
   const subject = url.searchParams.get("subject") || "all";
   const sourceBook = url.searchParams.get("sourceBook") || "all";
+  const sourceDocumentTitle = url.searchParams.get("sourceDocumentTitle") || "";
   const chapter = url.searchParams.get("chapter") || "all";
   const paper = url.searchParams.get("paper") || "all";
   const examCategory = url.searchParams.get("examCategory") || "all";
@@ -81,6 +82,11 @@ export async function GET(request: Request) {
   if (year !== "all") filters.push(eq(examQuestions.year, year));
   if (subject !== "all") filters.push(eq(examQuestions.subject, subject));
   if (sourceBook !== "all") filters.push(eq(examQuestions.examName, sourceBook));
+  if (sourceDocumentTitle) {
+    const matchedDocuments = await db.select({ id: documents.id }).from(documents).where(like(documents.bookTitle, `%${sourceDocumentTitle}%`));
+    const sourceUrls = matchedDocuments.map((row) => `document:${row.id}`);
+    filters.push(sourceUrls.length ? inArray(examQuestions.sourceUrl, sourceUrls) : eq(examQuestions.id, -1));
+  }
   if (chapter !== "all") filters.push(like(examQuestions.teacherNotes, `${chapter}%`));
   if (paper !== "all") {
     const paperPrefix = `accounting-word-bank:v3:${paper}.docx:`;
