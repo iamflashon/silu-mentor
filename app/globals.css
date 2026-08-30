@@ -39155,6 +39155,10 @@ a.is-action-pending {
   border-radius: 9px;
   background: white;
   color: #183b2d;
+  font-size: 12px;
+}
+.accounting-bank-filters select option {
+  font-size: 12px;
 }
 .accounting-bank-filters > button {
   min-height: 40px;
