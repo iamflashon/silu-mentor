@@ -1,6 +1,7 @@
-import { and, asc, eq, inArray, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or } from "drizzle-orm";
 import {
   accountingMemberEntitlements,
+  accountingPracticeAttempts,
   documents,
   examQuestions,
 } from "../../../../db/schema";
@@ -29,6 +30,8 @@ export async function GET(request: Request) {
   const questionOrder =
     url.searchParams.get("questionOrder") === "random" ? "random" : "ordered";
   const seed = Math.floor(Number(url.searchParams.get("seed") || 1)) || 1;
+  const preview = url.searchParams.get("preview") === "1";
+  const wrongReview = url.searchParams.get("review") === "wrong";
   const product = await getAccountingProductSettings(auth.db),
     now = new Date();
   const entitlements = await auth.db
@@ -82,10 +85,23 @@ export async function GET(request: Request) {
         .where(baseWhere)
         .orderBy(asc(examQuestions.id))
     : [];
-  const chapterRows = allRows.filter(
+  let chapterRows = allRows.filter(
     (item) =>
       accountingChapterForNotes(item.teacherNotes)?.number === chapterNumber,
   );
+  if (wrongReview) {
+    const attempts = await auth.db
+      .select()
+      .from(accountingPracticeAttempts)
+      .where(eq(accountingPracticeAttempts.memberId, auth.member.id))
+      .orderBy(desc(accountingPracticeAttempts.createdAt))
+      .limit(2000);
+    const latest = new Map<number, boolean>();
+    for (const attempt of attempts)
+      if (!latest.has(attempt.questionId))
+        latest.set(attempt.questionId, attempt.isCorrect);
+    chapterRows = chapterRows.filter((item) => latest.get(item.id) === false);
+  }
   const orderedRows =
     questionOrder === "random"
       ? [...chapterRows].sort((a, b) => {
@@ -99,12 +115,13 @@ export async function GET(request: Request) {
     : trialAccess
       ? Math.min(product.trialQuestions, chapterRows.length)
       : 0;
-  const rows = canPractice
-    ? orderedRows.slice(
-        paidAccess ? (page - 1) * 10 : 0,
-        paidAccess ? page * 10 : product.trialQuestions,
-      )
-    : [];
+  const rows =
+    canPractice && !preview
+      ? orderedRows.slice(
+          paidAccess ? (page - 1) * 10 : 0,
+          paidAccess ? page * 10 : product.trialQuestions,
+        )
+      : [];
   return Response.json(
     {
       items: rows.map((item) => ({
@@ -118,6 +135,7 @@ export async function GET(request: Request) {
       bookTotal: allRows.length,
       chapterTotal: chapterRows.length,
       trialLimit: product.trialQuestions,
+      wrongReview,
       paidAccess,
       trialAccess,
       hasWholeBook: auth.member.role === "admin" || Boolean(wholeEntitlement),

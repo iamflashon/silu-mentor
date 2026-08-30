@@ -5,7 +5,7 @@ import { getOpenAIKey, openAIJson } from "../../../../lib/openai";
 import { estimateCostUsdMicros } from "../../../../lib/usage";
 import { removeAccountingPageFurniture } from "../../../../lib/accounting-question";
 import { requireAdmin, requireMember } from "../../../../lib/member-auth";
-import { finishAiUse, prepareAiUse } from "../../../../lib/ai-access-gate";
+import { finishAccountingAiUse, prepareAccountingAiUse } from "../../../../lib/accounting-ai-access";
 import { refundTrialQuestion, reserveTrialQuestion, trialStatus } from "../../../../lib/accounting-qa-trial";
 
 type Turn = { role: "student" | "mentor"; text: string };
@@ -50,7 +50,8 @@ export async function handleAccountingTutor(request: Request, forceTrialMode = f
     const reservation = isTrial ? await reserveTrialQuestion(request) : null;
     if (reservation && !reservation.ok) return Response.json({ error: "免費測試次數已用完，請申請繼續測試。", code: "QA_TRIAL_LIMIT", trial: reservation }, { status: 429, headers: reservation.setCookie ? { "set-cookie": reservation.setCookie } : undefined });
     if (reservation?.ok) reservedDeviceKey = reservation.deviceKey;
-    const aiGate = isTrial ? { metered: false as const, memberId: null, db: await getDb() } : await prepareAiUse(request, "accounting");
+    const aiGate = isTrial ? { metered: false as const, memberId: 0, db: await getDb() } : await prepareAccountingAiUse(request);
+    if (!aiGate) return Response.json({ error: "無法確認課業答疑權限。" }, { status: 401 });
     if (aiGate instanceof Response) return aiGate;
     const db = await getDb();
     const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, "openai_vector_store_id")).limit(1);
@@ -123,7 +124,7 @@ export async function handleAccountingTutor(request: Request, forceTrialMode = f
       recordId=session.id;
       await db.insert(chatMessages).values([{sessionId:session.id,role:"student",text:latest},{sessionId:session.id,role:"mentor",text:reply,source,model:"Luna",estimatedCostUsdMicros}]);
     }
-    const aiAccess = await finishAiUse(aiGate, { action: guided ? "accounting_coach" : "accounting_ask", description: guided ? "中級會計 AI 教練引導" : "中級會計 AI 試問" });
+    const aiAccess = await finishAccountingAiUse(aiGate);
     const currentTrial = isTrial ? await trialStatus(request) : undefined;
     const headers=currentTrial?.setCookie?{"set-cookie":currentTrial.setCookie}:undefined;
     return Response.json({ reply, source, recordId, aiAccess, trial:currentTrial, usage: { model: "Luna", inputTokens, outputTokens, cachedTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimatedCostUsdMicros / 1_000_000 } },{headers});

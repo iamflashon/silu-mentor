@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AccountingPurchaseButton from "../AccountingPurchaseButton";
 
 type Q = {
@@ -72,17 +72,33 @@ export default function AccountingPracticeClient() {
   const [trialAccess, setTrialAccess] = useState(true);
   const [trialLimit, setTrialLimit] = useState(10);
   const [notice, setNotice] = useState("正在載入本書已發布題目…");
-  const [mode, setMode] = useState<PracticeMode>("ordered");
+  const [mode, setMode] = useState<PracticeMode | null>(null);
+  const [started, setStarted] = useState(false);
+  const [wrongReview, setWrongReview] = useState(false);
+  const [wrongCount, setWrongCount] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef(Date.now());
   const [seed, setSeed] = useState(() => Date.now() % 2147483647);
+  async function refreshWrongCount(selectedChapter = chapter) {
+    const chapterNumber = CHAPTERS.indexOf(selectedChapter) + 1;
+    const response = await fetch(
+      `/api/accounting/practice-attempts?chapterNumber=${chapterNumber}`,
+      { cache: "no-store" },
+    );
+    if (response.ok)
+      setWrongCount(Number((await response.json()).wrongCount || 0));
+  }
   async function load(
     target = 1,
     selectedChapter = chapter,
     selectedMode = mode,
     selectedSeed = seed,
+    preview = false,
+    reviewWrong = wrongReview,
   ) {
     const chapterNumber = CHAPTERS.indexOf(selectedChapter) + 1;
     const response = await fetch(
-      `/api/accounting/book-practice?page=${target}&chapterNumber=${chapterNumber}&chapter=${encodeURIComponent(selectedChapter)}&questionOrder=${selectedMode === "random" ? "random" : "ordered"}&seed=${selectedSeed}`,
+      `/api/accounting/book-practice?page=${target}&chapterNumber=${chapterNumber}&chapter=${encodeURIComponent(selectedChapter)}&questionOrder=${selectedMode === "random" ? "random" : "ordered"}&seed=${selectedSeed}${preview ? "&preview=1" : ""}${reviewWrong ? "&review=wrong" : ""}`,
       { cache: "no-store" },
     );
     const data = (await response.json()) as {
@@ -108,17 +124,22 @@ export default function AccountingPracticeClient() {
     setSelected("");
     setPage(target);
     setNotice(
-      rows.length
-        ? data.paidAccess
-          ? `${selectedChapter}共 ${(data.chapterTotal ?? 0).toLocaleString()} 題；全書 ${(data.bookTotal ?? 0).toLocaleString()} 題。`
-          : `免費體驗第一章前 ${data.trialLimit ?? 10} 題；可單買任一章或解鎖整本。`
-        : (data.chapterTotal ?? 0) > 0
-          ? `${selectedChapter}尚未解鎖，可單買本章或購買整本。`
-          : "本章目前尚未完成題目分類。",
+      preview && data.paidAccess
+        ? `${selectedChapter}共 ${(data.chapterTotal ?? 0).toLocaleString()} 題；請先選擇練題方式。`
+        : preview && data.trialAccess
+          ? `可免費體驗第一章前 ${data.trialLimit ?? 10} 題；請先選擇練題方式。`
+          : rows.length
+            ? data.paidAccess
+              ? `${selectedChapter}共 ${(data.chapterTotal ?? 0).toLocaleString()} 題；全書 ${(data.bookTotal ?? 0).toLocaleString()} 題。`
+              : `免費體驗第一章前 ${data.trialLimit ?? 10} 題；可單買任一章或解鎖整本。`
+            : (data.chapterTotal ?? 0) > 0
+              ? `${selectedChapter}尚未解鎖，可單買本章或購買整本。`
+              : "本章目前尚未完成題目分類。",
     );
   }
   useEffect(() => {
-    void load();
+    void load(1, chapter, null, seed, true, false);
+    void refreshWrongCount(chapter);
   }, []);
   const question = items[index];
   let options: Record<string, string> = {};
@@ -152,6 +173,38 @@ export default function AccountingPracticeClient() {
     question?.correctAnswer ??
     "";
   const answered = Boolean(selected);
+  useEffect(() => {
+    if (!question || answered) return;
+    startedAt.current = Date.now();
+    setElapsed(0);
+    const timer = window.setInterval(
+      () => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [question?.id, answered]);
+  async function answer(key: string) {
+    if (!question || answered) return;
+    setSelected(key);
+    const seconds = Math.max(
+      0,
+      Math.floor((Date.now() - startedAt.current) / 1000),
+    );
+    setElapsed(seconds);
+    await fetch("/api/accounting/practice-attempts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        questionId: question.id,
+        chapterNumber: CHAPTERS.indexOf(chapter) + 1,
+        selectedAnswer: key,
+        correctAnswer: displayedCorrectAnswer,
+        elapsedSeconds: seconds,
+        practiceMode: wrongReview ? "review" : mode,
+      }),
+    });
+    await refreshWrongCount(chapter);
+  }
   return (
     <section className="accounting-practice-shell">
       <header>
@@ -167,9 +220,13 @@ export default function AccountingPracticeClient() {
             onChange={(event) => {
               const value = event.target.value;
               setChapter(value);
+              setStarted(false);
+              setMode(null);
+              setWrongReview(false);
               const nextSeed = Date.now() % 2147483647;
               setSeed(nextSeed);
-              void load(1, value, mode, nextSeed);
+              void load(1, value, null, nextSeed, true, false);
+              void refreshWrongCount(value);
             }}
           >
             {CHAPTERS.map((item) => (
@@ -193,12 +250,16 @@ export default function AccountingPracticeClient() {
         {PRACTICE_MODES.map((item) => (
           <button
             type="button"
-            className={mode === item.key ? "active" : ""}
+            className={
+              started && !wrongReview && mode === item.key ? "active" : ""
+            }
             aria-pressed={mode === item.key}
             key={item.key}
             onClick={() => {
               const nextSeed = Date.now() % 2147483647;
               setMode(item.key);
+              setStarted(true);
+              setWrongReview(false);
               setSeed(nextSeed);
               void load(1, chapter, item.key, nextSeed);
             }}
@@ -207,13 +268,32 @@ export default function AccountingPracticeClient() {
             <small>{item.description}</small>
           </button>
         ))}
+        <button
+          type="button"
+          className={started && wrongReview ? "active review" : "review"}
+          onClick={() => {
+            const nextSeed = Date.now() % 2147483647;
+            setMode("ordered");
+            setStarted(true);
+            setWrongReview(true);
+            setSeed(nextSeed);
+            void load(1, chapter, "ordered", nextSeed, false, true);
+          }}
+        >
+          <b>錯題複習</b>
+          <small>目前 {wrongCount} 題；答對後移出錯題。</small>
+        </button>
       </div>
-      {question ? (
+      {started && question ? (
         <article className="accounting-practice-card">
           <small>
             {chapter}・第 {question.questionNumber} 題　·　第{" "}
             {(page - 1) * 10 + index + 1}/
             {paidAccess ? chapterTotal : trialLimit} 題
+            <span className="accounting-question-timer">
+              ⏱ {Math.floor(elapsed / 60)}:
+              {String(elapsed % 60).padStart(2, "0")}
+            </span>
           </small>
           <h2>{question.stem}</h2>
           <div className="accounting-options">
@@ -231,7 +311,7 @@ export default function AccountingPracticeClient() {
                       : ""
                 }
                 disabled={answered}
-                onClick={() => setSelected(item.key)}
+                onClick={() => void answer(item.key)}
                 key={`${question.id}-${item.key}`}
               >
                 <b>{item.key}</b>
@@ -291,13 +371,26 @@ export default function AccountingPracticeClient() {
             )}
           </footer>
         </article>
+      ) : !started ? (
+        <div className="accounting-practice-empty choose-mode">
+          <b>請先選擇練題方式</b>
+          <p>選好順序、隨機出題或隨機選項後，才會顯示第一題並開始計時。</p>
+        </div>
       ) : (
         <div className="accounting-practice-empty">
-          <b>{chapterTotal > 0 ? "本章尚未解鎖" : "本章尚未完成題目分類"}</b>
+          <b>
+            {wrongReview
+              ? "本章目前沒有待複習錯題"
+              : chapterTotal > 0
+                ? "本章尚未解鎖"
+                : "本章尚未完成題目分類"}
+          </b>
           <p>
-            {chapterTotal > 0
-              ? "可購買本章 30 天，或直接解鎖整本 18 章。"
-              : "請回教材發布管理補上本章分類。"}
+            {wrongReview
+              ? "答錯的題目會自動收進這裡；重新答對後即完成複習。"
+              : chapterTotal > 0
+                ? "可購買本章 30 天，或直接解鎖整本 18 章。"
+                : "請回教材發布管理補上本章分類。"}
           </p>
         </div>
       )}

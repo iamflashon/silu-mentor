@@ -39380,9 +39380,49 @@ a.is-action-pending {
 }
 .accounting-practice-modes {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin: -6px 0 20px;
+}
+.accounting-practice-modes button.review {
+  border-style: dashed;
+}
+.accounting-practice-empty.choose-mode {
+  border-style: dashed;
+  background: #fffdf8;
+}
+.accounting-question-timer {
+  float: right;
+  margin-left: 18px;
+  color: #174332;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.accounting-ai-plan {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  border: 1px solid #d8bc67;
+  border-radius: 13px;
+  background: #fff8dc;
+}
+.accounting-ai-plan p {
+  margin: 5px 0;
+}
+.accounting-ai-plan small {
+  color: #795f20;
+}
+.accounting-ai-plan > button {
+  flex: 0 0 auto;
+  padding: 12px 17px;
+  border: 0;
+  border-radius: 9px;
+  background: #06ad62;
+  color: #fff;
+  font-weight: 900;
 }
 .accounting-practice-modes button {
   display: grid;
@@ -39414,6 +39454,10 @@ a.is-action-pending {
   }
   .accounting-practice-modes {
     grid-template-columns: 1fr;
+  }
+  .accounting-ai-plan {
+    align-items: stretch;
+    flex-direction: column;
   }
   .accounting-chapter-purchase {
     grid-template-columns: 1fr;
