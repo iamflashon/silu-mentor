@@ -38856,6 +38856,34 @@ a.is-action-pending {
   box-shadow: none !important;
   text-align: left !important;
 }
+.accounting-practice-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+.accounting-practice-heading > div {
+  text-align: left;
+}
+.accounting-practice-cover {
+  width: 118px;
+  height: 164px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 12px rgba(50, 35, 10, 0.14));
+}
+@media (max-width: 700px) {
+  .accounting-practice-heading {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .accounting-practice-heading > div {
+    text-align: center;
+  }
+  .accounting-practice-cover {
+    width: 88px;
+    height: 122px;
+  }
+}
 .accounting-practice-shell > header {
   text-align: center;
 }

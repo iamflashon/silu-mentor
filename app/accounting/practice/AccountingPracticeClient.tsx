@@ -207,10 +207,17 @@ export default function AccountingPracticeClient() {
   }
   return (
     <section className="accounting-practice-shell">
-      <header>
-        <span>會研所中級會計・18 章題庫</span>
-        <h1>{BOOK_TITLE}</h1>
-        <p>{notice}</p>
+      <header className="accounting-practice-heading">
+        <img
+          className="accounting-practice-cover"
+          src="/api/accounting/product/cover"
+          alt={`${BOOK_TITLE}書封`}
+        />
+        <div>
+          <span>會研所中級會計・18 章題庫</span>
+          <h1>{BOOK_TITLE}</h1>
+          <p>{notice}</p>
+        </div>
       </header>
       <div className="accounting-bank-filters">
         <label>
