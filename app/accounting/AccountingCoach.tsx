@@ -549,7 +549,10 @@ export default function AccountingCoach({
       reason: "",
     }),
     [requestNotice, setRequestNotice] = useState(""),
-    [accountingAi, setAccountingAi] = useState<AccountingAiAccess | null>(null);
+    [accountingAi, setAccountingAi] = useState<AccountingAiAccess | null>(null),
+    [voucherCode, setVoucherCode] = useState(""),
+    [voucherNotice, setVoucherNotice] = useState(""),
+    [voucherBusy, setVoucherBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null),
     isDataStructure = apiEndpoint.includes("data-structure"),
     isAccounting = apiEndpoint.includes("/accounting/"),
@@ -578,6 +581,23 @@ export default function AccountingCoach({
   useEffect(() => {
     void loadAccountingAi();
   }, [isAccounting, trialMode]);
+  async function redeemAccountingVoucher(event: FormEvent) {
+    event.preventDefault();
+    setVoucherBusy(true);
+    setVoucherNotice("兌換中…");
+    const response = await fetch("/api/ai-access", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: voucherCode }),
+    });
+    const result = (await response.json()) as { error?: string };
+    if (response.ok) {
+      setVoucherCode("");
+      setVoucherNotice("兌換成功，課業答疑次數已加入帳號。");
+      await loadAccountingAi();
+    } else setVoucherNotice(result.error || "兌換失敗，請確認兌換碼。");
+    setVoucherBusy(false);
+  }
   async function requestMore(event: FormEvent) {
     event.preventDefault();
     setRequestNotice("送出中…");
@@ -898,6 +918,26 @@ export default function AccountingCoach({
             plan="ai"
             label="LINE Pay 購買 30 次 NT$30"
           />
+          <form
+            className="accounting-ai-voucher"
+            onSubmit={redeemAccountingVoucher}
+          >
+            <label>
+              輸入中會 AI 兌換碼
+              <input
+                value={voucherCode}
+                onChange={(event) =>
+                  setVoucherCode(event.target.value.toUpperCase())
+                }
+                placeholder="IB-AI-XXXX-XXXX"
+                autoComplete="off"
+              />
+            </label>
+            <button disabled={voucherBusy || !voucherCode.trim()} type="submit">
+              {voucherBusy ? "兌換中…" : "兌換到我的帳號"}
+            </button>
+            {voucherNotice && <small>{voucherNotice}</small>}
+          </form>
         </section>
       )}
       {trialMode && (

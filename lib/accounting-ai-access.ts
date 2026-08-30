@@ -95,14 +95,12 @@ export async function consumeAccountingAi(
     .returning();
   if (!updated) return null;
   const remaining = Math.max(0, updated.quotaTotal - updated.quotaUsed);
-  await db
-    .insert(accountingAiLedger)
-    .values({
-      entitlementId: updated.id,
-      memberId,
-      requestKey: key,
-      balanceAfter: remaining,
-    });
+  await db.insert(accountingAiLedger).values({
+    entitlementId: updated.id,
+    memberId,
+    requestKey: key,
+    balanceAfter: remaining,
+  });
   return { charged: true, remaining, idempotent: false };
 }
 
@@ -110,7 +108,13 @@ export async function grantAccountingAi(
   db: Db,
   memberId: number,
   referenceId: string,
+  options?: { quota?: number; durationDays?: number },
 ) {
+  const quota = Math.max(1, Math.floor(options?.quota ?? ACCOUNTING_AI_QUOTA));
+  const durationDays = Math.max(
+    1,
+    Math.floor(options?.durationDays ?? ACCOUNTING_AI_DAYS),
+  );
   const now = new Date();
   const [current] = await db
     .select()
@@ -119,10 +123,10 @@ export async function grantAccountingAi(
     .limit(1);
   const base =
     current?.expiresAt && current.expiresAt > now ? current.expiresAt : now;
-  const expiresAt = new Date(base.getTime() + ACCOUNTING_AI_DAYS * 86400000);
+  const expiresAt = new Date(base.getTime() + durationDays * 86400000);
   const values = {
     memberId,
-    quotaTotal: ACCOUNTING_AI_QUOTA,
+    quotaTotal: quota,
     quotaUsed: 0,
     status: "active",
     startsAt: now,
@@ -139,7 +143,7 @@ export async function grantAccountingAi(
     await db
       .update(accountingAiEntitlements)
       .set({
-        quotaTotal: sql`${accountingAiEntitlements.quotaTotal} + ${ACCOUNTING_AI_QUOTA}`,
+        quotaTotal: sql`${accountingAiEntitlements.quotaTotal} + ${quota}`,
         status: "active",
         expiresAt,
         source: "line_pay",

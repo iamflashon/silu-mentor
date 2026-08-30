@@ -39409,6 +39409,41 @@ a.is-action-pending {
   border-radius: 13px;
   background: #fff8dc;
 }
+.accounting-ai-voucher {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  min-width: min(100%, 380px);
+}
+.accounting-ai-voucher label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.accounting-ai-voucher input {
+  min-height: 42px;
+  border: 1px solid #b9d7ce;
+  border-radius: 9px;
+  background: #fff;
+  padding: 8px 12px;
+  font: inherit;
+  text-transform: uppercase;
+}
+.accounting-ai-voucher button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 9px;
+  background: #087f5b;
+  color: #fff;
+  padding: 8px 14px;
+  font-weight: 800;
+}
+.accounting-ai-voucher small {
+  grid-column: 1/-1;
+  color: #654f15;
+}
 .accounting-ai-plan p {
   margin: 5px 0;
 }

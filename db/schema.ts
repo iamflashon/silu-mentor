@@ -257,6 +257,7 @@ export const medtechMemberEntitlements = sqliteTable(
     productKey: text("product_key").notNull(),
     status: text("status").notNull().default("active"),
     source: text("source").notNull().default("manual"),
+    examCategory: text("exam_category").notNull().default("all"),
     startsAt: integer("starts_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
