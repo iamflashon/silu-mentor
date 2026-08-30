@@ -1327,6 +1327,9 @@ export const examQuestions = sqliteTable("exam_questions", {
     .notNull()
     .default("missing"),
   simulatedTeacherNote: text("simulated_teacher_note").notNull().default(""),
+  qualityAcknowledgementsJson: text("quality_acknowledgements_json")
+    .notNull()
+    .default("[]"),
   sourceUrl: text("source_url").notNull().default(""),
   sourceOrder: integer("source_order"),
   reviewStatus: text("review_status").notNull().default("pending"),
