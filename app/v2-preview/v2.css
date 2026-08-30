@@ -14,3 +14,28 @@
 .v2-shell.angle .v2-micro-banner{background:linear-gradient(120deg,#64131c,#951d28)}
 .v2-shell.angle .v2-micro-banner p{color:#f1cdd1}
 .v2-shell.angle .v2-micro-banner a{color:#751721;background:#fff8f8}
+
+/* 品牌參考色微調：高點採橘、綠、藍；元照採米白與節制的磚紅。 */
+.v2-shell:not(.angle),.v2-workspace:not(.angle){--v2:#078d82;--v2-dark:#174a78;--v2-pale:#e9f7f5;--v2-line:#d7e4e7;background:#f7fafb}
+.v2-shell:not(.angle) .v2-hero{background:linear-gradient(125deg,#087f75 0%,#147f9b 45%,#31469a 100%);box-shadow:0 22px 55px rgba(18,91,117,.17)}
+.v2-shell:not(.angle) .v2-brand-switch button.active{background:linear-gradient(100deg,#078d82,#2455ad)}
+.v2-shell:not(.angle) .v2-flow small,.v2-shell:not(.angle) .v2-teachers>header span{color:#df681d}
+.v2-shell:not(.angle) .v2-teacher-grid a{color:#d95f18}
+.v2-shell:not(.angle) .v2-micro-banner{background:linear-gradient(115deg,#087e70,#2353a2 70%,#34246f)}
+
+.v2-shell.angle,.v2-workspace.angle{--v2:#c83a2b;--v2-dark:#763027;--v2-pale:#fff3ee;--v2-line:#eaded7;background:#f8f6f2}
+.v2-shell.angle .v2-top{background:#fcfbf8}
+.v2-shell.angle .v2-hero{color:#54251f;background:linear-gradient(125deg,#f3e5d4 0%,#fffaf3 52%,#efd9cb 100%);border:1px solid #e7d7ca;box-shadow:0 20px 48px rgba(102,64,42,.1)}
+.v2-shell.angle .v2-hero p{color:#755b52}
+.v2-shell.angle .v2-hero aside{color:#6b2b23;border-color:#dec7b8;background:rgba(255,255,255,.5)}
+.v2-shell.angle .v2-hero aside span{color:#80665c}
+.v2-shell.angle .v2-brand-switch{background:#efeae4}
+.v2-shell.angle .v2-teacher-mark{background:linear-gradient(145deg,#db4937,#bd2e24)}
+.v2-shell.angle .v2-teacher-grid article{background:#fffdf9;border-color:#e8ded7;box-shadow:0 8px 24px rgba(97,65,47,.05)}
+.v2-shell.angle .v2-teacher-grid dl div{background:#f8f3ed}
+.v2-shell.angle .v2-micro-banner{color:#fff;background:linear-gradient(115deg,#a93629 0%,#c84935 58%,#0f777c 100%)}
+.v2-shell.angle .v2-micro-banner p{color:#f8ded9}
+.v2-workspace.angle>header{color:#633029;border-bottom:1px solid #e3d5cc;background:#fcfaf6}
+.v2-workspace.angle>header a{color:#a43126}
+.v2-workspace.angle>header div small{color:#a96d61}
+.v2-workspace.angle>header>span{border-color:#dfc7be;background:#fff5f1}
