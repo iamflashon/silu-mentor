@@ -101,7 +101,7 @@ export default async function MedtechHome() {
             <span>臨床病毒學（下）</span>
           </h2>
           <p className="medtech-book-author">陳連城・康情老師</p>
-          <p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>
+          <div className="medtech-book-description" dangerouslySetInnerHTML={{__html:product.descriptionHtml}} />
           <div className="medtech-book-trial"><b>首次免費體驗 {product.trialQuestions} 題</b><span>任選一個練習單元，先完整體驗再決定是否開通。</span></div>
           <div className={`medtech-book-price${entitlement ? " purchased" : ""}`}><strong>{entitlement ? "已購買" : `NT$${product.effectivePrice}`}</strong><span>{entitlement ? `有效至 ${new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(entitlement.availableUntil)}` : `開通本書全部內容 ${product.accessDays} 天`}<br />{entitlement ? "全庫通行證使用中" : "一次付清・不自動續訂"}</span></div>
           <div className="medtech-featured-actions" data-no-navigation-feedback>

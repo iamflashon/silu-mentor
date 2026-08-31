@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import { medtechProducts } from "../../../../../db/schema";
+import { appSettings, medtechProducts } from "../../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../../lib/member-auth";
-import { getMedtechProductSettings, MEDTECH_DEFAULT_PRODUCT_KEY } from "../../../../../lib/medtech-product-settings";
+import { getMedtechProductSettings, MEDTECH_DEFAULT_PRODUCT_KEY, MEDTECH_DESCRIPTION_SETTING_KEY } from "../../../../../lib/medtech-product-settings";
 
 const OWNER_EMAIL = "iamflashon@gmail.com";
 const isOwner = (email: string) => email.trim().toLowerCase() === OWNER_EMAIL;
@@ -63,6 +63,17 @@ export async function PATCH(request: Request) {
       updatedAt: new Date(),
     }).where(eq(medtechProducts.productKey, MEDTECH_DEFAULT_PRODUCT_KEY)).returning();
     if (!updated) return Response.json({ error: "找不到商品設定，請重新整理後再試。" }, { status: 404 });
+    await auth.db.insert(appSettings).values({
+      key: MEDTECH_DESCRIPTION_SETTING_KEY,
+      value: typeof body.descriptionHtml === "string" ? body.descriptionHtml.slice(0, 50000) : "",
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: appSettings.key,
+      set: {
+        value: typeof body.descriptionHtml === "string" ? body.descriptionHtml.slice(0, 50000) : "",
+        updatedAt: new Date(),
+      },
+    });
     const product = await getMedtechProductSettings(auth.db);
     return Response.json({ product }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
