@@ -72,6 +72,43 @@ jobs:
           grep -R -q "pengli_free_trial_member" dist/server
           echo "Verified current Pengli UI, shared cover and free-trial logic."
 
+      - name: Repair accounting schema idempotently
+        shell: bash
+        run: |
+          set -euo pipefail
+          repair_file() {
+            local source_file="$1"
+            local target_file="/tmp/$(basename "$source_file")"
+            sed -E \
+              -e 's/^CREATE TABLE \`/CREATE TABLE IF NOT EXISTS \`/' \
+              -e 's/^CREATE UNIQUE INDEX \`/CREATE UNIQUE INDEX IF NOT EXISTS \`/' \
+              -e 's/^CREATE INDEX \`/CREATE INDEX IF NOT EXISTS \`/' \
+              -e 's/^INSERT INTO /INSERT OR IGNORE INTO /' \
+              "$source_file" > "$target_file"
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file "$target_file"
+          }
+
+          repair_file ./drizzle/0074_accounting_books.sql
+          repair_file ./drizzle/0076_accounting_qa_trial.sql
+          repair_file ./drizzle/0081_accounting_ai_and_practice.sql
+
+          accounting_columns="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "PRAGMA table_info(accounting_products);" --json)"
+          if ! echo "$accounting_columns" | jq -e '.. | objects | select(.name? == "cover_storage_key")' >/dev/null; then
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0075_accounting_book_cover.sql
+          fi
+
+          ai_access_columns="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "PRAGMA table_info(ai_access_entitlements);" --json)"
+          if ! echo "$ai_access_columns" | jq -e '.. | objects | select(.name? == "exam_category")' >/dev/null; then
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0082_ai_access_category_scope.sql
+          fi
+
+          question_columns="$(npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --command "PRAGMA table_info(exam_questions);" --json)"
+          if ! echo "$question_columns" | jq -e '.. | objects | select(.name? == "quality_acknowledgements_json")' >/dev/null; then
+            npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0083_question_quality_acknowledgements.sql
+          fi
+
+          npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0084_accounting_source_missing_answers.sql
+
       - name: Apply idempotent PDF mapping schema
         run: npm exec -- wrangler d1 execute silu-mentor-db --remote --config ./wrangler.jsonc --file ./drizzle/0078_document_section_mappings.sql
 
@@ -123,4 +160,4 @@ jobs:
           echo "$result" | jq -e '.. | objects | select(.name? == "document_section_mappings")' >/dev/null
 
       - name: Deploy exact artifact to workers.dev
-        run: npm exec -- wrangler deploy --config ./dist/server/wrangler.json --compatibility-date 2026-08-28
+        run: npm exec -- wrangler deploy --keep-vars --config ./dist/server/wrangler.json --compatibility-date 2026-08-28
