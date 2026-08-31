@@ -48,6 +48,16 @@ const normalized = (value: string) =>
     .replace(/[（）()\s_－—-]/gu, "")
     .replace(/全書$/u, "")
     .toLocaleLowerCase("zh-TW");
+const PAGE_SIZE = 6;
+const categoryLabel = (value: string) =>
+  value === "accounting"
+    ? "會計"
+    : value === "medtech"
+      ? "醫檢"
+      : value === "law"
+        ? "法律"
+        : "資構";
+const categoryOrder = ["accounting", "medtech", "law", "datastruct"];
 
 export default function CentralBookCatalog() {
   const [files, setFiles] = useState<CatalogFile[]>([]);
@@ -56,6 +66,8 @@ export default function CentralBookCatalog() {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [bookPages, setBookPages] = useState<Record<string, number>>({});
+  const [productPages, setProductPages] = useState<Record<string, number>>({});
   async function load() {
     const [a, b] = await Promise.all([
       fetch("/api/admin/question-bank-summary", { cache: "no-store" }),
@@ -103,6 +115,35 @@ export default function CentralBookCatalog() {
       .filter((row) => !needle || normalized(row.title).includes(needle))
       .sort((a, b) => a.title.localeCompare(b.title, "zh-TW"));
   }, [files, query]);
+  const bookGroups = useMemo(
+    () =>
+      categoryOrder
+        .map((category) => ({
+          category,
+          rows: books.filter((book) => book.category === category),
+        }))
+        .filter((group) => group.rows.length),
+    [books],
+  );
+  const productGroups = useMemo(() => {
+    const needle = normalized(query);
+    return categoryOrder
+      .map((category) => ({
+        category,
+        rows: products
+          .filter(
+            (product) =>
+              product.category === category &&
+              (!needle || normalized(product.title).includes(needle)),
+          )
+          .sort((a, b) => a.title.localeCompare(b.title, "zh-TW")),
+      }))
+      .filter((group) => group.rows.length);
+  }, [products, query]);
+  useEffect(() => {
+    setBookPages({});
+    setProductPages({});
+  }, [query]);
   function match(title: string) {
     const key = normalized(title);
     return products.find((product) => {
@@ -167,35 +208,6 @@ export default function CentralBookCatalog() {
     setNotice(`「${product.title}」商品設定已儲存。`);
     await load();
   }
-  async function upload(product: Product, file: File) {
-    setBusy(product.productKey);
-    const form = new FormData();
-    form.set("category", product.category);
-    form.set("productKey", product.productKey);
-    form.set("file", file);
-    const response = await fetch("/api/admin/products/cover", {
-      method: "POST",
-      body: form,
-    });
-    const data = await response.json();
-    setBusy("");
-    if (!response.ok) return setNotice(data.error || "書封上傳失敗");
-    setNotice(`「${product.title}」書封已上傳。`);
-    await load();
-  }
-  async function removeCover(product: Product) {
-    if (!window.confirm(`確定移除「${product.title}」的書封？`)) return;
-    setBusy(product.productKey);
-    const response = await fetch(
-      `/api/admin/products/cover?${new URLSearchParams({ category: product.category, productKey: product.productKey })}`,
-      { method: "DELETE" },
-    );
-    const data = await response.json();
-    setBusy("");
-    if (!response.ok) return setNotice(data.error || "移除書封失敗");
-    setNotice("書封已移除。");
-    await load();
-  }
   return (
     <>
       <section className="central-book-catalog">
@@ -214,8 +226,23 @@ export default function CentralBookCatalog() {
           </label>
         </header>
         {notice && <p className="central-catalog-notice">{notice}</p>}
-        <div className="central-book-grid">
-          {books.map((book) => {
+        <div className="central-category-groups">
+          {bookGroups.map(({ category, rows }) => {
+            const page = Math.min(
+              bookPages[category] ?? 1,
+              Math.max(1, Math.ceil(rows.length / PAGE_SIZE)),
+            );
+            const visibleRows = rows.slice(
+              (page - 1) * PAGE_SIZE,
+              page * PAGE_SIZE,
+            );
+            return <details key={`${category}:${Boolean(query)}`} open={query ? true : undefined}>
+              <summary>
+                <span><b>{categoryLabel(category)}</b>{rows.length} 本教材</span>
+                <small>{rows.reduce((sum, row) => sum + row.questions, 0).toLocaleString()} 題</small>
+              </summary>
+              <div className="central-book-grid">
+          {visibleRows.map((book) => {
             const product = match(book.title),
               key = normalized(book.title),
               preview = book.documentIds.map((id) => previews[id]).find(Boolean);
@@ -224,15 +251,7 @@ export default function CentralBookCatalog() {
                 <div>
                   <span>
                     {[...book.categories]
-                      .map((value) =>
-                        value === "accounting"
-                          ? "會計"
-                          : value === "medtech"
-                            ? "醫檢"
-                            : value === "law"
-                              ? "法律"
-                              : "資構",
-                      )
+                      .map(categoryLabel)
                       .join("／")}
                   </span>
                   <h3>{book.title}</h3>
@@ -277,6 +296,14 @@ export default function CentralBookCatalog() {
               </article>
             );
           })}
+              </div>
+              {rows.length > PAGE_SIZE && <nav className="central-pagination" aria-label={`${categoryLabel(category)}教材分頁`}>
+                <button disabled={page === 1} onClick={() => setBookPages((current) => ({ ...current, [category]: page - 1 }))}>上一頁</button>
+                <span>第 {page}／{Math.ceil(rows.length / PAGE_SIZE)} 頁</span>
+                <button disabled={page === Math.ceil(rows.length / PAGE_SIZE)} onClick={() => setBookPages((current) => ({ ...current, [category]: page + 1 }))}>下一頁</button>
+              </nav>}
+            </details>;
+          })}
           {!books.length && <p>目前找不到符合條件的教材。</p>}
         </div>
       </section>
@@ -285,7 +312,20 @@ export default function CentralBookCatalog() {
           <h2>學生商品與權限設定</h2>
           <span>{products.length} 本</span>
         </header>
-        {products.map((product) => {
+        <div className="central-category-groups">
+        {productGroups.map(({ category, rows }) => {
+          const page = Math.min(
+            productPages[category] ?? 1,
+            Math.max(1, Math.ceil(rows.length / PAGE_SIZE)),
+          );
+          const visibleRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+          return <details key={`${category}:${Boolean(query)}`} open={query ? true : undefined}>
+            <summary>
+              <span><b>{categoryLabel(category)}</b>{rows.length} 本商品</span>
+              <small>點擊展開設定</small>
+            </summary>
+            <div className="central-product-list">
+        {visibleRows.map((product) => {
           const cover = `/api/admin/products/cover?${new URLSearchParams({ category: product.category, productKey: product.productKey })}`;
           return (
             <article key={product.category + product.productKey}>
@@ -298,27 +338,6 @@ export default function CentralBookCatalog() {
                     <br />
                     書封
                   </span>
-                )}
-                <label>
-                  {product.centralCoverKey ? "更換" : "上傳"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    disabled={busy === product.productKey}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) void upload(product, file);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-                {product.centralCoverKey && (
-                  <button
-                    type="button"
-                    onClick={() => void removeCover(product)}
-                  >
-                    移除
-                  </button>
                 )}
               </div>
               <div className="central-created-title">
@@ -402,6 +421,16 @@ export default function CentralBookCatalog() {
             </article>
           );
         })}
+            </div>
+            {rows.length > PAGE_SIZE && <nav className="central-pagination" aria-label={`${categoryLabel(category)}商品分頁`}>
+              <button disabled={page === 1} onClick={() => setProductPages((current) => ({ ...current, [category]: page - 1 }))}>上一頁</button>
+              <span>第 {page}／{Math.ceil(rows.length / PAGE_SIZE)} 頁</span>
+              <button disabled={page === Math.ceil(rows.length / PAGE_SIZE)} onClick={() => setProductPages((current) => ({ ...current, [category]: page + 1 }))}>下一頁</button>
+            </nav>}
+          </details>;
+        })}
+        {!productGroups.length && <p>目前找不到符合條件的學生商品。</p>}
+        </div>
       </section>
     </>
   );
