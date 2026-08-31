@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { EssayHistory } from "./essay-history";
+import "./quick-practice-availability.css";
 import { useSimulationToolsEnabled } from "../../lib/use-simulation-tools";
 
 type PracticeQuestion = {
