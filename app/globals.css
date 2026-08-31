@@ -9498,7 +9498,7 @@ a {
 }
 
 .document-granular-index button,
-.document-platform-links button {
+.document-platform-links label {
   border: 1px solid #8fc4bd;
   border-radius: 999px;
   background: white;
@@ -9508,7 +9508,44 @@ a {
   cursor: pointer;
 }
 
-.document-platform-links button.active {
+.document-platform-links-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.document-platform-links-heading span {
+  padding: 0.15rem 0.42rem;
+  border-radius: 999px;
+  background: #dcefeb;
+  color: #256b63;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.document-platform-links label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  user-select: none;
+}
+
+.document-platform-links label input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.document-platform-links label:focus-within {
+  outline: 3px solid rgb(24 116 107 / 24%);
+  outline-offset: 2px;
+}
+
+.document-platform-links label.active {
   color: white;
   background: #18746b;
   border-color: #18746b;
