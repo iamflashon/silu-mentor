@@ -29,6 +29,26 @@ export async function GET(request: Request) {
     if (subject) baseFilters.push(eq(examQuestions.subject, subject));
     if (year) baseFilters.push(eq(examQuestions.year, year));
     if (law) baseFilters.push(sql`${examQuestions.stem} like ${`%${law}%`}`);
+    if (url.searchParams.get("availability") === "1") {
+      const rows = await db.select({ id: examQuestions.id, optionsJson: examQuestions.optionsJson })
+        .from(examQuestions)
+        .where(and(...baseFilters));
+      const usableIds = rows
+        .filter((row) => Boolean(normalizeMcqOptions(row.optionsJson)))
+        .map((row) => row.id);
+      const attempts = usableIds.length
+        ? await db.selectDistinct({ questionId: examAttempts.questionId })
+          .from(examAttempts)
+          .where(and(eq(examAttempts.userKey, userKey(request)), inArray(examAttempts.questionId, usableIds)))
+        : [];
+      const totalCount = usableIds.length;
+      const answeredCount = attempts.length;
+      return Response.json({
+        totalCount,
+        answeredCount,
+        availableCount: excludeAnswered ? Math.max(0, totalCount - answeredCount) : totalCount,
+      });
+    }
     if (Number.isInteger(questionId) && questionId > 0) baseFilters.push(eq(examQuestions.id, questionId));
     if (excludeIds.length) baseFilters.push(notInArray(examQuestions.id, excludeIds));
     if (wrongOnly) {

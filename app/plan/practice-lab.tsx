@@ -114,6 +114,11 @@ type PracticeFacets = {
   subjects: string[];
   frequentLaws: Array<{ title: string; count: number }>;
 };
+type PracticeAvailability = {
+  totalCount: number;
+  answeredCount: number;
+  availableCount: number;
+};
 type EssayMode = "guided" | "exam";
 type PracticeRecord = {
   id: number;
@@ -414,6 +419,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const coachComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("today");
   const [quickTarget, setQuickTarget] = useState(10);
+  const [quickSessionTarget, setQuickSessionTarget] = useState(10);
   const [quickActive, setQuickActive] = useState(false);
   const [quickAnswered, setQuickAnswered] = useState(0);
   const [quickCorrect, setQuickCorrect] = useState(0);
@@ -427,6 +433,8 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const [filterYear, setFilterYear] = useState("");
   const [filterSubject, setFilterSubject] = useState("");
   const [excludeAnswered, setExcludeAnswered] = useState(true);
+  const [quickAvailability, setQuickAvailability] = useState<PracticeAvailability | null>(null);
+  const [quickAvailabilityLoading, setQuickAvailabilityLoading] = useState(false);
   const [selectedLaw, setSelectedLaw] = useState("");
   const [essayMode, setEssayMode] = useState<EssayMode>("guided");
   const [essayQuestionCatalog, setEssayQuestionCatalog] = useState<EssayQuestionOption[]>([]);
@@ -816,6 +824,28 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   }, [examType]);
 
   useEffect(() => {
+    if (examType !== "mcq") return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ type: "mcq", availability: "1" });
+    if (filterYear) params.set("year", filterYear);
+    if (filterSubject) params.set("subject", filterSubject);
+    if (excludeAnswered) params.set("excludeAnswered", "1");
+    setQuickAvailabilityLoading(true);
+    fetch(`/api/practice?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("availability failed");
+        setQuickAvailability((await response.json()) as PracticeAvailability);
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setQuickAvailability(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setQuickAvailabilityLoading(false);
+      });
+    return () => controller.abort();
+  }, [examType, filterYear, filterSubject, excludeAnswered, quickAnswered]);
+
+  useEffect(() => {
     if (examType !== "essay") return;
     fetch("/api/essay-grading?config=1")
       .then(async (response) => {
@@ -979,7 +1009,14 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   }
 
   function startQuickPractice() {
+    const available = quickAvailability?.availableCount;
+    if (available === 0) {
+      setFeedback(excludeAnswered ? "目前條件下的題目都已作答；可取消勾選排除條件重新練習。" : "目前條件下沒有可練題目。");
+      return;
+    }
+    const sessionTarget = typeof available === "number" ? Math.min(quickTarget, available) : quickTarget;
     setPracticeMode("quick");
+    setQuickSessionTarget(sessionTarget);
     setQuickActive(true);
     setQuickAnswered(0);
     setQuickCorrect(0);
@@ -993,7 +1030,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   }
 
   function nextQuickQuestion() {
-    if (!quickActive || quickAnswered >= quickTarget) return;
+    if (!quickActive || quickAnswered >= quickSessionTarget) return;
     void loadQuestion("mcq", {
       year: filterYear,
       subject: filterSubject,
@@ -1768,11 +1805,19 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                   <input type="checkbox" checked={excludeAnswered} onChange={(event) => setExcludeAnswered(event.target.checked)} disabled={quickActive && quickAnswered > 0} />
                   排除以前已作答題目
                 </label>
-                <button type="button" onClick={startQuickPractice} disabled={loading}>
-                  {quickActive ? "重新開始" : `開始練 ${quickTarget} 題`}
+                <button type="button" onClick={startQuickPractice} disabled={loading || quickAvailabilityLoading || quickAvailability?.availableCount === 0}>
+                  {quickActive ? "重新開始" : `開始練 ${quickAvailability ? Math.min(quickTarget, quickAvailability.availableCount) : quickTarget} 題`}
                 </button>
               </div>
-              {quickActive && <div className="quick-practice-progress" aria-live="polite"><span><b>{Math.min(quickAnswered + (quickResult ? 0 : 1), quickTarget)}</b>／{quickTarget} 題</span><div><i style={{ width: `${Math.min(100, (quickAnswered / quickTarget) * 100)}%` }} /></div><strong>答對 {quickCorrect} 題</strong></div>}
+              <div className={`quick-practice-availability${quickAvailability && quickTarget > quickAvailability.availableCount ? " is-limited" : ""}`} aria-live="polite">
+                {quickAvailabilityLoading ? <span>正在計算符合條件的題數…</span> : quickAvailability ? <>
+                  <span>題庫總數 <b>{quickAvailability.totalCount}</b> 題</span>
+                  <span>已作答 <b>{quickAvailability.answeredCount}</b> 題</span>
+                  <strong>目前可練 <b>{quickAvailability.availableCount}</b> 題</strong>
+                  {quickTarget > quickAvailability.availableCount && quickAvailability.availableCount > 0 && <small>可練題數少於選取數量，本次將以 {quickAvailability.availableCount} 題為上限。</small>}
+                </> : <span>題數暫時無法取得，仍可開始練習。</span>}
+              </div>
+              {quickActive && <div className="quick-practice-progress" aria-live="polite"><span><b>{Math.min(quickAnswered + (quickResult ? 0 : 1), quickSessionTarget)}</b>／{quickSessionTarget} 題</span><div><i style={{ width: `${Math.min(100, (quickAnswered / quickSessionTarget) * 100)}%` }} /></div><strong>答對 {quickCorrect} 題</strong></div>}
             </section>
           )}
           {practiceMode === "custom" && (
@@ -2122,13 +2167,13 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                 <section className={`quick-practice-result ${quickResult.correct ? "correct" : "incorrect"}`} aria-live="polite">
                   <header>
                     <div><span>{quickResult.correct ? "回答正確" : "回答錯誤"}</span><strong>{quickResult.correct ? "答對了" : `正確答案是 ${quickResult.correctAnswer}`}</strong></div>
-                    <small>第 {quickAnswered}／{quickTarget} 題</small>
+                    <small>第 {quickAnswered}／{quickSessionTarget} 題</small>
                   </header>
                   {quickResult.explanation && <div className="quick-practice-explanation"><b>題庫解析</b><p>{quickResult.explanation}</p></div>}
                   <footer>
-                    {quickAnswered < quickTarget
+                    {quickAnswered < quickSessionTarget
                       ? <button type="button" onClick={nextQuickQuestion} disabled={loading}>下一題</button>
-                      : <div className="quick-practice-finish"><div><b>本組完成</b><span>答對 {quickCorrect}／{quickTarget} 題，正確率 {Math.round((quickCorrect / quickTarget) * 100)}%</span></div><button type="button" onClick={startQuickPractice}>再練一組</button></div>}
+                      : <div className="quick-practice-finish"><div><b>本組完成</b><span>答對 {quickCorrect}／{quickSessionTarget} 題，正確率 {Math.round((quickCorrect / quickSessionTarget) * 100)}%</span></div><button type="button" onClick={startQuickPractice}>再練一組</button></div>}
                   </footer>
                 </section>
               )}
