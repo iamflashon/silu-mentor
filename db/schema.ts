@@ -436,6 +436,7 @@ export const aiAccessEntitlements = sqliteTable(
       .references(() => members.id, { onDelete: "cascade" }),
     status: text("status").notNull().default("active"),
     source: text("source").notNull().default("manual"),
+    examCategory: text("exam_category").notNull().default("all"),
     quotaTotal: integer("quota_total").notNull().default(30),
     quotaUsed: integer("quota_used").notNull().default(0),
     coachRoundsUsed: integer("coach_rounds_used").notNull().default(0),
