@@ -348,6 +348,14 @@ type OfficialCaseEvidence = {
   excerpt: string;
 };
 
+type LegalVerificationCache = {
+  query: string;
+  reply: string;
+  sources: string[];
+  citationStatus: string;
+  verifiedAt: string;
+};
+
 const authorityConcepts = [
   "支付命令", "精神慰撫金", "慰撫金", "假扣押", "假處分", "強制執行", "再審之訴",
   "上訴期間", "抗告期間", "管轄權", "舉證責任", "除斥期間", "消滅時效", "借名登記",
@@ -360,6 +368,64 @@ function authorityEvidenceTerms(query: string) {
     .filter((term) => normalized.includes(term))
     .filter((term, index, all) => !all.some((other, otherIndex) => otherIndex !== index && other.length > term.length && other.includes(term)))
     .slice(0, 3);
+}
+
+function authorityVerificationCacheKey(query: string) {
+  const terms = authorityEvidenceTerms(query);
+  if (!terms.length) return "";
+  let hash = 2166136261;
+  const seed = terms.sort().join("|");
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `legal_verification_cache_${(hash >>> 0).toString(16)}`;
+}
+
+async function readLegalVerificationCache(query: string): Promise<LegalVerificationCache | null> {
+  const key = authorityVerificationCacheKey(query);
+  if (!key) return null;
+  try {
+    const db = await getDb();
+    const [row] = await db.select({ value: appSettings.value, updatedAt: appSettings.updatedAt }).from(appSettings).where(eq(appSettings.key, key)).limit(1);
+    if (!row) return null;
+    const ageMs = Date.now() - row.updatedAt.getTime();
+    if (ageMs > 30 * 24 * 60 * 60 * 1000) return null;
+    const parsed = JSON.parse(row.value) as LegalVerificationCache;
+    return parsed?.reply && Array.isArray(parsed.sources) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveLegalVerificationCache(query: string, entry: Omit<LegalVerificationCache, "query" | "verifiedAt">) {
+  const key = authorityVerificationCacheKey(query);
+  if (!key || !entry.sources.length) return;
+  const value: LegalVerificationCache = { query, ...entry, verifiedAt: new Date().toISOString() };
+  try {
+    const db = await getDb();
+    await db.insert(appSettings).values({ key, value: JSON.stringify(value), updatedAt: new Date() })
+      .onConflictDoUpdate({ target: appSettings.key, set: { value: JSON.stringify(value), updatedAt: new Date() } });
+  } catch (error) {
+    console.error("[api/chat] legal verification cache save failed", error);
+  }
+}
+
+function authoritySearchPlan(query: string) {
+  const compact = query.replace(/撫慰金/gu, "慰撫金").replace(/\s+/gu, "");
+  if (compact.includes("支付命令") && compact.includes("慰撫金")) {
+    return [
+      "site:judicial.gov.tw 慰撫金 支付命令 一定數量 司促字 駁回",
+      "慰撫金 支付命令 民事訴訟法第508條 司促字 駁回",
+      "site:lawplayer.com 慰撫金 支付命令 司促",
+    ];
+  }
+  const concepts = authorityEvidenceTerms(query);
+  return [
+    `site:judicial.gov.tw ${concepts.join(" ")} 裁判`,
+    `${concepts.join(" ")} 法院 裁定 判決 實務`,
+    `site:lawplayer.com ${concepts.join(" ")}`,
+  ];
 }
 
 async function readOfficialCaseEvidence(query: string): Promise<OfficialCaseEvidence[]> {
@@ -591,6 +657,14 @@ function usedWebSearch(payload: unknown) {
   return Array.isArray(output) && output.some((item) => item && typeof item === "object" && (item as { type?: string }).type === "web_search_call");
 }
 
+function countWebSearchCalls(payload: unknown) {
+  if (!payload || typeof payload !== "object") return 0;
+  const output = (payload as { output?: unknown[] }).output;
+  return Array.isArray(output)
+    ? output.filter((item) => item && typeof item === "object" && (item as { type?: string }).type === "web_search_call").length
+    : 0;
+}
+
 function shouldOfferHomeWebSearch(text:string,mode:"off"|"fallback"|"always"){
   if(mode==="off")return false;
   if(mode==="always")return true;
@@ -614,11 +688,30 @@ function extractWebSources(payload: unknown) {
       for (const annotation of annotations) {
         if (!annotation || typeof annotation !== "object" || (annotation as { type?: string }).type !== "url_citation") continue;
         const title = String((annotation as { title?: unknown }).title ?? "外網來源").trim();
-        if (title) sources.push(title);
+        const url = String((annotation as { url?: unknown }).url ?? "").trim();
+        if (title) sources.push(url ? `${title}｜${url}` : title);
       }
     }
   }
   return [...new Set(sources)].slice(0, 8);
+}
+
+function sourceUrl(source: string) {
+  const separator = source.lastIndexOf("｜");
+  if (separator < 0) return "";
+  const url = source.slice(separator + 1).trim();
+  return /^https?:\/\//iu.test(url) ? url : "";
+}
+
+function isOfficialLegalSource(source: string) {
+  const url = sourceUrl(source);
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "law.moj.gov.tw" || host.endsWith(".judicial.gov.tw") || host === "judicial.gov.tw" || host.endsWith(".gov.tw");
+  } catch {
+    return false;
+  }
 }
 
 function extractSources(payload: unknown) {
@@ -731,7 +824,7 @@ async function findPublishedMcq(subject: string) {
 const modelRates: Record<string, { input: number; cached: number; output: number }> = {
   "gpt-5.6-luna": { input: 0.10, cached: 0.01, output: 0.60 },
   "gpt-5.6-terra": { input: 1.00, cached: 0.10, output: 6.00 },
-  "gpt-5.6-sol": { input: 2.50, cached: 0.25, output: 15.00 },
+  "gpt-5.6-sol": { input: 2.00, cached: 0.20, output: 10.00 },
   "deepseek-v4-pro": { input: 0.435, cached: 0.003625, output: 0.87 },
 };
 
@@ -1009,6 +1102,11 @@ export async function POST(request: Request) {
     if (aiGate instanceof Response) return aiGate;
     const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "") : "";
     const officialCaseEvidence = authorityReviewRequired ? await readOfficialCaseEvidence(latestStudent?.text ?? "") : [];
+    const professionalVerificationRequested = context.type === "home" && body.professionalVerification === true;
+    const cachedLegalVerification = authorityReviewRequired && !officialCaseEvidence.length && !professionalVerificationRequested
+      ? await readLegalVerificationCache(latestStudent?.text ?? "")
+      : null;
+    const automaticAuthorityVerification = authorityReviewRequired && !officialCaseEvidence.length && !cachedLegalVerification;
     const route = authorityReviewRequired
       ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified")
       : modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
@@ -1125,9 +1223,10 @@ export async function POST(request: Request) {
           : `\n\n【本次已核對教材內容】\n書名：${bookEvidence.resourceTitle}\n章節：${bookEvidence.segmentTitle}\n分類：${bookEvidence.lessonLabel || "未標示"}\n頁碼：${bookEvidence.pageStart ? `第 ${bookEvidence.pageStart}${bookEvidence.pageEnd && bookEvidence.pageEnd !== bookEvidence.pageStart ? `–${bookEvidence.pageEnd}` : ""} 頁` : "待核對"}\n原文摘錄：${bookEvidence.excerpt}\n以上是本次唯一可直接作為教材依據的章節內容。回答時優先依此內容；若學生問到摘錄以外的細節，必須說明需要再查核，不得把一般知識冒充本章原文。`
         : `\n\n【教材核對狀態】\n目前只知道學生選了「${context.resourceTitle}／${context.segmentTitle}」，但系統尚未取得這一章足夠的原文。不得說「教材提到」「本章指出」或虛構頁碼；若要回答，只能明確標示為一般法律補充，並先告知教材原文尚未核對。`
       : "";
+    const authoritySearchQueries = authorityReviewRequired ? authoritySearchPlan(latestStudent?.text ?? "") : [];
     const officialAuthorityInstruction = authorityReviewRequired
       ? `\n\n【程序與裁判實務強制覆核】
-本題涉及法院程序要件、准駁或實務見解。回答前必須分開檢查：一、法條是否容許提出聲請；二、法院是否可能因法定要件不具備而直接駁回；三、即使核發，債務人異議後的程序效果。不得把「可以遞狀」「請求人自行填寫金額」直接等同「符合要件、法院會核發」。必須區分法條明文、裁判實務與個案推論；不同層次不得混寫。對慰撫金、勞動能力減損或其他須由法院裁量、鑑定後才能確定數額的請求，若尚未經判決、調解、和解或債務人承諾確定數額，結論必須先寫「通常不適合以支付命令請求，法院可能在核發前直接駁回」；只有數額已由判決以外的和解或承諾明確固定且屆期未付時，才能說較適合聲請支付命令。已有確定判決或法院調解筆錄者，應直接說明可聲請強制執行，不必再聲請支付命令。若下列同步裁判沒有直接處理同一命題，必須明說目前資料不足或實務可能有不同處理，不得因此退回「原則可以」的空泛結論，也不得用模型記憶補成一致見解。${officialCaseEvidence.length ? `\n\n【平台同步的司法院裁判資料】\n${officialCaseEvidence.map((item, index) => `【裁判 ${index + 1}｜${item.label}】\n${item.excerpt}`).join("\n\n")}` : "\n本次平台同步資料尚未命中直接相關裁判；請採保留式結論，提醒需再查核，不得下絕對結論。"}`
+本題涉及法院程序要件、准駁或實務見解。回答前必須分開檢查：一、法條是否容許提出聲請；二、法院是否可能因法定要件不具備而直接駁回；三、即使核發，債務人異議後的程序效果。不得把「可以遞狀」「請求人自行填寫金額」直接等同「符合要件、法院會核發」。必須區分法條明文、裁判實務與個案推論；不同層次不得混寫。對慰撫金、勞動能力減損或其他須由法院裁量、鑑定後才能確定數額的請求，若尚未經判決、調解、和解或債務人承諾確定數額，結論必須先寫「尚待法院酌定數額者，原則上不符合支付命令所要求的一定數量，法院可能在核發前直接駁回」；只有數額已由判決以外的和解或承諾明確固定且屆期未付時，才能說較適合聲請支付命令。已有確定判決或法院調解筆錄者，應直接說明可聲請強制執行，不必再聲請支付命令。裁判字號只能在本次同步資料、既有查證快取或外網來源明確支持時列出，不得憑模型記憶補寫。${officialCaseEvidence.length ? `\n\n【平台同步的司法院裁判資料】\n${officialCaseEvidence.map((item, index) => `【裁判 ${index + 1}｜${item.label}】\n${item.excerpt}`).join("\n\n")}` : cachedLegalVerification ? `\n\n【30日內同類命題的既有查證結果】\n查證日期：${cachedLegalVerification.verifiedAt}\n來源：${cachedLegalVerification.sources.join("、")}\n先前查證內容：${cachedLegalVerification.reply}\n只能在本題命題與先前查證內容相同時引用；若問題層次不同，必須明說並重新依本題分析。` : `\n\n【本次自動深度查證】\n平台同步裁判尚未命中。本輪必須先搜尋官方來源，未命中再查可信裁判索引；依序嘗試下列查詢，不得只搜尋一次就停止：\n${authoritySearchQueries.map((item, index) => `${index + 1}. ${item}`).join("\n")}\n找到裁判時，必須核對法院、年度、案別、字號、日期與支持本題的關鍵理由。官方原文未能回查時，須明示「非官方裁判資料庫收錄，尚待官方原文核對」，不得寫成官方已核對。若全部仍未找到直接裁判，明說目前查無直接裁判，不得虛構字號。`}`
       : "";
     const teachingLevelInstruction = externalCatalogEvidence + officialAuthorityInstruction + (body.teachingLevel === "beginner"
       ? `\n\n【本輪學生身分：法律小白】學生可能把「有意做出動作」與刑法上的故意責任混在一起，也可能因挫折而懷疑自己。先用一句話接住情緒，再用極白話但法律上精準的例子拆開概念。比喻必須對應本題的錯誤類型；若是誤想防衛，學生知道自己在攻擊人，只是誤認存在防衛情狀，不得錯講成以為打蚊子卻打到人的一般錯誤。最後只問一個能讓他重拾信心的小問題。`
@@ -1229,11 +1328,10 @@ export async function POST(request: Request) {
     });
     // 一般 AI 教練不會自動查外網。只有學生從獨立的「AI 專業法學查證」
     // 入口確認後才提供工具；每 5 輪仍最多使用一次，避免成本失控。
-    const professionalVerificationRequested = context.type === "home" && body.professionalVerification === true;
     const professionalVerificationAvailable = professionalVerificationRequested ? await coachWebSearchAvailable(aiGate) : false;
     if (professionalVerificationRequested && homeWebSearchMode === "off") return Response.json({ error:"AI 專業法學查證目前未開放，請改用一般教材回答。",code:"PROFESSIONAL_VERIFICATION_DISABLED" },{status:403});
     if (professionalVerificationRequested && !professionalVerificationAvailable) return Response.json({ error:"本組 5 輪的專業查證已使用；下一組開始後會重新提供 1 次。",code:"PROFESSIONAL_VERIFICATION_USED" },{status:429});
-    const allowWebSearch = needsOpenAi && professionalVerificationRequested && professionalVerificationAvailable;
+    const allowWebSearch = needsOpenAi && (automaticAuthorityVerification || (professionalVerificationRequested && professionalVerificationAvailable));
     if (allowWebSearch) tools.unshift({ type: "web_search" });
     let payload: unknown = {};
     let openAiPayload: unknown = {};
@@ -1319,7 +1417,9 @@ export async function POST(request: Request) {
           })),
           ...(allowFileSearch ? { include: ["file_search_call.results"] } : {}),
           tools,
-          ...(planningConstraint ? { tool_choice: { type: "function", name: "save_study_plan" } } : {}),
+          ...(planningConstraint
+            ? { tool_choice: { type: "function", name: "save_study_plan" } }
+            : allowWebSearch ? { tool_choice: { type: "web_search" } } : {}),
         }),
       });
 
@@ -1366,8 +1466,9 @@ export async function POST(request: Request) {
 
     const searchedFiles = needsOpenAi && usedFileSearch(payload);
     const searchedWeb = needsOpenAi && usedWebSearch(payload);
+    const webSearchCalls = searchedWeb ? Math.max(1, countWebSearchCalls(payload)) : 0;
     if(professionalVerificationRequested&&!searchedWeb)return Response.json({error:"本次未取得可核對的外網查證結果，因此不計入 AI 輪次；請稍後再試。",code:"PROFESSIONAL_VERIFICATION_FAILED"},{status:502});
-    if(searchedWeb&&context.type==="home")await markCoachWebSearchUsed(aiGate);
+    if(searchedWeb&&professionalVerificationRequested&&context.type==="home")await markCoachWebSearchUsed(aiGate);
     const webSources = searchedWeb ? extractWebSources(payload) : [];
     const citationSources = searchedFiles ? extractSources(payload) : [];
     const searchResultNames = searchedFiles ? extractFileSearchResultNames(payload) : [];
@@ -1463,20 +1564,31 @@ export async function POST(request: Request) {
       : effectiveTeachingEvidence?.status === "full_text_search"
           ? [effectiveTeachingEvidence.resourceTitle || "教材全文索引（章節待核對）"]
           : []
-      : [...new Set([...officialCaseEvidence.map((item) => item.label), ...displaySearchSources, ...webSources])];
+      : [...new Set([
+          ...officialCaseEvidence.map((item) => item.label),
+          ...(cachedLegalVerification?.sources ?? []),
+          ...displaySearchSources,
+          ...webSources,
+        ])];
     const fromFiles = context.type === "book"
       ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "applied_inference" || effectiveTeachingEvidence?.status === "full_text_search"
       : searchedFiles && (citationSources.length > 0 || searchResultNames.length > 0);
     const citationStatus = context.type === "book"
       ? effectiveTeachingEvidence?.status ?? "unavailable"
-      : officialCaseEvidence.length ? "official_data" : searchedWeb && webSources.length ? "web_search" : searchedFiles && sources.length ? "full_text_search" : "unavailable";
+      : officialCaseEvidence.length
+        ? "official_data"
+        : cachedLegalVerification
+          ? cachedLegalVerification.citationStatus || "verified_cache"
+          : searchedWeb && webSources.length
+            ? webSources.some(isOfficialLegalSource) ? "official_web" : "secondary_web"
+            : searchedFiles && sources.length ? "full_text_search" : "unavailable";
     const openAiUsage = needsOpenAi ? readUsage(openAiPayload) : { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
     const openAiRates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
     const modelTokenCostUsd = needsOpenAi
       ? (Math.max(0, openAiUsage.inputTokens - openAiUsage.cachedTokens) * openAiRates.input + openAiUsage.cachedTokens * openAiRates.cached + openAiUsage.outputTokens * openAiRates.output) / 1_000_000
       : 0;
     const fileSearchCostUsd = searchedFiles ? 0.0025 : 0;
-    const webSearchCostUsd = searchedWeb ? 0.01 : 0;
+    const webSearchCostUsd = webSearchCalls * 0.01;
     const openAiCostUsd = needsOpenAi
       ? modelTokenCostUsd + fileSearchCostUsd + webSearchCostUsd
       : 0;
@@ -1657,13 +1769,21 @@ export async function POST(request: Request) {
       }
     } catch { /* usage logging must not block the learner */ }
 
+    if (authorityReviewRequired && searchedWeb && webSources.length && latestStudent?.text.trim()) {
+      await saveLegalVerificationCache(latestStudent.text.trim(), {
+        reply,
+        sources: webSources,
+        citationStatus,
+      });
+    }
+
     const aiAccess = context.type === "home"
       ? await finishAiCoachRound(aiGate,{action:"law_coach",description:"司律首頁 AI 教練引導",requestKey:body.requestKey})
       : await finishAiUse(aiGate, { action: "law_ask", description: "司律教材 AI 試問", requestKey:body.requestKey });
     return Response.json({
       reply,
       source: fromFiles ? "教材" : "AI 補充",
-      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, webSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedWeb ? 1 : 0, modelTokenCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? modelTokenCostUsd : primaryEstimatedCostUsd, fileSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? fileSearchCostUsd : 0, webSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? webSearchCostUsd : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
+      usage: { model: primaryModel, ...primaryUsage, fileSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") && searchedFiles ? 1 : 0, webSearchCalls: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? webSearchCalls : 0, modelTokenCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? modelTokenCostUsd : primaryEstimatedCostUsd, fileSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? fileSearchCostUsd : 0, webSearchCostUsd: (primaryResult.provider === "luna" || primaryResult.provider === "sol") ? webSearchCostUsd : 0, durationMs: primaryDurationMs, estimatedCostUsd: primaryEstimatedCostUsd, routingReason: route?.reason ?? `測試模式由管理者手動指定 ${primaryResult.label}。` },
       planSaved,
       replacedTasks,
       error: planError || undefined,

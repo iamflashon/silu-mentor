@@ -5488,6 +5488,18 @@ a {
   font-size: 9px;
   line-height: 1.5;
 }
+.message-sources a,
+.model-comparison-sources a {
+  color: #276b78;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: #9bc2c7;
+  text-underline-offset: 2px;
+}
+.message-sources a:hover,
+.model-comparison-sources a:hover {
+  color: #174c58;
+}
 
 .teaching-evidence {
   margin: 8px 0 0 43px;
