@@ -103,7 +103,12 @@ type VariationQuestion = {
 };
 
 type Props = { initialType: "mcq" | "essay"; standalone?: boolean; canAdmin?: boolean };
-type PracticeMode = "today" | "wrong" | "custom" | "laws";
+type PracticeMode = "today" | "wrong" | "custom" | "laws" | "quick";
+type QuickPracticeResult = {
+  correct: boolean;
+  correctAnswer: string;
+  explanation: string;
+};
 type PracticeFacets = {
   years: string[];
   subjects: string[];
@@ -408,6 +413,12 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
   const coachMessagesRef = useRef<HTMLDivElement | null>(null);
   const coachComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("today");
+  const [quickTarget, setQuickTarget] = useState(10);
+  const [quickActive, setQuickActive] = useState(false);
+  const [quickAnswered, setQuickAnswered] = useState(0);
+  const [quickCorrect, setQuickCorrect] = useState(0);
+  const [quickSeenIds, setQuickSeenIds] = useState<number[]>([]);
+  const [quickResult, setQuickResult] = useState<QuickPracticeResult | null>(null);
   const [facets, setFacets] = useState<PracticeFacets>({
     years: [],
     subjects: [],
@@ -704,6 +715,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
       excludeAnswered?: boolean;
       wrongOnly?: boolean;
       questionId?: number;
+      excludeIds?: number[];
     },
   ) {
     // 指定題目時先清除舊題，避免選題預覽已更新、下方仍暫留上一題。
@@ -713,6 +725,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     setLoading(true);
     setSelected(null);
     setFeedback("");
+    setQuickResult(null);
     setEssayFeedback("");
     setEssayGrading(null);
     setEssayReviews(null);
@@ -749,6 +762,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
       if (filters?.excludeAnswered) params.set("excludeAnswered", "1");
       if (filters?.wrongOnly) params.set("wrongOnly", "1");
       if (filters?.questionId) params.set("questionId", String(filters.questionId));
+      if (filters?.excludeIds?.length) params.set("excludeIds", filters.excludeIds.join(","));
       const response = await fetch(`/api/practice?${params}`);
       const result = (await response.json()) as {
         question?: PracticeQuestion | null;
@@ -874,6 +888,12 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
 
   function chooseMode(mode: PracticeMode) {
     setPracticeMode(mode);
+    setQuickActive(false);
+    if (mode === "quick") {
+      setQuestion(null);
+      setSelected(null);
+      setQuickResult(null);
+    }
     setFeedback("");
   }
 
@@ -958,24 +978,66 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
     void loadQuestion("mcq", { law });
   }
 
+  function startQuickPractice() {
+    setPracticeMode("quick");
+    setQuickActive(true);
+    setQuickAnswered(0);
+    setQuickCorrect(0);
+    setQuickSeenIds([]);
+    setQuickResult(null);
+    void loadQuestion("mcq", {
+      year: filterYear,
+      subject: filterSubject,
+      excludeAnswered,
+    });
+  }
+
+  function nextQuickQuestion() {
+    if (!quickActive || quickAnswered >= quickTarget) return;
+    void loadQuestion("mcq", {
+      year: filterYear,
+      subject: filterSubject,
+      excludeAnswered,
+      excludeIds: quickSeenIds,
+    });
+  }
+
   async function answer(answer: string) {
     if (!question || selected) return;
     setSelected(answer);
     const response = await fetch("/api/practice", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ questionId: question.id, answer }),
+      body: JSON.stringify({ questionId: question.id, answer, revealExplanation: practiceMode === "quick" }),
     });
     const result = (await response.json()) as {
       correct?: boolean;
       correctAnswer?: string;
       guidance?: string;
+      explanation?: string;
       error?: string;
     };
+    if (response.ok && result.correctAnswer && practiceMode === "quick") {
+      setQuickResult({
+        correct: Boolean(result.correct),
+        correctAnswer: result.correctAnswer,
+        explanation: result.explanation?.trim() ?? "",
+      });
+      setQuickAnswered((current) => current + 1);
+      if (result.correct) setQuickCorrect((current) => current + 1);
+      setQuickSeenIds((current) => current.includes(question.id) ? current : [...current, question.id]);
+      setFeedback("");
+      return;
+    }
     const guidance =
       response.ok && result.correctAnswer
         ? `${result.correct ? "答對了。" : `正確答案是 ${result.correctAnswer}。`} ${result.guidance ?? "先說說你選這個答案的理由。"}`
         : (result.error ?? "作答暫時無法儲存");
+    if (!response.ok && practiceMode === "quick") {
+      setSelected(null);
+      setFeedback(guidance);
+      return;
+    }
     setFeedback(guidance);
     if (response.ok) setCoachMessages([{ role: "mentor", text: guidance }]);
   }
@@ -1635,10 +1697,20 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
             </button>
             <button
               type="button"
+              className={practiceMode === "quick" ? "ready active" : "ready"}
+              onClick={() => chooseMode("quick")}
+            >
+              <span>02</span>
+              <strong>純練題</strong>
+              <p>選擇題數後連續作答；立即看對錯與既有解析，不啟動 AI 對話。</p>
+              <em>選擇題數 →</em>
+            </button>
+            <button
+              type="button"
               className={practiceMode === "wrong" ? "active" : ""}
               onClick={startWrongPractice}
             >
-              <span>02</span>
+              <span>03</span>
               <strong>練錯題</strong>
               <p>重做最近一次仍答錯的題目；答對後標記已訂正，歷史紀錄仍會保留。</p>
               <em>開始訂正 →</em>
@@ -1648,7 +1720,7 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
               className={practiceMode === "custom" ? "active" : ""}
               onClick={() => chooseMode("custom")}
             >
-              <span>03</span>
+              <span>04</span>
               <strong>自訂練習</strong>
               <p>依年份、科目與是否排除已作答題目建立練習。</p>
               <em>設定練習範圍 →</em>
@@ -1658,12 +1730,51 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
               className={practiceMode === "laws" ? "active" : ""}
               onClick={() => chooseMode("laws")}
             >
-              <span>04</span>
+              <span>05</span>
               <strong>高頻法條</strong>
               <p>依本站已發布真題計算法條出現次數，點法條即可練相關題目。</p>
               <em>查看高頻法條 →</em>
             </button>
           </div>
+          {practiceMode === "quick" && (
+            <section className="practice-mode-panel quick-practice-setup" aria-label="純練題設定">
+              <header>
+                <b>設定純練題</b>
+                <span>作答後立即顯示對錯；題庫已有解析才會顯示解析，全程不呼叫 AI。</span>
+              </header>
+              <div className="quick-count-picker" role="group" aria-label="選擇練習題數">
+                {[5, 10, 20, 30].map((count) => (
+                  <button type="button" className={quickTarget === count ? "active" : ""} onClick={() => setQuickTarget(count)} key={count}>
+                    <strong>{count}</strong><span>題</span>
+                  </button>
+                ))}
+              </div>
+              <div className="practice-filter-row">
+                <label>
+                  年度
+                  <select value={filterYear} onChange={(event) => setFilterYear(event.target.value)} disabled={quickActive && quickAnswered > 0}>
+                    <option value="">全部年度</option>
+                    {facets.years.map((year) => <option key={year}>{year}</option>)}
+                  </select>
+                </label>
+                <label>
+                  科目
+                  <select value={filterSubject} onChange={(event) => setFilterSubject(event.target.value)} disabled={quickActive && quickAnswered > 0}>
+                    <option value="">全部科目</option>
+                    {facets.subjects.map((subject) => <option key={subject}>{subject}</option>)}
+                  </select>
+                </label>
+                <label className="practice-checkbox">
+                  <input type="checkbox" checked={excludeAnswered} onChange={(event) => setExcludeAnswered(event.target.checked)} disabled={quickActive && quickAnswered > 0} />
+                  排除以前已作答題目
+                </label>
+                <button type="button" onClick={startQuickPractice} disabled={loading}>
+                  {quickActive ? "重新開始" : `開始練 ${quickTarget} 題`}
+                </button>
+              </div>
+              {quickActive && <div className="quick-practice-progress" aria-live="polite"><span><b>{Math.min(quickAnswered + (quickResult ? 0 : 1), quickTarget)}</b>／{quickTarget} 題</span><div><i style={{ width: `${Math.min(100, (quickAnswered / quickTarget) * 100)}%` }} /></div><strong>答對 {quickCorrect} 題</strong></div>}
+            </section>
+          )}
           {practiceMode === "custom" && (
             <section
               className="practice-mode-panel"
@@ -1864,19 +1975,19 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
       <div className="practice-lab-note">
         <b>
           {examType === "mcq"
-            ? "一試"
+            ? practiceMode === "quick" ? "純練題" : "一試"
             : essayMode === "exam"
               ? "擬真考試"
               : "引導練習"}
         </b>
         <span>
           {examType === "mcq"
-            ? "先作答，再說明其他選項為什麼不對。"
+            ? practiceMode === "quick" ? "選擇答案後立即看對錯與題庫解析，不進入 AI 對話。" : "先作答，再說明其他選項為什麼不對。"
             : essayMode === "exam"
               ? "考試中不提供提示，交卷後才會批改。"
               : "先寫出你的審題與答題骨架，再讓 AI 帶你修正。"}
         </span>
-        {examType === "mcq" && <button onClick={() => void loadQuestion()}>換一題</button>}
+        {examType === "mcq" && practiceMode !== "quick" && <button onClick={() => void loadQuestion()}>換一題</button>}
         {examType === "essay" && question && !(essayMode === "exam" && examStarted) && <button onClick={reopenEssayPicker}>重新挑題</button>}
       </div>
       {examType === "essay" &&
@@ -1994,7 +2105,11 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                     <button
                       key={key}
                       disabled={Boolean(selected)}
-                      className={selected === key ? "chosen" : ""}
+                      className={quickResult?.correctAnswer === key
+                        ? "correct-answer"
+                        : quickResult && selected === key
+                          ? "wrong-answer"
+                          : selected === key ? "chosen" : ""}
                       onClick={() => void answer(key)}
                     >
                       <b>{key}</b>
@@ -2002,7 +2117,22 @@ export function PracticeLab({ initialType, standalone = false, canAdmin = false 
                     </button>
                   ))}
               </div>
-              {selected && (
+              {practiceMode === "quick" && feedback && !quickResult && <p className="quick-practice-error">{feedback}</p>}
+              {selected && practiceMode === "quick" && quickResult && (
+                <section className={`quick-practice-result ${quickResult.correct ? "correct" : "incorrect"}`} aria-live="polite">
+                  <header>
+                    <div><span>{quickResult.correct ? "回答正確" : "回答錯誤"}</span><strong>{quickResult.correct ? "答對了" : `正確答案是 ${quickResult.correctAnswer}`}</strong></div>
+                    <small>第 {quickAnswered}／{quickTarget} 題</small>
+                  </header>
+                  {quickResult.explanation && <div className="quick-practice-explanation"><b>題庫解析</b><p>{quickResult.explanation}</p></div>}
+                  <footer>
+                    {quickAnswered < quickTarget
+                      ? <button type="button" onClick={nextQuickQuestion} disabled={loading}>下一題</button>
+                      : <div className="quick-practice-finish"><div><b>本組完成</b><span>答對 {quickCorrect}／{quickTarget} 題，正確率 {Math.round((quickCorrect / quickTarget) * 100)}%</span></div><button type="button" onClick={startQuickPractice}>再練一組</button></div>}
+                  </footer>
+                </section>
+              )}
+              {selected && practiceMode !== "quick" && (
                 <section className="practice-coach">
                   <header>
                     <div>
