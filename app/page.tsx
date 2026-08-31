@@ -110,6 +110,7 @@ function citationStatusLabel(status?: string) {
   if (status === "applied_inference") return "引用狀態：教材判準＋AI 涵攝";
   if (status === "full_text_search") return "";
   if (status === "web_search") return "外網查證：已列出本次查證來源名稱";
+  if (status === "official_data") return "實務覆核：已核對平台同步的司法院裁判資料";
   return "引用狀態：未取得可核對教材";
 }
 function sourceDisplayName(source: string) {

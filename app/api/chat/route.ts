@@ -5,14 +5,14 @@ type ChatContext =
   | { type: "magazine"; resourceId: number; resourceTitle: string }
   | { type: "my-course" | "public-course"; resourceId: number; episodeId: number; resourceTitle: string; episodeTitle: string };
 type PlanningConstraint = { mode: "all" | "single"; subject: string; scope: string; replaceOnlySubject: boolean; days: number; dailyMinutes: number };
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { storedDocumentAnalysis } from "../../../lib/document-analysis";
 import { syncBookLearningRecord } from "../../../lib/book-learning-record";
 import { getAnthropicChatModel, getAnthropicKey, getDeepSeekKey, getDeepSeekModel, getOpenAIKey, getOpenAIModel, getTeachingJudgeOpenAIModel, getZaiKey, getZaiModel } from "../../../lib/openai";
 import { taipeiDate, taipeiGreeting } from "../../../lib/taipei-time";
 import { normalizeMcqOptions } from "../../../lib/exam-options";
-import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
+import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, judicialCases, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
@@ -32,8 +32,18 @@ function providerLabel(provider: ChatProvider) {
   return provider === "luna" ? "Luna" : provider === "sol" ? "Sol" : provider === "sonnet" ? "Claude Sonnet" : provider === "glm" ? "GLM-4.7-Flash（免費測試）" : provider === "glm52" ? "GLM-5.2（付費測試）" : "DeepSeek V4-Pro";
 }
 
+function requiresAuthorityReview(query: string) {
+  const compact = query.replace(/\s+/g, "");
+  const namedProcedure = /支付命令|假扣押|假處分|強制執行|聲請再審|再審之訴|上訴期間|抗告期間|管轄權|舉證責任|除斥期間|消滅時效/u.test(compact);
+  const asksCourtOutcome = /(?:法院|實務|裁判|判決|決議).{0,18}(?:是否|能否|可否|准許|駁回|見解|要件)|(?:是否|能否|可否).{0,18}(?:聲請|提起|上訴|抗告|執行|管轄|法院)/u.test(compact);
+  return namedProcedure || asksCourtOutcome;
+}
+
 function automaticRoute(query: string, context: ChatContext, hasVerifiedAnswer: boolean) {
   const compact = query.replace(/\s+/g, "");
+  if (context.type === "home" && requiresAuthorityReview(query)) {
+    return { provider: "sol" as const, reason: "本題涉及法院程序要件、准駁或實務見解，已自動升級 Sol 並核對平台同步的官方裁判資料。" };
+  }
   const formal = /正式批改|批改申論|完整申論|考場擬答|建立標準解析|最終法律檢核|自訂新題/.test(compact);
   const highRisk = /多人|多行為|競合|不能未遂|不作為|身分犯|因果歷程|學說評析|爭點完整|罪責/.test(compact);
   if (formal || (!hasVerifiedAnswer && highRisk && compact.length >= 180)) {
@@ -331,6 +341,72 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
 
 async function readExternalCatalogEvidence(query: string) {
   return formatExternalCatalogEvidence(await searchExternalCatalog(query, 6));
+}
+
+type OfficialCaseEvidence = {
+  label: string;
+  excerpt: string;
+};
+
+const authorityConcepts = [
+  "支付命令", "精神慰撫金", "慰撫金", "假扣押", "假處分", "強制執行", "再審之訴",
+  "上訴期間", "抗告期間", "管轄權", "舉證責任", "除斥期間", "消滅時效", "借名登記",
+  "通謀虛偽", "意思表示", "侵權行為", "損害賠償",
+];
+
+function authorityEvidenceTerms(query: string) {
+  const normalized = query.replace(/撫慰金/gu, "慰撫金").replace(/\s+/g, "");
+  return authorityConcepts
+    .filter((term) => normalized.includes(term))
+    .filter((term, index, all) => !all.some((other, otherIndex) => otherIndex !== index && other.length > term.length && other.includes(term)))
+    .slice(0, 3);
+}
+
+async function readOfficialCaseEvidence(query: string): Promise<OfficialCaseEvidence[]> {
+  const terms = authorityEvidenceTerms(query);
+  if (!terms.length) return [];
+  try {
+    const db = await getDb();
+    const termConditions = terms.map((term) => or(
+      like(judicialCases.fullText, `%${term}%`),
+      like(judicialCases.title, `%${term}%`),
+    ));
+    let rows = await db.select({
+      court: judicialCases.court,
+      caseNo: judicialCases.caseNo,
+      judgmentDate: judicialCases.judgmentDate,
+      title: judicialCases.title,
+      fullText: judicialCases.fullText,
+    }).from(judicialCases).where(and(
+      eq(judicialCases.status, "active"),
+      ...termConditions,
+    )).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(4);
+
+    // 部分裁判只會使用「慰藉金」或其他近義文字；嚴格交集未命中時，
+    // 才退回至少同時包含程序名稱與另一個核心概念的查詢。
+    if (!rows.length && terms.length >= 2) {
+      rows = await db.select({
+        court: judicialCases.court,
+        caseNo: judicialCases.caseNo,
+        judgmentDate: judicialCases.judgmentDate,
+        title: judicialCases.title,
+        fullText: judicialCases.fullText,
+      }).from(judicialCases).where(and(
+        eq(judicialCases.status, "active"),
+        or(...termConditions),
+        like(judicialCases.fullText, `%${terms[0]}%`),
+      )).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(3);
+    }
+    return rows
+      .filter((row) => row.fullText.trim().length >= 80)
+      .map((row) => ({
+        label: [row.court, row.caseNo, row.judgmentDate ? `（${row.judgmentDate}）` : "", row.title ? `｜${row.title}` : ""].filter(Boolean).join(" "),
+        excerpt: relevantExcerpt(row.fullText, terms.join(" ")).slice(0, 1200),
+      }));
+  } catch (error) {
+    console.error("[api/chat] synchronized official case lookup failed", error);
+    return [];
+  }
 }
 
 const baseInstructions = `你是「司律備考」的 AI 學習教練，專門協助台灣律師與司法官考試。
@@ -893,9 +969,10 @@ export async function POST(request: Request) {
         : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
           ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
           : { type: "home" };
-    // 首頁是正式學習入口，固定使用 Luna 單模型。忽略舊偏好或前端送來的
-    // 比較模式，避免已保存的測試設定繼續觸發 Sol／Claude／其他供應商。
-    if (context.type === "home") modelMode = "luna";
+    // 首頁一般教學維持 Luna；只有涉及程序適法性、法院准駁或裁判見解的
+    // 問題才自動升級 Sol。這項判斷由後端完成，不依賴學生自行切換模型。
+    const authorityReviewRequired = context.type === "home" && Boolean(latestStudent?.text) && requiresAuthorityReview(latestStudent?.text ?? "");
+    if (context.type === "home") modelMode = authorityReviewRequired ? "sol" : "luna";
     // 重新規劃計畫的提示可能包含「一試刷題」等學習目標，不能被首頁
     // 的一試抽題分流提前攔截；有 planningConstraint 時必須進入計畫流程。
     if (context.type === "home" && latestStudent && !body.planningConstraint && shouldRefuseHomeQuery(latestStudent.text)) {
@@ -931,7 +1008,10 @@ export async function POST(request: Request) {
     const aiGate = await prepareAiUse(request, "law");
     if (aiGate instanceof Response) return aiGate;
     const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "") : "";
-    const route = modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
+    const officialCaseEvidence = authorityReviewRequired ? await readOfficialCaseEvidence(latestStudent?.text ?? "") : [];
+    const route = authorityReviewRequired
+      ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified")
+      : modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
     if (route) modelMode = route.provider;
     const providers = activeProviders(modelMode);
     const isComparison = providers.length > 1;
@@ -1045,7 +1125,11 @@ export async function POST(request: Request) {
           : `\n\n【本次已核對教材內容】\n書名：${bookEvidence.resourceTitle}\n章節：${bookEvidence.segmentTitle}\n分類：${bookEvidence.lessonLabel || "未標示"}\n頁碼：${bookEvidence.pageStart ? `第 ${bookEvidence.pageStart}${bookEvidence.pageEnd && bookEvidence.pageEnd !== bookEvidence.pageStart ? `–${bookEvidence.pageEnd}` : ""} 頁` : "待核對"}\n原文摘錄：${bookEvidence.excerpt}\n以上是本次唯一可直接作為教材依據的章節內容。回答時優先依此內容；若學生問到摘錄以外的細節，必須說明需要再查核，不得把一般知識冒充本章原文。`
         : `\n\n【教材核對狀態】\n目前只知道學生選了「${context.resourceTitle}／${context.segmentTitle}」，但系統尚未取得這一章足夠的原文。不得說「教材提到」「本章指出」或虛構頁碼；若要回答，只能明確標示為一般法律補充，並先告知教材原文尚未核對。`
       : "";
-    const teachingLevelInstruction = externalCatalogEvidence + (body.teachingLevel === "beginner"
+    const officialAuthorityInstruction = authorityReviewRequired
+      ? `\n\n【程序與裁判實務強制覆核】
+本題涉及法院程序要件、准駁或實務見解。回答前必須分開檢查：一、法條是否容許提出聲請；二、法院是否可能因法定要件不具備而直接駁回；三、即使核發，債務人異議後的程序效果。不得把「可以遞狀」「請求人自行填寫金額」直接等同「符合要件、法院會核發」。必須區分法條明文、裁判實務與個案推論；不同層次不得混寫。對慰撫金、勞動能力減損或其他須由法院裁量、鑑定後才能確定數額的請求，若尚未經判決、調解、和解或債務人承諾確定數額，結論必須先寫「通常不適合以支付命令請求，法院可能在核發前直接駁回」；只有數額已由判決以外的和解或承諾明確固定且屆期未付時，才能說較適合聲請支付命令。已有確定判決或法院調解筆錄者，應直接說明可聲請強制執行，不必再聲請支付命令。若下列同步裁判沒有直接處理同一命題，必須明說目前資料不足或實務可能有不同處理，不得因此退回「原則可以」的空泛結論，也不得用模型記憶補成一致見解。${officialCaseEvidence.length ? `\n\n【平台同步的司法院裁判資料】\n${officialCaseEvidence.map((item, index) => `【裁判 ${index + 1}｜${item.label}】\n${item.excerpt}`).join("\n\n")}` : "\n本次平台同步資料尚未命中直接相關裁判；請採保留式結論，提醒需再查核，不得下絕對結論。"}`
+      : "";
+    const teachingLevelInstruction = externalCatalogEvidence + officialAuthorityInstruction + (body.teachingLevel === "beginner"
       ? `\n\n【本輪學生身分：法律小白】學生可能把「有意做出動作」與刑法上的故意責任混在一起，也可能因挫折而懷疑自己。先用一句話接住情緒，再用極白話但法律上精準的例子拆開概念。比喻必須對應本題的錯誤類型；若是誤想防衛，學生知道自己在攻擊人，只是誤認存在防衛情狀，不得錯講成以為打蚊子卻打到人的一般錯誤。最後只問一個能讓他重拾信心的小問題。`
       : body.teachingLevel === "intermediate"
         ? `\n\n【本輪學生身分：基礎考生】學生會背公式但可能把理論名稱當成完整涵攝。不要直接說可以拿滿分；指出他已寫對的骨架後，要求逐一帶入題目中的照明、時間、環境、攻擊手段、錯誤可避免性與結果因果關聯等實際事實。最後只問一個需要具體涵攝的問題。`
@@ -1379,13 +1463,13 @@ export async function POST(request: Request) {
       : effectiveTeachingEvidence?.status === "full_text_search"
           ? [effectiveTeachingEvidence.resourceTitle || "教材全文索引（章節待核對）"]
           : []
-      : [...new Set([...displaySearchSources, ...webSources])];
+      : [...new Set([...officialCaseEvidence.map((item) => item.label), ...displaySearchSources, ...webSources])];
     const fromFiles = context.type === "book"
       ? effectiveTeachingEvidence?.status === "verified" || effectiveTeachingEvidence?.status === "applied_inference" || effectiveTeachingEvidence?.status === "full_text_search"
       : searchedFiles && (citationSources.length > 0 || searchResultNames.length > 0);
     const citationStatus = context.type === "book"
       ? effectiveTeachingEvidence?.status ?? "unavailable"
-      : searchedWeb && webSources.length ? "web_search" : searchedFiles && sources.length ? "full_text_search" : "unavailable";
+      : officialCaseEvidence.length ? "official_data" : searchedWeb && webSources.length ? "web_search" : searchedFiles && sources.length ? "full_text_search" : "unavailable";
     const openAiUsage = needsOpenAi ? readUsage(openAiPayload) : { inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
     const openAiRates = modelRates[selectedModel] ?? modelRates["gpt-5.6-luna"];
     const modelTokenCostUsd = needsOpenAi
@@ -1592,7 +1676,14 @@ export async function POST(request: Request) {
       bookLearningRecord,
       aiAccess,
     });
-  } catch {
-    return Response.json({ error: "對話處理失敗" }, { status: 500 });
+  } catch (error) {
+    console.error("[api/chat] conversation failed", error);
+    return Response.json(
+      {
+        error: "AI 對話暫時無法接續，請保留目前內容後再試一次。",
+        code: "CHAT_PROCESSING_FAILED",
+      },
+      { status: 500 },
+    );
   }
 }
