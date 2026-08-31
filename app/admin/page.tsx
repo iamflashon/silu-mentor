@@ -4483,12 +4483,19 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                           )}
                           {searchable && (
                             <div className="document-platform-links">
-                              <strong>使用平台</strong>
+                              <div className="document-platform-links-heading">
+                                <strong>使用平台</strong>
+                                <span>可複選</span>
+                              </div>
                               {([['law', '司律'], ['medtech', '醫檢師'], ['accounting', '會計'], ['pengli', '彭狸專區']] as const).map(([value, label]) => {
                                 const enabled = (file.assignmentCategories?.length ? file.assignmentCategories : [file.examCategory ?? 'law']).includes(value);
-                                return <button key={value} type="button" className={enabled ? "active" : ""} onClick={() => void toggleDocumentAssignment(file, value)}>{enabled ? "✓ " : "+ "}{label}</button>;
+                                return <label key={value} className={enabled ? "active" : ""}>
+                                  <input type="checkbox" checked={enabled} onChange={() => void toggleDocumentAssignment(file, value)} />
+                                  <span aria-hidden="true">{enabled ? "✓" : "+"}</span>
+                                  {label}
+                                </label>;
                               })}
-                              <small>可跨平台共用檔案，但搜尋時只會進入已勾選的平台。</small>
+                              <small>同一本教材可同時勾選多個平台；搜尋時只會進入已勾選的平台。</small>
                             </div>
                           )}
                           {ready && (file.summary || file.chapters?.length || file.questions?.length) && (
