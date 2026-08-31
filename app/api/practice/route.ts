@@ -14,6 +14,11 @@ export async function GET(request: Request) {
     const year = (url.searchParams.get("year") ?? "").trim();
     const law = (url.searchParams.get("law") ?? "").trim();
     const questionId = Number(url.searchParams.get("questionId") ?? "");
+    const excludeIds = (url.searchParams.get("excludeIds") ?? "")
+      .split(",")
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .slice(0, 100);
     const excludeAnswered = url.searchParams.get("excludeAnswered") === "1";
     const wrongOnly = url.searchParams.get("wrongOnly") === "1";
     const db = await getDb();
@@ -25,6 +30,7 @@ export async function GET(request: Request) {
     if (year) baseFilters.push(eq(examQuestions.year, year));
     if (law) baseFilters.push(sql`${examQuestions.stem} like ${`%${law}%`}`);
     if (Number.isInteger(questionId) && questionId > 0) baseFilters.push(eq(examQuestions.id, questionId));
+    if (excludeIds.length) baseFilters.push(notInArray(examQuestions.id, excludeIds));
     if (wrongOnly) {
       const attempts = await db.select({ questionId: examAttempts.questionId, correct: examAttempts.correct })
         .from(examAttempts)
@@ -89,7 +95,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { questionId?: number; answer?: string };
+    const body = await request.json() as { questionId?: number; answer?: string; revealExplanation?: boolean };
     const questionId = Number(body.questionId); const answer = String(body.answer ?? "").toUpperCase();
     if (!Number.isInteger(questionId) || !/^[ABCD]$/.test(answer)) return Response.json({ error: "作答資料不正確" }, { status: 400 });
     const db = await getDb();
@@ -99,6 +105,15 @@ export async function POST(request: Request) {
     await db.insert(examAttempts).values({ userKey: userKey(request), questionId, selectedAnswer: answer, correct });
     const date = taipeiDate();
     await db.insert(studyRecords).values({ userKey: userKey(request), questionId, recordDate: date, subject: question.subject, title: `${question.year} 第 ${question.questionNumber} 題`, activityType: "一試練題", correct, weakness: correct ? "" : "本題觀念或選項判斷待補強", nextStep: correct ? "說明其他選項錯誤理由" : "回顧判斷關鍵並重做本題" });
-    return Response.json({ correct, correctAnswer, guidance: correct ? "答對了。先別急著看完整解析：你能說說其他三個選項各錯在哪裡嗎？" : `這題正確答案是 ${correctAnswer}。先不公布完整解析：你當時選 ${answer} 的判斷關鍵是什麼？` });
+    return Response.json({
+      correct,
+      correctAnswer,
+      explanation: body.revealExplanation ? (question.explanation?.trim() || question.teacherAnswer?.trim() || "") : undefined,
+      guidance: body.revealExplanation
+        ? (correct ? "答對了。" : `答錯了，正確答案是 ${correctAnswer}。`)
+        : correct
+          ? "答對了。先別急著看完整解析：你能說說其他三個選項各錯在哪裡嗎？"
+          : `這題正確答案是 ${correctAnswer}。先不公布完整解析：你當時選 ${answer} 的判斷關鍵是什麼？`,
+    });
   } catch { return Response.json({ error: "作答暫時無法儲存" }, { status: 500 }); }
 }
