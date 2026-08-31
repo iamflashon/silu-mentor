@@ -20048,39 +20048,6 @@ a {
   color: #426b7e;
   font-size: 12px;
 }
-.quick-practice-availability {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid #cfe0e8;
-  border-radius: 12px;
-  background: #f4f9fb;
-  color: #567184;
-  font-size: 13px;
-}
-.quick-practice-availability span,
-.quick-practice-availability strong {
-  white-space: nowrap;
-}
-.quick-practice-availability b {
-  color: #0d5676;
-  font-size: 16px;
-}
-.quick-practice-availability strong {
-  color: #087c72;
-}
-.quick-practice-availability small {
-  flex-basis: 100%;
-  color: #a05f14;
-  font-weight: 750;
-}
-.quick-practice-availability.is-limited {
-  border-color: #e7c48e;
-  background: #fffaf1;
-}
 .quick-practice-progress span b {
   color: #225f79;
   font-size: 18px;
@@ -20220,10 +20187,6 @@ a {
   }
   .quick-practice-progress > strong {
     grid-column: 1 / -1;
-  }
-  .quick-practice-availability {
-    align-items: flex-start;
-    gap: 7px 14px;
   }
   .quick-practice-result > header,
   .quick-practice-finish {

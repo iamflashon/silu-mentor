@@ -1,0 +1,45 @@
+.quick-practice-availability {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #cfe0e8;
+  border-radius: 12px;
+  background: #f4f9fb;
+  color: #567184;
+  font-size: 13px;
+}
+
+.quick-practice-availability span,
+.quick-practice-availability strong {
+  white-space: nowrap;
+}
+
+.quick-practice-availability b {
+  color: #0d5676;
+  font-size: 16px;
+}
+
+.quick-practice-availability strong {
+  color: #087c72;
+}
+
+.quick-practice-availability small {
+  flex-basis: 100%;
+  color: #a05f14;
+  font-weight: 750;
+}
+
+.quick-practice-availability.is-limited {
+  border-color: #e7c48e;
+  background: #fffaf1;
+}
+
+@media (max-width: 700px) {
+  .quick-practice-availability {
+    align-items: flex-start;
+    gap: 7px 14px;
+  }
+}
