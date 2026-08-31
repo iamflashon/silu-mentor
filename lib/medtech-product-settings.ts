@@ -1,13 +1,15 @@
 import { and, eq, gt } from "drizzle-orm";
 import type { getDb } from "../db";
-import { medtechMemberEntitlements, medtechProducts, members } from "../db/schema";
+import { appSettings, medtechMemberEntitlements, medtechProducts, members } from "../db/schema";
 
 export const MEDTECH_DEFAULT_PRODUCT_KEY = "medtech-iii-clinical-virology-lower";
 export const MEDTECH_DEFAULT_PRODUCT_TITLE = "醫檢師國考題詳解（Ⅲ）臨床病毒學（下）";
+export const MEDTECH_DESCRIPTION_SETTING_KEY = `medtech_product_description:${MEDTECH_DEFAULT_PRODUCT_KEY}`;
 
 export type MedtechProductSettings = {
   productKey: string;
   title: string;
+  descriptionHtml: string;
   listPrice: number;
   salePrice: number | null;
   saleLabel: string;
@@ -26,12 +28,14 @@ export async function getMedtechProductSettings(db: Awaited<ReturnType<typeof ge
     [row] = await db.insert(medtechProducts).values({ productKey: MEDTECH_DEFAULT_PRODUCT_KEY, title: MEDTECH_DEFAULT_PRODUCT_TITLE }).onConflictDoNothing().returning();
     if (!row) [row] = await db.select().from(medtechProducts).where(eq(medtechProducts.productKey, MEDTECH_DEFAULT_PRODUCT_KEY)).limit(1);
   }
+  const [descriptionSetting] = await db.select().from(appSettings).where(eq(appSettings.key, MEDTECH_DESCRIPTION_SETTING_KEY)).limit(1);
+  const defaultDescription = "<p>1,400+ 題｜每 30 題一個練習單元｜章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與康情老師語音。</p>";
   const fallback = { productKey: MEDTECH_DEFAULT_PRODUCT_KEY, title: MEDTECH_DEFAULT_PRODUCT_TITLE, listPrice: 199, salePrice: null, saleLabel: "", saleStartsAt: null, saleEndsAt: null, accessDays: 30, trialQuestions: 30, status: "active" };
   const product = row ?? fallback;
   const startsOk = !product.saleStartsAt || product.saleStartsAt.getTime() <= now.getTime();
   const endsOk = !product.saleEndsAt || product.saleEndsAt.getTime() >= now.getTime();
   const saleActive = product.salePrice !== null && product.salePrice > 0 && product.salePrice < product.listPrice && startsOk && endsOk;
-  return { ...product, effectivePrice: saleActive ? product.salePrice! : product.listPrice, saleActive };
+  return { ...product, descriptionHtml: descriptionSetting?.value || defaultDescription, effectivePrice: saleActive ? product.salePrice! : product.listPrice, saleActive };
 }
 
 export async function getMemberProductEntitlement(db: Awaited<ReturnType<typeof getDb>>, userKey: string, now = new Date()) {

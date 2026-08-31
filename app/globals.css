@@ -119,6 +119,7 @@
   color: #9a6b00;
   font-weight: 800;
 }
+.medtech-book-description{color:#31534d;line-height:1.8}.medtech-book-description>:first-child{margin-top:0}.medtech-book-description>:last-child{margin-bottom:0}
 
 @media (max-width: 640px) {
   .medtech-featured-copy h2 {
