@@ -1592,7 +1592,14 @@ export async function POST(request: Request) {
       bookLearningRecord,
       aiAccess,
     });
-  } catch {
-    return Response.json({ error: "對話處理失敗" }, { status: 500 });
+  } catch (error) {
+    console.error("[api/chat] conversation failed", error);
+    return Response.json(
+      {
+        error: "AI 對話暫時無法接續，請保留目前內容後再試一次。",
+        code: "CHAT_PROCESSING_FAILED",
+      },
+      { status: 500 },
+    );
   }
 }
