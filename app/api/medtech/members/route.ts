@@ -2,7 +2,6 @@ import { and, desc, eq } from "drizzle-orm";
 import { examQuestions, memberExamAccess, members, medtechMemberEntitlements, medtechPaymentOrders, medtechPracticeSessions } from "../../../../db/schema";
 import { requireMedtechAdmin } from "../../../../lib/member-auth";
 import { normalizeMedtechUserKey } from "../../../../lib/medtech-usage";
-import { hashMemberPassword } from "../../../../lib/member-session-auth";
 import { MEDTECH_DEFAULT_PRODUCT_KEY, parseMedtechPermissions } from "../../../../lib/medtech-product-settings";
 
 const OWNER_EMAIL = "iamflashon@gmail.com";
@@ -48,17 +47,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { email?: string; password?: string; displayName?: string; role?: string; status?: string; canAdmin?: boolean; className?: string };
+  const body = await request.json() as { email?: string; displayName?: string; role?: string; status?: string; canAdmin?: boolean; className?: string };
   const email = body.email?.trim().toLowerCase() ?? "";
   const displayName = body.displayName?.trim().slice(0, 80) ?? "";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "請輸入有效的 Email" }, { status: 400 });
   if (!displayName) return Response.json({ error: "請輸入會員姓名" }, { status: 400 });
-  if (!body.password || body.password.length < 8) return Response.json({ error: "會員初始密碼至少需要 8 碼" }, { status: 400 });
   let [member] = await auth.db.select().from(members).where(eq(members.email, email)).limit(1);
-  if (!member) [member] = await auth.db.insert(members).values({ email, passwordHash: await hashMemberPassword(body.password), displayName, role: body.role === "teacher" ? "teacher" : "student", status: "active", className: body.className?.trim() || "未分班" }).returning();
-  else if (!member.passwordHash) {
-    [member] = await auth.db.update(members).set({ passwordHash: await hashMemberPassword(body.password), updatedAt: new Date() }).where(eq(members.id, member.id)).returning();
-  }
+  if (!member) [member] = await auth.db.insert(members).values({ email, displayName, role: body.role === "teacher" ? "teacher" : "student", status: "active", className: body.className?.trim() || "未分班" }).returning();
   const [existing] = await auth.db.select().from(memberExamAccess).where(and(eq(memberExamAccess.memberId, member.id), eq(memberExamAccess.examCategory, "medtech"))).limit(1);
   if (existing) return Response.json({ error: "這個帳號已在醫檢師會員名單中" }, { status: 409 });
   const [access] = await auth.db.insert(memberExamAccess).values({ memberId: member.id, examCategory: "medtech", status: body.status === "disabled" ? "disabled" : "active", canAdmin: body.canAdmin === true, className: body.className?.trim().slice(0, 80) || "未分班" }).returning();

@@ -664,7 +664,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
   const [externalSelectedItemId, setExternalSelectedItemId] = useState<number | null>(null);
   const [externalTestLoading, setExternalTestLoading] = useState(false);
   const [externalTestResult, setExternalTestResult] = useState<ExternalRetrievalTest | null>(null);
-  const [newMember, setNewMember] = useState({ displayName: "", email: "", password: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
+  const [newMember, setNewMember] = useState({ displayName: "", email: "", className: "", role: "student" as MemberRow["role"], status: "active" as MemberRow["status"] });
 
   useEffect(() => {
     if (activeTab !== "ai-feedback") return;
@@ -3635,12 +3635,12 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     setCentralPdfAdding(false);
   }
 
-  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { password?: string; managementRole?: "none" | "admin" | "medtech-document-editor"; allowedDocumentIds?: number[] }) {
+  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { managementRole?: "none" | "admin" | "medtech-document-editor"; allowedDocumentIds?: number[] }) {
     setMemberNotice("儲存中…");
     const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     const data = await response.json();
     if (!response.ok) { setMemberNotice(data.error || "儲存失敗"); return; }
-    setMembers((rows) => rows.map((row) => row.id === id ? { ...row, ...data.member, ...(patch.password ? { passwordResetRequestedAt: null } : {}) } : row));
+    setMembers((rows) => rows.map((row) => row.id === id ? { ...row, ...data.member } : row));
     setMemberNotice("學員設定已儲存");
   }
 
@@ -3653,7 +3653,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "新增學員失敗");
       setMembers((rows) => [data.member, ...rows]);
-      setNewMember({ displayName: "", email: "", password: "", className: "", role: "student", status: "active" });
+      setNewMember({ displayName: "", email: "", className: "", role: "student", status: "active" });
       setMemberNotice(`已新增學員：${data.member.displayName}`);
     } catch (error) {
       setMemberNotice(error instanceof Error ? error.message : "新增學員失敗");
@@ -3946,33 +3946,24 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <section className="panel member-admin-panel">
             <div className="cost-heading"><div><h2>全平台會員總管理</h2><p className="panel-sub">中央顯示全部會員及其可使用類科；各類科後台仍只會看到自己的會員。</p></div><span className="source-count configured">{members.length} 位會員</span></div>
             <form className="member-create-form" onSubmit={createMember}>
-              <div className="member-create-heading"><div><h3>新增學員</h3><p>先建立帳號；學員日後以相同 Email 登入，即會接上自己的學習平台。</p></div><button type="submit" disabled={memberCreating}>{memberCreating ? "新增中…" : "＋ 新增學員"}</button></div>
+              <div className="member-create-heading"><div><h3>新增學員</h3><p>只需填寫姓名與正確 Email；學員使用相同 Email 的 ChatGPT 帳號登入後會自動媒合，不需要平台密碼。</p></div><button type="submit" disabled={memberCreating}>{memberCreating ? "新增中…" : "＋ 新增學員"}</button></div>
               <div className="member-create-fields">
                 <label><span>姓名</span><input required value={newMember.displayName} onChange={(event) => setNewMember((current) => ({ ...current, displayName: event.target.value }))} placeholder="例如：王小明" /></label>
                 <label><span>Email</span><input required type="email" value={newMember.email} onChange={(event) => setNewMember((current) => ({ ...current, email: event.target.value }))} placeholder="student@example.com" /></label>
-                <label><span>初始密碼（至少 8 碼）</span><input required minLength={8} type="password" autoComplete="new-password" value={newMember.password} onChange={(event) => setNewMember((current) => ({ ...current, password: event.target.value }))} placeholder="提供給會員登入" /></label>
                 <label><span>班級</span><input value={newMember.className} onChange={(event) => setNewMember((current) => ({ ...current, className: event.target.value }))} placeholder="例如：司律二試 A 班" /></label>
                 <label><span>學習身分</span><select value={newMember.role} onChange={(event) => setNewMember((current) => ({ ...current, role: event.target.value as MemberRow["role"] }))}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
                 <label><span>帳號狀態</span><select value={newMember.status} onChange={(event) => setNewMember((current) => ({ ...current, status: event.target.value as MemberRow["status"] }))}><option value="active">使用中</option><option value="disabled">暫不開放</option></select></label>
               </div>
             </form>
             {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
-            {!membersLoading && members.some((member) => member.passwordResetRequestedAt) && <section className="member-reset-queue">
-              <header><div><span>待處理</span><h3>密碼重設申請</h3><p>目前採人工重設，不會寄信。確認會員身分後設定臨時密碼，再用既有聯絡方式通知會員。</p></div><strong>{members.filter((member) => member.passwordResetRequestedAt).length} 筆</strong></header>
-              <div>{members.filter((member) => member.passwordResetRequestedAt).map((member) => <article key={`reset-${member.id}`}>
-                <div><b>{member.displayName || "未設定姓名"}</b><span>{member.email}</span><small>申請時間：{new Date(member.passwordResetRequestedAt!).toLocaleString("zh-TW")}</small></div>
-                <button type="button" onClick={() => { const password = window.prompt(`設定 ${member.displayName || member.email} 的臨時密碼（至少 8 碼）`); if (password) void updateMember(member.id, { password }); }}>設定臨時密碼並完成</button>
-              </article>)}</div>
-            </section>}
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
-                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small>{member.passwordResetRequestedAt && <b className="member-password-reset-alert">申請重設密碼 · {new Date(member.passwordResetRequestedAt).toLocaleString("zh-TW")}</b>}<div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
+                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small><div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
                 <label><span>學習身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
                 <label><span>管理權限</span><select value={memberManagementRole(member)} onChange={(event) => void updateMember(member.id, { managementRole: event.target.value as "none" | "admin" | "medtech-document-editor" })}><option value="none">無</option><option value="medtech-document-editor">醫檢文件題庫編輯員</option><option value="admin">管理員</option></select></label>
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
                 <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
                 <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未登入"}</strong></div>
-                <button type="button" className="member-reset-password" onClick={() => { const password = window.prompt(`設定 ${member.displayName || member.email} 的新密碼（至少 8 碼）`); if (password) void updateMember(member.id, { password }); }}>重設密碼</button>
                 {memberManagementRole(member) === "medtech-document-editor" && <details className="member-document-permissions" open>
                   <summary><span>可編輯書本</span><b>{parsedNumberList(medtechAccessFor(member)?.allowedDocumentIdsJson).length} 本已勾選</b></summary>
                   <p>只有勾選的書本會出現在醫檢文件題庫；未勾選時不會看到任何書本。</p>
