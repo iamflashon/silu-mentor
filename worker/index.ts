@@ -180,6 +180,7 @@ const worker = {
             method: "POST",
             headers: {
               "content-type": "application/json",
+              "x-silu-admin-entry": "1",
               "x-scheduled-sync": "1",
               "x-sync-source": "worker-cron",
             },
