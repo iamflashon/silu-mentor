@@ -456,6 +456,7 @@ export default function DocumentQuestionWorkspace({
     [htmlAttempted, setHtmlAttempted] = useState(false),
     [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false),
+    [qualityTesting, setQualityTesting] = useState(false),
     [batchRepairing, setBatchRepairing] = useState(false),
     [replaceBusy, setReplaceBusy] = useState(false),
     [replaceText, setReplaceText] = useState(""),
@@ -1045,6 +1046,22 @@ export default function DocumentQuestionWorkspace({
       );
     } else setNotice(data.error || "儲存失敗");
     setSaving(false);
+  }
+  async function runQualityTest() {
+    if (!documentId || qualityTesting) return;
+    setQualityTesting(true);
+    setNotice("正在重新執行品質檢測…");
+    try {
+      const result = await load(documentId);
+      setQualityMode(true);
+      setQualityFilter("all");
+      setRichEditorOpen(false);
+      setNotice(`品質檢測完成，已重新檢查 ${result.loadedCount.toLocaleString()} 題。`);
+    } catch {
+      setNotice("品質檢測失敗，請稍後再試。");
+    } finally {
+      setQualityTesting(false);
+    }
   }
   async function applySpacingRepair() {
     if (!current) return;
@@ -1881,7 +1898,7 @@ export default function DocumentQuestionWorkspace({
         </div>
         <div className="workspace-header-actions">
           <span>{notice}</span>
-          {limitedProofreader && <span className="proofreader-mode-badge">品質測試</span>}
+          {limitedProofreader && <button type="button" className="proofreader-mode-button" disabled={qualityTesting || !documentId} onClick={() => void runQualityTest()}>{qualityTesting ? "檢測中…" : "品質測試"}</button>}
           {!limitedProofreader && <>
           <button
             type="button"
