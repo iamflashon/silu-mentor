@@ -7,7 +7,7 @@ export const LOCAL_NODE_JOBS_KEY = "local_node_jobs_v1";
 export type LocalNodeJob = {
   id: string;
   sourceFile: string;
-  kind: "extract_text";
+  kind: "extract_text" | "transcode_video";
   status: "queued" | "claimed" | "completed" | "failed" | "cancelled";
   createdAt: string;
   claimedAt?: string;
@@ -23,6 +23,15 @@ export type LocalNodeJob = {
   documentType: string;
   bookTitle: string;
   documentId?: number;
+  resourceId?: number;
+  creator?: string;
+  linkedBookId?: number | null;
+  mediaPrefix?: string;
+  hlsKey?: string;
+  posterKey?: string;
+  subtitleKey?: string;
+  durationSeconds?: number;
+  segmentCount?: number;
   indexStatus?: "queued" | "indexing" | "completed" | "failed";
 };
 

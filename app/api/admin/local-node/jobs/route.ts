@@ -1,5 +1,7 @@
 import { requireAdmin } from "../../../../../lib/member-auth";
 import { LocalNodeJob, readLocalNodeJobs, safeSourceFile, writeLocalNodeJobs } from "../../../../../lib/local-node-jobs";
+import { getDb } from "../../../../../db";
+import { learningResources } from "../../../../../db/schema";
 
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
@@ -12,6 +14,7 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const jobs = await readLocalNodeJobs();
+  const kind = body.kind === "transcode_video" ? "transcode_video" : "extract_text";
   const allowedCategories = ["law", "accounting", "medtech", "data-structure"] as const;
   const examCategory = allowedCategories.includes(body.examCategory as typeof allowedCategories[number]) ? body.examCategory as typeof allowedCategories[number] : "law";
   const clean = (value: unknown, fallback: string, max = 100) => typeof value === "string" && value.trim() ? value.trim().slice(0, max) : fallback;
@@ -24,10 +27,20 @@ export async function POST(request: Request) {
   const created: LocalNodeJob[] = [];
   const skipped: Array<{ sourceFile: string; reason: string }> = [];
   for (const sourceFile of sourceFiles) {
-    const same = jobs.find((job) => job.sourceFile.toLowerCase() === sourceFile.toLowerCase() && (batchMode ? ["queued", "claimed", "completed"].includes(job.status) : ["queued", "claimed"].includes(job.status)));
+    const same = jobs.find((job) => job.kind === kind && job.sourceFile.toLowerCase() === sourceFile.toLowerCase() && (batchMode ? ["queued", "claimed", "completed"].includes(job.status) : ["queued", "claimed"].includes(job.status)));
     if (same) { skipped.push({ sourceFile, reason: same.status === "completed" ? "已完成" : "已在佇列" }); continue; }
     const bookTitle = sourceFiles.length === 1 ? clean(body.bookTitle, sourceFile.replace(/\.[^.]+$/u, ""), 180) : sourceFile.replace(/\.[^.]+$/u, "").slice(0, 180);
-    const job: LocalNodeJob = { id: crypto.randomUUID(), sourceFile, kind: "extract_text", status: "queued", createdAt: new Date().toISOString(), message: "等待公司本機領取", examCategory, subject, documentType, bookTitle, indexStatus: "queued" };
+    let resourceId: number | undefined;
+    if (kind === "transcode_video") {
+      const db = await getDb();
+      const [resource] = await db.insert(learningResources).values({
+        resourceType: "course", title: bookTitle, subject,
+        creator: clean(body.creator, "鄭泓", 100), description: "本機影音節點處理中",
+        linkedBookId: Number(body.linkedBookId) || null, sourceUrl: "", accessType: "owned", status: "draft",
+      }).returning({ id: learningResources.id });
+      resourceId = resource?.id;
+    }
+    const job: LocalNodeJob = { id: crypto.randomUUID(), sourceFile, kind, status: "queued", createdAt: new Date().toISOString(), message: kind === "transcode_video" ? "等待本機轉為單畫質 HLS" : "等待公司本機領取", examCategory, subject, documentType, bookTitle, resourceId, creator: clean(body.creator, "", 100), linkedBookId: Number(body.linkedBookId) || null, indexStatus: kind === "extract_text" ? "queued" : undefined };
     jobs.unshift(job); created.push(job);
   }
   await writeLocalNodeJobs(jobs);
