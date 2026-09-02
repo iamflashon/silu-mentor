@@ -5,12 +5,17 @@ import { requireMember } from "../lib/member-auth";
 export const dynamic = "force-dynamic";
 
 export default async function IdentityGate({ children }:{ children:React.ReactNode }) {
+  const requestHeaders = await headers();
+  // Accounting QA is the public trial entrance. It has its own device/IP
+  // allowance and application-level usage gate, so it must not be intercepted
+  // by the platform membership screen before a visitor can try it.
+  if (requestHeaders.get("x-silu-public-qa") === "1") return children;
+
   const user = await getChatGPTUser();
   if (!user) {
     return <main className="main-entry-gate"><section className="admin-login-card"><span>CHATGPT IDENTITY</span><div className="main-entry-logo" aria-hidden="true">智</div><h1>使用 ChatGPT 帳號登入</h1><p>本平台只接受 ChatGPT 身分驗證，不再提供公開註冊或密碼登入。</p><a className="main-entry-medtech" href={chatGPTSignInPath("/")}>使用 ChatGPT 登入</a></section></main>;
   }
 
-  const requestHeaders = await headers();
   const auth = await requireMember(new Request("https://silu-mentor.invalid/", { headers: requestHeaders }));
   if ("error" in auth) {
     const cloudflareGoogle = user.provider === "cloudflare-google";

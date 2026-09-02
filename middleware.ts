@@ -49,6 +49,7 @@ function isQaAllowedPath(pathname: string) {
  */
 export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete("x-silu-public-qa");
   const cloudflareAccessHost =
     request.nextUrl.hostname === "silu-mentor.iamflashon.workers.dev";
   const existingIdentity = requestHeaders.get("oai-authenticated-user-email");
@@ -61,6 +62,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isQaAllowedPath(request.nextUrl.pathname)) {
+    if (request.nextUrl.pathname === "/accounting/qa") {
+      requestHeaders.set("x-silu-public-qa", "1");
+    }
     return continueRequest(requestHeaders, request.nextUrl.pathname);
   }
 
