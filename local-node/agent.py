@@ -5,18 +5,21 @@ import json
 import hashlib
 import os
 import platform
+import re
 from pathlib import Path
 import subprocess
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.4.2"
+VERSION = "0.5.0"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 SUPPORTED_INBOX_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".json", ".jsonl", ".html", ".htm", ".csv"}
+SUPPORTED_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv"}
 
 
 def run_text(command: list[str]) -> str:
@@ -87,18 +90,31 @@ def request_json(url: str, token: str, payload: dict | None = None) -> tuple[int
         if error.code == 204:
             return 204, None
         if error.code in (302, 401, 403):
-            raise RuntimeError(
-                f"Cloudflare Access 驗證失敗（HTTP {error.code}）。"
-                "請確認 Service Auth 原則及 CF_ACCESS_CLIENT_ID／CF_ACCESS_CLIENT_SECRET。"
-            ) from error
+            detail = error.read().decode("utf-8", errors="replace")[:300]
+            raise RuntimeError(f"服務驗證失敗（HTTP {error.code}）：{detail or '無詳細內容'}") from error
         raise
 
 
-def inbox_inventory(inbox: Path) -> list[dict]:
+def upload_file(url: str, token: str, path: Path) -> dict | None:
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/octet-stream", "Accept": "application/json", "User-Agent": USER_AGENT}
+    headers["CF-Access-Client-Id"] = os.getenv("CF_ACCESS_CLIENT_ID", "").strip()
+    headers["CF-Access-Client-Secret"] = os.getenv("CF_ACCESS_CLIENT_SECRET", "").strip()
+    data = path.read_bytes()
+    request = urllib.request.Request(url, data=data, headers=headers, method="PUT")
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(f"上傳 {path.name} 失敗（HTTP {error.code}）：{detail}") from error
+
+
+def inbox_inventory(inbox: Path, suffixes: set[str] = SUPPORTED_INBOX_SUFFIXES) -> list[dict]:
     files: list[dict] = []
     for path in inbox.iterdir():
         try:
-            if not path.is_file() or path.suffix.lower() not in SUPPORTED_INBOX_SUFFIXES:
+            if not path.is_file() or path.suffix.lower() not in suffixes:
                 continue
             stat = path.stat()
             files.append({"name": path.name, "sizeBytes": stat.st_size, "modifiedAt": int(stat.st_mtime * 1000)})
@@ -108,7 +124,7 @@ def inbox_inventory(inbox: Path) -> list[dict]:
     return files[:200]
 
 
-def heartbeat(endpoint: str, token: str, inbox: Path, active_job: str = "") -> None:
+def heartbeat(endpoint: str, token: str, inbox: Path, video_inbox: Path, active_job: str = "") -> None:
     gpu, gpu_memory = gpu_info()
     payload = {
         "nodeId": os.getenv("LOCAL_NODE_ID", "company-rtx4090"),
@@ -122,7 +138,8 @@ def heartbeat(endpoint: str, token: str, inbox: Path, active_job: str = "") -> N
         "queuedJobs": 1 if active_job else 0,
         "activeJob": active_job,
         "inboxFiles": inbox_inventory(inbox),
-        "message": "本機節點已連線；原始教材保留於公司本機。",
+        "videoInboxFiles": inbox_inventory(video_inbox, SUPPORTED_VIDEO_SUFFIXES),
+        "message": "本機節點已連線；教材原稿留本機，影片只上傳轉好的 HLS。",
     }
     status, _ = request_json(endpoint, token, payload)
     if status >= 300:
@@ -238,7 +255,69 @@ def page_chunks(pages: list[str]) -> list[dict]:
     return result
 
 
-def process_next_job(jobs_url: str, token: str, inbox: Path, node_id: str) -> str:
+def video_duration(path: Path) -> float:
+    output = run_text(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)])
+    try:
+        return round(float(output), 2)
+    except ValueError:
+        return 0.0
+
+
+def make_vtt(srt_text: str) -> str:
+    return "WEBVTT\n\n" + re.sub(r"(?<=\d),(?=\d{3}(?:\s|$))", ".", srt_text)
+
+
+def transcribe_video(source: Path, output: Path) -> tuple[Path | None, Path | None]:
+    try:
+        from faster_whisper import WhisperModel  # type: ignore
+    except ImportError:
+        return None, None
+    model_name = os.getenv("LOCAL_NODE_WHISPER_MODEL", "medium")
+    model = WhisperModel(model_name, device="cuda", compute_type="float16")
+    segments, _ = model.transcribe(str(source), language="zh", vad_filter=True)
+    rows = []
+    for index, segment in enumerate(segments, 1):
+        def stamp(value: float, comma: bool = True) -> str:
+            millis = int(value * 1000); hours, rest = divmod(millis, 3600000); minutes, rest = divmod(rest, 60000); seconds, ms = divmod(rest, 1000)
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}{',' if comma else '.'}{ms:03d}"
+        rows.append(f"{index}\n{stamp(segment.start)} --> {stamp(segment.end)}\n{segment.text.strip()}\n")
+    if not rows:
+        return None, None
+    srt = output / "transcript.srt"; srt.write_text("\n".join(rows), encoding="utf-8")
+    vtt = output / "subtitles.vtt"; vtt.write_text(make_vtt(srt.read_text(encoding="utf-8")), encoding="utf-8")
+    return srt, vtt
+
+
+def process_video_job(job: dict, jobs_url: str, token: str, video_inbox: Path, video_output: Path, node_id: str) -> None:
+    job_id = str(job.get("id", "")); source_file = Path(str(job.get("sourceFile", ""))).name
+    source = video_inbox / source_file; output = video_output / job_id
+    if not source.is_file():
+        raise RuntimeError(f"video-inbox 找不到影片：{source_file}")
+    if not run_text(["ffmpeg", "-version"]):
+        raise RuntimeError("找不到 FFmpeg，請先安裝並加入 PATH")
+    output.mkdir(parents=True, exist_ok=True)
+    encode_args = ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "23", "-b:v", "5M", "-maxrate", "7M", "-bufsize", "10M", "-c:a", "aac", "-b:a", "160k", "-hls_time", "6", "-hls_playlist_type", "vod", "-hls_segment_filename", str(output / "segment-%05d.ts"), str(output / "index.m3u8")]
+    command = ["ffmpeg", "-y", "-hwaccel", "cuda", "-i", str(source), *encode_args]
+    result = subprocess.run(command, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+    if result.returncode != 0:
+        # Some camera/screen-recording codecs cannot use CUDA decoding. Keep NVENC
+        # encoding, but retry with FFmpeg software decoding before failing the job.
+        command = ["ffmpeg", "-y", "-i", str(source), *encode_args]
+        result = subprocess.run(command, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+    if result.returncode != 0:
+        raise RuntimeError(f"HLS 轉檔失敗：{result.stderr[-500:]}")
+    subprocess.run(["ffmpeg", "-y", "-ss", "5", "-i", str(source), "-frames:v", "1", "-q:v", "2", str(output / "poster.jpg")], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+    srt, _vtt = transcribe_video(source, output)
+    media_url = jobs_url.rsplit("/jobs", 1)[0] + "/media"
+    upload_names = [path.name for path in sorted(output.iterdir()) if path.is_file() and (path.name == "index.m3u8" or path.name == "poster.jpg" or path.name in {"transcript.srt", "subtitles.vtt"} or path.name.startswith("segment-"))]
+    for name in upload_names:
+        query = urllib.parse.urlencode({"jobId": job_id, "path": name})
+        upload_file(f"{media_url}?{query}", token, output / name)
+    prefix = f"course-media/{job.get('resourceId')}/{job_id}"
+    request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": f"單畫質 HLS 已完成並上傳，共 {len(list(output.glob('segment-*.ts')))} 個切片", "hlsKey": f"{prefix}/index.m3u8", "posterKey": f"{prefix}/poster.jpg", "subtitleKey": f"{prefix}/transcript.srt" if srt else "", "durationSeconds": video_duration(source), "segmentCount": len(list(output.glob("segment-*.ts")))})
+
+
+def process_next_job(jobs_url: str, token: str, inbox: Path, video_inbox: Path, video_output: Path, node_id: str) -> str:
     status, response = request_json(jobs_url, token)
     if status == 204 or not response or not isinstance(response.get("job"), dict):
         return ""
@@ -249,6 +328,9 @@ def process_next_job(jobs_url: str, token: str, inbox: Path, node_id: str) -> st
         return ""
     path = inbox / source_file
     try:
+        if job.get("kind") == "transcode_video":
+            process_video_job(job, jobs_url, token, video_inbox, video_output, node_id)
+            return source_file
         if not path.is_file():
             raise RuntimeError(f"inbox 找不到檔案：{source_file}")
         pages, extraction_mode = extract_pages(path)
@@ -271,13 +353,18 @@ def main() -> None:
     jobs_url = endpoint.rsplit("/heartbeat", 1)[0] + "/jobs"
     inbox = Path(os.getenv("LOCAL_NODE_INBOX", str(Path(__file__).resolve().parent / "inbox"))).resolve()
     inbox.mkdir(parents=True, exist_ok=True)
+    video_inbox = Path(os.getenv("LOCAL_NODE_VIDEO_INBOX", str(Path(__file__).resolve().parent / "video-inbox"))).resolve()
+    video_output = Path(os.getenv("LOCAL_NODE_VIDEO_OUTPUT", str(Path(__file__).resolve().parent / "video-output"))).resolve()
+    for directory in (video_inbox, video_output, Path(__file__).resolve().parent / "video-processing", Path(__file__).resolve().parent / "video-failed"):
+        directory.mkdir(parents=True, exist_ok=True)
     node_id = os.getenv("LOCAL_NODE_ID", "company-rtx4090")
     print(f"iBrain 本機節點 {VERSION} 啟動；每 30 秒回報一次狀態。")
     print(f"私有教材收件匣：{inbox}")
+    print(f"影音收件匣：{video_inbox}（單畫質 HLS；原始影片不上傳）")
     while True:
         try:
-            active = process_next_job(jobs_url, token, inbox, node_id)
-            heartbeat(endpoint, token, inbox, active)
+            active = process_next_job(jobs_url, token, inbox, video_inbox, video_output, node_id)
+            heartbeat(endpoint, token, inbox, video_inbox, active)
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "心跳成功")
         except (urllib.error.URLError, RuntimeError, TimeoutError) as error:
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "心跳失敗:", error)

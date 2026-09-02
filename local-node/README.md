@@ -1,6 +1,6 @@
 # iBrain 公司本機教材節點
 
-第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.4.2 會把 `inbox` 內支援檔案的檔名、大小與修改時間回報給管理後台，供批次勾選；支援 Cloudflare Access Service Token 雙重驗證，並可使用 Windows DPAPI 加密金鑰後於登入時自動啟動。節點只回傳擷取後的文字切片與統計，原始 PDF／Word 不會上傳。
+第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.5.0 新增公司本機單畫質 HLS 影音流程；支援 Cloudflare Access Service Token 雙重驗證，並可使用 Windows DPAPI 加密金鑰後於登入時自動啟動。原始 PDF、Word 與影片都留在公司電腦，雲端只接收文字索引或播放所需的 HLS 切片、清單、縮圖與字幕。
 
 ## Windows 測試啟動
 
@@ -42,3 +42,20 @@ python -m pip install pypdf
 掃描型 PDF 的 OCR 另需 PyMuPDF、PaddlePaddle 與 PaddleOCR。節點會先使用 PDF 內建文字層，只有文字不足的頁面才啟動 OCR，避免浪費 GPU 時間。
 
 將待處理檔案放入 `C:\iBrain-local-node\inbox`，再於總管理後台按「掃描本機 inbox」，每批最多勾選 10 份加入佇列。RTX 4090 會逐份處理，已完成或正在排隊的同名檔案會自動跳過。
+
+## 本機影音轉檔
+
+先安裝 NVIDIA 顯示卡驅動與 FFmpeg，並確認以下兩個命令都可執行：
+
+```powershell
+ffmpeg -version
+ffmpeg -hide_banner -encoders | Select-String h264_nvenc
+```
+
+把 MP4、MOV、M4V 或 MKV 放入 `C:\iBrain-local-node\video-inbox`，再到總管理後台的「影音課程」建立任務。本機會以 RTX 4090 轉為單畫質 HLS；原始影片不會上傳或刪除。若希望同步產生 SRT／VTT 字幕，可選配安裝：
+
+```powershell
+python -m pip install faster-whisper
+```
+
+未安裝字幕套件時仍可正常完成 HLS，不會阻擋課程上架。

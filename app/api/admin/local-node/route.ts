@@ -19,6 +19,7 @@ type StoredNodeStatus = {
   activeJob: string;
   message: string;
   inboxFiles?: Array<{ name: string; sizeBytes: number; modifiedAt: number }>;
+  videoInboxFiles?: Array<{ name: string; sizeBytes: number; modifiedAt: number }>;
 };
 
 function parseStatus(value?: string): StoredNodeStatus | null {

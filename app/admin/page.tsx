@@ -10,6 +10,7 @@ import { documentDisplayTitle, normalizeDocumentTitle } from "../../lib/document
 import CourseVideoPlayer, { formatMediaTime } from "../course-video-player";
 import SitesCloudflareSyncDownload from "./SitesCloudflareSyncDownload";
 import LocalNodeJobsPanel from "./LocalNodeJobsPanel";
+import LocalVideoJobsPanel from "./LocalVideoJobsPanel";
 import DocumentIndexHealthPanel from "./DocumentIndexHealthPanel";
 import CentralAdminTabs from "./CentralAdminTabs";
 
@@ -3688,6 +3689,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         {independentMode && <CentralAdminTabs active={libraryMode ? "library" : questionBankMode ? "question-bank" : "members"} />}
         {libraryMode && <nav className="central-source-tabs" aria-label="中央教材與官方法律資料切換">
           <button className={activeTab === "documents" ? "active" : ""} onClick={() => setActiveTab("documents")}>教材資料庫</button>
+          <button className={activeTab === "courses" ? "active" : ""} onClick={() => setActiveTab("courses")}>影音課程</button>
           <button className={activeTab === "legal" ? "active" : ""} onClick={() => setActiveTab("legal")}>全國法規與大法官解釋</button>
           <button className={activeTab === "judicial" ? "active" : ""} onClick={() => setActiveTab("judicial")}>司法院裁判</button>
         </nav>}
@@ -4695,6 +4697,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         )}
         {(activeTab === "resources" || activeTab === "courses" || activeTab === "trials") && (
           <section className="panel resource-manager">
+            {activeTab === "courses" && <LocalVideoJobsPanel />}
             {activeTab === "resources" && (
               <div className="evidence-verification-setting">
                 <div>

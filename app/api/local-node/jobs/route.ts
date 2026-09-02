@@ -1,6 +1,7 @@
 import { readLocalNodeJobs, writeLocalNodeJobs } from "../../../../lib/local-node-jobs";
 import { getDb } from "../../../../db";
-import { documents } from "../../../../db/schema";
+import { documents, learningResources } from "../../../../db/schema";
+import { eq } from "drizzle-orm";
 
 async function authorized(request: Request) {
   const { env } = await import("cloudflare:workers");
@@ -38,6 +39,18 @@ export async function POST(request: Request) {
   job.completedAt = new Date().toISOString();
   job.nodeId = typeof body.nodeId === "string" ? body.nodeId.slice(0, 80) : "company-rtx4090";
   job.message = typeof body.message === "string" ? body.message.slice(0, 240) : ok ? "本機處理完成" : "本機處理失敗";
+  if (ok && job.kind === "transcode_video" && job.resourceId) {
+    job.hlsKey = typeof body.hlsKey === "string" ? body.hlsKey.slice(0, 300) : `${job.mediaPrefix}/index.m3u8`;
+    job.posterKey = typeof body.posterKey === "string" ? body.posterKey.slice(0, 300) : undefined;
+    job.subtitleKey = typeof body.subtitleKey === "string" ? body.subtitleKey.slice(0, 300) : undefined;
+    job.durationSeconds = Math.max(0, Number(body.durationSeconds) || 0);
+    job.segmentCount = Math.max(0, Math.floor(Number(body.segmentCount) || 0));
+    const playbackUrl = new URL(`/api/course-media/${job.resourceId}/index.m3u8`, request.url).toString();
+    const db = await getDb("primary");
+    await db.update(learningResources).set({ sourceUrl: playbackUrl, description: `本機 HLS 已完成，共 ${job.segmentCount} 個切片${job.subtitleKey ? "，含字幕" : ""}`, status: "draft", updatedAt: new Date() }).where(eq(learningResources.id, job.resourceId));
+    await writeLocalNodeJobs(jobs);
+    return Response.json({ ok: true, job, playbackUrl });
+  }
   if (ok) {
     const chunks = Array.isArray(body.chunks) ? body.chunks.map((item, index) => typeof item === "string" ? { text: item, sequence: index + 1, pageStart: null, pageEnd: null } : item && typeof item === "object" ? { text: String((item as Record<string, unknown>).text ?? "").slice(0, 12000), sequence: Number((item as Record<string, unknown>).sequence ?? index + 1), pageStart: Number((item as Record<string, unknown>).pageStart) || null, pageEnd: Number((item as Record<string, unknown>).pageEnd) || null } : null).filter((item): item is { text:string; sequence:number; pageStart:number|null; pageEnd:number|null } => Boolean(item?.text)).slice(0, 500) : [];
     const pageCount = Number.isFinite(Number(body.pageCount)) ? Number(body.pageCount) : null;
