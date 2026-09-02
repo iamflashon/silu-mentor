@@ -2,8 +2,11 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { learningResources } from "../../../../../db/schema";
 import { readLocalNodeJobs } from "../../../../../lib/local-node-jobs";
+import { requireMember } from "../../../../../lib/member-auth";
 
-export async function GET(_request: Request, context: { params: Promise<{ resourceId: string; path: string[] }> }) {
+export async function GET(request: Request, context: { params: Promise<{ resourceId: string; path: string[] }> }) {
+  const auth = await requireMember(request);
+  if ("error" in auth) return auth.error;
   const { resourceId: rawId, path } = await context.params;
   const resourceId = Number(rawId);
   const mediaPath = Array.isArray(path) ? path.join("/") : "";

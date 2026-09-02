@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isAdminEntryAuthenticated } from "./lib/admin-entry-auth";
+import { isAdminEntryAuthenticated, isPlatformMemberAuthenticated } from "./lib/admin-entry-auth";
 
 const PUBLIC_QA_PATHS = [
   "/accounting/qa",
@@ -14,10 +14,8 @@ const PUBLIC_QA_PATHS = [
   // not carry a user email, so the admin-entry gate must let this request reach
   // the route-level verifier.
   "/api/sync/textbooks",
-  // The company RTX node is authenticated by Cloudflare Access Service Auth
-  // and a separate LOCAL_NODE_TOKEN inside each route. Service-token requests
-  // do not carry a Google user email, so they must bypass the browser admin gate
-  // before the route-level machine credential can be verified.
+  // Machine-to-machine RTX node routes verify both Cloudflare Access Service
+  // Auth and LOCAL_NODE_TOKEN inside the route itself.
   "/api/local-node",
 ];
 
@@ -54,6 +52,7 @@ function isQaAllowedPath(pathname: string) {
  */
 export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete("x-silu-auth-route");
   const cloudflareAccessHost =
     request.nextUrl.hostname === "silu-mentor.iamflashon.workers.dev";
   const existingIdentity = requestHeaders.get("oai-authenticated-user-email");
@@ -66,6 +65,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isQaAllowedPath(request.nextUrl.pathname)) {
+    if (request.nextUrl.pathname === "/member-login" || request.nextUrl.pathname === "/member-register") {
+      requestHeaders.set("x-silu-auth-route", "1");
+    }
     return continueRequest(requestHeaders, request.nextUrl.pathname);
   }
 
@@ -78,11 +80,20 @@ export async function middleware(request: NextRequest) {
     return continueRequest(requestHeaders, request.nextUrl.pathname);
   }
 
+  // Active members may reach their own platform pages. Individual page and API
+  // guards still enforce class, admin, and document-level permissions.
+  if (await isPlatformMemberAuthenticated(authenticatedRequest)) {
+    return continueRequest(requestHeaders, request.nextUrl.pathname);
+  }
+
   if (request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "此內部測試功能只限管理員" }, { status: 403 });
   }
 
-  return NextResponse.redirect(new URL("/accounting/qa", request.url));
+  const returnTo = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  const loginUrl = new URL("/member-login", request.url);
+  loginUrl.searchParams.set("return_to", returnTo);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {

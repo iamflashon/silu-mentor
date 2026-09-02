@@ -1,0 +1,33 @@
+.proofreader-mode-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid #82b3ad;
+  border-radius: 8px;
+  background: #e2f1ee;
+  color: #15695f;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.proofreader-mode-button:hover:not(:disabled) {
+  background: #cfe8e3;
+  border-color: #18776c;
+}
+
+.proofreader-mode-button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.proofreader-editor .question-editor-meta,
+.proofreader-editor .ai-answer-card,
+.proofreader-editor .ai-explanation-first,
+.proofreader-editor .explanation-version-fields,
+.proofreader-editor .explanation-export-hint {
+  display: none !important;
+}
+
+.proofreader-editor .answer-version-grid {
+  grid-template-columns: minmax(240px, 420px);
+}

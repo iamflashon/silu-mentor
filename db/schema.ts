@@ -207,6 +207,9 @@ export const memberExamAccess = sqliteTable(
       .notNull()
       .default(false),
     permissionsJson: text("permissions_json").notNull().default("[]"),
+    allowedDocumentIdsJson: text("allowed_document_ids_json")
+      .notNull()
+      .default("[]"),
     className: text("class_name").notNull().default("未分班"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
@@ -224,6 +227,27 @@ export const memberExamAccess = sqliteTable(
       table.examCategory,
       table.status,
     ),
+  ],
+);
+
+export const questionEditAudits = sqliteTable(
+  "question_edit_audits",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    examCategory: text("exam_category").notNull(),
+    documentId: integer("document_id").notNull(),
+    questionId: integer("question_id").notNull(),
+    questionNumber: text("question_number").notNull().default(""),
+    editorMemberId: integer("editor_member_id").references(() => members.id, { onDelete: "set null" }),
+    editorEmail: text("editor_email").notNull(),
+    editorName: text("editor_name").notNull().default(""),
+    changedFieldsJson: text("changed_fields_json").notNull().default("[]"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("question_edit_audits_editor_created_idx").on(table.editorEmail, table.createdAt),
+    index("question_edit_audits_document_created_idx").on(table.documentId, table.createdAt),
+    index("question_edit_audits_question_created_idx").on(table.questionId, table.createdAt),
   ],
 );
 
@@ -457,6 +481,11 @@ export const aiAccessEntitlements = sqliteTable(
   (table) => [
     index("ai_access_entitlements_member_expiry_idx").on(
       table.memberId,
+      table.expiresAt,
+    ),
+    index("ai_access_entitlements_member_category_expiry_idx").on(
+      table.memberId,
+      table.examCategory,
       table.expiresAt,
     ),
   ],

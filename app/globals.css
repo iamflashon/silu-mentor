@@ -9,6 +9,7 @@
   --muted: #65798a;
 }
 
+
 /* Book-first medical technologist library */
 .medtech-library-hero {
   max-width: 1180px;
@@ -4120,6 +4121,71 @@ a {
   font-size: 11px;
   font-weight: 600;
 }
+.member-document-permissions {
+  grid-column: 1 / -1;
+  align-self: stretch;
+  border: 1px solid #c8dcdf;
+  background: #f6fbfb;
+}
+.member-document-permissions summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  color: #315f67;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.member-document-permissions > p {
+  margin: 0;
+  padding: 0 13px 10px;
+  color: #72898f;
+  font-size: 11px;
+}
+.member-document-permissions > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 0 13px 13px;
+}
+.member-document-permissions > div label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d8e5e7;
+  background: #fff;
+}
+.member-document-permissions > div input {
+  width: 16px;
+  min-height: 16px;
+  margin-top: 2px;
+}
+.member-document-permissions > div span,
+.member-document-permissions > div b,
+.member-document-permissions > div small {
+  display: block;
+  min-width: 0;
+}
+.member-document-permissions > div b {
+  overflow: hidden;
+  color: #355864;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-document-permissions > div small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #83979d;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @media (max-width: 1000px) {
   .member-create-fields {
     grid-template-columns: 1fr 1fr;
@@ -4129,6 +4195,9 @@ a {
   }
   .member-identity {
     grid-column: 1 / -1;
+  }
+  .member-document-permissions > div {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 700px) {

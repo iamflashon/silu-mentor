@@ -153,7 +153,7 @@ export function AnswerConflictPanel({ questionId, questionNumber, teacherAnswer,
       form.append("evidenceText", manualEvidence);
       form.append("keepAttachmentIds", JSON.stringify(savedAttachments.map((attachment) => attachment.id)));
       for (const image of pendingImages) form.append("attachments", image.file, image.file.name);
-      const response = await fetch("/api/medtech/admin/questions/simulation/external-review", { method: "POST", body: form });
+      const response = await fetch(`/api/medtech/admin/questions/simulation/external-review?questionId=${questionId}`, { method: "POST", body: form });
       const data = await response.json() as { review?: ExternalReview; error?: string };
       if (!response.ok || !data.review) { setMessage(data.error || "人工查核資料保存失敗。"); return; }
       setExternalReview(data.review);

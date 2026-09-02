@@ -13,7 +13,7 @@ function formatTime(seconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function QuestionMediaPanel({ questionId, questionNumber }: { questionId: number; questionNumber: string }) {
+export function QuestionMediaPanel({ questionId, questionNumber, allowDelete = true }: { questionId: number; questionNumber: string; allowDelete?: boolean }) {
   const [media, setMedia] = useState<Media | null>(null);
   const [sourceOrder, setSourceOrder] = useState<number | "">("");
   const [previousQuestion, setPreviousQuestion] = useState<OrderedQuestion | null>(null);
@@ -197,7 +197,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
     form.set("action", action);
     form.set("file", file, file.name);
     try {
-      const response = await fetch("/api/medtech/admin/question-media", { method: "POST", body: form });
+      const response = await fetch(`/api/medtech/admin/question-media?questionId=${questionId}`, { method: "POST", body: form });
       const data = await response.json() as { error?: string; cues?: number; audioFileName?: string | null };
       if (!response.ok) { setNotice(data.error ?? "上傳失敗"); return; }
       setNotice(action === "audio" ? `語音檔已綁定本題：${data.audioFileName ?? file.name}` : `SRT 已匯入 ${data.cues ?? 0} 段字幕，可直接播放對照。`);
@@ -239,7 +239,7 @@ export function QuestionMediaPanel({ questionId, questionNumber }: { questionId:
       <div className="question-media-actions">
         <label className="question-media-button"><input ref={audioInput} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.webm" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "audio"); }} />{busy ? "處理中…" : media?.audioFileName ? "更換語音檔" : "上傳語音檔"}</label>
         <label className="question-media-button secondary"><input ref={subtitleInput} type="file" accept=".srt,application/x-subrip,text/plain" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void upload(file, "subtitle"); }} />上傳 SRT</label>
-        <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>
+        {allowDelete && <button type="button" className="question-media-button danger" disabled={busy} onClick={() => void deleteQuestion()}>刪除本題</button>}
       </div>
     </div>
     <div className={`question-review-panel ${reviewStatus === "confirmed" ? "confirmed" : canPublishWithoutProofread ? "answer-ready" : "pending"}`}>

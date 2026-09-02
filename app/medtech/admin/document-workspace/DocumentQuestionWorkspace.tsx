@@ -6,6 +6,8 @@ import { QuestionMediaPanel } from "./QuestionMediaPanel";
 import { QuestionProofreadDialog } from "./QuestionProofreadDialog";
 import { ManualQuestionDialog } from "./ManualQuestionDialog";
 import { RepairMissingQuestionsButton } from "./RepairMissingQuestionsButton";
+import { useMedtechAdminAccess } from "../MedtechAdminAccess";
+import "./proofreader.css";
 import "../question-bank.css";
 import "../question-workbench.css";
 import "./page.css";
@@ -388,6 +390,9 @@ export default function DocumentQuestionWorkspace({
 }) {
   const accounting = category === "accounting";
   const dataStructure = category === "data-structure";
+  const { fullAdmin: medtechFullAdmin, documentLibraryEditor } = useMedtechAdminAccess();
+  const limitedProofreader = category === "medtech" && documentLibraryEditor && !medtechFullAdmin;
+  const allowDestructiveActions = central || category !== "medtech" || medtechFullAdmin;
   const categoryPaths =
     category === "data-structure"
       ? {
@@ -451,6 +456,7 @@ export default function DocumentQuestionWorkspace({
     [htmlAttempted, setHtmlAttempted] = useState(false),
     [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false),
+    [qualityTesting, setQualityTesting] = useState(false),
     [batchRepairing, setBatchRepairing] = useState(false),
     [replaceBusy, setReplaceBusy] = useState(false),
     [replaceText, setReplaceText] = useState(""),
@@ -647,7 +653,7 @@ export default function DocumentQuestionWorkspace({
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const id = Number(params.get("id"));
-    setQualityMode(params.get("quality") === "1");
+    setQualityMode(limitedProofreader || params.get("quality") === "1");
     setDocumentId(id);
     if (id > 0)
       void load(id).then((result) => {
@@ -836,7 +842,7 @@ export default function DocumentQuestionWorkspace({
         const form = new FormData();
         form.set("id", String(documentId));
         form.set("file", file);
-        const response = await fetch(paths.docs, { method: "PUT", body: form });
+        const response = await fetch(`${paths.docs}?documentId=${documentId}`, { method: "PUT", body: form });
         const result = (await response.json().catch(() => ({}))) as {
           error?: string;
           variant?: string;
@@ -1006,10 +1012,13 @@ export default function DocumentQuestionWorkspace({
   async function save() {
     if (!current) return;
     setSaving(true);
+    const payload = limitedProofreader
+      ? { id: current.id, stem: current.stem, options: current.options, teacherAnswer: current.teacherAnswer || current.correctAnswer || "", correctAnswer: current.teacherAnswer || current.correctAnswer || "", explanation: current.explanation }
+      : current;
     const response = await fetch(paths.questions, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(current),
+      body: JSON.stringify(payload),
     });
     const data = (await response.json().catch(() => ({}))) as {
       item?: Partial<Question>;
@@ -1037,6 +1046,22 @@ export default function DocumentQuestionWorkspace({
       );
     } else setNotice(data.error || "儲存失敗");
     setSaving(false);
+  }
+  async function runQualityTest() {
+    if (!documentId || qualityTesting) return;
+    setQualityTesting(true);
+    setNotice("正在重新執行品質檢測…");
+    try {
+      const result = await load(documentId);
+      setQualityMode(true);
+      setQualityFilter("all");
+      setRichEditorOpen(false);
+      setNotice(`品質檢測完成，已重新檢查 ${result.loadedCount.toLocaleString()} 題。`);
+    } catch {
+      setNotice("品質檢測失敗，請稍後再試。");
+    } finally {
+      setQualityTesting(false);
+    }
   }
   async function applySpacingRepair() {
     if (!current) return;
@@ -1873,6 +1898,8 @@ export default function DocumentQuestionWorkspace({
         </div>
         <div className="workspace-header-actions">
           <span>{notice}</span>
+          {limitedProofreader && <button type="button" className="proofreader-mode-button" disabled={qualityTesting || !documentId} onClick={() => void runQualityTest()}>{qualityTesting ? "檢測中…" : "品質測試"}</button>}
+          {!limitedProofreader && <>
           <button
             type="button"
             onClick={() => {
@@ -1946,6 +1973,7 @@ export default function DocumentQuestionWorkspace({
                   " 題"
                 : "本文件 AI 完整解析已完成"}
           </button>
+          </>}
           <button disabled={!current || saving} onClick={() => void save()}>
             {saving ? "儲存中…" : "儲存本題"}
           </button>
@@ -1956,12 +1984,14 @@ export default function DocumentQuestionWorkspace({
           >
             下一題
           </button>
+          {!limitedProofreader && <>
           <button disabled={!current} onClick={downloadCurrentTxt}>
             下載本題 TXT
           </button>
           <button disabled={!questions.length} onClick={downloadAllTxtZip}>
             語音解析腳本 TXT ZIP
           </button>
+          </>}
         </div>
       </header>
       <section className="document-workspace-body">
@@ -2002,12 +2032,12 @@ export default function DocumentQuestionWorkspace({
                   </button>
                 )}
               </nav>
-              <button
+              {allowDestructiveActions && <button
                 disabled={Boolean(importing)}
                 onClick={() => replacementInput.current?.click()}
               >
                 新增／更換原稿
-              </button>
+              </button>}
               <input
                 ref={replacementInput}
                 hidden
@@ -2158,7 +2188,7 @@ export default function DocumentQuestionWorkspace({
             </div>
           )}
         </aside>
-        <article className="document-question-editor">
+        <article className={`document-question-editor${limitedProofreader ? " proofreader-editor" : ""}`}>
           {current ? (
             <>
               {qualityMode && (
@@ -2455,6 +2485,7 @@ export default function DocumentQuestionWorkspace({
                   )}
                   <RichQuestionEditor
                     category={category}
+                    documentId={documentId}
                     label="題幹"
                     value={current.stem}
                     onChange={(stem) => setCurrent({ ...current, stem })}
@@ -2462,6 +2493,7 @@ export default function DocumentQuestionWorkspace({
                   {["A", "B", "C", "D"].map((key) => (
                     <RichQuestionEditor
                       category={category}
+                      documentId={documentId}
                       compact
                       key={key}
                       label={`選項 ${key}`}
@@ -2477,6 +2509,7 @@ export default function DocumentQuestionWorkspace({
                   {accounting ? (
                     <RichQuestionEditor
                       category={category}
+                      documentId={documentId}
                       label="題目原有簡要解析"
                       value={
                         current.explanation ||
@@ -2522,6 +2555,7 @@ export default function DocumentQuestionWorkspace({
                         </div>
                         <RichQuestionEditor
                           category={category}
+                          documentId={documentId}
                           label="AI 簡要解析（AI 版）"
                           value={current.simulatedExplanation ?? ""}
                           onChange={(value) =>
@@ -2533,6 +2567,7 @@ export default function DocumentQuestionWorkspace({
                         />
                         <RichQuestionEditor
                           category={category}
+                          documentId={documentId}
                           label="AI 完整解析（AI 版／待老師核對）"
                           value={
                             current.aiCompleteExplanation ||
@@ -2555,6 +2590,7 @@ export default function DocumentQuestionWorkspace({
                       </section>
                       <RichQuestionEditor
                         category={category}
+                        documentId={documentId}
                         label="解析（題目原有簡要解析）"
                         value={current.explanation}
                         onChange={(explanation) =>
@@ -2573,6 +2609,7 @@ export default function DocumentQuestionWorkspace({
                         </p>
                         <RichQuestionEditor
                           category={category}
+                          documentId={documentId}
                           label="老師完整解析（老師版）"
                           value={
                             current.teacherCompleteExplanation ||
@@ -2596,10 +2633,11 @@ export default function DocumentQuestionWorkspace({
                   )}
                 </>
               )}{" "}
-              {!accounting && (
+              {!limitedProofreader && !accounting && (
                 <QuestionMediaPanel
                   questionId={current.id}
                   questionNumber={current.questionNumber}
+                  allowDelete={allowDestructiveActions}
                 />
               )}{" "}
               {richEditorOpen && (

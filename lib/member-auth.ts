@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { memberExamAccess, members } from "../db/schema";
+import { examQuestions, memberExamAccess, members } from "../db/schema";
 import { getOrCreateMedtechUsage } from "./medtech-usage";
 import { getMedtechDeviceStatus } from "./medtech-device-session";
 
@@ -144,10 +144,92 @@ export function hasMedtechPermission(permissionsJson: string, permission: string
   }
 }
 
+export function medtechAllowedDocumentIds(value: string) {
+  try {
+    const parsed = JSON.parse(value || "[]") as unknown;
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+      : [];
+  } catch {
+    return [] as number[];
+  }
+}
+
+export function isLimitedMedtechDocumentEditor(access: { canAdmin: boolean; permissionsJson: string }) {
+  return !access.canAdmin
+    && hasMedtechPermission(access.permissionsJson, "document-library")
+    && !hasMedtechPermission(access.permissionsJson, "questions");
+}
+
+export function canAccessMedtechDocument(access: { canAdmin: boolean; permissionsJson: string; allowedDocumentIdsJson: string }, documentId: number) {
+  if (access.canAdmin || hasMedtechPermission(access.permissionsJson, "questions")) return true;
+  return hasMedtechPermission(access.permissionsJson, "document-library")
+    && medtechAllowedDocumentIds(access.allowedDocumentIdsJson).includes(documentId);
+}
+
+function positiveIds(values: unknown[]) {
+  return [...new Set(values.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+}
+
+async function requestedMedtechDocumentIds(request: Request, db: Awaited<ReturnType<typeof getDb>>) {
+  const url = new URL(request.url);
+  const pathname = url.pathname;
+  const documentIds: number[] = positiveIds([
+    url.searchParams.get("documentId"),
+    url.searchParams.get("docId"),
+  ]);
+  const questionIds: number[] = positiveIds([
+    url.searchParams.get("questionId"),
+    ...(pathname.includes("/admin/questions") && !pathname.includes("/document-") ? [url.searchParams.get("id")] : []),
+  ]);
+  if (pathname.includes("/documents") || pathname.includes("/document-")) {
+    documentIds.push(...positiveIds([url.searchParams.get("id")]));
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    try {
+      const copy = request.clone();
+      const contentType = copy.headers.get("content-type") || "";
+      let body: Record<string, unknown> = {};
+      if (contentType.includes("application/json")) body = await copy.json() as Record<string, unknown>;
+      else if (contentType.includes("application/x-www-form-urlencoded")) {
+        const form = await copy.formData();
+        body = Object.fromEntries(form.entries());
+      }
+      documentIds.push(...positiveIds([body.documentId, body.docId]));
+      if (pathname.includes("/documents") || pathname.includes("/document-")) documentIds.push(...positiveIds([body.id]));
+      questionIds.push(...positiveIds([
+        body.questionId,
+        ...(pathname.includes("/admin/questions") || pathname.includes("/question-") ? [body.id] : []),
+        ...(Array.isArray(body.questionIds) ? body.questionIds : []),
+      ]));
+      const sourceUrl = String(body.sourceUrl || "");
+      const sourceDocumentId = Number(sourceUrl.replace(/^document:/u, ""));
+      if (Number.isInteger(sourceDocumentId) && sourceDocumentId > 0) documentIds.push(sourceDocumentId);
+    } catch {
+      // A malformed body is handled by the endpoint. Authorization remains deny-by-default.
+    }
+  }
+
+  if (questionIds.length) {
+    for (const questionId of positiveIds(questionIds)) {
+      const [question] = await db.select({ sourceUrl: examQuestions.sourceUrl })
+        .from(examQuestions)
+        .where(and(eq(examQuestions.id, questionId), eq(examQuestions.examCategory, "medtech")))
+        .limit(1);
+      const documentId = Number(question?.sourceUrl.replace(/^document:/u, ""));
+      if (Number.isInteger(documentId) && documentId > 0) documentIds.push(documentId);
+    }
+  }
+  return positiveIds(documentIds);
+}
+
 export async function requireMedtechBackoffice(request: Request) {
   const auth = await requireMedtechMember(request);
   if (!("access" in auth)) return auth;
-  if (!auth.access.canAdmin && !hasMedtechPermission(auth.access.permissionsJson, "questions")) {
+  if (!auth.access.canAdmin
+    && !hasMedtechPermission(auth.access.permissionsJson, "questions")
+    && !hasMedtechPermission(auth.access.permissionsJson, "document-library")) {
     return { error: Response.json({ error: "需要醫檢師後台權限" }, { status: 403 }) } as const;
   }
   return auth;
@@ -156,8 +238,20 @@ export async function requireMedtechBackoffice(request: Request) {
 export async function requireMedtechQuestionEditor(request: Request) {
   const auth = await requireMedtechMember(request);
   if (!("access" in auth)) return auth;
-  if (!auth.access.canAdmin && !hasMedtechPermission(auth.access.permissionsJson, "questions")) {
+  if (!auth.access.canAdmin
+    && !hasMedtechPermission(auth.access.permissionsJson, "questions")
+    && !hasMedtechPermission(auth.access.permissionsJson, "document-library")) {
     return { error: Response.json({ error: "需要文件題庫編修權限" }, { status: 403 }) } as const;
+  }
+  if (isLimitedMedtechDocumentEditor(auth.access)) {
+    const pathname = new URL(request.url).pathname;
+    const isDocumentList = request.method === "GET" && pathname.endsWith("/api/medtech/documents");
+    if (!isDocumentList) {
+      const requestedIds = await requestedMedtechDocumentIds(request, auth.db);
+      if (!requestedIds.length || requestedIds.some((id) => !canAccessMedtechDocument(auth.access, id))) {
+        return { error: Response.json({ error: "此帳號沒有這本醫檢文件的編修權限" }, { status: 403 }) } as const;
+      }
+    }
   }
   return auth;
 }

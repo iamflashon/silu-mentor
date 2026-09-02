@@ -110,6 +110,18 @@ async function hasChatGPTAdmin(request: Request) {
   }
 }
 
+export async function isPlatformMemberAuthenticated(request: Request) {
+  const email = headerEmail(request);
+  if (!email) return false;
+  try {
+    const db = await getDb();
+    const [member] = await db.select({ status: members.status }).from(members).where(eq(members.email, email)).limit(1);
+    return member?.status === "active";
+  } catch {
+    return false;
+  }
+}
+
 export async function isAdminEntryAuthenticated(request: Request) {
   if (request.headers.get("x-silu-admin-entry") === "1") return true;
   if (await hasChatGPTAdmin(request)) return true;

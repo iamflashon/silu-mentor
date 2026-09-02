@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { documents, examQuestions } from "../../../../db/schema";
-import { requireMedtechAdmin, requireMedtechQuestionEditor } from "../../../../lib/member-auth";
+import { canAccessMedtechDocument, isLimitedMedtechDocumentEditor, requireMedtechAdmin, requireMedtechQuestionEditor } from "../../../../lib/member-auth";
 import { contentTypeForDocument, documentExtension, isSupportedDocument, MAX_DOCUMENT_BYTES } from "../../../../lib/document-processing";
 import { DELETE as deleteDocuments, GET as getDocuments, PATCH as patchDocument, POST as postDocument } from "../../documents/route";
 
@@ -12,7 +12,10 @@ export async function GET(request: Request) {
   const requestedId = Number(url.searchParams.get("id"));
   if (!Number.isInteger(requestedId) || requestedId < 1) {
     url.searchParams.set("category", "medtech");
-    return getDocuments(new Request(url, { headers: request.headers }));
+    const response = await getDocuments(new Request(url, { headers: request.headers }));
+    if (!isLimitedMedtechDocumentEditor(auth.access) || !response.ok) return response;
+    const data = await response.json() as { documents?: Array<{ id: number }>; [key: string]: unknown };
+    return Response.json({ ...data, documents: (data.documents ?? []).filter((document) => canAccessMedtechDocument(auth.access, document.id)) }, { status: response.status, headers: { "Cache-Control": "no-store" } });
   }
 
   // The workspace needs one document and its source variants only. Avoid the
@@ -74,6 +77,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
+  if (isLimitedMedtechDocumentEditor(auth.access)) return Response.json({ error: "文件題庫編輯員不可更換原稿" }, { status: 403 });
   try {
     const form = await request.formData();
     const id = Number(form.get("id"));

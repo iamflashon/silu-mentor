@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documents, examQuestions, listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
-import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
+import { documents, examQuestions, listeningAudioSegments, listeningSolutions, listeningSubtitleCues, questionEditAudits } from "../../../../../db/schema";
+import { isLimitedMedtechDocumentEditor, requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
 function repairQualityText(value:string,kind:"spacing"|"linebreak"){
@@ -291,6 +291,19 @@ export async function PATCH(request: Request) {
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as Record<string, unknown>;
+  const limitedEditor = isLimitedMedtechDocumentEditor(auth.access);
+  if (limitedEditor) {
+    const forbiddenActions = ["publishAllDrafts", "qualityRepair", "replaceFind", "bulkConfirmReview", "confirmReview", "cancelReview"];
+    if (forbiddenActions.some((key) => Object.prototype.hasOwnProperty.call(body, key))) {
+      return Response.json({ error: "校對人員只能修改題幹、答案、選項與解析，不能執行批次、AI、發布或校對狀態操作" }, { status: 403 });
+    }
+    const allowedKeys = new Set(["id", "stem", "options", "correctAnswer", "teacherAnswer", "explanation"]);
+    const forbiddenKey = Object.keys(body).find((key) => !allowedKeys.has(key));
+    if (forbiddenKey) return Response.json({ error: `校對人員無權修改「${forbiddenKey}」欄位` }, { status: 403 });
+  }
+  if (isLimitedMedtechDocumentEditor(auth.access) && (body.publishAllDrafts === true || body.status === "published")) {
+    return Response.json({ error: "文件題庫編輯員只能儲存編修內容，發布需由總管理員執行" }, { status: 403 });
+  }
   const qualityRepair=body.qualityRepair==="spacing"||body.qualityRepair==="linebreak"?body.qualityRepair:null;
   if(qualityRepair){
     const documentId=Number(body.documentId);
@@ -460,13 +473,34 @@ export async function PATCH(request: Request) {
     const sourceOrder = Number(body.sourceOrder);
     values.sourceOrder = Number.isInteger(sourceOrder) && sourceOrder > 0 ? sourceOrder : null;
   }
+  const beforeOptions = JSON.parse(existing.optionsJson || "{}") as Record<string, string>;
+  const changedFields = [
+    ...(typeof body.stem === "string" && sanitizeRichHtml(String(body.stem).trim()) !== existing.stem ? ["題幹"] : []),
+    ...(Object.prototype.hasOwnProperty.call(body, "options") && JSON.stringify(body.options) !== JSON.stringify(beforeOptions) ? ["選項"] : []),
+    ...((typeof body.teacherAnswer === "string" || typeof body.correctAnswer === "string") && teacherAnswer !== String(existing.teacherAnswer || existing.correctAnswer || "") ? ["答案"] : []),
+    ...(typeof body.explanation === "string" && sanitizeRichHtml(String(body.explanation).trim()) !== existing.explanation ? ["解析"] : []),
+  ];
   await db.update(examQuestions).set(values).where(eq(examQuestions.id, id));
-  return Response.json({ updated: true });
+  if (limitedEditor) {
+    const documentId = Number(existing.sourceUrl.replace(/^document:/, ""));
+    await db.insert(questionEditAudits).values({
+      examCategory: "medtech",
+      documentId: Number.isInteger(documentId) && documentId > 0 ? documentId : 0,
+      questionId: existing.id,
+      questionNumber: existing.questionNumber,
+      editorMemberId: auth.member.id,
+      editorEmail: auth.member.email,
+      editorName: auth.member.displayName,
+      changedFieldsJson: JSON.stringify(changedFields.length ? changedFields : ["未變更內容（重新儲存）"]),
+    });
+  }
+  return Response.json({ updated: true, editedBy: limitedEditor ? auth.member.email : undefined, changedFields });
 }
 
 export async function DELETE(request: Request) {
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
+  if (isLimitedMedtechDocumentEditor(auth.access)) return Response.json({ error: "文件題庫編輯員不可刪除題目" }, { status: 403 });
   const { id: rawId } = await request.json() as { id?: number };
   const id = Number(rawId);
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少有效題目編號" }, { status: 400 });

@@ -5,7 +5,6 @@ import { requireMember } from "../../../../../lib/member-auth";
 import { detectPengliBodyRole, resolvePengliIssue } from "../../../../../lib/pengli-book-toc";
 
 const themeTitles = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
-const verifiedThemePages = [[23, 84], [85, 172], [173, 233], [234, 302], [303, 332], [333, 420], [421, 456], [457, 495]] as const;
 const bookBodyStartPage = 23;
 
 function themeIndex(topic: string) {
@@ -55,18 +54,13 @@ export async function POST(request: Request) {
   const excludedQuestions = new Set((Array.isArray(requestBody.excludedQuestions) ? requestBody.excludedQuestions : []).map(String).slice(-24));
   const selectedThemeIndex = themeIndex(requestedTopic);
   if (selectedThemeIndex < 0) return Response.json({ error: "目前無法確認正在學習的主題。" }, { status: 409 });
-  const [storedMapping] = await db.select().from(documentSectionMappings).where(and(
+  const [mapped] = await db.select().from(documentSectionMappings).where(and(
     inArray(documentSectionMappings.documentId, books.map((item) => item.id)),
     eq(documentSectionMappings.sectionKey, `theme_${selectedThemeIndex + 1}`),
     eq(documentSectionMappings.verified, true),
   )).limit(1);
-  const indexedBook = books.find((item) => /\.local-index\.jsonl$/iu.test(item.fileName));
-  const [knownStartPage, knownEndPage] = verifiedThemePages[selectedThemeIndex];
-  const mapped = storedMapping && storedMapping.pdfStartPage > 0 && storedMapping.pdfEndPage >= storedMapping.pdfStartPage
-    ? storedMapping
-    : indexedBook ? { documentId: indexedBook.id, pdfStartPage: knownStartPage, pdfEndPage: knownEndPage } : null;
-  if (!mapped) return Response.json({ error: "目前找不到教材逐頁索引，暫時無法抽選書頁。" }, { status: 409 });
-  const book = books.find((item) => item.id === mapped.documentId && /\.local-index\.jsonl$/iu.test(item.fileName)) ?? indexedBook ?? books[0];
+  if (!mapped || mapped.pdfStartPage <= 0 || mapped.pdfEndPage < mapped.pdfStartPage) return Response.json({ error: "目前主題尚未在後台完成「章節 ↔ PDF 頁段」核對，因此不執行隨機書頁測試。" }, { status: 409 });
+  const book = books.find((item) => item.id === mapped.documentId) ?? books[0];
   if (!/\.local-index\.jsonl$/iu.test(book.fileName)) return Response.json({ error: "目前這項真實頁碼測試需要原始逐頁索引檔。" }, { status: 409 });
   const { env } = await import("cloudflare:workers");
   const object = await env.BUCKET?.get(book.storageKey);
