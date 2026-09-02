@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { documents, examQuestions, listeningAudioSegments, listeningSolutions, listeningSubtitleCues } from "../../../../../db/schema";
-import { requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
+import { isLimitedMedtechDocumentEditor, requireMedtechQuestionEditor } from "../../../../../lib/member-auth";
 import { sanitizeRichHtml } from "../../../../../lib/rich-html";
 
 function repairQualityText(value:string,kind:"spacing"|"linebreak"){
@@ -291,6 +291,9 @@ export async function PATCH(request: Request) {
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const body = await request.json() as Record<string, unknown>;
+  if (isLimitedMedtechDocumentEditor(auth.access) && (body.publishAllDrafts === true || body.status === "published")) {
+    return Response.json({ error: "文件題庫編輯員只能儲存編修內容，發布需由總管理員執行" }, { status: 403 });
+  }
   const qualityRepair=body.qualityRepair==="spacing"||body.qualityRepair==="linebreak"?body.qualityRepair:null;
   if(qualityRepair){
     const documentId=Number(body.documentId);
@@ -467,6 +470,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
+  if (isLimitedMedtechDocumentEditor(auth.access)) return Response.json({ error: "文件題庫編輯員不可刪除題目" }, { status: 403 });
   const { id: rawId } = await request.json() as { id?: number };
   const id = Number(rawId);
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "缺少有效題目編號" }, { status: 400 });

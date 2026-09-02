@@ -184,7 +184,7 @@ export default async function MedtechAccountPage() {
             進入學習首頁
           </a>
           <a href={entitlement ? "/medtech/chapters" : "/medtech/upgrade"}>{entitlement ? "我已購買課程" : "選購題目包"}</a>
-          {(access.canAdmin || hasMedtechPermission(access.permissionsJson, "questions")) && <a href="/medtech/admin">{access.canAdmin ? "醫檢師管理後台" : "文件題庫編修"}</a>}
+          {(access.canAdmin || hasMedtechPermission(access.permissionsJson, "questions") || hasMedtechPermission(access.permissionsJson, "document-library")) && <a href={access.canAdmin ? "/medtech/admin" : "/medtech/admin/document-library"}>{access.canAdmin ? "醫檢師管理後台" : "文件題庫編修"}</a>}
           <MemberLogoutButton />
         </div>
         <dl>
@@ -206,7 +206,7 @@ export default async function MedtechAccountPage() {
           </div>
           <div>
             <dt>管理權限</dt>
-            <dd>{access.canAdmin ? "醫檢師管理員" : hasMedtechPermission(access.permissionsJson, "questions") ? "文件題庫編修者" : "一般會員"}</dd>
+            <dd>{access.canAdmin ? "醫檢師管理員" : hasMedtechPermission(access.permissionsJson, "questions") || hasMedtechPermission(access.permissionsJson, "document-library") ? "文件題庫編修者" : "一般會員"}</dd>
           </div>
         </dl>
         {entitlement && (

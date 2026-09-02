@@ -6,6 +6,7 @@ import { QuestionMediaPanel } from "./QuestionMediaPanel";
 import { QuestionProofreadDialog } from "./QuestionProofreadDialog";
 import { ManualQuestionDialog } from "./ManualQuestionDialog";
 import { RepairMissingQuestionsButton } from "./RepairMissingQuestionsButton";
+import { useMedtechAdminAccess } from "../MedtechAdminAccess";
 import "../question-bank.css";
 import "../question-workbench.css";
 import "./page.css";
@@ -388,6 +389,8 @@ export default function DocumentQuestionWorkspace({
 }) {
   const accounting = category === "accounting";
   const dataStructure = category === "data-structure";
+  const { fullAdmin: medtechFullAdmin } = useMedtechAdminAccess();
+  const allowDestructiveActions = central || category !== "medtech" || medtechFullAdmin;
   const categoryPaths =
     category === "data-structure"
       ? {
@@ -836,7 +839,7 @@ export default function DocumentQuestionWorkspace({
         const form = new FormData();
         form.set("id", String(documentId));
         form.set("file", file);
-        const response = await fetch(paths.docs, { method: "PUT", body: form });
+        const response = await fetch(`${paths.docs}?documentId=${documentId}`, { method: "PUT", body: form });
         const result = (await response.json().catch(() => ({}))) as {
           error?: string;
           variant?: string;
@@ -2002,12 +2005,12 @@ export default function DocumentQuestionWorkspace({
                   </button>
                 )}
               </nav>
-              <button
+              {allowDestructiveActions && <button
                 disabled={Boolean(importing)}
                 onClick={() => replacementInput.current?.click()}
               >
                 新增／更換原稿
-              </button>
+              </button>}
               <input
                 ref={replacementInput}
                 hidden
@@ -2455,6 +2458,7 @@ export default function DocumentQuestionWorkspace({
                   )}
                   <RichQuestionEditor
                     category={category}
+                    documentId={documentId}
                     label="題幹"
                     value={current.stem}
                     onChange={(stem) => setCurrent({ ...current, stem })}
@@ -2462,6 +2466,7 @@ export default function DocumentQuestionWorkspace({
                   {["A", "B", "C", "D"].map((key) => (
                     <RichQuestionEditor
                       category={category}
+                      documentId={documentId}
                       compact
                       key={key}
                       label={`選項 ${key}`}
@@ -2477,6 +2482,7 @@ export default function DocumentQuestionWorkspace({
                   {accounting ? (
                     <RichQuestionEditor
                       category={category}
+                      documentId={documentId}
                       label="題目原有簡要解析"
                       value={
                         current.explanation ||
@@ -2522,6 +2528,7 @@ export default function DocumentQuestionWorkspace({
                         </div>
                         <RichQuestionEditor
                           category={category}
+                          documentId={documentId}
                           label="AI 簡要解析（AI 版）"
                           value={current.simulatedExplanation ?? ""}
                           onChange={(value) =>
@@ -2533,6 +2540,7 @@ export default function DocumentQuestionWorkspace({
                         />
                         <RichQuestionEditor
                           category={category}
+                          documentId={documentId}
                           label="AI 完整解析（AI 版／待老師核對）"
                           value={
                             current.aiCompleteExplanation ||
@@ -2555,6 +2563,7 @@ export default function DocumentQuestionWorkspace({
                       </section>
                       <RichQuestionEditor
                         category={category}
+                        documentId={documentId}
                         label="解析（題目原有簡要解析）"
                         value={current.explanation}
                         onChange={(explanation) =>
@@ -2573,6 +2582,7 @@ export default function DocumentQuestionWorkspace({
                         </p>
                         <RichQuestionEditor
                           category={category}
+                          documentId={documentId}
                           label="老師完整解析（老師版）"
                           value={
                             current.teacherCompleteExplanation ||
@@ -2600,6 +2610,7 @@ export default function DocumentQuestionWorkspace({
                 <QuestionMediaPanel
                   questionId={current.id}
                   questionNumber={current.questionNumber}
+                  allowDelete={allowDestructiveActions}
                 />
               )}{" "}
               {richEditorOpen && (

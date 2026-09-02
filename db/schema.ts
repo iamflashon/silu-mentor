@@ -207,6 +207,9 @@ export const memberExamAccess = sqliteTable(
       .notNull()
       .default(false),
     permissionsJson: text("permissions_json").notNull().default("[]"),
+    allowedDocumentIdsJson: text("allowed_document_ids_json")
+      .notNull()
+      .default("[]"),
     className: text("class_name").notNull().default("未分班"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()

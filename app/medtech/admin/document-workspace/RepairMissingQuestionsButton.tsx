@@ -126,7 +126,7 @@ async function uploadVoicePairs(pairs: VoicePair[]) {
           form.append("subtitle", pair.subtitle, pair.subtitle.name);
         }
       }
-      const response = await fetch("/api/medtech/admin/audio-import", { method: "POST", body: form });
+      const response = await fetch(`/api/medtech/admin/audio-import?documentId=${documentId}`, { method: "POST", body: form });
       let data: { error?: string; importedAudio?: number; importedSubtitles?: number } = {};
       try {
         data = await response.json() as typeof data;
@@ -197,7 +197,7 @@ export function RepairMissingQuestionsButton({
         await onDone(`語音包已自動分 ${result.batches} 批匯入：音檔 ${result.importedAudio} 個，SRT ${result.importedSubtitles} 個`);
         return;
       }
-      const response = await fetch("/api/medtech/admin/audio-import", { method: "POST", body: form });
+      const response = await fetch(`/api/medtech/admin/audio-import?documentId=${documentId}`, { method: "POST", body: form });
       const data = await response.json() as { error?: string; matched?: number; audioPairs?: number; subtitlePairs?: number; unmatched?: Array<unknown>; invalid?: Array<unknown> };
       if (!response.ok) {
         await onDone(data.error || "語音包匯入失敗。");
