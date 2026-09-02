@@ -9,27 +9,6 @@
   --muted: #65798a;
 }
 
-.local-video-jobs-panel { margin-bottom: 24px; padding: 22px; border: 1px solid #b9d9e6; background: linear-gradient(135deg, #f7fcff, #eef8fb); }
-.local-video-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
-.local-video-head p { margin: 0; color: #14708c; font-size: 12px; letter-spacing: .12em; }
-.local-video-head h2 { margin: 4px 0 6px; color: #123b57; }
-.local-video-head span { color: #526b79; font-size: 14px; }
-.local-video-head > b { padding: 8px 12px; border-radius: 999px; font-size: 13px; white-space: nowrap; }
-.local-video-head > b.online { background: #dff7e8; color: #157044; }
-.local-video-head > b.offline { background: #fff0e5; color: #a25420; }
-.local-video-jobs-panel form { display: grid; grid-template-columns: 1.4fr 1.4fr .8fr 1fr auto; gap: 10px; margin-top: 18px; align-items: end; }
-.local-video-jobs-panel label { display: grid; gap: 6px; color: #355264; font-size: 13px; }
-.local-video-jobs-panel input, .local-video-jobs-panel select { min-height: 42px; border: 1px solid #bfd3dc; border-radius: 10px; background: #fff; padding: 8px 10px; }
-.local-video-jobs-panel form > button { min-height: 42px; border: 0; border-radius: 10px; background: #15597a; color: #fff; padding: 0 16px; }
-.local-video-empty { margin: 14px 0 0; color: #6c7f88; }
-.local-video-history { display: grid; gap: 8px; margin-top: 16px; }
-.local-video-history article { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 5px 14px; padding: 12px 14px; border: 1px solid #d5e5eb; border-radius: 12px; background: #fff; }
-.local-video-history article div { display: grid; }
-.local-video-history article span, .local-video-history article small { font-size: 13px; color: #637681; }
-.local-video-history article small { grid-column: 1 / -1; }
-.local-video-history article em { font-style: normal; font-size: 13px; }
-@media (max-width: 1000px) { .local-video-jobs-panel form { grid-template-columns: 1fr 1fr; } .local-video-jobs-panel form > button { grid-column: 1 / -1; } }
-@media (max-width: 650px) { .local-video-head { display: grid; } .local-video-jobs-panel form { grid-template-columns: 1fr; } .local-video-jobs-panel form > button { grid-column: auto; } }
 
 /* Book-first medical technologist library */
 .medtech-library-hero {
