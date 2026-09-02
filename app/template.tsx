@@ -6,10 +6,10 @@ export const dynamic = "force-dynamic";
 
 export default async function IdentityGate({ children }:{ children:React.ReactNode }) {
   const requestHeaders = await headers();
-  // Accounting QA is the public trial entrance. It has its own device/IP
-  // allowance and application-level usage gate, so it must not be intercepted
-  // by the platform membership screen before a visitor can try it.
-  if (requestHeaders.get("x-silu-public-qa") === "1") return children;
+  // Let the dedicated login route start ChatGPT authentication itself. Without
+  // this exception the global identity gate replaces that route with a generic
+  // card and loses the original return path.
+  if (requestHeaders.get("x-silu-auth-route") === "1") return children;
 
   const user = await getChatGPTUser();
   if (!user) {
