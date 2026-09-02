@@ -1074,7 +1074,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         else setNotice(result.error ?? "法規資料狀態暫時無法讀取");
       })
       .catch(() => undefined);
-    fetch("/api/judicial-sync")
+    fetch("/api/judicial-sync", { cache: "no-store" })
       .then(async (response) => {
         if (response.ok)
           setJudicialStatus((await response.json()) as JudicialStatus);
@@ -1110,6 +1110,32 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
   }, []);
 
   useEffect(() => {
+    if (activeTab !== "judicial") return;
+
+    let cancelled = false;
+    const refreshJudicialStatus = async () => {
+      try {
+        const response = await fetch("/api/judicial-sync", { cache: "no-store" });
+        if (response.ok && !cancelled) {
+          setJudicialStatus((await response.json()) as JudicialStatus);
+        }
+      } catch {
+        // The next polling cycle retries automatically.
+      }
+    };
+
+    void refreshJudicialStatus();
+    const timer = window.setInterval(() => {
+      void refreshJudicialStatus();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeTab]);
+
+  useEffect(() => {
     if (!judicialStatus?.schedule?.enabled || syncingJudicial) return;
     const taipeiNow = new Date(judicialClock + 8 * 3600_000);
     const hour = taipeiNow.getUTCHours();
@@ -1117,12 +1143,16 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     const second = taipeiNow.getUTCSeconds();
     const inWindow = hour >= 0 && hour < 6;
     const atNextTick = inWindow && minute > 0 && second === 0;
-    if (atNextTick) {
-      setJudicialLaunching(true);
-      const timer = window.setTimeout(() => setJudicialLaunching(false), 2600);
-      return () => window.clearTimeout(timer);
-    }
+    if (atNextTick) setJudicialLaunching(true);
   }, [judicialClock, judicialStatus?.schedule?.enabled, syncingJudicial]);
+
+  useEffect(() => {
+    if (!judicialLaunching) return;
+    const timer = window.setTimeout(() => {
+      setJudicialLaunching(false);
+    }, 2600);
+    return () => window.clearTimeout(timer);
+  }, [judicialLaunching]);
 
   function judicialNextRun() {
     const taipei = new Date(judicialClock + 8 * 3600_000);
@@ -1496,7 +1526,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             `下載 ${result.imported ?? 0} 筆、移除 ${result.removed ?? 0} 筆，尚待 ${result.pending ?? 0} 筆`)
         : (result.error ?? "司法院同步失敗"),
     );
-    const refreshed = await fetch("/api/judicial-sync");
+    const refreshed = await fetch("/api/judicial-sync", { cache: "no-store" });
     if (refreshed.ok)
       setJudicialStatus((await refreshed.json()) as JudicialStatus);
     setSyncingJudicial(false);
