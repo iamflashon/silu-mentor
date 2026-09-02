@@ -14,6 +14,11 @@ const PUBLIC_QA_PATHS = [
   // not carry a user email, so the admin-entry gate must let this request reach
   // the route-level verifier.
   "/api/sync/textbooks",
+  // The company RTX node is authenticated by Cloudflare Access Service Auth
+  // and a separate LOCAL_NODE_TOKEN inside each route. Service-token requests
+  // do not carry a Google user email, so they must bypass the browser admin gate
+  // before the route-level machine credential can be verified.
+  "/api/local-node",
 ];
 
 const NO_CACHE_PATHS = [
