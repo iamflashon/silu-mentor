@@ -230,6 +230,27 @@ export const memberExamAccess = sqliteTable(
   ],
 );
 
+export const questionEditAudits = sqliteTable(
+  "question_edit_audits",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    examCategory: text("exam_category").notNull(),
+    documentId: integer("document_id").notNull(),
+    questionId: integer("question_id").notNull(),
+    questionNumber: text("question_number").notNull().default(""),
+    editorMemberId: integer("editor_member_id").references(() => members.id, { onDelete: "set null" }),
+    editorEmail: text("editor_email").notNull(),
+    editorName: text("editor_name").notNull().default(""),
+    changedFieldsJson: text("changed_fields_json").notNull().default("[]"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("question_edit_audits_editor_created_idx").on(table.editorEmail, table.createdAt),
+    index("question_edit_audits_document_created_idx").on(table.documentId, table.createdAt),
+    index("question_edit_audits_question_created_idx").on(table.questionId, table.createdAt),
+  ],
+);
+
 export const medtechProducts = sqliteTable("medtech_products", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   productKey: text("product_key").notNull().unique(),

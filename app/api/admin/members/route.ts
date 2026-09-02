@@ -1,5 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
-import { documents, memberAccountDeletionAudits, memberExamAccess, memberPasswordResetRequests, medtechPaymentOrders, members } from "../../../../db/schema";
+import { documents, memberAccountDeletionAudits, memberExamAccess, memberPasswordResetRequests, medtechPaymentOrders, members, questionEditAudits } from "../../../../db/schema";
 import { requireAdmin } from "../../../../lib/member-auth";
 import { hashMemberPassword } from "../../../../lib/member-session-auth";
 
@@ -13,7 +13,8 @@ export async function GET(request: Request) {
   const paymentRows = await auth.db.select({ userKey: medtechPaymentOrders.userKey, orderId: medtechPaymentOrders.orderId, transactionId: medtechPaymentOrders.transactionId, packageName: medtechPaymentOrders.packageName, amount: medtechPaymentOrders.amount, currency: medtechPaymentOrders.currency, status: medtechPaymentOrders.status, environment: medtechPaymentOrders.environment, paidAt: medtechPaymentOrders.paidAt, activatedAt: medtechPaymentOrders.activatedAt, createdAt: medtechPaymentOrders.createdAt }).from(medtechPaymentOrders).orderBy(desc(medtechPaymentOrders.createdAt));
   const deletionAudits = await auth.db.select().from(memberAccountDeletionAudits).orderBy(desc(memberAccountDeletionAudits.requestedAt)).limit(100);
   const resetRequests = await auth.db.select().from(memberPasswordResetRequests).where(eq(memberPasswordResetRequests.status, "pending")).orderBy(desc(memberPasswordResetRequests.requestedAt));
-  return Response.json({ members: rows.map((member) => ({ ...member, passwordResetRequestedAt: resetRequests.find((item) => item.memberId === member.id)?.requestedAt ?? null, accesses: accessRows.filter((access) => access.memberId === member.id), paymentOrders: paymentRows.filter((order) => order.userKey.trim().toLowerCase() === member.email.trim().toLowerCase()) })), medtechDocuments, deletionAudits, retainedPaymentOrders: paymentRows.filter((order) => order.userKey.startsWith("deleted:")) });
+  const editAudits = await auth.db.select().from(questionEditAudits).orderBy(desc(questionEditAudits.createdAt)).limit(500);
+  return Response.json({ members: rows.map((member) => ({ ...member, passwordResetRequestedAt: resetRequests.find((item) => item.memberId === member.id)?.requestedAt ?? null, accesses: accessRows.filter((access) => access.memberId === member.id), paymentOrders: paymentRows.filter((order) => order.userKey.trim().toLowerCase() === member.email.trim().toLowerCase()) })), medtechDocuments, deletionAudits, editAudits, retainedPaymentOrders: paymentRows.filter((order) => order.userKey.startsWith("deleted:")) });
 }
 
 export async function POST(request: Request) {

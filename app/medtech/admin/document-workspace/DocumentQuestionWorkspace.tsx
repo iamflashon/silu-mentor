@@ -7,6 +7,7 @@ import { QuestionProofreadDialog } from "./QuestionProofreadDialog";
 import { ManualQuestionDialog } from "./ManualQuestionDialog";
 import { RepairMissingQuestionsButton } from "./RepairMissingQuestionsButton";
 import { useMedtechAdminAccess } from "../MedtechAdminAccess";
+import "./proofreader.css";
 import "../question-bank.css";
 import "../question-workbench.css";
 import "./page.css";
@@ -389,7 +390,8 @@ export default function DocumentQuestionWorkspace({
 }) {
   const accounting = category === "accounting";
   const dataStructure = category === "data-structure";
-  const { fullAdmin: medtechFullAdmin } = useMedtechAdminAccess();
+  const { fullAdmin: medtechFullAdmin, documentLibraryEditor } = useMedtechAdminAccess();
+  const limitedProofreader = category === "medtech" && documentLibraryEditor && !medtechFullAdmin;
   const allowDestructiveActions = central || category !== "medtech" || medtechFullAdmin;
   const categoryPaths =
     category === "data-structure"
@@ -650,7 +652,7 @@ export default function DocumentQuestionWorkspace({
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const id = Number(params.get("id"));
-    setQualityMode(params.get("quality") === "1");
+    setQualityMode(limitedProofreader || params.get("quality") === "1");
     setDocumentId(id);
     if (id > 0)
       void load(id).then((result) => {
@@ -1009,10 +1011,13 @@ export default function DocumentQuestionWorkspace({
   async function save() {
     if (!current) return;
     setSaving(true);
+    const payload = limitedProofreader
+      ? { id: current.id, stem: current.stem, options: current.options, teacherAnswer: current.teacherAnswer || current.correctAnswer || "", correctAnswer: current.teacherAnswer || current.correctAnswer || "", explanation: current.explanation }
+      : current;
     const response = await fetch(paths.questions, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(current),
+      body: JSON.stringify(payload),
     });
     const data = (await response.json().catch(() => ({}))) as {
       item?: Partial<Question>;
@@ -1876,6 +1881,8 @@ export default function DocumentQuestionWorkspace({
         </div>
         <div className="workspace-header-actions">
           <span>{notice}</span>
+          {limitedProofreader && <span className="proofreader-mode-badge">品質測試</span>}
+          {!limitedProofreader && <>
           <button
             type="button"
             onClick={() => {
@@ -1949,6 +1956,7 @@ export default function DocumentQuestionWorkspace({
                   " 題"
                 : "本文件 AI 完整解析已完成"}
           </button>
+          </>}
           <button disabled={!current || saving} onClick={() => void save()}>
             {saving ? "儲存中…" : "儲存本題"}
           </button>
@@ -1959,12 +1967,14 @@ export default function DocumentQuestionWorkspace({
           >
             下一題
           </button>
+          {!limitedProofreader && <>
           <button disabled={!current} onClick={downloadCurrentTxt}>
             下載本題 TXT
           </button>
           <button disabled={!questions.length} onClick={downloadAllTxtZip}>
             語音解析腳本 TXT ZIP
           </button>
+          </>}
         </div>
       </header>
       <section className="document-workspace-body">
@@ -2161,7 +2171,7 @@ export default function DocumentQuestionWorkspace({
             </div>
           )}
         </aside>
-        <article className="document-question-editor">
+        <article className={`document-question-editor${limitedProofreader ? " proofreader-editor" : ""}`}>
           {current ? (
             <>
               {qualityMode && (
@@ -2606,7 +2616,7 @@ export default function DocumentQuestionWorkspace({
                   )}
                 </>
               )}{" "}
-              {!accounting && (
+              {!limitedProofreader && !accounting && (
                 <QuestionMediaPanel
                   questionId={current.id}
                   questionNumber={current.questionNumber}

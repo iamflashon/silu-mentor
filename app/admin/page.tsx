@@ -18,6 +18,7 @@ type MemberAccessRow = { memberId: number; examCategory: string; status: string;
 type MemberRow = { id: number; email: string; displayName: string; role: "teacher" | "student"; canAdmin: boolean; status: "active" | "disabled"; className: string; lastSeenAt: string | null; createdAt: string; passwordResetRequestedAt?: string | null; accesses?: MemberAccessRow[]; paymentOrders?: PaymentOrderRow[] };
 type MedtechDocumentPermissionRow = { id: number; bookTitle: string; fileName: string; subject: string };
 type MemberDeletionAudit = { id: number; deletionRef: string; actorType: string; requestChannel: string; authenticationMethod: string; outcome: string; retainedPaymentOrders: number; paymentDataAnonymized: boolean; learningDataDeleted: boolean; requestedAt: string; completedAt: string | null };
+type QuestionEditAudit = { id: number; documentId: number; questionId: number; questionNumber: string; editorEmail: string; editorName: string; changedFieldsJson: string; createdAt: string };
 type ExternalBookData = { authors?: string[]; edition?: string; publishedAt?: string; isbn?: string; bookCode?: string; description?: string; catalogue?: string[]; completeness?: number };
 type ExternalIndexSource = { id: number; key: "lawdata" | "angle_books" | "angle_media" | "get" | "ibrain"; label: string; sourceUrl: string; status: string; lastSyncedAt: string | null; items: Array<{ id: number; title: string; url: string; summary: string; enabled: boolean; indexed: boolean; accessType: string; depth?: number; parentTitle?: string; kind?: string; subject?: string; teacher?: string; content?: string; publicLinks?: Array<{ label: string; url: string }>; book?: ExternalBookData }> };
 type ExternalRetrievalMatch = { id: number; source: string; title: string; summary: string; parentTitle: string; depth: number; enabled: boolean; indexed: boolean; excerpt: string };
@@ -626,6 +627,8 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [medtechPermissionDocuments, setMedtechPermissionDocuments] = useState<MedtechDocumentPermissionRow[]>([]);
   const [memberDeletionAudits, setMemberDeletionAudits] = useState<MemberDeletionAudit[]>([]);
+  const [questionEditAudits, setQuestionEditAudits] = useState<QuestionEditAudit[]>([]);
+  const [questionEditAuditQuery, setQuestionEditAuditQuery] = useState("");
   const [questionBankSummary, setQuestionBankSummary] = useState<QuestionBankSummary | null>(null);
   const [questionBankLoading, setQuestionBankLoading] = useState(false);
   const [questionBankCategory, setQuestionBankCategory] = useState("all");
@@ -3567,6 +3570,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
         setMembers(data.members ?? []);
         setMedtechPermissionDocuments(data.medtechDocuments ?? []);
         setMemberDeletionAudits(data.deletionAudits ?? []);
+        setQuestionEditAudits(data.editAudits ?? []);
       })
       .catch((error) => setMemberNotice(error instanceof Error ? error.message : "無法讀取學員名單"))
       .finally(() => setMembersLoading(false));
@@ -3978,6 +3982,9 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
               </article>)}
               {!members.length && <p className="usage-empty">尚無會員。學生首次登入後會自動出現在這裡。</p>}
             </div>}
+            <div className="cost-heading"><div><h3>題庫校對編輯紀錄</h3><p className="panel-sub">校對人員每次按「儲存本題」，都會保留帳號、時間、題號與修改欄位。</p></div><span className="source-count configured">{questionEditAudits.length} 筆</span></div>
+            <div className="member-create-fields"><label><span>查詢編輯紀錄</span><input value={questionEditAuditQuery} onChange={(event) => setQuestionEditAuditQuery(event.target.value)} placeholder="搜尋姓名、Email、文件編號或題號" /></label></div>
+            <div className="member-admin-list">{questionEditAudits.filter((audit) => !questionEditAuditQuery.trim() || `${audit.editorName} ${audit.editorEmail} ${audit.documentId} ${audit.questionNumber} ${audit.questionId}`.toLowerCase().includes(questionEditAuditQuery.trim().toLowerCase())).map((audit) => <article className="member-admin-row" key={audit.id}><div className="member-identity"><span>校</span><div><strong>{audit.editorName || audit.editorEmail}</strong><small>{audit.editorEmail}</small></div></div><div className="member-last-seen"><span>題目</span><strong>文件 {audit.documentId} · 第 {audit.questionNumber || audit.questionId} 題</strong></div><div className="member-last-seen"><span>修改欄位</span><strong>{parsedStringList(audit.changedFieldsJson).join("、") || "已儲存"}</strong></div><div className="member-last-seen"><span>儲存時間</span><strong>{new Date(audit.createdAt).toLocaleString("zh-TW")}</strong></div></article>)}</div>
             <div className="cost-heading"><div><h3>會員自助刪除稽核</h3><p className="panel-sub">不保留姓名、Email、IP 或裝置明文；付款資料僅以證明編號去識別化保留。</p></div><span className="source-count configured">{memberDeletionAudits.length} 筆</span></div>
             <div className="member-admin-list">{memberDeletionAudits.map((audit) => <article className="member-admin-row" key={audit.id}><div className="member-identity"><span>刪</span><div><strong>{audit.deletionRef}</strong><small>{new Date(audit.requestedAt).toLocaleString("zh-TW")}</small></div></div><div className="member-last-seen"><span>執行方式</span><strong>會員自助／密碼再次驗證</strong></div><div className="member-last-seen"><span>結果</span><strong>{audit.outcome === "completed" ? "已完成" : audit.outcome === "failed" ? "未完成" : "處理中"}</strong></div><div className="member-last-seen"><span>付款紀錄</span><strong>{audit.retainedPaymentOrders} 筆（{audit.paymentDataAnonymized ? "已匿名" : "待處理"}）</strong></div></article>)}</div>
           </section>
