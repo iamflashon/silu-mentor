@@ -15,7 +15,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 SUPPORTED_INBOX_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".json", ".jsonl", ".html", ".htm", ".csv"}
@@ -296,25 +296,55 @@ def process_video_job(job: dict, jobs_url: str, token: str, video_inbox: Path, v
     if not run_text(["ffmpeg", "-version"]):
         raise RuntimeError("找不到 FFmpeg，請先安裝並加入 PATH")
     output.mkdir(parents=True, exist_ok=True)
+    started_at = time.time()
+    duration = video_duration(source)
+    def report(percent: int, stage: str, message: str = "") -> None:
+        elapsed = max(0, int(time.time() - started_at))
+        remaining = int(elapsed * (100 - percent) / percent) if percent > 1 else 0
+        request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "progress", "progressPercent": percent, "progressStage": stage, "message": message or stage, "elapsedSeconds": elapsed, "estimatedRemainingSeconds": remaining})
+    report(2, "分析影片", "正在分析影片格式與長度")
     encode_args = ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "23", "-b:v", "5M", "-maxrate", "7M", "-bufsize", "10M", "-c:a", "aac", "-b:a", "160k", "-hls_time", "6", "-hls_playlist_type", "vod", "-hls_segment_filename", str(output / "segment-%05d.ts"), str(output / "index.m3u8")]
-    command = ["ffmpeg", "-y", "-hwaccel", "cuda", "-i", str(source), *encode_args]
-    result = subprocess.run(command, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-    if result.returncode != 0:
+    def encode(use_cuda_decode: bool) -> tuple[int, str]:
+        command = ["ffmpeg", "-y"] + (["-hwaccel", "cuda"] if use_cuda_decode else []) + ["-i", str(source), *encode_args, "-progress", "pipe:1", "-nostats"]
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+        last_report = 0.0
+        assert process.stdout is not None
+        for line in process.stdout:
+            if not line.startswith("out_time_ms=") or duration <= 0:
+                continue
+            try:
+                completed = int(line.split("=", 1)[1].strip()) / 1_000_000
+            except ValueError:
+                continue
+            now = time.time()
+            if now - last_report >= 4:
+                percent = min(74, max(3, int(completed / duration * 72) + 3))
+                report(percent, "轉換 HLS", f"正在轉換 HLS · {percent}%")
+                last_report = now
+        stderr = process.stderr.read() if process.stderr else ""
+        return process.wait(), stderr
+    returncode, stderr = encode(True)
+    if returncode != 0:
         # Some camera/screen-recording codecs cannot use CUDA decoding. Keep NVENC
         # encoding, but retry with FFmpeg software decoding before failing the job.
-        command = ["ffmpeg", "-y", "-i", str(source), *encode_args]
-        result = subprocess.run(command, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-    if result.returncode != 0:
-        raise RuntimeError(f"HLS 轉檔失敗：{result.stderr[-500:]}")
+        returncode, stderr = encode(False)
+    if returncode != 0:
+        raise RuntimeError(f"HLS 轉檔失敗：{stderr[-500:]}")
+    report(76, "產生縮圖", "HLS 已完成，正在產生課程縮圖")
     subprocess.run(["ffmpeg", "-y", "-ss", "5", "-i", str(source), "-frames:v", "1", "-q:v", "2", str(output / "poster.jpg")], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+    report(80, "產生字幕", "正在偵測並產生字幕；未安裝字幕模組時會自動略過")
     srt, _vtt = transcribe_video(source, output)
     media_url = jobs_url.rsplit("/jobs", 1)[0] + "/media"
     upload_names = [path.name for path in sorted(output.iterdir()) if path.is_file() and (path.name == "index.m3u8" or path.name == "poster.jpg" or path.name in {"transcript.srt", "subtitles.vtt"} or path.name.startswith("segment-"))]
-    for name in upload_names:
+    report(86, "上傳 R2", f"準備上傳 {len(upload_names)} 個 HLS 檔案")
+    for index, name in enumerate(upload_names, 1):
         query = urllib.parse.urlencode({"jobId": job_id, "path": name})
         upload_file(f"{media_url}?{query}", token, output / name)
+        if index == len(upload_names) or index % 5 == 0:
+            percent = min(98, 86 + int(index / max(1, len(upload_names)) * 12))
+            report(percent, "上傳 R2", f"正在上傳 R2 · {index}/{len(upload_names)} 個檔案")
     prefix = f"course-media/{job.get('resourceId')}/{job_id}"
-    request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": f"單畫質 HLS 已完成並上傳，共 {len(list(output.glob('segment-*.ts')))} 個切片", "hlsKey": f"{prefix}/index.m3u8", "posterKey": f"{prefix}/poster.jpg", "subtitleKey": f"{prefix}/transcript.srt" if srt else "", "durationSeconds": video_duration(source), "segmentCount": len(list(output.glob("segment-*.ts")))})
+    request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": f"單畫質 HLS 已完成並上傳，共 {len(list(output.glob('segment-*.ts')))} 個切片", "hlsKey": f"{prefix}/index.m3u8", "posterKey": f"{prefix}/poster.jpg", "subtitleKey": f"{prefix}/transcript.srt" if srt else "", "durationSeconds": duration, "segmentCount": len(list(output.glob("segment-*.ts")))})
 
 
 def process_next_job(jobs_url: str, token: str, inbox: Path, video_inbox: Path, video_output: Path, node_id: str) -> str:

@@ -34,11 +34,25 @@ export async function POST(request: Request) {
   const jobs = await readLocalNodeJobs();
   const job = jobs.find((item) => item.id === jobId);
   if (!job) return Response.json({ error: "找不到本機工作" }, { status: 404 });
+  if (body.status === "progress") {
+    job.status = "claimed";
+    job.nodeId = typeof body.nodeId === "string" ? body.nodeId.slice(0, 80) : "company-rtx4090";
+    job.progressPercent = Math.min(99, Math.max(0, Math.round(Number(body.progressPercent) || 0)));
+    job.progressStage = typeof body.progressStage === "string" ? body.progressStage.slice(0, 80) : "本機處理中";
+    job.message = typeof body.message === "string" ? body.message.slice(0, 240) : job.progressStage;
+    job.elapsedSeconds = Math.max(0, Math.round(Number(body.elapsedSeconds) || 0));
+    job.estimatedRemainingSeconds = Math.max(0, Math.round(Number(body.estimatedRemainingSeconds) || 0));
+    job.progressUpdatedAt = new Date().toISOString();
+    await writeLocalNodeJobs(jobs);
+    return Response.json({ ok: true, job });
+  }
   const ok = body.status === "completed";
   job.status = ok ? "completed" : "failed";
   job.completedAt = new Date().toISOString();
   job.nodeId = typeof body.nodeId === "string" ? body.nodeId.slice(0, 80) : "company-rtx4090";
   job.message = typeof body.message === "string" ? body.message.slice(0, 240) : ok ? "本機處理完成" : "本機處理失敗";
+  job.progressPercent = ok ? 100 : job.progressPercent;
+  job.progressStage = ok ? "處理完成" : "處理失敗";
   if (ok && job.kind === "transcode_video" && job.resourceId) {
     job.hlsKey = typeof body.hlsKey === "string" ? body.hlsKey.slice(0, 300) : `${job.mediaPrefix}/index.m3u8`;
     job.posterKey = typeof body.posterKey === "string" ? body.posterKey.slice(0, 300) : undefined;

@@ -1,6 +1,6 @@
 # iBrain 公司本機教材節點
 
-第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.5.0 新增公司本機單畫質 HLS 影音流程；支援 Cloudflare Access Service Token 雙重驗證，並可使用 Windows DPAPI 加密金鑰後於登入時自動啟動。原始 PDF、Word 與影片都留在公司電腦，雲端只接收文字索引或播放所需的 HLS 切片、清單、縮圖與字幕。
+第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.5.1 新增影音處理階段、百分比與剩餘時間回報；支援 Cloudflare Access Service Token 雙重驗證，並可使用 Windows DPAPI 加密金鑰後於登入時自動啟動。原始 PDF、Word 與影片都留在公司電腦，雲端只接收文字索引或播放所需的 HLS 切片、清單、縮圖與字幕。
 
 ## Windows 測試啟動
 
@@ -53,6 +53,8 @@ ffmpeg -hide_banner -encoders | Select-String h264_nvenc
 ```
 
 把 MP4、MOV、M4V 或 MKV 放入 `C:\iBrain-local-node\video-inbox`，再到總管理後台的「影音課程」建立任務。本機會以 RTX 4090 轉為單畫質 HLS；原始影片不會上傳或刪除。若希望同步產生 SRT／VTT 字幕，可選配安裝：
+
+轉檔期間會每數秒回報處理階段、百分比、已用時間及預估剩餘時間，管理後台會自動更新進度條。
 
 ```powershell
 python -m pip install faster-whisper

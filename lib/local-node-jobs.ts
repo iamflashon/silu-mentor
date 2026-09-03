@@ -32,6 +32,11 @@ export type LocalNodeJob = {
   subtitleKey?: string;
   durationSeconds?: number;
   segmentCount?: number;
+  progressPercent?: number;
+  progressStage?: string;
+  progressUpdatedAt?: string;
+  elapsedSeconds?: number;
+  estimatedRemainingSeconds?: number;
   indexStatus?: "queued" | "indexing" | "completed" | "failed";
 };
 
