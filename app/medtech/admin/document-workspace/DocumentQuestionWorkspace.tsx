@@ -201,7 +201,8 @@ type QualityFilter =
   | "garbled"
   | "spacing"
   | "linebreak"
-  | "type";
+  | "type"
+  | "manual-review";
 type DismissibleQualityFilter =
   "missing-answer" | "garbled" | "spacing" | "linebreak" | "type";
 const dismissibleQualityWarnings = new Set<DismissibleQualityFilter>([
@@ -217,6 +218,11 @@ function hasQualityAcknowledgement(
 ) {
   return (question.qualityAcknowledgements ?? []).some(
     (item) => item.warning === warning,
+  );
+}
+function needsManualReview(question: Question) {
+  return (question.qualityAcknowledgements ?? []).some(
+    (item) => item.warning === "manual-review-required",
   );
 }
 function hasSuspiciousLineBreak(value: string) {
@@ -313,6 +319,7 @@ function qualityFlags(question: Question) {
       question.explanation,
     ].some(hasSuspiciousLineBreak),
     type: (openEnded && hasAllOptions) || inferredOpenEnded,
+    "manual-review": needsManualReview(question),
   };
   const acknowledged = new Set(
     (question.qualityAcknowledgements ?? []).map((item) => item.warning),
@@ -1005,16 +1012,19 @@ export default function DocumentQuestionWorkspace({
     }
     location.href = `${paths.workspace}?id=${id}`;
   }
-  async function save() {
+  async function save(manualReviewRequired?: boolean) {
     if (!current) return;
     setSaving(true);
     const payload = limitedProofreader
       ? { id: current.id, stem: current.stem, options: current.options, teacherAnswer: current.teacherAnswer || current.correctAnswer || "", correctAnswer: current.teacherAnswer || current.correctAnswer || "", explanation: current.explanation }
       : current;
+    const requestPayload = typeof manualReviewRequired === "boolean"
+      ? { ...payload, manualReviewRequired }
+      : payload;
     const response = await fetch(paths.questions, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestPayload),
     });
     const data = (await response.json().catch(() => ({}))) as {
       item?: Partial<Question>;
@@ -1032,7 +1042,11 @@ export default function DocumentQuestionWorkspace({
         String(next.teacherAnswer || next.correctAnswer || "").trim(),
       );
       setNotice(
-        next.status === "disabled" && current.status === "published"
+        typeof manualReviewRequired === "boolean"
+          ? manualReviewRequired
+            ? "本題已儲存並標記為待人工確認；可從左側篩選集中處理。"
+            : "本題已儲存並取消人工確認標記。"
+          : next.status === "disabled" && current.status === "published"
           ? answerReady
             ? "本題內容已修改並下架；老師答案仍已確認，可免校對直接重新發布。"
             : "本題內容已修改，已自動下架並恢復待校對。"
@@ -1742,6 +1756,7 @@ export default function DocumentQuestionWorkspace({
       spacing: 0,
       linebreak: 0,
       type: 0,
+      "manual-review": 0,
     },
   );
   const qualityFiltered =
@@ -1972,6 +1987,22 @@ export default function DocumentQuestionWorkspace({
           </button>
           <button
             type="button"
+            disabled={!current || saving}
+            className={current && needsManualReview(current) ? "manual-review-active" : ""}
+            onClick={() => current && void save(!needsManualReview(current))}
+          >
+            {current && needsManualReview(current) ? "取消人工確認" : "標記待人工確認"}
+          </button>
+          <button
+            type="button"
+            disabled={!current || saving}
+            className={current && needsManualReview(current) ? "manual-review-active" : ""}
+            onClick={() => current && void save(!needsManualReview(current))}
+          >
+            {current && needsManualReview(current) ? "取消人工確認" : "標記待人工確認"}
+          </button>
+          <button
+            type="button"
             disabled={!current || saving || visibleQuestions.length < 2}
             onClick={openNextVisibleQuestion}
           >
@@ -2095,6 +2126,7 @@ export default function DocumentQuestionWorkspace({
                   ["spacing", "異常空格", qualityCounts.spacing],
                   ["linebreak", "疑似斷行", qualityCounts.linebreak],
                   ["type", "題型疑似誤判", qualityCounts.type],
+                  ["manual-review", "待人工確認", qualityCounts["manual-review"]],
                 ] as [QualityFilter, string, number][]
               ).map(([key, label, count]) => (
                 <button
