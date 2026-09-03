@@ -483,16 +483,22 @@ export async function PATCH(request: Request) {
   await db.update(examQuestions).set(values).where(eq(examQuestions.id, id));
   if (limitedEditor) {
     const documentId = Number(existing.sourceUrl.replace(/^document:/, ""));
-    await db.insert(questionEditAudits).values({
-      examCategory: "medtech",
-      documentId: Number.isInteger(documentId) && documentId > 0 ? documentId : 0,
-      questionId: existing.id,
-      questionNumber: existing.questionNumber,
-      editorMemberId: auth.member.id,
-      editorEmail: auth.member.email,
-      editorName: auth.member.displayName,
-      changedFieldsJson: JSON.stringify(changedFields.length ? changedFields : ["未變更內容（重新儲存）"]),
-    });
+    try {
+      await db.insert(questionEditAudits).values({
+        examCategory: "medtech",
+        documentId: Number.isInteger(documentId) && documentId > 0 ? documentId : 0,
+        questionId: existing.id,
+        questionNumber: existing.questionNumber,
+        editorMemberId: auth.member.id,
+        editorEmail: auth.member.email,
+        editorName: auth.member.displayName,
+        changedFieldsJson: JSON.stringify(changedFields.length ? changedFields : ["未變更內容（重新儲存）"]),
+      });
+    } catch (error) {
+      // The question update is the primary operation. A temporarily unavailable
+      // audit table must not turn an already-saved edit into a false failure.
+      console.error("[medtech] question edit audit failed", error);
+    }
   }
   return Response.json({ updated: true, editedBy: limitedEditor ? auth.member.email : undefined, changedFields });
 }
