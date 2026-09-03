@@ -1995,14 +1995,6 @@ export default function DocumentQuestionWorkspace({
           </button>
           <button
             type="button"
-            disabled={!current || saving}
-            className={current && needsManualReview(current) ? "manual-review-active" : ""}
-            onClick={() => current && void save(!needsManualReview(current))}
-          >
-            {current && needsManualReview(current) ? "取消人工確認" : "標記待人工確認"}
-          </button>
-          <button
-            type="button"
             disabled={!current || saving || visibleQuestions.length < 2}
             onClick={openNextVisibleQuestion}
           >
