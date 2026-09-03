@@ -93,6 +93,19 @@ export async function middleware(request: NextRequest) {
     return continueRequest(requestHeaders, request.nextUrl.pathname);
   }
 
+  // A verified ChatGPT/Cloudflare identity that has not been provisioned yet
+  // must reach the page-level membership gate. Redirecting it to member-login
+  // creates a loop because that page correctly sees an authenticated identity
+  // and sends the browser straight back to return_to.
+  const hasVerifiedIdentity = Boolean(
+    requestHeaders.get("oai-authenticated-user-email") ||
+      (requestHeaders.get("cf-access-authenticated-user-email") &&
+        requestHeaders.get("cf-access-jwt-assertion")),
+  );
+  if (hasVerifiedIdentity && !request.nextUrl.pathname.startsWith("/api/")) {
+    return continueRequest(requestHeaders, request.nextUrl.pathname);
+  }
+
   if (request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "此內部測試功能只限管理員" }, { status: 403 });
   }
