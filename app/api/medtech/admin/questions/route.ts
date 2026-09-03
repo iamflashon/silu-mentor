@@ -445,8 +445,8 @@ export async function PATCH(request: Request) {
   const allowed = ["year","subject","questionNumber","stem","correctAnswer","teacherAnswer","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","answerSource","answerStatus","simulatedAnswer","simulatedExplanation","simulatedCompleteExplanation","simulatedSource","simulatedAnswerStatus","simulatedTeacherNote","status"] as const;
   const values: Record<string,string | number | null> = {};
   for (const key of allowed) if (typeof body[key] === "string") values[key] = ["stem","explanation","completeExplanation","aiCompleteExplanation","teacherCompleteExplanation","voiceScript","simulatedExplanation","simulatedCompleteExplanation"].includes(key) ? sanitizeRichHtml(String(body[key]).trim()) : String(body[key]).trim();
-  const hasTeacherAnswer = typeof body.teacherAnswer === "string";
-  const teacherAnswer = hasTeacherAnswer ? String(body.teacherAnswer).trim().toUpperCase() : (typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "");
+  const includesTeacherAnswer = typeof body.teacherAnswer === "string";
+  const teacherAnswer = includesTeacherAnswer ? String(body.teacherAnswer).trim().toUpperCase() : (typeof body.correctAnswer === "string" ? body.correctAnswer.trim().toUpperCase() : "");
   const simulatedAnswer = typeof body.simulatedAnswer === "string" ? body.simulatedAnswer.trim().toUpperCase() : "";
   if (typeof body.teacherCompleteExplanation === "string") {
     const teacherCompleteExplanation = sanitizeRichHtml(String(body.teacherCompleteExplanation).trim());
@@ -454,7 +454,7 @@ export async function PATCH(request: Request) {
     // Keep the legacy export/audio field synchronized with the teacher-confirmed version.
     values.completeExplanation = teacherCompleteExplanation;
   }
-  if (hasTeacherAnswer || typeof body.correctAnswer === "string") {
+  if (includesTeacherAnswer || typeof body.correctAnswer === "string") {
     values.teacherAnswer = teacherAnswer;
     values.correctAnswer = teacherAnswer || null;
   }
