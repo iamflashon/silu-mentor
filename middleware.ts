@@ -5,6 +5,13 @@ const PUBLIC_QA_PATHS = [
   "/accounting/qa",
   "/member-login",
   "/member-register",
+  // These routes are owned by Sites authentication. They must remain
+  // reachable before a user has an identity; otherwise /member-login sends
+  // the browser to /signin-with-chatgpt and middleware redirects it straight
+  // back to /member-login, causing ERR_TOO_MANY_REDIRECTS.
+  "/signin-with-chatgpt",
+  "/signout-with-chatgpt",
+  "/callback",
   "/api/accounting/tutor",
   "/api/accounting/qa-access",
   "/api/accounting/history",
