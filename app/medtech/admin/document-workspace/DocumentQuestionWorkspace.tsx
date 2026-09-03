@@ -495,11 +495,7 @@ export default function DocumentQuestionWorkspace({
     }
   }, [questions]);
   useEffect(() => {
-    if (restoringPosition.current) {
-      restoringPosition.current = false;
-      return;
-    }
-    setRichEditorOpen(false);
+    if (restoringPosition.current) restoringPosition.current = false;
   }, [current?.id]);
   useEffect(() => {
     const handle = (event: Event) => {
@@ -1055,7 +1051,6 @@ export default function DocumentQuestionWorkspace({
       const result = await load(documentId);
       setQualityMode(true);
       setQualityFilter("all");
-      setRichEditorOpen(false);
       setNotice(`品質檢測完成，已重新檢查 ${result.loadedCount.toLocaleString()} 題。`);
     } catch {
       setNotice("品質檢測失敗，請稍後再試。");
@@ -1098,8 +1093,7 @@ export default function DocumentQuestionWorkspace({
       setQuestions((list) =>
         list.map((item) => (item.id === saved.id ? saved : item)),
       );
-      setRichEditorOpen(false);
-      setNotice("已自動移除本題異常空格並儲存；請在純文字檢視核對結果。");
+      setNotice("已自動移除本題異常空格並儲存；富文編輯維持開啟，請核對結果。");
     } else setNotice(data.error || "自動移除空格失敗");
     setSaving(false);
   }
@@ -1675,7 +1669,6 @@ export default function DocumentQuestionWorkspace({
     };
   }, [selectedKind, documentId, sourceUrl]);
   async function selectQuestion(question: Question) {
-    setRichEditorOpen(false);
     setCurrent(question);
     try {
       const previous = JSON.parse(
@@ -1686,7 +1679,7 @@ export default function DocumentQuestionWorkspace({
         JSON.stringify({
           ...previous,
           questionId: question.id,
-          richEditorOpen: false,
+          richEditorOpen,
         }),
       );
     } catch {}
