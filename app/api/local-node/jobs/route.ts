@@ -20,8 +20,27 @@ async function authorized(request: Request) {
 export async function GET(request: Request) {
   if (!(await authorized(request))) return Response.json({ error: "本機節點驗證失敗" }, { status: 401 });
   const jobs = await readLocalNodeJobs();
+  const staleBefore = Date.now() - 10 * 60 * 1000;
+  let released = false;
+  for (const item of jobs) {
+    if (item.status !== "claimed") continue;
+    const lastActivity = Date.parse(item.progressUpdatedAt ?? item.claimedAt ?? item.createdAt);
+    if (Number.isFinite(lastActivity) && lastActivity < staleBefore) {
+      item.status = "queued";
+      item.claimedAt = undefined;
+      item.progressPercent = 0;
+      item.progressStage = "等待重新處理";
+      item.message = "先前處理逾時，已自動交回本機佇列";
+      item.elapsedSeconds = undefined;
+      item.estimatedRemainingSeconds = undefined;
+      released = true;
+    }
+  }
   const job = jobs.find((item) => item.status === "queued");
-  if (!job) return new Response(null, { status: 204 });
+  if (!job) {
+    if (released) await writeLocalNodeJobs(jobs);
+    return new Response(null, { status: 204 });
+  }
   job.status = "claimed"; job.claimedAt = new Date().toISOString(); job.message = "公司本機處理中";
   await writeLocalNodeJobs(jobs);
   return Response.json({ job }, { headers: { "cache-control": "no-store" } });

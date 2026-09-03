@@ -9,6 +9,29 @@ export async function GET(request: Request) {
   return Response.json({ jobs: await readLocalNodeJobs() }, { headers: { "cache-control": "no-store" } });
 }
 
+export async function PATCH(request: Request) {
+  const auth = await requireAdmin(request);
+  if ("error" in auth) return auth.error;
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const jobId = typeof body.jobId === "string" ? body.jobId : "";
+  const jobs = await readLocalNodeJobs();
+  const job = jobs.find((item) => item.id === jobId && item.kind === "transcode_video");
+  if (!job) return Response.json({ error: "找不到影音處理工作" }, { status: 404 });
+  if (job.status === "completed") return Response.json({ error: "這支影片已處理完成，不需要重新處理" }, { status: 409 });
+  job.status = "queued";
+  job.claimedAt = undefined;
+  job.completedAt = undefined;
+  job.nodeId = undefined;
+  job.progressPercent = 0;
+  job.progressStage = "等待重新處理";
+  job.progressUpdatedAt = undefined;
+  job.elapsedSeconds = undefined;
+  job.estimatedRemainingSeconds = undefined;
+  job.message = "已重新加入本機處理佇列";
+  await writeLocalNodeJobs(jobs);
+  return Response.json({ ok: true, job });
+}
+
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;

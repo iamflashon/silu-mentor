@@ -46157,6 +46157,10 @@ html.frontend-costs-disabled .student-summary-meta > span {
 .local-video-history article em.job-claimed { background: #e8f3fb; color: #17668f; }
 .local-video-history article em.job-completed { background: #e8f7ef; color: #087354; }
 .local-video-history article em.job-failed { background: #fff0ef; color: #b13e38; }
+.video-job-actions { display: flex; align-items: center; gap: 8px; }
+.video-job-actions > button { padding: 7px 11px; border: 1px solid #287396; border-radius: 8px; background: #fff; color: #155d80; font-size: 12px; font-weight: 900; cursor: pointer; }
+.video-job-actions > button:hover:not(:disabled) { background: #eaf5fa; }
+.video-job-actions > button:disabled { opacity: .5; cursor: wait; }
 .video-progress-row { display: grid; grid-template-columns: 1fr 46px; align-items: center; gap: 12px; }
 .video-progress-track { height: 12px; overflow: hidden; border-radius: 999px; background: #e4edf1; }
 .video-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2384ae, #16a085); transition: width .4s ease; }
