@@ -60,19 +60,6 @@ function hasTeacherAnswer(question: { teacherAnswer?: string | null; correctAnsw
   return /^[A-D]$/i.test(String(question.teacherAnswer || question.correctAnswer || "").trim());
 }
 
-function qualityAcknowledgements(value: string | null | undefined) {
-  try {
-    const parsed = JSON.parse(value || "[]") as unknown;
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function questionItem<T extends { optionsJson: string | null; qualityAcknowledgementsJson: string }>(item: T) {
-  return { ...item, options: JSON.parse(item.optionsJson || "{}"), qualityAcknowledgements: qualityAcknowledgements(item.qualityAcknowledgementsJson) };
-}
-
 function hasPublishableAnswer(question: { teacherAnswer?: string | null; correctAnswer?: string | null; reviewStatus?: string | null; examName?: string | null; subject?: string | null; simulatedAnswer?: string | null }) {
   // A teacher answer is already an explicit answer confirmation. For full
   // simulation questions, a reviewed AI answer is also publishable even when
@@ -108,7 +95,8 @@ export async function GET(request: Request) {
             ? "臨床病毒學總論"
             : "其他";
     return Response.json({ item: {
-      ...questionItem(item),
+      ...item,
+      options: JSON.parse(item.optionsJson || "{}"),
       topic,
       isSimulation: item.examType === "mcq",
       aiAccuracy: item.simulatedAnswer && item.teacherAnswer ? (item.simulatedAnswer === item.teacherAnswer ? "correct" : "incorrect") : "pending",
@@ -205,7 +193,8 @@ export async function GET(request: Request) {
     items: items.map(item => {
       const topic = topicOf(item);
       return {
-        ...questionItem(item),
+        ...item,
+        options: JSON.parse(item.optionsJson || "{}"),
         topic,
         isSimulation: item.examType === "mcq",
         aiAccuracy: item.simulatedAnswer && item.teacherAnswer
@@ -308,7 +297,7 @@ export async function PATCH(request: Request) {
     if (forbiddenActions.some((key) => Object.prototype.hasOwnProperty.call(body, key))) {
       return Response.json({ error: "校對人員只能修改題幹、答案、選項與解析，不能執行批次、AI、發布或校對狀態操作" }, { status: 403 });
     }
-    const allowedKeys = new Set(["id", "stem", "options", "correctAnswer", "teacherAnswer", "explanation", "manualReviewRequired"]);
+    const allowedKeys = new Set(["id", "stem", "options", "correctAnswer", "teacherAnswer", "explanation"]);
     const forbiddenKey = Object.keys(body).find((key) => !allowedKeys.has(key));
     if (forbiddenKey) return Response.json({ error: `校對人員無權修改「${forbiddenKey}」欄位` }, { status: 403 });
   }
@@ -480,13 +469,6 @@ export async function PATCH(request: Request) {
     if (existing.status === "published") values.status = "disabled";
   }
   if (body.options && typeof body.options === "object") values.optionsJson = JSON.stringify(Object.fromEntries(Object.entries(body.options).map(([key,value])=>[key,sanitizeRichHtml(String(value))])));
-  if (typeof body.manualReviewRequired === "boolean") {
-    const existingAcknowledgements = qualityAcknowledgements(existing.qualityAcknowledgementsJson) as Array<Record<string, unknown>>;
-    const withoutManualReview = existingAcknowledgements.filter((item) => item?.warning !== "manual-review-required");
-    values.qualityAcknowledgementsJson = JSON.stringify(body.manualReviewRequired
-      ? [...withoutManualReview, { warning: "manual-review-required", confirmedAt: new Date().toISOString(), confirmedBy: auth.member.email }]
-      : withoutManualReview);
-  }
   if (body.sourceOrder !== undefined) {
     const sourceOrder = Number(body.sourceOrder);
     values.sourceOrder = Number.isInteger(sourceOrder) && sourceOrder > 0 ? sourceOrder : null;
@@ -518,8 +500,7 @@ export async function PATCH(request: Request) {
       console.error("[medtech] question edit audit failed", error);
     }
   }
-  const [updated] = await db.select().from(examQuestions).where(eq(examQuestions.id, id)).limit(1);
-  return Response.json({ updated: true, item: updated ? questionItem(updated) : undefined, editedBy: limitedEditor ? auth.member.email : undefined, changedFields });
+  return Response.json({ updated: true, editedBy: limitedEditor ? auth.member.email : undefined, changedFields });
 }
 
 export async function DELETE(request: Request) {
