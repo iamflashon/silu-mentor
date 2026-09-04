@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { getDb } from "../../../../db";
-import { learningResources, resourceSegments } from "../../../../db/schema";
+import { learningResources, members, posnerCourseEntitlements, posnerCourseProducts, resourceSegments } from "../../../../db/schema";
+import { getChatGPTUser } from "../../../chatgpt-auth";
+import PosnerCourseAccess from "./PosnerCourseAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,9 @@ export default async function PosnerCoursePage({ params }: { params: Promise<{ i
   const db = await getDb();
   const [course] = await db.select().from(learningResources).where(and(eq(learningResources.id, resourceId), eq(learningResources.resourceType, "course"))).limit(1);
   if (!course || course.accessType !== "posner" || course.status !== "active") notFound();
+  const [product] = await db.select().from(posnerCourseProducts).where(eq(posnerCourseProducts.resourceId,resourceId)).limit(1);
+  const user=await getChatGPTUser();let entitlement:null|{expiresAt:Date}=null;
+  if(user){const [member]=await db.select({id:members.id}).from(members).where(eq(members.email,user.email)).limit(1);if(member)[entitlement]=await db.select({expiresAt:posnerCourseEntitlements.expiresAt}).from(posnerCourseEntitlements).where(and(eq(posnerCourseEntitlements.memberId,member.id),eq(posnerCourseEntitlements.resourceId,resourceId),eq(posnerCourseEntitlements.status,"active"),gt(posnerCourseEntitlements.expiresAt,new Date()))).limit(1)}
   const highlights = await db.select({ id: resourceSegments.id, title: resourceSegments.title, summary: resourceSegments.summary, startSeconds: resourceSegments.startSeconds })
     .from(resourceSegments)
     .where(and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, "subtitle")))
@@ -38,11 +43,11 @@ export default async function PosnerCoursePage({ params }: { params: Promise<{ i
         <div className="posner-detail-copy">
           <span>完整影音課程</span><h1>{title}</h1>
           <p>{course.creator || "波斯納講師"}老師</p>
-          <div className="posner-course-note">課程將依正式售價開放 LINE Pay 購買；付款確認後會立即加入「我的課程」。</div>
-          <button className="posner-pay-button" type="button" disabled>LINE Pay 商品設定中</button>
-          <small>目前為建置預覽，尚未開放扣款。</small>
+          <div className="posner-course-note">{entitlement?`已開通，可觀看至 ${entitlement.expiresAt.toLocaleDateString("zh-TW")}`:product?.salesEnabled?`NT$${product.price}・開通 ${product.accessDays} 天・付款後立即觀看`:"目前提供精彩片段試看"}</div>
         </div>
       </section>
+
+      {course.sourceUrl&&<PosnerCourseAccess courseId={course.id} title={course.title} sourceUrl={course.sourceUrl} owned={Boolean(entitlement)} expiresAt={entitlement?.expiresAt.toISOString()??null} price={product?.price??0} accessDays={product?.accessDays??365} previewStartSeconds={product?.previewStartSeconds??0} previewDurationSeconds={product?.previewDurationSeconds??300} salesEnabled={product?.salesEnabled??false} signedIn={Boolean(user)}/>}
 
       <section className="posner-detail-content">
         <div>

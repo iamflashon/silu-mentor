@@ -1,13 +1,15 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { learningResources } from "../../../../db/schema";
+import { learningResources, posnerCourseProducts, posnerCourseVouchers, resourceSegments } from "../../../../db/schema";
+import { linePayConfig } from "../../../../lib/line-pay";
 import { requireAdmin } from "../../../../lib/member-auth";
 
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
-  const courses = await auth.db.select({ id: learningResources.id, title: learningResources.title, subject: learningResources.subject, creator: learningResources.creator, description: learningResources.description, status: learningResources.status, accessType: learningResources.accessType, sourceUrl: learningResources.sourceUrl, hasCover: learningResources.coverStorageKey }).from(learningResources).where(eq(learningResources.resourceType, "course")).orderBy(desc(learningResources.createdAt));
-  return Response.json({ courses }, { headers: { "cache-control": "no-store" } });
+  const rows = await auth.db.select({ id: learningResources.id, title: learningResources.title, subject: learningResources.subject, creator: learningResources.creator, description: learningResources.description, status: learningResources.status, accessType: learningResources.accessType, sourceUrl: learningResources.sourceUrl, hasCover: learningResources.coverStorageKey, price: posnerCourseProducts.price, accessDays: posnerCourseProducts.accessDays, previewStartSeconds: posnerCourseProducts.previewStartSeconds, previewDurationSeconds: posnerCourseProducts.previewDurationSeconds, salesEnabled: posnerCourseProducts.salesEnabled }).from(learningResources).leftJoin(posnerCourseProducts, eq(posnerCourseProducts.resourceId, learningResources.id)).where(eq(learningResources.resourceType, "course")).orderBy(desc(learningResources.createdAt));
+  const config = await linePayConfig();
+  return Response.json({ courses: rows.map(row => ({...row, price: row.price ?? 0, accessDays: row.accessDays ?? 365, previewStartSeconds: row.previewStartSeconds ?? 0, previewDurationSeconds: row.previewDurationSeconds ?? 300, salesEnabled: row.salesEnabled ?? false})), linePay: { environment: config.environment, configured: Boolean(config.channelId && config.channelSecret) } }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function PUT(request: Request) {
@@ -19,9 +21,36 @@ export async function PUT(request: Request) {
   const [current] = await auth.db.select().from(learningResources).where(eq(learningResources.id, id)).limit(1);
   if (!current || current.resourceType !== "course") return Response.json({ error: "找不到影音課程" }, { status: 404 });
   const published = body.published === true;
+  const price = Math.max(0, Math.floor(Number(body.price) || 0));
+  const accessDays = Math.max(1, Math.min(3650, Math.floor(Number(body.accessDays) || 365)));
+  const previewStartSeconds = Math.max(0, Math.floor(Number(body.previewStartSeconds) || 0));
+  const previewDurationSeconds = Math.max(0, Math.min(7200, Math.floor(Number(body.previewDurationSeconds) || 0)));
+  const salesEnabled = body.salesEnabled === true;
+  if (salesEnabled && price < 1) return Response.json({ error: "開放購買前請設定售價" }, { status: 400 });
   if (published && !current.sourceUrl.trim()) return Response.json({ error: "影片尚未處理完成，暫時不能發布" }, { status: 409 });
   const [course] = await auth.db.update(learningResources).set({ title: title.slice(0, 180), creator: String(body.creator ?? "陳友心").trim().slice(0, 100), subject: String(body.subject ?? "主題講座").trim().slice(0, 100), description: String(body.description ?? "").trim().slice(0, 3000), accessType: published ? "posner" : current.accessType === "posner" ? "owned" : current.accessType, status: published ? "active" : "draft", updatedAt: new Date() }).where(eq(learningResources.id, id)).returning();
+  await auth.db.insert(posnerCourseProducts).values({resourceId:id,price,accessDays,previewStartSeconds,previewDurationSeconds,salesEnabled,updatedAt:new Date()}).onConflictDoUpdate({target:posnerCourseProducts.resourceId,set:{price,accessDays,previewStartSeconds,previewDurationSeconds,salesEnabled,updatedAt:new Date()}});
   return Response.json({ course });
+}
+
+export async function PATCH(request: Request) {
+  const auth = await requireAdmin(request); if ("error" in auth) return auth.error;
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const resourceId = Number(body.id);
+  if (!resourceId) return Response.json({error:"請選擇課程"},{status:400});
+  if (body.action === "recommend-preview") {
+    const [segment] = await auth.db.select({startSeconds:resourceSegments.startSeconds,title:resourceSegments.title,summary:resourceSegments.summary}).from(resourceSegments).where(and(eq(resourceSegments.resourceId,resourceId),eq(resourceSegments.segmentType,"subtitle"))).orderBy(desc(resourceSegments.recommended),desc(resourceSegments.importance),sql`length(${resourceSegments.summary}) desc`).limit(1);
+    if (!segment?.startSeconds) return Response.json({error:"這門課尚無可推薦的摘要時間點"},{status:404});
+    return Response.json({startSeconds:segment.startSeconds,title:segment.title||"AI 推薦重點",summary:segment.summary});
+  }
+  if (body.action === "create-voucher") {
+    const accessDays=Math.max(1,Math.min(3650,Math.floor(Number(body.accessDays)||365)));
+    const custom=String(body.code??"").trim().toUpperCase().replace(/[^A-Z0-9-]/g,"");
+    const code=custom||`POS-${crypto.randomUUID().replaceAll("-","").slice(0,4).toUpperCase()}-${crypto.randomUUID().replaceAll("-","").slice(0,4).toUpperCase()}`;
+    await auth.db.insert(posnerCourseVouchers).values({resourceId,code,accessDays});
+    return Response.json({code});
+  }
+  return Response.json({error:"不支援的操作"},{status:400});
 }
 
 export async function POST(request: Request) {

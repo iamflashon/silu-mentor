@@ -547,6 +547,13 @@
       "when": 1788430302000,
       "tag": "0087_question_edit_audits_hotfix",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1788517476142,
+      "tag": "0078_foamy_madame_hydra",
+      "breakpoints": true
     }
   ]
 }

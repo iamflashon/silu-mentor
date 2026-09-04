@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import "./posner.css";
 import "./thumbnail.css";
+import "./commerce.css";
 
 export const metadata: Metadata = {
   title: "波斯納書店咖啡館｜影音讀書館",

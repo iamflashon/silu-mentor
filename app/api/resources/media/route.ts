@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { learningResources } from "../../../../db/schema";
+import { learningResources, members, posnerCourseEntitlements, posnerCourseProducts } from "../../../../db/schema";
+import { authenticatedEmail } from "../../../../lib/member-auth";
 
 function isManifest(url: string, contentType = "") {
   return /\.m3u8(?:[?#].*)?$/i.test(url) || contentType.includes("mpegurl");
@@ -51,6 +52,13 @@ function rewriteManifest(body: string, baseUrl: string, request: Request, resour
     .join("\n");
 }
 
+function previewManifest(body:string,start:number,duration:number){
+  if(duration<=0)return "#EXTM3U\n#EXT-X-ENDLIST\n";
+  const lines=body.split(/\r?\n/),out:string[]=[],headers:string[]=[];let elapsed=0,sequence=0,firstSequence=0,picked=false;
+  for(let i=0;i<lines.length;i++){const line=lines[i];if(line.startsWith("#EXT-X-MEDIA-SEQUENCE:"))firstSequence=Number(line.split(":")[1])||0;else if(line.startsWith("#EXT-X-")&&!line.startsWith("#EXT-X-ENDLIST")&&!line.startsWith("#EXTINF"))headers.push(line);if(line.startsWith("#EXTINF:")){const len=Number(line.slice(8).split(",")[0])||0,uri=lines[i+1]||"",segmentStart=elapsed,segmentEnd=elapsed+len;if(segmentEnd>start&&segmentStart<start+duration){if(!picked){out.push("#EXTM3U",...headers.filter(x=>!x.startsWith("#EXT-X-MEDIA-SEQUENCE:")),`#EXT-X-MEDIA-SEQUENCE:${firstSequence+sequence}`);picked=true}out.push(line,uri)}elapsed=segmentEnd;sequence++;i++}}
+  return [...out,"#EXT-X-ENDLIST"].join("\n");
+}
+
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const resourceId = Number(params.get("resourceId"));
@@ -58,12 +66,19 @@ export async function GET(request: Request) {
   if (!resourceId || !target) return new Response("缺少影音資源", { status: 400 });
 
   const db = await getDb();
-  const [resource] = await db.select({ sourceUrl: learningResources.sourceUrl })
+  const [resource] = await db.select({ sourceUrl: learningResources.sourceUrl, accessType:learningResources.accessType })
     .from(learningResources)
     .where(eq(learningResources.id, resourceId))
     .limit(1);
   if (!resource?.sourceUrl || !isSafeTarget(resource.sourceUrl, target)) {
     return new Response("不允許的影音來源", { status: 403 });
+  }
+  let preview:null|{start:number;duration:number}=null;
+  if(resource.accessType==="posner"){
+    const [product]=await db.select().from(posnerCourseProducts).where(eq(posnerCourseProducts.resourceId,resourceId)).limit(1);
+    const email=authenticatedEmail(request);let entitled=false;
+    if(email){const [member]=await db.select({id:members.id}).from(members).where(eq(members.email,email)).limit(1);if(member){const [access]=await db.select({id:posnerCourseEntitlements.id}).from(posnerCourseEntitlements).where(and(eq(posnerCourseEntitlements.memberId,member.id),eq(posnerCourseEntitlements.resourceId,resourceId),eq(posnerCourseEntitlements.status,"active"),gt(posnerCourseEntitlements.expiresAt,new Date()))).limit(1);entitled=Boolean(access)}}
+    if(!entitled)preview={start:product?.previewStartSeconds??0,duration:product?.previewDurationSeconds??300};
   }
 
   const source = new URL(resource.sourceUrl);
@@ -92,7 +107,7 @@ export async function GET(request: Request) {
   const responseHeaders = new Headers();
   responseHeaders.set("access-control-allow-origin", "*");
   responseHeaders.set("access-control-expose-headers", "content-length,content-range,accept-ranges");
-  responseHeaders.set("cache-control", "public, max-age=60");
+  responseHeaders.set("cache-control", preview ? "private, no-store" : "public, max-age=60");
   if (contentType) responseHeaders.set("content-type", contentType);
   for (const name of ["content-length", "content-range", "accept-ranges", "etag"]) {
     const value = upstream.headers.get(name);
@@ -100,7 +115,8 @@ export async function GET(request: Request) {
   }
 
   if (isManifest(target, contentType)) {
-    const body = rewriteManifest(await upstream.text(), target, request, resourceId);
+    const original=await upstream.text();
+    const body = rewriteManifest(preview ? previewManifest(original,preview.start,preview.duration) : original, target, request, resourceId);
     responseHeaders.set("content-type", "application/vnd.apple.mpegurl");
     responseHeaders.delete("content-length");
     return new Response(body, { status: 200, headers: responseHeaders });

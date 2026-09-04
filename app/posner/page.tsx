@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../db";
-import { learningResources } from "../../db/schema";
+import { learningResources, posnerCourseProducts } from "../../db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,11 @@ export default async function PosnerHome() {
     description: learningResources.description,
     hasCover: learningResources.coverStorageKey,
     status: learningResources.status,
+    price: posnerCourseProducts.price,
+    accessDays: posnerCourseProducts.accessDays,
+    salesEnabled: posnerCourseProducts.salesEnabled,
   }).from(learningResources)
+    .leftJoin(posnerCourseProducts,eq(posnerCourseProducts.resourceId,learningResources.id))
     .where(and(eq(learningResources.resourceType, "course"), eq(learningResources.accessType, "posner"), eq(learningResources.status, "active")))
     .orderBy(desc(learningResources.createdAt))
     .limit(2);
@@ -63,7 +67,7 @@ export default async function PosnerHome() {
               <div className="posner-course-info">
                 <span>{featured.status === "active" ? "開放選購" : "內容準備中"}</span>
                 <h3>{featuredTitle}</h3>
-                <p>{featured.creator || "波斯納講師"} · 完整影音課程</p>
+                <p>{featured.creator || "波斯納講師"} · 完整影音課程{featured.salesEnabled ? ` · NT$${featured.price}／${featured.accessDays} 天` : ""}</p>
                 <div><b>查看課程內容</b><i aria-hidden="true">→</i></div>
               </div>
             </Link>

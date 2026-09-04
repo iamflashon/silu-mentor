@@ -1528,6 +1528,63 @@ export const learningResources = sqliteTable("learning_resources", {
     .$defaultFn(() => new Date()),
 });
 
+export const posnerCourseProducts = sqliteTable("posner_course_products", {
+  resourceId: integer("resource_id").primaryKey().references(() => learningResources.id, { onDelete: "cascade" }),
+  price: integer("price").notNull().default(0),
+  accessDays: integer("access_days").notNull().default(365),
+  previewStartSeconds: integer("preview_start_seconds").notNull().default(0),
+  previewDurationSeconds: integer("preview_duration_seconds").notNull().default(300),
+  salesEnabled: integer("sales_enabled", { mode: "boolean" }).notNull().default(false),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const posnerCourseEntitlements = sqliteTable("posner_course_entitlements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  resourceId: integer("resource_id").notNull().references(() => learningResources.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("active"),
+  source: text("source").notNull().default("line_pay"),
+  startsAt: integer("starts_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  reference: text("reference").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("posner_entitlements_member_resource_unique").on(table.memberId, table.resourceId),
+  index("posner_entitlements_expiry_idx").on(table.memberId, table.status, table.expiresAt),
+]);
+
+export const posnerPaymentOrders = sqliteTable("posner_payment_orders", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  resourceId: integer("resource_id").notNull().references(() => learningResources.id, { onDelete: "cascade" }),
+  orderId: text("order_id").notNull().unique(),
+  transactionId: text("transaction_id").unique(),
+  environment: text("environment").notNull().default("sandbox"),
+  amount: integer("amount").notNull(),
+  currency: text("currency").notNull().default("TWD"),
+  status: text("status").notNull().default("pending"),
+  titleSnapshot: text("title_snapshot").notNull(),
+  accessDaysSnapshot: integer("access_days_snapshot").notNull(),
+  returnCode: text("return_code"),
+  returnMessage: text("return_message"),
+  paidAt: integer("paid_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("posner_orders_member_created_idx").on(table.memberId, table.createdAt)]);
+
+export const posnerCourseVouchers = sqliteTable("posner_course_vouchers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  resourceId: integer("resource_id").notNull().references(() => learningResources.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+  accessDays: integer("access_days").notNull(),
+  status: text("status").notNull().default("active"),
+  redeemBy: integer("redeem_by", { mode: "timestamp" }),
+  redeemedAt: integer("redeemed_at", { mode: "timestamp" }),
+  redeemedByMemberId: integer("redeemed_by_member_id").references(() => members.id, { onDelete: "set null" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("posner_vouchers_resource_status_idx").on(table.resourceId, table.status)]);
+
 export const courseCollections = sqliteTable("course_collections", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   title: text("title").notNull(),
