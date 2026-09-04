@@ -1,17 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ListeningPlayer } from "../../listening-player";
 import MedtechHeaderActions from "../MedtechHeaderActions";
 
-type Subtitle = {
-  id: number;
-  segmentId: number | null;
-  startSeconds: number;
-  endSeconds: number;
-  text: string;
-  sequence: number;
-};
 type Question = {
   id: number;
   year: string;
@@ -22,8 +13,6 @@ type Question = {
   answerSource: string;
   topic?: string;
   questionNumber?: string;
-  audioUrl?: string;
-  subtitles?: Subtitle[];
 };
 type Message = {
   role: "student" | "mentor";
@@ -44,7 +33,6 @@ type GuidedStateOverrides = {
   selectedAnswer?: string;
   hintUsed?: boolean;
   comparisonUsed?: boolean;
-  voiceUnlocked?: boolean;
   messages?: Message[];
   events?: GuidedEvent[];
   startedAt?: string;
@@ -97,7 +85,6 @@ export default function MedtechAiStudy() {
   const [hintUsed, setHintUsed] = useState(false);
   const [comparisonUsed, setComparisonUsed] = useState(false);
   const [aiCredits, setAiCredits] = useState(10);
-  const [voiceUnlocked, setVoiceUnlocked] = useState(false);
   const [paywall, setPaywall] = useState<Paywall | null>(null);
   const [recordSaved, setRecordSaved] = useState(false);
   const chatRef = useRef<HTMLElement | null>(null);
@@ -142,7 +129,6 @@ export default function MedtechAiStudy() {
           : null,
       hintUsed: overrides.hintUsed ?? hintUsed,
       comparisonUsed: overrides.comparisonUsed ?? comparisonUsed,
-      voiceUnlocked: overrides.voiceUnlocked ?? voiceUnlocked,
       messages: overrides.messages ?? messages,
       events: overrides.events ?? eventsRef.current,
       startedAt:
@@ -191,7 +177,6 @@ export default function MedtechAiStudy() {
     setSelectedAnswer("");
     setHintUsed(false);
     setComparisonUsed(false);
-    setVoiceUnlocked(false);
     try {
       const query = new URLSearchParams({ limit: "1" });
       if (nextTopic) query.set("topic", nextTopic);
@@ -205,7 +190,7 @@ export default function MedtechAiStudy() {
         setPaywall({
           kind: "credits",
           title: "請先選擇題目包",
-          text: "即時 AI 追問已暫停；判斷提示、選項比較、完整解析與老師語音均包含在全庫通行證內。",
+          text: "即時 AI 追問已暫停；判斷提示、選項比較與完整解析均包含在全庫通行證內。",
           url: "/medtech/chapters",
         });
         throw new Error("請先選擇可使用的題目包。");
@@ -217,8 +202,6 @@ export default function MedtechAiStudy() {
       const questionTopic = questionItem.topic || nextTopic;
       const nextQuestion = {
         ...questionItem,
-        audioUrl:
-          questionTopic === "全真模擬試題" ? questionItem.audioUrl : undefined,
       };
       const initialMessages: Message[] = [
         {
@@ -244,7 +227,6 @@ export default function MedtechAiStudy() {
         selectedAnswer: "",
         hintUsed: false,
         comparisonUsed: false,
-        voiceUnlocked: false,
         messages: initialMessages,
         events: eventsRef.current,
         startedAt: new Date(startedAtRef.current).toISOString(),
@@ -275,7 +257,7 @@ export default function MedtechAiStudy() {
     if (!value || !question || loading) return;
     setInput("");
     setError(
-      "即時 AI 追問目前暫停開放，請使用解題提示、選項比較、完整解析與老師語音。",
+      "即時 AI 追問目前暫停開放，請使用解題提示、選項比較與完整解析。",
     );
   }
 
@@ -343,21 +325,6 @@ export default function MedtechAiStudy() {
     }
   }
 
-  async function unlockVoice() {
-    if (!question) return;
-    if (!question.audioUrl || question.audioUrl === "__voice_missing__") {
-      setError("這一題尚未綁定老師語音檔，請在後台重新匯入語音包後再試。");
-      return;
-    }
-    setVoiceUnlocked(true);
-    const nextEvents = appendGuidedEvent({
-      type: "voice",
-      label: "開啟老師語音解析",
-      detail: "題目包內含",
-    });
-    void queueGuidedRecord({ voiceUnlocked: true, events: nextEvents });
-  }
-
   function chooseAnswer(letter: string) {
     if (loading || selectedAnswer || !question) return;
     const correct = letter === question.answer;
@@ -415,7 +382,7 @@ export default function MedtechAiStudy() {
         <aside className="medtech-ai-settings">
           <span>醫檢解題引導</span>
           <h1>從一道題，真正弄懂一個觀念</h1>
-          <p>先看已整理的判斷提示，再作答並比較四個選項；完整解析與康情老師語音均包含在全庫通行證內。</p>
+          <p>先看已整理的判斷提示，再作答並比較四個選項；完整解析包含在全庫通行證內。</p>
           <label>
             我的程度
             <div>
@@ -490,7 +457,7 @@ export default function MedtechAiStudy() {
                   ))}
                 </div>
                 <small className="medtech-answer-hint">
-                  流程：先取得解題提示，再選答案；選完後即可查看選項比較與老師語音。
+                  流程：先取得解題提示，再選答案；選完後即可查看選項比較與完整解析。
                 </small>
               </article>
               <div className="medtech-ai-quick">
@@ -518,46 +485,12 @@ export default function MedtechAiStudy() {
                       ? "已完成比較"
                       : "比較選項"}
                 </button>
-                {question.audioUrl && (
-                  <button
-                    className="voice-explanation-button"
-                    disabled={loading || !selectedAnswer || voiceUnlocked}
-                    aria-busy={loading}
-                    onClick={() => void unlockVoice()}
-                  >
-                    {loading
-                      ? loadingLabel("開啟語音中…")
-                      : voiceUnlocked
-                        ? "已開啟老師語音完整解析"
-                        : "播放老師語音完整解析"}
-                  </button>
-                )}
               </div>
               <div className="medtech-action-note">
                 {!selectedAnswer
                   ? "目前只能取得一個提示；請先思考並選擇答案。"
-                  : "已完成作答：可以查看選項比較、完整解析與老師語音。"}
+                  : "已完成作答：可以查看選項比較與完整解析。"}
               </div>
-              {voiceUnlocked && question.audioUrl && (
-                <section className="medtech-voice-unlocked">
-                  <div>
-                    <b>本題語音完整解析</b>
-                    <span>題目包內容，可直接播放</span>
-                  </div>
-                  <ListeningPlayer
-                    compact
-                    item={{
-                      id: question.id,
-                      title: `第 ${question.questionNumber || question.id} 題語音完整解析`,
-                      year: question.year,
-                      subject: question.topic || "醫事檢驗",
-                      questionText: question.stem,
-                      audioUrl: question.audioUrl,
-                      subtitles: question.subtitles || [],
-                    }}
-                  />
-                </section>
-              )}
               <div ref={answerRef} />
               <section className="medtech-ai-chat" ref={chatRef}>
                 {messages.map((message, index) => (

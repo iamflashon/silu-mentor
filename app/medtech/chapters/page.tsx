@@ -396,7 +396,7 @@ export default async function MedtechChapters({
           <span>
             章節刷題不跨章節；開通後所有單元立即解鎖，不必等待上一關。
             系統保存每個單元的作答時間、答對率、錯題與需加強觀念，並提供判斷提示、
-            四個選項比較、完整解析與康情老師語音。
+            四個選項比較與完整解析。
           </span>
         </div>
         <div className="medtech-chapter-list">

@@ -109,6 +109,7 @@ function narrationText(question: {
 }
 
 export async function GET(request: Request) {
+  if (!MEDTECH_VOICE_ENABLED) return voiceDisabled();
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
   const db = await getDb();
@@ -163,6 +164,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (!MEDTECH_VOICE_ENABLED) return voiceDisabled();
   const auth = await requireMedtechAdmin(request);
   if ("error" in auth) return auth.error;
   const form = await request.formData();
@@ -382,4 +384,9 @@ export async function POST(request: Request) {
     importedSubtitles: subtitleFiles.length,
     results,
   }, { status: 201 });
+}
+const MEDTECH_VOICE_ENABLED = false;
+
+function voiceDisabled() {
+  return Response.json({ error: "醫檢語音功能目前已暫停" }, { status: 410 });
 }

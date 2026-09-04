@@ -158,7 +158,7 @@ export function RepairMissingQuestionsButton({
   const voiceZipInput = useRef<HTMLInputElement>(null);
 
   async function repair() {
-    if (!confirm("系統會重新讀取這份原稿：把原稿明確標示的答案填入目前空白的老師答案，並補上缺少的題目。已有的老師答案、AI 答案、解析與語音資料都不會覆蓋。確定校對？")) return;
+    if (!confirm("系統會重新讀取這份原稿：把原稿明確標示的答案填入目前空白的老師答案，並補上缺少的題目。已有的老師答案、AI 答案與解析都不會覆蓋。確定校對？")) return;
     setBusy(true);
     try {
       const response = await fetch("/api/medtech/import", {
@@ -238,5 +238,5 @@ export function RepairMissingQuestionsButton({
     }
   }
 
-  return <><button type="button" className="repair-missing-button" disabled={disabled || busy} onClick={() => void repair()}>{busy ? "處理中…" : "校對原稿答案／補缺題"}</button><label className="workspace-zip-upload"><input ref={voiceZipInput} hidden type="file" accept=".zip" disabled={disabled || busy} onChange={event => { const file = event.target.files?.[0]; if (file) void uploadVoiceZip(file); }} />上傳語音包 ZIP</label><button type="button" className="ai-batch-button" disabled={disabled || busy} onClick={() => void bulkConfirmReview()}>{busy ? "批次校對中…" : "一鍵全部校對完成（測試）"}</button></>;
+  return <><button type="button" className="repair-missing-button" disabled={disabled || busy} onClick={() => void repair()}>{busy ? "處理中…" : "校對原稿答案／補缺題"}</button><button type="button" className="ai-batch-button" disabled={disabled || busy} onClick={() => void bulkConfirmReview()}>{busy ? "批次校對中…" : "一鍵全部校對完成（測試）"}</button></>;
 }

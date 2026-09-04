@@ -273,7 +273,7 @@ export default async function MedtechAccountPage() {
                   </li>
                 ))}
                 <li>
-                  建議學習包：先複習錯題，再聽康情老師語音完整解析；後續可延伸成「解題觀念微課語音包」。
+                  建議學習方式：先複習錯題，再查看完整解析並重新作答。
                 </li>
               </ul>
             </div>

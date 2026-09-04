@@ -27,7 +27,6 @@ const permissionOptions = [
   ["members", "會員管理"],
   ["documents", "文件上傳"],
   ["questions", "文件題庫編修"],
-  ["audio", "語音管理"],
   ["security", "登入安全"],
 ] as const;
 

@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from "react";
 import { strToU8, zipSync } from "fflate";
 import { RichQuestionEditor } from "../RichQuestionEditor";
-import { QuestionMediaPanel } from "./QuestionMediaPanel";
 import { QuestionProofreadDialog } from "./QuestionProofreadDialog";
 import { ManualQuestionDialog } from "./ManualQuestionDialog";
 import { RepairMissingQuestionsButton } from "./RepairMissingQuestionsButton";
@@ -1351,7 +1350,7 @@ export default function DocumentQuestionWorkspace({
       setQuestions((list) =>
         list.map((item) => (item.id === next.id ? next : item)),
       );
-      setNotice("AI 完整解析已寫入 AI 版；完成後可直接作為語音解析文字。");
+      setNotice("AI 完整解析已寫入 AI 版，請由老師核對及修正。");
     } catch {
       setNotice("AI 完整解析請求失敗，請稍後再試。");
     } finally {
@@ -2000,12 +1999,9 @@ export default function DocumentQuestionWorkspace({
           >
             下一題
           </button>
-          {!limitedProofreader && <>
+          {!limitedProofreader && accounting && <>
           <button disabled={!current} onClick={downloadCurrentTxt}>
             下載本題 TXT
-          </button>
-          <button disabled={!questions.length} onClick={downloadAllTxtZip}>
-            語音解析腳本 TXT ZIP
           </button>
           </>}
         </div>
@@ -2616,13 +2612,13 @@ export default function DocumentQuestionWorkspace({
                       />
                       <p className="explanation-field-hint">
                         {current.explanation
-                          ? "這是原始題目附帶的簡要解析，只保留作為題庫原稿，不會作為語音文本。"
+                          ? "這是原始題目附帶的簡要解析，只保留作為題庫原稿。"
                           : "原稿未附簡要解析；請以上方 AI 版解析為主，老師確認後填入老師版。"}
                       </p>
                       <section className="explanation-version-fields">
                         <h2>老師解析版本</h2>
                         <p>
-                          老師完整解析由老師編輯與確認；完成後可直接作為語音解析文字。
+                          老師完整解析由老師編輯與確認，前台會優先顯示老師版本。
                         </p>
                         <RichQuestionEditor
                           category={category}
@@ -2642,20 +2638,9 @@ export default function DocumentQuestionWorkspace({
                           }
                         />
                       </section>
-                      <p className="explanation-export-hint">
-                        語音解析 TXT／ZIP
-                        會匯出本題的完整解析文字（老師版優先）；尚未有完整解析的題目會輸出空白檔。
-                      </p>
                     </>
                   )}
                 </>
-              )}{" "}
-              {!limitedProofreader && !accounting && (
-                <QuestionMediaPanel
-                  questionId={current.id}
-                  questionNumber={current.questionNumber}
-                  allowDelete={allowDestructiveActions}
-                />
               )}{" "}
               {richEditorOpen && (
                 <footer>

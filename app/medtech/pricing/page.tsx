@@ -18,7 +18,6 @@ const features = [
   "錯題自動整理與重練",
   "判斷提示及四個選項比較",
   "完整解題解析",
-  "康情老師語音解析",
   "方案開通期間不限次練習",
 ];
 
@@ -52,7 +51,7 @@ export default async function MedtechPricingPage() {
         <h1>{entitlement ? "你已購買本書，全庫通行證使用中。" : `一次付清 ${priceLabel}，完整使用 ${product.accessDays} 天。`}</h1>
         {entitlement ? (
           <div className="medtech-active-pass" role="status"><b>已購買・使用中</b><span>開通時間：{dateLabel(entitlement.startedAt)}</span><span>有效期限：{dateLabel(entitlement.availableUntil)}</span><strong>{remainingLabel}</strong></div>
-        ) : <p>不再逐包收費。30 題仍作為學習進度單元；購買後全部章節、隨機模考、引導學習、解析與老師語音一次解鎖。</p>}
+        ) : <p>不再逐包收費。30 題仍作為學習進度單元；購買後全部章節、隨機模考、引導學習與完整解析一次解鎖。</p>}
       </section>
       <section className="medtech-pricing-card">
         <h2>{priceLabel}／{product.accessDays} 天包含</h2>
@@ -70,7 +69,7 @@ export default async function MedtechPricingPage() {
           <a href="/medtech/chapters">{entitlement ? "進入已購買課程" : `先免費體驗 ${product.trialQuestions} 題`}</a>
         </div>
       </section>
-      <p className="medtech-pricing-foot">一次付清、不自動續訂；即時 AI 自由追問暫停開放，不影響已整理提示、選項比較、完整解析與康情老師語音。</p>
+      <p className="medtech-pricing-foot">一次付清、不自動續訂；即時 AI 自由追問暫停開放，不影響已整理提示、選項比較與完整解析。</p>
     </main>
   );
 }

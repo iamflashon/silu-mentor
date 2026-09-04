@@ -1394,7 +1394,7 @@ export default function MedtechPractice() {
             <h2>{product ? `NT$${product.effectivePrice} 開通完整題庫 ${product.accessDays} 天` : "方案讀取中…"}</h2>
             <p>
               30 題是學習進度單元，不再逐包計價。開通後 {product?.accessDays ?? "—"} 天內可不限次練習全部
-              1,400+ 題、章節刷題、跨章節模考、全真模擬、錯題重練、完整解析與老師語音。
+              1,400+ 題、章節刷題、跨章節模考、全真模擬、錯題重練與完整解析。
             </p>
             {false && packageAccess?.discountReward?.status === "available" && (
               <div className="medtech-paywall-wheel">

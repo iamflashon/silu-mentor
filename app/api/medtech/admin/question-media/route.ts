@@ -52,6 +52,7 @@ async function questionFor(id: number) {
 }
 
 export async function GET(request: Request) {
+  if (!MEDTECH_VOICE_ENABLED) return voiceDisabled();
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const questionId = Number(new URL(request.url).searchParams.get("questionId"));
@@ -73,6 +74,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (!MEDTECH_VOICE_ENABLED) return voiceDisabled();
   const auth = await requireMedtechQuestionEditor(request);
   if ("error" in auth) return auth.error;
   const form = await request.formData();
@@ -127,4 +129,9 @@ export async function POST(request: Request) {
     await env.BUCKET.delete(key).catch(() => undefined);
     throw error;
   }
+}
+const MEDTECH_VOICE_ENABLED = false;
+
+function voiceDisabled() {
+  return Response.json({ error: "醫檢語音功能目前已暫停" }, { status: 410 });
 }
