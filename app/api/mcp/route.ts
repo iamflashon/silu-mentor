@@ -40,6 +40,7 @@ const tools = [
   {
     name: "research_cases",
     description: "模擬法律研究者進行多輪查詢：拆解問題、替換實務用語、交叉查找並將代表性裁判排在前面。",
+    annotations: { title: "多輪研究裁判", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: { question: { type: "string", description: "完整的法律研究問題" } },
@@ -50,6 +51,7 @@ const tools = [
   {
     name: "search_cases",
     description: "搜尋臺灣司法裁判。清單只回傳案件資料與短摘要，適合先判斷哪些裁判值得深入閱讀。",
+    annotations: { title: "搜尋裁判摘要", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: {
@@ -65,6 +67,7 @@ const tools = [
   {
     name: "get_case_detail",
     description: "依搜尋結果的 JID 讀取單篇裁判全文。只有需要深讀時才呼叫。",
+    annotations: { title: "讀取裁判全文", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
       properties: { jid: { type: "string", description: "裁判唯一識別碼 JID" } },
@@ -90,6 +93,7 @@ export async function POST(request: Request) {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: "yuanzhao-legal-database", version: "0.1.0" },
+      instructions: "先用 research_cases 或 search_cases 取得少量摘要候選，再選最相關的一至兩篇，以 get_case_detail 依 JID 讀取全文。不得把只有單一概念命中的裁判表述成同時處理全部爭點，也不得把搜尋不到解讀為法律上不存在。引用時應保留法院、年度、字別、案號與 JID。",
     });
   }
   if (body.method === "ping") return rpcResult(body.id, {});

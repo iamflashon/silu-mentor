@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 type CaseItem = { jid: string; court: string; judgmentDate: string; title: string; excerpt: string; score: number; matchedQueries: string[]; reasons: string[]; missingConcepts?: string[] };
 type Access = { metered: boolean; used: number; limit: number | null; remaining: number | null; temporaryExpiresAt: number | null; pendingRequest?: { id: number } | null };
 type Simulation = { notice: string; assessment: string; qualifiedCases: number; totalUniqueCases: number; cloudAvailableTotal: number; rounds: Array<{ round: number; purpose: string; queryRuns: Array<{ query: string; hits: number }>; uniqueCasesSoFar: number }>; results: CaseItem[]; exploratoryCandidates: CaseItem[]; access?: Access };
+type CaseDetail = { jid: string; court: string; year: string; caseType: string; caseNo: string; judgmentDate: string; title: string; fullText: string };
 
 const PERSONAS = [
   { key: "litigator", icon: "⚖", name: "訴訟律師", note: "找可引用的裁判見解", questions: ["精神慰撫金是否可以聲請支付命令？", "被害人與有過失時，法院如何酌減精神慰撫金？", "違約金過高時，法院依什麼標準酌減？"] },
@@ -75,5 +76,31 @@ export default function LegalSearchLabPage() {
 }
 
 function CaseList({ title, items, empty, exploratory = false }: { title: string; items: CaseItem[]; empty?: string; exploratory?: boolean }) {
-  return <section style={{ marginTop: 30 }}><h2>{title}</h2>{!items.length && <p style={{ color: "#7b4d13" }}>{empty}</p>}<div style={{ display: "grid", gap: 12 }}>{items.map((item, index) => <article key={item.jid} style={{ ...card, ...(exploratory ? { borderStyle: "dashed", background: "#fffaf2" } : {}) }}><div style={{ color: "#68758a", fontSize: 14 }}>{!exploratory && `第 ${index + 1} 名｜分數 ${item.score}｜`}{item.court}｜{item.judgmentDate}</div><h3 style={{ margin: "7px 0" }}>{item.title}</h3><p style={{ lineHeight: 1.7 }}>{item.excerpt || "本筆尚無可顯示摘要"}</p>{exploratory ? <small>缺少：{item.missingConcepts?.join("、")}｜JID：{item.jid}</small> : <><div style={{ fontSize: 14 }}>命中查法：{item.matchedQueries.join("、")}</div><div style={{ fontSize: 14, marginTop: 4 }}>排序原因：{item.reasons.join("、")}</div><code style={{ display: "block", marginTop: 8, fontSize: 12 }}>{item.jid}</code></>}</article>)}</div></section>;
+  const [detail, setDetail] = useState<CaseDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState("");
+  const [detailError, setDetailError] = useState("");
+
+  async function openDetail(item: CaseItem) {
+    setDetailLoading(item.jid); setDetailError("");
+    try {
+      const response = await fetch(`/api/judicial-search/${encodeURIComponent(item.jid)}`, { cache: "no-store" });
+      const payload = await response.json() as CaseDetail & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "裁判全文暫時無法讀取");
+      setDetail(payload);
+    } catch (caught) {
+      setDetailError(caught instanceof Error ? caught.message : "裁判全文暫時無法讀取");
+    } finally { setDetailLoading(""); }
+  }
+
+  return <section style={{ marginTop: 30 }}><h2>{title}</h2>{!items.length && <p style={{ color: "#7b4d13" }}>{empty}</p>}{detailError && <p style={{ color: "#a22525", background: "#fff0f0", padding: 12, borderRadius: 9 }}>{detailError}</p>}<div style={{ display: "grid", gap: 12 }}>{items.map((item, index) => <article key={item.jid} style={{ ...card, ...(exploratory ? { borderStyle: "dashed", background: "#fffaf2" } : {}) }}><div style={{ color: "#68758a", fontSize: 14 }}>{!exploratory && `第 ${index + 1} 名｜分數 ${item.score}｜`}{item.court}｜{item.judgmentDate}</div><h3 style={{ margin: "7px 0" }}>{item.title}</h3><p style={{ lineHeight: 1.7 }}>{item.excerpt || "本筆尚無可顯示摘要"}</p>{exploratory ? <small>缺少：{item.missingConcepts?.join("、")}｜JID：{item.jid}</small> : <><div style={{ fontSize: 14 }}>命中查法：{item.matchedQueries.join("、")}</div><div style={{ fontSize: 14, marginTop: 4 }}>排序原因：{item.reasons.join("、")}</div><code style={{ display: "block", marginTop: 8, fontSize: 12 }}>{item.jid}</code></>}<button type="button" onClick={() => void openDetail(item)} disabled={detailLoading === item.jid} style={{ marginTop: 14, border: "1px solid #183b66", borderRadius: 8, padding: "9px 14px", background: "white", color: "#183b66", fontWeight: 700, cursor: "pointer" }}>{detailLoading === item.jid ? "讀取全文…" : "查看完整裁判"}</button></article>)}</div>{detail && <CaseReader detail={detail} onClose={() => setDetail(null)} />}</section>;
+}
+
+function CaseReader({ detail, onClose }: { detail: CaseDetail; onClose: () => void }) {
+  const citation = `${detail.court} ${detail.year}年度${detail.caseType}字第${detail.caseNo}號`;
+  return <div role="dialog" aria-modal="true" aria-label="完整裁判" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(8, 20, 39, .66)", padding: "24px", display: "grid", placeItems: "center" }}>
+    <article onClick={event => event.stopPropagation()} style={{ width: "min(920px, 100%)", maxHeight: "calc(100vh - 48px)", overflow: "auto", background: "white", borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,.28)" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 1, background: "#f4f7fb", borderBottom: "1px solid #d8e0eb", padding: "18px 22px", display: "flex", justifyContent: "space-between", gap: 18 }}><div><small style={{ color: "#5f6d82" }}>{detail.court}｜{detail.judgmentDate}</small><h2 style={{ margin: "5px 0 0", fontSize: 22 }}>{detail.title}</h2><div style={{ marginTop: 5, color: "#33445d", fontSize: 14 }}>{citation}</div></div><button type="button" onClick={onClose} aria-label="關閉全文" style={{ alignSelf: "start", border: 0, borderRadius: 8, background: "#183b66", color: "white", padding: "9px 13px", cursor: "pointer" }}>關閉</button></header>
+      <div style={{ padding: "22px" }}><div style={{ display: "flex", flexWrap: "wrap", gap: 9, marginBottom: 18 }}><button type="button" onClick={() => void navigator.clipboard?.writeText(citation)} style={{ border: "1px solid #b8c5d6", borderRadius: 8, background: "white", padding: "8px 12px", cursor: "pointer" }}>複製引用格式</button><code style={{ alignSelf: "center", fontSize: 12, color: "#617087" }}>JID：{detail.jid}</code></div>{detail.fullText ? <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.9, fontSize: 16, color: "#202b3c" }}>{detail.fullText.replace(/^\s*file\s+/i, "")}</div> : <p style={{ padding: 18, background: "#fff5e8", borderRadius: 9 }}>這筆官方資料目前沒有附裁判全文。</p>}</div>
+    </article>
+  </div>;
 }
