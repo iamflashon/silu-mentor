@@ -43,6 +43,31 @@ function authorityScore(court: string) {
   return 35;
 }
 
+function conceptVariants(concept: string) {
+  return [concept, ...(CONCEPT_EXPANSIONS[concept] ?? [])];
+}
+
+function positionsOf(text: string, variants: string[]) {
+  const positions: number[] = [];
+  for (const variant of variants) {
+    let position = text.indexOf(variant);
+    while (position >= 0) {
+      positions.push(position);
+      position = text.indexOf(variant, position + variant.length);
+    }
+  }
+  return positions.sort((left, right) => left - right);
+}
+
+function conceptsAreRelatedInText(text: string, concepts: string[]) {
+  if (concepts.length <= 1) return concepts.every((concept) => positionsOf(text, conceptVariants(concept)).length > 0);
+  const positions = concepts.map((concept) => positionsOf(text, conceptVariants(concept)));
+  if (positions.some((list) => !list.length)) return false;
+  // Merely appearing somewhere in the same long judgment is not enough. The
+  // concepts must occur in the same local passage to support a combined issue.
+  return positions[0].some((left) => positions.slice(1).every((list) => list.some((right) => Math.abs(left - right) <= 600)));
+}
+
 export async function simulateJudicialResearch(question: string) {
   const plan = planJudicialResearch(question);
   const coreConcepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => question.includes(term));
@@ -77,20 +102,25 @@ export async function simulateJudicialResearch(question: string) {
   }
   const ranked = [...found.values()].map((item) => {
     const evidence = `${item.title} ${item.excerpt} ${item.fullText}`;
-    const queryWords = item.matchedQueries.flatMap((query) => query.split(/\s+/));
-    const matchedConcepts = coreConcepts.filter((concept) => evidence.includes(concept) || queryWords.includes(concept));
+    const matchedConcepts = coreConcepts.filter((concept) => positionsOf(evidence, conceptVariants(concept)).length > 0);
     const missingConcepts = coreConcepts.filter((concept) => !matchedConcepts.includes(concept));
-    const coversAllConcepts = coreConcepts.length <= 1 || missingConcepts.length === 0;
+    const locallyRelated = conceptsAreRelatedInText(evidence, coreConcepts);
+    const coversAllConcepts = (coreConcepts.length <= 1 || missingConcepts.length === 0) && locallyRelated;
+    const displayedMissingConcepts = missingConcepts.length
+      ? missingConcepts
+      : (!locallyRelated && coreConcepts.length > 1 ? ["兩個概念未在同一段落形成關聯"] : []);
     const confidence = coversAllConcepts && item.matchedQueries.length > 1 ? "high" : coversAllConcepts ? "medium" : "low";
     const { fullText: _fullText, ...safeItem } = item;
     return {
       ...safeItem,
       score: item.score + matchedConcepts.length * 20 - missingConcepts.length * 35,
       matchedConcepts,
-      missingConcepts,
+      missingConcepts: displayedMissingConcepts,
       confidence,
       eligibleDeepRead: coversAllConcepts,
-      reasons: coversAllConcepts ? item.reasons : [...item.reasons, `缺少核心爭點：${missingConcepts.join("、")}`],
+      reasons: coversAllConcepts
+        ? [...item.reasons, ...(coreConcepts.length > 1 ? ["核心概念在同一段落附近出現"] : [])]
+        : [...item.reasons, missingConcepts.length ? `缺少核心爭點：${missingConcepts.join("、")}` : "兩個概念僅分散出現，未形成同一爭點"],
     };
   }).sort((left, right) => Number(right.eligibleDeepRead) - Number(left.eligibleDeepRead) || right.score - left.score || right.judgmentDate.localeCompare(left.judgmentDate));
   const results = ranked.filter((item) => item.eligibleDeepRead).slice(0, 20);

@@ -130,7 +130,7 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
         judgmentDate: row.judgmentDate,
         title: row.title || `${row.year}年度${row.caseType}字第${row.caseNo}號`,
         fullText,
-        excerpt: fullText.length > 260 ? `${fullText.slice(0, 260)}…` : fullText,
+        excerpt: (fullText.length > 260 ? `${fullText.slice(0, 260)}…` : fullText).replace(/^\s*file\s+/i, ""),
       };
     }),
   };

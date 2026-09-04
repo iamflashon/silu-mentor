@@ -1,6 +1,6 @@
 import { requireMember } from "./member-auth";
 
-export const LEGAL_SEARCH_BASE_QUOTA = 10;
+export const LEGAL_SEARCH_BASE_QUOTA = 100;
 
 type AccessRow = { usedCount: number; temporaryQuota: number; temporaryExpiresAt: number | null };
 
