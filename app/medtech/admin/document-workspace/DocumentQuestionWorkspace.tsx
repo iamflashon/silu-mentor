@@ -164,6 +164,96 @@ type WorkspacePosition = {
   qualityFilter?: QualityFilter;
   richEditorOpen?: boolean;
 };
+type StudentPreviewMode = "unanswered" | "correct" | "wrong";
+
+function studentPreviewExplanation(question: Question) {
+  return (
+    question.teacherCompleteExplanation ||
+    question.completeExplanation ||
+    question.aiCompleteExplanation ||
+    (question.isSimulation ? question.simulatedCompleteExplanation : "") ||
+    ""
+  );
+}
+
+function QuestionStudentPreview({
+  question,
+  mode,
+  onModeChange,
+  onClose,
+}: {
+  question: Question;
+  mode: StudentPreviewMode;
+  onModeChange: (mode: StudentPreviewMode) => void;
+  onClose: () => void;
+}) {
+  const answer = question.teacherAnswer || question.correctAnswer || question.simulatedAnswer || "";
+  const wrongAnswer = ["A", "B", "C", "D"].find((letter) => letter !== answer && question.options[letter]?.trim()) || "";
+  const picked = mode === "correct" ? answer : mode === "wrong" ? wrongAnswer : "";
+  const answered = mode !== "unanswered";
+  const correct = Boolean(answer && picked === answer);
+  const fullExplanation = studentPreviewExplanation(question);
+  return (
+    <div className="student-preview-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="student-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="student-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <span>學生前台實際版面</span>
+            <h2 id="student-preview-title">第 {question.questionNumber || "—"} 題預覽</h2>
+            <small>只讀預覽，不會留下作答紀錄或扣除次數。</small>
+          </div>
+          <button type="button" onClick={onClose} aria-label="關閉預覽">×</button>
+        </header>
+        <nav className="student-preview-modes" aria-label="預覽狀態">
+          {([['unanswered', '未作答'], ['correct', '答對'], ['wrong', '答錯']] as const).map(([value, label]) => (
+            <button type="button" className={mode === value ? "active" : ""} key={value} onClick={() => onModeChange(value)}>{label}</button>
+          ))}
+        </nav>
+        <div className="student-preview-body">
+          <article className="student-preview-question">
+            <header>
+              <span>{question.year || "未標示年份"} · 第 {question.questionNumber || "—"} 題</span>
+              {answered && <strong className={correct ? "right" : "wrong"}>{correct ? "答對" : "答錯"}</strong>}
+            </header>
+            <div className="student-preview-stem" dangerouslySetInnerHTML={{ __html: question.stem || "（題目尚未完成）" }} />
+            {answered && (
+              <div className="student-preview-answer-line">
+                <span>你的答案：<b>{picked || "未作答"}</b></span>
+                <span>正確答案：<b>{answer || "尚未設定"}</b></span>
+              </div>
+            )}
+            <div className="student-preview-options">
+              {["A", "B", "C", "D"].map((letter) => (
+                <div className={`${answered && letter === answer ? "correct " : ""}${answered && letter === picked && letter !== answer ? "wrong" : ""}`} key={letter}>
+                  <b>{letter}</b>
+                  <span dangerouslySetInnerHTML={{ __html: question.options[letter] || "（選項未填寫）" }} />
+                  {answered && letter === answer && <em>正確答案</em>}
+                  {answered && letter === picked && letter !== answer && <em>你的答案</em>}
+                </div>
+              ))}
+            </div>
+            {answered && (
+              <section className="student-preview-explanation">
+                <span>簡要解析</span>
+                {question.explanation?.trim()
+                  ? <div dangerouslySetInnerHTML={{ __html: question.explanation }} />
+                  : <p>本題目前沒有可顯示的簡要解析。</p>}
+                {fullExplanation.trim() && (
+                  <div className="student-preview-full-explanation">
+                    <b>完整解析</b>
+                    <div dangerouslySetInnerHTML={{ __html: fullExplanation }} />
+                  </div>
+                )}
+                {!fullExplanation.trim() && <small>本題尚未建立完整解析。</small>}
+                <small>來源：{question.answerSource || "題庫"}</small>
+              </section>
+            )}
+          </article>
+        </div>
+      </section>
+    </div>
+  );
+}
 function workspacePositionKey(documentId: number) {
   return `document-workspace-position:${documentId}`;
 }
@@ -471,6 +561,7 @@ export default function DocumentQuestionWorkspace({
     [questionSearch, setQuestionSearch] = useState(""),
     [answerDiffOnly, setAnswerDiffOnly] = useState(false),
     [aiGenerating, setAiGenerating] = useState(false),
+    [studentPreviewMode, setStudentPreviewMode] = useState<StudentPreviewMode | null>(null),
     [richEditorOpen, setRichEditorOpen] = useState(false),
     [qualityMode, setQualityMode] = useState(false),
     [qualityFilter, setQualityFilter] = useState<QualityFilter>("all");
@@ -1984,6 +2075,11 @@ export default function DocumentQuestionWorkspace({
           <button disabled={!current || saving} onClick={() => void save()}>
             {saving ? "儲存中…" : "儲存本題"}
           </button>
+          {!accounting && (
+            <button type="button" disabled={!current} onClick={() => setStudentPreviewMode("unanswered")}>
+              前台預覽
+            </button>
+          )}
           <button
             type="button"
             disabled={!current || saving}
@@ -2659,6 +2755,14 @@ export default function DocumentQuestionWorkspace({
           )}
         </article>
       </section>
+      {current && studentPreviewMode && (
+        <QuestionStudentPreview
+          question={current}
+          mode={studentPreviewMode}
+          onModeChange={setStudentPreviewMode}
+          onClose={() => setStudentPreviewMode(null)}
+        />
+      )}
     </main>
   );
 }

@@ -130,6 +130,30 @@ function stablePackageRows<T extends { id: number }>(rows: T[], packageName: str
     .slice((packageNumber - 1) * MEDTECH_QUESTION_PACKAGE_SIZE, packageNumber * MEDTECH_QUESTION_PACKAGE_SIZE);
 }
 
+function sequentialChapterPackageRows<T extends {
+  id: number;
+  sourceUrl: string;
+  sourceOrder: number | null;
+  questionNumber: string;
+}>(rows: T[], packageNumber: number) {
+  const ordered = [...rows].sort((left, right) => {
+    const leftSource = Number(left.sourceUrl.replace(/^document:/, "")) || 0;
+    const rightSource = Number(right.sourceUrl.replace(/^document:/, "")) || 0;
+    if (leftSource !== rightSource) return leftSource - rightSource;
+    const leftOrder = Number(left.sourceOrder) || Number.MAX_SAFE_INTEGER;
+    const rightOrder = Number(right.sourceOrder) || Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.questionNumber.localeCompare(right.questionNumber, "zh-Hant", {
+      numeric: true,
+      sensitivity: "base",
+    }) || left.id - right.id;
+  });
+  return ordered.slice(
+    (packageNumber - 1) * MEDTECH_QUESTION_PACKAGE_SIZE,
+    packageNumber * MEDTECH_QUESTION_PACKAGE_SIZE,
+  );
+}
+
 async function getQuestions(request: Request) {
   const auth = await requireMedtechDevice(request);
   if ("error" in auth) return auth.error;
@@ -197,7 +221,9 @@ async function getQuestions(request: Request) {
   let selectedRows = reviewOnly
     ? topicRows.filter((row) => (reviewSession ? parseIds(reviewSession.questionIdsJson).includes(row.id) : reviewIds.includes(row.id))).slice(0, limit)
     : practiceOnly && !wrongOnly
-    ? stablePackageRows(topicRows, topic || "隨機模考", packageNumber)
+    ? topic
+      ? sequentialChapterPackageRows(topicRows, packageNumber)
+      : stablePackageRows(topicRows, "隨機模考", packageNumber)
     : topicRows.sort(() => Math.random() - .5).slice(0, limit);
   const packageMode = practiceOnly && !wrongOnly;
   const packageName = topic || "隨機模考";

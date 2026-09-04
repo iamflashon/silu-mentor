@@ -255,6 +255,7 @@ export default function MedtechPractice() {
     });
     if (topic) query.set("topic", topic);
     if (wrongOnly) query.set("wrongOnly", "1");
+    query.set("questionOrder", questionOrder);
     fetch("/api/medtech/questions?" + query.toString())
       .then(async (response) => {
         const result = await readJson(response);
