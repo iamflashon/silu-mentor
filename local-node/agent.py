@@ -16,7 +16,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.6.7"
+VERSION = "0.6.8"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 _SUBTITLE_QUEUE: list[Path] = []
@@ -79,7 +79,7 @@ def request_json(url: str, token: str, payload: dict | None = None) -> tuple[int
         method="POST" if payload is not None else "GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=180) as response:
             raw = response.read()
             if not raw:
                 return response.status, None

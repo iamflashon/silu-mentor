@@ -2,7 +2,7 @@ import { readLocalNodeJobs, writeLocalNodeJobs } from "../../../../lib/local-nod
 import { getDb } from "../../../../db";
 import { documents, learningResources, resourceSegments } from "../../../../db/schema";
 import { and, eq } from "drizzle-orm";
-import { decodeSubtitle, parseSrtCues } from "../../../../lib/srt";
+import { decodeSubtitle, parseSrt } from "../../../../lib/srt";
 
 async function authorized(request: Request) {
   const { env } = await import("cloudflare:workers");
@@ -87,7 +87,10 @@ export async function POST(request: Request, context?: { waitUntil?: (promise: P
         const { env } = await import("cloudflare:workers");
         const subtitle = await env.BUCKET.get(job.subtitleKey);
         if (subtitle) {
-          const cues = parseSrtCues(decodeSubtitle(await subtitle.arrayBuffer()));
+          // Store study-sized subtitle sections instead of every tiny Whisper cue.
+          // Long lessons can contain thousands of cues, which previously made
+          // the completion request exceed the local node's network timeout.
+          const cues = parseSrt(decodeSubtitle(await subtitle.arrayBuffer()));
           if (cues.length) {
             await db.delete(resourceSegments).where(and(eq(resourceSegments.resourceId, job.resourceId), eq(resourceSegments.segmentType, "subtitle")));
             const rows = cues.map((cue, index) => ({ resourceId: job.resourceId!, segmentType: "subtitle", lessonLabel: job.sourceFile.replace(/\.[^.]+$/, ""), title: `${Math.floor(cue.start / 60)}:${String(Math.floor(cue.start % 60)).padStart(2, "0")}－${Math.floor(cue.end / 60)}:${String(Math.floor(cue.end % 60)).padStart(2, "0")}`, startSeconds: cue.start, endSeconds: cue.end, text: cue.text, reviewStatus: "pending", sequence: index + 1 }));
