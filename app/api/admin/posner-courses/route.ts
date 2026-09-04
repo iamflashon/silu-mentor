@@ -3,13 +3,16 @@ import { getDb } from "../../../../db";
 import { learningResources, posnerCourseProducts, posnerCourseVouchers, resourceSegments } from "../../../../db/schema";
 import { linePayConfig } from "../../../../lib/line-pay";
 import { requireAdmin } from "../../../../lib/member-auth";
+import { readLocalNodeJobs } from "../../../../lib/local-node-jobs";
 
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
   const rows = await auth.db.select({ id: learningResources.id, title: learningResources.title, subject: learningResources.subject, creator: learningResources.creator, description: learningResources.description, status: learningResources.status, accessType: learningResources.accessType, sourceUrl: learningResources.sourceUrl, hasCover: learningResources.coverStorageKey, price: posnerCourseProducts.price, accessDays: posnerCourseProducts.accessDays, previewStartSeconds: posnerCourseProducts.previewStartSeconds, previewDurationSeconds: posnerCourseProducts.previewDurationSeconds, salesEnabled: posnerCourseProducts.salesEnabled }).from(learningResources).leftJoin(posnerCourseProducts, eq(posnerCourseProducts.resourceId, learningResources.id)).where(eq(learningResources.resourceType, "course")).orderBy(desc(learningResources.createdAt));
+  const [jobs, summaryRows] = await Promise.all([readLocalNodeJobs(), auth.db.select({ resourceId: resourceSegments.resourceId }).from(resourceSegments).where(eq(resourceSegments.reviewStatus, "ai_digest"))]);
+  const summaryIds = new Set(summaryRows.map((row) => row.resourceId));
   const config = await linePayConfig();
-  return Response.json({ courses: rows.map(row => ({...row, price: row.price ?? 0, accessDays: row.accessDays ?? 365, previewStartSeconds: row.previewStartSeconds ?? 0, previewDurationSeconds: row.previewDurationSeconds ?? 300, salesEnabled: row.salesEnabled ?? false})), linePay: { environment: config.environment, configured: Boolean(config.channelId && config.channelSecret) } }, { headers: { "cache-control": "no-store" } });
+  return Response.json({ courses: rows.map(row => { const job = jobs.find((item) => item.resourceId === row.id && item.kind === "transcode_video" && item.status === "completed"); return ({...row, price: row.price ?? 0, accessDays: row.accessDays ?? 365, previewStartSeconds: row.previewStartSeconds ?? 0, previewDurationSeconds: row.previewDurationSeconds ?? 300, salesEnabled: row.salesEnabled ?? false, hlsReady: Boolean(job?.hlsKey), subtitleReady: Boolean(job?.subtitleKey), summaryReady: summaryIds.has(row.id), mediaMessage: job?.message ?? "尚未完成影音處理"}); }), linePay: { environment: config.environment, configured: Boolean(config.channelId && config.channelSecret) } }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function PUT(request: Request) {
@@ -27,7 +30,11 @@ export async function PUT(request: Request) {
   const previewDurationSeconds = Math.max(0, Math.min(7200, Math.floor(Number(body.previewDurationSeconds) || 0)));
   const salesEnabled = body.salesEnabled === true;
   if (salesEnabled && price < 1) return Response.json({ error: "開放購買前請設定售價" }, { status: 400 });
-  if (published && !current.sourceUrl.trim()) return Response.json({ error: "影片尚未處理完成，暫時不能發布" }, { status: 409 });
+  if (published) {
+    const jobs = await readLocalNodeJobs();
+    const ready = jobs.some((item) => item.resourceId === id && item.kind === "transcode_video" && item.status === "completed" && item.hlsKey);
+    if (!ready) return Response.json({ error: "HLS 尚未完成上傳及播放檢查，暫時不能發布" }, { status: 409 });
+  }
   const [course] = await auth.db.update(learningResources).set({ title: title.slice(0, 180), creator: String(body.creator ?? "陳友心").trim().slice(0, 100), subject: String(body.subject ?? "主題講座").trim().slice(0, 100), description: String(body.description ?? "").trim().slice(0, 3000), accessType: published ? "posner" : current.accessType === "posner" ? "owned" : current.accessType, status: published ? "active" : "draft", updatedAt: new Date() }).where(eq(learningResources.id, id)).returning();
   await auth.db.insert(posnerCourseProducts).values({resourceId:id,price,accessDays,previewStartSeconds,previewDurationSeconds,salesEnabled,updatedAt:new Date()}).onConflictDoUpdate({target:posnerCourseProducts.resourceId,set:{price,accessDays,previewStartSeconds,previewDurationSeconds,salesEnabled,updatedAt:new Date()}});
   return Response.json({ course });

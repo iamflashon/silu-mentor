@@ -1,7 +1,8 @@
 import { readLocalNodeJobs, writeLocalNodeJobs } from "../../../../lib/local-node-jobs";
 import { getDb } from "../../../../db";
-import { documents, learningResources } from "../../../../db/schema";
-import { eq } from "drizzle-orm";
+import { documents, learningResources, resourceSegments } from "../../../../db/schema";
+import { and, eq } from "drizzle-orm";
+import { decodeSubtitle, parseSrtCues } from "../../../../lib/srt";
 
 async function authorized(request: Request) {
   const { env } = await import("cloudflare:workers");
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
   return Response.json({ job }, { headers: { "cache-control": "no-store" } });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: Request, context?: { waitUntil?: (promise: Promise<unknown>) => void }) {
   if (!(await authorized(request))) return Response.json({ error: "本機節點驗證失敗" }, { status: 401 });
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const jobId = typeof body.jobId === "string" ? body.jobId : "";
@@ -81,6 +82,25 @@ export async function POST(request: Request) {
     const playbackUrl = new URL(`/api/course-media/${job.resourceId}/index.m3u8`, request.url).toString();
     const db = await getDb("primary");
     await db.update(learningResources).set({ sourceUrl: playbackUrl, description: `本機 HLS 已完成，共 ${job.segmentCount} 個切片${job.subtitleKey ? "，含字幕" : ""}`, status: "draft", updatedAt: new Date() }).where(eq(learningResources.id, job.resourceId));
+    if (job.subtitleKey) {
+      try {
+        const { env } = await import("cloudflare:workers");
+        const subtitle = await env.BUCKET.get(job.subtitleKey);
+        if (subtitle) {
+          const cues = parseSrtCues(decodeSubtitle(await subtitle.arrayBuffer()));
+          if (cues.length) {
+            await db.delete(resourceSegments).where(and(eq(resourceSegments.resourceId, job.resourceId), eq(resourceSegments.segmentType, "subtitle")));
+            const rows = cues.map((cue, index) => ({ resourceId: job.resourceId!, segmentType: "subtitle", lessonLabel: job.sourceFile.replace(/\.[^.]+$/, ""), title: `${Math.floor(cue.start / 60)}:${String(Math.floor(cue.start % 60)).padStart(2, "0")}－${Math.floor(cue.end / 60)}:${String(Math.floor(cue.end % 60)).padStart(2, "0")}`, startSeconds: cue.start, endSeconds: cue.end, text: cue.text, reviewStatus: "pending", sequence: index + 1 }));
+            for (let index = 0; index < rows.length; index += 4) await db.insert(resourceSegments).values(rows.slice(index, index + 4));
+            const digestRequest = new Request(new URL("/api/resources/segments", request.url), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ resourceId: job.resourceId, action: "digest" }) });
+            const digestTask = fetch(digestRequest).then(async (response) => { if (!response.ok) console.error(`[local-node/jobs] automatic digest failed: ${response.status} ${(await response.text()).slice(0, 300)}`); });
+            if (context?.waitUntil) context.waitUntil(digestTask); else await digestTask;
+          }
+        }
+      } catch (error) {
+        console.error(`[local-node/jobs] subtitle import failed: ${error instanceof Error ? error.message.slice(0, 500) : "unknown error"}`);
+      }
+    }
     await writeLocalNodeJobs(jobs);
     return Response.json({ ok: true, job, playbackUrl });
   }

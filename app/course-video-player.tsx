@@ -50,6 +50,17 @@ export function formatMediaTime(value: number | null | undefined) {
 
 export function courseMediaUrl(resourceId: number, sourceUrl: string) {
   if (!isHlsUrl(sourceUrl)) return sourceUrl;
+  // Local-node HLS already has a first-party, permission-aware media route.
+  // Sending it through the legacy external-media proxy makes the Worker fetch
+  // its own protected URL without the browser session and returns 401.
+  try {
+    const parsed = new URL(sourceUrl, window.location.origin);
+    if (parsed.origin === window.location.origin && parsed.pathname.startsWith(`/api/course-media/${resourceId}/`)) {
+      return `${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    // Fall through to the external-media proxy for malformed/legacy values.
+  }
   const params = new URLSearchParams({
     resourceId: String(resourceId),
     target: sourceUrl,
