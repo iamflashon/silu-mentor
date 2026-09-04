@@ -37,6 +37,7 @@ export type LocalNodeJob = {
   progressUpdatedAt?: string;
   elapsedSeconds?: number;
   estimatedRemainingSeconds?: number;
+  retryMode?: "subtitle";
   indexStatus?: "queued" | "indexing" | "completed" | "failed";
 };
 

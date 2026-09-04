@@ -105,18 +105,18 @@ export default function LocalVideoJobsPanel() {
       setSaving(false);
     }
   }
-  async function retry(jobId: string) {
+  async function retry(jobId: string, mode?: "subtitle") {
     setRetrying(jobId);
     setNotice("");
     try {
       const response = await fetch("/api/admin/local-node/jobs", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jobId }),
+        body: JSON.stringify({ jobId, mode }),
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "無法重新處理");
-      setNotice("已重新加入佇列，本機節點會在下一次輪詢時開始處理。");
+      setNotice(mode === "subtitle" ? "已排入字幕／摘要補做佇列；既有影片與 HLS 不會重新轉檔或上傳。" : "已重新加入佇列，本機節點會在下一次輪詢時開始處理。");
       await load();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "重新處理失敗");
@@ -139,8 +139,8 @@ export default function LocalVideoJobsPanel() {
             <i aria-hidden="true" />
             {connected ? `本機節點已連線 · ${version}` : "本機節點未連線"}
           </b>
-          <a href="/iBrain-local-node-v0.6.5.zip" download>
-            下載影音／字幕獨立程序版節點 v0.6.5
+          <a href="/iBrain-local-node-v0.6.6.zip" download>
+            下載影音／字幕補做版節點 v0.6.6
           </a>
         </div>
       </div>
@@ -227,15 +227,13 @@ export default function LocalVideoJobsPanel() {
                           ? "處理完成"
                           : "處理失敗"}
                   </em>
-                  {job.status !== "completed" && (
-                    <button
-                      type="button"
-                      onClick={() => void retry(job.id)}
-                      disabled={Boolean(retrying)}
-                    >
-                      {retrying === job.id ? "重新排隊中…" : "重新處理"}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => void retry(job.id, job.status === "completed" ? "subtitle" : undefined)}
+                    disabled={Boolean(retrying)}
+                  >
+                    {retrying === job.id ? "重新排隊中…" : job.status === "completed" ? "重新產生字幕／摘要" : "重新處理"}
+                  </button>
                 </div>
               </header>
               <div className="video-progress-row">

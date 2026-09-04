@@ -16,7 +16,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.6.5"
+VERSION = "0.6.6"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 _SUBTITLE_QUEUE: list[Path] = []
@@ -604,6 +604,16 @@ def process_video_job(job: dict, jobs_url: str, token: str, video_inbox: Path, v
     started_at = time.time()
     last_heartbeat_at = started_at
     duration = video_duration(source)
+    media_url = jobs_url.rsplit("/jobs", 1)[0] + "/media"
+    if job.get("retryMode") == "subtitle":
+        playlist = output / "index.m3u8"
+        segment_count = len(list(output.glob("segment-*.ts")))
+        if not playlist.is_file() or not segment_count:
+            raise RuntimeError("本機找不到既有 HLS，請改用完整重新處理")
+        prefix = f"course-media/{job.get('resourceId')}/{job_id}"
+        request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": "既有 HLS 已保留；字幕正在獨立程序產生，完成後自動建立 AI 重點摘要", "hlsKey": f"{prefix}/index.m3u8", "posterKey": f"{prefix}/poster.jpg", "subtitleKey": "", "durationSeconds": duration, "segmentCount": segment_count})
+        queue_subtitle_worker(source, output, jobs_url, media_url, job, node_id, duration, segment_count)
+        return
     def report(percent: int, stage: str, message: str = "") -> None:
         nonlocal last_heartbeat_at
         elapsed = max(0, int(time.time() - started_at))
@@ -656,7 +666,6 @@ def process_video_job(job: dict, jobs_url: str, token: str, video_inbox: Path, v
             raise RuntimeError(f"HLS 轉檔失敗：{stderr[-500:]}")
     report(76, "產生縮圖", "HLS 已完成，正在產生課程縮圖")
     subprocess.run(["ffmpeg", "-y", "-ss", "5", "-i", str(source), "-frames:v", "1", "-q:v", "2", str(output / "poster.jpg")], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-    media_url = jobs_url.rsplit("/jobs", 1)[0] + "/media"
     upload_names = [path.name for path in sorted(output.iterdir()) if path.is_file() and (path.name == "index.m3u8" or path.name == "poster.jpg" or path.name.startswith("segment-"))]
     report(80, "上傳 R2", f"HLS 已完成，準備上傳 {len(upload_names)} 個影音檔案")
     for index, name in enumerate(upload_names, 1):

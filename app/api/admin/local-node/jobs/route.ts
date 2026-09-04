@@ -17,17 +17,20 @@ export async function PATCH(request: Request) {
   const jobs = await readLocalNodeJobs();
   const job = jobs.find((item) => item.id === jobId && item.kind === "transcode_video");
   if (!job) return Response.json({ error: "找不到影音處理工作" }, { status: 404 });
-  if (job.status === "completed") return Response.json({ error: "這支影片已處理完成，不需要重新處理" }, { status: 409 });
+  const subtitleOnly = body.mode === "subtitle";
+  if (job.status === "completed" && !subtitleOnly) return Response.json({ error: "已完成影片請使用重新產生字幕／摘要" }, { status: 409 });
   job.status = "queued";
   job.claimedAt = undefined;
   job.completedAt = undefined;
   job.nodeId = undefined;
   job.progressPercent = 0;
-  job.progressStage = "等待重新處理";
+  job.progressStage = subtitleOnly ? "等待重新產生字幕" : "等待重新處理";
   job.progressUpdatedAt = undefined;
   job.elapsedSeconds = undefined;
   job.estimatedRemainingSeconds = undefined;
-  job.message = "已重新加入本機處理佇列";
+  job.retryMode = subtitleOnly ? "subtitle" : undefined;
+  if (subtitleOnly) job.subtitleKey = undefined;
+  job.message = subtitleOnly ? "已加入字幕／摘要補做佇列；既有 HLS 不會重新上傳" : "已重新加入本機處理佇列";
   await writeLocalNodeJobs(jobs);
   return Response.json({ ok: true, job });
 }
