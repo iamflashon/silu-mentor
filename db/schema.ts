@@ -24,6 +24,29 @@ export const members = sqliteTable("members", {
     .$defaultFn(() => new Date()),
 });
 
+export const legalSearchAccess = sqliteTable("legal_search_access", {
+  memberId: integer("member_id").primaryKey().references(() => members.id, { onDelete: "cascade" }),
+  usedCount: integer("used_count").notNull().default(0),
+  temporaryQuota: integer("temporary_quota").notNull().default(0),
+  temporaryExpiresAt: integer("temporary_expires_at", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const legalSearchAccessRequests = sqliteTable("legal_search_access_requests", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull().default(""),
+  requestedQuota: integer("requested_quota").notNull().default(10),
+  requestedDays: integer("requested_days").notNull().default(1),
+  status: text("status").notNull().default("pending"),
+  requestedAt: integer("requested_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+  resolvedBy: text("resolved_by").notNull().default(""),
+}, (table) => [
+  index("legal_search_requests_status_idx").on(table.status, table.requestedAt),
+  index("legal_search_requests_member_idx").on(table.memberId),
+]);
+
 export const accountingQaTrialDevices = sqliteTable(
   "accounting_qa_trial_devices",
   {

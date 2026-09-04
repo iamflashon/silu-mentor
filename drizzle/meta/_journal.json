@@ -554,6 +554,13 @@
       "when": 1788517476142,
       "tag": "0078_foamy_madame_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1788537600000,
+      "tag": "0088_legal_search_access",
+      "breakpoints": true
     }
   ]
 }

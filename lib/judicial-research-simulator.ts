@@ -66,7 +66,6 @@ export async function simulateJudicialResearch(question: string) {
           const authority = authorityScore(item.court);
           found.set(item.jid, {
             ...item,
-            fullText: "",
             matchedQueries: [query],
             score,
             reasons: [authority >= 85 ? "最高審級或具高度代表性" : authority >= 60 ? "高等審級裁判" : "符合查詢爭點", exact ? "摘要直接出現查詢詞" : "案件欄位或全文命中"],
@@ -77,13 +76,15 @@ export async function simulateJudicialResearch(question: string) {
     rounds.push({ ...step, queryRuns, uniqueCasesSoFar: found.size });
   }
   const ranked = [...found.values()].map((item) => {
-    const evidence = `${item.title} ${item.excerpt}`;
-    const matchedConcepts = coreConcepts.filter((concept) => evidence.includes(concept) || item.matchedQueries.includes(concept));
+    const evidence = `${item.title} ${item.excerpt} ${item.fullText}`;
+    const queryWords = item.matchedQueries.flatMap((query) => query.split(/\s+/));
+    const matchedConcepts = coreConcepts.filter((concept) => evidence.includes(concept) || queryWords.includes(concept));
     const missingConcepts = coreConcepts.filter((concept) => !matchedConcepts.includes(concept));
     const coversAllConcepts = coreConcepts.length <= 1 || missingConcepts.length === 0;
     const confidence = coversAllConcepts && item.matchedQueries.length > 1 ? "high" : coversAllConcepts ? "medium" : "low";
+    const { fullText: _fullText, ...safeItem } = item;
     return {
-      ...item,
+      ...safeItem,
       score: item.score + matchedConcepts.length * 20 - missingConcepts.length * 35,
       matchedConcepts,
       missingConcepts,

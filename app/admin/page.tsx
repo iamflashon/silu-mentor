@@ -6460,8 +6460,11 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             </article>
           </div>
           <div className="judicial-actions">
-            <Link className="primary-btn" href="/admin/legal-search-test">
+            <Link className="primary-btn" href="/legal-search-lab">
               開啟法律搜尋研究模擬器
+            </Link>
+            <Link className="secondary-btn" href="/admin/legal-search-access">
+              管理搜尋額度申請
             </Link>
             <button
               onClick={() => runJudicial("test")}

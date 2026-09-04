@@ -22,12 +22,34 @@ export function extractJudicialText(value: unknown): string {
   return "";
 }
 
+function findJudicialFullText(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findJudicialFullText(item);
+      if (found) return found;
+    }
+    return "";
+  }
+  const object = value as Record<string, unknown>;
+  for (const key of ["JFULLX", "JFULL", "JTEXT"]) {
+    if (object[key] !== undefined && object[key] !== null) {
+      const text = extractJudicialText(object[key]).trim();
+      if (text) return text;
+    }
+  }
+  for (const child of Object.values(object)) {
+    const found = findJudicialFullText(child);
+    if (found) return found;
+  }
+  return "";
+}
+
 function resolveFullText(row: { fullText: string; rawJson: string }) {
   if (row.fullText && row.fullText !== "[object Object]") return row.fullText;
   if (!row.rawJson) return "";
   try {
-    const payload = JSON.parse(row.rawJson) as { data?: { JFULLX?: unknown; JFULL?: unknown; JTEXT?: unknown } };
-    return extractJudicialText(payload.data?.JFULLX || payload.data?.JFULL || payload.data?.JTEXT);
+    return findJudicialFullText(JSON.parse(row.rawJson));
   } catch {
     return "";
   }
@@ -40,6 +62,9 @@ const COURT_CODE_NAMES: Record<string, string> = {
   SLDV: "臺灣士林地方法院民事庭", SLDM: "臺灣士林地方法院刑事庭",
   PCDV: "臺灣新北地方法院民事庭", PCDM: "臺灣新北地方法院刑事庭",
   TYDV: "臺灣桃園地方法院民事庭", TYDM: "臺灣桃園地方法院刑事庭",
+  CLEV: "臺灣桃園地方法院中壢簡易庭", TPEV: "臺北簡易庭",
+  ILEV: "臺灣宜蘭地方法院宜蘭簡易庭", ILDV: "臺灣宜蘭地方法院民事庭",
+  CYEV: "臺灣嘉義地方法院嘉義簡易庭",
   TCDV: "臺灣臺中地方法院民事庭", TCDM: "臺灣臺中地方法院刑事庭",
   TNDV: "臺灣臺南地方法院民事庭", TNDM: "臺灣臺南地方法院刑事庭",
   KSDV: "臺灣高雄地方法院民事庭", KSDM: "臺灣高雄地方法院刑事庭",
