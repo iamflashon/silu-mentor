@@ -20,7 +20,7 @@ export default function PosnerLayout({ children }: { children: React.ReactNode }
         <nav aria-label="波斯納主要選單">
           <Link href="/posner#courses">探索課程</Link>
           <Link href="/posner/my-courses">我的課程</Link>
-          <Link className="posner-account-link" href="/member-login?returnTo=/posner/my-courses">登入</Link>
+          <a className="posner-account-link" href="/member-login?return_to=%2Fposner%2Fmy-courses">登入</a>
         </nav>
       </header>
       {children}
