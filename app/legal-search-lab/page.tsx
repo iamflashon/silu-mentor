@@ -55,7 +55,7 @@ export default function LegalSearchLabPage() {
   async function requestMore(event: FormEvent) { event.preventDefault(); const response = await fetch("/api/legal-search/access", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason, requestedQuota: 100, requestedDays: 3 }) }); const payload = await response.json() as { error?: string }; setRequestNotice(response.ok ? "申請已送出，等待管理者核准。" : payload.error || "申請失敗"); if (response.ok) { setReason(""); setShowRequest(false); await loadAccess(); } }
 
   return <main style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 20px 80px", color: "#172033" }}>
-    <nav style={{ display: "flex", justifyContent: "space-between" }}><a href="/">← 回首頁</a><a href="/admin">總管理處</a></nav>
+    <nav><a href="/">← 回首頁</a></nav>
     <h1 style={{ margin: "18px 0 8px", fontSize: 30 }}>法律搜尋獨立測試室</h1>
     <p style={{ color: "#5d687a", lineHeight: 1.7 }}>選一種使用者，系統就會產生符合該身分的問題並立即搜尋。重複按同一身分，會換下一題。</p>
     {access && <p style={{ background: "#eef4fa", padding: 12, borderRadius: 9 }}>{access.metered ? `本帳號已使用 ${access.used} 次，剩餘 ${access.remaining} 次${access.temporaryExpiresAt ? `；臨時額度至 ${new Date(access.temporaryExpiresAt).toLocaleString("zh-TW")}` : ""}` : "管理者帳號：測試次數不受限制"}{access.pendingRequest ? "；已有申請待審" : ""}</p>}
