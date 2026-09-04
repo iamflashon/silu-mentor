@@ -70,6 +70,7 @@ export default function PosnerAdmin() {
   const [segments,setSegments]=useState<SubtitleSegment[]>([]),
     [segmentsOpen,setSegmentsOpen]=useState(false),
     [segmentsLoading,setSegmentsLoading]=useState(false),
+    [digesting,setDigesting]=useState(false),
     [segmentSaving,setSegmentSaving]=useState<number|null>(null);
   const selected = useMemo(
     () => courses.find((x) => x.id === selectedId) ?? null,
@@ -120,6 +121,18 @@ export default function PosnerAdmin() {
   async function saveSegment(segment:SubtitleSegment){
     if(!selectedId)return;setSegmentSaving(segment.id);setNotice("");
     try{const r=await fetch("/api/admin/posner-courses",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({id:selectedId,action:"update-segment",segmentId:segment.id,startSeconds:segment.startSeconds,endSeconds:segment.endSeconds,text:segment.text,summary:segment.summary,recommended:segment.recommended})}),d=await r.json() as {segment?:SubtitleSegment;error?:string};if(!r.ok)throw new Error(d.error||"儲存字幕失敗");if(d.segment)updateSegment(segment.id,d.segment);setNotice(`已儲存 ${mmss(segment.startSeconds)} 的字幕與摘要。`);}catch(e){setNotice(e instanceof Error?e.message:"儲存字幕失敗");}finally{setSegmentSaving(null);}
+  }
+  async function generateDigest(){
+    if(!selectedId)return;
+    setDigesting(true);setNotice("AI 正在閱讀整堂課字幕並整理重點，請稍候…");
+    try{
+      const r=await fetch("/api/resources/segments",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({resourceId:selectedId,action:"digest"})});
+      const d=await r.json() as {digestCount?:number;analyzed?:number;error?:string};
+      if(!r.ok)throw new Error(d.error||"AI 重點摘要產生失敗");
+      await Promise.all([loadSegments(),load()]);
+      setNotice(`AI 已完成 ${d.digestCount??d.analyzed??0} 個課程重點；你可以逐段校對後再發布。`);
+    }catch(e){setNotice(e instanceof Error?e.message:"AI 重點摘要產生失敗");}
+    finally{setDigesting(false);}
   }
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -398,11 +411,11 @@ export default function PosnerAdmin() {
                 </div>
               </div>
               <section className="posner-subtitle-editor">
-                <header><div><b>字幕與重點摘要</b><span>查看並直接修改時間、逐字字幕及前台摘要。</span></div><button type="button" onClick={()=>segmentsOpen?setSegmentsOpen(false):void loadSegments()} disabled={!selected.subtitleReady}>{segmentsOpen?"收合編輯器":selected.subtitleReady?"查看／編修字幕與摘要":"字幕尚未完成"}</button></header>
+                <header><div><b>字幕與 AI 重點摘要</b><span>SRT 完成後由 AI 先整理整堂課重點，你再校對文字、時間與前台推薦。</span></div><div><button type="button" onClick={()=>void generateDigest()} disabled={!selected.subtitleReady||digesting}>{digesting?"AI 產生中…":selected.summaryReady?"重新產生 AI 摘要":"AI 產生重點摘要"}</button><button type="button" onClick={()=>segmentsOpen?setSegmentsOpen(false):void loadSegments()} disabled={!selected.subtitleReady}>{segmentsOpen?"收合編輯器":selected.subtitleReady?"查看／編修":"字幕尚未完成"}</button></div></header>
                 {segmentsOpen&&<div className="posner-subtitle-body">{segmentsLoading?<p>正在讀取字幕…</p>:segments.length?segments.map(segment=><article key={segment.id} className={segment.recommended?"recommended":""}>
                   <div className="posner-subtitle-time"><label>開始（秒）<input type="number" min="0" value={segment.startSeconds??0} onChange={e=>updateSegment(segment.id,{startSeconds:Number(e.target.value)})}/></label><label>結束（秒）<input type="number" min="0" value={segment.endSeconds??0} onChange={e=>updateSegment(segment.id,{endSeconds:Number(e.target.value)})}/></label><span>{mmss(segment.startSeconds??0)}－{mmss(segment.endSeconds??0)}</span></div>
                   <label>字幕原文<textarea rows={4} value={segment.text??""} onChange={e=>updateSegment(segment.id,{text:e.target.value})}/></label>
-                  <label>重點摘要<textarea rows={3} value={segment.summary??""} placeholder="可編寫這一段要給學生看的重點摘要" onChange={e=>updateSegment(segment.id,{summary:e.target.value})}/></label>
+                  <label>AI 重點摘要<textarea rows={3} value={segment.summary??""} placeholder="按上方「AI 產生重點摘要」後會自動填入；你可以再校對修改" onChange={e=>updateSegment(segment.id,{summary:e.target.value})}/></label>
                   <footer><label><input type="checkbox" checked={Boolean(segment.recommended)} onChange={e=>updateSegment(segment.id,{recommended:e.target.checked})}/>列為推薦重點</label><button type="button" onClick={()=>void saveSegment(segment)} disabled={segmentSaving===segment.id}>{segmentSaving===segment.id?"儲存中…":"儲存這一段"}</button></footer>
                 </article>):<p>目前尚無可編修的字幕段落，請稍後重新開啟。</p>}</div>}
               </section>
