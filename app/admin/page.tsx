@@ -6460,6 +6460,9 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             </article>
           </div>
           <div className="judicial-actions">
+            <Link className="primary-btn" href="/admin/legal-search-test">
+              開啟法律搜尋研究模擬器
+            </Link>
             <button
               onClick={() => runJudicial("test")}
               disabled={syncingJudicial || !judicialStatus?.configured}
