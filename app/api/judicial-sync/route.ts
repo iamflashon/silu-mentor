@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { appSettings, judicialCases } from "../../../db/schema";
+import { extractJudicialText } from "../../../lib/judicial-search";
 
 const AUTH_URL = "https://data.judicial.gov.tw/jdg/api/Auth";
 const LIST_URL = "https://data.judicial.gov.tw/jdg/api/JList";
@@ -273,6 +274,7 @@ async function downloadDocument(db: Awaited<ReturnType<typeof getDb>>, token: st
   const object = payload && typeof payload === "object" ? payload as JsonObject : {};
   const data = object.data && typeof object.data === "object" ? object.data as JsonObject : object;
   const parts = jid.split(",");
+  const fullText = extractJudicialText(data.JFULLX || data.JFULL || data.JTEXT);
   await db.insert(judicialCases).values({
     jid,
     court: String(data.JCOURT || parts[0] || ""),
@@ -281,7 +283,7 @@ async function downloadDocument(db: Awaited<ReturnType<typeof getDb>>, token: st
     caseNo: String(data.JNO || parts[3] || ""),
     judgmentDate: String(data.JDATE || parts[4] || ""),
     title: String(data.JTITLE || data.JFULLTITLE || ""),
-    fullText: String(data.JFULLX || data.JFULL || data.JTEXT || ""),
+    fullText,
     rawJson: JSON.stringify(payload),
   }).onConflictDoUpdate({
     target: judicialCases.jid,
@@ -292,7 +294,7 @@ async function downloadDocument(db: Awaited<ReturnType<typeof getDb>>, token: st
       caseNo: String(data.JNO || parts[3] || ""),
       judgmentDate: String(data.JDATE || parts[4] || ""),
       title: String(data.JTITLE || data.JFULLTITLE || ""),
-      fullText: String(data.JFULLX || data.JFULL || data.JTEXT || ""),
+      fullText,
       rawJson: JSON.stringify(payload),
       status: "active",
       updatedAt: new Date(),

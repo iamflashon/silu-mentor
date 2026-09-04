@@ -23,7 +23,7 @@ export function extractJudicialText(value: unknown): string {
 }
 
 function resolveFullText(row: { fullText: string; rawJson: string }) {
-  if (row.fullText) return row.fullText;
+  if (row.fullText && row.fullText !== "[object Object]") return row.fullText;
   if (!row.rawJson) return "";
   try {
     const payload = JSON.parse(row.rawJson) as { data?: { JFULLX?: unknown; JFULL?: unknown; JTEXT?: unknown } };
@@ -31,6 +31,23 @@ function resolveFullText(row: { fullText: string; rawJson: string }) {
   } catch {
     return "";
   }
+}
+
+const COURT_CODE_NAMES: Record<string, string> = {
+  TPSV: "最高法院民事庭", TPSM: "最高法院刑事庭", TPAA: "最高行政法院",
+  TPHV: "臺灣高等法院民事庭", TPHM: "臺灣高等法院刑事庭",
+  TPDV: "臺灣臺北地方法院民事庭", TPDM: "臺灣臺北地方法院刑事庭",
+  SLDV: "臺灣士林地方法院民事庭", SLDM: "臺灣士林地方法院刑事庭",
+  PCDV: "臺灣新北地方法院民事庭", PCDM: "臺灣新北地方法院刑事庭",
+  TYDV: "臺灣桃園地方法院民事庭", TYDM: "臺灣桃園地方法院刑事庭",
+  TCDV: "臺灣臺中地方法院民事庭", TCDM: "臺灣臺中地方法院刑事庭",
+  TNDV: "臺灣臺南地方法院民事庭", TNDM: "臺灣臺南地方法院刑事庭",
+  KSDV: "臺灣高雄地方法院民事庭", KSDM: "臺灣高雄地方法院刑事庭",
+};
+
+export function judicialCourtName(value: string, jid = "") {
+  const code = (value || jid.split(",")[0] || "").trim();
+  return COURT_CODE_NAMES[code] ?? value ?? code;
 }
 
 function normalizeInput(input: JudicialSearchInput) {
@@ -55,6 +72,7 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
         like(judicialCases.jid, pattern),
         like(judicialCases.title, pattern),
         like(judicialCases.fullText, pattern),
+        like(judicialCases.rawJson, pattern),
         like(judicialCases.court, pattern),
         like(judicialCases.caseType, pattern),
         like(judicialCases.caseNo, pattern),
@@ -79,7 +97,8 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
       return {
         id: row.id,
         jid: row.jid,
-        court: row.court,
+        court: judicialCourtName(row.court, row.jid),
+        courtCode: row.court,
         year: row.year,
         caseType: row.caseType,
         caseNo: row.caseNo,
@@ -102,7 +121,8 @@ export async function getJudicialCaseDetail(jid: string) {
   return {
     id: row.id,
     jid: row.jid,
-    court: row.court,
+    court: judicialCourtName(row.court, row.jid),
+    courtCode: row.court,
     year: row.year,
     caseType: row.caseType,
     caseNo: row.caseNo,

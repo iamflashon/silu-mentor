@@ -45,6 +45,7 @@ function authorityScore(court: string) {
 
 export async function simulateJudicialResearch(question: string) {
   const plan = planJudicialResearch(question);
+  const coreConcepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => question.includes(term));
   const found = new Map<string, Awaited<ReturnType<typeof searchJudicialCases>>["results"][number] & { matchedQueries: string[]; score: number; reasons: string[] }>();
   const rounds = [];
   for (const step of plan) {
@@ -75,13 +76,35 @@ export async function simulateJudicialResearch(question: string) {
     }
     rounds.push({ ...step, queryRuns, uniqueCasesSoFar: found.size });
   }
-  const results = [...found.values()].sort((left, right) => right.score - left.score || right.judgmentDate.localeCompare(left.judgmentDate)).slice(0, 20);
+  const ranked = [...found.values()].map((item) => {
+    const evidence = `${item.title} ${item.excerpt}`;
+    const matchedConcepts = coreConcepts.filter((concept) => evidence.includes(concept) || item.matchedQueries.includes(concept));
+    const missingConcepts = coreConcepts.filter((concept) => !matchedConcepts.includes(concept));
+    const coversAllConcepts = coreConcepts.length <= 1 || missingConcepts.length === 0;
+    const confidence = coversAllConcepts && item.matchedQueries.length > 1 ? "high" : coversAllConcepts ? "medium" : "low";
+    return {
+      ...item,
+      score: item.score + matchedConcepts.length * 20 - missingConcepts.length * 35,
+      matchedConcepts,
+      missingConcepts,
+      confidence,
+      eligibleDeepRead: coversAllConcepts,
+      reasons: coversAllConcepts ? item.reasons : [...item.reasons, `缺少核心爭點：${missingConcepts.join("、")}`],
+    };
+  }).sort((left, right) => Number(right.eligibleDeepRead) - Number(left.eligibleDeepRead) || right.score - left.score || right.judgmentDate.localeCompare(left.judgmentDate));
+  const results = ranked.filter((item) => item.eligibleDeepRead).slice(0, 20);
+  const exploratoryCandidates = ranked.filter((item) => !item.eligibleDeepRead).slice(0, 12);
   return {
     question,
     mode: "research-simulation" as const,
     notice: "目前以多輪查詢、同義詞與法院層級模擬研究流程；向量語意相似度尚未啟用。",
     rounds,
     totalUniqueCases: found.size,
+    qualifiedCases: results.length,
+    assessment: results.length
+      ? `找到 ${results.length} 篇同時涵蓋主要爭點的裁判，可進一步深讀。`
+      : `目前沒有裁判同時涵蓋「${coreConcepts.join("＋") || question}」。現有結果只能作為擴大查詢線索，不能當成問題答案。`,
     results,
+    exploratoryCandidates,
   };
 }
