@@ -16,7 +16,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.6.6"
+VERSION = "0.6.7"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 _SUBTITLE_QUEUE: list[Path] = []
@@ -517,8 +517,15 @@ def process_subtitle_in_background(source: Path, output: Path, jobs_url: str, me
     """Generate/upload subtitles without blocking the next video job."""
     job_id = str(job.get("id", ""))
     try:
-        print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕背景工作：開始產生 SRT")
-        srt, vtt = transcribe_video(source, output)
+        srt = output / "transcript.srt"
+        vtt = output / "subtitles.vtt"
+        if srt.is_file() and srt.stat().st_size > 0:
+            print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕背景工作：偵測到既有 transcript.srt，略過重新辨識並直接補傳")
+            if not vtt.is_file() or vtt.stat().st_size == 0:
+                vtt.write_text(make_vtt(srt.read_text(encoding="utf-8")), encoding="utf-8")
+        else:
+            print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕背景工作：開始產生 SRT")
+            srt, vtt = transcribe_video(source, output)
         if not srt:
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕背景工作：未安裝字幕模組，影片不受影響")
             return True

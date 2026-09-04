@@ -10,6 +10,19 @@ const CONCEPT_EXPANSIONS: Record<string, string[]> = {
   "因果關係": ["相當因果關係", "客觀歸責", "因果歷程"],
   "違約金": ["違約金酌減", "民法第二百五十二條", "損害賠償預定"],
   "時效": ["消滅時效", "時效抗辯", "請求權時效"],
+  "僱用人責任": ["民法第一百八十八條", "執行職務", "選任監督"],
+  "競業禁止": ["離職後競業禁止", "競業禁止約款", "勞動基準法第九條之一"],
+  "補償": ["合理補償", "代償措施", "未給付補償"],
+  "忠實義務": ["董事忠實義務", "公司法第二十三條", "善良管理人注意義務"],
+  "原因自由行為": ["自陷責任能力", "刑法第十九條", "故意陷於精神障礙"],
+  "因果歷程錯誤": ["因果流程錯誤", "因果關係錯誤", "客體錯誤"],
+  "舉證責任減輕": ["證明度降低", "表見證明", "舉證責任倒置"],
+  "侵害配偶身分法益": ["侵害配偶權", "配偶身分法益", "婚姻共同生活圓滿安全幸福"],
+  "客觀歸責": ["製造法所不容許風險", "風險實現", "規範保護目的"],
+  "漏水": ["修復漏水", "排除侵害", "民法第七百六十七條", "公寓大廈漏水"],
+  "車禍": ["交通事故", "過失傷害", "汽車交通事故損害賠償"],
+  "欠錢": ["返還借款", "清償債務", "消費借貸", "債務不履行"],
+  "精神賠償": ["精神慰撫金", "非財產上損害", "民法第一百九十五條"],
 };
 
 const QUESTION_WORDS = /(?:請問|想知道|是否|能否|可以|可否|應否|如何|怎麼|為何|什麼|哪些|有無|得否|的話|之情形|的情況|嗎|呢|？|\?)/g;
@@ -23,9 +36,11 @@ export type ResearchRound = {
 export function planJudicialResearch(question: string): ResearchRound[] {
   const clean = question.replace(/[「」『』【】()（）]/g, " ").replace(/[，、；;。：:\n]/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
   const concepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => clean.includes(term));
-  const clauses = clean.split(/\s+/).map((part) => part.replace(QUESTION_WORDS, "").trim()).filter((part) => part.length >= 2 && part.length <= 24);
-  const fallback = clean.replace(QUESTION_WORDS, "").replace(/\s+/g, "").trim();
-  const primary = [...new Set([...concepts, ...clauses, ...(fallback ? [fallback] : [])])].slice(0, 3);
+  const clauses = clean.split(/\s+/).map((part) => part.replace(QUESTION_WORDS, "").trim()).filter((part) => part.length >= 2 && part.length <= 16);
+  const fallback = clean.replace(/(?:是否|能否|可否|應否|如何|怎麼|為何|有無|得否).*$/g, "").replace(QUESTION_WORDS, "").replace(/\s+/g, "").trim().slice(0, 24);
+  // Once a legal concept is recognized, never send the entire natural-language
+  // question to the database as one literal phrase.
+  const primary = [...new Set(concepts.length ? concepts : [...clauses, ...(fallback ? [fallback] : [])])].slice(0, 3);
   const expanded = [...new Set(concepts.flatMap((term) => CONCEPT_EXPANSIONS[term] ?? []))].filter((term) => !primary.includes(term)).slice(0, 4);
   const combinations = concepts.length >= 2 ? [`${concepts[0]} ${concepts[1]}`, `${concepts[1]} ${concepts[0]}`] : [];
   const rounds: ResearchRound[] = [];
@@ -73,10 +88,12 @@ export async function simulateJudicialResearch(question: string) {
   const coreConcepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => question.includes(term));
   const found = new Map<string, Awaited<ReturnType<typeof searchJudicialCases>>["results"][number] & { matchedQueries: string[]; score: number; reasons: string[] }>();
   const rounds = [];
+  let cloudAvailableTotal = 0;
   for (const step of plan) {
     const queryRuns = [];
     for (const query of step.queries) {
       const response = await searchJudicialCases({ query, limit: 8 });
+      cloudAvailableTotal = Math.max(cloudAvailableTotal, response.availableTotal);
       queryRuns.push({ query, hits: response.total });
       response.results.forEach((item, index) => {
         const existing = found.get(item.jid);
@@ -129,6 +146,7 @@ export async function simulateJudicialResearch(question: string) {
     question,
     mode: "research-simulation" as const,
     notice: "目前以多輪查詢、同義詞與法院層級模擬研究流程；向量語意相似度尚未啟用。",
+    cloudAvailableTotal,
     rounds,
     totalUniqueCases: found.size,
     qualifiedCases: results.length,

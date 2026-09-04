@@ -28,7 +28,7 @@ export async function PUT(request: Request) {
   const length = Number(request.headers.get("content-length") ?? 0);
   if (length > 25 * 1024 * 1024) return Response.json({ error: "單一影音切片不可超過 25MB" }, { status: 413 });
   const jobs = await readLocalNodeJobs();
-  const job = jobs.find((item) => item.id === jobId && item.kind === "transcode_video" && item.status === "claimed");
+  const job = jobs.find((item) => item.id === jobId && item.kind === "transcode_video" && ["claimed", "completed", "failed"].includes(item.status));
   if (!job?.resourceId) return Response.json({ error: "找不到可上傳的影音工作" }, { status: 404 });
   const prefix = `course-media/${job.resourceId}/${job.id}`;
   const key = `${prefix}/${mediaPath}`;
@@ -49,7 +49,7 @@ export async function HEAD(request: Request) {
   const mediaPath = safeMediaPath(url.searchParams.get("path") ?? "");
   if (!jobId || !mediaPath) return new Response(null, { status: 400 });
   const jobs = await readLocalNodeJobs();
-  const job = jobs.find((item) => item.id === jobId && item.kind === "transcode_video" && item.status === "claimed");
+  const job = jobs.find((item) => item.id === jobId && item.kind === "transcode_video" && ["claimed", "completed", "failed"].includes(item.status));
   if (!job?.resourceId) return new Response(null, { status: 404 });
   const key = `course-media/${job.resourceId}/${job.id}/${mediaPath}`;
   const { env } = await import("cloudflare:workers");
