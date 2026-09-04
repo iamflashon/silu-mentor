@@ -28,7 +28,7 @@ export default async function PosnerHome() {
       <section className="posner-hero">
         <div className="posner-hero-copy">
           <span className="posner-kicker">BOOKSTORE · CAFE · CLASSROOM</span>
-          <h1>把一堂好課，<br />留在隨時能回來的位置。</h1>
+          <h1>好課如咖啡，<br />值得細品，也值得一再回味。</h1>
           <p>觀看完整課程、跟著重點時間軸複習。每一段內容都能被找到，不再只是從頭重播。</p>
           <div className="posner-hero-actions">
             <Link className="posner-primary" href="#courses">瀏覽影音課程</Link>
