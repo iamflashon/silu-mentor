@@ -21,16 +21,28 @@ function rpcError(id: JsonRpcRequest["id"], code: number, message: string, statu
 
 async function mcpConfiguration() {
   const { env } = await import("cloudflare:workers");
-  const runtime = env as unknown as { MCP_ENABLED?: string; MCP_ACCESS_TOKEN?: string };
+  const runtime = env as unknown as {
+    MCP_ENABLED?: string;
+    MCP_ACCESS_TOKEN?: string;
+    MCP_PUBLIC_TEST_ENABLED?: string;
+  };
   return {
     enabled: (runtime.MCP_ENABLED ?? process.env.MCP_ENABLED ?? "").trim().toLowerCase() === "true",
     token: (runtime.MCP_ACCESS_TOKEN ?? process.env.MCP_ACCESS_TOKEN ?? "").trim(),
+    publicTestEnabled:
+      (runtime.MCP_PUBLIC_TEST_ENABLED ?? process.env.MCP_PUBLIC_TEST_ENABLED ?? "")
+        .trim()
+        .toLowerCase() === "true",
   };
 }
 
 async function authorize(request: Request) {
   const config = await mcpConfiguration();
-  if (!config.enabled || !config.token) return new Response("MCP 尚未啟用", { status: 503, headers: { "cache-control": "no-store" } });
+  if (!config.enabled) return new Response("MCP 尚未啟用", { status: 503, headers: { "cache-control": "no-store" } });
+  // Temporary compatibility switch for ChatGPT developer-mode testing. It is
+  // off by default and can be disabled immediately without a code rollback.
+  if (config.publicTestEnabled) return null;
+  if (!config.token) return new Response("MCP 尚未啟用", { status: 503, headers: { "cache-control": "no-store" } });
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   if (supplied !== config.token) return new Response("Unauthorized", { status: 401, headers: { "www-authenticate": "Bearer", "cache-control": "no-store" } });
   return null;
@@ -140,4 +152,16 @@ export async function GET(request: Request) {
 
 export async function DELETE() {
   return new Response(null, { status: 405, headers: { allow: "GET, POST" } });
+}
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      allow: "GET, POST, OPTIONS",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-headers": "authorization, content-type, mcp-protocol-version, mcp-session-id",
+      "access-control-max-age": "86400",
+    },
+  });
 }

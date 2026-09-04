@@ -4,8 +4,8 @@ const endpoint = process.env.LEGAL_MCP_URL;
 const token = process.env.LEGAL_MCP_TOKEN;
 const query = process.env.LEGAL_MCP_QUERY || "違約金過高如何酌減";
 
-if (!endpoint || !token) {
-  console.error("請設定 LEGAL_MCP_URL 與 LEGAL_MCP_TOKEN");
+if (!endpoint) {
+  console.error("請設定 LEGAL_MCP_URL");
   process.exit(2);
 }
 
@@ -14,7 +14,7 @@ async function rpc(method, params) {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
     },

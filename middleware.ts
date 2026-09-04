@@ -24,6 +24,10 @@ const PUBLIC_QA_PATHS = [
   // Machine-to-machine RTX node routes verify both Cloudflare Access Service
   // Auth and LOCAL_NODE_TOKEN inside the route itself.
   "/api/local-node",
+  // Remote MCP clients (including ChatGPT) do not carry the browser's Sites
+  // member/admin cookies. The route performs its own runtime authorization,
+  // so it must be reachable before the application membership gate.
+  "/api/mcp",
 ];
 
 const NO_CACHE_PATHS = [
