@@ -1,6 +1,6 @@
 .posner-course-cover.has-image,.posner-detail-cover.has-image{background-size:cover;background-position:center}
-.posner-course-card{grid-template-columns:1fr;grid-template-rows:auto 1fr;min-height:0}
-.posner-course-cover{width:100%;aspect-ratio:16/9;min-height:0}
+.posner-course-card{grid-template-columns:minmax(220px,25%) 1fr;grid-template-rows:1fr;min-height:0}
+.posner-course-cover{width:100%;aspect-ratio:16/9;min-height:0;align-self:start}
 .posner-course-cover.has-image,.posner-detail-cover.has-image{background-color:#263746;background-size:contain;background-position:center;background-repeat:no-repeat}
 .posner-detail-cover{width:100%;aspect-ratio:16/9;min-height:0}
-@media(max-width:800px){.posner-course-cover,.posner-detail-cover{min-height:0}}
+@media(max-width:800px){.posner-course-card{grid-template-columns:1fr;grid-template-rows:auto 1fr}.posner-course-cover,.posner-detail-cover{min-height:0}}
