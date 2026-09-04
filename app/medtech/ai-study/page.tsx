@@ -13,6 +13,8 @@ type Question = {
   answerSource: string;
   topic?: string;
   questionNumber?: string;
+  hintAvailable?: boolean;
+  comparisonAvailable?: boolean;
 };
 type Message = {
   role: "student" | "mentor";
@@ -206,7 +208,9 @@ export default function MedtechAiStudy() {
       const initialMessages: Message[] = [
         {
           role: "mentor",
-          text: "請直接點選 A、B、C 或 D 作答；也可以先索取提示。",
+          text: nextQuestion.hintAvailable
+            ? "請直接點選 A、B、C 或 D 作答；也可以先索取提示。"
+            : "請直接點選 A、B、C 或 D 作答。",
         },
       ];
       questionRef.current = nextQuestion;
@@ -334,7 +338,7 @@ export default function MedtechAiStudy() {
       { role: "student", text: `我選 ${letter}。` },
       {
         role: "mentor",
-        text: `你選 ${letter}，${correct ? "答對了" : "答錯了"}。接下來可以按「比較選項」查看簡答。`,
+        text: `你選 ${letter}，${correct ? "答對了" : "答錯了"}。${question.comparisonAvailable ? "接下來可以按「比較選項」查看簡答。" : "可以繼續查看完整解析。"}`,
       },
     ];
     const nextEvents = appendGuidedEvent({
@@ -457,11 +461,13 @@ export default function MedtechAiStudy() {
                   ))}
                 </div>
                 <small className="medtech-answer-hint">
-                  流程：先取得解題提示，再選答案；選完後即可查看選項比較與完整解析。
+                  {question.hintAvailable || question.comparisonAvailable
+                    ? "流程：可先查看已整理的提示，再選答案；作答後查看可用的選項比較與完整解析。"
+                    : "流程：選擇答案後查看完整解析。"}
                 </small>
               </article>
               <div className="medtech-ai-quick">
-                <button
+                {question.hintAvailable && <button
                   className="study-action-hint"
                   disabled={loading || hintUsed || Boolean(selectedAnswer)}
                   aria-busy={loading}
@@ -472,8 +478,8 @@ export default function MedtechAiStudy() {
                     : hintUsed
                       ? "已取得提示"
                       : "給我提示"}
-                </button>
-                <button
+                </button>}
+                {question.comparisonAvailable && <button
                   className="study-action-compare"
                   disabled={loading || !selectedAnswer || comparisonUsed}
                   aria-busy={loading}
@@ -484,12 +490,16 @@ export default function MedtechAiStudy() {
                     : comparisonUsed
                       ? "已完成比較"
                       : "比較選項"}
-                </button>
+                </button>}
               </div>
               <div className="medtech-action-note">
                 {!selectedAnswer
-                  ? "目前只能取得一個提示；請先思考並選擇答案。"
-                  : "已完成作答：可以查看選項比較與完整解析。"}
+                  ? question.hintAvailable
+                    ? "目前只能取得一個提示；請先思考並選擇答案。"
+                    : "請先思考並選擇答案。"
+                  : question.comparisonAvailable
+                    ? "已完成作答：可以查看選項比較與完整解析。"
+                    : "已完成作答：可以查看完整解析。"}
               </div>
               <div ref={answerRef} />
               <section className="medtech-ai-chat" ref={chatRef}>

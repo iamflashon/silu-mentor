@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, isNull, or, gte } from "drizzle-orm";
-import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
+import { documents, examAttempts, examQuestions, listeningSolutions, listeningSubtitleCues, medtechAiExplanationCache, medtechPracticeSessions, studyRecords } from "../../../../db/schema";
 import { requireMedtechDevice } from "../../../../lib/member-auth";
 import { getOrCreateMedtechUsage, grantMedtechQuestionAccess, grantMedtechQuestionPackageAccess, MEDTECH_QUESTION_PACKAGE_SIZE } from "../../../../lib/medtech-usage";
 import { taipeiDate } from "../../../../lib/taipei-time";
@@ -335,6 +335,13 @@ async function getQuestions(request: Request) {
       }).from(examQuestions).where(inArray(examQuestions.id, questionIds))
     : [];
   const detailByQuestion = new Map(detailRows.map((row) => [row.id, row]));
+  const guidedRows = questionIds.length
+    ? await db.select({ questionId: medtechAiExplanationCache.questionId, cacheKey: medtechAiExplanationCache.cacheKey })
+        .from(medtechAiExplanationCache)
+        .where(inArray(medtechAiExplanationCache.questionId, questionIds))
+    : [];
+  const hintQuestionIds = new Set(guidedRows.filter((row) => row.cacheKey.startsWith("medtech:hint:")).map((row) => row.questionId));
+  const compareQuestionIds = new Set(guidedRows.filter((row) => row.cacheKey.startsWith("medtech:compare:")).map((row) => row.questionId));
   if (reviewOnly) {
     const mapped = selectedRows.map((row) => {
       const source = sourceFor(row);
@@ -401,6 +408,8 @@ async function getQuestions(request: Request) {
       subject: row.subject,
       chapter: chapterOf(row, source),
       topic,
+      hintAvailable: hintQuestionIds.has(row.id),
+      comparisonAvailable: compareQuestionIds.has(row.id),
       audioUrl: mediaByQuestion.get(row.id)?.audioStorageKey ? `/api/listening/audio?id=${mediaByQuestion.get(row.id)!.id}` : "",
       subtitles: (mediaByQuestion.get(row.id)?.cues ?? []).map((cue) => ({ id: cue.id, segmentId: null, startSeconds: cue.startSeconds, endSeconds: cue.endSeconds, text: cue.text, sequence: cue.sequence })),
     };
