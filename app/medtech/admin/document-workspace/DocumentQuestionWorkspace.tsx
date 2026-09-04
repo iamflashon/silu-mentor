@@ -2545,6 +2545,29 @@ export default function DocumentQuestionWorkspace({
                     />
                   ) : (
                     <>
+                      <section className="explanation-version-fields">
+                        <h2>老師解析版本</h2>
+                        <p>
+                          老師完整解析由老師編輯與確認，前台會優先顯示老師版本。
+                        </p>
+                        <RichQuestionEditor
+                          category={category}
+                          documentId={documentId}
+                          label="老師完整解析（老師版）"
+                          value={
+                            current.teacherCompleteExplanation ||
+                            current.completeExplanation ||
+                            ""
+                          }
+                          onChange={(value) =>
+                            setCurrent({
+                              ...current,
+                              teacherCompleteExplanation: value,
+                              completeExplanation: value,
+                            })
+                          }
+                        />
+                      </section>
                       <section className="explanation-version-fields ai-explanation-first">
                         <h2>AI 解析（AI 版）</h2>
                         <p>
@@ -2615,29 +2638,6 @@ export default function DocumentQuestionWorkspace({
                           ? "這是原始題目附帶的簡要解析，只保留作為題庫原稿。"
                           : "原稿未附簡要解析；請以上方 AI 版解析為主，老師確認後填入老師版。"}
                       </p>
-                      <section className="explanation-version-fields">
-                        <h2>老師解析版本</h2>
-                        <p>
-                          老師完整解析由老師編輯與確認，前台會優先顯示老師版本。
-                        </p>
-                        <RichQuestionEditor
-                          category={category}
-                          documentId={documentId}
-                          label="老師完整解析（老師版）"
-                          value={
-                            current.teacherCompleteExplanation ||
-                            current.completeExplanation ||
-                            ""
-                          }
-                          onChange={(value) =>
-                            setCurrent({
-                              ...current,
-                              teacherCompleteExplanation: value,
-                              completeExplanation: value,
-                            })
-                          }
-                        />
-                      </section>
                     </>
                   )}
                 </>
