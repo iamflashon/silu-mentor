@@ -50,7 +50,10 @@ export default function CommercialMemberControls({ members, onReload }: { member
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ memberId: member.memberId, action, days, note: action === "revoke" ? "總管理者取消開通" : `總管理者${action === "grant" ? "開通" : "延長"} ${days} 天` }),
     });
-    if (!response.ok) window.alert("開通狀態更新失敗，請重新整理後再試。");
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      window.alert(data.error ?? `開通狀態更新失敗（HTTP ${response.status}），請重新整理後再試。`);
+    }
     await onReload();
   }
 
@@ -68,7 +71,7 @@ export default function CommercialMemberControls({ members, onReload }: { member
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, action: "grant", days, note: `總管理者依總會員 Email 人工開通 ${days} 天` }),
       });
-      const data = await response.json() as { error?: string; member?: { displayName?: string } };
+      const data = await response.json().catch(() => ({})) as { error?: string; member?: { displayName?: string } };
       if (!response.ok) return setNotice(data.error ?? "人工開通失敗，請重新整理後再試。");
       setNotice(`已為 ${data.member?.displayName || email} 開通 ${days} 天，並加入醫檢會員名單。`);
       setMemberEmail("");
