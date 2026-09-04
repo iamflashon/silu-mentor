@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 type Member = {
   id: number;
   memberId: number;
@@ -31,6 +33,9 @@ const permissionOptions = [
 ] as const;
 
 export default function CommercialMemberControls({ members, onReload }: { members: Member[]; onReload: () => Promise<void> }) {
+  const [memberEmail, setMemberEmail] = useState("");
+  const [granting, setGranting] = useState(false);
+  const [notice, setNotice] = useState("");
   async function patchMember(id: number, patch: Record<string, unknown>) {
     await fetch("/api/medtech/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     await onReload();
@@ -49,9 +54,38 @@ export default function CommercialMemberControls({ members, onReload }: { member
     await onReload();
   }
 
+  async function grantByEmail() {
+    const email = memberEmail.trim().toLowerCase();
+    if (!email) return setNotice("請輸入總會員 Email。");
+    const raw = window.prompt("要開通幾天？", "30");
+    if (raw === null) return;
+    const days = Math.max(1, Math.floor(Number(raw) || 30));
+    setGranting(true);
+    setNotice("正在建立醫檢資格並開通…");
+    try {
+      const response = await fetch("/api/medtech/admin/entitlements", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, action: "grant", days, note: `總管理者依總會員 Email 人工開通 ${days} 天` }),
+      });
+      const data = await response.json() as { error?: string; member?: { displayName?: string } };
+      if (!response.ok) return setNotice(data.error ?? "人工開通失敗，請重新整理後再試。");
+      setNotice(`已為 ${data.member?.displayName || email} 開通 ${days} 天，並加入醫檢會員名單。`);
+      setMemberEmail("");
+      await onReload();
+    } finally {
+      setGranting(false);
+    }
+  }
+
   return <section className="medtech-admin-panel medtech-commercial-members">
     <h2>會員開通狀況與管理權限</h2>
     <p className="medtech-admin-help">只有總管理者可開通、延長或取消期限；勾選的功能才會交由該管理員操作。</p>
+    <div className="medtech-entitlement-email-grant">
+      <label>總會員 Email<input type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} placeholder="輸入總管理處已有的會員 Email" /></label>
+      <button type="button" disabled={granting} onClick={() => void grantByEmail()}>{granting ? "開通中…" : "加入醫檢並人工開通"}</button>
+      {notice && <p role="status">{notice}</p>}
+    </div>
     <div className="medtech-commercial-member-list">
       {members.map((member) => <article key={member.id}>
         <div className="medtech-commercial-member-person"><b>{member.displayName}</b><span>{member.email}</span></div>

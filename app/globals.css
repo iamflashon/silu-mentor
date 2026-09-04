@@ -45116,6 +45116,44 @@ html.frontend-costs-disabled .student-summary-meta > span {
 .medtech-commercial-actions .medtech-admin-notice {
   margin: 0;
 }
+.medtech-entitlement-email-grant {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 10px 14px;
+  align-items: end;
+  margin: 18px 0 22px;
+  padding: 16px;
+  border: 1px solid #c9dfdc;
+  border-radius: 14px;
+  background: #f4faf9;
+}
+.medtech-entitlement-email-grant label {
+  display: grid;
+  gap: 7px;
+  color: #315d59;
+  font-weight: 700;
+}
+.medtech-entitlement-email-grant input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #b8d3d0;
+  border-radius: 9px;
+  background: #fff;
+}
+.medtech-entitlement-email-grant button {
+  min-height: 44px;
+}
+.medtech-entitlement-email-grant p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #126d64;
+}
+@media (max-width: 720px) {
+  .medtech-entitlement-email-grant {
+    grid-template-columns: 1fr;
+  }
+}
+
 .medtech-commercial-member-list {
   display: grid;
   gap: 12px;
