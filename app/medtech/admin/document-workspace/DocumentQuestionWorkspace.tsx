@@ -2545,6 +2545,20 @@ export default function DocumentQuestionWorkspace({
                     />
                   ) : (
                     <>
+                      <RichQuestionEditor
+                        category={category}
+                        documentId={documentId}
+                        label="解析（題目原有簡要解析）"
+                        value={current.explanation}
+                        onChange={(explanation) =>
+                          setCurrent({ ...current, explanation })
+                        }
+                      />
+                      <p className="explanation-field-hint">
+                        {current.explanation
+                          ? "這是原始題目附帶的簡要解析，只保留作為題庫原稿。"
+                          : "原稿未附簡要解析；請以下方 AI 版解析為主，老師確認後填入老師版。"}
+                      </p>
                       <section className="explanation-version-fields">
                         <h2>老師解析版本</h2>
                         <p>
@@ -2624,20 +2638,6 @@ export default function DocumentQuestionWorkspace({
                           }
                         />
                       </section>
-                      <RichQuestionEditor
-                        category={category}
-                        documentId={documentId}
-                        label="解析（題目原有簡要解析）"
-                        value={current.explanation}
-                        onChange={(explanation) =>
-                          setCurrent({ ...current, explanation })
-                        }
-                      />
-                      <p className="explanation-field-hint">
-                        {current.explanation
-                          ? "這是原始題目附帶的簡要解析，只保留作為題庫原稿。"
-                          : "原稿未附簡要解析；請以上方 AI 版解析為主，老師確認後填入老師版。"}
-                      </p>
                     </>
                   )}
                 </>
