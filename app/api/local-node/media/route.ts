@@ -41,3 +41,18 @@ export async function PUT(request: Request) {
   }
   return Response.json({ ok: true, key });
 }
+
+export async function HEAD(request: Request) {
+  if (!(await authorized(request))) return new Response(null, { status: 401 });
+  const url = new URL(request.url);
+  const jobId = url.searchParams.get("jobId") ?? "";
+  const mediaPath = safeMediaPath(url.searchParams.get("path") ?? "");
+  if (!jobId || !mediaPath) return new Response(null, { status: 400 });
+  const jobs = await readLocalNodeJobs();
+  const job = jobs.find((item) => item.id === jobId && item.kind === "transcode_video" && item.status === "claimed");
+  if (!job?.resourceId) return new Response(null, { status: 404 });
+  const key = `course-media/${job.resourceId}/${job.id}/${mediaPath}`;
+  const { env } = await import("cloudflare:workers");
+  const object = await env.BUCKET.head(key);
+  return new Response(null, { status: object ? 200 : 404 });
+}
