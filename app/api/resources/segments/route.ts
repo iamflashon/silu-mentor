@@ -19,23 +19,6 @@ function cleanJsonText(value: string) {
   return value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 }
 
-function makeDigestWindows<T extends { startSeconds: number | null; text: string }>(rows: T[]) {
-  const windows: T[][] = [];
-  let current: T[] = [];
-  let windowStart = rows[0]?.startSeconds ?? 0;
-  for (const row of rows) {
-    const start = row.startSeconds ?? windowStart;
-    if (current.length && (start - windowStart >= 300 || current.length >= 180)) {
-      windows.push(current);
-      current = [];
-      windowStart = start;
-    }
-    current.push(row);
-  }
-  if (current.length) windows.push(current);
-  return windows;
-}
-
 function compactCourseSummaries<T extends {
   startSeconds: number | null;
   endSeconds: number | null;
@@ -69,17 +52,17 @@ function compactExistingSummaries(rows: Array<typeof resourceSegments.$inferSele
 }
 
 async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: Array<typeof resourceSegments.$inferSelect>) {
-  const windows = makeDigestWindows(rows);
   const digest: Array<DigestRow & { sourceSequence: number }> = [];
   const model = await getOpenAIModel("gpt-5.6-luna");
 
-  for (const window of windows) {
+  for (let index = 0; index < rows.length; index += 10) {
+    const batch = rows.slice(index, index + 10);
     const payload = await openAIJson("/responses", {
       method: "POST",
       body: JSON.stringify({
         model,
-        instructions: "你是台灣司律考試影音課程編輯。請把這一段連續課程整理成 1 個最值得學生記住的摘要重點。不要逐句摘要，不要照抄字幕，不要補造字幕沒有的內容。每個重點要有 8 至 20 字的主題標題、30 至 70 字的繁中摘要，並選出最能代表該重點的字幕 anchorId。輸出 JSON。",
-        input: JSON.stringify(window.map((item) => ({
+        instructions: "你是台灣司律考試影音課程編輯。輸入中的每一個字幕段落都必須各產生 1 筆摘要，不得省略，也不得把多段合併到第一段。只根據該段字幕內容整理，不要照抄字幕，不要補造內容。每筆要有 8 至 20 字的主題標題、30 至 70 字的繁中摘要，anchorId 必須沿用該段輸入值。輸出順序須與輸入一致。輸出 JSON。",
+        input: JSON.stringify(batch.map((item) => ({
           anchorId: item.id,
           start: item.startSeconds,
           end: item.endSeconds,
@@ -97,7 +80,7 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
                 items: {
                   type: "array",
                   minItems: 1,
-                  maxItems: 1,
+                  maxItems: 10,
                   items: {
                     type: "object",
                     additionalProperties: false,
@@ -117,10 +100,10 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
       }),
     });
     const parsed = JSON.parse(cleanJsonText(outputText(payload))) as { items?: DigestRow[] };
-    const validIds = new Set(window.map((item) => item.id));
+    const validIds = new Set(batch.map((item) => item.id));
     for (const item of parsed.items ?? []) {
       if (!validIds.has(item.anchorId) || !item.title?.trim() || !item.summary?.trim()) continue;
-      const source = window.find((row) => row.id === item.anchorId);
+      const source = batch.find((row) => row.id === item.anchorId);
       if (!source) continue;
       digest.push({
         anchorId: item.anchorId,
@@ -134,9 +117,8 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
   const uniqueDigest = Array.from(new Map(digest.map((item) => [item.anchorId, item])).values())
     .sort((a, b) => a.sourceSequence - b.sourceSequence);
   if (!uniqueDigest.length) throw new Error("AI 沒有產生可用的課程摘要");
-  const limitedDigest = uniqueDigest.length > 15
-    ? uniqueDigest.filter((_item, index) => index % Math.ceil(uniqueDigest.length / 15) === 0).slice(0, 15)
-    : uniqueDigest;
+  if (uniqueDigest.length !== rows.length)
+    throw new Error(`AI 僅完成 ${uniqueDigest.length}/${rows.length} 段，未完整結果不會覆蓋既有摘要`);
 
   await db.update(resourceSegments).set({
     summary: "",
@@ -145,7 +127,7 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
     reviewStatus: "source",
   }).where(eq(resourceSegments.resourceId, rows[0].resourceId));
 
-  for (const item of limitedDigest) {
+  for (const item of uniqueDigest) {
     await db.update(resourceSegments).set({
       title: item.title,
       summary: item.summary,
@@ -155,7 +137,7 @@ async function createCourseDigest(db: Awaited<ReturnType<typeof getDb>>, rows: A
     }).where(eq(resourceSegments.id, item.anchorId));
   }
   await db.update(learningResources).set({ updatedAt: new Date() }).where(eq(learningResources.id, rows[0].resourceId));
-  return limitedDigest.length;
+  return uniqueDigest.length;
 }
 
 export async function GET(request: Request) {
