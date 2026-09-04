@@ -10,6 +10,7 @@ type CourseVideoPlayerProps = {
   startSeconds?: number;
   /** Changes only when the user explicitly asks the player to seek. */
   seekToken?: number;
+  playOnSeek?: boolean;
   onTimeChange?: (seconds: number) => void;
   onError?: (message: string) => void;
   className?: string;
@@ -74,6 +75,7 @@ export default function CourseVideoPlayer({
   title,
   startSeconds = 0,
   seekToken = 0,
+  playOnSeek = false,
   onTimeChange,
   onError,
   className,
@@ -148,6 +150,7 @@ export default function CourseVideoPlayer({
       const distance = Math.abs(lastPlaybackTimeRef.current - desired);
       if (lastPlaybackTimeRef.current === 0 || distance > 1.25) {
         video.currentTime = desired;
+        if (playOnSeek && seekToken > 0) void video.play().catch(() => undefined);
       }
     };
     if (video.readyState >= 1) seek();
@@ -162,7 +165,7 @@ export default function CourseVideoPlayer({
   // current playback time for progress and transcript highlighting; only an
   // explicit seekToken change may turn that display value into a seek.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceId, sourceUrl, seekToken]);
+  }, [resourceId, sourceUrl, seekToken, playOnSeek]);
 
   return (
     <>
