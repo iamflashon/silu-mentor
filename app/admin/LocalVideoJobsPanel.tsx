@@ -139,8 +139,8 @@ export default function LocalVideoJobsPanel() {
             <i aria-hidden="true" />
             {connected ? `本機節點已連線 · ${version}` : "本機節點未連線"}
           </b>
-          <a href="/iBrain-local-node-v0.6.4.zip" download>
-            下載影音／字幕分流版節點 v0.6.4
+          <a href="/iBrain-local-node-v0.6.5.zip" download>
+            下載影音／字幕獨立程序版節點 v0.6.5
           </a>
         </div>
       </div>

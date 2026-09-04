@@ -8,7 +8,7 @@ import platform
 import re
 from pathlib import Path
 import subprocess
-import threading
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -16,9 +16,11 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.6.4"
+VERSION = "0.6.5"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
+_SUBTITLE_QUEUE: list[Path] = []
+_SUBTITLE_PROCESS: tuple[subprocess.Popen, Path] | None = None
 SUPPORTED_INBOX_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".json", ".jsonl", ".html", ".htm", ".csv"}
 SUPPORTED_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv"}
 JUDICIAL_REQUIRED_FIELDS = {"JID", "JYEAR", "JCASE", "JNO", "JDATE", "JTITLE", "JFULL", "JPDF"}
@@ -511,7 +513,7 @@ def transcribe_video(source: Path, output: Path) -> tuple[Path | None, Path | No
     return srt, vtt
 
 
-def process_subtitle_in_background(source: Path, output: Path, jobs_url: str, media_url: str, token: str, job: dict, node_id: str, duration: float, segment_count: int) -> None:
+def process_subtitle_in_background(source: Path, output: Path, jobs_url: str, media_url: str, token: str, job: dict, node_id: str, duration: float, segment_count: int) -> bool:
     """Generate/upload subtitles without blocking the next video job."""
     job_id = str(job.get("id", ""))
     try:
@@ -519,7 +521,7 @@ def process_subtitle_in_background(source: Path, output: Path, jobs_url: str, me
         srt, vtt = transcribe_video(source, output)
         if not srt:
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕背景工作：未安裝字幕模組，影片不受影響")
-            return
+            return True
         for subtitle in (srt, vtt):
             if subtitle:
                 query = urllib.parse.urlencode({"jobId": job_id, "path": subtitle.name})
@@ -527,8 +529,68 @@ def process_subtitle_in_background(source: Path, output: Path, jobs_url: str, me
         prefix = f"course-media/{job.get('resourceId')}/{job_id}"
         request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": "SRT 字幕已完成並上傳，正在建立重點摘要", "hlsKey": f"{prefix}/index.m3u8", "posterKey": f"{prefix}/poster.jpg", "subtitleKey": f"{prefix}/transcript.srt", "durationSeconds": duration, "segmentCount": segment_count})
         print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕背景工作：SRT 上傳完成")
+        return True
     except Exception as error:
         print(time.strftime("%Y-%m-%d %H:%M:%S"), f"字幕背景工作失敗（影片仍可播放）：{str(error)[:240]}")
+        return False
+
+
+def queue_subtitle_worker(source: Path, output: Path, jobs_url: str, media_url: str, job: dict, node_id: str, duration: float, segment_count: int) -> None:
+    """Persist and queue a subtitle task for an isolated Python subprocess."""
+    task_path = output / "subtitle-task.json"
+    task_path.write_text(json.dumps({
+        "source": str(source), "output": str(output), "jobsUrl": jobs_url, "mediaUrl": media_url,
+        "job": job, "nodeId": node_id, "duration": duration, "segmentCount": segment_count,
+    }, ensure_ascii=False), encoding="utf-8")
+    if task_path not in _SUBTITLE_QUEUE:
+        _SUBTITLE_QUEUE.append(task_path)
+    print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕背景佇列：已排入獨立程序，不會阻塞下一支影片")
+    service_subtitle_queue()
+
+
+def service_subtitle_queue() -> None:
+    """Run at most one Whisper process so multiple videos cannot exhaust GPU memory."""
+    global _SUBTITLE_PROCESS
+    if _SUBTITLE_PROCESS:
+        process, task_path = _SUBTITLE_PROCESS
+        returncode = process.poll()
+        if returncode is None:
+            return
+        if returncode == 0:
+            print(time.strftime("%Y-%m-%d %H:%M:%S"), "字幕獨立程序：工作完成")
+        else:
+            failed_path = task_path.with_suffix(".failed.json")
+            try:
+                task_path.replace(failed_path)
+            except OSError:
+                pass
+            print(time.strftime("%Y-%m-%d %H:%M:%S"), f"字幕獨立程序異常結束（代碼 {returncode}）；主節點仍繼續運作")
+        _SUBTITLE_PROCESS = None
+    if not _SUBTITLE_PROCESS and _SUBTITLE_QUEUE:
+        task_path = _SUBTITLE_QUEUE.pop(0)
+        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+        process = subprocess.Popen([sys.executable, "-u", str(Path(__file__).resolve()), "--subtitle-worker", str(task_path)], creationflags=creationflags)
+        _SUBTITLE_PROCESS = (process, task_path)
+
+
+def run_subtitle_worker(task_path: Path) -> int:
+    token = os.getenv("LOCAL_NODE_TOKEN", "").strip()
+    if not token:
+        print("字幕獨立程序：找不到 LOCAL_NODE_TOKEN")
+        return 1
+    try:
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        succeeded = process_subtitle_in_background(
+            Path(task["source"]), Path(task["output"]), task["jobsUrl"], task["mediaUrl"], token,
+            task["job"], task["nodeId"], float(task["duration"]), int(task["segmentCount"]),
+        )
+        if succeeded:
+            task_path.unlink(missing_ok=True)
+            return 0
+        return 1
+    except Exception as error:
+        print(time.strftime("%Y-%m-%d %H:%M:%S"), f"字幕獨立程序無法啟動：{str(error)[:240]}")
+        return 1
 
 
 def process_video_job(job: dict, jobs_url: str, token: str, video_inbox: Path, video_output: Path, node_id: str, heartbeat_callback=None) -> None:
@@ -610,7 +672,7 @@ def process_video_job(job: dict, jobs_url: str, token: str, video_inbox: Path, v
     prefix = f"course-media/{job.get('resourceId')}/{job_id}"
     segment_count = len(list(output.glob("segment-*.ts")))
     request_json(jobs_url, token, {"jobId": job_id, "nodeId": node_id, "status": "completed", "message": f"單畫質 HLS 已完成並上傳，共 {segment_count} 個切片；字幕已轉入背景佇列", "hlsKey": f"{prefix}/index.m3u8", "posterKey": f"{prefix}/poster.jpg", "subtitleKey": "", "durationSeconds": duration, "segmentCount": segment_count})
-    threading.Thread(target=process_subtitle_in_background, args=(source, output, jobs_url, media_url, token, job, node_id, duration, segment_count), daemon=True, name=f"subtitle-{job_id}").start()
+    queue_subtitle_worker(source, output, jobs_url, media_url, job, node_id, duration, segment_count)
 
 
 def process_next_job(jobs_url: str, token: str, inbox: Path, video_inbox: Path, video_output: Path, node_id: str, heartbeat_callback=None) -> str:
@@ -656,12 +718,15 @@ def main() -> None:
     for directory in (video_inbox, video_output, judicial_inbox, judicial_output, Path(__file__).resolve().parent / "video-processing", Path(__file__).resolve().parent / "video-failed"):
         directory.mkdir(parents=True, exist_ok=True)
     node_id = os.getenv("LOCAL_NODE_ID", "company-rtx4090")
+    for task_path in sorted(video_output.glob("*/subtitle-task.json")):
+        _SUBTITLE_QUEUE.append(task_path)
     print(f"iBrain 本機節點 {VERSION} 啟動；每 30 秒回報一次狀態。")
     print(f"私有教材收件匣：{inbox}")
     print(f"影音收件匣：{video_inbox}（單畫質 HLS；原始影片不上傳）")
     print(f"司法裁判收件匣：{judicial_inbox}（測試階段只在本機拆解，不上傳）")
     while True:
         try:
+            service_subtitle_queue()
             heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox)
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "心跳成功")
             judicial_active = process_judicial_test(judicial_inbox, judicial_output)
@@ -676,11 +741,13 @@ def main() -> None:
             )
             heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox, active or judicial_active)
             if active or judicial_active:
-                print(time.strftime("%Y-%m-%d %H:%M:%S"), "工作完成，心跳成功")
+                print(time.strftime("%Y-%m-%d %H:%M:%S"), "影片／資料工作完成；字幕若已排入仍會在獨立程序處理，心跳成功")
         except (urllib.error.URLError, RuntimeError, TimeoutError) as error:
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "心跳失敗:", error)
         time.sleep(30)
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--subtitle-worker":
+        raise SystemExit(run_subtitle_worker(Path(sys.argv[2]).resolve()))
     main()

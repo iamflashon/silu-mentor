@@ -1,6 +1,6 @@
 # iBrain 公司本機教材節點
 
-第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.5.1 新增影音處理階段、百分比與剩餘時間回報；支援 Cloudflare Access Service Token 雙重驗證，並可使用 Windows DPAPI 加密金鑰後於登入時自動啟動。原始 PDF、Word 與影片都留在公司電腦，雲端只接收文字索引或播放所需的 HLS 切片、清單、縮圖與字幕。
+第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.6.5 將 Whisper 字幕改由獨立程序逐支處理，字幕模組異常時不會關閉主節點或阻塞下一支影片；支援 Cloudflare Access Service Token 雙重驗證，並可使用 Windows DPAPI 加密金鑰後於登入時自動啟動。原始 PDF、Word 與影片都留在公司電腦，雲端只接收文字索引或播放所需的 HLS 切片、清單、縮圖與字幕。
 
 ## Windows 測試啟動
 
@@ -60,4 +60,4 @@ ffmpeg -hide_banner -encoders | Select-String h264_nvenc
 python -m pip install faster-whisper
 ```
 
-未安裝字幕套件時仍可正常完成 HLS，不會阻擋課程上架。
+未安裝字幕套件時仍可正常完成 HLS，不會阻擋課程上架。畫面顯示「影片／資料工作完成」只代表 HLS 或資料工作完成；必須另看到「字幕背景工作：SRT 上傳完成」，才代表字幕完成。
