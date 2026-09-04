@@ -1,0 +1,24 @@
+.posner-subtitle-editor { margin-top: 22px; border: 1px solid #d5dfe4; border-radius: 8px; background: #f8fafb; overflow: hidden; }
+.posner-subtitle-editor > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 18px; }
+.posner-subtitle-editor > header > div { display: grid; gap: 4px; }
+.posner-subtitle-editor > header span { font-size: 13px; color: #71808a; }
+.posner-subtitle-editor button { border: 1px solid #47677f; border-radius: 6px; background: #fff; color: #27475f; padding: 9px 13px; font-weight: 600; cursor: pointer; }
+.posner-subtitle-editor button:disabled { opacity: .45; cursor: not-allowed; }
+.posner-subtitle-body { display: grid; gap: 12px; max-height: 680px; overflow: auto; padding: 0 18px 18px; }
+.posner-subtitle-body > p { padding: 18px; color: #71808a; }
+.posner-subtitle-body article { display: grid; gap: 12px; padding: 16px; border: 1px solid #dbe2e6; border-radius: 7px; background: #fff; }
+.posner-subtitle-body article.recommended { border-left: 4px solid #8a6b47; }
+.posner-subtitle-body article > label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.posner-subtitle-body textarea, .posner-subtitle-body input[type="number"] { width: 100%; border: 1px solid #cbd4d9; border-radius: 5px; padding: 9px; font: inherit; line-height: 1.6; }
+.posner-subtitle-time { display: grid; grid-template-columns: 140px 140px 1fr; gap: 10px; align-items: end; }
+.posner-subtitle-time label { display: grid; gap: 5px; font-size: 12px; }
+.posner-subtitle-time > span { padding: 10px; color: #74818b; }
+.posner-subtitle-body footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.posner-subtitle-body footer label { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.posner-subtitle-body footer button { background: #344f64; color: #fff; }
+@media (max-width: 800px) {
+  .posner-subtitle-editor > header, .posner-subtitle-body footer { align-items: stretch; flex-direction: column; }
+  .posner-subtitle-time { grid-template-columns: 1fr 1fr; }
+  .posner-subtitle-time > span { grid-column: 1 / -1; }
+  .posner-subtitle-body { padding: 0 10px 12px; }
+}

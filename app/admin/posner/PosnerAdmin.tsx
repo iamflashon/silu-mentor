@@ -33,6 +33,7 @@ type Draft = {
   previewDurationSeconds: number;
   salesEnabled: boolean;
 };
+type SubtitleSegment = { id:number; title:string; startSeconds:number; endSeconds:number; text:string; summary:string; importance:number; recommended:boolean; reviewStatus:string; sequence:number };
 const empty: Draft = {
   title: "",
   subject: "主題講座",
@@ -66,6 +67,10 @@ export default function PosnerAdmin() {
       configured: false,
     }),
     [voucher, setVoucher] = useState("");
+  const [segments,setSegments]=useState<SubtitleSegment[]>([]),
+    [segmentsOpen,setSegmentsOpen]=useState(false),
+    [segmentsLoading,setSegmentsLoading]=useState(false),
+    [segmentSaving,setSegmentSaving]=useState<number|null>(null);
   const selected = useMemo(
     () => courses.find((x) => x.id === selectedId) ?? null,
     [courses, selectedId],
@@ -103,6 +108,18 @@ export default function PosnerAdmin() {
     setFile(null);
     setVoucher("");
     setNotice("");
+    setSegments([]);
+    setSegmentsOpen(false);
+  }
+  async function loadSegments(){
+    if(!selectedId)return;
+    setSegmentsOpen(true);setSegmentsLoading(true);setNotice("");
+    try{const r=await fetch(`/api/admin/posner-courses?resourceId=${selectedId}`,{cache:"no-store"}),d=await r.json() as {segments?:SubtitleSegment[];error?:string};if(!r.ok)throw new Error(d.error||"讀取字幕失敗");setSegments(d.segments??[]);}catch(e){setNotice(e instanceof Error?e.message:"讀取字幕失敗");}finally{setSegmentsLoading(false);}
+  }
+  function updateSegment(id:number,values:Partial<SubtitleSegment>){setSegments(current=>current.map(item=>item.id===id?{...item,...values}:item));}
+  async function saveSegment(segment:SubtitleSegment){
+    if(!selectedId)return;setSegmentSaving(segment.id);setNotice("");
+    try{const r=await fetch("/api/admin/posner-courses",{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({id:selectedId,action:"update-segment",segmentId:segment.id,startSeconds:segment.startSeconds,endSeconds:segment.endSeconds,text:segment.text,summary:segment.summary,recommended:segment.recommended})}),d=await r.json() as {segment?:SubtitleSegment;error?:string};if(!r.ok)throw new Error(d.error||"儲存字幕失敗");if(d.segment)updateSegment(segment.id,d.segment);setNotice(`已儲存 ${mmss(segment.startSeconds)} 的字幕與摘要。`);}catch(e){setNotice(e instanceof Error?e.message:"儲存字幕失敗");}finally{setSegmentSaving(null);}
   }
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -380,6 +397,15 @@ export default function PosnerAdmin() {
                   {voucher && <output>{voucher}</output>}
                 </div>
               </div>
+              <section className="posner-subtitle-editor">
+                <header><div><b>字幕與重點摘要</b><span>查看並直接修改時間、逐字字幕及前台摘要。</span></div><button type="button" onClick={()=>segmentsOpen?setSegmentsOpen(false):void loadSegments()} disabled={!selected.subtitleReady}>{segmentsOpen?"收合編輯器":selected.subtitleReady?"查看／編修字幕與摘要":"字幕尚未完成"}</button></header>
+                {segmentsOpen&&<div className="posner-subtitle-body">{segmentsLoading?<p>正在讀取字幕…</p>:segments.length?segments.map(segment=><article key={segment.id} className={segment.recommended?"recommended":""}>
+                  <div className="posner-subtitle-time"><label>開始（秒）<input type="number" min="0" value={segment.startSeconds??0} onChange={e=>updateSegment(segment.id,{startSeconds:Number(e.target.value)})}/></label><label>結束（秒）<input type="number" min="0" value={segment.endSeconds??0} onChange={e=>updateSegment(segment.id,{endSeconds:Number(e.target.value)})}/></label><span>{mmss(segment.startSeconds??0)}－{mmss(segment.endSeconds??0)}</span></div>
+                  <label>字幕原文<textarea rows={4} value={segment.text??""} onChange={e=>updateSegment(segment.id,{text:e.target.value})}/></label>
+                  <label>重點摘要<textarea rows={3} value={segment.summary??""} placeholder="可編寫這一段要給學生看的重點摘要" onChange={e=>updateSegment(segment.id,{summary:e.target.value})}/></label>
+                  <footer><label><input type="checkbox" checked={Boolean(segment.recommended)} onChange={e=>updateSegment(segment.id,{recommended:e.target.checked})}/>列為推薦重點</label><button type="button" onClick={()=>void saveSegment(segment)} disabled={segmentSaving===segment.id}>{segmentSaving===segment.id?"儲存中…":"儲存這一段"}</button></footer>
+                </article>):<p>目前尚無可編修的字幕段落，請稍後重新開啟。</p>}</div>}
+              </section>
               <label className="posner-publish-check">
                 <input
                   type="checkbox"

@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { learningResources, posnerCourseProducts, posnerCourseVouchers, resourceSegments } from "../../../../db/schema";
 import { linePayConfig } from "../../../../lib/line-pay";
@@ -8,6 +8,11 @@ import { readLocalNodeJobs } from "../../../../lib/local-node-jobs";
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
+  const resourceId = Number(new URL(request.url).searchParams.get("resourceId"));
+  if (resourceId) {
+    const segments = await auth.db.select({ id:resourceSegments.id, title:resourceSegments.title, startSeconds:resourceSegments.startSeconds, endSeconds:resourceSegments.endSeconds, text:resourceSegments.text, summary:resourceSegments.summary, importance:resourceSegments.importance, recommended:resourceSegments.recommended, reviewStatus:resourceSegments.reviewStatus, sequence:resourceSegments.sequence }).from(resourceSegments).where(and(eq(resourceSegments.resourceId,resourceId),eq(resourceSegments.segmentType,"subtitle"))).orderBy(asc(resourceSegments.sequence));
+    return Response.json({segments},{headers:{"cache-control":"no-store"}});
+  }
   const rows = await auth.db.select({ id: learningResources.id, title: learningResources.title, subject: learningResources.subject, creator: learningResources.creator, description: learningResources.description, status: learningResources.status, accessType: learningResources.accessType, sourceUrl: learningResources.sourceUrl, hasCover: learningResources.coverStorageKey, price: posnerCourseProducts.price, accessDays: posnerCourseProducts.accessDays, previewStartSeconds: posnerCourseProducts.previewStartSeconds, previewDurationSeconds: posnerCourseProducts.previewDurationSeconds, salesEnabled: posnerCourseProducts.salesEnabled }).from(learningResources).leftJoin(posnerCourseProducts, eq(posnerCourseProducts.resourceId, learningResources.id)).where(eq(learningResources.resourceType, "course")).orderBy(desc(learningResources.createdAt));
   const [jobs, summaryRows] = await Promise.all([readLocalNodeJobs(), auth.db.select({ resourceId: resourceSegments.resourceId }).from(resourceSegments).where(eq(resourceSegments.reviewStatus, "ai_digest"))]);
   const summaryIds = new Set(summaryRows.map((row) => row.resourceId));
@@ -45,6 +50,15 @@ export async function PATCH(request: Request) {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const resourceId = Number(body.id);
   if (!resourceId) return Response.json({error:"請選擇課程"},{status:400});
+  if (body.action === "update-segment") {
+    const segmentId=Number(body.segmentId);
+    const [current]=await auth.db.select().from(resourceSegments).where(and(eq(resourceSegments.id,segmentId),eq(resourceSegments.resourceId,resourceId),eq(resourceSegments.segmentType,"subtitle"))).limit(1);
+    if(!current)return Response.json({error:"找不到字幕段落"},{status:404});
+    const startSeconds=Math.max(0,Math.floor(Number(body.startSeconds)||0));
+    const endSeconds=Math.max(startSeconds,Math.floor(Number(body.endSeconds)||0));
+    const [segment]=await auth.db.update(resourceSegments).set({startSeconds,endSeconds,title:`${Math.floor(startSeconds/60)}:${String(startSeconds%60).padStart(2,"0")}－${Math.floor(endSeconds/60)}:${String(endSeconds%60).padStart(2,"0")}`,text:String(body.text??"").trim().slice(0,12000),summary:String(body.summary??"").trim().slice(0,1000),recommended:body.recommended===true,reviewStatus:"reviewed"}).where(eq(resourceSegments.id,segmentId)).returning();
+    return Response.json({segment});
+  }
   if (body.action === "recommend-preview") {
     const [segment] = await auth.db.select({startSeconds:resourceSegments.startSeconds,title:resourceSegments.title,summary:resourceSegments.summary}).from(resourceSegments).where(and(eq(resourceSegments.resourceId,resourceId),eq(resourceSegments.segmentType,"subtitle"))).orderBy(desc(resourceSegments.recommended),desc(resourceSegments.importance),sql`length(${resourceSegments.summary}) desc`).limit(1);
     if (!segment?.startSeconds) return Response.json({error:"這門課尚無可推薦的摘要時間點"},{status:404});
