@@ -26,12 +26,15 @@ export default async function PosnerCoursePage({ params }: { params: Promise<{ i
     .where(and(eq(resourceSegments.resourceId, resourceId), eq(resourceSegments.segmentType, "subtitle")))
     .orderBy(asc(resourceSegments.sequence)).limit(8);
   const title = course.title;
+  const coverUrl = /115高普考解題|政府會計/u.test(title)
+    ? "/posner/chen-youxin-115-government-accounting.png"
+    : course.coverStorageKey ? `/api/resources/cover?id=${course.id}` : "";
 
   return (
     <main className="posner-detail">
       <Link className="posner-back" href="/posner">← 回影音讀書館</Link>
       <section className="posner-detail-hero">
-        <div className={`posner-detail-cover ${course.coverStorageKey ? "has-image" : ""}`} style={course.coverStorageKey ? { backgroundImage: `linear-gradient(180deg,rgba(25,35,44,.03),rgba(25,35,44,.72)),url(/api/resources/cover?id=${course.id})` } : undefined}><span>{course.subject}</span><strong>{course.coverStorageKey ? "" : <>POSNER<br />CLASS</>}</strong><small>{course.creator || "陳友心"}</small></div>
+        <div className={`posner-detail-cover ${coverUrl ? "has-image" : ""}`} style={coverUrl ? { backgroundImage: `linear-gradient(180deg,rgba(25,35,44,.02),rgba(25,35,44,.3)),url(${coverUrl})` } : undefined}><span>{course.subject}</span><strong>{coverUrl ? "" : <>POSNER<br />CLASS</>}</strong><small>{course.creator || "陳友心"}</small></div>
         <div className="posner-detail-copy">
           <span>完整影音課程</span><h1>{title}</h1>
           <p>{course.creator || "波斯納講師"}老師</p>

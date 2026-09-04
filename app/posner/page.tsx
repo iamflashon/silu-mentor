@@ -22,6 +22,9 @@ export default async function PosnerHome() {
 
   const featured = courses[0];
   const featuredTitle = featured?.title ?? "陳友心老師首波課程籌備中";
+  const featuredCover = featured && /115高普考解題|政府會計/u.test(featured.title)
+    ? "/posner/chen-youxin-115-government-accounting.png"
+    : featured?.hasCover ? `/api/resources/cover?id=${featured.id}` : "";
 
   return (
     <main>
@@ -56,7 +59,7 @@ export default async function PosnerHome() {
         <div className="posner-course-grid">
           {featured ? (
             <Link className="posner-course-card" href={`/posner/course/${featured.id}`}>
-              <div className={`posner-course-cover ${featured.hasCover ? "has-image" : ""}`} style={featured.hasCover ? { backgroundImage: `linear-gradient(180deg,rgba(25,35,44,.05),rgba(25,35,44,.7)),url(/api/resources/cover?id=${featured.id})` } : undefined}><span>{featured.subject}</span><strong>{featured.hasCover ? "" : <>POSNER<br />CLASS</>}</strong><small>{featured.creator || "陳友心"}</small></div>
+              <div className={`posner-course-cover ${featuredCover ? "has-image" : ""}`} style={featuredCover ? { backgroundImage: `linear-gradient(180deg,rgba(25,35,44,.02),rgba(25,35,44,.3)),url(${featuredCover})` } : undefined}><span>{featured.subject}</span><strong>{featuredCover ? "" : <>POSNER<br />CLASS</>}</strong><small>{featured.creator || "陳友心"}</small></div>
               <div className="posner-course-info">
                 <span>{featured.status === "active" ? "開放選購" : "內容準備中"}</span>
                 <h3>{featuredTitle}</h3>
