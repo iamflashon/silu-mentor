@@ -1,6 +1,6 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import type { getDb } from "../db";
-import { appSettings, medtechMemberEntitlements, medtechProducts, members } from "../db/schema";
+import { appSettings, medtechMemberEntitlements, medtechPaymentOrders, medtechProducts, members } from "../db/schema";
 
 export const MEDTECH_DEFAULT_PRODUCT_KEY = "medtech-iii-clinical-virology-lower";
 export const MEDTECH_DEFAULT_PRODUCT_TITLE = "醫檢師國考題詳解（Ⅲ）臨床病毒學（下）";
@@ -39,12 +39,39 @@ export async function getMedtechProductSettings(db: Awaited<ReturnType<typeof ge
 }
 
 export async function getMemberProductEntitlement(db: Awaited<ReturnType<typeof getDb>>, userKey: string, now = new Date()) {
-  const [row] = await db.select({ entitlement: medtechMemberEntitlements, email: members.email })
+  let [row] = await db.select({ entitlement: medtechMemberEntitlements, email: members.email })
     .from(medtechMemberEntitlements)
     .innerJoin(members, eq(medtechMemberEntitlements.memberId, members.id))
     .where(and(eq(members.email, userKey.trim().toLowerCase()), eq(medtechMemberEntitlements.productKey, MEDTECH_DEFAULT_PRODUCT_KEY), eq(medtechMemberEntitlements.status, "active"), gt(medtechMemberEntitlements.expiresAt, now)))
     .limit(1);
-  return row?.entitlement ?? null;
+  if (row?.entitlement) return row.entitlement;
+  const email = userKey.trim().toLowerCase();
+  const [member] = await db.select().from(members).where(eq(members.email, email)).limit(1);
+  if (!member) return null;
+  const [paidOrder] = await db.select().from(medtechPaymentOrders)
+    .where(and(eq(medtechPaymentOrders.userKey, email), eq(medtechPaymentOrders.status, "paid")))
+    .orderBy(desc(medtechPaymentOrders.paidAt), desc(medtechPaymentOrders.createdAt))
+    .limit(1);
+  if (!paidOrder || paidOrder.activatedAt) return null;
+  const product = await getMedtechProductSettings(db, now);
+  const startsAt = paidOrder.paidAt ?? now;
+  const expiresAt = new Date(startsAt.getTime() + product.accessDays * 86400000);
+  if (expiresAt <= now) return null;
+  const [recovered] = await db.insert(medtechMemberEntitlements).values({
+    memberId: member.id,
+    productKey: MEDTECH_DEFAULT_PRODUCT_KEY,
+    status: "active",
+    source: "line_pay_recovered",
+    startsAt,
+    expiresAt,
+    note: `自動補開通 LINE Pay 訂單 ${paidOrder.orderId}`,
+    updatedBy: "line_pay_recovery",
+  }).onConflictDoUpdate({
+    target: [medtechMemberEntitlements.memberId, medtechMemberEntitlements.productKey],
+    set: { status: "active", source: "line_pay_recovered", startsAt, expiresAt, note: `自動補開通 LINE Pay 訂單 ${paidOrder.orderId}`, updatedBy: "line_pay_recovery", updatedAt: now },
+  }).returning();
+  await db.update(medtechPaymentOrders).set({ activatedAt: now, updatedAt: now }).where(eq(medtechPaymentOrders.id, paidOrder.id));
+  return recovered ?? null;
 }
 
 export function parseMedtechPermissions(value: string | null | undefined) {

@@ -109,6 +109,7 @@ export default function CommercialMemberControls({ members, onReload }: { member
               <span>{order.currency} {order.amount} · {order.status === "paid" ? "已付款" : order.status === "pending" ? "待付款" : order.status}</span>
               <small>訂單 {order.orderId}{order.transactionId ? ` · 交易 ${order.transactionId}` : ""}</small>
               <small>{order.paidAt ? `付款：${new Date(order.paidAt).toLocaleString("zh-TW")}` : `建立：${new Date(order.createdAt).toLocaleString("zh-TW")}`}{order.activatedAt ? ` · 開通：${new Date(order.activatedAt).toLocaleString("zh-TW")}` : ""}</small>
+              {order.status === "authorized" && order.transactionId && <button type="button" onClick={() => window.location.assign(`/api/medtech/line-pay/confirm?orderId=${encodeURIComponent(order.orderId)}&transactionId=${encodeURIComponent(order.transactionId || "")}`)}>重新確認付款並開通</button>}
             </article>)}
           </div> : <p>目前沒有付款訂單。</p>}
         </details>
