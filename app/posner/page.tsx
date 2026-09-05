@@ -64,12 +64,12 @@ export default async function PosnerHome() {
           {featured ? (
             <Link className="posner-course-card" href={`/posner/course/${featured.id}`}>
               <div className={`posner-course-cover ${featuredCover ? "has-image" : ""}`} style={featuredCover ? { backgroundImage: `linear-gradient(180deg,rgba(25,35,44,.02),rgba(25,35,44,.3)),url(${featuredCover})` } : undefined}><span>{featured.subject}</span><strong>{featuredCover ? "" : <>POSNER<br />CLASS</>}</strong><small>{featured.creator || "陳友心"}</small></div>
-              <div className="posner-course-info">
+              <div className="posner-course-main">
                 <span>{featured.status === "active" ? "開放選購" : "內容準備中"}</span>
                 <h3>{featuredTitle}</h3>
                 <p>{featured.creator || "波斯納講師"} · 完整影音課程{featured.salesEnabled ? ` · NT$${featured.price}／${featured.accessDays} 天` : ""}</p>
-                <div><b>查看課程內容</b><i aria-hidden="true">→</i></div>
               </div>
+              <div className="posner-course-action"><b>查看課程內容</b><i aria-hidden="true">→</i></div>
             </Link>
           ) : <div className="posner-empty">首波影音課程正在準備中。</div>}
           <article className="posner-coming-card">
