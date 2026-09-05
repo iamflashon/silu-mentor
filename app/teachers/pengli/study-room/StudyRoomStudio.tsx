@@ -15,6 +15,7 @@ const tools = [
 ] as const;
 type Tool = typeof tools[number];
 type StudioMessage = { role: "student" | "coach"; text: string };
+type StudyRun = { id: number; tool: string; topic: string; outputText: string; sourceLabel: string; cacheHit: boolean; createdAt: string };
 
 export default function StudyRoomStudio() {
   const [active, setActive] = useState<Tool>(tools[0]);
@@ -25,15 +26,18 @@ export default function StudyRoomStudio() {
   const [result, setResult] = useState(""), [source, setSource] = useState(""), [error, setError] = useState(""), [loading, setLoading] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState("");
   const [quizMessages, setQuizMessages] = useState<StudioMessage[]>([]);
+  const [resultNote, setResultNote] = useState("");
+  const [history, setHistory] = useState<StudyRun[]>([]), [showHistory, setShowHistory] = useState(false), [historyLoading, setHistoryLoading] = useState(false);
   const prompt = useMemo(() => active.prompt.replaceAll("{topic}", topic).replaceAll("{concept}", concept.trim() || `「${topic}」中最重要的概念`).replaceAll("{answer}", answer.trim() || "（尚未填寫）").replaceAll("{mc}", String(mc)).replaceAll("{short}", String(short)).replaceAll("{essay}", String(essay)).replaceAll("{minutes}", String(minutes)), [active, topic, concept, answer, mc, short, essay, minutes]);
   async function run() {
     if (active.id === "teach" && !answer.trim()) { setError("請先用自己的話說明這個概念。"); return; }
     setLoading(true); setError(""); setResult(""); setSource("");
     try {
       const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: active.id, messages: [{ role: "student", text: prompt }], requestKey: crypto.randomUUID(), topic }) });
-      const data = await response.json() as { reply?: string; source?: string; error?: string };
+      const data = await response.json() as { reply?: string; source?: string; error?: string; cached?: boolean; saved?: boolean; charged?: boolean };
       if (!response.ok || !data.reply) throw new Error(data.error || "目前無法產生學習內容。");
       setResult(data.reply); setSource(data.source || "彭狸老師教材");
+      setResultNote(data.cached ? "已從共用成果庫載入，本次不扣使用次數。" : data.saved ? "已自動保存；可共用的內容也已加入成果庫。" : "");
       if (active.id === "quiz") setQuizMessages([{ role: "student", text: prompt }, { role: "coach", text: data.reply }]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "目前無法產生學習內容。"); }
     finally { setLoading(false); }
@@ -44,25 +48,32 @@ export default function StudyRoomStudio() {
     setLoading(true); setError("");
     try {
       const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: "quiz", messages: nextMessages, requestKey: crypto.randomUUID(), topic }) });
-      const data = await response.json() as { reply?: string; source?: string; error?: string };
+      const data = await response.json() as { reply?: string; source?: string; error?: string; saved?: boolean };
       if (!response.ok || !data.reply) throw new Error(data.error || "目前無法完成訂正。");
       const studentText = quizAnswer.trim();
       setQuizMessages([...nextMessages, { role: "coach", text: data.reply }]);
       setResult((current) => `${current}\n\n你的回答：${studentText}\n\n訂正與下一題：\n${data.reply}`);
       setQuizAnswer(""); setSource(data.source || source);
+      setResultNote(data.saved ? "本次回答與訂正已自動保存到個人學習紀錄。" : "");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "目前無法完成訂正。"); }
     finally { setLoading(false); }
+  }
+  async function loadHistory() {
+    const next = !showHistory; setShowHistory(next); if (!next || history.length) return;
+    setHistoryLoading(true);
+    try { const response = await fetch("/api/teachers/pengli/study-room"); const data = await response.json() as { rows?: StudyRun[] }; if (response.ok) setHistory(data.rows || []); }
+    finally { setHistoryLoading(false); }
   }
   function speak() { if (!result || !("speechSynthesis" in window)) return; window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(result); utterance.lang = "zh-TW"; utterance.rate = .92; window.speechSynthesis.speak(utterance); }
   return <div className="studio-shell">
     <aside className="studio-tools" aria-label="八組學習範本">{tools.map((tool) => <button key={tool.id} className={active.id === tool.id ? "active" : ""} onClick={() => { setActive(tool); setResult(""); setError(""); setQuizMessages([]); setQuizAnswer(""); }}><small>{tool.no}</small><span><b>{tool.title}</b><em>{tool.description}</em></span></button>)}</aside>
-    <section className="studio-workspace"><header><span>學習範本 {active.no}</span><h2>{active.title}</h2><p>{active.description}</p></header><div className="studio-form">
+    <section className="studio-workspace"><header><div><span>學習範本 {active.no}</span><h2>{active.title}</h2><p>{active.description}</p></div><button className="history-toggle" onClick={loadHistory}>{showHistory ? "返回學習工具" : "我的學習紀錄"}</button></header>{showHistory ? <section className="study-history"><h3>最近自動保存的內容</h3>{historyLoading ? <p>正在讀取…</p> : history.length ? history.map((item) => <button key={item.id} onClick={() => { setResult(item.outputText); setSource(item.sourceLabel); setResultNote(item.cacheHit ? "當時由共用成果庫載入，未扣使用次數。" : "當時已自動保存。" ); setShowHistory(false); }}><b>{tools.find((tool) => tool.id === item.tool)?.title || item.tool}</b><span>{item.topic}</span><small>{new Date(item.createdAt).toLocaleString("zh-TW")}</small></button>) : <p>目前還沒有學習紀錄。</p>}</section> : <div className="studio-form">
       <label><span>教材主題</span><select value={topic} onChange={(event) => setTopic(event.target.value)}>{topics.map((item) => <option key={item}>{item}</option>)}</select></label>
       {(active.id === "explain" || active.id === "teach") && <label><span>想學的概念</span><input value={concept} onChange={(event) => setConcept(event.target.value)} placeholder="例如：行政處分的外部性" /></label>}
       {active.id === "teach" && <label><span>先用自己的話教一次</span><textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="不要抄課本，直接說出你的理解…" rows={7} /></label>}
       {active.id === "mock" && <div className="exam-fields"><label><span>選擇題</span><input type="number" min="0" max="30" value={mc} onChange={(e) => setMc(Number(e.target.value))}/></label><label><span>簡答題</span><input type="number" min="0" max="10" value={short} onChange={(e) => setShort(Number(e.target.value))}/></label><label><span>申論題</span><input type="number" min="0" max="5" value={essay} onChange={(e) => setEssay(Number(e.target.value))}/></label><label><span>作答分鐘</span><input type="number" min="10" max="240" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}/></label></div>}
       {active.id === "audio" && <label><span>摘要長度</span><select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}><option value="5">約 5 分鐘</option><option value="10">約 10 分鐘</option><option value="15">約 15 分鐘</option></select></label>}
       <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details><button className="studio-run" onClick={run} disabled={loading}>{loading ? "正在依教材準備…" : active.id === "quiz" ? "開始第一題" : active.id === "teach" ? "請檢查我的說明" : `產生${active.title}`}</button>{error && <p className="studio-error">{error}</p>}
-    </div>{result && <article className="studio-result"><header><div><span>學習結果</span><h3>{active.title}</h3></div>{active.id === "audio" && <button onClick={speak}>播放語音</button>}</header><div>{result.split(/\n{2,}/u).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{active.id === "quiz" && <div className="quiz-reply"><label><span>你的答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="先用自己的話回答這一題…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材訂正…" : "送出答案並繼續"}</button></div>}<small>依據：{source}</small></article>}</section>
+    </div>}{!showHistory && result && <article className="studio-result"><header><div><span>學習結果</span><h3>{active.title}</h3></div>{active.id === "audio" && <button onClick={speak}>播放語音</button>}</header>{resultNote && <p className="result-note">{resultNote}</p>}<div>{result.split(/\n{2,}/u).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{active.id === "quiz" && <div className="quiz-reply"><label><span>你的答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="先用自己的話回答這一題…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材訂正…" : "送出答案並繼續"}</button></div>}<small>依據：{source}</small></article>}</section>
   </div>;
 }

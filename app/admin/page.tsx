@@ -3699,6 +3699,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>
           <a href="/accounting/admin"><span className="accounting">會</span><div><strong>會計管理</strong><small>教材與課業答疑</small></div>→</a>
           <a href="/data-structure/admin"><span className="data">資</span><div><strong>資料結構管理</strong><small>教材與圖形索引</small></div>→</a>
+          <a href="/admin/pengli-study-room"><span className="law">彭</span><div><strong>學霸成果庫</strong><small>預先建立與共用學習內容</small></div>→</a>
         </section>}
         {!independentMode && <nav className="admin-tabs" aria-label="後台功能切換">
           <span className="admin-nav-section">公司共用</span>

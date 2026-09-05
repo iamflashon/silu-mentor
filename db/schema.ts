@@ -1328,6 +1328,54 @@ export const pengliVerificationDailyAttempts = sqliteTable(
   ],
 );
 
+export const pengliStudyArtifacts = sqliteTable(
+  "pengli_study_artifacts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    cacheKey: text("cache_key").notNull().unique(),
+    bookVersion: text("book_version").notNull(),
+    tool: text("tool").notNull(),
+    topic: text("topic").notNull(),
+    parametersJson: text("parameters_json").notNull().default("{}"),
+    promptVersion: integer("prompt_version").notNull().default(1),
+    content: text("content").notNull(),
+    sourceLabel: text("source_label").notNull().default(""),
+    status: text("status").notNull().default("active"),
+    reviewStatus: text("review_status").notNull().default("pending_review"),
+    generatedByMemberId: integer("generated_by_member_id").references(() => members.id, { onDelete: "set null" }),
+    reuseCount: integer("reuse_count").notNull().default(0),
+    generatedAt: integer("generated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("pengli_study_artifacts_lookup_idx").on(table.tool, table.topic, table.status),
+    index("pengli_study_artifacts_review_idx").on(table.reviewStatus, table.updatedAt),
+  ],
+);
+
+export const pengliStudyRuns = sqliteTable(
+  "pengli_study_runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    artifactId: integer("artifact_id").references(() => pengliStudyArtifacts.id, { onDelete: "set null" }),
+    requestKey: text("request_key").notNull(),
+    bookVersion: text("book_version").notNull(),
+    tool: text("tool").notNull(),
+    topic: text("topic").notNull(),
+    inputJson: text("input_json").notNull().default("[]"),
+    outputText: text("output_text").notNull(),
+    sourceLabel: text("source_label").notNull().default(""),
+    cacheHit: integer("cache_hit", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("pengli_study_runs_member_request_unique").on(table.memberId, table.requestKey),
+    index("pengli_study_runs_member_created_idx").on(table.memberId, table.createdAt),
+    index("pengli_study_runs_artifact_idx").on(table.artifactId),
+  ],
+);
+
 export const noteAttachments = sqliteTable("note_attachments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   noteId: integer("note_id")

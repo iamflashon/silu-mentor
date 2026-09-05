@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, inArray, like, lt, lte, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
+import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliStudyArtifacts, pengliStudyRuns, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
@@ -9,6 +9,15 @@ import { ensurePengliFreeTrial, getActiveAiEntitlement, getAiPlan } from "../../
 import { PENGLI_THEME_TITLES } from "../../../../../lib/pengli-book-toc";
 
 type InputMessage = { role?: unknown; text?: unknown };
+
+const PENGLI_STUDY_BOOK_VERSION = "BKID-20288-2E";
+const PENGLI_STUDY_PROMPT_VERSION = 1;
+
+async function studyCacheKey(tool: string, topic: string, messages: InputMessage[]) {
+  const normalized = JSON.stringify({ book: PENGLI_STUDY_BOOK_VERSION, promptVersion: PENGLI_STUDY_PROMPT_VERSION, tool, topic, messages: messages.map((message) => String(message.text ?? "").trim()) });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalized));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 const PENGLI_BOOK_BODY_START_PAGE = 23;
 function isPengliNavigationPage(text: string) {
@@ -754,6 +763,54 @@ export async function POST(request: Request) {
       }
       if (!trial.ok) return Response.json({ error: "免費主題啟用失敗，請重新整理後再試。", code: trial.code }, { status: 409 });
     }
+
+    if (body.mode === "study-tool") {
+      const rawMessages = (Array.isArray(body.messages) ? body.messages : []).slice(-8);
+      const messages = rawMessages.map((message) => ({ role: message.role === "coach" ? "assistant" : "user", content: String(message.text ?? "").slice(0, 2500) })).filter((message) => message.content.trim());
+      if (!messages.length) return Response.json({ error: "請先選擇學習內容。" }, { status: 400 });
+      const tool = String(body.studyTool || "tool").slice(0, 30);
+      const topic = requestedTopic.slice(0, 120);
+      const requestKey = String(body.requestKey ?? crypto.randomUUID()).slice(0, 120);
+      const shareable = tool !== "teach" && !(tool === "quiz" && rawMessages.length > 1);
+      const cacheKey = shareable ? await studyCacheKey(tool, topic, rawMessages) : "";
+      const [cached] = cacheKey ? await auth.db.select().from(pengliStudyArtifacts).where(and(eq(pengliStudyArtifacts.cacheKey, cacheKey), eq(pengliStudyArtifacts.status, "active"))).limit(1) : [];
+      if (cached) {
+        await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId: cached.id, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: cached.content, sourceLabel: cached.sourceLabel, cacheHit: true }).onConflictDoNothing();
+        await auth.db.update(pengliStudyArtifacts).set({ reuseCount: sql`${pengliStudyArtifacts.reuseCount} + 1`, updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, cached.id));
+        return Response.json({ reply: cached.content, source: cached.sourceLabel, cached: true, saved: true, charged: false });
+      }
+
+      const gate = await prepareAiUse(request, "pengli");
+      if (gate instanceof Response) return gate;
+      if (!await getOpenAIKey()) return Response.json({ error: "彭狸學霸讀書室尚未設定模型。" }, { status: 503 });
+      const evidenceQuery = rawMessages.map((message) => String(message.text ?? "")).join("\n").slice(0, 7000);
+      const evidence = await pengliEvidence(evidenceQuery, topic);
+      if (!evidence.rows.length) return Response.json({ error: "目前無法從彭狸老師教材定位這個主題；本次不扣使用次數。" }, { status: 404 });
+      const evidenceText = evidence.rows.map((row, index) => `【教材片段 ${index + 1}｜PDF 第 ${row.pageStart ?? "?"} 頁】\n${row.text.slice(0, 2600)}`).join("\n\n");
+      const startedAt = Date.now();
+      const model = "gpt-5.6-luna";
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model,
+        instructions: `你是彭狸老師行政法「學霸讀書室」的學習內容整理器。嚴格執行學生選定的學習範本，並只使用本輪提供的彭狸老師教材片段。不得把模型常識、官方法規或其他老師資料冒充教材。每個實質主張都要標示可核對的 PDF 頁碼；教材不足時清楚標示「教材片段不足」，不得補造。輸出使用繁體中文，以全形標題、編號與換行排版，不使用 Markdown 表格或井字標題。若範本是逐題測驗：第一次只出一題且不公布答案；學生回答後，先逐點訂正與說明，再依程度出下一題，仍不得先公布新題答案。若是完整模擬考，依指定題數完整輸出試卷與卷末答案解析。\n\n【本輪教材】\n${evidenceText}`,
+        input: messages,
+        max_output_tokens: tool === "mock" || tool === "guide" ? 2400 : 1500,
+      }) }) as Record<string, unknown>;
+      const reply = outputText(payload).trim();
+      if (!reply) return Response.json({ error: "學習內容沒有完成產生，請再試一次。" }, { status: 502 });
+      const sourceLabel = `${evidence.title || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}`;
+      let artifactId: number | null = null;
+      if (shareable) {
+        await auth.db.insert(pengliStudyArtifacts).values({ cacheKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, parametersJson: JSON.stringify(rawMessages), promptVersion: PENGLI_STUDY_PROMPT_VERSION, content: reply, sourceLabel, generatedByMemberId: auth.member.id }).onConflictDoNothing();
+        const [artifact] = await auth.db.select({ id: pengliStudyArtifacts.id }).from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.cacheKey, cacheKey)).limit(1);
+        artifactId = artifact?.id ?? null;
+      }
+      await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: reply, sourceLabel, cacheHit: false }).onConflictDoNothing();
+      const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
+      const inputTokens = Number(usage?.input_tokens ?? 0), outputTokens = Number(usage?.output_tokens ?? 0), cachedTokens = Number(usage?.input_tokens_details?.cached_tokens ?? 0);
+      const access = await finishAiUse(gate, { action: `pengli_study_${tool}`, description: "彭狸學霸讀書室首次產生共用教材成果", quantity: 1, requestKey });
+      return Response.json({ reply, source: sourceLabel, access, cached: false, saved: true, charged: true, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) / 1_000_000 } });
+    }
+
     const gate = await prepareAiUse(request, "pengli");
     if (gate instanceof Response) return gate;
     if (!await getOpenAIKey()) return Response.json({ error: "彭狸 AI 教練尚未設定模型。" }, { status: 503 });
@@ -856,28 +913,6 @@ export async function POST(request: Request) {
       content: String(message.text ?? "").slice(0, 2500),
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
-
-    if (body.mode === "study-tool") {
-      const evidenceQuery = rawMessages.map((message) => String(message.text ?? "")).join("\n").slice(0, 7000);
-      const topic = String(body.topic ?? "").trim().slice(0, 120);
-      const evidence = await pengliEvidence(evidenceQuery, topic);
-      if (!evidence.rows.length) return Response.json({ error: "目前無法從彭狸老師教材定位這個主題；本次不扣使用次數。" }, { status: 404 });
-      const evidenceText = evidence.rows.map((row, index) => `【教材片段 ${index + 1}｜PDF 第 ${row.pageStart ?? "?"} 頁】\n${row.text.slice(0, 2600)}`).join("\n\n");
-      const startedAt = Date.now();
-      const model = "gpt-5.6-luna";
-      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
-        model,
-        instructions: `你是彭狸老師行政法「學霸讀書室」的學習內容整理器。嚴格執行學生選定的學習範本，並只使用本輪提供的彭狸老師教材片段。不得把模型常識、官方法規或其他老師資料冒充教材。每個實質主張都要標示可核對的 PDF 頁碼；教材不足時清楚標示「教材片段不足」，不得補造。輸出使用繁體中文，以全形標題、編號與換行排版，不使用 Markdown 表格或井字標題。若範本是逐題測驗：第一次只出一題且不公布答案；學生回答後，先逐點訂正與說明，再依程度出下一題，仍不得先公布新題答案。若是完整模擬考，依指定題數完整輸出試卷與卷末答案解析。\n\n【本輪教材】\n${evidenceText}`,
-        input: messages,
-        max_output_tokens: body.studyTool === "mock" || body.studyTool === "guide" ? 2400 : 1500,
-      }) }) as Record<string, unknown>;
-      const reply = outputText(payload).trim();
-      if (!reply) return Response.json({ error: "學習內容沒有完成產生，請再試一次。" }, { status: 502 });
-      const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
-      const inputTokens = Number(usage?.input_tokens ?? 0), outputTokens = Number(usage?.output_tokens ?? 0), cachedTokens = Number(usage?.input_tokens_details?.cached_tokens ?? 0);
-      const access = await finishAiUse(gate, { action: `pengli_study_${String(body.studyTool || "tool").slice(0, 30)}`, description: "彭狸學霸讀書室學習範本", quantity: 1, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
-      return Response.json({ reply, source: `${evidence.title || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}`, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) / 1_000_000 } });
-    }
 
     if (body.mode === "scholar-assist") {
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
