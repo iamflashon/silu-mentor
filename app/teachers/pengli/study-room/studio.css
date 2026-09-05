@@ -402,6 +402,16 @@
   background: #fff;
   box-shadow: 0 14px 38px #173f5a0d;
 }
+.admin-study-tabs { max-width: 1240px; margin: 30px auto 0; }
+.admin-study-tablist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.admin-study-tablist button { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; padding: 15px 18px; border: 1px solid #cbd9e1; border-radius: 12px; background: #fff; color: #244b64; text-align: left; cursor: pointer; }
+.admin-study-tablist button > span { grid-row: 1 / span 2; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 9px; background: #eaf1f5; color: #397393; font-weight: 900; }
+.admin-study-tablist b { font-size: 17px; }
+.admin-study-tablist small { margin-top: 3px; color: #667984; font-size: 13px; }
+.admin-study-tablist button.active { border-color: #194d6a; background: #194d6a; color: #fff; box-shadow: 0 10px 24px #173f5a1f; }
+.admin-study-tablist button.active > span { background: #fff; color: #194d6a; }
+.admin-study-tablist button.active small { color: #d5e5ee; }
+.admin-study-tabpanel .artifact-manager, .admin-study-tabpanel .studio-shell { margin-top: 0; }
 .artifact-manager > header {
   display: flex;
   justify-content: space-between;
@@ -462,6 +472,8 @@
   }
   .studio-header-actions { flex-wrap: wrap; }
   .artifact-manager { margin-inline: 16px; padding: 20px 16px; }
+  .admin-study-tabs { margin-inline: 16px; }
+  .admin-study-tablist { grid-template-columns: 1fr; }
   .artifact-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .artifact-toolbar > div { width: 100%; margin-left: 0; }
   .artifact-list article { grid-template-columns: auto minmax(0, 1fr); }
