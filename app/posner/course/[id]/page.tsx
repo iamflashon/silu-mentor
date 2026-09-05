@@ -42,14 +42,6 @@ export default async function PosnerCoursePage({ params }: { params: Promise<{ i
 
       {course.sourceUrl&&<PosnerCourseAccess courseId={course.id} title={course.title} sourceUrl={course.sourceUrl} owned={Boolean(entitlement)} expiresAt={entitlement?.expiresAt.toISOString()??null} price={product?.price??0} accessDays={product?.accessDays??365} previewStartSeconds={product?.previewStartSeconds??0} previewDurationSeconds={product?.previewDurationSeconds??300} salesEnabled={product?.salesEnabled??false} signedIn={Boolean(user)} highlights={keyMoments}/>}
 
-      <section className="posner-detail-content posner-detail-content-single">
-        <div>
-          <span className="posner-section-label">ABOUT THIS COURSE</span><h2>課程介紹</h2>
-          <p>{course.description || "以完整影音保留老師的講解脈絡，搭配可跳轉的重點摘要，讓複習不必重新從頭尋找。"}</p>
-          <h2>你會怎麼使用這堂課</h2>
-          <ul><li>以 0.75～2 倍速觀看完整內容</li><li>從重點摘要直接跳至講解時間</li><li>離開後保留最近觀看位置</li><li>字幕完成後可搜尋課堂關鍵字</li></ul>
-        </div>
-      </section>
     </main>
   );
 }
