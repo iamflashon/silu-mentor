@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./pengli.css";
+import "./study-room-hot.css";
 import PengliCover from "./PengliCover";
 
 export const metadata: Metadata = {
@@ -41,6 +42,7 @@ export default function PengliTeacherPage() {
         <div className="pengli-hero-actions">
           <a href="#curriculum">任選主題試問</a>
           <a href="#curriculum" className="primary">查看 8 大主題</a>
+          <Link href="/teachers/pengli/study-room" className="study-room-hot"><span>熱門</span>學霸讀書室</Link>
         </div>
         <dl className="pengli-hero-stats">
           <div><dt>8</dt><dd>大主題</dd></div>

@@ -1,0 +1,22 @@
+.pengli-hero-actions a.study-room-hot {
+  position: relative;
+  border-color: #eef5f8;
+  background: #eef5f8;
+  color: #173b55;
+  padding-left: 60px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+}
+
+.pengli-hero-actions a.study-room-hot span {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #c43d32;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
