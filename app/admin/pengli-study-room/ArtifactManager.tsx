@@ -21,6 +21,11 @@ export default function ArtifactManager() {
     if (response.ok) setRows(data.rows || []); else setNotice(data.error || "成果庫讀取失敗。");
   }
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    const refresh = () => void load();
+    window.addEventListener("pengli-artifact-generated", refresh);
+    return () => window.removeEventListener("pengli-artifact-generated", refresh);
+  }, []);
   async function update(id: number, action: "publish" | "unpublish") {
     setNotice("正在更新發布狀態…");
     const response = await fetch("/api/admin/pengli-study-artifacts", {
@@ -28,7 +33,10 @@ export default function ArtifactManager() {
     });
     const data = await response.json() as { error?: string };
     setNotice(response.ok ? (action === "publish" ? "已發布，學生前台現在可直接閱讀。" : "已下架，學生前台不再顯示。") : data.error || "更新失敗。");
-    if (response.ok) await load();
+    if (response.ok) {
+      await load();
+      window.dispatchEvent(new Event("pengli-artifacts-updated"));
+    }
   }
   return <section className="artifact-manager">
     <header><div><span>PUBLISHING</span><h2>成果發布管理</h2><p>產生後先保留為待審；確認內容後發布，才會出現在學生端。</p></div><button onClick={load}>重新整理</button></header>

@@ -17,7 +17,7 @@ const teachTemplate = `一、這個概念要處理的問題是：\n\n二、成�
 type Tool = typeof tools[number];
 type StudioMessage = { role: "student" | "coach"; text: string };
 type StudyRun = { id: number; tool: string; topic: string; outputText: string; sourceLabel: string; cacheHit: boolean; createdAt: string };
-type PublishedArtifact = { id: number; tool: string; topic: string; content: string; sourceLabel: string; updatedAt: string };
+type PublishedArtifact = { id: number; tool: string; topic: string; content: string; sourceLabel: string; reviewStatus?: string; updatedAt: string };
 
 function StudyContent({ text }: { text: string }) {
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -43,15 +43,22 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
   const [history, setHistory] = useState<StudyRun[]>([]), [showHistory, setShowHistory] = useState(false), [historyLoading, setHistoryLoading] = useState(false);
   const [published, setPublished] = useState<PublishedArtifact[]>([]), [showPublished, setShowPublished] = useState(false), [publishedLoading, setPublishedLoading] = useState(false);
   async function loadPublished(open = true) {
-    if (open) { setShowPublished(true); setShowHistory(false); }
+    if (open && !adminMode) { setShowPublished(true); setShowHistory(false); }
     setPublishedLoading(true);
     try {
-      const response = await fetch("/api/teachers/pengli/study-room/published", { cache: "no-store" });
+      const response = await fetch(adminMode ? "/api/admin/pengli-study-artifacts" : "/api/teachers/pengli/study-room/published", { cache: "no-store" });
       const data = await response.json() as { rows?: PublishedArtifact[] };
       if (response.ok) setPublished(data.rows || []);
     } finally { setPublishedLoading(false); }
   }
-  useEffect(() => { if (!adminMode) void loadPublished(false); }, [adminMode]);
+  useEffect(() => { void loadPublished(false); }, [adminMode]);
+  useEffect(() => {
+    if (!adminMode) return;
+    const refresh = () => void loadPublished(false);
+    window.addEventListener("pengli-artifacts-updated", refresh);
+    return () => window.removeEventListener("pengli-artifacts-updated", refresh);
+  }, [adminMode]);
+  const currentArtifact = published.find((item) => item.tool === active.id && item.topic === topic);
   const prompt = useMemo(() => active.prompt.replaceAll("{topic}", topic).replaceAll("{concept}", concept.trim() || `「${topic}」中最重要的概念`).replaceAll("{answer}", answer.trim() || "（尚未填寫）").replaceAll("{mc}", String(mc)).replaceAll("{short}", String(short)).replaceAll("{essay}", String(essay)).replaceAll("{minutes}", String(minutes)), [active, topic, concept, answer, mc, short, essay, minutes]);
   async function run() {
     if (active.id === "teach" && !answer.trim()) { setError("請先用自己的話說明這個概念。"); return; }
@@ -64,6 +71,10 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
       if (!response.ok || !data.reply) throw new Error(data.error || "目前無法產生學習內容。");
       setResult(data.reply); setSource(data.source || "彭狸老師教材");
       setResultNote(data.cached ? "已從共用成果庫載入，本次不扣使用次數。" : data.saved ? (adminMode ? "已存入成果庫並列為待審核；請在上方確認後發布到前台。" : "已自動保存；內容會先由後台審核，發布後才供其他同學共用。") : "");
+      if (adminMode) {
+        void loadPublished(false);
+        window.dispatchEvent(new Event("pengli-artifact-generated"));
+      }
       if (active.id === "quiz") setQuizMessages([{ role: "student", text: prompt }, { role: "coach", text: data.reply }]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "目前無法產生學習內容。"); }
     finally { setLoading(false); }
@@ -92,14 +103,14 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
   }
   function speak() { if (!result || !("speechSynthesis" in window)) return; window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(result); utterance.lang = "zh-TW"; utterance.rate = .92; window.speechSynthesis.speak(utterance); }
   return <div className="studio-shell">
-    <aside className="studio-tools" aria-label="八組學習範本">{tools.map((tool) => <button key={tool.id} className={active.id === tool.id ? "active" : ""} onClick={() => { setActive(tool); setResult(""); setError(""); setQuizMessages([]); setQuizAnswer(""); }}><small>{tool.no}</small><span><b>{tool.title}</b><em>{tool.description}</em></span></button>)}</aside>
-    <section className="studio-workspace"><header><div><span>學習範本 {active.no}</span><h2>{active.title}</h2><p>{active.description}</p></div><div className="studio-header-actions">{!adminMode && <button className="published-toggle" onClick={() => void loadPublished(true)}>已發布教材{published.length ? ` ${published.length}` : ""}</button>}<button className="history-toggle" onClick={() => { setShowPublished(false); void loadHistory(); }}>{showHistory ? "返回學習工具" : "我的學習紀錄"}</button></div></header>{showPublished ? <section className="study-history published-library"><h3>老師已發布的學習內容</h3><p>直接開啟閱讀，不需再次產生，也不扣使用次數。</p>{publishedLoading ? <p>正在讀取…</p> : published.length ? published.map((item) => <button key={item.id} onClick={() => { const found = tools.find((tool) => tool.id === item.tool); if (found) setActive(found); setResult(item.content); setSource(item.sourceLabel); setResultNote("這是老師已審核發布的共用內容，本次不扣使用次數。"); setShowPublished(false); }}><b>{tools.find((tool) => tool.id === item.tool)?.title || item.tool}</b><span>{item.topic}</span><small>直接閱讀</small></button>) : <p>目前尚無已發布內容。</p>}</section> : showHistory ? <section className="study-history"><h3>最近自動保存的內容</h3>{historyLoading ? <p>正在讀取…</p> : history.length ? history.map((item) => <button key={item.id} onClick={() => { setResult(item.outputText); setSource(item.sourceLabel); setResultNote(item.cacheHit ? "當時由共用成果庫載入，未扣使用次數。" : "當時已自動保存。" ); setShowHistory(false); }}><b>{tools.find((tool) => tool.id === item.tool)?.title || item.tool}</b><span>{item.topic}</span><small>{new Date(item.createdAt).toLocaleString("zh-TW")}</small></button>) : <p>目前還沒有學習紀錄。</p>}</section> : <div className="studio-form">
+    <aside className="studio-tools" aria-label="八組學習範本">{tools.map((tool) => { const artifact = published.find((item) => item.tool === tool.id && item.topic === topic); return <button key={tool.id} className={active.id === tool.id ? "active" : ""} onClick={() => { setActive(tool); setResult(""); setError(""); setQuizMessages([]); setQuizAnswer(""); }}><small>{tool.no}</small><span><b>{tool.title}{adminMode && artifact && <i className={artifact.reviewStatus === "published" ? "published" : "pending"}>{artifact.reviewStatus === "published" ? "已發布" : "待審核"}</i>}</b><em>{tool.description}</em></span></button>; })}</aside>
+    <section className="studio-workspace"><header><div><span>學習範本 {active.no}</span><h2>{active.title}</h2><p>{active.description}</p></div>{!adminMode && <div className="studio-header-actions"><button className="published-toggle" onClick={() => void loadPublished(true)}>已發布教材{published.length ? ` ${published.length}` : ""}</button><button className="history-toggle" onClick={() => { setShowPublished(false); void loadHistory(); }}>{showHistory ? "返回學習工具" : "我的學習紀錄"}</button></div>}</header>{showPublished ? <section className="study-history published-library"><h3>老師已發布的學習內容</h3><p>直接開啟閱讀，不需再次產生，也不扣使用次數。</p>{publishedLoading ? <p>正在讀取…</p> : published.length ? published.map((item) => <button key={item.id} onClick={() => { const found = tools.find((tool) => tool.id === item.tool); if (found) setActive(found); setResult(item.content); setSource(item.sourceLabel); setResultNote("這是老師已審核發布的共用內容，本次不扣使用次數。"); setShowPublished(false); }}><b>{tools.find((tool) => tool.id === item.tool)?.title || item.tool}</b><span>{item.topic}</span><small>直接閱讀</small></button>) : <p>目前尚無已發布內容。</p>}</section> : showHistory ? <section className="study-history"><h3>最近自動保存的內容</h3>{historyLoading ? <p>正在讀取…</p> : history.length ? history.map((item) => <button key={item.id} onClick={() => { setResult(item.outputText); setSource(item.sourceLabel); setResultNote(item.cacheHit ? "當時由共用成果庫載入，未扣使用次數。" : "當時已自動保存。" ); setShowHistory(false); }}><b>{tools.find((tool) => tool.id === item.tool)?.title || item.tool}</b><span>{item.topic}</span><small>{new Date(item.createdAt).toLocaleString("zh-TW")}</small></button>) : <p>目前還沒有學習紀錄。</p>}</section> : <div className="studio-form">
       <label><span>教材主題</span><select value={topic} onChange={(event) => setTopic(event.target.value)}>{topics.map((item) => <option key={item}>{item}</option>)}</select></label>
       {(active.id === "explain" || active.id === "teach") && <label><span>想學的概念</span><input value={concept} onChange={(event) => setConcept(event.target.value)} placeholder="例如：行政處分的外部性" /></label>}
       {active.id === "teach" && <label><span>先用自己的話教一次</span><button type="button" className="template-fill" onClick={() => setAnswer(teachTemplate)}>套用說明範本</button><small className="field-help">範本只提供答題骨架，不會先透露教材答案，也不扣使用次數。</small><textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="不要抄課本，直接說出你的理解…" rows={13} /></label>}
       {active.id === "mock" && <div className="exam-fields"><label><span>選擇題</span><input type="number" min="0" max="30" value={mc} onChange={(e) => setMc(Number(e.target.value))}/></label><label><span>簡答題</span><input type="number" min="0" max="10" value={short} onChange={(e) => setShort(Number(e.target.value))}/></label><label><span>申論題</span><input type="number" min="0" max="5" value={essay} onChange={(e) => setEssay(Number(e.target.value))}/></label><label><span>作答分鐘</span><input type="number" min="10" max="240" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}/></label></div>}
       {active.id === "audio" && <label><span>摘要長度</span><select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}><option value="5">約 5 分鐘</option><option value="10">約 10 分鐘</option><option value="15">約 15 分鐘</option></select></label>}
-      <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details><button className="studio-run" onClick={run} disabled={loading}>{loading ? "正在依教材準備…" : active.id === "quiz" ? "開始第一題" : active.id === "teach" ? "請檢查我的說明" : `產生${active.title}`}</button>{error && <p className="studio-error">{error}</p>}
+      <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details>{adminMode && currentArtifact && <div className={`admin-artifact-state ${currentArtifact.reviewStatus === "published" ? "published" : "pending"}`}><b>{currentArtifact.reviewStatus === "published" ? "此主題已有已發布內容" : "此主題已有內容，尚待審核"}</b><span>{currentArtifact.reviewStatus === "published" ? "學生前台已可直接閱讀，不需要再次產生。" : "請先查看內容，再到上方成果發布管理進行發布。"}</span></div>}{adminMode && currentArtifact ? <button className="studio-run existing" onClick={() => { setResult(currentArtifact.content); setSource(currentArtifact.sourceLabel); setResultNote(currentArtifact.reviewStatus === "published" ? "此內容已發布到學生前台。" : "此內容尚待審核，尚未出現在學生前台。"); }}>{currentArtifact.reviewStatus === "published" ? "查看已發布內容" : "查看待審內容"}</button> : <button className="studio-run" onClick={run} disabled={loading}>{loading ? "正在依教材準備…" : active.id === "quiz" ? "開始第一題" : active.id === "teach" ? "請檢查我的說明" : `產生${active.title}`}</button>}{error && <p className="studio-error">{error}</p>}
     </div>}{!showHistory && !showPublished && result && <article className="studio-result"><header><div><span>學習結果</span><h3>{active.title}</h3></div>{active.id === "audio" && <button onClick={speak}>播放語音</button>}</header>{resultNote && <p className="result-note">{resultNote}</p>}<StudyContent text={result} />{active.id === "quiz" && <div className="quiz-reply"><label><span>你的答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="先用自己的話回答這一題…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材批改…" : "送出並查看批改、解答與下一題"}</button><small>本次會依教材判斷答對、答錯與遺漏內容，並保存到個人學習紀錄。</small></div>}<small>依據：{source}</small></article>}</section>
   </div>;
 }

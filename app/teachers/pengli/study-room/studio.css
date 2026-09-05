@@ -46,6 +46,26 @@
 .studio-tools b {
   font-size: 15px;
 }
+.studio-tools b i {
+  display: inline-block;
+  margin-left: 8px;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-style: normal;
+  vertical-align: 1px;
+}
+.studio-tools b i.published {
+  background: #dff3e7;
+  color: #216443;
+}
+.studio-tools b i.pending {
+  background: #fff0cf;
+  color: #815916;
+}
+.studio-tools button.active b i {
+  box-shadow: inset 0 0 0 1px #ffffff70;
+}
 .studio-tools em {
   margin-top: 4px;
   font-size: 12px;
@@ -222,6 +242,29 @@
 .studio-run:disabled {
   opacity: 0.55;
   cursor: wait;
+}
+.studio-run.existing {
+  background: #315f7e;
+}
+.admin-artifact-state {
+  display: grid;
+  gap: 4px;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.admin-artifact-state.published {
+  border: 1px solid #b9ddc8;
+  background: #e8f5ed;
+  color: #205e40;
+}
+.admin-artifact-state.pending {
+  border: 1px solid #ead09b;
+  background: #fff6e4;
+  color: #775116;
+}
+.admin-artifact-state span {
+  font-size: 13px;
+  line-height: 1.55;
 }
 .studio-error {
   margin: 0;
