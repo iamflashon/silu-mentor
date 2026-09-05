@@ -62,6 +62,7 @@ async function planWithSol(question: string): Promise<SolPlanningResult> {
     method: "POST",
     body: JSON.stringify({
       model,
+      reasoning: { effort: "medium" },
       instructions: "你是元照法律資料庫的研究館員。只負責把臺灣法律問題轉成可驗證的裁判搜尋策略，不得回答問題、不得虛構法條或裁判。搜尋詞應使用裁判常見繁體中文用語，兼顧請求權、法律效果、程序、法條與可能的反面用語。每個 searches 項目以2至4個必要概念組成，不要把整句問題原封不動當成搜尋詞。requiredEvidence 要描述裁判全文必須出現的程序事實、判斷或計算；exclude 要描述常見假命中。",
       input: question.slice(0, 240),
       text: { format: { type: "json_schema", name: "legal_research_plan", strict: true, schema: {
@@ -76,10 +77,17 @@ async function planWithSol(question: string): Promise<SolPlanningResult> {
         },
         required: ["issues", "terms", "statutes", "searches", "requiredEvidence", "exclude"],
       } } },
-      max_output_tokens: 1400,
+      max_output_tokens: 5000,
     }),
   }) as Record<string, unknown>;
-  const parsed = JSON.parse(outputText(payload)) as Record<string, unknown>;
+  const generated = outputText(payload);
+  if (!generated) {
+    const incomplete = payload.incomplete_details && typeof payload.incomplete_details === "object"
+      ? JSON.stringify(payload.incomplete_details)
+      : "no output text";
+    throw new Error(`Sol research plan incomplete: ${incomplete}`);
+  }
+  const parsed = JSON.parse(generated) as Record<string, unknown>;
   const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as Record<string, unknown> : {};
   const inputDetails = rawUsage.input_tokens_details && typeof rawUsage.input_tokens_details === "object" ? rawUsage.input_tokens_details as Record<string, unknown> : {};
   const inputTokens = Math.max(0, Number(rawUsage.input_tokens) || 0);
@@ -179,7 +187,12 @@ export async function simulateJudicialResearch(question: string) {
   let solPlan: SolResearchPlan | null = null;
   let solUsage: TokenStage | null = null;
   let planner: "sol" | "rules" = "rules";
-  try { const planned = await planWithSol(question); solPlan = planned.plan; solUsage = planned.usage; planner = "sol"; } catch { solPlan = null; solUsage = null; }
+  try { const planned = await planWithSol(question); solPlan = planned.plan; solUsage = planned.usage; planner = "sol"; }
+  catch (error) {
+    console.warn("[judicial-research] Sol planning failed", error instanceof Error ? error.message : error);
+    solPlan = null;
+    solUsage = null;
+  }
   const plan = solPlan ? solRounds(solPlan) : planJudicialResearch(question);
   const ruleConcepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => question.includes(term));
   const coreConcepts = [...new Set([...(solPlan?.issues ?? []), ...ruleConcepts])].slice(0, 6);
