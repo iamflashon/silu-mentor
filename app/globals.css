@@ -37524,6 +37524,7 @@ a.is-action-pending {
 }
 
 /* 中級會計：與司律共用能力，但使用自己的教材、題庫、語氣與視覺。 */
+.accounting-learning-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.accounting-learning-links a{display:inline-flex;align-items:center;min-height:36px;padding:7px 11px;border:1px solid #7fa99f;border-radius:8px;color:#175b50;background:#fff;font-size:12px;font-weight:800;text-decoration:none}
 .accounting-home,
 .accounting-practice-page {
   min-height: 100vh;

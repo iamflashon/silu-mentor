@@ -517,6 +517,7 @@ export default function AccountingCoach({
   adminHint = "讓 AI 續問目前題目，或從正式中會題庫抽下一題。",
   enableQuestionSimulation = true,
   trialMode = false,
+  initialQuestion = "",
 }: {
   canAdmin?: boolean;
   apiEndpoint?: string;
@@ -525,6 +526,7 @@ export default function AccountingCoach({
   adminHint?: string;
   enableQuestionSimulation?: boolean;
   trialMode?: boolean;
+  initialQuestion?: string;
 }) {
   const [messages, setMessages] = useState<Message[]>([]),
     [input, setInput] = useState(""),
@@ -553,6 +555,9 @@ export default function AccountingCoach({
     [voucherCode, setVoucherCode] = useState(""),
     [voucherNotice, setVoucherNotice] = useState(""),
     [voucherBusy, setVoucherBusy] = useState(false);
+  useEffect(() => {
+    if (initialQuestion && !messages.length) setInput(initialQuestion);
+  }, [initialQuestion]);
   const fileRef = useRef<HTMLInputElement>(null),
     isDataStructure = apiEndpoint.includes("data-structure"),
     isAccounting = apiEndpoint.includes("/accounting/"),

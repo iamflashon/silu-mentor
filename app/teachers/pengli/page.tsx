@@ -26,7 +26,7 @@ export default function PengliTeacherPage() {
       <Link href="/" className="pengli-brand">iBrain Pedia X</Link>
       <div><span>法律類</span><b>行政法</b></div>
       <div className="pengli-top-actions">
-        <Link href="/teachers/pengli/coach">繼續 AI 對話</Link>
+        <Link href="/teachers/pengli/coach">繼續問答</Link>
         <Link href="/teachers/pengli/notes">我的筆記</Link>
       </div>
     </nav>
@@ -61,7 +61,7 @@ export default function PengliTeacherPage() {
     <section className="pengli-workspace" id="curriculum">
       <header>
         <div><span>LEARNING PATH</span><h2>八大主題學習路徑</h2></div>
-        <p>八大主題全部開放自由選擇；只有實際送出 AI 問題時，才會計入可用提問次數。</p>
+        <p>八大主題全部開放自由選擇；只有實際送出問題時，才會計入可用提問次數。</p>
       </header>
       <div className="pengli-layout">
         <div className="pengli-theme-list">

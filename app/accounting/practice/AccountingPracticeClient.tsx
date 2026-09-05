@@ -138,8 +138,18 @@ export default function AccountingPracticeClient() {
     );
   }
   useEffect(() => {
-    void load(1, chapter, null, seed, true, false);
-    void refreshWrongCount(chapter);
+    const params = new URLSearchParams(window.location.search);
+    const requestedChapter = params.get("chapter");
+    const selectedChapter = requestedChapter && CHAPTERS.includes(requestedChapter) ? requestedChapter : chapter;
+    const reviewWrong = params.get("view") === "wrong";
+    setChapter(selectedChapter);
+    if (reviewWrong) {
+      setMode("ordered");
+      setStarted(true);
+      setWrongReview(true);
+      void load(1, selectedChapter, "ordered", seed, false, true);
+    } else void load(1, selectedChapter, null, seed, true, false);
+    void refreshWrongCount(selectedChapter);
   }, []);
   const question = items[index];
   let options: Record<string, string> = {};
@@ -342,7 +352,11 @@ export default function AccountingPracticeClient() {
                 <p>老師原檔目前沒有獨立解析，可交給課業答疑協助說明。</p>
               )}
               <small>題庫來源：{BOOK_TITLE}</small>
-              <a href="/accounting/qa">針對本題進入課業答疑</a>
+              <nav className="accounting-learning-links" aria-label="本題延伸學習">
+                <a href="/accounting/chapters?mode=guide">回到學霸教材</a>
+                <a href={`/accounting/essay?chapter=${encodeURIComponent(chapter)}`}>挑戰相關申論</a>
+                <a href={`/accounting/qa?mode=guide&chapter=${encodeURIComponent(chapter)}`}>針對本題進入課業答疑</a>
+              </nav>
             </section>
           )}
           <footer>

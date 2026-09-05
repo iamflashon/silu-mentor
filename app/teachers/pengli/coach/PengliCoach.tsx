@@ -40,6 +40,9 @@ type Access = {
   charged?: boolean;
   remaining?: number | null;
 };
+type LearningMode = "guide" | "review" | "recall" | "teachback" | "essay";
+const learningModeLabels: Record<LearningMode, string> = { guide: "考試重點", review: "考前速讀", recall: "主動回想", teachback: "教給我聽", essay: "申論演練" };
+const topicChoices = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
 const storageKey = "pengli-ai-coach-history-v1";
 const topicStorageKey = "pengli-ai-coach-active-topic-v1";
 
@@ -73,12 +76,13 @@ function makeTopicLoadingMessage(topic: string): CoachMessage {
   };
 }
 
-function makeTopicGuideMessage(topic: string, guide: TopicGuide): CoachMessage {
+function makeTopicGuideMessage(topic: string, guide: TopicGuide, mode: LearningMode = "guide"): CoachMessage {
   const points = guide.keyPoints.map((point, index) => `${["一", "二", "三", "四", "五"][index]}、${point}`).join("\n");
+  const next = mode === "review" ? "請從下面選一個重點，我會把它壓縮成考前速讀版本，保留爭點、判斷順序與必要依據。" : mode === "recall" ? "請從下面選一個重點。我會一次問一題，在你回答前不公布答案；回答後再依教材核對並追問。" : mode === "teachback" ? "請從下面選一個重點，先用自己的話教給我聽；我會依教材指出錯誤、遺漏與過度簡化之處。" : mode === "essay" ? "請從下面選一個重點，我會用案例帶你依爭點、規範、涵攝、結論逐步完成申論。" : "你有沒有指定的內容想先學？如果沒有，就選「沒有指定，請教練安排」，我會依教材脈絡從適合的重點開始。";
   return {
     id: crypto.randomUUID(),
     role: "coach",
-    text: `今天要練的是「${topic}」。\n\n我先依彭狸老師這一章的教材，整理出目前可以學的重點：\n${points}\n\n${guide.summary}\n\n你有沒有指定的內容想先學？如果沒有，就選「沒有指定，請教練安排」，我會依教材脈絡從適合的重點開始。`,
+    text: `今天使用「${learningModeLabels[mode]}」練習「${topic}」。\n\n我先依彭狸老師這一章的教材，整理出目前可以學的重點：\n${points}\n\n${guide.summary}\n\n${next}`,
     source: guide.source,
   };
 }
@@ -88,7 +92,7 @@ export default function PengliCoach() {
     {
       id: "welcome",
       role: "coach",
-      text: "我是彭狸 AI 教練。這裡只依彭狸老師《行政法考點（考前衝刺）演習書》的學習脈絡陪你練習；我會先幫你找爭點與破題方向，不會一開始就把整份擬答貼給你。",
+      text: "我是彭狸行政法教練。這裡只依彭狸老師《行政法考點（考前衝刺）演習書》的學習脈絡陪你練習；我會先幫你找爭點與破題方向，不會一開始就把整份擬答貼給你。",
       source: "專區使用說明",
     },
   ]);
@@ -107,6 +111,7 @@ export default function PengliCoach() {
   const [bookVerificationVisible, setBookVerificationVisible] = useState(true);
   const [chatMaximized, setChatMaximized] = useState(false);
   const [activeTopic, setActiveTopic] = useState("");
+  const [learningMode, setLearningMode] = useState<LearningMode>("guide");
   const [topicLocation, setTopicLocation] = useState<{ pageStart: number; pageEnd?: number | null } | null>(null);
   const [topicGuide, setTopicGuide] = useState<TopicGuide | null>(null);
   const [replyTarget, setReplyTarget] = useState<CoachMessage | null>(null);
@@ -127,7 +132,7 @@ export default function PengliCoach() {
   const [verificationNoteStatus, setVerificationNoteStatus] = useState<"idle" | "saving" | "saved">("idle");
   const endRef = useRef<HTMLDivElement>(null);
 
-  async function loadTopicGuide(topic: string, resetConversation: boolean) {
+  async function loadTopicGuide(topic: string, resetConversation: boolean, mode: LearningMode = learningMode) {
     if (resetConversation) {
       setTopicGuide(null);
       setMessages([makeTopicLoadingMessage(topic)]);
@@ -149,7 +154,7 @@ export default function PengliCoach() {
       }
       const guide: TopicGuide = { summary: data.guide.summary, keyPoints, firstPoint, source: `${data.source || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}` };
       setTopicGuide(guide);
-      if (resetConversation) setMessages([makeTopicGuideMessage(topic, guide)]);
+      if (resetConversation) setMessages([makeTopicGuideMessage(topic, guide, mode)]);
     } catch {
       if (resetConversation) setMessages([{
         id: crypto.randomUUID(), role: "coach",
@@ -163,7 +168,11 @@ export default function PengliCoach() {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || "null") as
         CoachMessage[] | null;
-      const urlTopic = new URLSearchParams(window.location.search).get("topic")?.trim() || "";
+      const params = new URLSearchParams(window.location.search);
+      const urlTopic = params.get("topic")?.trim() || "";
+      const requestedMode = params.get("mode") || "guide";
+      const mode = (["guide", "review", "recall", "teachback", "essay"].includes(requestedMode) ? requestedMode : "guide") as LearningMode;
+      setLearningMode(mode);
       const savedTopic = localStorage.getItem(topicStorageKey)?.trim() || "";
       const topic = urlTopic || savedTopic;
       const savedMessages = Array.isArray(saved)
@@ -186,7 +195,7 @@ export default function PengliCoach() {
           setMessages([makeTopicLoadingMessage(topic)]);
           setInput("");
         }
-        void loadTopicGuide(topic, Boolean(urlTopic && !continuingSameTopic));
+        void loadTopicGuide(topic, Boolean(urlTopic && !continuingSameTopic), mode);
       }
     } catch {
       /* 使用預設歡迎訊息 */
@@ -211,7 +220,7 @@ export default function PengliCoach() {
         setBookVerificationVisible(data.plan.pengliBookVerificationEnabled !== false);
       }
     } catch {
-      setError("正在重新確認 AI 使用次數，請稍後再試。");
+      setError("正在重新確認學習問答次數，請稍後再試。");
     } finally {
       setAccessChecking(false);
     }
@@ -244,7 +253,7 @@ export default function PengliCoach() {
     [messages],
   );
   const starters = topicGuide
-    ? [...topicGuide.keyPoints.map((point) => `我想先學「${point}」`), "沒有指定，請教練安排"]
+    ? [...topicGuide.keyPoints.map((point) => learningMode === "review" ? `請把「${point}」整理成考前速讀重點` : learningMode === "recall" ? `請針對「${point}」一次問我一題，在我回答前不要公布答案` : learningMode === "teachback" ? `我想先用自己的話說明「${point}」，請等我說完再檢查` : learningMode === "essay" ? `請用「${point}」帶我逐步練一題申論` : `我想先學「${point}」`), learningMode === "guide" ? "沒有指定，請教練安排" : `沒有指定，請依「${learningModeLabels[learningMode]}」安排`]
     : [];
   const displayedRemaining = freeTrialAvailable && activeTopic ? 10 : access?.remaining ?? null;
   const remainingLabel = accessChecking || displayedRemaining == null ? "查詢中" : `${displayedRemaining} 次`;
@@ -328,7 +337,7 @@ export default function PengliCoach() {
         setAccess({ remaining: 0 });
         setQuotaDialogOpen(true);
       }
-      throw new Error(data.error || "彭狸 AI 教練目前無法回答。");
+      throw new Error(data.error || "彭狸行政法教練目前無法回答。");
     }
     const citedPage = Number(data.source?.match(/PDF 第\s*(\d+)/u)?.[1] ?? 0) || null;
     const retrievedPages = (data.retrievedPages ?? []).filter((page) => Number.isFinite(page));
@@ -397,7 +406,7 @@ export default function PengliCoach() {
       await requestCoach(requestNext, bookTest);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "彭狸 AI 教練目前無法回答。",
+        cause instanceof Error ? cause.message : "彭狸行政法教練目前無法回答。",
       );
     } finally {
       setThinking(false);
@@ -546,7 +555,7 @@ export default function PengliCoach() {
           mode: doubtTarget.evidenceMissing ? "official-answer" : "verify-doubt",
           messageKey: doubtTarget.id,
           aiReply: doubtTarget.text,
-          sourceLabel: doubtTarget.source || "彭狸 AI 教練回覆",
+          sourceLabel: doubtTarget.source || "彭狸行政法教練回覆",
           studentQuestion: doubtText,
           topic:
             new URLSearchParams(window.location.search).get("topic") ||
@@ -696,13 +705,13 @@ export default function PengliCoach() {
           <PengliCover />
           <div>
             <small>彭狸老師專屬</small>
-            <strong>行政法 AI 教練</strong>
+            <strong>行政法教練</strong>
             <span>教材優先・引導作答</span>
           </div>
         </div>
         <div className="pengli-coach-scope">
           <b>目前教材範圍</b>
-          {activeTopic ? <span className="active-topic">目前主題：{activeTopic}</span> : <a className="topic-required" href="/teachers/pengli#curriculum">尚未選擇主題，請先從八大主題進入</a>}
+          {activeTopic ? <span className="active-topic">目前主題：{activeTopic}</span> : <a className="topic-required" href="/teachers/pengli/study-room">尚未選擇主題，請先選擇本次範圍</a>}
           {activeTopic && topicLocation && (
             <details className="topic-page">
               <summary>教材位置（有書時參考）</summary>
@@ -721,7 +730,7 @@ export default function PengliCoach() {
           </p>
         </div>
         <div className="pengli-coach-access">
-          <b>AI 使用次數</b>
+          <b>學習問答次數</b>
           <strong>{remainingLabel}</strong>
           {freeTrialTopic && <small>免費主題：{freeTrialTopic}</small>}
           <span>一般回答 1 次・官方查證 2 次</span>
@@ -730,11 +739,11 @@ export default function PengliCoach() {
         <button
           type="button"
           onClick={() => {
-            if (activeTopic) void loadTopicGuide(activeTopic, true);
+            if (activeTopic) void loadTopicGuide(activeTopic, true, learningMode);
             else setMessages([{
               id: crypto.randomUUID(), role: "coach",
               text: "請先從八大主題選擇一章，我會先讀取該章教材、說明可學重點，再請你選擇。",
-              source: "彭狸 AI 教練",
+              source: "彭狸行政法教練",
             }]);
             setUsage(null);
             setError("");
@@ -755,8 +764,8 @@ export default function PengliCoach() {
         </button>
         <header>
           <div>
-            <span>彭狸 AI 教練</span>
-            <h1>先找爭點，再把答案寫出來</h1>
+            <span>學霸讀書室 · {learningModeLabels[learningMode]}</span>
+            <h1>{learningMode === "review" ? "把考前真正要記的留下來" : learningMode === "recall" ? "先自己回答，再核對教材" : learningMode === "teachback" ? "你先說明，我來找出缺口" : learningMode === "essay" ? "從爭點到涵攝，逐步寫完整" : "先找爭點，再把答案寫出來"}</h1>
           </div>
           <i>
             <b /> 教材模式
@@ -777,10 +786,7 @@ export default function PengliCoach() {
               )) : activeTopic ? (
                 <div className="choose-topic"><span>正在依彭狸老師教材整理本章重點…</span></div>
               ) : (
-                <a className="choose-topic" href="/teachers/pengli#curriculum">
-                  <span>請先選擇一個主題，我會先說明該章教材有哪些可學重點。</span>
-                  <b>選擇八大主題 →</b>
-                </a>
+                <div className="pengli-topic-choices"><span>先選擇本次要練的主題</span>{topicChoices.map((topic)=><a href={`/teachers/pengli/coach?mode=${learningMode}&topic=${encodeURIComponent(topic)}`} key={topic}>{topic}<b>→</b></a>)}</div>
               )}
             </div>
           )}
@@ -800,7 +806,7 @@ export default function PengliCoach() {
                 )}
                 <small>
                   {message.role === "coach"
-                    ? "彭狸 AI 教練"
+                    ? "彭狸行政法教練"
                     : message.role === "scholar"
                       ? message.source?.startsWith("學霸繼續追問")
                         ? "我的回答與追問（學霸）"
@@ -909,7 +915,7 @@ export default function PengliCoach() {
             <article className="coach thinking">
               <div className="pengli-coach-avatar">狸</div>
               <div>
-                <small>彭狸 AI 教練</small>
+                <small>彭狸行政法教練</small>
                 <p>正在回應學員的回答與追問……</p>
               </div>
             </article>
@@ -973,7 +979,7 @@ export default function PengliCoach() {
                 </button>
                 {doubtLoading && <div className="pengli-verification-progress" role="status"><strong>{verificationStage <= 1 ? "正在整理查詢關鍵字…" : verificationStage === 2 ? "正在比對已同步的法規與裁判…" : "正在搜尋司法院、憲法法庭與全國法規資料庫…"}</strong><ol><li className={verificationStage >= 1 ? "active" : ""}>整理疑問</li><li className={verificationStage >= 2 ? "active" : ""}>比對平台資料</li><li className={verificationStage >= 3 ? "active" : ""}>查詢官方網站</li></ol></div>}
                 <p className="pengli-verification-status">目前剩餘 {remainingLabel}；找到可核對的官方法條、判決或裁判才扣 2 次。沒有查到會直接告知，且不扣使用次數。</p>
-                {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">AI 使用次數不足，前往購買／兌換</a>}
+                {access?.remaining != null && access.remaining < 2 && <a href="/teachers/pengli/ai-access">學習問答次數不足，前往購買／兌換</a>}
                 {doubtError && <p className="pengli-doubt-error" role="alert">{doubtError}</p>}
               </>
             ) : (
@@ -1028,7 +1034,7 @@ export default function PengliCoach() {
         )}
         <div className="pengli-coach-usage-bar" aria-label="AI 使用狀態">
           <span>
-            AI 使用次數剩餘 <strong>{remainingLabel}</strong>
+            學習問答次數剩餘 <strong>{remainingLabel}</strong>
           </span>
           <span>一般回答扣 1 次・官方查證成功扣 2 次</span>
           <a href="/teachers/pengli/ai-access">購買／兌換</a>
@@ -1098,14 +1104,14 @@ export default function PengliCoach() {
           <a className="pengli-mobile-access" href="/teachers/pengli/ai-access">
             購買／兌換碼
           </a>
-          <small>AI 使用次數剩餘 {remainingLabel}</small>
+          <small>學習問答次數剩餘 {remainingLabel}</small>
         </footer>
       </div>
       {quotaDialogOpen && (
         <div className="pengli-quota-overlay" role="presentation">
           <section className="pengli-quota-dialog" role="dialog" aria-modal="true" aria-labelledby="pengli-quota-title">
             <b className="pengli-quota-zero" aria-hidden="true">0</b>
-            <span>AI 使用次數已用完</span>
+            <span>學習問答次數已用完</span>
             <h2 id="pengli-quota-title">需要補充次數才能繼續提問</h2>
             <p>目前不會再送出問題，也不會產生額外扣次。購買次數或輸入兌換碼後，就能接著目前的對話繼續學習。</p>
             <div>

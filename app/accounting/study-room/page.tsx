@@ -7,7 +7,7 @@ const modes = [
   ["重", "考試重點", "依《中級會計學霸》章節掌握核心觀念、公式與常考題型。", "/accounting/chapters", "選擇章節"],
   ["讀", "考前速讀", "把指定章節縮成考前可快速複習的觀念與計算步驟。", "/accounting/chapters?mode=review", "開始整理"],
   ["想", "主動回想", "一次完成一題再看解析，從選擇題練習真正記住觀念。", "/accounting/practice", "開始練題"],
-  ["說", "教給我聽", "用自己的話說明會計處理，找出觀念、分錄或計算遺漏。", "/accounting/qa?mode=teachback", "開始說明"],
+  ["說", "教給我聽", "用自己的話說明會計處理，找出觀念、分錄或計算遺漏。", "/accounting/chapters?mode=teachback", "選擇章節"],
   ["補", "弱點分析", "從錯題與作答紀錄回到對應章節，再安排選擇題及申論補強。", "/accounting/practice?view=wrong", "查看弱點"],
 ] as const;
 

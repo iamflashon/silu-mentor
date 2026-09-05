@@ -22,10 +22,14 @@ const chapters = [
   ["17", "財務報表分析", "比率、趨勢與整體財務分析"],
 ] as const;
 
-export default function AccountingChapters() {
+export default async function AccountingChapters({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
+  const requestedMode = (await searchParams).mode;
+  const mode = ["guide", "review", "teachback"].includes(requestedMode || "") ? requestedMode! : "guide";
+  const heading = mode === "review" ? "選一章製作考前速讀" : mode === "teachback" ? "選一章教給我聽" : "17 章中會智能書";
+  const description = mode === "review" ? "選定章節後，會先替你準備只保留核心觀念、公式與計算順序的複習題目。" : mode === "teachback" ? "選定章節後，先由你說明觀念或計算方式，再檢查遺漏、混淆與錯誤步驟。" : "章名依教材目錄建立；選定章節後，會限定《中級會計學霸》該章內容進行學習。";
   return <main className="accounting-chapters-page">
     <header className="accounting-top"><a href="/accounting" className="accounting-brand"><span>中</span><div><b>中級會計課業答疑</b><small>SMART BOOK</small></div></a><nav><a href="/accounting">課業答疑</a><a className="active" href="/accounting/chapters">學章節</a><a href="/accounting/admin">管理後台</a></nav></header>
-    <section className="accounting-chapters-head"><span>《中級會計學霸》上、下冊</span><h1>17 章中會智能書</h1><p>章名依教材目錄建立；教材完成索引後，點選章節即可限定該章向 AI 提問並顯示實際引用。</p></section>
-    <section className="accounting-chapter-grid">{chapters.map(([number,title,description])=><a href={`/accounting#accounting-coach`} key={number}><small>CHAPTER {number}</small><h2>{title}</h2><p>{description}</p><b>進入章節學習 →</b></a>)}</section>
+    <section className="accounting-chapters-head"><span>《中級會計學霸》上、下冊</span><h1>{heading}</h1><p>{description}</p></section>
+    <section className="accounting-chapter-grid">{chapters.map(([number,title,chapterDescription])=><a href={`/accounting/qa?mode=${mode}&chapter=${encodeURIComponent(title)}`} key={number}><small>CHAPTER {number}</small><h2>{title}</h2><p>{chapterDescription}</p><b>{mode === "review" ? "整理本章速讀重點" : mode === "teachback" ? "開始說明本章" : "進入章節學習"} →</b></a>)}</section>
   </main>;
 }
