@@ -20,9 +20,12 @@ type StudyRun = { id: number; tool: string; topic: string; outputText: string; s
 type PublishedArtifact = { id: number; tool: string; topic: string; content: string; sourceLabel: string; reviewStatus?: string; updatedAt: string };
 
 function StudyContent({ text }: { text: string }) {
-  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = text
+    .split("\n")
+    .map((line) => line.replace(/^[¬↵⏎↩]+\s*/gu, "").replace(/\s*[¬↵⏎↩]+$/gu, "").trim())
+    .filter(Boolean);
   return <div className="study-content">{lines.map((line, index) => {
-    if (/^[=─—－]{4,}$/u.test(line)) return <hr key={index} />;
+    if (/^[=─—－-]{3,}$/u.test(line)) return <hr key={index} />;
     if (/^【.+】$/u.test(line) || /^(第[一二三四五六七八九十]+部分|[一二三四五六七八九十]+、|卷[一二]|答案與解析)/u.test(line)) return <h4 key={index}>{line.replace(/^【|】$/gu, "")}</h4>;
     if (/^[（(][一二三四五六七八九十0-9]+[）)]/u.test(line) || /^\d+[.、]/u.test(line)) return <h5 key={index}>{line}</h5>;
     if (/^[※•●▪]|^[-–]\s/u.test(line)) return <p className="study-point" key={index}>{line.replace(/^[※•●▪-]\s*/u, "")}</p>;
@@ -36,6 +39,7 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
   const [concept, setConcept] = useState("");
   const [answer, setAnswer] = useState("");
   const [mc, setMc] = useState(10), [short, setShort] = useState(3), [essay, setEssay] = useState(1), [minutes, setMinutes] = useState(30);
+  const [batchCount, setBatchCount] = useState(5);
   const [result, setResult] = useState(""), [source, setSource] = useState(""), [error, setError] = useState(""), [loading, setLoading] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState("");
   const [quizMessages, setQuizMessages] = useState<StudioMessage[]>([]);
@@ -66,16 +70,29 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
     if (active.id === "mock" && minutes < 10) { setError("完整模擬考的作答時間至少需設定 10 分鐘。"); return; }
     setLoading(true); setError(""); setResult(""); setSource("");
     try {
-      const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: active.id, messages: [{ role: "student", text: prompt }], requestKey: crypto.randomUUID(), topic }) });
-      const data = await response.json() as { reply?: string; source?: string; error?: string; cached?: boolean; saved?: boolean; charged?: boolean; reviewStatus?: string | null };
-      if (!response.ok || !data.reply) throw new Error(data.error || "目前無法產生學習內容。");
-      setResult(data.reply); setSource(data.source || "彭狸老師教材");
-      setResultNote(data.cached ? "已從共用成果庫載入，本次不扣使用次數。" : data.saved ? (adminMode ? "已存入成果庫並列為待審核；請在上方確認後發布到前台。" : "已自動保存；內容會先由後台審核，發布後才供其他同學共用。") : "");
+      const total = adminMode && active.id === "quiz" ? batchCount : 1;
+      const generated: string[] = [];
+      let latestSource = "彭狸老師教材";
+      let latestData: { cached?: boolean; saved?: boolean } = {};
+      const existing = published.filter((item) => item.tool === "quiz" && item.topic === topic).map((item) => item.content.slice(0, 180));
+      for (let index = 0; index < total; index += 1) {
+        const excluded = [...existing, ...generated.map((item) => item.slice(0, 180))];
+        const batchPrompt = total > 1 || (adminMode && active.id === "quiz")
+          ? `${prompt}\n\n【後台批次出題】這是第 ${index + 1} 題，共 ${total} 題。題目必須可獨立使用，且不得與下列既有題目重複或只是改寫人名、數字：\n${excluded.length ? excluded.map((item, itemIndex) => `${itemIndex + 1}. ${item}`).join("\n") : "目前沒有既有題目。"}`
+          : prompt;
+        const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: active.id, messages: [{ role: "student", text: batchPrompt }], requestKey: crypto.randomUUID(), topic }) });
+        const data = await response.json() as { reply?: string; source?: string; error?: string; cached?: boolean; saved?: boolean };
+        if (!response.ok || !data.reply) throw new Error(`${generated.length ? `已完成 ${generated.length} 題；` : ""}${data.error || "目前無法產生學習內容。"}`);
+        generated.push(data.reply); latestSource = data.source || latestSource; latestData = data;
+      }
+      const combined = generated.map((item, index) => total > 1 ? `【第 ${index + 1} 題】\n${item}` : item).join("\n\n---\n\n");
+      setResult(combined); setSource(latestSource);
+      setResultNote(total > 1 ? `已依序完成 ${generated.length} 題，每題均已分開存入成果庫並列為待審核。` : latestData.cached ? "已從共用成果庫載入，本次不扣使用次數。" : latestData.saved ? (adminMode ? "已存入成果庫並列為待審核；請在上方確認後發布到前台。" : "已自動保存；內容會先由後台審核，發布後才供其他同學共用。") : "");
       if (adminMode) {
         void loadPublished(false);
         window.dispatchEvent(new Event("pengli-artifact-generated"));
       }
-      if (active.id === "quiz") setQuizMessages([{ role: "student", text: prompt }, { role: "coach", text: data.reply }]);
+      if (active.id === "quiz" && total === 1) setQuizMessages([{ role: "student", text: prompt }, { role: "coach", text: generated[0] }]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "目前無法產生學習內容。"); }
     finally { setLoading(false); }
   }
@@ -110,7 +127,8 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
       {active.id === "teach" && <label><span>先用自己的話教一次</span><button type="button" className="template-fill" onClick={() => setAnswer(teachTemplate)}>套用說明範本</button><small className="field-help">範本只提供答題骨架，不會先透露教材答案，也不扣使用次數。</small><textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="不要抄課本，直接說出你的理解…" rows={13} /></label>}
       {active.id === "mock" && <div className="exam-fields"><label><span>選擇題</span><input type="number" min="0" max="30" value={mc} onChange={(e) => setMc(Number(e.target.value))}/></label><label><span>簡答題</span><input type="number" min="0" max="10" value={short} onChange={(e) => setShort(Number(e.target.value))}/></label><label><span>申論題</span><input type="number" min="0" max="5" value={essay} onChange={(e) => setEssay(Number(e.target.value))}/></label><label><span>作答分鐘</span><input type="number" min="10" max="240" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}/></label></div>}
       {active.id === "audio" && <label><span>摘要長度</span><select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}><option value="5">約 5 分鐘</option><option value="10">約 10 分鐘</option><option value="15">約 15 分鐘</option></select></label>}
-      <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details>{adminMode && currentArtifact && <div className={`admin-artifact-state ${currentArtifact.reviewStatus === "published" ? "published" : "pending"}`}><b>{currentArtifact.reviewStatus === "published" ? "此主題已有已發布內容" : "此主題已有內容，尚待審核"}</b><span>{currentArtifact.reviewStatus === "published" ? "學生前台已可直接閱讀，不需要再次產生。" : "請先查看內容，再到上方成果發布管理進行發布。"}</span></div>}{adminMode && currentArtifact ? <button className="studio-run existing" onClick={() => { setResult(currentArtifact.content); setSource(currentArtifact.sourceLabel); setResultNote(currentArtifact.reviewStatus === "published" ? "此內容已發布到學生前台。" : "此內容尚待審核，尚未出現在學生前台。"); }}>{currentArtifact.reviewStatus === "published" ? "查看已發布內容" : "查看待審內容"}</button> : <button className="studio-run" onClick={run} disabled={loading}>{loading ? "正在依教材準備…" : active.id === "quiz" ? "開始第一題" : active.id === "teach" ? "請檢查我的說明" : `產生${active.title}`}</button>}{error && <p className="studio-error">{error}</p>}
+      {adminMode && active.id === "quiz" && <label><span>批次出題數量</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}><option value="1">1 題</option><option value="5">5 題（建議）</option><option value="10">10 題</option></select><small className="field-help">系統會依序逐題生成、分開保存，並排除本主題既有題目。</small></label>}
+      <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details>{adminMode && currentArtifact && <div className={`admin-artifact-state ${currentArtifact.reviewStatus === "published" ? "published" : "pending"}`}><b>{currentArtifact.reviewStatus === "published" ? "此主題已有已發布內容" : "此主題已有內容，尚待審核"}</b><span>{active.id === "quiz" ? "可繼續批次產生不重複題目；新題會分開存入待審核清單。" : currentArtifact.reviewStatus === "published" ? "學生前台已可直接閱讀，不需要再次產生。" : "請先查看內容，再到上方成果發布管理進行發布。"}</span></div>}{adminMode && currentArtifact && active.id !== "quiz" ? <button className="studio-run existing" onClick={() => { setResult(currentArtifact.content); setSource(currentArtifact.sourceLabel); setResultNote(currentArtifact.reviewStatus === "published" ? "此內容已發布到學生前台。" : "此內容尚待審核，尚未出現在學生前台。"); }}>{currentArtifact.reviewStatus === "published" ? "查看已發布內容" : "查看待審內容"}</button> : <button className="studio-run" onClick={run} disabled={loading}>{loading ? active.id === "quiz" && adminMode ? "正在依序產生題目…" : "正在依教材準備…" : active.id === "quiz" ? adminMode ? `批次產生 ${batchCount} 題` : "開始第一題" : active.id === "teach" ? "請檢查我的說明" : `產生${active.title}`}</button>}{error && <p className="studio-error">{error}</p>}
     </div>}{!showHistory && !showPublished && result && <article className="studio-result"><header><div><span>學習結果</span><h3>{active.title}</h3></div>{active.id === "audio" && <button onClick={speak}>播放語音</button>}</header>{resultNote && <p className="result-note">{resultNote}</p>}<StudyContent text={result} />{active.id === "quiz" && <div className="quiz-reply"><label><span>你的答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="先用自己的話回答這一題…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材批改…" : "送出並查看批改、解答與下一題"}</button><small>本次會依教材判斷答對、答錯與遺漏內容，並保存到個人學習紀錄。</small></div>}<small>依據：{source}</small></article>}</section>
   </div>;
 }

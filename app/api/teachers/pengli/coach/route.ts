@@ -6,7 +6,7 @@ import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
 import { finishAiUse, prepareAiUse } from "../../../../../lib/ai-access-gate";
 import { ensurePengliFreeTrial, getActiveAiEntitlement, getAiPlan } from "../../../../../lib/ai-access";
-import { PENGLI_THEME_TITLES } from "../../../../../lib/pengli-book-toc";
+import { PENGLI_THEME_ISSUES, PENGLI_THEME_TITLES } from "../../../../../lib/pengli-book-toc";
 
 type InputMessage = { role?: unknown; text?: unknown };
 
@@ -608,6 +608,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
   ].filter((phrase) => normalized.includes(phrase));
   const topicHints: string[] = [];
   if (matchedTheme) topicHints.push(matchedTheme[0], ...matchedTheme[2]);
+  if (selectedThemeIndex >= 0) topicHints.push(...(PENGLI_THEME_ISSUES[selectedThemeIndex + 1] ?? []).map(([, title]) => title));
   if (/擴音|噪音|禁止繼續使用/u.test(normalized)) topicHints.push("禁止繼續使用擴音設施", "行政法上請求權", "訴訟類型", "課予義務訴訟");
   if (/公私法|請求權基礎|758/u.test(normalized)) topicHints.push("公私法區分", "請求權基礎", "新主體說", "758");
   if (/法律保留|443/u.test(normalized)) topicHints.push("法律保留原則", "層級化法律保留", "443");
