@@ -742,7 +742,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer" | "study-tool"; studyTool?: string; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -856,6 +856,28 @@ export async function POST(request: Request) {
       content: String(message.text ?? "").slice(0, 2500),
     })).filter((message) => message.content.trim());
     if (!messages.length) return Response.json({ error: "請先輸入行政法問題。" }, { status: 400 });
+
+    if (body.mode === "study-tool") {
+      const evidenceQuery = rawMessages.map((message) => String(message.text ?? "")).join("\n").slice(0, 7000);
+      const topic = String(body.topic ?? "").trim().slice(0, 120);
+      const evidence = await pengliEvidence(evidenceQuery, topic);
+      if (!evidence.rows.length) return Response.json({ error: "目前無法從彭狸老師教材定位這個主題；本次不扣使用次數。" }, { status: 404 });
+      const evidenceText = evidence.rows.map((row, index) => `【教材片段 ${index + 1}｜PDF 第 ${row.pageStart ?? "?"} 頁】\n${row.text.slice(0, 2600)}`).join("\n\n");
+      const startedAt = Date.now();
+      const model = "gpt-5.6-luna";
+      const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
+        model,
+        instructions: `你是彭狸老師行政法「學霸讀書室」的學習內容整理器。嚴格執行學生選定的學習範本，並只使用本輪提供的彭狸老師教材片段。不得把模型常識、官方法規或其他老師資料冒充教材。每個實質主張都要標示可核對的 PDF 頁碼；教材不足時清楚標示「教材片段不足」，不得補造。輸出使用繁體中文，以全形標題、編號與換行排版，不使用 Markdown 表格或井字標題。若範本是逐題測驗：第一次只出一題且不公布答案；學生回答後，先逐點訂正與說明，再依程度出下一題，仍不得先公布新題答案。若是完整模擬考，依指定題數完整輸出試卷與卷末答案解析。\n\n【本輪教材】\n${evidenceText}`,
+        input: messages,
+        max_output_tokens: body.studyTool === "mock" || body.studyTool === "guide" ? 2400 : 1500,
+      }) }) as Record<string, unknown>;
+      const reply = outputText(payload).trim();
+      if (!reply) return Response.json({ error: "學習內容沒有完成產生，請再試一次。" }, { status: 502 });
+      const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
+      const inputTokens = Number(usage?.input_tokens ?? 0), outputTokens = Number(usage?.output_tokens ?? 0), cachedTokens = Number(usage?.input_tokens_details?.cached_tokens ?? 0);
+      const access = await finishAiUse(gate, { action: `pengli_study_${String(body.studyTool || "tool").slice(0, 30)}`, description: "彭狸學霸讀書室學習範本", quantity: 1, requestKey: String(body.requestKey ?? crypto.randomUUID()) });
+      return Response.json({ reply, source: `${evidence.title || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}`, access, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) / 1_000_000 } });
+    }
 
     if (body.mode === "scholar-assist") {
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({

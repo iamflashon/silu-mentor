@@ -1,0 +1,254 @@
+.studio-shell {
+  max-width: 1240px;
+  margin: auto;
+  padding: 32px 22px 72px;
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.studio-tools {
+  display: grid;
+  gap: 8px;
+  position: sticky;
+  top: 18px;
+}
+.studio-tools button {
+  display: flex;
+  gap: 13px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #d2dde3;
+  border-radius: 12px;
+  background: #fff;
+  color: #173a52;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-tools button:hover,
+.studio-tools button.active {
+  border-color: #356d8f;
+  box-shadow: 0 8px 22px #173f5a12;
+}
+.studio-tools button.active {
+  background: #173f5a;
+  color: #fff;
+}
+.studio-tools small {
+  font-weight: 900;
+  opacity: 0.65;
+}
+.studio-tools span,
+.studio-tools b,
+.studio-tools em {
+  display: block;
+}
+.studio-tools b {
+  font-size: 15px;
+}
+.studio-tools em {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-style: normal;
+  opacity: 0.72;
+}
+.studio-workspace {
+  background: #fff;
+  border: 1px solid #d2dde3;
+  border-radius: 16px;
+  box-shadow: 0 14px 38px #173f5a0d;
+  padding: 30px;
+}
+.studio-workspace > header {
+  border-bottom: 1px solid #e2e8eb;
+  padding-bottom: 20px;
+}
+.studio-workspace > header span,
+.studio-result > header span {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  font-weight: 900;
+  color: #397393;
+}
+.studio-workspace h2 {
+  margin: 7px 0;
+  font-size: 29px;
+}
+.studio-workspace > header p {
+  margin: 0;
+  color: #667984;
+  line-height: 1.7;
+}
+.studio-form {
+  display: grid;
+  gap: 17px;
+  padding-top: 24px;
+}
+.studio-form label > span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 850;
+  color: #365264;
+}
+.studio-form select,
+.studio-form input,
+.studio-form textarea {
+  width: 100%;
+  border: 1px solid #cbd8df;
+  border-radius: 9px;
+  background: #fff;
+  padding: 11px 12px;
+  color: #203b4d;
+  font: inherit;
+}
+.studio-form textarea {
+  resize: vertical;
+  line-height: 1.7;
+}
+.exam-fields {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.prompt-template {
+  border: 1px solid #d9e2e6;
+  border-radius: 10px;
+  background: #f7f9fa;
+  padding: 12px 14px;
+}
+.prompt-template summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 850;
+  color: #315f7b;
+}
+.prompt-template pre {
+  margin: 12px 0 2px;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #516571;
+}
+.studio-run {
+  justify-self: start;
+  border: 0;
+  border-radius: 9px;
+  background: #b98a37;
+  color: #fff;
+  padding: 12px 22px;
+  font-size: 15px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.studio-run:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.studio-error {
+  margin: 0;
+  color: #a23535;
+}
+.studio-result {
+  margin-top: 25px;
+  border-top: 3px solid #315f7e;
+  background: #f7f9fa;
+  padding: 22px;
+  border-radius: 4px 4px 12px 12px;
+}
+.studio-result > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+.studio-result h3 {
+  margin: 4px 0 0;
+  font-size: 21px;
+}
+.studio-result header button {
+  border: 1px solid #315f7e;
+  background: #fff;
+  color: #315f7e;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.studio-result > div {
+  padding: 16px 0;
+}
+.studio-result p {
+  white-space: pre-wrap;
+  line-height: 1.85;
+  color: #314955;
+}
+.studio-result > small {
+  color: #72818a;
+}
+.quiz-reply {
+  display: grid;
+  gap: 10px;
+  margin: 5px 0 18px;
+  padding: 18px;
+  border: 1px solid #cfdae0;
+  border-radius: 10px;
+  background: #fff;
+}
+.quiz-reply label span {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 850;
+  color: #365264;
+}
+.quiz-reply textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #cbd8df;
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: #203b4d;
+  font: inherit;
+  line-height: 1.7;
+}
+.quiz-reply button {
+  justify-self: start;
+  border: 0;
+  border-radius: 9px;
+  background: #315f7e;
+  color: #fff;
+  padding: 10px 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.quiz-reply button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+@media (max-width: 880px) {
+  .studio-shell {
+    grid-template-columns: 1fr;
+  }
+  .studio-tools {
+    position: static;
+    display: flex;
+    overflow-x: auto;
+  }
+  .studio-tools button {
+    min-width: 235px;
+  }
+  .exam-fields {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .studio-workspace {
+    padding: 22px 16px;
+  }
+  .exam-fields {
+    grid-template-columns: 1fr;
+  }
+}
