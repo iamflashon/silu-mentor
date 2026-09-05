@@ -112,10 +112,14 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
   }
   if (court) conditions.push(like(judicialCases.court, `%${escapeLike(court)}%`));
   if (year) conditions.push(eq(judicialCases.year, year));
-  const rows = await db.select().from(judicialCases).where(and(...conditions)).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit);
+  const whereClause = and(...conditions);
+  const [matched] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(whereClause);
+  const rows = await db.select().from(judicialCases).where(whereClause).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit);
   return {
     query,
-    total: rows.length,
+    total: Number(matched?.value ?? 0),
+    returned: rows.length,
+    limit,
     availableTotal: Number(available?.value ?? 0),
     results: rows.map((row) => {
       const fullText = resolveFullText(row);

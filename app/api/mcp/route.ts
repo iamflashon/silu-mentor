@@ -51,7 +51,7 @@ async function authorize(request: Request) {
 const tools = [
   {
     name: "research_cases",
-    description: "模擬法律研究者進行多輪查詢：拆解問題、替換實務用語、交叉查找並將代表性裁判排在前面。",
+    description: "多輪搜尋並把結果分成直接證據、間接證據與背景資料。只有直接證據可支持問題的肯定或否定結論；若 directEvidenceCount 為 0，必須明示尚未找到直接裁判。",
     annotations: { title: "多輪研究裁判", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: "yuanzhao-legal-database", version: "0.1.0" },
-      instructions: "先用 research_cases 或 search_cases 取得少量摘要候選，再選最相關的一至兩篇，以 get_case_detail 依 JID 讀取全文。不得把只有單一概念命中的裁判表述成同時處理全部爭點，也不得把搜尋不到解讀為法律上不存在。引用時應保留法院、年度、字別、案號與 JID。",
+      instructions: "先用 research_cases 取得證據分級，再選最相關的一至兩篇，以 get_case_detail 依 JID 讀取全文。只有 evidenceLevel=direct 的結果可支持肯定或否定結論；indirect 與 background 僅能作為線索。若 directEvidenceCount=0，必須說尚未找到直接裁判，不得依間接裁判自行回答可以或不可以。另依法條或一般法理推論時，必須與資料庫搜尋結果分開標示。搜尋回應的 total 是全部命中數，returned 才是本次回傳候選數。不得把搜尋不到解讀為法律上不存在。引用時應保留法院、年度、字別、案號與 JID。",
     });
   }
   if (body.method === "ping") return rpcResult(body.id, {});

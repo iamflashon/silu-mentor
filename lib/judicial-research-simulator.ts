@@ -43,11 +43,19 @@ export function planJudicialResearch(question: string): ResearchRound[] {
   const primary = [...new Set(concepts.length ? concepts : [...clauses, ...(fallback ? [fallback] : [])])].slice(0, 3);
   const expanded = [...new Set(concepts.flatMap((term) => CONCEPT_EXPANSIONS[term] ?? []))].filter((term) => !primary.includes(term)).slice(0, 4);
   const combinations = concepts.length >= 2 ? [`${concepts[0]} ${concepts[1]}`, `${concepts[1]} ${concepts[0]}`] : [];
+  const procedureSpecific = concepts.includes("支付命令")
+    ? [
+        `${concepts.find((term) => term !== "支付命令") ?? ""} 聲請發支付命令`,
+        `司促 ${concepts.find((term) => term !== "支付命令") ?? ""}`,
+        `督促程序 ${concepts.find((term) => term !== "支付命令") ?? ""}`,
+      ].map((query) => query.trim()).filter((query) => query.length > 2)
+    : [];
   const rounds: ResearchRound[] = [];
   if (primary.length) rounds.push({ round: 1, purpose: "先查原始爭點與核心法律概念", queries: primary });
   if (expanded.length) rounds.push({ round: 2, purpose: "改用實務常見用語、法條語言與同義詞", queries: expanded });
   if (combinations.length) rounds.push({ round: 3, purpose: "交叉組合兩個爭點，尋找同時處理兩者的裁判", queries: combinations });
-  return rounds.slice(0, 3);
+  if (procedureSpecific.length) rounds.push({ round: 4, purpose: "限定督促程序與聲請語境，排除僅引用催告法條的假命中", queries: procedureSpecific });
+  return rounds.slice(0, 4);
 }
 
 function authorityScore(court: string) {
@@ -83,6 +91,18 @@ function conceptsAreRelatedInText(text: string, concepts: string[]) {
   return positions[0].some((left) => positions.slice(1).every((list) => list.some((right) => Math.abs(left - right) <= 600)));
 }
 
+const PAYMENT_ORDER_PROCEDURE = /(?:聲請(?:核發|發給|發)?支付命令|支付命令(?:之)?聲請|支付命令事件|督促程序|司促字|債務人(?:對支付命令)?提出異議|駁回.{0,20}支付命令|核發.{0,20}支付命令)/;
+const PAYMENT_ORDER_BOILERPLATE = /依督促程序送達支付命令.{0,100}(?:催告|同一效力)|支付命令之送達.{0,100}(?:催告|同一效力)/;
+
+function classifyEvidence(text: string, caseType: string, coreConcepts: string[], coversAllConcepts: boolean) {
+  if (!coversAllConcepts) return { evidenceLevel: "background" as const, evidenceReason: "未同時涵蓋全部核心爭點。" };
+  if (!coreConcepts.includes("支付命令")) return { evidenceLevel: "direct" as const, evidenceReason: "裁判在同一脈絡處理全部核心爭點。" };
+  const procedureContext = PAYMENT_ORDER_PROCEDURE.test(text) || /(?:司促|促)/.test(caseType);
+  const boilerplateOnly = PAYMENT_ORDER_BOILERPLATE.test(text) && !/(?:聲請(?:核發|發給|發)?支付命令|支付命令(?:之)?聲請|支付命令事件|司促字|債務人(?:對支付命令)?提出異議|駁回.{0,20}支付命令|核發.{0,20}支付命令)/.test(text);
+  if (procedureContext && !boilerplateOnly) return { evidenceLevel: "direct" as const, evidenceReason: "裁判確實涉及支付命令聲請、異議或督促程序。" };
+  return { evidenceLevel: "indirect" as const, evidenceReason: boilerplateOnly ? "支付命令只出現在催告或遲延利息的例行法條說明，並非本案程序。" : "兩個詞雖共同出現，但未能確認本案實際進入支付命令程序。" };
+}
+
 export async function simulateJudicialResearch(question: string) {
   const plan = planJudicialResearch(question);
   const coreConcepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => question.includes(term));
@@ -94,7 +114,7 @@ export async function simulateJudicialResearch(question: string) {
     for (const query of step.queries) {
       const response = await searchJudicialCases({ query, limit: 8 });
       cloudAvailableTotal = Math.max(cloudAvailableTotal, response.availableTotal);
-      queryRuns.push({ query, hits: response.total });
+      queryRuns.push({ query, matched: response.total, returned: response.returned, limit: response.limit });
       response.results.forEach((item, index) => {
         const existing = found.get(item.jid);
         const text = `${item.title} ${item.excerpt}`;
@@ -127,6 +147,7 @@ export async function simulateJudicialResearch(question: string) {
       ? missingConcepts
       : (!locallyRelated && coreConcepts.length > 1 ? ["兩個概念未在同一段落形成關聯"] : []);
     const confidence = coversAllConcepts && item.matchedQueries.length > 1 ? "high" : coversAllConcepts ? "medium" : "low";
+    const classification = classifyEvidence(evidence, item.caseType, coreConcepts, coversAllConcepts);
     const { fullText: _fullText, ...safeItem } = item;
     return {
       ...safeItem,
@@ -134,14 +155,20 @@ export async function simulateJudicialResearch(question: string) {
       matchedConcepts,
       missingConcepts: displayedMissingConcepts,
       confidence,
-      eligibleDeepRead: coversAllConcepts,
+      ...classification,
+      eligibleDeepRead: classification.evidenceLevel !== "background",
       reasons: coversAllConcepts
         ? [...item.reasons, ...(coreConcepts.length > 1 ? ["核心概念在同一段落附近出現"] : [])]
         : [...item.reasons, missingConcepts.length ? `缺少核心爭點：${missingConcepts.join("、")}` : "兩個概念僅分散出現，未形成同一爭點"],
     };
-  }).sort((left, right) => Number(right.eligibleDeepRead) - Number(left.eligibleDeepRead) || right.score - left.score || right.judgmentDate.localeCompare(left.judgmentDate));
-  const results = ranked.filter((item) => item.eligibleDeepRead).slice(0, 20);
-  const exploratoryCandidates = ranked.filter((item) => !item.eligibleDeepRead).slice(0, 12);
+  }).sort((left, right) => {
+    const rank = { direct: 2, indirect: 1, background: 0 };
+    return rank[right.evidenceLevel] - rank[left.evidenceLevel] || right.score - left.score || right.judgmentDate.localeCompare(left.judgmentDate);
+  });
+  const results = ranked.filter((item) => item.evidenceLevel === "direct").slice(0, 20);
+  const supportingCandidates = ranked.filter((item) => item.evidenceLevel === "indirect").slice(0, 12);
+  const exploratoryCandidates = ranked.filter((item) => item.evidenceLevel === "background").slice(0, 12);
+  const answerability = results.length ? "directly-supported" : supportingCandidates.length ? "indirect-only" : "no-evidence";
   return {
     question,
     mode: "research-simulation" as const,
@@ -150,10 +177,18 @@ export async function simulateJudicialResearch(question: string) {
     rounds,
     totalUniqueCases: found.size,
     qualifiedCases: results.length,
+    directEvidenceCount: results.length,
+    indirectEvidenceCount: supportingCandidates.length,
+    backgroundEvidenceCount: ranked.filter((item) => item.evidenceLevel === "background").length,
+    answerability,
+    conclusionGuard: results.length
+      ? "可依直接證據回答，但仍須讀取全文確認裁判意旨與適用範圍。"
+      : "禁止依本次資料庫搜尋對問題作肯定或否定結論。只能說尚未找到直接裁判；如另依法律條文或一般法理推論，必須明確標示那不是本次裁判搜尋所得。",
     assessment: results.length
-      ? `找到 ${results.length} 篇同時涵蓋主要爭點的裁判，可進一步深讀。`
-      : `目前沒有裁判同時涵蓋「${coreConcepts.join("＋") || question}」。現有結果只能作為擴大查詢線索，不能當成問題答案。`,
+      ? `找到 ${results.length} 篇直接處理主要爭點的裁判，可進一步深讀。`
+      : `目前沒有找到直接處理「${coreConcepts.join("＋") || question}」的裁判。間接或背景資料不能用來回答可以或不可以。`,
     results,
+    supportingCandidates,
     exploratoryCandidates,
   };
 }
