@@ -186,13 +186,20 @@ export async function simulateJudicialResearch(question: string) {
   const found = new Map<string, Awaited<ReturnType<typeof searchJudicialCases>>["results"][number] & { matchedQueries: string[]; score: number; reasons: string[] }>();
   const rounds = [];
   let cloudAvailableTotal = 0;
+  let attemptedQueries = 0;
+  let successfulQueries = 0;
+  const maximumQueries = 8;
   for (const step of plan) {
     const queryRuns = [];
     for (const query of step.queries) {
-      const response = await searchJudicialCases({ query, limit: 8 });
-      cloudAvailableTotal = Math.max(cloudAvailableTotal, response.availableTotal);
-      queryRuns.push({ query, matched: response.total, returned: response.returned, limit: response.limit });
-      response.results.forEach((item, index) => {
+      if (attemptedQueries >= maximumQueries) break;
+      attemptedQueries += 1;
+      try {
+        const response = await searchJudicialCases({ query, limit: 8, includeAvailableTotal: successfulQueries === 0 });
+        successfulQueries += 1;
+        cloudAvailableTotal = Math.max(cloudAvailableTotal, response.availableTotal);
+        queryRuns.push({ query, matched: response.total, returned: response.returned, limit: response.limit });
+        response.results.forEach((item, index) => {
         const existing = found.get(item.jid);
         const text = `${item.title} ${item.excerpt}`;
         const exact = text.includes(query);
@@ -210,10 +217,15 @@ export async function simulateJudicialResearch(question: string) {
             reasons: [authority >= 85 ? "最高審級或具高度代表性" : authority >= 60 ? "高等審級裁判" : "符合查詢爭點", exact ? "摘要直接出現查詢詞" : "案件欄位或全文命中"],
           });
         }
-      });
+        });
+      } catch {
+        queryRuns.push({ query, matched: 0, returned: 0, limit: 8, error: "本組查詢暫時未完成" });
+      }
     }
-    rounds.push({ ...step, queryRuns, uniqueCasesSoFar: found.size });
+    if (queryRuns.length) rounds.push({ ...step, queryRuns, uniqueCasesSoFar: found.size });
+    if (attemptedQueries >= maximumQueries) break;
   }
+  if (!successfulQueries) throw new Error("Judicial search is temporarily unavailable");
   const ranked = [...found.values()].map((item) => {
     const evidence = `${item.title} ${item.excerpt} ${item.fullText}`;
     const matchedConcepts = coreConcepts.filter((concept) => positionsOf(evidence, conceptVariants(concept)).length > 0);

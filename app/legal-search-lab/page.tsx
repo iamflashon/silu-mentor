@@ -84,7 +84,7 @@ export default function LegalSearchLabPage() {
         <span style={{ padding: "6px 10px", borderRadius: 999, background: judicialStatus?.node.online ? "#e3f5e9" : "#f3e8e8", color: judicialStatus?.node.online ? "#176a38" : "#8a3333", fontWeight: 700 }}>{judicialStatus?.node.online ? "本機節點連線中" : "本機節點未連線"}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 16 }}>
-        <StatusCard label="MCP可搜尋" value={judicialStatus?.searchableCases} note="正式站已入庫" />
+        <StatusCard label="MCP可搜尋" value={judicialStatus?.searchableCases} note={judicialStatus?.searchableCases ? "已可立即測試" : "等待首批入庫"} />
         <StatusCard label="RAR進度" value={judicialStatus ? `${judicialStatus.node.completedArchives.toLocaleString()}／${judicialStatus.node.archives.toLocaleString()}` : undefined} note="完成／已下載" />
         <StatusCard label="本機已拆解" value={judicialStatus?.node.processed} note="裁判全文" />
         <StatusCard label="已上傳" value={judicialStatus?.node.uploaded} note="送達正式站" />

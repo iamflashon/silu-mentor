@@ -7,6 +7,7 @@ export type JudicialSearchInput = {
   court?: string;
   year?: string;
   limit?: number;
+  includeAvailableTotal?: boolean;
 };
 
 function escapeLike(value: string) {
@@ -87,7 +88,9 @@ function normalizeInput(input: JudicialSearchInput) {
 export async function searchJudicialCases(input: JudicialSearchInput) {
   const { query, court, year, limit } = normalizeInput(input);
   const db = await getDb();
-  const [available] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(eq(judicialCases.status, "active"));
+  const [available] = input.includeAvailableTotal === false
+    ? [{ value: 0 }]
+    : await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(eq(judicialCases.status, "active"));
   const conditions = [eq(judicialCases.status, "active")];
   if (query) {
     const queryTerms = query.split(/\s+/).map((term) => term.trim()).filter(Boolean).slice(0, 4);
