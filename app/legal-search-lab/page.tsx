@@ -123,7 +123,7 @@ function StatusCard({ label, value, note }: { label: string; value: number | str
 }
 
 function PlanCard({ title, items, empty = "未提出" }: { title: string; items?: string[]; empty?: string }) {
-  return <article role="tabpanel" style={{ ...card, minHeight: 180, background: "#fbfcfe" }}><strong style={{ color: "#183b66", fontSize: 18 }}>{title}</strong>{items?.length ? <ul style={{ margin: "14px 0 0", paddingLeft: 24, lineHeight: 1.85, columns: items.length > 5 ? "2 320px" : undefined, columnGap: 44 }}>{items.map(item => <li key={item} style={{ breakInside: "avoid", marginBottom: 6 }}>{item}</li>)}</ul> : <p style={{ margin: "14px 0 0", color: "#7a8698" }}>{empty}</p>}</article>;
+  return <article role="tabpanel" style={{ ...card, minHeight: 180, background: "#fbfcfe" }}><strong style={{ color: "#183b66", fontSize: 18 }}>{title}</strong>{items?.length ? <ol style={{ margin: "14px 0 0", paddingLeft: 34, lineHeight: 1.85, columns: items.length > 5 ? "2 320px" : undefined, columnGap: 52 }}>{items.map(item => <li key={item} style={{ breakInside: "avoid", marginBottom: 8, paddingLeft: 6 }}>{item}</li>)}</ol> : <p style={{ margin: "14px 0 0", color: "#7a8698" }}>{empty}</p>}</article>;
 }
 
 function PlanTabs({ researcher, active, onChange }: { researcher: NonNullable<Simulation["researcher"]>; active: PlanTab; onChange: (tab: PlanTab) => void }) {
