@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import "./pengli.css";
 import PengliCover from "./PengliCover";
-import PengliModules from "./PengliModules";
 
 export const metadata: Metadata = {
   title: "彭狸老師行政法考點衝刺",
@@ -26,8 +25,7 @@ export default function PengliTeacherPage() {
       <Link href="/" className="pengli-brand">iBrain Pedia X</Link>
       <div><span>法律類</span><b>行政法</b></div>
       <div className="pengli-top-actions">
-        <Link href="/teachers/pengli/coach">繼續問答</Link>
-        <Link href="/teachers/pengli/notes">我的筆記</Link>
+        <Link href="/teachers/pengli/study-room" className="pengli-study-room-entry">學霸讀書室</Link>
       </div>
     </nav>
 
@@ -55,8 +53,6 @@ export default function PengliTeacherPage() {
         <PengliCover className="pengli-hero-managed-cover" />
       </div>
     </section>
-
-    <PengliModules />
 
     <section className="pengli-workspace" id="curriculum">
       <header>

@@ -40,8 +40,8 @@ type Access = {
   charged?: boolean;
   remaining?: number | null;
 };
-type LearningMode = "guide" | "review" | "recall" | "teachback" | "essay";
-const learningModeLabels: Record<LearningMode, string> = { guide: "考試重點", review: "考前速讀", recall: "主動回想", teachback: "教給我聽", essay: "申論演練" };
+type LearningMode = "guide" | "review" | "recall" | "teachback" | "essay" | "map" | "plain" | "flashcards" | "compare" | "mock" | "weakness" | "plan";
+const learningModeLabels: Record<LearningMode, string> = { guide: "老師問答", review: "考前速讀", recall: "主動回想", teachback: "費曼教學", essay: "申論演練", map: "概念地圖", plain: "白話解釋", flashcards: "複習小卡", compare: "見解比較", mock: "模擬測驗", weakness: "弱點分析", plan: "考前計畫" };
 const topicChoices = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
 const storageKey = "pengli-ai-coach-history-v1";
 const topicStorageKey = "pengli-ai-coach-active-topic-v1";
@@ -78,7 +78,20 @@ function makeTopicLoadingMessage(topic: string): CoachMessage {
 
 function makeTopicGuideMessage(topic: string, guide: TopicGuide, mode: LearningMode = "guide"): CoachMessage {
   const points = guide.keyPoints.map((point, index) => `${["一", "二", "三", "四", "五"][index]}、${point}`).join("\n");
-  const next = mode === "review" ? "請從下面選一個重點，我會把它壓縮成考前速讀版本，保留爭點、判斷順序與必要依據。" : mode === "recall" ? "請從下面選一個重點。我會一次問一題，在你回答前不公布答案；回答後再依教材核對並追問。" : mode === "teachback" ? "請從下面選一個重點，先用自己的話教給我聽；我會依教材指出錯誤、遺漏與過度簡化之處。" : mode === "essay" ? "請從下面選一個重點，我會用案例帶你依爭點、規範、涵攝、結論逐步完成申論。" : "你有沒有指定的內容想先學？如果沒有，就選「沒有指定，請教練安排」，我會依教材脈絡從適合的重點開始。";
+  const instructions: Partial<Record<LearningMode, string>> = {
+    review: "請從下面選一個重點，我會把它壓縮成考前速讀版本，保留爭點、判斷順序與必要依據。",
+    recall: "請從下面選一個重點。我會一次問一題，在你回答前不公布答案；回答後再依教材核對並追問。",
+    teachback: "請從下面選一個重點，先用自己的話教給我聽；我會依教材提出基礎、進階與邊界問題，再指出遺漏與過度簡化。",
+    essay: "請從下面選一個重點，我會用案例帶你依爭點、規範、涵攝、結論逐步完成申論。",
+    map: "請選一個重點。我會整理核心概念、下位爭點、法條與實務見解，並標出彼此的橫向關係。",
+    plain: "請選一個最卡的重點。我會先用日常例子說明，再逐步加入法律用語，最後回到教材定義。",
+    flashcards: "請選一個範圍。我會用定義、因果、比較與案例應用四種小卡逐張測你，翻答後才顯示核對重點。",
+    compare: "請選一個爭點。我會依教材比較不同見解、理由、差異與考場上的作答位置。",
+    mock: "請選一個主題。我會先出題、不先公布答案；完成後再依教材給解析與補強建議。",
+    weakness: "請選擇要診斷的主題，或直接說『依我的紀錄分析』；我會找出最需要補強的重點與回讀位置。",
+    plan: "請告訴我考試日期、每天可讀時間與最弱主題，我會排出逐日複習、測驗與回讀計畫。",
+  };
+  const next = instructions[mode] ?? "你有沒有指定的內容想先學？如果沒有，就選「沒有指定，請教練安排」，我會依教材脈絡從適合的重點開始。";
   return {
     id: crypto.randomUUID(),
     role: "coach",
@@ -171,7 +184,7 @@ export default function PengliCoach() {
       const params = new URLSearchParams(window.location.search);
       const urlTopic = params.get("topic")?.trim() || "";
       const requestedMode = params.get("mode") || "guide";
-      const mode = (["guide", "review", "recall", "teachback", "essay"].includes(requestedMode) ? requestedMode : "guide") as LearningMode;
+      const mode = (["guide", "review", "recall", "teachback", "essay", "map", "plain", "flashcards", "compare", "mock", "weakness", "plan"].includes(requestedMode) ? requestedMode : "guide") as LearningMode;
       setLearningMode(mode);
       const savedTopic = localStorage.getItem(topicStorageKey)?.trim() || "";
       const topic = urlTopic || savedTopic;
