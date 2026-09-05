@@ -46,14 +46,27 @@ const empty: Draft = {
   previewDurationSeconds: 300,
   salesEnabled: false,
 };
-const mmss = (s: number) =>
-  `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+const mmss = (s: number) => {
+  const wholeSeconds = Math.max(0, Math.floor(Number(s) || 0));
+  return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, "0")}`;
+};
 const secondsFrom = (v: string) => {
   const p = v.split(":").map(Number);
   return p.length === 2 && p.every(Number.isFinite)
     ? Math.max(0, Math.floor(p[0] * 60 + p[1]))
     : Math.max(0, Math.floor(Number(v) || 0));
 };
+
+function TimeInput({ value, onChange, label }: { value: number; onChange: (value: number) => void; label: string }) {
+  const [draftValue, setDraftValue] = useState(() => mmss(value));
+  useEffect(() => setDraftValue(mmss(value)), [value]);
+  function commit() {
+    const next = secondsFrom(draftValue);
+    onChange(next);
+    setDraftValue(mmss(next));
+  }
+  return <label>{label}<input inputMode="numeric" value={draftValue} placeholder="0:00" onChange={event => setDraftValue(event.target.value)} onBlur={commit} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); commit(); event.currentTarget.blur(); } }} /></label>;
+}
 
 export default function PosnerAdmin() {
   const [courses, setCourses] = useState<Course[]>([]),
@@ -413,7 +426,7 @@ export default function PosnerAdmin() {
               <section className="posner-subtitle-editor">
                 <header><div><b>字幕與 AI 重點摘要</b><span>SRT 完成後由 AI 先整理整堂課重點，你再校對文字、時間與前台推薦。</span></div><div><button type="button" onClick={()=>void generateDigest()} disabled={!selected.subtitleReady||digesting}>{digesting?"AI 產生中…":selected.summaryReady?"重新產生 AI 摘要":"AI 產生重點摘要"}</button><button type="button" onClick={()=>segmentsOpen?setSegmentsOpen(false):void loadSegments()} disabled={!selected.subtitleReady}>{segmentsOpen?"收合編輯器":selected.subtitleReady?"查看／編修":"字幕尚未完成"}</button></div></header>
                 {segmentsOpen&&<div className="posner-subtitle-body">{segmentsLoading?<p>正在讀取字幕…</p>:segments.length?segments.map(segment=><article key={segment.id} className={segment.recommended?"recommended":""}>
-                  <div className="posner-subtitle-time"><label>開始（秒）<input type="number" min="0" value={segment.startSeconds??0} onChange={e=>updateSegment(segment.id,{startSeconds:Number(e.target.value)})}/></label><label>結束（秒）<input type="number" min="0" value={segment.endSeconds??0} onChange={e=>updateSegment(segment.id,{endSeconds:Number(e.target.value)})}/></label><span>{mmss(segment.startSeconds??0)}－{mmss(segment.endSeconds??0)}</span></div>
+                  <div className="posner-subtitle-time"><TimeInput label="開始（分:秒）" value={segment.startSeconds??0} onChange={value=>updateSegment(segment.id,{startSeconds:value})}/><TimeInput label="結束（分:秒）" value={segment.endSeconds??0} onChange={value=>updateSegment(segment.id,{endSeconds:value})}/><span>{mmss(segment.startSeconds??0)}－{mmss(segment.endSeconds??0)}</span></div>
                   <label>字幕原文<textarea rows={4} value={segment.text??""} onChange={e=>updateSegment(segment.id,{text:e.target.value})}/></label>
                   <label>AI 重點摘要<textarea rows={3} value={segment.summary??""} placeholder="按上方「AI 產生重點摘要」後會自動填入；你可以再校對修改" onChange={e=>updateSegment(segment.id,{summary:e.target.value})}/></label>
                   <footer><label><input type="checkbox" checked={Boolean(segment.recommended)} onChange={e=>updateSegment(segment.id,{recommended:e.target.checked})}/>列為推薦重點</label><button type="button" onClick={()=>void saveSegment(segment)} disabled={segmentSaving===segment.id}>{segmentSaving===segment.id?"儲存中…":"儲存這一段"}</button></footer>
