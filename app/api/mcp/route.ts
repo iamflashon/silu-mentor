@@ -1,5 +1,9 @@
 import { getJudicialCaseDetail, searchJudicialCases } from "../../../lib/judicial-search";
 import { simulateJudicialResearch } from "../../../lib/judicial-research-simulator";
+import { GET as searchLegalArticles } from "../legal-search/route";
+import { eq, sql } from "drizzle-orm";
+import { getDb } from "../../../db";
+import { legalArticles, legalDataSources, legalDocuments } from "../../../db/schema";
 
 type JsonRpcRequest = {
   jsonrpc?: string;
@@ -92,6 +96,27 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: "search_laws",
+    description: "搜尋已同步的全國法規資料。回傳法規名稱、條號、條文摘要、異動日期與官方來源，不公開內部擴詞及排序策略。",
+    annotations: { title: "搜尋全國法規", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "法規名稱、條號或法律概念，例如：民法第184條" },
+        category: { type: "string", enum: ["", "法律", "命令"], default: "" },
+        limit: { type: "integer", minimum: 1, maximum: 20, default: 10 },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_legal_data_status",
+    description: "取得已同步全國法規資料的法規數、條文數與資料來源就緒狀態。",
+    annotations: { title: "全國法規資料狀態", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
 ];
 
 export async function POST(request: Request) {
@@ -109,8 +134,8 @@ export async function POST(request: Request) {
     return rpcResult(body.id, {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "yuanzhao-legal-database", version: "0.2.0" },
-      instructions: "先用 research_cases 取得證據包。只有 allowedCitations 內的裁判可以引用；notCitableCandidates 只能作為後續搜尋線索。需要核對原文時，以 get_case_detail 依 JID 分頁讀取，直到 nextOffset 為 null。完整案號優先用 search_cases 的 auto 模式精確調卷；查無精確案號時不得拿近似案件替代。若 directEvidenceCount=0，必須說尚未找到直接裁判，不得依間接裁判自行回答可以或不可以。另依法條或一般法理推論時，必須與資料庫搜尋結果分開標示。搜尋回應的 total 是全部命中數，returned 才是本次回傳候選數。不得把搜尋不到解讀為法律上不存在。引用時應保留 citationId、法院、年度、字別、案號與 JID。",
+      serverInfo: { name: "yuanzhao-legal-database", version: "0.3.0" },
+      instructions: "裁判研究先用 research_cases 取得證據包。只有 allowedCitations 內、已全文檢查的裁判可以引用；需要核對原文時，以 get_case_detail 依 JID 分頁讀取。查法規使用 search_laws，引用時保留法規名稱、條號、異動日期及官方來源；不得把搜尋不到解讀為法律上不存在。搜尋工具只提供證據資料，不代替法律專業判斷。",
     });
   }
   if (body.method === "ping") return rpcResult(body.id, {});
@@ -147,9 +172,36 @@ export async function POST(request: Request) {
       if (!result) return rpcResult(body.id, { isError: true, content: [{ type: "text", text: "找不到這筆裁判。" }] });
       return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
     }
+    if (name === "search_laws") {
+      const query = typeof args.query === "string" ? args.query.trim().slice(0, 120) : "";
+      if (query.length < 2) return rpcError(body.id, -32602, "query is required");
+      const category = args.category === "法律" || args.category === "命令" ? args.category : "";
+      const limit = Math.max(1, Math.min(20, Number(args.limit) || 10));
+      const params = new URLSearchParams({ query, q: query, category, limit: String(limit) });
+      const response = await searchLegalArticles(new Request(`https://mcp.internal/api/legal-search?${params}`));
+      const payload = await response.json() as { error?: string; query?: string; total?: number; results?: unknown[] };
+      if (!response.ok) return rpcResult(body.id, { isError: true, content: [{ type: "text", text: payload.error || "法規資料搜尋失敗。" }] });
+      const compact = { query: payload.query || query, total: Number(payload.total || 0), returned: payload.results?.length || 0, results: payload.results || [] };
+      return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(compact) }], structuredContent: compact });
+    }
+    if (name === "get_legal_data_status") {
+      const db = await getDb("primary");
+      const [[documents], [articles], sources] = await Promise.all([
+        db.select({ value: sql<number>`count(*)` }).from(legalDocuments).where(eq(legalDocuments.status, "active")),
+        db.select({ value: sql<number>`count(*)` }).from(legalArticles),
+        db.select({ status: legalDataSources.status }).from(legalDataSources),
+      ]);
+      const status = {
+        documents: Number(documents?.value || 0),
+        articles: Number(articles?.value || 0),
+        sourcesReady: sources.filter((source) => source.status === "ready").length,
+        sourcesTotal: sources.length,
+      };
+      return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(status) }], structuredContent: status });
+    }
     return rpcError(body.id, -32602, "Unknown tool");
   } catch {
-    return rpcResult(body.id, { isError: true, content: [{ type: "text", text: "裁判資料服務暫時無法使用。" }] });
+    return rpcResult(body.id, { isError: true, content: [{ type: "text", text: "法律資料服務暫時無法使用。" }] });
   }
 }
 
