@@ -15,7 +15,7 @@ export default function PengliStudyRoom(){return <main className="study-room leg
   <header className="study-room-top"><a className="study-room-brand" href="/teachers/pengli"><span>彭</span><div><b>學霸讀書室</b><small>PENGLI · ADMINISTRATIVE LAW</small></div></a><nav><a href="/teachers/pengli">返回專區</a><a href="/teachers/pengli/notes">我的筆記</a></nav></header>
   <section className="study-room-head"><span>彭狸老師 · 行政法考點演習書（二版）</span><h1>學霸讀書室</h1><p>沿著老師的問題意識掌握爭點、法條與實務見解，再用主動回想和申論練習檢查自己是否真正理解。</p></section>
   <div className="study-room-body">
-    <section className="study-room-connect" aria-label="學習資料入口"><a href="/teachers/pengli#curriculum"><b>八大主題教材</b><span>依書籍目錄選擇主題，對照實際教材頁碼。</span></a><a href="/teachers/pengli/coach?mode=recall"><b>考點練習</b><span>從基本判斷到追問，一次完成一個考點。</span></a><a href="/teachers/pengli/coach?mode=essay"><b>申論演練</b><span>依爭點、規範、涵攝與結論檢查作答架構。</span></a></section>
+    <section className="study-room-connect" aria-label="學習資料入口"><a href="/teachers/pengli/read"><b>八大主題教材</b><span>依書籍目錄選擇主題，直接閱讀站內重新排版內容。</span></a><a href="/teachers/pengli/coach?mode=recall"><b>考點練習</b><span>從基本判斷到追問，一次完成一個考點。</span></a><a href="/teachers/pengli/coach?mode=essay"><b>申論演練</b><span>依爭點、規範、涵攝與結論檢查作答架構。</span></a></section>
     <div className="study-room-section-head"><h2>今天想怎麼讀？</h2><p>回答均以彭狸老師教材為主要範圍</p></div>
     <section className="study-room-modes">{modes.map(([icon,title,description,href,action])=><a className="study-mode" href={href} key={title}><i>{icon}</i><h3>{title}</h3><p>{description}</p><b>{action} →</b></a>)}</section>
     <section className="study-room-flow"><h2>從理解到完整作答</h2><ol><li>選擇行政法主題與教材範圍</li><li>先說出自己的理解與判斷</li><li>核對爭點、法條及實務見解</li><li>進入申論架構練習並回頭補強</li></ol></section>

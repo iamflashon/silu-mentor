@@ -65,10 +65,10 @@ export default function PengliTeacherPage() {
       </header>
       <div className="pengli-layout">
         <div className="pengli-theme-list">
-          {themes.map(([number, title, summary]) => <Link className="theme-card" href={`/teachers/pengli/coach?topic=${encodeURIComponent(title)}`} key={number}>
+          {themes.map(([number, title, summary]) => <Link className="theme-card" href={`/teachers/pengli/read?topic=${encodeURIComponent(title)}`} key={number}>
             <span>{number}</span>
             <div><h3>{title}</h3><p>{summary}</p></div>
-            <b>進入</b>
+            <b>閱讀</b>
           </Link>)}
         </div>
         <aside className="pengli-progress-card">
