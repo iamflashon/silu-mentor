@@ -797,8 +797,10 @@ export async function POST(request: Request) {
         ...(auth.member.canAdmin ? [] : [eq(pengliStudyArtifacts.reviewStatus, "published")]),
       )).limit(1) : [];
       if (cached) {
-        await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId: cached.id, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: cached.content, sourceLabel: cached.sourceLabel, cacheHit: true }).onConflictDoNothing();
-        await auth.db.update(pengliStudyArtifacts).set({ reuseCount: sql`${pengliStudyArtifacts.reuseCount} + 1`, updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, cached.id));
+        if (!auth.member.canAdmin) {
+          await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId: cached.id, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: cached.content, sourceLabel: cached.sourceLabel, cacheHit: true }).onConflictDoNothing();
+          await auth.db.update(pengliStudyArtifacts).set({ reuseCount: sql`${pengliStudyArtifacts.reuseCount} + 1`, updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, cached.id));
+        }
         return Response.json({ reply: cached.content, source: cached.sourceLabel, artifactId: cached.id, reviewStatus: cached.reviewStatus, cached: true, saved: true, charged: false });
       }
 
@@ -826,11 +828,11 @@ export async function POST(request: Request) {
         const [artifact] = await auth.db.select({ id: pengliStudyArtifacts.id }).from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.cacheKey, cacheKey)).limit(1);
         artifactId = artifact?.id ?? null;
       }
-      await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: reply, sourceLabel, cacheHit: false }).onConflictDoNothing();
+      if (!auth.member.canAdmin) await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: reply, sourceLabel, cacheHit: false }).onConflictDoNothing();
       const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
       const inputTokens = Number(usage?.input_tokens ?? 0), outputTokens = Number(usage?.output_tokens ?? 0), cachedTokens = Number(usage?.input_tokens_details?.cached_tokens ?? 0);
       const access = await finishAiUse(gate, { action: `pengli_study_${tool}`, description: "彭狸學霸讀書室首次產生共用教材成果", quantity: 1, requestKey });
-      return Response.json({ reply, source: sourceLabel, artifactId, reviewStatus: shareable ? "pending_review" : null, access, cached: false, saved: true, charged: true, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) / 1_000_000 } });
+      return Response.json({ reply, source: sourceLabel, artifactId, reviewStatus: shareable ? "pending_review" : null, access, cached: false, saved: true, charged: access.charged, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) / 1_000_000 } });
     }
 
     const gate = await prepareAiUse(request, "pengli");

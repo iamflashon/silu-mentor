@@ -27,6 +27,10 @@ export async function prepareAiUse(
   const plan = await getAiPlan(db);
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
+  // 總管理者在後台建立、測試與預先發布共用內容時永不計次，
+  // 即使帳號曾兌換學生方案，也不能被方案餘額擋住。
+  if (auth.member.canAdmin)
+    return { metered: false, memberId: auth.member.id, db: auth.db };
   const entitlement = await getActiveAiEntitlement(
     auth.db,
     auth.member.id,
@@ -57,10 +61,6 @@ export async function prepareAiUse(
   }
   if (!plan.enabled || !plan.categories.includes(category))
     return { metered: false, memberId: null, db };
-  // 管理員平常測試不計次；若主動兌換／購買有效方案，就視同學生計次，
-  // 讓管理員能完整驗證前台輪次與扣除流程。
-  if (auth.member.canAdmin)
-    return { metered: false, memberId: auth.member.id, db: auth.db };
   return Response.json(
     {
       error:
