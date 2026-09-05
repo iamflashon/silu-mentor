@@ -17,7 +17,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.6.9"
+VERSION = "0.6.10"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 _SUBTITLE_QUEUE: list[Path] = []
@@ -318,6 +318,20 @@ def _judicial_state_db(output: Path) -> sqlite3.Connection:
         duplicates INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0, chunks INTEGER NOT NULL DEFAULT 0,
         last_error TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""")
+    # CREATE TABLE IF NOT EXISTS does not add columns to a database created by
+    # an older node. Migrate it in place so processing cursors are preserved.
+    existing = {str(row[1]) for row in db.execute("PRAGMA table_info(archives)").fetchall()}
+    migrations = {
+        "uploaded": "INTEGER NOT NULL DEFAULT 0",
+        "duplicates": "INTEGER NOT NULL DEFAULT 0",
+        "failed": "INTEGER NOT NULL DEFAULT 0",
+        "chunks": "INTEGER NOT NULL DEFAULT 0",
+        "last_error": "TEXT NOT NULL DEFAULT ''",
+        "updated_at": "TEXT NOT NULL DEFAULT ''",
+    }
+    for column, definition in migrations.items():
+        if column not in existing:
+            db.execute(f"ALTER TABLE archives ADD COLUMN {column} {definition}")
     db.commit()
     return db
 
