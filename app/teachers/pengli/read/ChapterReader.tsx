@@ -23,6 +23,7 @@ export default function ChapterReader() {
     return () => { active = false; };
   }, [topic, page]);
   function selectTopic(next: string) { setTopic(next); setPage(0); history.replaceState(null, "", `?topic=${encodeURIComponent(next)}`); }
+  const paragraphs = data ? [...new Map(data.blocks.flatMap((block) => block.paragraphs).map((paragraph) => [paragraph.replace(/\s+/gu, " ").trim(), paragraph])).values()] : [];
   return <section className="chapter-reader">
     <header className="reader-heading"><div><span>CHAPTER READER</span><h1>章節閱讀</h1></div><p>內容只在站內依段落重新排版，不提供教材原檔或下載入口。</p></header>
     <div className="reader-layout">
@@ -30,7 +31,7 @@ export default function ChapterReader() {
       <article className="reader-paper">
         {!data ? <div className="reader-status">{status}</div> : <>
           <header><span>主題 {String(data.themeNumber).padStart(2, "0")}</span><h2>{data.topic}</h2><small>書內頁碼 {data.bookPageLabel}</small></header>
-          <div className="reader-content">{data.blocks.map((block, index) => <section key={`${block.heading}-${index}`}><h3>{block.heading}</h3>{block.paragraphs.map((paragraph, p) => <p key={p}>{paragraph}</p>)}</section>)}</div>
+          <div className="reader-content">{paragraphs.map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</p>)}</div>
           <nav className="reader-pagination" aria-label="章節分頁"><button disabled={data.page <= 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>上一頁</button><span>{data.page + 1} / {data.pageCount}</span><button disabled={data.page + 1 >= data.pageCount} onClick={() => setPage((value) => value + 1)}>下一頁</button></nav>
         </>}
       </article>

@@ -37,3 +37,4 @@
   .pengli-book-stage{min-height:340px}
   .pengli-book-stage .pengli-managed-cover>img{width:auto;height:min(var(--pengli-cover-height,320px),320px)}
 }
+.pengli-module-shelf-compact{padding-top:44px}

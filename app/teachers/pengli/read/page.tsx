@@ -3,6 +3,7 @@ import Link from "next/link";
 import ChapterReader from "./ChapterReader";
 import "../pengli.css";
 import "./reader.css";
+import "./reader-continuous.css";
 
 export const metadata: Metadata = {
   title: "彭狸行政法章節閱讀｜學霸讀書室",

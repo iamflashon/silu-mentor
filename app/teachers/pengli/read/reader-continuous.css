@@ -1,0 +1,12 @@
+.reader-content {
+  padding-top: 28px;
+}
+
+.reader-content p {
+  margin-bottom: 1.15em;
+}
+
+.reader-pagination {
+  margin-top: 26px;
+  border-top: 1px solid #edf0f1;
+}
