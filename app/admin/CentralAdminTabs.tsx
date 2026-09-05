@@ -7,6 +7,7 @@ const tabs = [
   ["teacher-materials", "/admin/teacher-materials", "老師教材管理"],
   ["ai-access", "/admin/ai-access", "AI 方案與啟用碼"],
   ["portal-cards", "/admin/portal-cards", "首頁卡片管理"],
+  ["pengli-study", "/admin/pengli-study-room", "學霸成果庫"],
 ] as const;
 
 export default function CentralAdminTabs({ active }: { active: typeof tabs[number][0] }) {

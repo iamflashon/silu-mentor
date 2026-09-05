@@ -38,7 +38,7 @@ export default function QaTestApplications() {
   return <main className="admin-shell independent-admin-shell qa-admin-page">
     <header className="topbar">
       <a href="/platform" className="brand"><span className="brand-mark">智</span><span>iBrain AI</span></a>
-      <a href="/admin" className="back-link">返回總管理後台 →</a>
+      <a href="/admin/library" className="back-link">返回中央總管理 →</a>
     </header>
     <div className="admin-main">
       <div className="admin-title"><div><p>ACCOUNTING QA TRIAL CONTROL</p><h1>QA 測試申請</h1><span>集中審核匿名 QA 測試額度申請，核准補發次數、拒絕申請或封鎖異常裝置。</span></div></div>

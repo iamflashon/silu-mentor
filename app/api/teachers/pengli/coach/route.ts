@@ -624,13 +624,13 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
     return windows;
   });
   const terms = [...new Set([
+    ...topicHints,
     ...quotedPhrases,
     ...longPhraseWindows,
     ...legalPhrases,
     ...normalized.split(/[\s、，。；：,.;:()（）？?！!「」『』]+/u)
       .map((term) => term.replace(/^(我正在學|請先用|一個問題|帶我判斷|請問|老師)/u, "").trim())
       .filter((term) => term.length >= 2 && term.length <= 28),
-    ...topicHints,
   ])].slice(0, 10);
   // D1 查詢只使用少量核心詞，避免學霸代答把整段對話展開成過長的 OR 條件。
   const conditions = terms.map((term) => or(
@@ -773,11 +773,15 @@ export async function POST(request: Request) {
       const requestKey = String(body.requestKey ?? crypto.randomUUID()).slice(0, 120);
       const shareable = tool !== "teach" && !(tool === "quiz" && rawMessages.length > 1);
       const cacheKey = shareable ? await studyCacheKey(tool, topic, rawMessages) : "";
-      const [cached] = cacheKey ? await auth.db.select().from(pengliStudyArtifacts).where(and(eq(pengliStudyArtifacts.cacheKey, cacheKey), eq(pengliStudyArtifacts.status, "active"))).limit(1) : [];
+      const [cached] = cacheKey ? await auth.db.select().from(pengliStudyArtifacts).where(and(
+        eq(pengliStudyArtifacts.cacheKey, cacheKey),
+        eq(pengliStudyArtifacts.status, "active"),
+        ...(auth.member.canAdmin ? [] : [eq(pengliStudyArtifacts.reviewStatus, "published")]),
+      )).limit(1) : [];
       if (cached) {
         await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId: cached.id, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: cached.content, sourceLabel: cached.sourceLabel, cacheHit: true }).onConflictDoNothing();
         await auth.db.update(pengliStudyArtifacts).set({ reuseCount: sql`${pengliStudyArtifacts.reuseCount} + 1`, updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, cached.id));
-        return Response.json({ reply: cached.content, source: cached.sourceLabel, cached: true, saved: true, charged: false });
+        return Response.json({ reply: cached.content, source: cached.sourceLabel, artifactId: cached.id, reviewStatus: cached.reviewStatus, cached: true, saved: true, charged: false });
       }
 
       const gate = await prepareAiUse(request, "pengli");
@@ -808,7 +812,7 @@ export async function POST(request: Request) {
       const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
       const inputTokens = Number(usage?.input_tokens ?? 0), outputTokens = Number(usage?.output_tokens ?? 0), cachedTokens = Number(usage?.input_tokens_details?.cached_tokens ?? 0);
       const access = await finishAiUse(gate, { action: `pengli_study_${tool}`, description: "彭狸學霸讀書室首次產生共用教材成果", quantity: 1, requestKey });
-      return Response.json({ reply, source: sourceLabel, access, cached: false, saved: true, charged: true, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) / 1_000_000 } });
+      return Response.json({ reply, source: sourceLabel, artifactId, reviewStatus: shareable ? "pending_review" : null, access, cached: false, saved: true, charged: true, usage: { model, inputTokens, cachedTokens, outputTokens, durationMs: Date.now() - startedAt, estimatedCostUsd: estimateCostUsdMicros(model, { inputTokens, outputTokens, cachedTokens }) / 1_000_000 } });
     }
 
     const gate = await prepareAiUse(request, "pengli");
