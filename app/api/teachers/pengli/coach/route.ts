@@ -676,6 +676,24 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
       ))
       .orderBy(documentSearchUnits.sequence).limit(60);
   }
+  // Broad study-room requests name a whole verified theme rather than one exact
+  // phrase. If keyword ranking finds nothing, retrieve directly from the
+  // administrator-confirmed page range so every mapped theme remains usable.
+  if (!candidates.length && themeCondition) {
+    candidates = await db.select({
+      documentId: documentSearchUnits.documentId,
+      pageStart: documentSearchUnits.pageStart,
+      pageEnd: documentSearchUnits.pageEnd,
+      title: documentSearchUnits.title,
+      hierarchyPath: documentSearchUnits.hierarchyPath,
+      text: documentSearchUnits.text,
+    }).from(documentSearchUnits)
+      .where(and(
+        inArray(documentSearchUnits.documentId, books.map((book) => book.id)),
+        themeCondition,
+      ))
+      .orderBy(documentSearchUnits.sequence).limit(60);
+  }
   const rows = candidates
     .map((row) => {
       const haystack = `${row.title} ${row.hierarchyPath} ${row.text}`.normalize("NFKC").toLocaleLowerCase("zh-Hant");
