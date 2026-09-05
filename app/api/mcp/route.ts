@@ -51,7 +51,7 @@ async function authorize(request: Request) {
 const tools = [
   {
     name: "research_cases",
-    description: "多輪搜尋並把結果分成直接證據、間接證據與背景資料。只有直接證據可支持問題的肯定或否定結論；若 directEvidenceCount 為 0，必須明示尚未找到直接裁判。",
+    description: "多輪搜尋並建立可稽核的證據包。只有 allowedCitations 內、已經全文檢查的裁判可以引用；其餘候選只能繼續研究。",
     annotations: { title: "多輪研究裁判", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
@@ -71,6 +71,7 @@ const tools = [
         court: { type: "string", description: "法院名稱，可省略" },
         year: { type: "string", description: "民國年度，可省略" },
         limit: { type: "integer", minimum: 1, maximum: 20, default: 10 },
+        search_mode: { type: "string", enum: ["auto", "keyword", "phrase"], default: "auto", description: "auto 會辨識完整案號並精確調卷；phrase 查完整詞組；keyword 以空白分隔必要概念" },
       },
       required: ["query"],
       additionalProperties: false,
@@ -78,11 +79,15 @@ const tools = [
   },
   {
     name: "get_case_detail",
-    description: "依搜尋結果的 JID 讀取單篇裁判全文。只有需要深讀時才呼叫。",
+    description: "依 JID 分頁讀取單篇裁判全文。長裁判請依 nextOffset 繼續讀取，不可把未讀完的裁判標成已核對。",
     annotations: { title: "讀取裁判全文", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: "object",
-      properties: { jid: { type: "string", description: "裁判唯一識別碼 JID" } },
+      properties: {
+        jid: { type: "string", description: "裁判唯一識別碼 JID" },
+        offset: { type: "integer", minimum: 0, default: 0, description: "從第幾個字元開始讀取" },
+        max_chars: { type: "integer", minimum: 2000, maximum: 50000, default: 12000, description: "本次最多回傳字元數" },
+      },
       required: ["jid"],
       additionalProperties: false,
     },
@@ -104,8 +109,8 @@ export async function POST(request: Request) {
     return rpcResult(body.id, {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "yuanzhao-legal-database", version: "0.1.0" },
-      instructions: "先用 research_cases 取得證據分級，再選最相關的一至兩篇，以 get_case_detail 依 JID 讀取全文。只有 evidenceLevel=direct 的結果可支持肯定或否定結論；indirect 與 background 僅能作為線索。若 directEvidenceCount=0，必須說尚未找到直接裁判，不得依間接裁判自行回答可以或不可以。另依法條或一般法理推論時，必須與資料庫搜尋結果分開標示。搜尋回應的 total 是全部命中數，returned 才是本次回傳候選數。不得把搜尋不到解讀為法律上不存在。引用時應保留法院、年度、字別、案號與 JID。",
+      serverInfo: { name: "yuanzhao-legal-database", version: "0.2.0" },
+      instructions: "先用 research_cases 取得證據包。只有 allowedCitations 內的裁判可以引用；notCitableCandidates 只能作為後續搜尋線索。需要核對原文時，以 get_case_detail 依 JID 分頁讀取，直到 nextOffset 為 null。完整案號優先用 search_cases 的 auto 模式精確調卷；查無精確案號時不得拿近似案件替代。若 directEvidenceCount=0，必須說尚未找到直接裁判，不得依間接裁判自行回答可以或不可以。另依法條或一般法理推論時，必須與資料庫搜尋結果分開標示。搜尋回應的 total 是全部命中數，returned 才是本次回傳候選數。不得把搜尋不到解讀為法律上不存在。引用時應保留 citationId、法院、年度、字別、案號與 JID。",
     });
   }
   if (body.method === "ping") return rpcResult(body.id, {});
@@ -127,6 +132,7 @@ export async function POST(request: Request) {
         court: typeof args.court === "string" ? args.court : "",
         year: typeof args.year === "string" ? args.year : "",
         limit: Math.min(20, Number(args.limit) || 10),
+        searchMode: args.search_mode === "keyword" || args.search_mode === "phrase" ? args.search_mode : "auto",
       });
       const compact = { ...result, results: result.results.map(({ fullText: _fullText, ...item }) => item) };
       return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(compact) }], structuredContent: compact });
@@ -134,7 +140,10 @@ export async function POST(request: Request) {
     if (name === "get_case_detail") {
       const jid = typeof args.jid === "string" ? args.jid : "";
       if (!jid) return rpcError(body.id, -32602, "jid is required");
-      const result = await getJudicialCaseDetail(jid);
+      const result = await getJudicialCaseDetail(jid, {
+        offset: Math.max(0, Number(args.offset) || 0),
+        maxChars: Math.max(2_000, Math.min(50_000, Number(args.max_chars) || 12_000)),
+      });
       if (!result) return rpcResult(body.id, { isError: true, content: [{ type: "text", text: "找不到這筆裁判。" }] });
       return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
     }

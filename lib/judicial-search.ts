@@ -8,7 +8,10 @@ export type JudicialSearchInput = {
   year?: string;
   limit?: number;
   includeAvailableTotal?: boolean;
+  searchMode?: "auto" | "keyword" | "phrase";
 };
+
+export type JudicialDetailOptions = { offset?: number; maxChars?: number };
 
 function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
@@ -82,16 +85,25 @@ function normalizeInput(input: JudicialSearchInput) {
     court: (input.court ?? "").trim().slice(0, 80),
     year: (input.year ?? "").replace(/\D/g, "").slice(0, 3),
     limit: Math.max(1, Math.min(30, Number(input.limit) || 12)),
+    searchMode: input.searchMode === "keyword" || input.searchMode === "phrase" ? input.searchMode : "auto" as const,
   };
 }
 
+function parseDocketQuery(query: string) {
+  const compact = query.replace(/[\s，,。．・：:（）()【】\[\]「」]/g, "");
+  const match = compact.match(/(?:民國)?(\d{2,3})年度([^第號]{1,12}?)(?:字)?第?(\d{1,9})號?/);
+  if (!match) return null;
+  return { year: match[1], caseType: match[2].replace(/字$/, ""), caseNo: match[3] };
+}
+
 export async function searchJudicialCases(input: JudicialSearchInput) {
-  const { query, court, year, limit } = normalizeInput(input);
+  const { query, court, year, limit, searchMode } = normalizeInput(input);
   const db = await getDb();
   const [available] = input.includeAvailableTotal === false
     ? [{ value: 0 }]
     : await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(eq(judicialCases.status, "active"));
   const conditions = [eq(judicialCases.status, "active")];
+  const docket = searchMode === "keyword" ? null : parseDocketQuery(query);
   if (query) {
     const queryTerms = query.split(/\s+/).map((term) => term.trim()).filter(Boolean).slice(0, 4);
     const searchableTerm = (term: string) => {
@@ -109,9 +121,15 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
     const compactQuery = query.replace(/[\s，,。．・：:（）()【】\[\]「」]/g, "");
     const compactPattern = `%${escapeLike(compactQuery)}%`;
     const composedCaseNo = sql<string>`${judicialCases.court} || ${judicialCases.year} || '年度' || ${judicialCases.caseType} || '字第' || ${judicialCases.caseNo} || '號'`;
-    conditions.push(queryTerms.length > 1
-      ? and(...queryTerms.map(searchableTerm))!
-      : or(searchableTerm(queryTerms[0] ?? query), sql`${composedCaseNo} like ${compactPattern}`)!);
+    if (docket) {
+      conditions.push(and(eq(judicialCases.year, docket.year), eq(judicialCases.caseType, docket.caseType), eq(judicialCases.caseNo, docket.caseNo))!);
+    } else if (searchMode === "phrase") {
+      conditions.push(searchableTerm(query));
+    } else {
+      conditions.push(queryTerms.length > 1
+        ? and(...queryTerms.map(searchableTerm))!
+        : or(searchableTerm(queryTerms[0] ?? query), sql`${composedCaseNo} like ${compactPattern}`)!);
+    }
   }
   if (court) conditions.push(like(judicialCases.court, `%${escapeLike(court)}%`));
   if (year) conditions.push(eq(judicialCases.year, year));
@@ -120,6 +138,11 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
   const rows = await db.select().from(judicialCases).where(whereClause).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit);
   return {
     query,
+    searchMode: docket ? "docket_exact" : searchMode === "phrase" ? "phrase" : "keyword",
+    exactDocket: docket,
+    searchNotice: docket && !Number(matched?.value ?? 0)
+      ? "查無這個完整案號；不得用近似案號或其他案件替代。請核對法院、年度、字別與案號，並確認該裁判是否已入庫。"
+      : "搜尋結果只是候選資料；引用前仍須依 JID 讀取並核對全文。",
     total: Number(matched?.value ?? 0),
     returned: rows.length,
     limit,
@@ -143,13 +166,17 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
   };
 }
 
-export async function getJudicialCaseDetail(jid: string) {
+export async function getJudicialCaseDetail(jid: string, options: JudicialDetailOptions = {}) {
   const normalizedJid = jid.trim().slice(0, 160);
   if (!normalizedJid) return null;
   const db = await getDb();
   const [row] = await db.select().from(judicialCases).where(and(eq(judicialCases.status, "active"), eq(judicialCases.jid, normalizedJid))).limit(1);
   if (!row) return null;
   const fullText = resolveFullText(row);
+  const offset = Math.max(0, Math.min(fullText.length, Math.floor(Number(options.offset) || 0)));
+  const maxChars = Math.max(2_000, Math.min(50_000, Math.floor(Number(options.maxChars) || 50_000)));
+  const excerpt = fullText.slice(offset, offset + maxChars);
+  const nextOffset = offset + excerpt.length < fullText.length ? offset + excerpt.length : null;
   return {
     id: row.id,
     jid: row.jid,
@@ -160,6 +187,11 @@ export async function getJudicialCaseDetail(jid: string) {
     caseNo: row.caseNo,
     judgmentDate: row.judgmentDate,
     title: row.title || `${row.year}年度${row.caseType}字第${row.caseNo}號`,
-    fullText,
+    fullText: excerpt,
+    fullTextOffset: offset,
+    fullTextReturnedChars: excerpt.length,
+    fullTextTotalChars: fullText.length,
+    fullTextTruncated: nextOffset !== null,
+    nextOffset,
   };
 }

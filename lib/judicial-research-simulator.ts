@@ -280,10 +280,22 @@ export async function simulateJudicialResearch(question: string) {
     const rank = { direct: 2, indirect: 1, background: 0 };
     return rank[right.evidenceLevel] - rank[left.evidenceLevel] || right.score - left.score || right.judgmentDate.localeCompare(left.judgmentDate);
   });
-  const results = ranked.filter((item) => item.evidenceLevel === "direct").slice(0, 20);
+  const results = ranked.filter((item) => item.evidenceLevel === "direct").slice(0, 20).map((item, index) => ({ ...item, citationId: `J${index + 1}`, citationStatus: "fulltext-checked" as const }));
   const supportingCandidates = ranked.filter((item) => item.evidenceLevel === "indirect").slice(0, 12);
   const exploratoryCandidates = ranked.filter((item) => item.evidenceLevel === "background").slice(0, 12);
   const answerability = results.length ? "directly-supported" : supportingCandidates.length ? "indirect-only" : "no-evidence";
+  const allowedCitations = results.map((item) => ({
+    citationId: item.citationId,
+    jid: item.jid,
+    citation: `${item.court} ${item.year}年度${item.caseType}字第${item.caseNo}號`,
+    verification: "伺服器已讀取全文並通過核心概念關聯與假命中規則；引用者仍應依 JID 核對所需段落。",
+  }));
+  const notCitableCandidates = [...supportingCandidates, ...exploratoryCandidates].map((item) => ({
+    jid: item.jid,
+    citation: `${item.court} ${item.year}年度${item.caseType}字第${item.caseNo}號`,
+    evidenceLevel: item.evidenceLevel,
+    reason: item.evidenceReason,
+  }));
   const tokenUsage: TokenStage[] = [
     ...(solUsage ? [solUsage] : []),
     { stage: "裁判資料庫多輪搜尋", model: null, inputTokens: 0, cachedTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCostUsd: 0, note: "資料庫查詢，不使用模型 Token" },
@@ -303,6 +315,12 @@ export async function simulateJudicialResearch(question: string) {
     indirectEvidenceCount: supportingCandidates.length,
     backgroundEvidenceCount: ranked.filter((item) => item.evidenceLevel === "background").length,
     answerability,
+    researchBundle: {
+      question,
+      allowedCitations,
+      notCitableCandidates,
+      citationRule: "只有 allowedCitations 可作為本次裁判研究的引用來源；其他候選不得支持肯定或否定結論。",
+    },
     conclusionGuard: results.length
       ? "可依直接證據回答，但仍須讀取全文確認裁判意旨與適用範圍。"
       : "禁止依本次資料庫搜尋對問題作肯定或否定結論。只能說尚未找到直接裁判；如另依法律條文或一般法理推論，必須明確標示那不是本次裁判搜尋所得。",
