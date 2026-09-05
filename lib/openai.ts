@@ -139,6 +139,20 @@ export async function getTeachingJudgeOpenAIModel(fallback = "gpt-5.6-sol") {
     : fallback;
 }
 
+/**
+ * Legal research deliberately uses a dedicated Sol setting. It must not be
+ * weakened when the site's general tutor model is changed to Luna.
+ */
+export async function getLegalResearchOpenAIModel(fallback = "gpt-5.6-sol") {
+  const configured = process.env.OPENAI_LEGAL_RESEARCH_MODEL;
+  if (configured?.trim()) return configured.trim();
+  const env = await runtimeEnv();
+  const runtimeModel = env.OPENAI_LEGAL_RESEARCH_MODEL;
+  return typeof runtimeModel === "string" && runtimeModel.trim()
+    ? runtimeModel.trim()
+    : fallback;
+}
+
 export async function getAnthropicModel(fallback = "claude-opus-5") {
   const configured = process.env.ANTHROPIC_ESSAY_GRADING_MODEL || process.env.ANTHROPIC_MODEL;
   if (configured?.trim()) return configured.trim();

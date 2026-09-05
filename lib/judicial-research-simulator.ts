@@ -1,4 +1,5 @@
 import { searchJudicialCases } from "./judicial-search";
+import { getLegalResearchOpenAIModel, openAIJson } from "./openai";
 
 const CONCEPT_EXPANSIONS: Record<string, string[]> = {
   "慰撫金": ["精神慰撫金", "非財產上損害", "精神損害賠償"],
@@ -32,6 +33,77 @@ export type ResearchRound = {
   purpose: string;
   queries: string[];
 };
+
+type SolResearchPlan = {
+  issues: string[];
+  terms: string[];
+  statutes: string[];
+  searches: string[];
+  requiredEvidence: string[];
+  exclude: string[];
+};
+type TokenStage = { stage: string; model: string | null; inputTokens: number; cachedTokens: number; outputTokens: number; totalTokens: number; note: string };
+type SolPlanningResult = { plan: SolResearchPlan; usage: TokenStage };
+
+function outputText(payload: Record<string, unknown>) {
+  if (typeof payload.output_text === "string") return payload.output_text.trim();
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  return output.flatMap((item) => typeof item === "object" && item && Array.isArray((item as { content?: unknown[] }).content) ? (item as { content: unknown[] }).content : [])
+    .map((item) => typeof item === "object" && item && typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "").join("\n").trim();
+}
+
+function cleanList(value: unknown, limit: number, length = 60) {
+  return Array.isArray(value) ? [...new Set(value.map((item) => typeof item === "string" ? item.replace(/\s+/g, " ").trim().slice(0, length) : "").filter(Boolean))].slice(0, limit) : [];
+}
+
+async function planWithSol(question: string): Promise<SolPlanningResult> {
+  const model = await getLegalResearchOpenAIModel("gpt-5.6-sol");
+  const payload = await openAIJson("/responses", {
+    method: "POST",
+    body: JSON.stringify({
+      model,
+      instructions: "你是元照法律資料庫的研究館員。只負責把臺灣法律問題轉成可驗證的裁判搜尋策略，不得回答問題、不得虛構法條或裁判。搜尋詞應使用裁判常見繁體中文用語，兼顧請求權、法律效果、程序、法條與可能的反面用語。每個 searches 項目以2至4個必要概念組成，不要把整句問題原封不動當成搜尋詞。requiredEvidence 要描述裁判全文必須出現的程序事實、判斷或計算；exclude 要描述常見假命中。",
+      input: question.slice(0, 240),
+      text: { format: { type: "json_schema", name: "legal_research_plan", strict: true, schema: {
+        type: "object", additionalProperties: false,
+        properties: {
+          issues: { type: "array", items: { type: "string" } },
+          terms: { type: "array", items: { type: "string" } },
+          statutes: { type: "array", items: { type: "string" } },
+          searches: { type: "array", items: { type: "string" } },
+          requiredEvidence: { type: "array", items: { type: "string" } },
+          exclude: { type: "array", items: { type: "string" } },
+        },
+        required: ["issues", "terms", "statutes", "searches", "requiredEvidence", "exclude"],
+      } } },
+      max_output_tokens: 1400,
+    }),
+  }) as Record<string, unknown>;
+  const parsed = JSON.parse(outputText(payload)) as Record<string, unknown>;
+  const rawUsage = payload.usage && typeof payload.usage === "object" ? payload.usage as Record<string, unknown> : {};
+  const inputDetails = rawUsage.input_tokens_details && typeof rawUsage.input_tokens_details === "object" ? rawUsage.input_tokens_details as Record<string, unknown> : {};
+  const inputTokens = Math.max(0, Number(rawUsage.input_tokens) || 0);
+  const cachedTokens = Math.max(0, Number(inputDetails.cached_tokens) || 0);
+  const outputTokens = Math.max(0, Number(rawUsage.output_tokens) || 0);
+  const plan = {
+    issues: cleanList(parsed.issues, 6), terms: cleanList(parsed.terms, 12), statutes: cleanList(parsed.statutes, 8),
+    searches: cleanList(parsed.searches, 10, 100), requiredEvidence: cleanList(parsed.requiredEvidence, 8, 120), exclude: cleanList(parsed.exclude, 8, 120),
+  };
+  if (!plan.issues.length || !plan.searches.length) throw new Error("Sol did not return a usable research plan");
+  return { plan, usage: { stage: "理解問題與制定搜尋策略", model, inputTokens, cachedTokens, outputTokens, totalTokens: inputTokens + outputTokens, note: "MCP 內部 Sol 呼叫" } };
+}
+
+function solRounds(sol: SolResearchPlan): ResearchRound[] {
+  const searches = sol.searches.filter((query) => query.length >= 2);
+  const conceptQueries = [...new Set([...sol.issues, ...sol.terms])].slice(0, 4);
+  const statuteQueries = sol.statutes.slice(0, 3);
+  const rounds: ResearchRound[] = [];
+  if (conceptQueries.length) rounds.push({ round: 1, purpose: "Sol 拆解核心爭點與裁判實務用語", queries: conceptQueries });
+  if (searches.length) rounds.push({ round: 2, purpose: "Sol 交叉組合必要概念，尋找直接處理爭點的裁判", queries: searches.slice(0, 6) });
+  if (statuteQueries.length) rounds.push({ round: 3, purpose: "以可能適用法條補充查詢並交叉驗證", queries: statuteQueries });
+  if (searches.length > 6) rounds.push({ round: 4, purpose: "以替代用語擴大搜尋並檢查反例", queries: searches.slice(6, 10) });
+  return rounds.slice(0, 4);
+}
 
 export function planJudicialResearch(question: string): ResearchRound[] {
   const clean = question.replace(/[「」『』【】()（）]/g, " ").replace(/[，、；;。：:\n]/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
@@ -104,8 +176,13 @@ function classifyEvidence(text: string, caseType: string, coreConcepts: string[]
 }
 
 export async function simulateJudicialResearch(question: string) {
-  const plan = planJudicialResearch(question);
-  const coreConcepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => question.includes(term));
+  let solPlan: SolResearchPlan | null = null;
+  let solUsage: TokenStage | null = null;
+  let planner: "sol" | "rules" = "rules";
+  try { const planned = await planWithSol(question); solPlan = planned.plan; solUsage = planned.usage; planner = "sol"; } catch { solPlan = null; solUsage = null; }
+  const plan = solPlan ? solRounds(solPlan) : planJudicialResearch(question);
+  const ruleConcepts = Object.keys(CONCEPT_EXPANSIONS).filter((term) => question.includes(term));
+  const coreConcepts = [...new Set([...(solPlan?.issues ?? []), ...ruleConcepts])].slice(0, 6);
   const found = new Map<string, Awaited<ReturnType<typeof searchJudicialCases>>["results"][number] & { matchedQueries: string[]; score: number; reasons: string[] }>();
   const rounds = [];
   let cloudAvailableTotal = 0;
@@ -169,10 +246,17 @@ export async function simulateJudicialResearch(question: string) {
   const supportingCandidates = ranked.filter((item) => item.evidenceLevel === "indirect").slice(0, 12);
   const exploratoryCandidates = ranked.filter((item) => item.evidenceLevel === "background").slice(0, 12);
   const answerability = results.length ? "directly-supported" : supportingCandidates.length ? "indirect-only" : "no-evidence";
+  const tokenUsage: TokenStage[] = [
+    ...(solUsage ? [solUsage] : []),
+    { stage: "裁判資料庫多輪搜尋", model: null, inputTokens: 0, cachedTokens: 0, outputTokens: 0, totalTokens: 0, note: "資料庫查詢，不使用模型 Token" },
+    { stage: "全文關聯與假命中檢查", model: null, inputTokens: 0, cachedTokens: 0, outputTokens: 0, totalTokens: 0, note: "規則引擎，不使用模型 Token" },
+  ];
   return {
     question,
     mode: "research-simulation" as const,
-    notice: "目前以多輪查詢、同義詞與法院層級模擬研究流程；向量語意相似度尚未啟用。",
+    researcher: { planner, model: planner === "sol" ? "gpt-5.6-sol" : null, ...(solPlan ? { issues: solPlan.issues, terms: solPlan.terms, statutes: solPlan.statutes, requiredEvidence: solPlan.requiredEvidence, exclude: solPlan.exclude } : {}) },
+    tokenUsage: { stages: tokenUsage, internalTotalTokens: tokenUsage.reduce((sum, item) => sum + item.totalTokens, 0), externalAnswerTokens: null, externalAnswerNote: "外部 ChatGPT／Claude／Copilot 的答案 Token 由該平台計算，MCP 無法讀取。" },
+    notice: planner === "sol" ? "Sol 已拆解法律爭點、實務用語、法條與必要證據；資料庫執行多輪查詢，規則引擎再檢查全文與假命中。" : "Sol 暫時無法使用，本次已採保守規則搜尋；不得把規則搜尋結果擴張為未經全文支持的法律結論。",
     cloudAvailableTotal,
     rounds,
     totalUniqueCases: found.size,
