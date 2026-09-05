@@ -15,8 +15,8 @@ export async function POST(request: Request) {
   await recordLegalQuestion(auth.member.id, question, persona, source).catch(error => console.error("[legal-question-history] question save failed", error));
   try {
     const result = await simulateJudicialResearch(question);
-    await recordLegalResearchRun(auth.member.id, question, persona, source, result).catch(error => console.error("[legal-question-history] research save failed", error));
-    return Response.json({ ...result, access: { metered: auth.metered, used: auth.used, limit: auth.limit, remaining: auth.remaining, temporaryExpiresAt: auth.temporaryExpiresAt } }, { headers: { "cache-control": "no-store" } });
+    const savedResult = await recordLegalResearchRun(auth.member.id, question, persona, source, result).catch(error => { console.error("[legal-question-history] research save failed", error); return result; });
+    return Response.json({ ...savedResult, access: { metered: auth.metered, used: auth.used, limit: auth.limit, remaining: auth.remaining, temporaryExpiresAt: auth.temporaryExpiresAt } }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("[judicial-research-test] failed", error);
     await recordLegalResearchRun(auth.member.id, question, persona, source, {}, "failed", error instanceof Error ? error.message : "unknown error").catch(saveError => console.error("[legal-question-history] failed-run save failed", saveError));

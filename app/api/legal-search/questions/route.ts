@@ -1,10 +1,15 @@
 import { isLegalQuestionPersona } from "../../../../lib/legal-question-bank";
-import { legalQuestionHistory, nextUnaskedQuestion } from "../../../../lib/legal-question-history";
+import { legalQuestionHistory, legalResearchRunDetail, nextUnaskedQuestion } from "../../../../lib/legal-question-history";
 import { requireMember } from "../../../../lib/member-auth";
 
 export async function GET(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
+  const runId = Number(new URL(request.url).searchParams.get("run_id") ?? 0);
+  if (Number.isInteger(runId) && runId > 0) {
+    const run = await legalResearchRunDetail(auth.member.id, runId);
+    return run ? Response.json(run, { headers: { "cache-control": "no-store" } }) : Response.json({ error: "找不到這筆研究紀錄。" }, { status: 404 });
+  }
   return Response.json(await legalQuestionHistory(auth.member.id), { headers: { "cache-control": "no-store" } });
 }
 
