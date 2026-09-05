@@ -466,6 +466,18 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
   const books = [...new Map([...assignedBooks, ...directBooks].map((book) => [book.id, book])).values()];
   if (!books.length) return empty();
 
+  // The verified section map improves precision, but a temporarily unavailable
+  // mapping table must not disable the existing full-text textbook index.
+  async function findVerifiedMapping(where: ReturnType<typeof and>) {
+    try {
+      const [mapping] = await db.select().from(documentSectionMappings).where(where).limit(1);
+      return mapping;
+    } catch (error) {
+      console.warn("Pengli section mapping unavailable; falling back to document index", error instanceof Error ? error.message : String(error));
+      return undefined;
+    }
+  }
+
   const normalized = query.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const normalizedScope = scopeTopic.normalize("NFKC").toLocaleLowerCase("zh-Hant");
   const scopeThemeIndex = normalizedScope ? PENGLI_THEME_TITLES.findIndex((title) => normalizedScope.includes(title.toLocaleLowerCase("zh-Hant")) || title.toLocaleLowerCase("zh-Hant").includes(normalizedScope)) : -1;
@@ -479,28 +491,28 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
   if (!requestedPage && (themePageMatch || printedMatch)) {
     const matchedBookPage = themePageMatch || printedMatch;
     const themeNumber = Number(matchedBookPage?.[1]), localPage = Number(matchedBookPage?.[2]);
-    [requestedMapping] = await db.select().from(documentSectionMappings).where(and(
+    requestedMapping = await findVerifiedMapping(and(
       inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
       eq(documentSectionMappings.sectionKey, `theme_${themeNumber}`),
       eq(documentSectionMappings.verified, true),
-    )).limit(1);
+    ));
     if (requestedMapping) { requestedPage = requestedMapping.pdfStartPage + localPage - 1; bookPageLabel = `${themeNumber}-${localPage}`; }
   } else if (!requestedPage && ordinaryPage && scopeThemeIndex >= 0) {
-    [requestedMapping] = await db.select().from(documentSectionMappings).where(and(
+    requestedMapping = await findVerifiedMapping(and(
       inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
       eq(documentSectionMappings.sectionKey, `theme_${scopeThemeIndex + 1}`),
       eq(documentSectionMappings.verified, true),
-    )).limit(1);
+    ));
     if (requestedMapping) { requestedPage = requestedMapping.pdfStartPage + ordinaryPage - 1; bookPageLabel = `${scopeThemeIndex + 1}-${ordinaryPage}`; }
     else requestedPage = ordinaryPage;
   } else if (!requestedPage && ordinaryPage) requestedPage = ordinaryPage;
   if (requestedPage > 0 && !bookPageLabel) {
-    [requestedMapping] = await db.select().from(documentSectionMappings).where(and(
+    requestedMapping = await findVerifiedMapping(and(
       inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
       eq(documentSectionMappings.verified, true),
       lte(documentSectionMappings.pdfStartPage, requestedPage),
       gte(documentSectionMappings.pdfEndPage, requestedPage),
-    )).limit(1);
+    ));
     if (requestedMapping?.sectionType === "body") bookPageLabel = `${requestedMapping.sortOrder}-${requestedPage - requestedMapping.pdfStartPage + 1}`;
   }
   if (requestedMapping && (requestedPage < requestedMapping.pdfStartPage || requestedPage > requestedMapping.pdfEndPage)) return { ...empty(), requestedPage, bookPageLabel, pageStatus: "outside" as const };
@@ -593,11 +605,11 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
     })[0]?.pageStart ?? null;
   }
   const selectedThemeIndex = matchedTheme ? themeTitleList.indexOf(matchedTheme[0]) : -1;
-  const [verifiedMapping] = selectedThemeIndex >= 0 && normalizedScope ? await db.select().from(documentSectionMappings).where(and(
+  const verifiedMapping = selectedThemeIndex >= 0 && normalizedScope ? await findVerifiedMapping(and(
     inArray(documentSectionMappings.documentId, books.map((book) => book.id)),
     eq(documentSectionMappings.sectionKey, `theme_${selectedThemeIndex + 1}`),
     eq(documentSectionMappings.verified, true),
-  )).limit(1) : [];
+  )) : undefined;
   const themeStartPage = verifiedMapping?.pdfStartPage || (selectedThemeIndex >= 0 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex]) : null);
   const nextThemeStartPage = verifiedMapping?.pdfEndPage ? verifiedMapping.pdfEndPage + 1 : selectedThemeIndex >= 0 && selectedThemeIndex < themeTitleList.length - 1 && normalizedScope ? await findThemeStart(themeTitleList[selectedThemeIndex + 1]) : null;
   const legalPhrases = [
@@ -718,7 +730,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
   const matchedBook = books.find((book) => book.id === candidates[0]?.documentId) ?? books[0];
   return { documentId: matchedBook.id, title: matchedBook.title || matchedBook.fileName || "行政法考點演習書（二版）｜彭狸", rows, themeStartPage, themeEndPage: nextThemeStartPage ? nextThemeStartPage - 1 : null, requestedPage: 0, bookPageLabel: "", navigationPage: false, sourceMode: "index" as const, pageStatus: rows.length > 0 && rows.every((row) => row.pageStart != null) ? "confirmed" as const : "unknown" as const, searchFailed: false };
   } catch (error) {
-    console.error("Pengli evidence lookup failed", error);
+    console.error("Pengli evidence lookup failed", error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error));
     return empty(true);
   }
 }
