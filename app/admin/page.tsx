@@ -552,6 +552,7 @@ type JudicialStatus = {
     intervalMinutes?: number;
     window?: string;
   };
+  localProgress?: { archives?: number; completedArchives?: number; totalMembers?: number; processed?: number; uploaded?: number; pendingUpload?: number; duplicates?: number; failed?: number; chunks?: number; currentArchive?: string; mode?: string } | null;
 };
 type ExamCountdown = { id: string; label: string; date: string; enabled: boolean };
 type BattleAlert = { id: string; text: string; url: string; enabled: boolean };
@@ -6529,6 +6530,21 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                 {judicialStatus.settings.judicial_last_error}
               </p>
             )}
+          </div>
+          <div className="sync-log judicial-local-status">
+            <h3>公司電腦 RAR 拆解與上傳</h3>
+            {judicialStatus?.localProgress ? (
+              <>
+                <div className="judicial-overview judicial-local-overview">
+                  <article><span>RAR進度</span><strong>{Number(judicialStatus.localProgress.completedArchives ?? 0).toLocaleString()}／{Number(judicialStatus.localProgress.archives ?? 0).toLocaleString()}</strong><small>已完成／已下載</small></article>
+                  <article><span>已拆解</span><strong>{Number(judicialStatus.localProgress.processed ?? 0).toLocaleString()}</strong><small>裁判全文</small></article>
+                  <article><span>已上傳</span><strong>{Number(judicialStatus.localProgress.uploaded ?? 0).toLocaleString()}</strong><small>正式站可入庫</small></article>
+                  <article><span>待上傳</span><strong>{Number(judicialStatus.localProgress.pendingUpload ?? 0).toLocaleString()}</strong><small>將自動續傳</small></article>
+                </div>
+                <p>目前檔案：{judicialStatus.localProgress.currentArchive || "等待下一個RAR"}；模式：{judicialStatus.localProgress.mode === "full" ? "全量拆解" : "測試"}</p>
+                <p>文字段落 {Number(judicialStatus.localProgress.chunks ?? 0).toLocaleString()}；重複 {Number(judicialStatus.localProgress.duplicates ?? 0).toLocaleString()}；失敗 {Number(judicialStatus.localProgress.failed ?? 0).toLocaleString()}。</p>
+              </>
+            ) : <p>目前節點尚未回報司法拆解進度；更新至0.6.9並重新啟動後會自動顯示。</p>}
           </div>
         </section>
       )}

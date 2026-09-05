@@ -322,6 +322,12 @@ export async function GET(request: Request) {
   const db = await getDb();
   const [count] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases);
   const settings = await db.select().from(appSettings).where(sql`${appSettings.key} like 'judicial_%'`).orderBy(desc(appSettings.updatedAt));
+  const [localNodeRow] = await db.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, "local_node_status")).limit(1);
+  let localProgress: Record<string, unknown> | null = null;
+  try {
+    const node = JSON.parse(localNodeRow?.value || "{}") as { judicialProgress?: Record<string, unknown> };
+    localProgress = node.judicialProgress ?? null;
+  } catch { localProgress = null; }
   const failures = await getFailures(db);
   const { retryable, permanent } = failureSummary(failures);
   const { user, password } = await runtimeCredentials();
@@ -333,6 +339,7 @@ export async function GET(request: Request) {
     permanentFailureCount: permanent.length,
     failedCases: failures,
     schedule: JUDICIAL_SCHEDULE,
+    localProgress,
   });
 }
 

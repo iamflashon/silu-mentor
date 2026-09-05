@@ -6,6 +6,7 @@ import hashlib
 import os
 import platform
 import re
+import sqlite3
 from pathlib import Path
 import subprocess
 import sys
@@ -16,7 +17,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.6.8"
+VERSION = "0.6.9"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 _SUBTITLE_QUEUE: list[Path] = []
@@ -172,7 +173,7 @@ def judicial_inventory(inbox: Path) -> list[dict]:
     return inbox_inventory(inbox, {".rar"})
 
 
-def heartbeat(endpoint: str, token: str, inbox: Path, video_inbox: Path, judicial_inbox: Path | None = None, active_job: str = "") -> None:
+def heartbeat(endpoint: str, token: str, inbox: Path, video_inbox: Path, judicial_inbox: Path | None = None, judicial_output: Path | None = None, active_job: str = "") -> None:
     gpu, gpu_memory = gpu_info()
     payload = {
         "nodeId": os.getenv("LOCAL_NODE_ID", "company-rtx4090"),
@@ -188,6 +189,7 @@ def heartbeat(endpoint: str, token: str, inbox: Path, video_inbox: Path, judicia
         "inboxFiles": inbox_inventory(inbox),
         "videoInboxFiles": inbox_inventory(video_inbox, SUPPORTED_VIDEO_SUFFIXES),
         "judicialInboxFiles": judicial_inventory(judicial_inbox) if judicial_inbox else [],
+        "judicialProgress": judicial_progress(judicial_inbox, judicial_output) if judicial_inbox and judicial_output else {},
         "message": "本機節點已連線；教材原稿留本機，影片只上傳轉好的 HLS。",
     }
     status, _ = request_json(endpoint, token, payload)
@@ -306,9 +308,124 @@ def evenly_spaced_members(members: list[str], limit: int) -> list[str]:
     return [members[index] for index in dict.fromkeys(indexes)]
 
 
+def _judicial_state_db(output: Path) -> sqlite3.Connection:
+    state_dir = output / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(state_dir / "judicial-state.sqlite3")
+    db.execute("""CREATE TABLE IF NOT EXISTS archives (
+        archive_name TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'waiting', total_members INTEGER NOT NULL DEFAULT 0,
+        next_index INTEGER NOT NULL DEFAULT 0, processed INTEGER NOT NULL DEFAULT 0, uploaded INTEGER NOT NULL DEFAULT 0,
+        duplicates INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0, chunks INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""")
+    db.commit()
+    return db
+
+
+def judicial_progress(inbox: Path, output: Path) -> dict:
+    mode = os.getenv("LOCAL_NODE_JUDICIAL_MODE", "test").strip().lower()
+    archives = sorted(inbox.glob("*.rar"))
+    result = {"mode": mode, "archives": len(archives), "completedArchives": 0, "totalMembers": 0, "processed": 0, "uploaded": 0,
+              "pendingUpload": 0, "duplicates": 0, "failed": 0, "chunks": 0, "currentArchive": ""}
+    try:
+        db = _judicial_state_db(output)
+        rows = db.execute("SELECT archive_name,status,total_members,processed,uploaded,duplicates,failed,chunks FROM archives").fetchall()
+        db.close()
+        for name, status, total, processed, uploaded, duplicates, failed, chunks in rows:
+            result["totalMembers"] += int(total or 0); result["processed"] += int(processed or 0); result["uploaded"] += int(uploaded or 0)
+            result["duplicates"] += int(duplicates or 0); result["failed"] += int(failed or 0); result["chunks"] += int(chunks or 0)
+            if status == "completed": result["completedArchives"] += 1
+            elif status == "processing" and not result["currentArchive"]: result["currentArchive"] = name
+    except (OSError, sqlite3.Error):
+        pass
+    for marker in output.glob("*/completed.json"):
+        try:
+            report = json.loads(marker.read_text(encoding="utf-8"))
+            upload_state = marker.parent / "upload-state.json"
+            uploaded = int(json.loads(upload_state.read_text(encoding="utf-8")).get("uploaded", 0)) if upload_state.is_file() else 0
+            processed = int(report.get("processed", 0))
+            result["processed"] += processed; result["uploaded"] += min(processed, uploaded); result["pendingUpload"] += max(0, processed - uploaded)
+            result["failed"] += int(report.get("failed", 0)); result["duplicates"] += int(report.get("duplicates", 0)); result["chunks"] += int(report.get("chunks", 0))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+    result["pendingUpload"] += max(0, result["processed"] - result["uploaded"] - result["pendingUpload"])
+    return result
+
+
+def _bounded_record_batch(records: list[dict], start: int, maximum: int = 10, max_chars: int = 1_500_000) -> list[dict]:
+    batch: list[dict] = []; size = 0
+    for record in records[start:start + maximum]:
+        encoded = json.dumps(record, ensure_ascii=False)
+        if batch and size + len(encoded) > max_chars: break
+        batch.append(record); size += len(encoded)
+    return batch
+
+
+def upload_completed_judicial_outputs(endpoint: str, token: str, output: Path) -> str:
+    if os.getenv("LOCAL_NODE_JUDICIAL_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}: return ""
+    judicial_url = endpoint.rsplit("/heartbeat", 1)[0] + "/judicial"
+    for records_path in sorted(output.glob("*/records.jsonl")):
+        completed = records_path.parent / "completed.json"
+        if not completed.is_file(): continue
+        records = [json.loads(line) for line in records_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        state_path = records_path.parent / "upload-state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {"uploaded": 0}
+        uploaded = max(0, min(int(state.get("uploaded", 0)), len(records)))
+        if uploaded >= len(records): continue
+        batch = _bounded_record_batch(records, uploaded)
+        status, response = request_json(judicial_url, token, {"records": batch, "progress": judicial_progress(records_path.parent.parent, output)})
+        if status >= 300 or not response or not response.get("ok"): raise RuntimeError(f"司法裁判上傳失敗（HTTP {status}）")
+        uploaded += len(batch)
+        state_path.write_text(json.dumps({"uploaded": uploaded, "total": len(records), "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S")}, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(time.strftime("%Y-%m-%d %H:%M:%S"), f"司法既有結果上傳：{records_path.parent.name} {uploaded}/{len(records)}")
+        return records_path.parent.name
+    return ""
+
+
+def process_judicial_full_batch(endpoint: str, token: str, judicial_inbox: Path, judicial_output: Path) -> str:
+    if os.getenv("LOCAL_NODE_JUDICIAL_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}: return ""
+    if os.getenv("LOCAL_NODE_JUDICIAL_MODE", "test").strip().lower() != "full": return ""
+    batch_size = max(1, min(int(os.getenv("LOCAL_NODE_JUDICIAL_BATCH_SIZE", "20")), 50))
+    db = _judicial_state_db(judicial_output)
+    archives = sorted(judicial_inbox.glob("*.rar"))
+    for archive in archives:
+        row = db.execute("SELECT status,next_index,processed,uploaded,duplicates,failed,chunks FROM archives WHERE archive_name=?", (archive.name,)).fetchone()
+        if row and row[0] == "completed": continue
+        seven_zip = _seven_zip_path(); members = _rar_json_members(archive, seven_zip)
+        if not row:
+            db.execute("INSERT INTO archives(archive_name,status,total_members) VALUES(?,?,?)", (archive.name, "processing", len(members))); db.commit()
+            row = ("processing", 0, 0, 0, 0, 0, 0)
+        _, next_index, processed, uploaded, duplicates, failed, chunks_total = row
+        candidates: list[dict] = []; batch_failed = 0; batch_chunks = 0; batch_duplicates = 0
+        for member in members[int(next_index):int(next_index) + batch_size]:
+            try:
+                document, chunks = parse_judicial_document(_read_rar_member(archive, member, seven_zip), member)
+                candidates.append({"sourceArchive": archive.name, "sourceMember": member, "document": document, "chunks": chunks}); batch_chunks += len(chunks)
+            except Exception:
+                batch_failed += 1
+        if candidates:
+            judicial_url = endpoint.rsplit("/heartbeat", 1)[0] + "/judicial"
+            start = 0
+            while start < len(candidates):
+                upload_batch = _bounded_record_batch(candidates, start)
+                status, response = request_json(judicial_url, token, {"records": upload_batch, "progress": {"mode": "full", "currentArchive": archive.name}})
+                if status >= 300 or not response or not response.get("ok"): raise RuntimeError(f"司法全量上傳失敗（HTTP {status}）")
+                batch_duplicates += int(response.get("duplicates", 0))
+                start += len(upload_batch)
+        advanced = min(batch_size, max(0, len(members) - int(next_index))); next_value = int(next_index) + advanced
+        status_value = "completed" if next_value >= len(members) else "processing"
+        db.execute("UPDATE archives SET status=?,total_members=?,next_index=?,processed=?,uploaded=?,duplicates=?,failed=?,chunks=?,updated_at=CURRENT_TIMESTAMP WHERE archive_name=?",
+                   (status_value, len(members), next_value, int(processed) + len(candidates), int(uploaded) + len(candidates), int(duplicates) + batch_duplicates, int(failed) + batch_failed, int(chunks_total) + batch_chunks, archive.name)); db.commit(); db.close()
+        print(time.strftime("%Y-%m-%d %H:%M:%S"), f"司法全量：{archive.name} {next_value}/{len(members)}；本批上傳 {len(candidates)} 筆")
+        return archive.name
+    db.close(); return ""
+
+
 def process_judicial_test(judicial_inbox: Path, judicial_output: Path) -> str:
     """Process one explicitly selected RAR locally. No Cloudflare upload occurs."""
     if os.getenv("LOCAL_NODE_JUDICIAL_ENABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return ""
+    if os.getenv("LOCAL_NODE_JUDICIAL_MODE", "test").strip().lower() == "full":
         return ""
     selected = os.getenv("LOCAL_NODE_JUDICIAL_TEST_ARCHIVE", "").strip()
     if not selected:
@@ -739,13 +856,17 @@ def main() -> None:
     print(f"iBrain 本機節點 {VERSION} 啟動；每 30 秒回報一次狀態。")
     print(f"私有教材收件匣：{inbox}")
     print(f"影音收件匣：{video_inbox}（單畫質 HLS；原始影片不上傳）")
-    print(f"司法裁判收件匣：{judicial_inbox}（測試階段只在本機拆解，不上傳）")
+    print(f"司法裁判收件匣：{judicial_inbox}（支援斷點拆解、去重與分批上傳）")
     while True:
         try:
             service_subtitle_queue()
-            heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox)
+            heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox, judicial_output)
             print(time.strftime("%Y-%m-%d %H:%M:%S"), "心跳成功")
-            judicial_active = process_judicial_test(judicial_inbox, judicial_output)
+            judicial_active = upload_completed_judicial_outputs(endpoint, token, judicial_output)
+            if not judicial_active:
+                judicial_active = process_judicial_full_batch(endpoint, token, judicial_inbox, judicial_output)
+            if not judicial_active:
+                judicial_active = process_judicial_test(judicial_inbox, judicial_output)
             active = process_next_job(
                 jobs_url,
                 token,
@@ -753,9 +874,9 @@ def main() -> None:
                 video_inbox,
                 video_output,
                 node_id,
-                lambda source_file: heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox, source_file),
+                lambda source_file: heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox, judicial_output, source_file),
             )
-            heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox, active or judicial_active)
+            heartbeat(endpoint, token, inbox, video_inbox, judicial_inbox, judicial_output, active or judicial_active)
             if active or judicial_active:
                 print(time.strftime("%Y-%m-%d %H:%M:%S"), "影片／資料工作完成；字幕若已排入仍會在獨立程序處理，心跳成功")
         except (urllib.error.URLError, RuntimeError, TimeoutError) as error:

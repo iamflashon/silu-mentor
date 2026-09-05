@@ -91,14 +91,14 @@ function conceptsAreRelatedInText(text: string, concepts: string[]) {
   return positions[0].some((left) => positions.slice(1).every((list) => list.some((right) => Math.abs(left - right) <= 600)));
 }
 
-const PAYMENT_ORDER_PROCEDURE = /(?:聲請(?:核發|發給|發)?支付命令|支付命令(?:之)?聲請|支付命令事件|督促程序|司促字|債務人(?:對支付命令)?提出異議|駁回.{0,20}支付命令|核發.{0,20}支付命令)/;
+const PAYMENT_ORDER_PROCEDURE = /(?:聲請人.{0,80}聲請.{0,20}支付命令|債權人.{0,80}聲請.{0,20}支付命令|聲請(?:核發|發給|發)?支付命令|支付命令(?:之)?聲請|支付命令事件|對.{0,20}支付命令.{0,20}提出異議|支付命令.{0,50}視為起訴|支付命令.{0,50}(?:確定|失效)|駁回.{0,20}支付命令|核發.{0,20}支付命令)/;
 const PAYMENT_ORDER_BOILERPLATE = /依督促程序送達支付命令.{0,100}(?:催告|同一效力)|支付命令之送達.{0,100}(?:催告|同一效力)/;
 
 function classifyEvidence(text: string, caseType: string, coreConcepts: string[], coversAllConcepts: boolean) {
   if (!coversAllConcepts) return { evidenceLevel: "background" as const, evidenceReason: "未同時涵蓋全部核心爭點。" };
   if (!coreConcepts.includes("支付命令")) return { evidenceLevel: "direct" as const, evidenceReason: "裁判在同一脈絡處理全部核心爭點。" };
   const procedureContext = PAYMENT_ORDER_PROCEDURE.test(text) || /(?:司促|促)/.test(caseType);
-  const boilerplateOnly = PAYMENT_ORDER_BOILERPLATE.test(text) && !/(?:聲請(?:核發|發給|發)?支付命令|支付命令(?:之)?聲請|支付命令事件|司促字|債務人(?:對支付命令)?提出異議|駁回.{0,20}支付命令|核發.{0,20}支付命令)/.test(text);
+  const boilerplateOnly = PAYMENT_ORDER_BOILERPLATE.test(text) && !PAYMENT_ORDER_PROCEDURE.test(text) && !/(?:司促|促)/.test(caseType);
   if (procedureContext && !boilerplateOnly) return { evidenceLevel: "direct" as const, evidenceReason: "裁判確實涉及支付命令聲請、異議或督促程序。" };
   return { evidenceLevel: "indirect" as const, evidenceReason: boilerplateOnly ? "支付命令只出現在催告或遲延利息的例行法條說明，並非本案程序。" : "兩個詞雖共同出現，但未能確認本案實際進入支付命令程序。" };
 }

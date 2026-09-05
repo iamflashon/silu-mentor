@@ -56,6 +56,20 @@ export async function POST(request: Request) {
     const name = cleanText(row.name, "", 180);
     return name ? { name, sizeBytes: Math.floor(cleanNumber(row.sizeBytes) ?? 0), modifiedAt: Math.floor(cleanNumber(row.modifiedAt) ?? 0) } : null;
   }).filter((item): item is { name: string; sizeBytes: number; modifiedAt: number } => Boolean(item)).slice(0, 100) : [];
+  const judicialProgressSource = body.judicialProgress && typeof body.judicialProgress === "object" ? body.judicialProgress as Record<string, unknown> : {};
+  const judicialProgress = {
+    archives: Math.floor(cleanNumber(judicialProgressSource.archives) ?? 0),
+    completedArchives: Math.floor(cleanNumber(judicialProgressSource.completedArchives) ?? 0),
+    totalMembers: Math.floor(cleanNumber(judicialProgressSource.totalMembers) ?? 0),
+    processed: Math.floor(cleanNumber(judicialProgressSource.processed) ?? 0),
+    uploaded: Math.floor(cleanNumber(judicialProgressSource.uploaded) ?? 0),
+    pendingUpload: Math.floor(cleanNumber(judicialProgressSource.pendingUpload) ?? 0),
+    duplicates: Math.floor(cleanNumber(judicialProgressSource.duplicates) ?? 0),
+    failed: Math.floor(cleanNumber(judicialProgressSource.failed) ?? 0),
+    chunks: Math.floor(cleanNumber(judicialProgressSource.chunks) ?? 0),
+    currentArchive: cleanText(judicialProgressSource.currentArchive, "", 180),
+    mode: cleanText(judicialProgressSource.mode, "off", 20),
+  };
   const value = JSON.stringify({
     nodeId: cleanText(body.nodeId, "company-rtx4090", 80),
     name: cleanText(body.name, "公司 RTX 4090", 80),
@@ -70,6 +84,7 @@ export async function POST(request: Request) {
     activeJob: cleanText(body.activeJob, "", 160),
     inboxFiles,
     videoInboxFiles,
+    judicialProgress,
     message: cleanText(body.message, "節點運作正常", 240),
   });
   const db = await getDb("primary");

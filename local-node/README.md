@@ -1,6 +1,17 @@
 # iBrain 公司本機教材節點
 
-第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.6.8 可對已完成影片單獨補做 Whisper 字幕與 AI 摘要；若本機已有 `transcript.srt`，會略過重新辨識並直接補傳，並延長完成回報的等待時間。字幕模組異常時不會關閉主節點或阻塞下一支影片。原始 PDF、Word 與影片都留在公司電腦，雲端只接收文字索引或播放所需的 HLS 切片、清單、縮圖與字幕。
+第一階段建立安全心跳與硬體／模型狀態回報。第二、三階段加入受限工作佇列與 GPU OCR。v0.6.9 新增司法院 RAR 全量斷點拆解、既有測試結果補傳、分批入庫與後台進度回報。原始 PDF、Word、影片與 RAR 都留在公司電腦，雲端只接收可搜尋的裁判全文、文字索引或播放所需檔案。
+
+## 司法院RAR全量拆解與上傳
+
+```powershell
+$env:LOCAL_NODE_JUDICIAL_ENABLED="true"
+$env:LOCAL_NODE_JUDICIAL_MODE="full"
+$env:LOCAL_NODE_JUDICIAL_BATCH_SIZE="20"
+python -u "C:\iBrain-local-node\agent.py"
+```
+
+節點會先補傳 `judicial-output` 裡過去已完成的測試結果，再依月份處理 `legal-inbox\judicial` 的RAR。進度保存在 `judicial-output\state\judicial-state.sqlite3`，重新啟動會從中斷位置繼續；正式站以JID更新或新增，不會建立重複裁判。
 
 ## Windows 測試啟動
 

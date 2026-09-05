@@ -20,6 +20,7 @@ type StoredNodeStatus = {
   message: string;
   inboxFiles?: Array<{ name: string; sizeBytes: number; modifiedAt: number }>;
   videoInboxFiles?: Array<{ name: string; sizeBytes: number; modifiedAt: number }>;
+  judicialProgress?: { archives: number; completedArchives: number; totalMembers: number; processed: number; uploaded: number; pendingUpload: number; duplicates: number; failed: number; chunks: number; currentArchive: string; mode: string };
 };
 
 function parseStatus(value?: string): StoredNodeStatus | null {
