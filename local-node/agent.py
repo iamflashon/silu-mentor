@@ -17,7 +17,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 
-VERSION = "0.6.10"
+VERSION = "0.6.11"
 USER_AGENT = f"iBrain-Local-Node/{VERSION} Mozilla/5.0"
 _OCR_ENGINE = None
 _SUBTITLE_QUEUE: list[Path] = []
@@ -336,6 +336,37 @@ def _judicial_state_db(output: Path) -> sqlite3.Connection:
     return db
 
 
+def _insert_archive_state(db: sqlite3.Connection, archive: Path, total_members: int) -> None:
+    """Insert into both current and legacy archive schemas without losing state."""
+    values: dict[str, object] = {
+        "archive_name": archive.name,
+        "status": "processing",
+        "total_members": total_members,
+        "next_index": 0,
+        "processed": 0,
+        "uploaded": 0,
+        "duplicates": 0,
+        "failed": 0,
+        "chunks": 0,
+        "last_error": "",
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        # Compatibility with state databases created by pre-0.6.9 builds.
+        "archive_size": archive.stat().st_size,
+        "archive_mtime": archive.stat().st_mtime_ns,
+        "archive_mtime_ns": archive.stat().st_mtime_ns,
+    }
+    columns = db.execute("PRAGMA table_info(archives)").fetchall()
+    insert_values: dict[str, object] = {}
+    for _, name, column_type, not_null, default_value, primary_key in columns:
+        if name in values:
+            insert_values[name] = values[name]
+        elif not_null and default_value is None and not primary_key:
+            insert_values[name] = "" if "TEXT" in str(column_type).upper() else 0
+    names = list(insert_values)
+    placeholders = ",".join("?" for _ in names)
+    db.execute(f"INSERT INTO archives({','.join(names)}) VALUES({placeholders})", tuple(insert_values[name] for name in names))
+
+
 def judicial_progress(inbox: Path, output: Path) -> dict:
     mode = os.getenv("LOCAL_NODE_JUDICIAL_MODE", "test").strip().lower()
     archives = sorted(inbox.glob("*.rar"))
@@ -407,7 +438,7 @@ def process_judicial_full_batch(endpoint: str, token: str, judicial_inbox: Path,
         if row and row[0] == "completed": continue
         seven_zip = _seven_zip_path(); members = _rar_json_members(archive, seven_zip)
         if not row:
-            db.execute("INSERT INTO archives(archive_name,status,total_members) VALUES(?,?,?)", (archive.name, "processing", len(members))); db.commit()
+            _insert_archive_state(db, archive, len(members)); db.commit()
             row = ("processing", 0, 0, 0, 0, 0, 0)
         _, next_index, processed, uploaded, duplicates, failed, chunks_total = row
         candidates: list[dict] = []; batch_failed = 0; batch_chunks = 0; batch_duplicates = 0

@@ -6544,7 +6544,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
                 <p>目前檔案：{judicialStatus.localProgress.currentArchive || "等待下一個RAR"}；模式：{judicialStatus.localProgress.mode === "full" ? "全量拆解" : "測試"}</p>
                 <p>文字段落 {Number(judicialStatus.localProgress.chunks ?? 0).toLocaleString()}；重複 {Number(judicialStatus.localProgress.duplicates ?? 0).toLocaleString()}；失敗 {Number(judicialStatus.localProgress.failed ?? 0).toLocaleString()}。</p>
               </>
-            ) : <p>目前節點尚未回報司法拆解進度；更新至0.6.10並重新啟動後會自動顯示。</p>}
+            ) : <p>目前節點尚未回報司法拆解進度；更新至0.6.11並重新啟動後會自動顯示。</p>}
           </div>
         </section>
       )}
