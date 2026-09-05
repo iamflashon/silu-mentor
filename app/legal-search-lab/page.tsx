@@ -6,6 +6,11 @@ type CaseItem = { jid: string; court: string; judgmentDate: string; title: strin
 type Access = { metered: boolean; used: number; limit: number | null; remaining: number | null; temporaryExpiresAt: number | null; pendingRequest?: { id: number } | null };
 type Simulation = { notice: string; assessment: string; qualifiedCases: number; totalUniqueCases: number; cloudAvailableTotal: number; rounds: Array<{ round: number; purpose: string; queryRuns: Array<{ query: string; hits: number }>; uniqueCasesSoFar: number }>; results: CaseItem[]; exploratoryCandidates: CaseItem[]; access?: Access };
 type CaseDetail = { jid: string; court: string; year: string; caseType: string; caseNo: string; judgmentDate: string; title: string; fullText: string };
+type JudicialStatus = {
+  searchableCases: number;
+  refreshedAt: string;
+  node: { online: boolean; lastSeenAt: string; version: string; archives: number; completedArchives: number; totalMembers: number; processed: number; uploaded: number; pendingUpload: number; duplicates: number; failed: number; chunks: number; currentArchive: string; mode: string };
+};
 
 const PERSONAS = [
   { key: "litigator", icon: "⚖", name: "訴訟律師", note: "找可引用的裁判見解", questions: ["精神慰撫金是否可以聲請支付命令？", "被害人與有過失時，法院如何酌減精神慰撫金？", "違約金過高時，法院依什麼標準酌減？"] },
@@ -28,10 +33,25 @@ export default function LegalSearchLabPage() {
   const [showRequest, setShowRequest] = useState(false);
   const [reason, setReason] = useState("");
   const [requestNotice, setRequestNotice] = useState("");
+  const [judicialStatus, setJudicialStatus] = useState<JudicialStatus | null>(null);
+  const [statusError, setStatusError] = useState("");
   const counters = useRef<Record<string, number>>({});
 
   async function loadAccess() { const response = await fetch("/api/legal-search/access", { cache: "no-store" }); if (response.ok) setAccess(await response.json() as Access); }
-  useEffect(() => { void loadAccess(); }, []);
+  async function loadJudicialStatus() {
+    try {
+      const response = await fetch("/api/judicial-search/status", { cache: "no-store" });
+      if (!response.ok) throw new Error("status unavailable");
+      setJudicialStatus(await response.json() as JudicialStatus);
+      setStatusError("");
+    } catch { setStatusError("目前無法讀取匯入進度，稍後會自動重試。"); }
+  }
+  useEffect(() => {
+    void loadAccess();
+    void loadJudicialStatus();
+    const timer = window.setInterval(() => void loadJudicialStatus(), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function runQuestion(value: string) {
     setLoading(true); setError(""); setResult(null);
@@ -58,6 +78,22 @@ export default function LegalSearchLabPage() {
   return <main style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 20px 80px", color: "#172033" }}>
     <h1 style={{ margin: "18px 0 8px", fontSize: 30 }}>法律搜尋獨立測試室</h1>
     <p style={{ color: "#5d687a", lineHeight: 1.7 }}>選一種使用者，系統就會產生符合該身分的問題並立即搜尋。重複按同一身分，會換下一題。</p>
+    <section style={{ ...card, marginTop: 18, background: "#f7f9fc" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div><h2 style={{ margin: 0, fontSize: 20 }}>裁判資料匯入進度</h2><p style={{ margin: "6px 0 0", color: "#667287" }}>本機完成拆解並上傳後，才會計入 MCP 可搜尋裁判。</p></div>
+        <span style={{ padding: "6px 10px", borderRadius: 999, background: judicialStatus?.node.online ? "#e3f5e9" : "#f3e8e8", color: judicialStatus?.node.online ? "#176a38" : "#8a3333", fontWeight: 700 }}>{judicialStatus?.node.online ? "本機節點連線中" : "本機節點未連線"}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 16 }}>
+        <StatusCard label="MCP可搜尋" value={judicialStatus?.searchableCases} note="正式站已入庫" />
+        <StatusCard label="RAR進度" value={judicialStatus ? `${judicialStatus.node.completedArchives.toLocaleString()}／${judicialStatus.node.archives.toLocaleString()}` : undefined} note="完成／已下載" />
+        <StatusCard label="本機已拆解" value={judicialStatus?.node.processed} note="裁判全文" />
+        <StatusCard label="已上傳" value={judicialStatus?.node.uploaded} note="送達正式站" />
+        <StatusCard label="待上傳" value={judicialStatus?.node.pendingUpload} note="節點將自動續傳" />
+        <StatusCard label="失敗" value={judicialStatus?.node.failed} note="待檢查資料" />
+      </div>
+      {judicialStatus && <p style={{ margin: "14px 0 0", color: "#5d687a", lineHeight: 1.6 }}>目前檔案：{judicialStatus.node.currentArchive || "等待下一個 RAR"}；模式：{judicialStatus.node.mode === "full" ? "全量拆解" : judicialStatus.node.mode === "test" ? "測試" : "未啟用"}；節點版本：{judicialStatus.node.version || "未回報"}。統計每 15 秒自動更新。</p>}
+      {statusError && <p style={{ margin: "12px 0 0", color: "#9a3030" }}>{statusError}</p>}
+    </section>
     {access && <p style={{ background: "#eef4fa", padding: 12, borderRadius: 9 }}>{access.metered ? `本帳號已使用 ${access.used} 次，剩餘 ${access.remaining} 次${access.temporaryExpiresAt ? `；臨時額度至 ${new Date(access.temporaryExpiresAt).toLocaleString("zh-TW")}` : ""}` : "管理者帳號：測試次數不受限制"}{access.pendingRequest ? "；已有申請待審" : ""}</p>}
     <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, margin: "20px 0" }}>
       {PERSONAS.map((item) => <button type="button" key={item.key} disabled={loading} onClick={() => choose(item)} style={{ textAlign: "left", minHeight: 112, border: persona === item.name ? "2px solid #24558b" : "1px solid #ced6e3", borderRadius: 13, padding: 14, background: persona === item.name ? "#edf5ff" : "white", cursor: loading ? "wait" : "pointer" }}><span style={{ display: "inline-grid", placeItems: "center", width: 32, height: 32, borderRadius: 9, background: "#183b66", color: "white", fontWeight: 700 }}>{item.icon}</span><strong style={{ display: "block", marginTop: 9 }}>{item.name}</strong><small style={{ display: "block", marginTop: 4, color: "#68758a" }}>{item.note}</small></button>)}
@@ -73,6 +109,11 @@ export default function LegalSearchLabPage() {
       {!!result.exploratoryCandidates.length && <CaseList title="僅供擴大查詢的候選" items={result.exploratoryCandidates} exploratory />}
     </>}
   </main>;
+}
+
+function StatusCard({ label, value, note }: { label: string; value: number | string | undefined; note: string }) {
+  const display = typeof value === "number" ? value.toLocaleString("zh-TW") : value ?? "—";
+  return <article style={{ background: "white", border: "1px solid #dbe2ed", borderRadius: 10, padding: 13 }}><span style={{ display: "block", color: "#68758a", fontSize: 13 }}>{label}</span><strong style={{ display: "block", marginTop: 5, fontSize: 23, color: "#183b66" }}>{display}</strong><small style={{ color: "#758196" }}>{note}</small></article>;
 }
 
 function CaseList({ title, items, empty, exploratory = false }: { title: string; items: CaseItem[]; empty?: string; exploratory?: boolean }) {
