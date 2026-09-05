@@ -11,8 +11,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireMember(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json().catch(() => ({})) as { persona?: unknown };
+  const body = await request.json().catch(() => ({})) as { persona?: unknown; exclude?: unknown };
   const persona = typeof body.persona === "string" ? body.persona : "";
   if (!isLegalQuestionPersona(persona)) return Response.json({ error: "未知的使用者身分。" }, { status: 400 });
-  return Response.json(await nextUnaskedQuestion(auth.member.id, persona), { headers: { "cache-control": "no-store" } });
+  const exclude = Array.isArray(body.exclude) ? body.exclude.filter((item): item is string => typeof item === "string").slice(0, 12) : [];
+  return Response.json(await nextUnaskedQuestion(auth.member.id, persona, exclude), { headers: { "cache-control": "no-store" } });
 }

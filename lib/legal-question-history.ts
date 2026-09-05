@@ -77,15 +77,18 @@ export async function recordLegalQuestion(memberId: number, question: string, pe
     .bind(memberId, persona, question.slice(0, 240), normalized, source === "persona" ? "persona" : "custom", now, now).run();
 }
 
-export async function nextUnaskedQuestion(memberId: number, persona: LegalQuestionPersona) {
+export async function nextUnaskedQuestion(memberId: number, persona: LegalQuestionPersona, excludedQuestions: string[] = []) {
   const db = await database();
   await ensureQuestionTable(db);
   const rows = await db.prepare("SELECT normalized_question AS question FROM legal_search_questions WHERE member_id=? AND persona=?")
     .bind(memberId, persona).all<{ question: string }>();
   const asked = new Set((rows.results ?? []).map((row) => row.question));
+  const excluded = new Set(excludedQuestions.map(normalizeLegalQuestion));
   const bank = [...LEGAL_QUESTION_BANK[persona]];
-  const next = bank.find((question) => !asked.has(normalizeLegalQuestion(question)));
+  const next = bank.find((question) => !asked.has(normalizeLegalQuestion(question)) && !excluded.has(normalizeLegalQuestion(question)));
   if (next) return { question: next, remaining: Math.max(0, bank.length - asked.size - 1), cycleRestarted: false };
+  const unseenDisplayed = bank.find((question) => !excluded.has(normalizeLegalQuestion(question)));
+  if (unseenDisplayed) return { question: unseenDisplayed, remaining: 0, cycleRestarted: true };
   const history = await db.prepare("SELECT normalized_question AS question FROM legal_search_questions WHERE member_id=? AND persona=? ORDER BY last_asked_at ASC LIMIT 1")
     .bind(memberId, persona).all<{ question: string }>();
   const oldest = history.results?.[0]?.question;
