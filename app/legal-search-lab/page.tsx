@@ -130,7 +130,7 @@ function StatusCard({ label, value, note }: { label: string; value: number | str
 }
 
 function PlanCard({ title, items, empty = "未提出" }: { title: string; items?: string[]; empty?: string }) {
-  return <article role="tabpanel" style={{ ...card, minHeight: 180, background: "#fbfcfe" }}><strong style={{ color: "#183b66", fontSize: 18 }}>{title}</strong>{items?.length ? <ol style={{ margin: "14px 0 0", paddingLeft: 34, lineHeight: 1.85, columns: items.length > 5 ? "2 320px" : undefined, columnGap: 52 }}>{items.map(item => <li key={item} style={{ breakInside: "avoid", marginBottom: 8, paddingLeft: 6 }}>{item}</li>)}</ol> : <p style={{ margin: "14px 0 0", color: "#7a8698" }}>{empty}</p>}</article>;
+  return <article role="tabpanel" style={{ ...card, minHeight: 180, background: "#fbfcfe" }}><strong style={{ color: "#183b66", fontSize: 18 }}>{title}</strong>{items?.length ? <div style={{ display: "grid", gridTemplateColumns: items.length > 5 ? "repeat(auto-fit, minmax(min(360px, 100%), 1fr))" : "1fr", gap: "9px 36px", marginTop: 14 }}>{items.map((item, index) => <div key={item} style={{ display: "grid", gridTemplateColumns: "30px minmax(0, 1fr)", alignItems: "start", gap: 9, lineHeight: 1.75 }}><span aria-hidden="true" style={{ display: "inline-grid", placeItems: "center", width: 28, height: 28, marginTop: 1, borderRadius: 999, background: "#183b66", color: "white", fontWeight: 800, fontSize: 14 }}>{index + 1}</span><span>{item}</span></div>)}</div> : <p style={{ margin: "14px 0 0", color: "#7a8698" }}>{empty}</p>}</article>;
 }
 
 function PlanTabs({ researcher, active, onChange }: { researcher: NonNullable<Simulation["researcher"]>; active: PlanTab; onChange: (tab: PlanTab) => void }) {
