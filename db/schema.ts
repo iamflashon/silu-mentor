@@ -47,6 +47,45 @@ export const legalSearchAccessRequests = sqliteTable("legal_search_access_reques
   index("legal_search_requests_member_idx").on(table.memberId),
 ]);
 
+export const legalSearchQuestions = sqliteTable("legal_search_questions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  persona: text("persona").notNull().default(""),
+  question: text("question").notNull(),
+  normalizedQuestion: text("normalized_question").notNull(),
+  source: text("source").notNull().default("custom"),
+  askedCount: integer("asked_count").notNull().default(1),
+  firstAskedAt: integer("first_asked_at").notNull(),
+  lastAskedAt: integer("last_asked_at").notNull(),
+}, (table) => [
+  uniqueIndex("legal_search_questions_member_question_unique").on(table.memberId, table.normalizedQuestion),
+  index("legal_search_questions_member_time_idx").on(table.memberId, table.lastAskedAt),
+  index("legal_search_questions_source_count_idx").on(table.source, table.askedCount),
+]);
+
+export const legalSearchRuns = sqliteTable("legal_search_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+  persona: text("persona").notNull().default(""),
+  question: text("question").notNull(),
+  normalizedQuestion: text("normalized_question").notNull(),
+  source: text("source").notNull().default("custom"),
+  resultJson: text("result_json").notNull(),
+  planner: text("planner").notNull().default(""),
+  directEvidenceCount: integer("direct_evidence_count").notNull().default(0),
+  totalUniqueCases: integer("total_unique_cases").notNull().default(0),
+  internalTokens: integer("internal_tokens").notNull().default(0),
+  estimatedCostUsd: text("estimated_cost_usd").notNull().default("0"),
+  searchableCases: integer("searchable_cases").notNull().default(0),
+  reusable: integer("reusable", { mode: "boolean" }).notNull().default(false),
+  status: text("status").notNull().default("completed"),
+  errorMessage: text("error_message").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("legal_search_runs_question_time_idx").on(table.normalizedQuestion, table.createdAt),
+  index("legal_search_runs_member_time_idx").on(table.memberId, table.createdAt),
+]);
+
 export const accountingQaTrialDevices = sqliteTable(
   "accounting_qa_trial_devices",
   {

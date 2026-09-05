@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { formatTwd, USD_TO_TWD_RATE } from "../../lib/currency";
 
 type CaseItem = { jid: string; court: string; judgmentDate: string; title: string; excerpt: string; score: number; matchedQueries: string[]; reasons: string[]; missingConcepts?: string[]; citationId?: string; citationStatus?: "fulltext-checked" };
@@ -13,6 +13,7 @@ type JudicialStatus = {
   node: { online: boolean; lastSeenAt: string; version: string; archives: number; completedArchives: number; totalMembers: number; processed: number; uploaded: number; pendingUpload: number; duplicates: number; failed: number; chunks: number; currentArchive: string; mode: string };
 };
 type PlanTab = "issues" | "terms" | "statutes" | "evidence" | "exclude";
+type QuestionLibrary = { bankSize: number; savedResearchRuns: number; common: Array<{ question: string; askedCount: number }>; history: Array<{ question: string; persona: string; source: string; askedCount: number; lastAskedAt: number }> };
 
 const PERSONAS = [
   { key: "litigator", icon: "⚖", name: "訴訟律師", note: "找可引用的裁判見解", questions: ["精神慰撫金是否可以聲請支付命令？", "被害人與有過失時，法院如何酌減精神慰撫金？", "違約金過高時，法院依什麼標準酌減？"] },
@@ -38,9 +39,10 @@ export default function LegalSearchLabPage() {
   const [judicialStatus, setJudicialStatus] = useState<JudicialStatus | null>(null);
   const [statusError, setStatusError] = useState("");
   const [planTab, setPlanTab] = useState<PlanTab>("issues");
-  const counters = useRef<Record<string, number>>({});
+  const [questionLibrary, setQuestionLibrary] = useState<QuestionLibrary | null>(null);
 
   async function loadAccess() { const response = await fetch("/api/legal-search/access", { cache: "no-store" }); if (response.ok) setAccess(await response.json() as Access); }
+  async function loadQuestionLibrary() { const response = await fetch("/api/legal-search/questions", { cache: "no-store" }); if (response.ok) setQuestionLibrary(await response.json() as QuestionLibrary); }
   async function loadJudicialStatus() {
     try {
       const response = await fetch("/api/judicial-search/status", { cache: "no-store" });
@@ -51,31 +53,35 @@ export default function LegalSearchLabPage() {
   }
   useEffect(() => {
     void loadAccess();
+    void loadQuestionLibrary();
     void loadJudicialStatus();
     const timer = window.setInterval(() => void loadJudicialStatus(), 15_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  async function runQuestion(value: string) {
+  async function runQuestion(value: string, personaKey = "", source: "persona" | "custom" = "custom") {
     setLoading(true); setError(""); setResult(null);
     try {
-      const response = await fetch("/api/admin/judicial-research-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: value }) });
+      const response = await fetch("/api/admin/judicial-research-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: value, persona: personaKey, source }) });
       const payload = await response.json() as Simulation & { error?: string };
       if (!response.ok) { if (response.status === 429) setShowRequest(true); throw new Error(payload.error || "測試失敗"); }
-      setResult(payload); if (payload.access) setAccess(payload.access);
+      setResult(payload); if (payload.access) setAccess(payload.access); await loadQuestionLibrary();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "測試失敗"); }
     finally { setLoading(false); }
   }
 
   async function choose(item: typeof PERSONAS[number]) {
-    const index = counters.current[item.key] ?? 0;
-    const next = item.questions[index % item.questions.length];
-    counters.current[item.key] = index + 1;
-    setPersona(item.name); setQuestion(next);
-    await runQuestion(next);
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/legal-search/questions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ persona: item.key }) });
+      const payload = await response.json() as { question?: string; error?: string };
+      if (!response.ok || !payload.question) throw new Error(payload.error || "暫時無法取得下一題");
+      setPersona(item.name); setQuestion(payload.question); setLoading(false);
+      await runQuestion(payload.question, item.key, "persona");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "暫時無法取得下一題"); setLoading(false); }
   }
 
-  async function submit(event: FormEvent) { event.preventDefault(); await runQuestion(question); }
+  async function submit(event: FormEvent) { event.preventDefault(); await runQuestion(question, "", "custom"); }
   async function requestMore(event: FormEvent) { event.preventDefault(); const response = await fetch("/api/legal-search/access", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason, requestedQuota: 100, requestedDays: 3 }) }); const payload = await response.json() as { error?: string }; setRequestNotice(response.ok ? "申請已送出，等待管理者核准。" : payload.error || "申請失敗"); if (response.ok) { setReason(""); setShowRequest(false); await loadAccess(); } }
 
   return <main style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 20px 80px", color: "#172033" }}>
@@ -101,6 +107,7 @@ export default function LegalSearchLabPage() {
     <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, margin: "20px 0" }}>
       {PERSONAS.map((item) => <button type="button" key={item.key} disabled={loading} onClick={() => choose(item)} style={{ textAlign: "left", minHeight: 112, border: persona === item.name ? "2px solid #24558b" : "1px solid #ced6e3", borderRadius: 13, padding: 14, background: persona === item.name ? "#edf5ff" : "white", cursor: loading ? "wait" : "pointer" }}><span style={{ display: "inline-grid", placeItems: "center", width: 32, height: 32, borderRadius: 9, background: "#183b66", color: "white", fontWeight: 700 }}>{item.icon}</span><strong style={{ display: "block", marginTop: 9 }}>{item.name}</strong><small style={{ display: "block", marginTop: 4, color: "#68758a" }}>{item.note}</small></button>)}
     </section>
+    {questionLibrary && <section style={{ ...card, marginBottom: 18, background: "#fbfcfe" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}><h2 style={{ margin: 0, fontSize: 20 }}>常用問題</h2><small style={{ color: "#667287" }}>身分題庫共 {questionLibrary.bankSize} 題；已保存 {questionLibrary.savedResearchRuns} 次完整研究紀錄</small></div><p style={{ margin: "8px 0 0", color: "#667287" }}>系統會優先挑選你尚未問過的題目；每次拆解、搜尋詞、證據分級、裁判清單與成本都會保留。</p><div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "12px 0 4px" }}>{questionLibrary.common.map((item, index) => <button type="button" key={item.question} disabled={loading} onClick={() => { setQuestion(item.question); setPersona(""); void runQuestion(item.question, "", "persona"); }} style={{ flex: "0 0 min(340px, 82vw)", textAlign: "left", border: "1px solid #cbd5e3", borderRadius: 10, padding: 12, background: "white", color: "#253650", cursor: "pointer", lineHeight: 1.55 }}><strong style={{ color: "#183b66" }}>{index + 1}.</strong> {item.question}{item.askedCount > 0 && <small style={{ display: "block", marginTop: 5, color: "#778399" }}>已研究 {item.askedCount} 次</small>}</button>)}</div>{questionLibrary.history.length > 0 && <details style={{ marginTop: 12 }}><summary style={{ cursor: "pointer", color: "#183b66", fontWeight: 700 }}>我的研究問題（最近 {questionLibrary.history.length} 題）</summary><ol style={{ lineHeight: 1.8, paddingLeft: 28 }}>{questionLibrary.history.map(item => <li key={`${item.question}-${item.lastAskedAt}`}><button type="button" onClick={() => { setQuestion(item.question); setPersona(""); }} style={{ border: 0, padding: 0, background: "transparent", color: "#243c5a", textAlign: "left", cursor: "pointer" }}>{item.question}</button>{item.askedCount > 1 && <small style={{ color: "#778399" }}>（{item.askedCount} 次）</small>}</li>)}</ol></details>}</section>}
     <form onSubmit={submit} style={{ background: "#f5f7fb", border: "1px solid #d9dfeb", borderRadius: 14, padding: 20 }}><label htmlFor="legal-question" style={{ display: "block", fontWeight: 700, marginBottom: 8 }}>{persona ? `${persona}的模擬問題` : "自訂法律問題"}</label><textarea id="legal-question" value={question} onChange={(event) => { setQuestion(event.target.value); setPersona(""); }} rows={3} style={{ width: "100%", boxSizing: "border-box", border: "1px solid #aeb9cc", borderRadius: 10, padding: 12, fontSize: 16, lineHeight: 1.6 }} /><button disabled={loading || question.trim().length < 2} style={{ marginTop: 14, border: 0, borderRadius: 9, padding: "11px 18px", background: "#183b66", color: "white", fontSize: 16 }}>{loading ? "正在模擬研究…" : "用這個問題開始測試"}</button></form>
     {error && <p style={{ color: "#a22525", background: "#fff0f0", padding: 14, borderRadius: 10 }}>{error}</p>}
     {access?.metered && (access.remaining === 0 || showRequest) && !access.pendingRequest && <form onSubmit={requestMore} style={{ ...card, marginTop: 14, background: "#fff8ed" }}><strong>申請臨時提高次數</strong><p style={{ color: "#66523b" }}>基本 100 次已用完後可申請；核准額度最長 3 天自動失效。</p><textarea required minLength={4} rows={3} value={reason} onChange={event=>setReason(event.target.value)} placeholder="請說明測試身分、用途與預計測試內容" style={{width:"100%",boxSizing:"border-box",padding:10}}/><button style={{marginTop:10}}>送出申請</button></form>}
