@@ -42,6 +42,7 @@ export default function LegalSearchLabPage() {
   const [judicialStatus, setJudicialStatus] = useState<JudicialStatus | null>(null);
   const [statusError, setStatusError] = useState("");
   const [planTab, setPlanTab] = useState<PlanTab>("issues");
+  const [caseResultTab, setCaseResultTab] = useState<"deep" | "expand">("deep");
   const [questionLibrary, setQuestionLibrary] = useState<QuestionLibrary | null>(null);
   const [questionLibraryTab, setQuestionLibraryTab] = useState<"common" | "history">("common");
   const [questionLibraryOpen, setQuestionLibraryOpen] = useState(false);
@@ -66,7 +67,7 @@ export default function LegalSearchLabPage() {
   }, []);
 
   async function runQuestion(value: string, personaKey = "", source: "persona" | "custom" = "custom") {
-    setLoading(true); setError(""); setResult(null);
+    setLoading(true); setError(""); setResult(null); setCaseResultTab("deep");
     try {
       const response = await fetch("/api/admin/judicial-research-test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: value, persona: personaKey, source }) });
       const payload = await response.json() as Simulation & { error?: string };
@@ -108,7 +109,7 @@ export default function LegalSearchLabPage() {
       const payload = await response.json() as { question?: string; status?: string; errorMessage?: string; result?: Simulation; error?: string };
       if (!response.ok || !payload.result) throw new Error(payload.error || "研究紀錄讀取失敗");
       if (payload.status === "failed" || !Array.isArray(payload.result.rounds)) throw new Error(payload.errorMessage || "這次研究未完成，已保留失敗紀錄供後續改善。");
-      setQuestion(payload.question || ""); setPersona(""); setPersonaKey(""); setResult(payload.result);
+      setQuestion(payload.question || ""); setPersona(""); setPersonaKey(""); setResult(payload.result); setCaseResultTab("deep");
       window.setTimeout(() => document.getElementById("legal-research-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "研究紀錄讀取失敗"); }
     finally { setHistoryLoading(null); }
@@ -166,8 +167,13 @@ export default function LegalSearchLabPage() {
       <section style={{ marginTop: 30 }}><h2>搜尋判定</h2><p style={{ background: result.qualifiedCases ? "#edf8f1" : "#fff5e8", border: `1px solid ${result.qualifiedCases ? "#b9dec6" : "#ead0a5"}`, borderRadius: 10, padding: 14, lineHeight: 1.7 }}>{result.assessment}</p></section>
       {result.researchBundle && <section style={{ ...card, marginTop: 24, background: "#f7fafc" }}><h2 style={{ marginTop: 0 }}>本次研究證據包</h2><p style={{ lineHeight: 1.7 }}>{result.researchBundle.citationRule}</p><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}><article style={{ padding: 14, borderRadius: 10, background: "#e9f7ee" }}><strong style={{ color: "#176a38" }}>可引用 {result.researchBundle.allowedCitations.length} 筆</strong><p style={{ marginBottom: 0, color: "#456253" }}>已由系統讀取全文並通過本題的關聯與假命中檢查。</p></article><article style={{ padding: 14, borderRadius: 10, background: "#fff4e5" }}><strong style={{ color: "#8a5516" }}>不可直接引用 {result.researchBundle.notCitableCandidates.length} 筆</strong><p style={{ marginBottom: 0, color: "#6f5a3b" }}>只作為後續搜尋線索，不能支持肯定或否定結論。</p></article></div></section>}
       {result.tokenUsage && <section style={{ marginTop: 30 }}><h2>本次 MCP Token 與成本</h2><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", background: "white", minWidth: 820 }}><thead><tr>{["處理階段", "模型", "輸入", "快取", "輸出", "合計", "美元估算", "台幣估算"].map(label => <th key={label} style={{ textAlign: "left", padding: 10, borderBottom: "2px solid #cbd5e3" }}>{label}</th>)}</tr></thead><tbody>{result.tokenUsage.stages.map(stage => <tr key={stage.stage}><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef" }}>{stage.stage}<small style={{ display: "block", color: "#6c788b" }}>{stage.note}</small></td><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef" }}>{stage.model || "—"}</td><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef" }}>{stage.inputTokens.toLocaleString()}</td><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef" }}>{stage.cachedTokens.toLocaleString()}</td><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef" }}>{stage.outputTokens.toLocaleString()}</td><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef", fontWeight: 700 }}>{stage.totalTokens.toLocaleString()}</td><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef" }}>US$ {stage.estimatedCostUsd.toFixed(5)}</td><td style={{ padding: 10, borderBottom: "1px solid #e2e7ef", fontWeight: 700 }}>約 NT$ {formatTwd(stage.estimatedCostUsd, 2)}</td></tr>)}</tbody></table></div><p style={{ background: "#eef4fa", borderRadius: 9, padding: 12, lineHeight: 1.7 }}><strong>MCP 內部合計：{result.tokenUsage.internalTotalTokens.toLocaleString()} Tokens；US$ {result.tokenUsage.internalEstimatedCostUsd.toFixed(5)}；約 NT$ {formatTwd(result.tokenUsage.internalEstimatedCostUsd, 2)}。</strong><br /><small>估算基準：gpt-5.6-sol 輸入 US$5／百萬 Token、快取 US$0.5／百萬 Token、輸出 US$30／百萬 Token；換算匯率 US$1＝NT$ {USD_TO_TWD_RATE}。實際帳單可能因供應商計價與匯率不同而略有差異。</small><br />{result.tokenUsage.externalAnswerNote}</p></section>}
-      <CaseList title="建議優先深讀的裁判" items={result.results} empty="目前是 0 篇，代表本次搜尋尚未達到回答需求。" />
-      {!!result.exploratoryCandidates.length && <CaseList title="僅供擴大查詢的候選" items={result.exploratoryCandidates} exploratory />}
+      <section style={{ marginTop: 30 }}>
+        <div role="tablist" aria-label="裁判搜尋結果分類" style={{ display: "flex", gap: 6, borderBottom: "1px solid #cfd9e6", overflowX: "auto" }}>
+          <button type="button" role="tab" aria-selected={caseResultTab === "deep"} onClick={() => setCaseResultTab("deep")} style={{ flex: "0 0 auto", border: 0, borderBottom: caseResultTab === "deep" ? "3px solid #183b66" : "3px solid transparent", padding: "11px 16px", background: caseResultTab === "deep" ? "#edf4fb" : "transparent", color: caseResultTab === "deep" ? "#183b66" : "#657287", fontWeight: 700, fontSize: 16, cursor: "pointer" }}>優先深讀 <small style={{ marginLeft: 5 }}>{result.results.length}</small></button>
+          <button type="button" role="tab" aria-selected={caseResultTab === "expand"} onClick={() => setCaseResultTab("expand")} style={{ flex: "0 0 auto", border: 0, borderBottom: caseResultTab === "expand" ? "3px solid #9a641d" : "3px solid transparent", padding: "11px 16px", background: caseResultTab === "expand" ? "#fff7e8" : "transparent", color: caseResultTab === "expand" ? "#815317" : "#657287", fontWeight: 700, fontSize: 16, cursor: "pointer" }}>擴大查詢 <small style={{ marginLeft: 5 }}>{result.exploratoryCandidates.length}</small></button>
+        </div>
+        {caseResultTab === "deep" ? <CaseList title="建議優先深讀的裁判" items={result.results} empty="目前是 0 篇，代表本次搜尋尚未達到回答需求。" /> : <CaseList title="僅供擴大查詢的候選" items={result.exploratoryCandidates} empty="目前沒有需要擴大查詢的候選裁判。" exploratory />}
+      </section>
     </div>}
   </main>;
 }
