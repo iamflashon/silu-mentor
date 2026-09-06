@@ -319,6 +319,12 @@
 .audio-segment-preview { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; gap: 12px; align-items: center; margin-top: 14px; padding: 12px; border-radius: 9px; background: #edf6f1; color: #23613e; }
 .audio-segment-preview audio, .student-audio-segment audio { width: 100%; }
 .audio-segment-missing { display: block; margin-top: 12px; color: #a23535; font-weight: 750; }
+.studio-audio-notice { display: grid; justify-items: start; gap: 10px; padding: 18px; border: 1px solid #e7c884; border-radius: 12px; background: #fff4dc; color: #7b4e08; }
+.studio-audio-notice p { margin: 0; line-height: 1.65; }
+.studio-audio-notice button { border: 0; border-radius: 9px; padding: 11px 18px; background: #c38d2d; color: #fff; font: inherit; font-weight: 900; cursor: pointer; box-shadow: 0 5px 14px rgba(135, 87, 15, .18); }
+.studio-audio-notice button:hover { background: #a97016; }
+.studio-audio-notice button:disabled { cursor: wait; opacity: .65; }
+.studio-audio-notice button::after { content: "（重新分段後需逐段上傳並試聽）"; display: block; margin-top: 3px; font-size: 12px; font-weight: 650; opacity: .9; }
 @media (max-width: 700px) { .audio-segment-preview { grid-template-columns: 1fr; } }
 .studio-result > .study-content {
   padding: 16px 0;
