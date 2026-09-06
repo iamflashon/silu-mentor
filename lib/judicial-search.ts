@@ -16,6 +16,7 @@ export type JudicialSearchInput = {
   dateFrom?: string;
   dateTo?: string;
   limit?: number;
+  offset?: number;
   includeAvailableTotal?: boolean;
   searchMode?: "auto" | "keyword" | "phrase";
 };
@@ -100,6 +101,7 @@ function normalizeInput(input: JudicialSearchInput) {
     dateFrom: (input.dateFrom ?? "").replace(/\D/g, "").slice(0, 8),
     dateTo: (input.dateTo ?? "").replace(/\D/g, "").slice(0, 8),
     limit: Math.max(1, Math.min(30, Number(input.limit) || 12)),
+    offset: Math.max(0, Math.min(100_000, Math.floor(Number(input.offset) || 0))),
     searchMode: input.searchMode === "keyword" || input.searchMode === "phrase" ? input.searchMode : "auto" as const,
   };
 }
@@ -112,7 +114,7 @@ function parseDocketQuery(query: string) {
 }
 
 export async function searchJudicialCases(input: JudicialSearchInput) {
-  const { query, court, year, anyTerms, allTerms, excludeTerms, person, courtLevel, division, caseType, dateFrom, dateTo, limit, searchMode } = normalizeInput(input);
+  const { query, court, year, anyTerms, allTerms, excludeTerms, person, courtLevel, division, caseType, dateFrom, dateTo, limit, offset, searchMode } = normalizeInput(input);
   const db = await getDb();
   const [available] = input.includeAvailableTotal === false
     ? [{ value: 0 }]
@@ -163,8 +165,25 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
   if (courtLevel === "high") conditions.push(or(like(judicialCases.court, "TPH%"), like(judicialCases.court, "TCH%"), like(judicialCases.court, "TNH%"), like(judicialCases.court, "KSH%"), like(judicialCases.court, "HLH%"))!);
   if (courtLevel === "district") conditions.push(or(like(judicialCases.court, "%DV"), like(judicialCases.court, "%DM"), like(judicialCases.court, "%EV"))!);
   const whereClause = and(...conditions);
+  const rankingTerms = [...new Set([...splitTerms(query), ...optionalTerms, ...requiredTerms])].slice(0, 10);
+  const scoreParts = [sql<number>`0`];
+  if (query) {
+    const phrasePattern = `%${escapeLike(query)}%`;
+    scoreParts.push(sql<number>`case when ${judicialCases.title} like ${phrasePattern} then 60 else 0 end`);
+    scoreParts.push(sql<number>`case when ${judicialCases.fullText} like ${phrasePattern} then 24 else 0 end`);
+    scoreParts.push(sql<number>`case when ${judicialCases.jid} like ${phrasePattern} then 100 else 0 end`);
+  }
+  for (const term of rankingTerms) {
+    const pattern = `%${escapeLike(term)}%`;
+    scoreParts.push(sql<number>`case when ${judicialCases.title} like ${pattern} then 14 else 0 end`);
+    scoreParts.push(sql<number>`case when ${judicialCases.fullText} like ${pattern} then 4 else 0 end`);
+    scoreParts.push(sql<number>`case when ${judicialCases.rawJson} like ${pattern} then 2 else 0 end`);
+  }
+  if (court || courtLevel) scoreParts.push(sql<number>`8`);
+  if (year || dateFrom || dateTo) scoreParts.push(sql<number>`4`);
+  const relevanceScore = sql<number>`(${sql.join(scoreParts, sql.raw(" + "))})`;
   const [matched] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(whereClause);
-  const rows = await db.select().from(judicialCases).where(whereClause).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit);
+  const rows = await db.select().from(judicialCases).where(whereClause).orderBy(desc(relevanceScore), desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit).offset(offset);
   return {
     query,
     searchMode: docket ? "docket_exact" : searchMode === "phrase" ? "phrase" : "keyword",
@@ -175,10 +194,13 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
     total: Number(matched?.value ?? 0),
     returned: rows.length,
     limit,
+    offset,
     availableTotal: Number(available?.value ?? 0),
-    results: rows.map((row) => {
+    results: rows.map((row, index) => {
       const fullText = resolveFullText(row);
       return {
+        rank: offset + index + 1,
+        relevanceBand: offset + index < 3 ? "高度相關" : offset + index < 10 ? "相關" : "延伸參考",
         id: row.id,
         jid: row.jid,
         court: judicialCourtName(row.court, row.jid),

@@ -86,6 +86,7 @@ const tools = [
         date_from: { type: "string", description: "西元起始日期 YYYYMMDD" },
         date_to: { type: "string", description: "西元結束日期 YYYYMMDD" },
         limit: { type: "integer", minimum: 1, maximum: 20, default: 10 },
+        offset: { type: "integer", minimum: 0, maximum: 100000, default: 0, description: "相關度排序後略過的筆數，用於分頁" },
         search_mode: { type: "string", enum: ["auto", "keyword", "phrase"], default: "auto", description: "auto 會辨識完整案號並精確調卷；phrase 查完整詞組；keyword 以空白分隔必要概念" },
       },
       required: ["query"],
@@ -177,6 +178,7 @@ export async function POST(request: Request) {
         dateFrom: typeof args.date_from === "string" ? args.date_from : "",
         dateTo: typeof args.date_to === "string" ? args.date_to : "",
         limit: Math.min(20, Number(args.limit) || 10),
+        offset: Math.max(0, Math.min(100000, Math.floor(Number(args.offset) || 0))),
         searchMode: args.search_mode === "keyword" || args.search_mode === "phrase" ? args.search_mode : "auto",
       });
       const compact = { ...result, results: result.results.map(({ fullText: _fullText, ...item }) => item) };
