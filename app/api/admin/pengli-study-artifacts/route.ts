@@ -24,6 +24,11 @@ export async function PATCH(request: Request) {
     if (!row) return Response.json({ error: "找不到這筆學習成果。" }, { status: 404 });
     return Response.json({ row, updatedCount: 1 });
   }
+  if (body.action === "publish") {
+    const candidates = await auth.db.select({ tool: pengliStudyArtifacts.tool, topic: pengliStudyArtifacts.topic, audioStorageKey: pengliStudyArtifacts.audioStorageKey }).from(pengliStudyArtifacts).where(inArray(pengliStudyArtifacts.id, ids));
+    const incompleteAudio = candidates.find((row) => row.tool === "audio" && !row.audioStorageKey);
+    if (incompleteAudio) return Response.json({ error: `「${incompleteAudio.topic}」尚未上傳語音成品，不能發布到學生前台。` }, { status: 409 });
+  }
   const reviewStatus = body.action === "publish" ? "published" : "pending_review";
   const rows = await auth.db.update(pengliStudyArtifacts)
     .set({ reviewStatus, updatedAt: new Date() })
@@ -38,7 +43,10 @@ export async function DELETE(request: Request) {
   const body = await request.json() as { ids?: number[] };
   const ids = normalizeIds(body.ids || []);
   if (!ids.length) return Response.json({ error: "請先選擇要刪除的成果。" }, { status: 400 });
+  const audioRows = await auth.db.select({ audioStorageKey: pengliStudyArtifacts.audioStorageKey }).from(pengliStudyArtifacts).where(inArray(pengliStudyArtifacts.id, ids));
   const rows = await auth.db.delete(pengliStudyArtifacts).where(inArray(pengliStudyArtifacts.id, ids)).returning({ id: pengliStudyArtifacts.id });
+  const { env } = await import("cloudflare:workers");
+  for (const row of audioRows) if (row.audioStorageKey) await env.BUCKET?.delete(row.audioStorageKey).catch(() => undefined);
   return Response.json({ deletedCount: rows.length });
 }
 

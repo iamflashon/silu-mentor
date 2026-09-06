@@ -11,10 +11,11 @@ export async function GET(request: Request) {
     topic: pengliStudyArtifacts.topic,
     content: pengliStudyArtifacts.content,
     sourceLabel: pengliStudyArtifacts.sourceLabel,
+    audioStorageKey: pengliStudyArtifacts.audioStorageKey,
     updatedAt: pengliStudyArtifacts.updatedAt,
   }).from(pengliStudyArtifacts).where(and(
     eq(pengliStudyArtifacts.status, "active"),
     eq(pengliStudyArtifacts.reviewStatus, "published"),
   )).orderBy(desc(pengliStudyArtifacts.updatedAt)).limit(100);
-  return Response.json({ rows });
+  return Response.json({ rows: rows.filter((row) => row.tool !== "audio" || row.audioStorageKey).map(({ audioStorageKey, ...row }) => ({ ...row, audioUrl: audioStorageKey ? `/api/teachers/pengli/study-room/audio?id=${row.id}` : null })) });
 }

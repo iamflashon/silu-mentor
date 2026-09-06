@@ -13,6 +13,11 @@ type InputMessage = { role?: unknown; text?: unknown };
 const PENGLI_STUDY_BOOK_VERSION = "BKID-20288-2E";
 const PENGLI_STUDY_PROMPT_VERSION = 1;
 
+function mockQuestionExcerpt(content: string) {
+  const questionLines = content.split("\n").map((line) => line.trim()).filter((line) => /^(?:\d+|[一二三四五六七八九十]+)[.、）)]|[？?]$/u.test(line));
+  return (questionLines.length ? questionLines.slice(0, 10).join(" ") : content).slice(0, 700);
+}
+
 async function studyCacheKey(tool: string, topic: string, messages: InputMessage[]) {
   const normalized = JSON.stringify({ book: PENGLI_STUDY_BOOK_VERSION, promptVersion: PENGLI_STUDY_PROMPT_VERSION, tool, topic, messages: messages.map((message) => String(message.text ?? "").trim()) });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalized));
@@ -794,7 +799,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer" | "study-tool"; studyTool?: string; retrievalMode?: "theme" | "keyword"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer" | "study-tool"; studyTool?: string; retrievalMode?: "theme" | "keyword"; forceNew?: boolean; examConfig?: { mc?: number; short?: number; essay?: number; minutes?: number }; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -814,9 +819,14 @@ export async function POST(request: Request) {
       const tool = String(body.studyTool || "tool").slice(0, 30);
       const topic = requestedTopic.slice(0, 120);
       const requestKey = String(body.requestKey ?? crypto.randomUUID()).slice(0, 120);
-      const shareable = tool !== "teach" && !(tool === "quiz" && rawMessages.length > 1);
-      const cacheKey = shareable ? await studyCacheKey(tool, topic, rawMessages) : "";
-      const [cached] = cacheKey ? await auth.db.select().from(pengliStudyArtifacts).where(and(
+      if (tool === "mock") {
+        const counts = [body.examConfig?.mc, body.examConfig?.short, body.examConfig?.essay].map((value) => Math.max(0, Math.floor(Number(value || 0))));
+        const totalQuestions = counts.reduce((sum, value) => sum + value, 0);
+        if (totalQuestions < 1 || totalQuestions > 10) return Response.json({ error: "每份模擬考須設定 1 至 10 題。" }, { status: 400 });
+      }
+      const shareable = auth.member.canAdmin && !(tool === "quiz" && rawMessages.length > 1);
+      const cacheKey = shareable || !body.forceNew ? await studyCacheKey(tool, topic, rawMessages) : "";
+      const [cached] = cacheKey && !body.forceNew ? await auth.db.select().from(pengliStudyArtifacts).where(and(
         eq(pengliStudyArtifacts.cacheKey, cacheKey),
         eq(pengliStudyArtifacts.status, "active"),
         ...(auth.member.canAdmin ? [] : [eq(pengliStudyArtifacts.reviewStatus, "published")]),
@@ -827,6 +837,19 @@ export async function POST(request: Request) {
           await auth.db.update(pengliStudyArtifacts).set({ reuseCount: sql`${pengliStudyArtifacts.reuseCount} + 1`, updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, cached.id));
         }
         return Response.json({ reply: cached.content, source: cached.sourceLabel, artifactId: cached.id, reviewStatus: cached.reviewStatus, cached: true, saved: true, charged: false });
+      }
+
+      if (!auth.member.canAdmin && tool !== "mock") {
+        return Response.json({ error: "這項學習內容由老師後台統一產生，請從免費學習內容開啟。", code: "STUDY_TOOL_PREGENERATED_ONLY" }, { status: 403 });
+      }
+
+      let modelMessages = messages;
+      if (tool === "mock") {
+        const previous = auth.member.canAdmin
+          ? await auth.db.select({ outputText: pengliStudyArtifacts.content }).from(pengliStudyArtifacts).where(and(eq(pengliStudyArtifacts.tool, "mock"), eq(pengliStudyArtifacts.topic, topic), eq(pengliStudyArtifacts.status, "active"))).orderBy(desc(pengliStudyArtifacts.createdAt)).limit(20)
+          : await auth.db.select({ outputText: pengliStudyRuns.outputText }).from(pengliStudyRuns).where(and(eq(pengliStudyRuns.memberId, auth.member.id), eq(pengliStudyRuns.tool, "mock"), eq(pengliStudyRuns.topic, topic))).orderBy(desc(pengliStudyRuns.createdAt)).limit(20);
+        const exclusions = previous.map((row, index) => `${index + 1}. ${mockQuestionExcerpt(row.outputText)}`).join("\n");
+        if (exclusions) modelMessages = [...messages, { role: "user", content: `【避免重複】以下是我已經生成過的模擬考摘要。新試卷不得重複核心題目，也不得只更換人名、數字或選項順序：\n${exclusions}` }];
       }
 
       const gate = await prepareAiUse(request, "pengli");
@@ -841,7 +864,7 @@ export async function POST(request: Request) {
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model,
         instructions: `你是彭狸老師行政法「學霸讀書室」的學習內容整理器。嚴格執行學生選定的學習範本，並只使用本輪提供的彭狸老師教材片段。不得把模型常識、官方法規或其他老師資料冒充教材。每個實質主張都要標示可核對的 PDF 頁碼；教材不足時清楚標示「教材片段不足」，不得補造。輸出使用繁體中文，以全形標題、編號與換行排版，不使用 Markdown 表格或井字標題。若範本是逐題測驗：第一次只出一題且不公布答案；學生回答後，先逐點訂正與說明，再依程度出下一題，仍不得先公布新題答案。若是完整模擬考，依指定題數完整輸出試卷與卷末答案解析。\n\n【本輪教材】\n${evidenceText}`,
-        input: messages,
+        input: modelMessages,
         max_output_tokens: tool === "mock" || tool === "guide" ? 2400 : 1500,
       }) }) as Record<string, unknown>;
       const reply = outputText(payload).trim();

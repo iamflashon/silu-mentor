@@ -575,6 +575,13 @@
       "when": 1788590038611,
       "tag": "0081_numerous_dark_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1788662916037,
+      "tag": "0082_graceful_mulholland_black",
+      "breakpoints": true
     }
   ]
 }
