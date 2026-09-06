@@ -309,13 +309,17 @@
 .audio-segment-card h4, .student-audio-segment h4 { margin: 5px 0 12px; color: #173f5a; font-size: 19px; }
 .audio-segment-card > p { margin: 0 0 14px; color: #314955; line-height: 1.8; white-space: pre-wrap; }
 .audio-segment-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.audio-segment-actions button, .audio-segment-actions label { border: 1px solid #315f7e; border-radius: 8px; padding: 8px 11px; background: #fff; color: #315f7e; font: inherit; font-weight: 800; cursor: pointer; }
+.audio-segment-actions button, .audio-segment-actions label { border: 1px solid #315f7e; border-radius: 8px; padding: 9px 12px; background: #fff; color: #315f7e; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }
 .audio-segment-actions label { background: #315f7e; color: #fff; }
 .audio-segment-actions input[type="file"] { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
 .audio-segment-edit { display: grid; gap: 10px; margin: 12px 0; }
-.audio-segment-edit label { display: grid; gap: 6px; color: #294c61; font-weight: 800; }
+.audio-segment-edit label { display: grid; gap: 6px; color: #294c61; font-size: 15px; font-weight: 800; }
 .audio-segment-edit input, .audio-segment-edit textarea { width: 100%; box-sizing: border-box; border: 1px solid #b9ccd7; border-radius: 8px; padding: 11px; color: #173f5a; font: inherit; line-height: 1.7; }
 .audio-segment-edit > div { display: flex; gap: 8px; }
+.audio-editor-toolbar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 8px; background: #edf3f6; }
+.audio-editor-toolbar label { display: flex; align-items: center; gap: 8px; }
+.audio-editor-toolbar select { min-width: 92px; border: 1px solid #9fb6c4; border-radius: 7px; padding: 7px 9px; background: #fff; color: #173f5a; font-size: 15px; }
+.audio-editor-toolbar small { color: #58707e; font-size: 14px; font-weight: 600; }
 .audio-segment-preview { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; gap: 12px; align-items: center; margin-top: 14px; padding: 12px; border-radius: 9px; background: #edf6f1; color: #23613e; }
 .audio-segment-preview audio, .student-audio-segment audio { width: 100%; }
 .audio-segment-missing { display: block; margin-top: 12px; color: #a23535; font-weight: 750; }
