@@ -92,7 +92,8 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
         const batchPrompt = adminMode && active.id === "quiz"
           ? `${itemPrompt}\n\n【後台批次出題】這是第 ${index + 1} 題，共 ${total} 題。題目必須可獨立使用，且不得與下列既有題目重複或只是改寫人名、數字：\n${excluded.length ? excluded.map((item, itemIndex) => `${itemIndex + 1}. ${item}`).join("\n") : "目前沒有既有題目。"}`
           : itemPrompt;
-        const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: active.id, messages: [{ role: "student", text: batchPrompt }], requestKey: crypto.randomUUID(), topic: targetTopic }) });
+        const retrievalMode = active.id === "teach" || (active.id === "explain" && concept.trim()) ? "keyword" : "theme";
+        const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: active.id, retrievalMode, messages: [{ role: "student", text: batchPrompt }], requestKey: crypto.randomUUID(), topic: targetTopic }) });
         const data = await response.json() as { reply?: string; source?: string; error?: string; cached?: boolean; saved?: boolean };
         if (!response.ok || !data.reply) throw new Error(`${generated.length ? `已完成 ${generated.length} 份；` : ""}${targetTopic}：${data.error || "目前無法產生學習內容。"}`);
         generated.push({ topic: targetTopic, text: data.reply }); latestSource = data.source || latestSource; latestData = data;
@@ -113,7 +114,7 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
     const nextMessages: StudioMessage[] = [...quizMessages, { role: "student", text: quizAnswer.trim() }];
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: "quiz", messages: nextMessages, requestKey: crypto.randomUUID(), topic }) });
+      const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: "quiz", retrievalMode: "keyword", messages: nextMessages, requestKey: crypto.randomUUID(), topic }) });
       const data = await response.json() as { reply?: string; source?: string; error?: string; saved?: boolean };
       if (!response.ok || !data.reply) throw new Error(data.error || "目前無法完成訂正。");
       const studentText = quizAnswer.trim();

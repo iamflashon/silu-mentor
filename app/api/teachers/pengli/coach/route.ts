@@ -438,7 +438,7 @@ function coachParts(value: string) {
   };
 }
 
-async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, preferredDocumentId = 0) {
+async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, preferredDocumentId = 0, preferThemeRange = false) {
   const empty = (searchFailed = false) => ({
     documentId: null as number | null,
     title: "",
@@ -661,7 +661,19 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
       ? and(gte(documentSearchUnits.pageStart, themeStartPage), lt(documentSearchUnits.pageStart, nextThemeStartPage))
       : gte(documentSearchUnits.pageStart, themeStartPage)
     : undefined;
-  let candidates = (pageCondition || conditions.length) ? await db.select({
+  let candidates = preferThemeRange && themeCondition ? await db.select({
+    documentId: documentSearchUnits.documentId,
+    pageStart: documentSearchUnits.pageStart,
+    pageEnd: documentSearchUnits.pageEnd,
+    title: documentSearchUnits.title,
+    hierarchyPath: documentSearchUnits.hierarchyPath,
+    text: documentSearchUnits.text,
+  }).from(documentSearchUnits)
+    .where(and(
+      inArray(documentSearchUnits.documentId, books.map((book) => book.id)),
+      themeCondition,
+    ))
+    .orderBy(documentSearchUnits.sequence).limit(120) : (pageCondition || conditions.length) ? await db.select({
     documentId: documentSearchUnits.documentId,
     pageStart: documentSearchUnits.pageStart,
     pageEnd: documentSearchUnits.pageEnd,
@@ -674,7 +686,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
       pageCondition ?? and(themeCondition, or(...conditions)),
     ))
     .orderBy(documentSearchUnits.sequence).limit(60) : [];
-  if (!candidates.length && themeCondition && conditions.length) {
+  if (!preferThemeRange && !candidates.length && themeCondition && conditions.length) {
     candidates = await db.select({
       documentId: documentSearchUnits.documentId,
       pageStart: documentSearchUnits.pageStart,
@@ -692,7 +704,7 @@ async function pengliEvidence(query: string, scopeTopic = "", pageHint = 0, pref
   // Broad study-room requests name a whole verified theme rather than one exact
   // phrase. If keyword ranking finds nothing, retrieve directly from the
   // administrator-confirmed page range so every mapped theme remains usable.
-  if (!candidates.length && themeCondition) {
+  if (!preferThemeRange && !candidates.length && themeCondition) {
     candidates = await db.select({
       documentId: documentSearchUnits.documentId,
       pageStart: documentSearchUnits.pageStart,
@@ -749,7 +761,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const topic = params.get("topic")?.trim().slice(0, 120) ?? "";
   if (!topic) return Response.json({ error: "請提供主題名稱。" }, { status: 400 });
-  const evidence = await pengliEvidence(topic, topic);
+  const evidence = await pengliEvidence(topic, topic, 0, 0, true);
   const first = evidence.rows.find((row) => row.pageStart != null);
   if (!first) return Response.json({ topic, located: false });
   let guide = fallbackTopicGuide(topic, evidence.rows);
@@ -782,7 +794,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer" | "study-tool"; studyTool?: string; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer" | "study-tool"; studyTool?: string; retrievalMode?: "theme" | "keyword"; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -821,7 +833,7 @@ export async function POST(request: Request) {
       if (gate instanceof Response) return gate;
       if (!await getOpenAIKey()) return Response.json({ error: "彭狸學霸讀書室尚未設定模型。" }, { status: 503 });
       const evidenceQuery = rawMessages.map((message) => String(message.text ?? "")).join("\n").slice(0, 7000);
-      const evidence = await pengliEvidence(evidenceQuery, topic);
+      const evidence = await pengliEvidence(evidenceQuery, topic, 0, 0, body.retrievalMode === "theme");
       if (!evidence.rows.length) return Response.json({ error: "目前無法從彭狸老師教材定位這個主題；本次不扣使用次數。" }, { status: 404 });
       const evidenceText = evidence.rows.map((row, index) => `【教材片段 ${index + 1}｜PDF 第 ${row.pageStart ?? "?"} 頁】\n${row.text.slice(0, 2600)}`).join("\n\n");
       const startedAt = Date.now();
