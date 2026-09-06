@@ -1396,6 +1396,25 @@ export const pengliStudyArtifacts = sqliteTable(
   ],
 );
 
+export const pengliStudyAudioSegments = sqliteTable(
+  "pengli_study_audio_segments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    artifactId: integer("artifact_id").notNull().references(() => pengliStudyArtifacts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    title: text("title").notNull(),
+    script: text("script").notNull(),
+    audioStorageKey: text("audio_storage_key"),
+    audioFileName: text("audio_file_name"),
+    audioContentType: text("audio_content_type"),
+    audioSizeBytes: integer("audio_size_bytes"),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("pengli_study_audio_segments_artifact_position_idx").on(table.artifactId, table.position),
+  ],
+);
+
 export const pengliStudyRuns = sqliteTable(
   "pengli_study_runs",
   {

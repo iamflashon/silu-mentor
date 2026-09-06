@@ -11,12 +11,13 @@ const tools = [
   { id: "explain", no: "04", title: "拆解看不懂的概念", description: "用類比、實際案例與常見誤解建立真正理解。", prompt: "請解釋【{concept}】，包含：一個容易理解的類比、一個行政法實際應用例子，以及一個最常見的錯誤理解。接著回到彭狸老師教材的正式用語與頁碼，最後只出一道題目考我。" },
   { id: "gaps", no: "05", title: "找出教材銜接缺口", description: "找出說明較少、前後銜接不足或需要補充才能理解的位置。", prompt: "請閱讀【{topic}】教材，找出其中說明較少或前後銜接不完整的概念，指出哪些部分需要額外補充才能理解，並提供簡短補充。必須區分教材原文與補充說明，不得把補充冒充成彭狸老師見解。" },
   { id: "mock", no: "06", title: "完整模擬考", description: "自訂選擇題、簡答題、申論題與考試時間。", prompt: "請依據【{topic}】出一份完整模擬考卷，包含 {mc} 題選擇題、{short} 題簡答題與 {essay} 題申論題，建議作答時間 {minutes} 分鐘。先只顯示試卷；答案、解析與申論評分重點另列在卷末。" },
-  { id: "audio", no: "07", title: "通勤語音摘要", description: "先產生適合聆聽的複習稿，再由裝置朗讀。", prompt: "請把【{topic}】整理成適合通勤聆聽的繁體中文語音摘要稿，聚焦核心爭點，針對容易混淆的概念多做說明。這是複習內容，不適合作為第一次學習。控制在約 {minutes} 分鐘可聽完。" },
+  { id: "audio", no: "07", title: "通勤語音摘要", description: "分段產生純口語稿，逐段上傳音檔並試聽確認。", prompt: "請把【{topic}】整理成約 {minutes} 分鐘的繁體中文通勤複習內容，拆成 4 至 8 段。每段分開提供前台標題與一段純口語稿；口語稿不可包含標題、頁碼、來源註記、符號或製作說明。" },
 ] as const;
 type Tool = typeof tools[number];
 type StudioMessage = { role: "student" | "coach"; text: string };
 type StudyRun = { id: number; tool: string; topic: string; outputText: string; sourceLabel: string; cacheHit: boolean; createdAt: string };
-type PublishedArtifact = { id: number; tool: string; topic: string; content: string; sourceLabel: string; audioUrl?: string | null; reviewStatus?: string; updatedAt: string };
+type AudioSegment = { id: number; position?: number; title: string; script?: string; audioFileName?: string | null; audioUrl?: string | null };
+type PublishedArtifact = { id: number; tool: string; topic: string; content: string; sourceLabel: string; audioUrl?: string | null; audioSegments?: AudioSegment[]; reviewStatus?: string; updatedAt: string };
 
 function StudyContent({ text }: { text: string }) {
   const lines = text
@@ -30,6 +31,12 @@ function StudyContent({ text }: { text: string }) {
     if (/^[※•●▪]|^[-–]\s/u.test(line)) return <p className="study-point" key={index}>{line.replace(/^[※•●▪-]\s*/u, "")}</p>;
     return <p key={index}>{line}</p>;
   })}</div>;
+}
+
+function AudioSegmentEditor({ segment, busy, onSave, onUpload, onRegenerate }: { segment: AudioSegment; busy: boolean; onSave: (segment: AudioSegment, title: string, script: string) => Promise<void>; onUpload: (segmentId: number, file?: File) => Promise<void>; onRegenerate: (segment: AudioSegment) => Promise<void> }) {
+  const [editing, setEditing] = useState(false), [title, setTitle] = useState(segment.title), [script, setScript] = useState(segment.script || "");
+  useEffect(() => { setTitle(segment.title); setScript(segment.script || ""); }, [segment.title, segment.script]);
+  return <section className="audio-segment-card"><header><span>段落 {String(segment.id).padStart(2, "0")}</span><h4>{segment.title}</h4></header>{editing ? <div className="audio-segment-edit"><label>前台標題<input value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>純語音稿<textarea rows={9} value={script} onChange={(event) => setScript(event.target.value)} /></label><div><button onClick={async () => { await onSave(segment, title, script); setEditing(false); }} disabled={busy || !title.trim() || !script.trim()}>儲存本段</button><button onClick={() => setEditing(false)} disabled={busy}>取消</button></div></div> : <p>{segment.script}</p>}<div className="audio-segment-actions"><button onClick={() => void navigator.clipboard.writeText(segment.script || "")} disabled={!segment.script}>複製純語音稿</button><button onClick={() => setEditing(true)} disabled={busy}>編輯本段</button><button onClick={() => void onRegenerate(segment)} disabled={busy}>重新生成本段</button><label>{segment.audioFileName ? "更換音檔" : "上傳本段音檔"}<input type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/ogg,audio/aac,audio/webm,.mp3,.m4a,.wav,.ogg,.aac,.webm" onChange={(event) => void onUpload(segment.id, event.target.files?.[0])} disabled={busy} /></label></div>{segment.audioUrl ? <div className="audio-segment-preview"><b>試聽確認</b><audio controls preload="metadata" src={segment.audioUrl}>你的瀏覽器不支援音訊播放。</audio><small>{segment.audioFileName}</small></div> : <small className="audio-segment-missing">尚未上傳本段音檔</small>}</section>;
 }
 
 export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boolean }) {
@@ -65,6 +72,7 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
     return () => window.removeEventListener("pengli-artifacts-updated", refresh);
   }, [adminMode]);
   const currentArtifact = published.find((item) => item.tool === active.id && item.topic === topic);
+  const resultArtifact = published.find((item) => item.id === resultArtifactId) || currentArtifact;
   const makePrompt = (targetTopic: string) => active.prompt.replaceAll("{topic}", targetTopic).replaceAll("{concept}", concept.trim() || `「${targetTopic}」中最重要的概念`).replaceAll("{mc}", String(mc)).replaceAll("{short}", String(short)).replaceAll("{essay}", String(essay)).replaceAll("{minutes}", String(minutes));
   const prompt = useMemo(() => makePrompt(topic), [active, topic, concept, mc, short, essay, minutes]);
   const topicBatchEnabled = adminMode && topicBatchTools.includes(active.id);
@@ -128,6 +136,37 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
     } catch (cause) { setError(cause instanceof Error ? cause.message : "無法儲存修改。"); }
     finally { setLoading(false); }
   }
+  async function saveAudioSegment(segment: AudioSegment, title: string, script: string) {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/admin/pengli-study-artifacts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit-audio-segment", segmentId: segment.id, title, content: script }) });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "無法儲存這一段語音稿。");
+      setResultNote("段落已儲存並改列待審核；若口語稿有修改，請重新上傳對應音檔。"); await loadPublished(false);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "無法儲存這一段語音稿。"); }
+    finally { setLoading(false); }
+  }
+  async function uploadAudioSegment(segmentId: number, file?: File) {
+    if (!file) return; setLoading(true); setError("");
+    try {
+      const form = new FormData(); form.set("segmentId", String(segmentId)); form.set("file", file);
+      const response = await fetch("/api/admin/pengli-study-artifacts/audio", { method: "POST", body: form });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "音檔上傳失敗。");
+      setResultNote("這一段音檔已上傳，可立即試聽；全部段落完成後再發布。"); await loadPublished(false);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "音檔上傳失敗。"); }
+    finally { setLoading(false); }
+  }
+  async function regenerateAudioSegment(segment: AudioSegment) {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: "audio", retrievalMode: "theme", forceNew: true, audioSegmentId: segment.id, messages: [{ role: "student", text: `請只重新撰寫「${segment.title}」這一段純口語稿。` }], requestKey: crypto.randomUUID(), topic }) });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "這一段無法重新生成。");
+      setResultNote("這一段已重新生成並改列待審核；原音檔已解除，請確認稿件後重新上傳。"); await loadPublished(false);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "這一段無法重新生成。"); }
+    finally { setLoading(false); }
+  }
   async function answerQuiz() {
     if (!quizAnswer.trim()) { setError("請先作答，再送出訂正。"); return; }
     const nextMessages: StudioMessage[] = [...quizMessages, { role: "student", text: quizAnswer.trim() }];
@@ -161,6 +200,11 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
       {adminMode && active.id === "mock" && <label><span>免費模擬考預產數量</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}><option value="1">1 份</option><option value="5">5 份（建議）</option><option value="10">10 份</option></select><small className="field-help">每份會分開保存並排除既有題目，審核發布後供所有同學免費練習。</small></label>}
       {topicBatchEnabled && <label><span>批次處理範圍</span><select value={batchScope} onChange={(event) => setBatchScope(event.target.value)}><option value="current">只產生目前主題</option><option value="missing5">產生尚未完成的 5 個主題（建議）</option><option value="all">產生全部尚未完成主題</option></select><small className="field-help">已有待審核或已發布成果的主題會自動跳過。{active.id === "explain" ? "若輸入指定概念，則只處理目前主題。" : ""}</small></label>}
       <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details>{!adminMode && active.id !== "mock" && <div className="admin-artifact-state published"><b>此功能使用老師預先發布的內容</b><span>請按右上角「免費學習內容」開啟，不需另外生成，也不扣次數。</span></div>}{adminMode && currentArtifact && <div className={`admin-artifact-state ${currentArtifact.reviewStatus === "published" ? "published" : "pending"}`}><b>{currentArtifact.reviewStatus === "published" ? "此主題已有已發布內容" : "此主題已有內容，尚待審核"}</b><span>{active.id === "quiz" || active.id === "mock" ? "可繼續批次產生不重複內容；每份會分開存入待審核清單。" : canGenerateAlongsideExisting ? "目前主題會跳過，系統將依序處理其他尚未完成的教材主題。" : currentArtifact.reviewStatus === "published" ? "學生前台已可直接閱讀，不需要再次產生。" : "請先查看內容，再到上方成果發布管理進行發布。"}</span></div>}{adminMode && currentArtifact && !canGenerateAlongsideExisting ? <button className="studio-run existing" onClick={() => { setResult(currentArtifact.content); setResultArtifactId(currentArtifact.id); setSource(currentArtifact.sourceLabel); setResultNote(currentArtifact.reviewStatus === "published" ? "此內容已發布到學生前台。" : "此內容尚待審核，尚未出現在學生前台。"); }}>{currentArtifact.reviewStatus === "published" ? "查看已發布內容" : "查看待審內容"}</button> : (adminMode || active.id === "mock") && <button className="studio-run" onClick={() => void run(false)} disabled={loading}>{loading ? adminMode && (active.id === "quiz" || active.id === "mock") ? "正在依序產生不重複內容…" : topicBatchEnabled && batchScope !== "current" ? "正在依序處理教材主題…" : "正在依教材準備…" : active.id === "quiz" && adminMode ? `批次產生 ${batchCount} 題` : active.id === "mock" ? adminMode ? `批次預產 ${batchCount} 份免費模擬考` : "產生新的模擬考（扣 1 次）" : topicBatchEnabled && batchScope !== "current" && !(active.id === "explain" && concept.trim()) ? batchScope === "all" ? "批次產生全部教材主題" : "批次產生 5 個教材主題" : `產生${active.title}`}</button>}{error && <p className="studio-error">{error}</p>}
-    </div>}{!showHistory && !showPublished && result && <article className="studio-result"><header><div><span>學習結果</span><h3>{active.title}</h3></div>{adminMode && <div className="result-actions"><button onClick={() => void navigator.clipboard.writeText(result)}>{active.id === "audio" ? "複製語音稿" : "複製內容"}</button>{resultArtifactId && <button onClick={() => { setDraftResult(result); setEditingResult(true); }}>編輯內容</button>}{resultArtifactId && <button onClick={() => void run(true)} disabled={loading}>重新生成</button>}</div>}</header>{resultNote && <p className="result-note">{resultNote}</p>}{editingResult ? <div className="result-editor"><textarea rows={20} value={draftResult} onChange={(event) => setDraftResult(event.target.value)} /><div><button onClick={() => void saveResultEdit()} disabled={loading || !draftResult.trim()}>儲存修改</button><button onClick={() => setEditingResult(false)} disabled={loading}>取消</button></div></div> : <>{active.id === "audio" && !adminMode && (audioUrl ? <audio className="studio-audio-player" controls preload="metadata" src={audioUrl}>你的瀏覽器不支援音訊播放。</audio> : <p className="studio-audio-notice">這份內容尚未完成音檔，請改選其他已發布的語音摘要。</p>)}{(active.id !== "audio" || adminMode) && <StudyContent text={result} />}</>}{adminMode && active.id === "quiz" && <div className="quiz-reply"><label><span>測試答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="輸入答案測試批改流程…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材批改…" : "送出測試"}</button></div>}<small>依據：{source}</small></article>}</section>
+    </div>}{!showHistory && !showPublished && result && <article className="studio-result">
+      <header><div><span>學習結果</span><h3>{active.title}</h3></div>{adminMode && active.id !== "audio" && <div className="result-actions"><button onClick={() => void navigator.clipboard.writeText(result)}>複製內容</button>{resultArtifactId && <button onClick={() => { setDraftResult(result); setEditingResult(true); }}>編輯內容</button>}{resultArtifactId && <button onClick={() => void run(true)} disabled={loading}>重新生成</button>}</div>}</header>
+      {resultNote && <p className="result-note">{resultNote}</p>}
+      {active.id === "audio" ? resultArtifact?.audioSegments?.length ? <div className="audio-segment-list">{resultArtifact.audioSegments.map((segment) => adminMode ? <AudioSegmentEditor key={segment.id} segment={segment} busy={loading} onSave={saveAudioSegment} onUpload={uploadAudioSegment} onRegenerate={regenerateAudioSegment} /> : <section className="student-audio-segment" key={segment.id}><h4>{segment.title}</h4>{segment.audioUrl && <audio controls preload="metadata" src={segment.audioUrl}>你的瀏覽器不支援音訊播放。</audio>}</section>)}</div> : <div className="studio-audio-notice">{adminMode ? <><p>這是舊版整篇語音稿，尚未拆成可逐段製作的格式。</p><button onClick={() => void run(true)} disabled={loading}>{loading ? "正在重新分段…" : "重新生成分段語音稿"}</button></> : <p>這份語音摘要尚未完成全部音檔。</p>}</div> : editingResult ? <div className="result-editor"><textarea rows={20} value={draftResult} onChange={(event) => setDraftResult(event.target.value)} /><div><button onClick={() => void saveResultEdit()} disabled={loading || !draftResult.trim()}>儲存修改</button><button onClick={() => setEditingResult(false)} disabled={loading}>取消</button></div></div> : <StudyContent text={result} />}
+      {adminMode && active.id === "quiz" && <div className="quiz-reply"><label><span>測試答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="輸入答案測試批改流程…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材批改…" : "送出測試"}</button></div>}<small>依據：{source}</small>
+    </article>}</section>
   </div>;
 }

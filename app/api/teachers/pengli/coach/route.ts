@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, like, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliStudyArtifacts, pengliStudyRuns, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
+import { documentAssignments, documentSearchUnits, documentSectionMappings, documents, judicialCases, legalArticles, legalDocuments, pengliStudyArtifacts, pengliStudyAudioSegments, pengliStudyRuns, pengliTeacherQuestions, usageLogs } from "../../../../../db/schema";
 import { estimateCostUsdMicros } from "../../../../../lib/usage";
 import { getOpenAIKey, openAIJson } from "../../../../../lib/openai";
 import { requireMember } from "../../../../../lib/member-auth";
@@ -16,6 +16,16 @@ const PENGLI_STUDY_PROMPT_VERSION = 1;
 function mockQuestionExcerpt(content: string) {
   const questionLines = content.split("\n").map((line) => line.trim()).filter((line) => /^(?:\d+|[一二三四五六七八九十]+)[.、）)]|[？?]$/u.test(line));
   return (questionLines.length ? questionLines.slice(0, 10).join(" ") : content).slice(0, 700);
+}
+
+function cleanAudioScript(value: string) {
+  return value.replace(/（?PDF\s*第?\s*\d+\s*頁）?/giu, "").replace(/^[#>*•-]+\s*/gmu, "").replace(/\n{3,}/gu, "\n\n").trim();
+}
+
+function parseAudioSegments(content: string, topic: string) {
+  const matches = [...content.matchAll(/【段落標題】\s*([^\n]+)\s*\n+【純語音稿】\s*([\s\S]*?)(?=\n+【段落標題】|$)/gu)];
+  if (matches.length) return matches.map((match, index) => ({ position: index, title: match[1].trim(), script: cleanAudioScript(match[2]) })).filter((item) => item.script);
+  return [{ position: 0, title: topic, script: cleanAudioScript(content) }];
 }
 
 async function studyCacheKey(tool: string, topic: string, messages: InputMessage[]) {
@@ -799,7 +809,7 @@ export async function POST(request: Request) {
   try {
     const auth = await requireMember(request);
     if ("error" in auth) return auth.error;
-    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer" | "study-tool"; studyTool?: string; retrievalMode?: "theme" | "keyword"; forceNew?: boolean; examConfig?: { mc?: number; short?: number; essay?: number; minutes?: number }; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
+    const body = await request.json() as { messages?: InputMessage[]; selectedText?: string; requestKey?: string; mode?: "scholar-assist" | "scholar-follow-up" | "plain-explain" | "verify-doubt" | "official-answer" | "study-tool"; studyTool?: string; retrievalMode?: "theme" | "keyword"; forceNew?: boolean; audioSegmentId?: number; examConfig?: { mc?: number; short?: number; essay?: number; minutes?: number }; allowAiFallback?: boolean; messageKey?: string; aiReply?: string; sourceLabel?: string; studentQuestion?: string; topic?: string; conversationKey?: string; pageHint?: number; testDocumentId?: number; testAnswerAnchor?: string; testIssueTitle?: string; testBodyRole?: string; testSourceExcerpt?: string; testContinuation?: boolean; boundaryTest?: boolean; boundaryQuestion?: string };
     if ((body.mode === "scholar-assist" || body.mode === "scholar-follow-up") && !(await getAiPlan(auth.db)).scholarAssistEnabled) {
       return Response.json({ error: "學霸幫我回答目前未開放。", code: "SCHOLAR_ASSIST_DISABLED" }, { status: 403 });
     }
@@ -818,6 +828,7 @@ export async function POST(request: Request) {
       if (!messages.length) return Response.json({ error: "請先選擇學習內容。" }, { status: 400 });
       const tool = String(body.studyTool || "tool").slice(0, 30);
       const topic = requestedTopic.slice(0, 120);
+      const [audioSegment] = auth.member.canAdmin && tool === "audio" && Number(body.audioSegmentId) > 0 ? await auth.db.select().from(pengliStudyAudioSegments).where(eq(pengliStudyAudioSegments.id, Number(body.audioSegmentId))).limit(1) : [];
       const requestKey = String(body.requestKey ?? crypto.randomUUID()).slice(0, 120);
       if (tool === "mock") {
         const counts = [body.examConfig?.mc, body.examConfig?.short, body.examConfig?.essay].map((value) => Math.max(0, Math.floor(Number(value || 0))));
@@ -863,7 +874,7 @@ export async function POST(request: Request) {
       const model = "gpt-5.6-luna";
       const payload = await openAIJson("/responses", { method: "POST", body: JSON.stringify({
         model,
-        instructions: `你是彭狸老師行政法「學霸讀書室」的學習內容整理器。嚴格執行學生選定的學習範本，並只使用本輪提供的彭狸老師教材片段。不得把模型常識、官方法規或其他老師資料冒充教材。每個實質主張都要標示可核對的 PDF 頁碼；教材不足時清楚標示「教材片段不足」，不得補造。輸出使用繁體中文，以全形標題、編號與換行排版，不使用 Markdown 表格或井字標題。若範本是逐題測驗：第一次只出一題且不公布答案；學生回答後，先逐點訂正與說明，再依程度出下一題，仍不得先公布新題答案。若是完整模擬考，依指定題數完整輸出試卷與卷末答案解析。\n\n【本輪教材】\n${evidenceText}`,
+        instructions: `你是彭狸老師行政法「學霸讀書室」的學習內容整理器。嚴格執行學生選定的學習範本，並只使用本輪提供的彭狸老師教材片段。不得把模型常識、官方法規或其他老師資料冒充教材。${tool === "audio" ? audioSegment ? `只重新撰寫「${audioSegment.title}」這一段可直接朗讀的繁體中文口語稿。只輸出口語正文，不輸出標題、頁碼、括號來源、Markdown、項目符號或任何製作說明。` : "語音摘要必須拆成 4 至 8 段，每段只能依序使用兩行標記：第一行「【段落標題】標題」，第二行「【純語音稿】可直接朗讀的口語正文」。標題供畫面顯示，不得在口語稿中重複；口語稿不得含頁碼、來源註記、Markdown、項目符號或製作說明。每段聚焦一個爭點並自然銜接。" : "每個實質主張都要標示可核對的 PDF 頁碼；教材不足時清楚標示「教材片段不足」，不得補造。輸出使用繁體中文，以全形標題、編號與換行排版，不使用 Markdown 表格或井字標題。"}若範本是逐題測驗：第一次只出一題且不公布答案；學生回答後，先逐點訂正與說明，再依程度出下一題，仍不得先公布新題答案。若是完整模擬考，依指定題數完整輸出試卷與卷末答案解析。\n\n【本輪教材】\n${evidenceText}`,
         input: modelMessages,
         max_output_tokens: tool === "mock" || tool === "guide" ? 2400 : 1500,
       }) }) as Record<string, unknown>;
@@ -871,7 +882,14 @@ export async function POST(request: Request) {
       if (!reply) return Response.json({ error: "學習內容沒有完成產生，請再試一次。" }, { status: 502 });
       const sourceLabel = `${evidence.title || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}`;
       let artifactId: number | null = null;
-      if (shareable) {
+      if (audioSegment) {
+        const [parent] = await auth.db.select().from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.id, audioSegment.artifactId)).limit(1);
+        if (!parent || parent.topic !== topic) return Response.json({ error: "找不到這一段語音稿。" }, { status: 404 });
+        await auth.db.update(pengliStudyAudioSegments).set({ script: cleanAudioScript(reply), audioStorageKey: null, audioFileName: null, audioContentType: null, audioSizeBytes: null, updatedAt: new Date() }).where(eq(pengliStudyAudioSegments.id, audioSegment.id));
+        await auth.db.update(pengliStudyArtifacts).set({ reviewStatus: "pending_review", updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, parent.id));
+        if (audioSegment.audioStorageKey) { const { env } = await import("cloudflare:workers"); await env.BUCKET?.delete(audioSegment.audioStorageKey).catch(() => undefined); }
+        artifactId = parent.id;
+      } else if (shareable) {
         const [existingArtifact] = body.forceNew && cacheKey ? await auth.db.select().from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.cacheKey, cacheKey)).limit(1) : [];
         if (existingArtifact) {
           const [updated] = await auth.db.update(pengliStudyArtifacts).set({ parametersJson: JSON.stringify(rawMessages), promptVersion: PENGLI_STUDY_PROMPT_VERSION, content: reply, sourceLabel, reviewStatus: "pending_review", audioStorageKey: null, audioFileName: null, audioContentType: null, audioSizeBytes: null, updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, existingArtifact.id)).returning({ id: pengliStudyArtifacts.id });
@@ -885,6 +903,14 @@ export async function POST(request: Request) {
           const [artifact] = await auth.db.select({ id: pengliStudyArtifacts.id }).from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.cacheKey, cacheKey)).limit(1);
           artifactId = artifact?.id ?? null;
         }
+      }
+      if (shareable && tool === "audio" && artifactId && !audioSegment) {
+        const oldSegments = await auth.db.select().from(pengliStudyAudioSegments).where(eq(pengliStudyAudioSegments.artifactId, artifactId));
+        const { env } = await import("cloudflare:workers");
+        for (const segment of oldSegments) if (segment.audioStorageKey) await env.BUCKET?.delete(segment.audioStorageKey).catch(() => undefined);
+        await auth.db.delete(pengliStudyAudioSegments).where(eq(pengliStudyAudioSegments.artifactId, artifactId));
+        const segments = parseAudioSegments(reply, topic);
+        if (segments.length) await auth.db.insert(pengliStudyAudioSegments).values(segments.map((segment) => ({ ...segment, artifactId })));
       }
       if (!auth.member.canAdmin) await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: reply, sourceLabel, cacheHit: false }).onConflictDoNothing();
       const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
