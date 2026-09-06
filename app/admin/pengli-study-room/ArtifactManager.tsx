@@ -48,7 +48,7 @@ export default function ArtifactManager() {
     setBusy(true); setNotice("正在儲存修改…");
     const response = await fetch("/api/admin/pengli-study-artifacts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: editingId, action: "edit", content: draftContent, sourceLabel: draftSourceLabel }) });
     const data = await response.json() as { error?: string };
-    setNotice(response.ok ? "內容已儲存；若原本已發布，學生前台會同步顯示最新版。" : data.error || "儲存失敗。");
+    setNotice(response.ok ? "內容已儲存並改列待審核；確認後請重新發布。語音稿若有修改，需重新上傳對應音檔。" : data.error || "儲存失敗。");
     if (response.ok) { setEditingId(null); await load(); window.dispatchEvent(new Event("pengli-artifacts-updated")); }
     setBusy(false);
   }

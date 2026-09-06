@@ -296,6 +296,12 @@
   font-weight: 800;
   cursor: pointer;
 }
+.result-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.result-editor { display: grid; gap: 12px; padding: 16px 0; }
+.result-editor textarea { width: 100%; min-height: 360px; box-sizing: border-box; resize: vertical; border: 1px solid #b9ccd7; border-radius: 10px; padding: 14px; background: #fff; color: #173f5a; font: inherit; line-height: 1.75; }
+.result-editor > div { display: flex; gap: 8px; }
+.result-editor button { border: 1px solid #315f7e; border-radius: 8px; padding: 9px 14px; background: #315f7e; color: #fff; font-weight: 800; cursor: pointer; }
+.result-editor button + button { background: #fff; color: #315f7e; }
 .studio-result > .study-content {
   padding: 16px 0;
 }

@@ -18,10 +18,15 @@ export async function PATCH(request: Request) {
   if (!ids.length || !body.action) return Response.json({ error: "缺少成果或操作。" }, { status: 400 });
   if (body.action === "edit") {
     if (ids.length !== 1 || !body.content?.trim()) return Response.json({ error: "請提供一筆成果及完整內容。" }, { status: 400 });
+    const [current] = await auth.db.select().from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.id, ids[0])).limit(1);
+    if (!current) return Response.json({ error: "找不到這筆學習成果。" }, { status: 404 });
     const [row] = await auth.db.update(pengliStudyArtifacts)
-      .set({ content: body.content.trim(), sourceLabel: body.sourceLabel?.trim() || "教材內容", updatedAt: new Date() })
+      .set({ content: body.content.trim(), sourceLabel: body.sourceLabel?.trim() || "教材內容", reviewStatus: "pending_review", ...(current.tool === "audio" ? { audioStorageKey: null, audioFileName: null, audioContentType: null, audioSizeBytes: null } : {}), updatedAt: new Date() })
       .where(eq(pengliStudyArtifacts.id, ids[0])).returning();
-    if (!row) return Response.json({ error: "找不到這筆學習成果。" }, { status: 404 });
+    if (current.tool === "audio" && current.audioStorageKey) {
+      const { env } = await import("cloudflare:workers");
+      await env.BUCKET?.delete(current.audioStorageKey).catch(() => undefined);
+    }
     return Response.json({ row, updatedCount: 1 });
   }
   if (body.action === "publish") {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const topics = ["行政法理論基礎與行政組織法", "行政處分", "行政契約與行政命令", "行政罰法", "行政執行法", "訴願法與行政訴訟法", "國家賠償法與損失補償", "新進實務見解整理"];
-const topicBatchTools = ["guide", "priority", "explain", "gaps", "audio"];
+const topicBatchTools = ["guide", "quiz", "priority", "explain", "gaps", "mock", "audio"];
 const tools = [
   { id: "guide", no: "01", title: "完整讀書指南", description: "完整整理全部爭點、核心概念、常見誤解與考題，建立教材地圖。", prompt: "用彭狸老師教材中的【{topic}】做一份完整讀書指南，依爭點分類。每個爭點包含：3 個核心概念、2 個常見誤解、2 道附解答的考題。只能根據教材，並標示依據頁碼。" },
   { id: "quiz", no: "02", title: "反過來考我", description: "從基礎題開始，一次只問一題；答完才訂正並提高難度。", prompt: "針對【{topic}】最重要的概念對我進行測驗。從基礎題開始，逐步提高難度。一次只能出一題，不要先公布答案；等我回答後，再依教材給回饋與說明，確認後才出下一題。" },
@@ -40,10 +40,12 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
   const [batchCount, setBatchCount] = useState(5);
   const [batchScope, setBatchScope] = useState("current");
   const [result, setResult] = useState(""), [source, setSource] = useState(""), [error, setError] = useState(""), [loading, setLoading] = useState(false);
+  const [resultArtifactId, setResultArtifactId] = useState<number | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [quizAnswer, setQuizAnswer] = useState("");
   const [quizMessages, setQuizMessages] = useState<StudioMessage[]>([]);
   const [resultNote, setResultNote] = useState("");
+  const [editingResult, setEditingResult] = useState(false), [draftResult, setDraftResult] = useState("");
   const [history, setHistory] = useState<StudyRun[]>([]), [showHistory, setShowHistory] = useState(false), [historyLoading, setHistoryLoading] = useState(false);
   const [published, setPublished] = useState<PublishedArtifact[]>([]), [showPublished, setShowPublished] = useState(false), [publishedLoading, setPublishedLoading] = useState(false);
   async function loadPublished(open = true) {
@@ -67,7 +69,7 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
   const prompt = useMemo(() => makePrompt(topic), [active, topic, concept, mc, short, essay, minutes]);
   const topicBatchEnabled = adminMode && topicBatchTools.includes(active.id);
   const canGenerateAlongsideExisting = active.id === "quiz" || active.id === "mock" || (topicBatchEnabled && batchScope !== "current" && !(active.id === "explain" && concept.trim()));
-  async function run() {
+  async function run(forceRegenerate = false) {
     if (!adminMode && active.id !== "mock") { setError("這項內容由老師後台整理發布，請從「免費學習內容」直接開啟。"); return; }
     if (active.id === "mock" && mc + short + essay < 1) { setError("請至少設定一題選擇題、簡答題或申論題。"); return; }
     if (active.id === "mock" && mc + short + essay > 10) { setError("每份模擬考最多 10 題，能兼顧生成品質與去除重複。"); return; }
@@ -75,37 +77,55 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
     setLoading(true); setError(""); setResult(""); setSource(""); setAudioUrl(null);
     try {
       const missingTopics = topics.filter((item) => !published.some((artifact) => artifact.tool === active.id && artifact.topic === item));
+      const batchCandidates = active.id === "quiz" || active.id === "mock" ? topics : missingTopics;
       const targetTopics = topicBatchEnabled && batchScope !== "current" && !(active.id === "explain" && concept.trim())
-        ? (batchScope === "missing5" ? missingTopics.slice(0, 5) : missingTopics)
+        ? (batchScope === "missing5" ? batchCandidates.slice(0, 5) : batchCandidates)
         : [topic];
       if (!targetTopics.length) throw new Error("這個範本的所有教材主題都已經產生完成，不需要重複生成。");
-      const total = adminMode && (active.id === "quiz" || active.id === "mock") ? batchCount : targetTopics.length;
+      const perTopicCount = adminMode && (active.id === "quiz" || active.id === "mock") ? batchCount : 1;
+      const total = targetTopics.length * perTopicCount;
       const generated: Array<{ topic: string; text: string }> = [];
+      const failures: string[] = [];
       let latestSource = "彭狸老師教材";
-      let latestData: { cached?: boolean; saved?: boolean } = {};
-      const existing = published.filter((item) => item.tool === "quiz" && item.topic === topic).map((item) => item.content.slice(0, 180));
+      let latestData: { cached?: boolean; saved?: boolean; artifactId?: number | null } = {};
       for (let index = 0; index < total; index += 1) {
-        const targetTopic = active.id === "quiz" ? topic : targetTopics[index];
-        const excluded = [...existing, ...generated.map((item) => item.text.slice(0, 180))];
+        const targetTopic = targetTopics[Math.floor(index / perTopicCount)];
+        const topicIndex = index % perTopicCount;
+        const existing = published.filter((item) => item.tool === active.id && item.topic === targetTopic).map((item) => item.content.slice(0, 180));
+        const excluded = [...existing, ...generated.filter((item) => item.topic === targetTopic).map((item) => item.text.slice(0, 180))];
         const itemPrompt = makePrompt(targetTopic);
         const batchPrompt = adminMode && (active.id === "quiz" || active.id === "mock")
-          ? `${itemPrompt}\n\n【後台批次${active.id === "mock" ? "產生模擬考" : "出題"}】這是第 ${index + 1} 份，共 ${total} 份。核心題目不得與下列既有內容重複，也不得只替換人名、數字或選項順序：\n${excluded.length ? excluded.map((item, itemIndex) => `${itemIndex + 1}. ${item}`).join("\n") : "目前沒有既有內容。"}`
+          ? `${itemPrompt}\n\n【後台批次${active.id === "mock" ? "產生模擬考" : "出題"}】這是「${targetTopic}」第 ${topicIndex + 1} 份，共 ${perTopicCount} 份。核心題目不得與下列既有內容重複，也不得只替換人名、數字或選項順序：\n${excluded.length ? excluded.map((item, itemIndex) => `${itemIndex + 1}. ${item}`).join("\n") : "目前沒有既有內容。"}`
           : itemPrompt;
         const retrievalMode = active.id === "explain" && concept.trim() ? "keyword" : "theme";
-        const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: active.id, retrievalMode, forceNew: !adminMode && active.id === "mock", examConfig: active.id === "mock" ? { mc, short, essay, minutes } : undefined, messages: [{ role: "student", text: batchPrompt }], requestKey: crypto.randomUUID(), topic: targetTopic }) });
-        const data = await response.json() as { reply?: string; source?: string; error?: string; cached?: boolean; saved?: boolean };
-        if (!response.ok || !data.reply) throw new Error(`${generated.length ? `已完成 ${generated.length} 份；` : ""}${targetTopic}：${data.error || "目前無法產生學習內容。"}`);
+        const response = await fetch("/api/teachers/pengli/coach", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "study-tool", studyTool: active.id, retrievalMode, forceNew: forceRegenerate || (!adminMode && active.id === "mock"), examConfig: active.id === "mock" ? { mc, short, essay, minutes } : undefined, messages: [{ role: "student", text: batchPrompt }], requestKey: crypto.randomUUID(), topic: targetTopic }) });
+        const data = await response.json() as { reply?: string; source?: string; error?: string; cached?: boolean; saved?: boolean; artifactId?: number | null };
+        if (!response.ok || !data.reply) { failures.push(`${targetTopic}${perTopicCount > 1 ? `第 ${topicIndex + 1} 份` : ""}：${data.error || "無法產生"}`); continue; }
         generated.push({ topic: targetTopic, text: data.reply }); latestSource = data.source || latestSource; latestData = data;
       }
-      const combined = generated.map((item, index) => total > 1 ? active.id === "quiz" ? `【第 ${index + 1} 題】\n${item.text}` : `【${item.topic}】\n${item.text}` : item.text).join("\n\n---\n\n");
-      setResult(combined); setSource(latestSource);
-      setResultNote(total > 1 ? `已依序完成 ${generated.length} ${active.id === "quiz" ? "題" : active.id === "mock" ? "份模擬考" : "個教材主題"}，每份均已分開存入成果庫並列為待審核。` : latestData.cached ? "已從免費共用成果庫載入，本次不扣生成次數。" : latestData.saved ? (adminMode ? "已存入成果庫並列為待審核；請在上方確認後發布到前台。" : "這份模擬考已保存；本次扣 1 次生成額度，之後可不限次數練習。") : "");
+      if (!generated.length) throw new Error(failures.join("；") || "目前無法產生學習內容。");
+      const combined = generated.map((item, index) => total > 1 ? active.id === "quiz" ? `【${item.topic}｜第 ${index + 1} 題】\n${item.text}` : `【${item.topic}】\n${item.text}` : item.text).join("\n\n---\n\n");
+      setResult(combined); setSource(latestSource); setResultArtifactId(total === 1 ? latestData.artifactId || null : null); setEditingResult(false);
+      setResultNote(total > 1 ? `已依序完成 ${generated.length} 份成果${failures.length ? `；另有 ${failures.length} 份失敗，可稍後重試` : ""}。每份均已分開存入成果庫並列為待審核。` : latestData.cached ? "已從免費共用成果庫載入，本次不扣生成次數。" : latestData.saved ? (adminMode ? "已存入成果庫並列為待審核；請在上方確認後發布到前台。" : "這份模擬考已保存；本次扣 1 次生成額度，之後可不限次數練習。") : "");
       if (adminMode) {
         void loadPublished(false);
         window.dispatchEvent(new Event("pengli-artifact-generated"));
       }
       if (active.id === "quiz" && total === 1) setQuizMessages([{ role: "student", text: prompt }, { role: "coach", text: generated[0].text }]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "目前無法產生學習內容。"); }
+    finally { setLoading(false); }
+  }
+  async function saveResultEdit() {
+    const artifact = published.find((item) => item.id === resultArtifactId) || published.find((item) => item.tool === active.id && item.topic === topic);
+    if (!artifact || !draftResult.trim()) { setError("找不到這筆成果，請重新整理後再試。"); return; }
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/admin/pengli-study-artifacts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: artifact.id, action: "edit", content: draftResult, sourceLabel: source }) });
+      const data = await response.json() as { row?: PublishedArtifact; error?: string };
+      if (!response.ok || !data.row) throw new Error(data.error || "無法儲存修改。");
+      setResult(data.row.content); setEditingResult(false); setAudioUrl(null); setResultNote("修改已儲存並改列待審核；確認內容後再發布到學生前台。");
+      await loadPublished(false); window.dispatchEvent(new Event("pengli-artifacts-updated"));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "無法儲存修改。"); }
     finally { setLoading(false); }
   }
   async function answerQuiz() {
@@ -140,7 +160,7 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
       {adminMode && active.id === "quiz" && <label><span>批次出題數量</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}><option value="1">1 題</option><option value="5">5 題（建議）</option><option value="10">10 題</option></select><small className="field-help">系統會依序逐題生成、分開保存，並排除本主題既有題目。</small></label>}
       {adminMode && active.id === "mock" && <label><span>免費模擬考預產數量</span><select value={batchCount} onChange={(event) => setBatchCount(Number(event.target.value))}><option value="1">1 份</option><option value="5">5 份（建議）</option><option value="10">10 份</option></select><small className="field-help">每份會分開保存並排除既有題目，審核發布後供所有同學免費練習。</small></label>}
       {topicBatchEnabled && <label><span>批次處理範圍</span><select value={batchScope} onChange={(event) => setBatchScope(event.target.value)}><option value="current">只產生目前主題</option><option value="missing5">產生尚未完成的 5 個主題（建議）</option><option value="all">產生全部尚未完成主題</option></select><small className="field-help">已有待審核或已發布成果的主題會自動跳過。{active.id === "explain" ? "若輸入指定概念，則只處理目前主題。" : ""}</small></label>}
-      <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details>{!adminMode && active.id !== "mock" && <div className="admin-artifact-state published"><b>此功能使用老師預先發布的內容</b><span>請按右上角「免費學習內容」開啟，不需另外生成，也不扣次數。</span></div>}{adminMode && currentArtifact && <div className={`admin-artifact-state ${currentArtifact.reviewStatus === "published" ? "published" : "pending"}`}><b>{currentArtifact.reviewStatus === "published" ? "此主題已有已發布內容" : "此主題已有內容，尚待審核"}</b><span>{active.id === "quiz" || active.id === "mock" ? "可繼續批次產生不重複內容；每份會分開存入待審核清單。" : canGenerateAlongsideExisting ? "目前主題會跳過，系統將依序處理其他尚未完成的教材主題。" : currentArtifact.reviewStatus === "published" ? "學生前台已可直接閱讀，不需要再次產生。" : "請先查看內容，再到上方成果發布管理進行發布。"}</span></div>}{adminMode && currentArtifact && !canGenerateAlongsideExisting ? <button className="studio-run existing" onClick={() => { setResult(currentArtifact.content); setSource(currentArtifact.sourceLabel); setResultNote(currentArtifact.reviewStatus === "published" ? "此內容已發布到學生前台。" : "此內容尚待審核，尚未出現在學生前台。"); }}>{currentArtifact.reviewStatus === "published" ? "查看已發布內容" : "查看待審內容"}</button> : (adminMode || active.id === "mock") && <button className="studio-run" onClick={run} disabled={loading}>{loading ? adminMode && (active.id === "quiz" || active.id === "mock") ? "正在依序產生不重複內容…" : topicBatchEnabled && batchScope !== "current" ? "正在依序處理教材主題…" : "正在依教材準備…" : active.id === "quiz" && adminMode ? `批次產生 ${batchCount} 題` : active.id === "mock" ? adminMode ? `批次預產 ${batchCount} 份免費模擬考` : "產生新的模擬考（扣 1 次）" : topicBatchEnabled && batchScope !== "current" && !(active.id === "explain" && concept.trim()) ? batchScope === "all" ? "批次產生全部未完成主題" : "批次產生 5 個未完成主題" : `產生${active.title}`}</button>}{error && <p className="studio-error">{error}</p>}
-    </div>}{!showHistory && !showPublished && result && <article className="studio-result"><header><div><span>學習結果</span><h3>{active.title}</h3></div>{adminMode && active.id === "audio" && <button onClick={() => void navigator.clipboard.writeText(result)}>複製語音稿</button>}</header>{resultNote && <p className="result-note">{resultNote}</p>}{active.id === "audio" && !adminMode && (audioUrl ? <audio className="studio-audio-player" controls preload="metadata" src={audioUrl}>你的瀏覽器不支援音訊播放。</audio> : <p className="studio-audio-notice">這份內容尚未完成音檔，請改選其他已發布的語音摘要。</p>)}{(active.id !== "audio" || adminMode) && <StudyContent text={result} />}{adminMode && active.id === "quiz" && <div className="quiz-reply"><label><span>測試答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="輸入答案測試批改流程…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材批改…" : "送出測試"}</button></div>}<small>依據：{source}</small></article>}</section>
+      <details className="prompt-template"><summary>查看本次學習範本</summary><pre>{prompt}</pre></details>{!adminMode && active.id !== "mock" && <div className="admin-artifact-state published"><b>此功能使用老師預先發布的內容</b><span>請按右上角「免費學習內容」開啟，不需另外生成，也不扣次數。</span></div>}{adminMode && currentArtifact && <div className={`admin-artifact-state ${currentArtifact.reviewStatus === "published" ? "published" : "pending"}`}><b>{currentArtifact.reviewStatus === "published" ? "此主題已有已發布內容" : "此主題已有內容，尚待審核"}</b><span>{active.id === "quiz" || active.id === "mock" ? "可繼續批次產生不重複內容；每份會分開存入待審核清單。" : canGenerateAlongsideExisting ? "目前主題會跳過，系統將依序處理其他尚未完成的教材主題。" : currentArtifact.reviewStatus === "published" ? "學生前台已可直接閱讀，不需要再次產生。" : "請先查看內容，再到上方成果發布管理進行發布。"}</span></div>}{adminMode && currentArtifact && !canGenerateAlongsideExisting ? <button className="studio-run existing" onClick={() => { setResult(currentArtifact.content); setResultArtifactId(currentArtifact.id); setSource(currentArtifact.sourceLabel); setResultNote(currentArtifact.reviewStatus === "published" ? "此內容已發布到學生前台。" : "此內容尚待審核，尚未出現在學生前台。"); }}>{currentArtifact.reviewStatus === "published" ? "查看已發布內容" : "查看待審內容"}</button> : (adminMode || active.id === "mock") && <button className="studio-run" onClick={() => void run(false)} disabled={loading}>{loading ? adminMode && (active.id === "quiz" || active.id === "mock") ? "正在依序產生不重複內容…" : topicBatchEnabled && batchScope !== "current" ? "正在依序處理教材主題…" : "正在依教材準備…" : active.id === "quiz" && adminMode ? `批次產生 ${batchCount} 題` : active.id === "mock" ? adminMode ? `批次預產 ${batchCount} 份免費模擬考` : "產生新的模擬考（扣 1 次）" : topicBatchEnabled && batchScope !== "current" && !(active.id === "explain" && concept.trim()) ? batchScope === "all" ? "批次產生全部教材主題" : "批次產生 5 個教材主題" : `產生${active.title}`}</button>}{error && <p className="studio-error">{error}</p>}
+    </div>}{!showHistory && !showPublished && result && <article className="studio-result"><header><div><span>學習結果</span><h3>{active.title}</h3></div>{adminMode && <div className="result-actions"><button onClick={() => void navigator.clipboard.writeText(result)}>{active.id === "audio" ? "複製語音稿" : "複製內容"}</button>{resultArtifactId && <button onClick={() => { setDraftResult(result); setEditingResult(true); }}>編輯內容</button>}{resultArtifactId && <button onClick={() => void run(true)} disabled={loading}>重新生成</button>}</div>}</header>{resultNote && <p className="result-note">{resultNote}</p>}{editingResult ? <div className="result-editor"><textarea rows={20} value={draftResult} onChange={(event) => setDraftResult(event.target.value)} /><div><button onClick={() => void saveResultEdit()} disabled={loading || !draftResult.trim()}>儲存修改</button><button onClick={() => setEditingResult(false)} disabled={loading}>取消</button></div></div> : <>{active.id === "audio" && !adminMode && (audioUrl ? <audio className="studio-audio-player" controls preload="metadata" src={audioUrl}>你的瀏覽器不支援音訊播放。</audio> : <p className="studio-audio-notice">這份內容尚未完成音檔，請改選其他已發布的語音摘要。</p>)}{(active.id !== "audio" || adminMode) && <StudyContent text={result} />}</>}{adminMode && active.id === "quiz" && <div className="quiz-reply"><label><span>測試答案</span><textarea rows={4} value={quizAnswer} onChange={(event) => setQuizAnswer(event.target.value)} placeholder="輸入答案測試批改流程…" /></label><button onClick={answerQuiz} disabled={loading}>{loading ? "正在依教材批改…" : "送出測試"}</button></div>}<small>依據：{source}</small></article>}</section>
   </div>;
 }

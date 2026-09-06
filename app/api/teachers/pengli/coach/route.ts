@@ -872,9 +872,19 @@ export async function POST(request: Request) {
       const sourceLabel = `${evidence.title || "彭狸老師《行政法考點演習書（二版）》"}｜${topic}`;
       let artifactId: number | null = null;
       if (shareable) {
-        await auth.db.insert(pengliStudyArtifacts).values({ cacheKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, parametersJson: JSON.stringify(rawMessages), promptVersion: PENGLI_STUDY_PROMPT_VERSION, content: reply, sourceLabel, generatedByMemberId: auth.member.id }).onConflictDoNothing();
-        const [artifact] = await auth.db.select({ id: pengliStudyArtifacts.id }).from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.cacheKey, cacheKey)).limit(1);
-        artifactId = artifact?.id ?? null;
+        const [existingArtifact] = body.forceNew && cacheKey ? await auth.db.select().from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.cacheKey, cacheKey)).limit(1) : [];
+        if (existingArtifact) {
+          const [updated] = await auth.db.update(pengliStudyArtifacts).set({ parametersJson: JSON.stringify(rawMessages), promptVersion: PENGLI_STUDY_PROMPT_VERSION, content: reply, sourceLabel, reviewStatus: "pending_review", audioStorageKey: null, audioFileName: null, audioContentType: null, audioSizeBytes: null, updatedAt: new Date() }).where(eq(pengliStudyArtifacts.id, existingArtifact.id)).returning({ id: pengliStudyArtifacts.id });
+          artifactId = updated?.id ?? existingArtifact.id;
+          if (existingArtifact.audioStorageKey) {
+            const { env } = await import("cloudflare:workers");
+            await env.BUCKET?.delete(existingArtifact.audioStorageKey).catch(() => undefined);
+          }
+        } else {
+          await auth.db.insert(pengliStudyArtifacts).values({ cacheKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, parametersJson: JSON.stringify(rawMessages), promptVersion: PENGLI_STUDY_PROMPT_VERSION, content: reply, sourceLabel, generatedByMemberId: auth.member.id }).onConflictDoNothing();
+          const [artifact] = await auth.db.select({ id: pengliStudyArtifacts.id }).from(pengliStudyArtifacts).where(eq(pengliStudyArtifacts.cacheKey, cacheKey)).limit(1);
+          artifactId = artifact?.id ?? null;
+        }
       }
       if (!auth.member.canAdmin) await auth.db.insert(pengliStudyRuns).values({ memberId: auth.member.id, artifactId, requestKey, bookVersion: PENGLI_STUDY_BOOK_VERSION, tool, topic, inputJson: JSON.stringify(rawMessages), outputText: reply, sourceLabel, cacheHit: false }).onConflictDoNothing();
       const usage = payload.usage as { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } } | undefined;
