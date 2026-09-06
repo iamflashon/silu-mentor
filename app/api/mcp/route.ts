@@ -28,11 +28,13 @@ async function mcpConfiguration() {
   const runtime = env as unknown as {
     MCP_ENABLED?: string;
     MCP_ACCESS_TOKEN?: string;
+    ANGLE_PEDIA_SERVICE_TOKEN?: string;
     MCP_PUBLIC_TEST_ENABLED?: string;
   };
   return {
     enabled: (runtime.MCP_ENABLED ?? process.env.MCP_ENABLED ?? "").trim().toLowerCase() === "true",
     token: (runtime.MCP_ACCESS_TOKEN ?? process.env.MCP_ACCESS_TOKEN ?? "").trim(),
+    anglePediaToken: (runtime.ANGLE_PEDIA_SERVICE_TOKEN ?? process.env.ANGLE_PEDIA_SERVICE_TOKEN ?? "").trim(),
     publicTestEnabled:
       (runtime.MCP_PUBLIC_TEST_ENABLED ?? process.env.MCP_PUBLIC_TEST_ENABLED ?? "")
         .trim()
@@ -48,7 +50,7 @@ async function authorize(request: Request) {
   if (config.publicTestEnabled) return null;
   if (!config.token) return new Response("MCP 尚未啟用", { status: 503, headers: { "cache-control": "no-store" } });
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  if (supplied !== config.token) return new Response("Unauthorized", { status: 401, headers: { "www-authenticate": "Bearer", "cache-control": "no-store" } });
+  if (supplied !== config.token && (!config.anglePediaToken || supplied !== config.anglePediaToken)) return new Response("Unauthorized", { status: 401, headers: { "www-authenticate": "Bearer", "cache-control": "no-store" } });
   return null;
 }
 
