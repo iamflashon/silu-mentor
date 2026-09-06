@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, like, lte, not, or, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { judicialCases } from "../db/schema";
 
@@ -6,6 +6,15 @@ export type JudicialSearchInput = {
   query?: string;
   court?: string;
   year?: string;
+  anyTerms?: string;
+  allTerms?: string;
+  excludeTerms?: string;
+  person?: string;
+  courtLevel?: string;
+  division?: string;
+  caseType?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
   includeAvailableTotal?: boolean;
   searchMode?: "auto" | "keyword" | "phrase";
@@ -80,10 +89,16 @@ export function judicialCourtName(value: string, jid = "") {
 }
 
 function normalizeInput(input: JudicialSearchInput) {
+  const short = (value: string | undefined, limit = 120) => (value ?? "").trim().slice(0, limit);
   return {
-    query: (input.query ?? "").trim().slice(0, 120),
-    court: (input.court ?? "").trim().slice(0, 80),
+    query: short(input.query),
+    court: short(input.court, 80),
     year: (input.year ?? "").replace(/\D/g, "").slice(0, 3),
+    anyTerms: short(input.anyTerms), allTerms: short(input.allTerms), excludeTerms: short(input.excludeTerms),
+    person: short(input.person, 80), courtLevel: short(input.courtLevel, 24), division: short(input.division, 24),
+    caseType: short(input.caseType, 24),
+    dateFrom: (input.dateFrom ?? "").replace(/\D/g, "").slice(0, 8),
+    dateTo: (input.dateTo ?? "").replace(/\D/g, "").slice(0, 8),
     limit: Math.max(1, Math.min(30, Number(input.limit) || 12)),
     searchMode: input.searchMode === "keyword" || input.searchMode === "phrase" ? input.searchMode : "auto" as const,
   };
@@ -97,27 +112,23 @@ function parseDocketQuery(query: string) {
 }
 
 export async function searchJudicialCases(input: JudicialSearchInput) {
-  const { query, court, year, limit, searchMode } = normalizeInput(input);
+  const { query, court, year, anyTerms, allTerms, excludeTerms, person, courtLevel, division, caseType, dateFrom, dateTo, limit, searchMode } = normalizeInput(input);
   const db = await getDb();
   const [available] = input.includeAvailableTotal === false
     ? [{ value: 0 }]
     : await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(eq(judicialCases.status, "active"));
   const conditions = [eq(judicialCases.status, "active")];
+  const splitTerms = (value: string) => value.split(/[\s，、；;＋+]+/).map((term) => term.trim()).filter((term) => term.length >= 2).slice(0, 8);
+  const searchableTerm = (term: string) => {
+    const pattern = `%${escapeLike(term)}%`;
+    return or(
+      like(judicialCases.jid, pattern), like(judicialCases.title, pattern), like(judicialCases.fullText, pattern),
+      like(judicialCases.rawJson, pattern), like(judicialCases.court, pattern), like(judicialCases.caseType, pattern), like(judicialCases.caseNo, pattern),
+    )!;
+  };
   const docket = searchMode === "keyword" ? null : parseDocketQuery(query);
   if (query) {
     const queryTerms = query.split(/\s+/).map((term) => term.trim()).filter(Boolean).slice(0, 4);
-    const searchableTerm = (term: string) => {
-      const pattern = `%${escapeLike(term)}%`;
-      return or(
-        like(judicialCases.jid, pattern),
-        like(judicialCases.title, pattern),
-        like(judicialCases.fullText, pattern),
-        like(judicialCases.rawJson, pattern),
-        like(judicialCases.court, pattern),
-        like(judicialCases.caseType, pattern),
-        like(judicialCases.caseNo, pattern),
-      )!;
-    };
     const compactQuery = query.replace(/[\s，,。．・：:（）()【】\[\]「」]/g, "");
     const compactPattern = `%${escapeLike(compactQuery)}%`;
     const composedCaseNo = sql<string>`${judicialCases.court} || ${judicialCases.year} || '年度' || ${judicialCases.caseType} || '字第' || ${judicialCases.caseNo} || '號'`;
@@ -131,8 +142,26 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
         : or(searchableTerm(queryTerms[0] ?? query), sql`${composedCaseNo} like ${compactPattern}`)!);
     }
   }
+  const optionalTerms = splitTerms(anyTerms);
+  if (optionalTerms.length) conditions.push(or(...optionalTerms.map(searchableTerm))!);
+  const requiredTerms = splitTerms(allTerms);
+  if (requiredTerms.length) conditions.push(and(...requiredTerms.map(searchableTerm))!);
+  for (const term of splitTerms(excludeTerms)) conditions.push(not(searchableTerm(term)));
+  if (person) {
+    const pattern = `%${escapeLike(person)}%`;
+    conditions.push(or(like(judicialCases.fullText, pattern), like(judicialCases.rawJson, pattern))!);
+  }
   if (court) conditions.push(like(judicialCases.court, `%${escapeLike(court)}%`));
   if (year) conditions.push(eq(judicialCases.year, year));
+  if (caseType) conditions.push(like(judicialCases.caseType, `%${escapeLike(caseType)}%`));
+  if (dateFrom) conditions.push(gte(judicialCases.judgmentDate, dateFrom));
+  if (dateTo) conditions.push(lte(judicialCases.judgmentDate, dateTo));
+  if (division === "civil") conditions.push(like(judicialCases.court, "%V"));
+  if (division === "criminal") conditions.push(like(judicialCases.court, "%M"));
+  if (division === "administrative") conditions.push(like(judicialCases.court, "%A"));
+  if (courtLevel === "supreme") conditions.push(or(like(judicialCases.court, "TPS%"), like(judicialCases.court, "TPAA%"))!);
+  if (courtLevel === "high") conditions.push(or(like(judicialCases.court, "TPH%"), like(judicialCases.court, "TCH%"), like(judicialCases.court, "TNH%"), like(judicialCases.court, "KSH%"), like(judicialCases.court, "HLH%"))!);
+  if (courtLevel === "district") conditions.push(or(like(judicialCases.court, "%DV"), like(judicialCases.court, "%DM"), like(judicialCases.court, "%EV"))!);
   const whereClause = and(...conditions);
   const [matched] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(whereClause);
   const rows = await db.select().from(judicialCases).where(whereClause).orderBy(desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit);
