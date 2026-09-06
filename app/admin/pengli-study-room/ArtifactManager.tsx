@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Artifact = { id: number; tool: string; topic: string; content: string; sourceLabel: string; reviewStatus: string; reuseCount: number; audioFileName?: string | null; updatedAt: string };
 const labels: Record<string, string> = { guide: "完整讀書指南", quiz: "反過來考我", priority: "考前重點排序", explain: "概念拆解", gaps: "教材銜接缺口", mock: "完整模擬考", audio: "通勤語音摘要" };
@@ -13,6 +13,7 @@ export default function ArtifactManager() {
   const [draftSourceLabel, setDraftSourceLabel] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [toolFilter, setToolFilter] = useState("all"), [topicFilter, setTopicFilter] = useState("all"), [statusFilter, setStatusFilter] = useState("all");
 
   async function load() {
     const response = await fetch("/api/admin/pengli-study-artifacts", { cache: "no-store" });
@@ -79,15 +80,19 @@ export default function ArtifactManager() {
     setNotice("語音稿已複製，可直接貼到語音生成工具製作成品。");
   }
 
-  const allSelected = rows.length > 0 && selected.length === rows.length;
+  const topics = useMemo(() => [...new Set(rows.map((row) => row.topic))], [rows]);
+  const filteredRows = useMemo(() => rows.filter((row) => (toolFilter === "all" || row.tool === toolFilter) && (topicFilter === "all" || row.topic === topicFilter) && (statusFilter === "all" || row.reviewStatus === statusFilter)), [rows, toolFilter, topicFilter, statusFilter]);
+  const filteredIds = filteredRows.map((row) => row.id);
+  const allSelected = filteredRows.length > 0 && filteredIds.every((id) => selected.includes(id));
   return <section className="artifact-manager">
     <header><div><span>PUBLISHING</span><h2>成果發布管理</h2><p>可先編輯審稿，再單筆或批次發布；已發布內容才會出現在學生端。</p></div><button onClick={() => void load()} disabled={busy}>重新整理</button></header>
     {notice && <p className="artifact-notice" aria-live="polite">{notice}</p>}
-    {rows.length > 0 && <div className="artifact-toolbar"><label><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : rows.map((row) => row.id))} /> 全選</label><span>已選 {selected.length} 筆</span><div><button onClick={() => void mutate("publish", selected)} disabled={!selected.length || busy}>一鍵發布所選</button><button className="secondary" onClick={() => void mutate("unpublish", selected)} disabled={!selected.length || busy}>下架所選</button><button className="danger" onClick={() => void removeSelected()} disabled={!selected.length || busy}>刪除所選</button></div></div>}
-    <div className="artifact-list">{rows.length ? rows.map((row) => <article key={row.id} className={selected.includes(row.id) ? "selected" : ""}>
+    {rows.length > 0 && <div className="artifact-filters"><div className="artifact-type-tabs"><button className={toolFilter === "all" ? "active" : ""} onClick={() => setToolFilter("all")}>全部 <b>{rows.length}</b></button>{Object.entries(labels).map(([id, label]) => <button key={id} className={toolFilter === id ? "active" : ""} onClick={() => setToolFilter(id)}>{label} <b>{rows.filter((row) => row.tool === id).length}</b></button>)}</div><div className="artifact-filter-selects"><label>教材主題<select value={topicFilter} onChange={(event) => setTopicFilter(event.target.value)}><option value="all">全部主題</option>{topics.map((topic) => <option key={topic} value={topic}>{topic}</option>)}</select></label><label>發布狀態<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">全部狀態</option><option value="pending_review">待審核</option><option value="published">已發布</option></select></label></div><p>目前顯示 {filteredRows.length} 筆成果</p></div>}
+    {filteredRows.length > 0 && <div className="artifact-toolbar"><label><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? selected.filter((id) => !filteredIds.includes(id)) : [...new Set([...selected, ...filteredIds])])} /> 全選目前分類</label><span>已選 {selected.length} 筆</span><div><button onClick={() => void mutate("publish", selected)} disabled={!selected.length || busy}>一鍵發布所選</button><button className="secondary" onClick={() => void mutate("unpublish", selected)} disabled={!selected.length || busy}>下架所選</button><button className="danger" onClick={() => void removeSelected()} disabled={!selected.length || busy}>刪除所選</button></div></div>}
+    <div className="artifact-list">{filteredRows.length ? filteredRows.map((row) => <article key={row.id} className={selected.includes(row.id) ? "selected" : ""}>
       <label className="artifact-select"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggle(row.id)} /><span className="sr-only">選取 {row.topic}</span></label>
       <div className="artifact-body"><small>{labels[row.tool] || row.tool}</small><h3>{row.topic}</h3>{editingId === row.id ? <div className="artifact-editor"><label>內容<textarea rows={14} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} /></label><label>教材來源註記<input value={draftSourceLabel} onChange={(event) => setDraftSourceLabel(event.target.value)} /></label><div><button onClick={() => void saveEdit()} disabled={!draftContent.trim() || busy}>儲存修改</button><button className="secondary" onClick={() => setEditingId(null)} disabled={busy}>取消</button></div></div> : <><p>{row.content.slice(0, 180)}{row.content.length > 180 ? "…" : ""}</p><em>共用 {row.reuseCount} 次</em>{row.tool === "audio" && <p className="artifact-audio-note">請到下方「通勤語音摘要」逐段編輯、複製口語稿、上傳音檔並試聽。</p>}</>}</div>
       <div className="artifact-actions"><b className={row.reviewStatus === "published" ? "published" : "pending"}>{row.reviewStatus === "published" ? "已發布" : "待審核"}</b><button className="secondary" onClick={() => beginEdit(row)} disabled={busy || editingId === row.id}>編輯</button><button onClick={() => void mutate(row.reviewStatus === "published" ? "unpublish" : "publish", [row.id])} disabled={busy}>{row.reviewStatus === "published" ? "下架" : "發布到前台"}</button></div>
-    </article>) : <p>尚無可管理的學習成果；請先在下方產生內容。</p>}</div>
+    </article>) : <p>{rows.length ? "目前分類沒有符合的成果。" : "尚無可管理的學習成果；請先在下方產生內容。"}</p>}</div>
   </section>;
 }

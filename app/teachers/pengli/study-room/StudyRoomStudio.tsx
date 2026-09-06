@@ -52,6 +52,7 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
   const [quizAnswer, setQuizAnswer] = useState("");
   const [quizMessages, setQuizMessages] = useState<StudioMessage[]>([]);
   const [resultNote, setResultNote] = useState("");
+  const [autoSegmentAttempts, setAutoSegmentAttempts] = useState<number[]>([]);
   const [editingResult, setEditingResult] = useState(false), [draftResult, setDraftResult] = useState("");
   const [history, setHistory] = useState<StudyRun[]>([]), [showHistory, setShowHistory] = useState(false), [historyLoading, setHistoryLoading] = useState(false);
   const [published, setPublished] = useState<PublishedArtifact[]>([]), [showPublished, setShowPublished] = useState(false), [publishedLoading, setPublishedLoading] = useState(false);
@@ -167,6 +168,14 @@ export default function StudyRoomStudio({ adminMode = false }: { adminMode?: boo
     } catch (cause) { setError(cause instanceof Error ? cause.message : "這一段無法重新生成。"); }
     finally { setLoading(false); }
   }
+  useEffect(() => {
+    if (!adminMode || active.id !== "audio" || !resultArtifactId || !result || loading) return;
+    const artifact = published.find((item) => item.id === resultArtifactId);
+    if (!artifact || artifact.audioSegments?.length || autoSegmentAttempts.includes(artifact.id)) return;
+    setAutoSegmentAttempts((current) => [...current, artifact.id]);
+    setResultNote("正在把舊版整篇語音稿自動轉成分段口語稿，完成後會直接顯示各段內容…");
+    void run(true);
+  }, [adminMode, active.id, resultArtifactId, result, loading, published, autoSegmentAttempts]);
   async function answerQuiz() {
     if (!quizAnswer.trim()) { setError("請先作答，再送出訂正。"); return; }
     const nextMessages: StudioMessage[] = [...quizMessages, { role: "student", text: quizAnswer.trim() }];
