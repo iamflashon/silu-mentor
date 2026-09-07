@@ -1,7 +1,7 @@
 import { getJudicialCaseDetail, searchJudicialCases } from "../../../lib/judicial-search";
 import { simulateJudicialResearch } from "../../../lib/judicial-research-simulator";
 import { GET as searchLegalArticles } from "../legal-search/route";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { legalArticles, legalDataSources, legalDocuments } from "../../../db/schema";
 
@@ -14,6 +14,22 @@ type JsonRpcRequest = {
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+
+function articleOrder(articleNo: string, fallbackId: number) {
+  const normalized = articleNo.replace(/\s+/g, "");
+  const match = normalized.match(/第(\d+)(?:條)?(?:[-之](\d+))?(?:條)?(?:之(\d+))?/);
+  if (!match) return [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, fallbackId];
+  return [Number(match[1]), Number(match[2] ?? match[3] ?? 0), fallbackId];
+}
+
+function compareLegalArticles(left: { articleNo: string; id: number }, right: { articleNo: string; id: number }) {
+  const leftOrder = articleOrder(left.articleNo, left.id);
+  const rightOrder = articleOrder(right.articleNo, right.id);
+  for (let index = 0; index < leftOrder.length; index += 1) {
+    if (leftOrder[index] !== rightOrder[index]) return leftOrder[index] - rightOrder[index];
+  }
+  return 0;
+}
 
 function rpcResult(id: JsonRpcRequest["id"], result: unknown, status = 200) {
   return new Response(JSON.stringify({ jsonrpc: "2.0", id: id ?? null, result }), { status, headers: JSON_HEADERS });
@@ -124,6 +140,19 @@ const tools = [
     },
   },
   {
+    name: "get_law_detail",
+    description: "依 document_id 讀取已同步法規的完整現行全文，包含法規基本資料與依條號排列的全部條文。",
+    annotations: { title: "讀取完整法規", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        document_id: { type: "integer", minimum: 1, description: "search_laws 回傳的法規 documentId" },
+      },
+      required: ["document_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_legal_data_status",
     description: "取得已同步全國法規資料的法規數、條文數與資料來源就緒狀態。",
     annotations: { title: "全國法規資料狀態", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -147,7 +176,7 @@ export async function POST(request: Request) {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: "yuanzhao-legal-database", version: "0.3.0" },
-      instructions: "裁判研究先用 research_cases 取得證據包。只有 allowedCitations 內、已全文檢查的裁判可以引用；需要核對原文時，以 get_case_detail 依 JID 分頁讀取。查法規使用 search_laws，引用時保留法規名稱、條號、異動日期及官方來源；不得把搜尋不到解讀為法律上不存在。搜尋工具只提供證據資料，不代替法律專業判斷。",
+      instructions: "裁判研究先用 research_cases 取得證據包。只有 allowedCitations 內、已全文檢查的裁判可以引用；需要核對原文時，以 get_case_detail 依 JID 分頁讀取。查法規先用 search_laws，再以 get_law_detail 依 document_id 讀取整部法規全文；引用時保留法規名稱、條號、異動日期及官方來源。不得把搜尋不到解讀為法律上不存在。搜尋工具只提供證據資料，不代替法律專業判斷。",
     });
   }
   if (body.method === "ping") return rpcResult(body.id, {});
@@ -205,6 +234,36 @@ export async function POST(request: Request) {
       if (!response.ok) return rpcResult(body.id, { isError: true, content: [{ type: "text", text: payload.error || "法規資料搜尋失敗。" }] });
       const compact = { query: payload.query || query, total: Number(payload.total || 0), returned: payload.results?.length || 0, results: payload.results || [] };
       return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(compact) }], structuredContent: compact });
+    }
+    if (name === "get_law_detail") {
+      const documentId = Math.floor(Number(args.document_id));
+      if (!Number.isSafeInteger(documentId) || documentId < 1) return rpcError(body.id, -32602, "document_id is required");
+      const db = await getDb("primary");
+      const [document] = await db.select().from(legalDocuments).where(and(
+        eq(legalDocuments.id, documentId),
+        eq(legalDocuments.status, "active"),
+      )).limit(1);
+      if (!document) return rpcResult(body.id, { isError: true, content: [{ type: "text", text: "找不到這部法規。" }] });
+      const articles = (await db.select({
+        id: legalArticles.id,
+        articleNo: legalArticles.articleNo,
+        hierarchy: legalArticles.hierarchy,
+        content: legalArticles.content,
+      }).from(legalArticles).where(eq(legalArticles.documentId, documentId))).sort(compareLegalArticles);
+      const result = {
+        documentId: document.id,
+        title: document.title,
+        category: document.category,
+        classification: document.classification,
+        modifiedDate: document.modifiedDate,
+        effectiveDate: document.effectiveDate,
+        history: document.history,
+        sourceUrl: document.sourceUrl,
+        articleCount: articles.length,
+        articles,
+        fullText: articles.map((article) => [article.hierarchy, article.articleNo, article.content].filter(Boolean).join("\n")).join("\n\n"),
+      };
+      return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
     }
     if (name === "get_legal_data_status") {
       const db = await getDb("primary");
