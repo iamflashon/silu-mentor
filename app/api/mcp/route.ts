@@ -194,6 +194,9 @@ export async function POST(request: Request) {
         limit: Math.min(20, Number(args.limit) || 10),
         offset: Math.max(0, Math.min(100000, Math.floor(Number(args.offset) || 0))),
         searchMode: args.search_mode === "keyword" || args.search_mode === "phrase" ? args.search_mode : "auto",
+        // MCP清單以快速候選為主；精確全文仍由 get_case_detail 依 JID 讀取。
+        fastListMode: true,
+        includeAvailableTotal: false,
       });
       const compact = { ...result, results: result.results.map(({ fullText: _fullText, ...item }) => item) };
       return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(compact) }], structuredContent: compact });

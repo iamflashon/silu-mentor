@@ -18,6 +18,7 @@ export type JudicialSearchInput = {
   limit?: number;
   offset?: number;
   includeAvailableTotal?: boolean;
+  fastListMode?: boolean;
   searchMode?: "auto" | "keyword" | "phrase";
 };
 
@@ -116,7 +117,8 @@ function parseDocketQuery(query: string) {
 export async function searchJudicialCases(input: JudicialSearchInput) {
   const { query, court, year, anyTerms, allTerms, excludeTerms, person, courtLevel, division, caseType, dateFrom, dateTo, limit, offset, searchMode } = normalizeInput(input);
   const db = await getDb();
-  const [available] = input.includeAvailableTotal === false
+  const fastListMode = input.fastListMode === true;
+  const [available] = input.includeAvailableTotal === false || fastListMode
     ? [{ value: 0 }]
     : await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(eq(judicialCases.status, "active"));
   const conditions = [eq(judicialCases.status, "active")];
@@ -125,7 +127,9 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
     const pattern = `%${escapeLike(term)}%`;
     return or(
       like(judicialCases.jid, pattern), like(judicialCases.title, pattern), like(judicialCases.fullText, pattern),
-      like(judicialCases.rawJson, pattern), like(judicialCases.court, pattern), like(judicialCases.caseType, pattern), like(judicialCases.caseNo, pattern),
+      // raw_json normally duplicates full_text and can be several times larger. Scanning
+      // both columns made every MCP keyword search do redundant full-table work.
+      like(judicialCases.court, pattern), like(judicialCases.caseType, pattern), like(judicialCases.caseNo, pattern),
     )!;
   };
   const docket = searchMode === "keyword" ? null : parseDocketQuery(query);
@@ -177,13 +181,48 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
     const pattern = `%${escapeLike(term)}%`;
     scoreParts.push(sql<number>`case when ${judicialCases.title} like ${pattern} then 14 else 0 end`);
     scoreParts.push(sql<number>`case when ${judicialCases.fullText} like ${pattern} then 4 else 0 end`);
-    scoreParts.push(sql<number>`case when ${judicialCases.rawJson} like ${pattern} then 2 else 0 end`);
   }
   if (court || courtLevel) scoreParts.push(sql<number>`8`);
   if (year || dateFrom || dateTo) scoreParts.push(sql<number>`4`);
   const relevanceScore = sql<number>`(${sql.join(scoreParts, sql.raw(" + "))})`;
-  const [matched] = await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(whereClause);
-  const rows = await db.select().from(judicialCases).where(whereClause).orderBy(desc(relevanceScore), desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit).offset(offset);
+  // Homepage/MCP list searches need useful candidates, not an expensive exact count of
+  // every matching judgment. In fast mode, scan newest matching rows through the primary
+  // key, take a bounded candidate pool, and rank that pool in memory. This avoids a COUNT
+  // plus a second full scan/sort over the complete full_text corpus.
+  const candidateLimit = fastListMode ? Math.min(240, Math.max(limit * 8, offset + limit)) : limit;
+  const baseSelection = {
+    id: judicialCases.id,
+    jid: judicialCases.jid,
+    court: judicialCases.court,
+    year: judicialCases.year,
+    caseType: judicialCases.caseType,
+    caseNo: judicialCases.caseNo,
+    judgmentDate: judicialCases.judgmentDate,
+    title: judicialCases.title,
+    // Search lists only display the opening excerpt. Keep the candidate pool bounded
+    // in Worker memory; complete text is fetched separately by get_case_detail.
+    fullText: sql<string>`substr(${judicialCases.fullText}, 1, 1200)`,
+  };
+  const candidateRows = fastListMode
+    ? await db.select(baseSelection).from(judicialCases).where(whereClause)
+      .orderBy(desc(judicialCases.id)).limit(candidateLimit)
+    : await db.select(baseSelection).from(judicialCases).where(whereClause)
+      .orderBy(desc(relevanceScore), desc(judicialCases.judgmentDate), desc(judicialCases.id)).limit(limit).offset(offset);
+  const rankingWords = [...new Set([query, ...rankingTerms])].filter(Boolean);
+  const rowScore = (row: typeof candidateRows[number]) => {
+    const titleText = row.title.toLowerCase();
+    const bodyText = row.fullText.toLowerCase();
+    return rankingWords.reduce((score, term) => {
+      const word = term.toLowerCase();
+      return score + (titleText.includes(word) ? 14 : 0) + (bodyText.includes(word) ? 4 : 0);
+    }, query && titleText.includes(query.toLowerCase()) ? 60 : 0);
+  };
+  const rows = fastListMode
+    ? candidateRows.sort((a, b) => rowScore(b) - rowScore(a) || b.judgmentDate.localeCompare(a.judgmentDate) || b.id - a.id).slice(offset, offset + limit)
+    : candidateRows;
+  const matched = fastListMode
+    ? { value: offset + rows.length + (candidateRows.length === candidateLimit ? 1 : 0) }
+    : (await db.select({ value: sql<number>`count(*)` }).from(judicialCases).where(whereClause))[0];
   return {
     query,
     searchMode: docket ? "docket_exact" : searchMode === "phrase" ? "phrase" : "keyword",
@@ -197,7 +236,7 @@ export async function searchJudicialCases(input: JudicialSearchInput) {
     offset,
     availableTotal: Number(available?.value ?? 0),
     results: rows.map((row, index) => {
-      const fullText = resolveFullText(row);
+      const fullText = row.fullText && row.fullText !== "[object Object]" ? row.fullText : "";
       return {
         rank: offset + index + 1,
         relevanceBand: offset + index < 3 ? "高度相關" : offset + index < 10 ? "相關" : "延伸參考",
