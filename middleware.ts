@@ -28,6 +28,8 @@ const PUBLIC_QA_PATHS = [
   // member/admin cookies. The route performs its own runtime authorization,
   // so it must be reachable before the application membership gate.
   "/api/mcp",
+  // This machine-to-machine endpoint verifies its own shared bearer secret.
+  "/api/internal/angle-pedia/membership",
 ];
 
 const NO_CACHE_PATHS = [
