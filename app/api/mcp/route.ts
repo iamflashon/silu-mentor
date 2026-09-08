@@ -1,9 +1,11 @@
 import { getJudicialCaseDetail, searchJudicialCases } from "../../../lib/judicial-search";
 import { simulateJudicialResearch } from "../../../lib/judicial-research-simulator";
 import { GET as searchLegalArticles } from "../legal-search/route";
+import { GET as searchLegalDictionary } from "../legal-dictionary/route";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { legalArticles, legalDataSources, legalDocuments } from "../../../db/schema";
+import { searchExternalCatalog } from "../../../lib/external-catalog-search";
 
 type JsonRpcRequest = {
   jsonrpc?: string;
@@ -143,6 +145,21 @@ const tools = [
     annotations: { title: "全國法規資料狀態", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
+  {
+    name: "search_yuanzao_content",
+    description: "搜尋中央資料庫中的元照文章公開索引與英美法辭典。文章結果只提供可核對的書目與摘要，不代表已取得受保護全文。",
+    annotations: { title: "搜尋元照內容", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "使用者的完整法律問題" },
+        terms: { type: "array", items: { type: "string" }, maxItems: 8, description: "已規劃的法律搜尋詞" },
+        limit: { type: "integer", minimum: 1, maximum: 12, default: 8 },
+      },
+      required: ["question"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export async function POST(request: Request) {
@@ -271,6 +288,50 @@ export async function POST(request: Request) {
         sourcesTotal: sources.length,
       };
       return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(status) }], structuredContent: status });
+    }
+    if (name === "search_yuanzao_content") {
+      const question = typeof args.question === "string" ? args.question.trim().slice(0, 160) : "";
+      if (question.length < 2) return rpcError(body.id, -32602, "question is required");
+      const requestedTerms = Array.isArray(args.terms)
+        ? args.terms.filter((term): term is string => typeof term === "string").map((term) => term.trim().slice(0, 80)).filter((term) => term.length >= 2)
+        : [];
+      const queries = [...new Set([question, ...requestedTerms])].slice(0, 8);
+      const limit = Math.max(1, Math.min(12, Number(args.limit) || 8));
+      const articleRounds = await Promise.all(queries.map((query) => searchExternalCatalog(query, limit)));
+      const articleMap = new Map<number, (typeof articleRounds)[number][number] & { roundHits: number }>();
+      articleRounds.flat().forEach((row) => {
+        const prior = articleMap.get(row.id);
+        articleMap.set(row.id, { ...row, score: Math.max(row.score, prior?.score || 0), roundHits: (prior?.roundHits || 0) + 1 });
+      });
+      const articles = [...articleMap.values()]
+        .sort((left, right) => right.roundHits - left.roundHits || right.score - left.score)
+        .slice(0, limit)
+        .map((row) => ({
+          id: row.id,
+          title: row.title,
+          category: "元照內容索引",
+          source: row.source,
+          parentTitle: row.parentTitle,
+          excerpt: row.content || row.summary,
+          sourceUrl: row.url,
+          score: row.score,
+          roundHits: row.roundHits,
+        }));
+      const dictionaryRounds = await Promise.all(
+        queries.slice(1, 4).map(async (query) => {
+          const response = await searchLegalDictionary(new Request(`https://mcp.internal/api/legal-dictionary?q=${encodeURIComponent(query)}&limit=4`));
+          if (!response.ok) return [] as Array<Record<string, unknown>>;
+          const payload = await response.json() as { results?: Array<Record<string, unknown>> };
+          return payload.results || [];
+        }),
+      );
+      const dictionaryMap = new Map<string, Record<string, unknown>>();
+      dictionaryRounds.flat().forEach((row) => {
+        const key = String(row.id || row.englishTerm || row.chineseTerm || "");
+        if (key && !dictionaryMap.has(key)) dictionaryMap.set(key, row);
+      });
+      const result = { question, searchTerms: queries, articles, dictionary: [...dictionaryMap.values()].slice(0, 6) };
+      return rpcResult(body.id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
     }
     return rpcError(body.id, -32602, "Unknown tool");
   } catch {
