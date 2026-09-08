@@ -2028,3 +2028,41 @@ export const reviewRuns = sqliteTable("review_runs", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+export const legalResearchCases = sqliteTable("legal_research_cases", {
+  id: text("id").primaryKey(), memberEmail: text("member_email").notNull(), title: text("title").notNull(),
+  originalQuestion: text("original_question").notNull(), factsJson: text("facts_json").notNull().default("[]"),
+  finalConclusion: text("final_conclusion").notNull().default(""), status: text("status").notNull().default("active"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("legal_research_cases_member_updated_idx").on(table.memberEmail, table.updatedAt)]);
+
+export const legalResearchMessages = sqliteTable("legal_research_messages", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull().references(() => legalResearchCases.id, { onDelete: "cascade" }),
+  role: text("role").notNull(), contentJson: text("content_json").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("legal_research_messages_case_time_idx").on(table.caseId, table.createdAt)]);
+
+export const legalResearchSources = sqliteTable("legal_research_sources", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull().references(() => legalResearchCases.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull(), externalId: text("external_id").notNull(), title: text("title").notNull(),
+  metadataJson: text("metadata_json").notNull().default("{}"), quote: text("quote").notNull().default(""),
+  aiSummary: text("ai_summary").notNull().default(""), sourceUrl: text("source_url").notNull().default(""),
+  fullText: text("full_text").notNull().default(""),
+  fullTextRead: integer("full_text_read", { mode: "boolean" }).notNull().default(false), createdAt: integer("created_at").notNull(),
+}, (table) => [uniqueIndex("legal_research_sources_case_external_unique").on(table.caseId, table.sourceType, table.externalId), index("legal_research_sources_case_idx").on(table.caseId)]);
+
+export const legalResearchAlerts = sqliteTable("legal_research_alerts", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull().references(() => legalResearchCases.id, { onDelete: "cascade" }),
+  code: text("code").notNull(), severity: text("severity").notNull(), title: text("title").notNull(), message: text("message").notNull(),
+  status: text("status").notNull().default("pending"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("legal_research_alerts_case_code_unique").on(table.caseId, table.code), index("legal_research_alerts_case_status_idx").on(table.caseId, table.status)]);
+
+export const legalResearchSearches = sqliteTable("legal_research_searches", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull().references(() => legalResearchCases.id, { onDelete: "cascade" }),
+  source: text("source").notNull(), query: text("query").notNull(), status: text("status").notNull(),
+  resultCount: integer("result_count").notNull().default(0), createdAt: integer("created_at").notNull(),
+}, (table) => [index("legal_research_searches_case_time_idx").on(table.caseId, table.createdAt)]);
+
+export const legalResearchCharges = sqliteTable("legal_research_charges", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull().references(() => legalResearchCases.id, { onDelete: "cascade" }),
+  scopeHash: text("scope_hash").notNull(), units: integer("units").notNull(), description: text("description").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [uniqueIndex("legal_research_charges_case_scope_unique").on(table.caseId, table.scopeHash), index("legal_research_charges_case_idx").on(table.caseId)]);

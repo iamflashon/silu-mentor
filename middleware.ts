@@ -28,6 +28,10 @@ const PUBLIC_QA_PATHS = [
   // member/admin cookies. The route performs its own runtime authorization,
   // so it must be reachable before the application membership gate.
   "/api/mcp",
+  // The independent Angle Pedia app authenticates this machine-to-machine
+  // endpoint with MCP_ACCESS_TOKEN. The route performs its own token and
+  // active-member checks, so middleware must let the request reach it.
+  "/api/legal-research-records",
   // This machine-to-machine endpoint verifies its own shared bearer secret.
   "/api/internal/angle-pedia/membership",
 ];

@@ -589,6 +589,13 @@
       "when": 1788666199754,
       "tag": "0083_robust_genesis",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1788874200000,
+      "tag": "0089_legal_research_cases",
+      "breakpoints": true
     }
   ]
 }
