@@ -95,6 +95,10 @@ function medtechAccessFor(member: MemberRow) {
   return member.accesses?.find((access) => access.examCategory === "medtech");
 }
 
+function anglePediaAccessFor(member: MemberRow) {
+  return member.accesses?.find((access) => access.examCategory === "angle-pedia");
+}
+
 function memberManagementRole(member: MemberRow) {
   if (member.canAdmin) return "admin";
   const access = medtechAccessFor(member);
@@ -3641,7 +3645,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
     setCentralPdfAdding(false);
   }
 
-  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { managementRole?: "none" | "admin" | "medtech-document-editor"; allowedDocumentIds?: number[] }) {
+  async function updateMember(id: number, patch: Partial<Pick<MemberRow, "role" | "canAdmin" | "status" | "className">> & { managementRole?: "none" | "admin" | "medtech-document-editor"; allowedDocumentIds?: number[]; anglePediaEnabled?: boolean }) {
     setMemberNotice("儲存中…");
     const response = await fetch("/api/admin/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
     const data = await response.json();
@@ -3966,11 +3970,12 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
             {memberNotice && <p className="member-admin-notice">{memberNotice}</p>}
             {membersLoading ? <p className="usage-empty">正在讀取學員資料…</p> : <div className="member-admin-list">
               {members.map((member) => <article className="member-admin-row" key={member.id}>
-                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small><div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
+                <div className="member-identity"><span>{member.displayName?.slice(0, 1) || "學"}</span><div><strong>{member.displayName || "未設定姓名"}</strong><small>{member.email}</small><div className="member-platform-access">{member.accesses?.length ? member.accesses.map((access) => <em className={access.status === 'active' ? 'active' : 'disabled'} key={access.examCategory}>{access.examCategory === 'law' ? '司律' : access.examCategory === 'medtech' ? '醫檢師' : access.examCategory === 'accounting' ? '會計' : access.examCategory === 'data-structure' ? '資料結構' : access.examCategory === 'angle-pedia' ? 'Angle Pedia' : access.examCategory}</em>) : <em className="active">司律</em>}</div></div></div>
                 <label><span>學習身分</span><select value={member.role} onChange={(event) => void updateMember(member.id, { role: event.target.value as MemberRow["role"] })}><option value="student">學員</option><option value="teacher">老師／導師</option></select></label>
                 <label><span>管理權限</span><select value={memberManagementRole(member)} onChange={(event) => void updateMember(member.id, { managementRole: event.target.value as "none" | "admin" | "medtech-document-editor" })}><option value="none">無</option><option value="medtech-document-editor">醫檢文件題庫編輯員</option><option value="admin">管理員</option></select></label>
                 <label><span>班級</span><input value={member.className} onChange={(event) => setMembers((rows) => rows.map((row) => row.id === member.id ? { ...row, className: event.target.value } : row))} onBlur={(event) => void updateMember(member.id, { className: event.target.value })} /></label>
                 <label><span>帳號狀態</span><select value={member.status} onChange={(event) => void updateMember(member.id, { status: event.target.value as MemberRow["status"] })}><option value="active">使用中</option><option value="disabled">已停用</option></select></label>
+                <label><span>Angle Pedia</span><select value={anglePediaAccessFor(member)?.status === "active" ? "active" : "disabled"} onChange={(event) => void updateMember(member.id, { anglePediaEnabled: event.target.value === "active" })}><option value="disabled">未開通</option><option value="active">已開通</option></select></label>
                 <div className="member-last-seen"><span>最後使用</span><strong>{member.lastSeenAt ? new Date(member.lastSeenAt).toLocaleString("zh-TW") : "尚未登入"}</strong></div>
                 {memberManagementRole(member) === "medtech-document-editor" && <details className="member-document-permissions" open>
                   <summary><span>可編輯書本</span><b>{parsedNumberList(medtechAccessFor(member)?.allowedDocumentIdsJson).length} 本已勾選</b></summary>

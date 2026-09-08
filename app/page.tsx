@@ -1097,6 +1097,7 @@ export function LawHome() {
           <a href="/essay" className="admin-link">寫申論</a>
           <a href="/issues" className="admin-link">找爭點</a>
           <a href="/summaries" className="admin-link">整摘要</a>
+          <a href="/courses" className="admin-link">來一課</a>
           <a href="/law/guide" className="admin-link">使用說明</a>
           {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
@@ -1112,6 +1113,7 @@ export function LawHome() {
         <a href="/essay">寫申論</a>
         <a href="/issues">找爭點</a>
         <a href="/summaries">整摘要</a>
+        <a href="/courses">來一課</a>
         <a href="/law/guide">使用說明</a>
       </nav>
 

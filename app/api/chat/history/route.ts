@@ -49,6 +49,32 @@ function buildSummary(messages: Array<typeof chatMessages.$inferSelect>) {
   };
 }
 
+function withoutLegacyCourseSpillover(messages: Array<typeof chatMessages.$inferSelect>) {
+  const hiddenIndexes = new Set<number>();
+  messages.forEach((message, index) => {
+    if (
+      message.role === "student" &&
+      message.text.startsWith("課程：") &&
+      message.text.includes("請只處理這段課程的學習問題")
+    ) {
+      hiddenIndexes.add(index);
+      if (messages[index + 1]?.role === "mentor") hiddenIndexes.add(index + 1);
+    }
+  });
+  return messages.filter((_, index) => !hiddenIndexes.has(index));
+}
+
+function withoutLegacyCourseStudyRecords(records: Array<typeof studyRecords.$inferSelect>) {
+  return records.filter(
+    (record) =>
+      !(
+        record.activityType === "AI 對話學習" &&
+        (record.title.startsWith("AI 對話｜課程：") ||
+          record.reflection.includes("請只處理這段課程的學習問題"))
+      ),
+  );
+}
+
 export async function GET(request: Request) {
   try {
     const db = await getDb();
@@ -59,8 +85,8 @@ export async function GET(request: Request) {
     const todayTasks = activePlan
       ? await db.select().from(studyTasks).where(and(eq(studyTasks.planId, activePlan.id), eq(studyTasks.taskDate, today))).orderBy(asc(studyTasks.id))
       : [];
-    const todayRecords = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, key), eq(studyRecords.recordDate, today))).orderBy(desc(studyRecords.createdAt)).limit(30);
-    const yesterdayRecords = await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, key), eq(studyRecords.recordDate, yesterdayDate))).orderBy(desc(studyRecords.createdAt)).limit(30);
+    const todayRecords = withoutLegacyCourseStudyRecords(await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, key), eq(studyRecords.recordDate, today))).orderBy(desc(studyRecords.createdAt)).limit(30));
+    const yesterdayRecords = withoutLegacyCourseStudyRecords(await db.select().from(studyRecords).where(and(eq(studyRecords.userKey, key), eq(studyRecords.recordDate, yesterdayDate))).orderBy(desc(studyRecords.createdAt)).limit(30));
     const yesterdayTasks = activePlan
       ? await db.select().from(studyTasks).where(and(eq(studyTasks.planId, activePlan.id), eq(studyTasks.taskDate, yesterdayDate))).orderBy(asc(studyTasks.id))
       : [];
@@ -70,12 +96,12 @@ export async function GET(request: Request) {
       ?? sessions.find((session) => sessionDate(session) === today)
       ?? null;
     const yesterdaySession = sessions.find((session) => sessionDate(session) === yesterdayDate) ?? null;
-    const currentMessages = todaySession
+    const currentMessages = withoutLegacyCourseSpillover(todaySession
       ? await db.select().from(chatMessages).where(eq(chatMessages.sessionId, todaySession.id)).orderBy(asc(chatMessages.id)).limit(100)
-      : [];
-    const yesterdayMessages = yesterdaySession
+      : []);
+    const yesterdayMessages = withoutLegacyCourseSpillover(yesterdaySession
       ? await db.select().from(chatMessages).where(eq(chatMessages.sessionId, yesterdaySession.id)).orderBy(asc(chatMessages.id)).limit(100)
-      : [];
+      : []);
     const yesterdaySummary = buildSummary(yesterdayMessages);
     const unfinishedTasks = yesterdayTasks.filter((task) => task.status !== "completed");
     const completedTasks = yesterdayTasks.filter((task) => task.status === "completed");
@@ -97,7 +123,7 @@ export async function GET(request: Request) {
       const ids = sessions.map((session) => session.id);
       const allMessages = await db.select().from(chatMessages).where(inArray(chatMessages.sessionId, ids)).orderBy(asc(chatMessages.id));
       archive = sessions.map((session) => {
-        const messages = allMessages.filter((message) => message.sessionId === session.id);
+        const messages = withoutLegacyCourseSpillover(allMessages.filter((message) => message.sessionId === session.id));
         const summary = buildSummary(messages);
         return { id: session.id, date: sessionDate(session), title: session.title, summary: session.summary || summary.lastMentor, progressStatus: session.progressStatus, messageCount: messages.length, messages: messages.map(mapMessage) };
       });

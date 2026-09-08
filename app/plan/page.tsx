@@ -597,11 +597,12 @@ function problemBookOutline(chapters: ResourceSegment[]) {
 type StudyPlanPageProps = {
   initialTab?: PlanTab;
   standalone?: boolean;
+  excludedCourseCreators?: string[];
 };
 
 type CurrentMember = { canAdmin: boolean };
 
-export default function StudyPlanPage({ initialTab = "calendar", standalone = false }: StudyPlanPageProps = {}) {
+export default function StudyPlanPage({ initialTab = "calendar", standalone = false, excludedCourseCreators = [] }: StudyPlanPageProps = {}) {
   const simulationToolsEnabled = useSimulationToolsEnabled();
   const [currentMember, setCurrentMember] = useState<CurrentMember | null>(null);
   const [month, setMonth] = useState(monthValue());
@@ -1526,7 +1527,8 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
         item.resourceType === "course" &&
         item.status !== "archived" &&
         courseCollectionsLoaded &&
-        item.courseCategory !== "public",
+        item.courseCategory !== "public" &&
+        !excludedCourseCreators.includes(item.creator.trim()),
     )
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
   const publicCourseSubjects = [
@@ -1897,6 +1899,14 @@ export default function StudyPlanPage({ initialTab = "calendar", standalone = fa
             },
           ],
           imageDataUrl: imageDataUrl || undefined,
+          visibleStudentText: prompt.trim(),
+          context: {
+            type: "my-course",
+            resourceId: selectedResource.id,
+            episodeId: selectedSegment?.id ?? 0,
+            resourceTitle: selectedResource.title,
+            episodeTitle: selectedSegment?.title || "目前課程",
+          },
         }),
       });
       const result = (await response.json()) as {

@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAdmin(request);
   if ("error" in auth) return auth.error;
-  const body = await request.json() as { id?: number; password?: string; role?: string; canAdmin?: boolean; status?: string; className?: string; managementRole?: string; allowedDocumentIds?: number[] };
+  const body = await request.json() as { id?: number; password?: string; role?: string; canAdmin?: boolean; status?: string; className?: string; managementRole?: string; allowedDocumentIds?: number[]; anglePediaEnabled?: boolean };
   const id = Number(body.id);
   if (!id) return Response.json({ error: "缺少會員編號" }, { status: 400 });
   const role = ["teacher", "student"].includes(body.role ?? "") ? body.role : undefined;
@@ -75,6 +75,25 @@ export async function PATCH(request: Request) {
     try { const parsed = JSON.parse(medtechAccess.permissionsJson || "[]") as unknown; existingPermissions = Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []; } catch { existingPermissions = []; }
     const scopedPermissions = [...new Set(existingPermissions.filter((value) => value !== "questions" && value !== "document-library").concat("document-library"))];
     [medtechAccess] = await auth.db.update(memberExamAccess).set({ permissionsJson: JSON.stringify(scopedPermissions), allowedDocumentIdsJson: JSON.stringify(allowedDocumentIds), updatedAt: new Date() }).where(eq(memberExamAccess.id, medtechAccess.id)).returning();
+  }
+  if (typeof body.anglePediaEnabled === "boolean") {
+    const [anglePediaAccess] = await auth.db.select().from(memberExamAccess)
+      .where(and(eq(memberExamAccess.memberId, id), eq(memberExamAccess.examCategory, "angle-pedia"))).limit(1);
+    const accessValues = {
+      status: body.anglePediaEnabled ? "active" : "disabled",
+      canAdmin: updated.canAdmin,
+      className: updated.className || "未分班",
+      updatedAt: new Date(),
+    };
+    if (anglePediaAccess) {
+      await auth.db.update(memberExamAccess).set(accessValues).where(eq(memberExamAccess.id, anglePediaAccess.id));
+    } else {
+      await auth.db.insert(memberExamAccess).values({
+        memberId: id,
+        examCategory: "angle-pedia",
+        ...accessValues,
+      });
+    }
   }
   if (passwordHash) {
     await auth.db.update(memberPasswordResetRequests).set({ status: "completed", completedAt: new Date(), completedBy: auth.member.email }).where(and(eq(memberPasswordResetRequests.memberId, id), eq(memberPasswordResetRequests.status, "pending")));
