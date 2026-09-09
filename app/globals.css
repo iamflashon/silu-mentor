@@ -47758,3 +47758,73 @@ body:has(.accounting-qa-page) .specialty-home-link {
     min-height: 170px;
   }
 }
+
+/* Law home navigation: keep the portal shortcut with the brand and place primary tools on their own row. */
+.brand-zone {
+  gap: 14px;
+}
+.brand-zone .exam-countdown {
+  margin-left: 8px;
+}
+.mobile-primary-tabs {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  min-height: 48px;
+  overflow-x: auto;
+  border-bottom: 1px solid #d5e2ea;
+  background: rgba(250, 252, 253, 0.97);
+  box-shadow: 0 4px 14px rgba(38, 75, 99, 0.06);
+  scrollbar-width: none;
+}
+.mobile-primary-tabs::-webkit-scrollbar {
+  display: none;
+}
+.mobile-primary-tabs a {
+  flex: 0 0 auto;
+  min-width: 116px;
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0 22px;
+  border-right: 1px solid #e0e9ef;
+  color: #214b68;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mobile-primary-tabs a:first-child {
+  border-left: 1px solid #e0e9ef;
+}
+.mobile-primary-tabs a:hover,
+.mobile-primary-tabs a:focus-visible,
+.mobile-primary-tabs a:active {
+  background: #eaf3f8;
+}
+@media (max-width: 720px) {
+  .brand-zone {
+    gap: 8px;
+  }
+  .brand-zone .exam-countdown {
+    margin-left: 0;
+  }
+  .brand-zone .portal-home-link b {
+    display: none;
+  }
+  .brand-zone .portal-home-link {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .mobile-primary-tabs {
+    position: static;
+    top: auto;
+    justify-content: stretch;
+  }
+  .mobile-primary-tabs a {
+    flex: 1 0 25%;
+    min-width: 82px;
+    padding: 0 12px;
+  }
+}

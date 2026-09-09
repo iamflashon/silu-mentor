@@ -1091,14 +1091,8 @@ export function LawHome() {
   return (
     <main className={`coach-shell ${chatFocusMode ? "chat-focus-mode" : ""}`}>
       <header className="topbar">
-        <div className="brand-zone"><a href="/law" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
+        <div className="brand-zone"><a href="/law" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a><a href="/" className="portal-home-link" aria-label="返回 iBrain Pedia X 首頁"><span aria-hidden="true">⌂</span><b>首頁</b></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
-          <a href="/" className="portal-home-link" aria-label="返回 iBrain Pedia X 首頁"><span aria-hidden="true">⌂</span><b>首頁</b></a>
-          <a href="/practice" className="admin-link">練真題</a>
-          <a href="/essay" className="admin-link">寫申論</a>
-          <a href="/issues" className="admin-link">找爭點</a>
-          <a href="/summaries" className="admin-link">整摘要</a>
-          <a href="/courses" className="admin-link">來一課</a>
           <a href="/law/guide" className="admin-link">使用說明</a>
           {currentMember?.canAdmin && <a href="/admin" className="admin-link">管理後台</a>}
           <a href="/notes" className="top-note-link" aria-label="開啟我的筆記區"><span aria-hidden="true">✎</span><b>筆記</b></a>
@@ -1108,15 +1102,14 @@ export function LawHome() {
           </div> : <a href="/member-login?return_to=%2Flaw" className="member-signin">登入我的學習平台</a>}
         </div>
       </header>
-      <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "今日任務完成後，記得留下學習接續點", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>◆</b> : null}</span>)}</span></div></div>
       <nav className="mobile-primary-tabs" aria-label="主要學習功能">
         <a href="/practice">練真題</a>
         <a href="/essay">寫申論</a>
         <a href="/issues">找爭點</a>
         <a href="/summaries">整摘要</a>
         <a href="/courses">來一課</a>
-        <a href="/law/guide">使用說明</a>
       </nav>
+      <div className="study-ticker" aria-label="司律作戰快訊"><strong>作戰快訊</strong><div><span>{(homeFeed?.ticker?.length ? homeFeed.ticker : [{ id: "default", text: "今日任務完成後，記得留下學習接續點", url: "", enabled: true }]).map((item, index) => <span className="ticker-item" key={item.id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.text}</a> : item.text}{index < (homeFeed?.ticker?.length || 1) - 1 ? <b>◆</b> : null}</span>)}</span></div></div>
 
       <div className="home-date-line" aria-label={`${greeting}，今天日期`}><span>今天｜{dateLabel(today)}</span>{activeStudySubject && (legalLesson ? <div className="daily-law-actions"><button type="button" className="daily-law-button" onClick={teachLegalLesson}><b>{activeStudySubject}法條</b><span>{legalLesson.title} {legalLesson.articleNo}</span></button><button type="button" className="daily-law-swap" onClick={() => void loadRandomLegalLesson()}>換法條</button></div> : <span className="daily-law-pending"><b>{activeStudySubject}法條</b><span>正在依今日考科推薦</span></span>)}<section className="practice-inline-launch" aria-label="練真題"><strong>練真題</strong><div><button type="button" onClick={() => startPractice("mcq")} disabled={practiceLoading}>一試選擇題</button></div></section></div>
 
