@@ -3685,6 +3685,29 @@ a {
   text-decoration: none;
   white-space: nowrap;
 }
+.portal-home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #c9d7dc;
+  border-radius: 999px;
+  background: #f7fbfc;
+  color: #214b68;
+  font-size: 11px;
+  font-weight: 850;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.portal-home-link > span {
+  font-size: 15px;
+}
+.portal-home-link:hover,
+.portal-home-link:focus-visible {
+  border-color: #7ea0ad;
+  background: #edf6f8;
+}
 .top-note-link:hover,
 .top-note-link:focus-visible {
   border-color: #7ea0ad;
@@ -26536,6 +26559,11 @@ a {
   }
   .top-actions {
     gap: 7px;
+    font-size: 10px;
+  }
+  .portal-home-link {
+    min-height: 32px;
+    padding: 0 9px;
     font-size: 10px;
   }
   .top-actions > .admin-link {

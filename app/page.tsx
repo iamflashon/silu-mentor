@@ -1093,6 +1093,7 @@ export function LawHome() {
       <header className="topbar">
         <div className="brand-zone"><a href="/law" className="brand" aria-label="司律備考首頁"><span className="brand-mark">律</span><span>司律備考</span></a>{nextExam ? <div className="exam-countdown" aria-label={`距離${nextExam.label}還有${nextExam.days}天`}><span>距離 {nextExam.label}</span><strong>{nextExam.days === 0 ? "就是今天" : `${nextExam.days} 天`}</strong></div> : null}</div>
         <div className="top-actions">
+          <a href="/" className="portal-home-link" aria-label="返回 iBrain Pedia X 首頁"><span aria-hidden="true">⌂</span><b>首頁</b></a>
           <a href="/practice" className="admin-link">練真題</a>
           <a href="/essay" className="admin-link">寫申論</a>
           <a href="/issues" className="admin-link">找爭點</a>

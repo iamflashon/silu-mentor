@@ -8,7 +8,7 @@ export default function SpecialtyHomeLink() {
   const pathname = usePathname();
   const inSpecialty = specialtyRoots.some((root) => pathname === root || pathname.startsWith(root));
   const inAdmin = pathname.includes("/admin");
-  const hasOwnTopHomeLink = pathname === "/teachers/pengli/coach";
+  const hasOwnTopHomeLink = pathname === "/law" || pathname === "/teachers/pengli/coach";
 
   if (!inSpecialty || inAdmin || hasOwnTopHomeLink) return null;
 
