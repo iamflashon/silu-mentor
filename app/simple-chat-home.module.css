@@ -142,21 +142,23 @@
 .markdown { white-space: normal; }
 .markdown h2,
 .markdown h3 {
-  margin: 22px 0 8px;
+  margin: 24px 0 10px;
   color: #202123;
-  line-height: 1.35;
+  line-height: 1.4;
+  letter-spacing: -.01em;
 }
 .markdown h2:first-child,
 .markdown h3:first-child { margin-top: 0; }
-.markdown h2 { font-size: 20px; font-weight: 700; }
+.markdown h2 { padding-bottom: 7px; border-bottom: 1px solid #eceff1; font-size: 20px; font-weight: 700; }
 .markdown h3 { font-size: 17px; font-weight: 700; }
-.markdown p { margin: 0 0 14px; }
+.markdown p { margin: 0 0 16px; line-height: 1.75; }
 .markdown p:last-child { margin-bottom: 0; }
 .markdown ul,
-.markdown ol { margin: 7px 0 16px; padding-left: 25px; }
-.markdown li { margin: 4px 0; padding-left: 2px; }
+.markdown ol { margin: 6px 0 18px; padding-left: 24px; }
+.markdown li { margin: 5px 0; padding-left: 3px; line-height: 1.7; }
 .markdown strong { font-weight: 700; }
-.markdown a { color: #156b9d; text-decoration: underline; text-underline-offset: 2px; }
+.markdown a { color: #0b69a3; font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.markdown a:hover { color: #084b75; }
 .markdown code { padding: 2px 5px; border-radius: 5px; background: #f1f3f5; font-family: Consolas, monospace; font-size: .9em; }
 .markdown pre { overflow-x: auto; margin: 12px 0 16px; padding: 14px 16px; border-radius: 10px; color: #f4f4f4; background: #202123; line-height: 1.55; }
 .markdown pre code { padding: 0; color: inherit; background: transparent; }

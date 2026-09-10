@@ -120,7 +120,7 @@ function MarkdownMessage({ text }: { text: string }) {
         {paragraphLines.map((paragraphLine, lineIndex) => (
           <span key={`line-${index}-${lineIndex}`}>
             {lineIndex > 0 && <br />}
-            {renderInlineMarkdown(paragraphLine, `paragraph-${index}-${lineIndex}`)}
+            {renderInlineMarkdown(paragraphLine.trim(), `paragraph-${index}-${lineIndex}`)}
           </span>
         ))}
       </p>,
