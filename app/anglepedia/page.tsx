@@ -12,7 +12,7 @@ export default function AnglePediaPage() {
       brand="AnglePedia 元照百科"
       symbol="元"
       logoSrc="/anglepedia-logo.png"
-      greeting="想查什麼元照資料？"
+      greeting="法學百川，一搜盡覽"
       knowledgeScope="anglepedia"
     />
   );
