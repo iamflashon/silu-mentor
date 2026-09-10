@@ -341,6 +341,24 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
   };
 }
 
+type RecommendedLink = { title: string; url: string; source: string };
+
+function isPublicHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function appendRecommendedLinks(reply: string, links: RecommendedLink[]) {
+  const unique = links.filter((link, index, all) => isPublicHttpUrl(link.url) && all.findIndex((candidate) => candidate.url === link.url) === index);
+  const missing = unique.filter((link) => !reply.includes(link.url)).slice(0, 3);
+  if (!missing.length) return reply;
+  return `${reply.trim()}\n\n### 推薦連結\n${missing.map((link) => `- [${link.title}](${link.url}) — ${link.source}`).join("\n")}`;
+}
+
 async function readExternalCatalogEvidence(query: string, scope: "all" | "anglepedia" = "all") {
   const [reviewed, catalog] = await Promise.all([
     searchPublishedMcpKnowledge(query, 6, scope),
@@ -349,7 +367,13 @@ async function readExternalCatalogEvidence(query: string, scope: "all" | "anglep
   const prioritizedCatalog = scope === "anglepedia"
     ? [...catalog].sort((a, b) => Number(/元照|anglepedia/i.test(`${b.source}${b.title}${b.parentTitle}`)) - Number(/元照|anglepedia/i.test(`${a.source}${a.title}${a.parentTitle}`))).slice(0, 6)
     : catalog;
-  return `${formatMcpKnowledgeEvidence(reviewed)}${formatExternalCatalogEvidence(prioritizedCatalog)}`;
+  return {
+    evidence: `${formatMcpKnowledgeEvidence(reviewed)}${formatExternalCatalogEvidence(prioritizedCatalog)}`,
+    recommendedLinks: [
+      ...reviewed.map((row) => ({ title: row.title, url: row.sourceUrl, source: row.category || "中央資料" })),
+      ...prioritizedCatalog.map((row) => ({ title: row.title, url: row.url, source: row.source || "公開索引" })),
+    ].filter((link) => isPublicHttpUrl(link.url)),
+  };
 }
 
 type OfficialCaseEvidence = {
@@ -520,10 +544,11 @@ const baseInstructions = `你是「司律備考」的 AI 學習教練，專門�
 const centralTestInstructions = `你是 iBrain 的中央資料測試助理。現在是開放測試階段，不限制法律或任何特定考試領域。
 1. 使用繁體中文自然回答，不得因主題不是司律而拒答。
 2. 每一個資料搜尋、教材、期刊、課程、題庫或知識問題，都要先檢查本輪提供的中央資料與檔案搜尋結果。
-3. 有命中時，必須列出真實標題、資料分類、摘要與來源網址；只能依實際命中內容回答，不得補造資料。
-4. 沒有命中時，直接說「中央資料目前沒有找到」，並列出實際搜尋詞，不得假裝找到。
-5. 若要求考一題，只有真的取得完整題幹與 A、B、C、D 選項才能說已抽題，且必須在同一則回覆完整顯示題目；不得只說題目在卡片中。
-6. 目前固定使用 Luna，不自行切換其他模型。`;
+3. 有命中時，必須列出真實標題、資料分類與摘要；只能依實際命中內容回答，不得補造資料。
+4. 只要命中資料附有真實網址，就要主動推薦 1～3 筆最相關資料，使用「[資料名稱](原文網址)」格式讓使用者可直接點擊；只能逐字使用本輪中央資料提供的網址，禁止猜測或拼湊網址。沒有網址時明確寫「中央資料未附原文網址」。
+5. 沒有命中時，直接說「中央資料目前沒有找到」，並列出實際搜尋詞，不得假裝找到。
+6. 若要求考一題，只有真的取得完整題幹與 A、B、C、D 選項才能說已抽題，且必須在同一則回覆完整顯示題目；不得只說題目在卡片中。
+7. 目前固定使用 Luna，不自行切換其他模型。`;
 
 function sourceNameFromUrl(value: string) {
   const lower = value.toLowerCase();
@@ -1119,7 +1144,10 @@ export async function POST(request: Request) {
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
     const aiGate = await prepareAiUse(request, "law");
     if (aiGate instanceof Response) return aiGate;
-    const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "", knowledgeScope) : "";
+    const externalCatalogContext = context.type === "home"
+      ? await readExternalCatalogEvidence(latestStudent?.text ?? "", knowledgeScope)
+      : { evidence: "", recommendedLinks: [] as RecommendedLink[] };
+    const externalCatalogEvidence = externalCatalogContext.evidence;
     const officialCaseEvidence = authorityReviewRequired ? await readOfficialCaseEvidence(latestStudent?.text ?? "") : [];
     const professionalVerificationRequested = context.type === "home" && body.professionalVerification === true;
     const cachedLegalVerification = authorityReviewRequired && !officialCaseEvidence.length && !professionalVerificationRequested
@@ -1530,7 +1558,9 @@ export async function POST(request: Request) {
       sonnet: claudeRun?.reply ?? "",
     })).find(Boolean) ?? "";
     if (!reply) return Response.json({ error: zaiError || openAiError || deepSeekError || claudeError || "AI 未產生可顯示內容" }, { status: 502 });
-    reply = hideExternalUrls(reply);
+    reply = centralTestMode
+      ? appendRecommendedLinks(reply, externalCatalogContext.recommendedLinks)
+      : hideExternalUrls(reply);
 
     const fileSearchConfirmedForBook = Boolean(
       context.type === "book" &&
