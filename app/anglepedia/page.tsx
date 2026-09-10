@@ -11,6 +11,7 @@ export default function AnglePediaPage() {
     <SimpleChatHome
       brand="AnglePedia 元照百科"
       symbol="元"
+      logoSrc="/anglepedia-logo.png"
       greeting="想查什麼元照資料？"
       knowledgeScope="anglepedia"
     />

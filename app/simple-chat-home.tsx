@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, FormEvent, KeyboardEvent, useRef, useState } from "react";
+import Image from "next/image";
+import { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, ReactNode, useRef, useState } from "react";
 import styles from "./simple-chat-home.module.css";
 
 type ChatMessage = {
@@ -23,11 +24,113 @@ type ChatResponse = {
 type SimpleChatHomeProps = {
   brand?: string;
   symbol?: string;
+  logoSrc?: string;
   greeting?: string;
   knowledgeScope?: "all" | "anglepedia";
 };
 
-export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", greeting = "有什麼我可以幫忙的？", knowledgeScope = "all" }: SimpleChatHomeProps) {
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const tokenPattern = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g;
+  let cursor = 0;
+
+  for (const match of text.matchAll(tokenPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) parts.push(text.slice(cursor, index));
+    const token = match[0];
+    const key = `${keyPrefix}-${index}`;
+    if (token.startsWith("**")) {
+      parts.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("`")) {
+      parts.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else {
+      const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+      parts.push(link ? <a key={key} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a> : token);
+    }
+    cursor = index + token.length;
+  }
+
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
+}
+
+function MarkdownMessage({ text }: { text: string }) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const blocks: ReactNode[] = [];
+
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    if (line.trimStart().startsWith("```")) {
+      const language = line.trim().slice(3).trim();
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trimStart().startsWith("```")) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(<pre key={`code-${index}`}><code data-language={language || undefined}>{codeLines.join("\n")}</code></pre>);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const content = renderInlineMarkdown(heading[2], `heading-${index}`);
+      blocks.push(heading[1].length <= 2
+        ? <h2 key={`heading-${index}`}>{content}</h2>
+        : <h3 key={`heading-${index}`}>{content}</h3>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+        const item = lines[index].replace(/^\s*[-*]\s+/, "");
+        items.push(<li key={`ul-${index}`}>{renderInlineMarkdown(item, `ul-${index}`)}</li>);
+        index += 1;
+      }
+      blocks.push(<ul key={`ul-block-${index}`}>{items}</ul>);
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
+        const item = lines[index].replace(/^\s*\d+\.\s+/, "");
+        items.push(<li key={`ol-${index}`}>{renderInlineMarkdown(item, `ol-${index}`)}</li>);
+        index += 1;
+      }
+      blocks.push(<ol key={`ol-block-${index}`}>{items}</ol>);
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (index < lines.length && lines[index].trim() && !/^(#{1,6})\s+/.test(lines[index]) && !/^\s*[-*]\s+/.test(lines[index]) && !/^\s*\d+\.\s+/.test(lines[index]) && !lines[index].trimStart().startsWith("```")) {
+      paragraphLines.push(lines[index]);
+      index += 1;
+    }
+    blocks.push(
+      <p key={`paragraph-${index}`}>
+        {paragraphLines.map((paragraphLine, lineIndex) => (
+          <span key={`line-${index}-${lineIndex}`}>
+            {lineIndex > 0 && <br />}
+            {renderInlineMarkdown(paragraphLine, `paragraph-${index}-${lineIndex}`)}
+          </span>
+        ))}
+      </p>,
+    );
+  }
+
+  return <div className={styles.markdown}>{blocks}</div>;
+}
+
+export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", logoSrc, greeting = "有什麼我可以幫忙的？", knowledgeScope = "all" }: SimpleChatHomeProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -103,10 +206,7 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
     inputRef.current?.focus();
   }
 
-  function selectFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  function loadAttachment(file: File) {
     const isImage = ["image/jpeg", "image/png", "image/webp"].includes(file.type);
     const isDocument = ["application/pdf", "text/plain", "text/markdown"].includes(file.type) || /\.(pdf|txt|md)$/i.test(file.name);
     const maxBytes = isImage ? 4 * 1024 * 1024 : 8 * 1024 * 1024;
@@ -128,11 +228,25 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
     reader.readAsDataURL(file);
   }
 
+  function selectFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) loadAttachment(file);
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const imageItem = Array.from(event.clipboardData.items).find((item) => item.kind === "file" && item.type.startsWith("image/"));
+    const file = imageItem?.getAsFile();
+    if (!file) return;
+    event.preventDefault();
+    loadAttachment(file);
+  }
+
   return (
     <main className={styles.page}>
       <header className={styles.header}>
         <button className={styles.brand} type="button" onClick={startNewChat} aria-label="開始新對話">
-          <span aria-hidden="true">{symbol}</span>
+          {logoSrc ? <Image className={styles.brandLogo} src={logoSrc} width={38} height={38} alt="" aria-hidden="true" /> : <span aria-hidden="true">{symbol}</span>}
           <strong>{brand}</strong>
         </button>
         <button className={styles.newChat} type="button" onClick={startNewChat}>新對話</button>
@@ -141,15 +255,15 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
       <section className={`${styles.conversation} ${messages.length ? styles.hasMessages : ""}`} aria-live="polite">
         {messages.length === 0 ? (
           <div className={styles.empty}>
-            <span aria-hidden="true">{symbol}</span>
+            {logoSrc ? <Image className={styles.emptyLogo} src={logoSrc} width={56} height={56} alt="" aria-hidden="true" /> : <span aria-hidden="true">{symbol}</span>}
             <h1>{greeting}</h1>
           </div>
         ) : messages.map((message, index) => (
           <article className={`${styles.message} ${message.role === "student" ? styles.student : styles.mentor}`} key={`${message.role}-${index}`}>
-            {message.role === "mentor" && <span className={styles.avatar} aria-hidden="true">{symbol}</span>}
+            {message.role === "mentor" && (logoSrc ? <Image className={styles.avatarLogo} src={logoSrc} width={32} height={32} alt="" aria-hidden="true" /> : <span className={styles.avatar} aria-hidden="true">{symbol}</span>)}
             <div>
               {message.attachmentName && <small className={styles.attachmentInMessage}>附件：{message.attachmentName}</small>}
-              <div>{message.text}</div>
+              {message.role === "mentor" ? <MarkdownMessage text={message.text} /> : <div>{message.text}</div>}
               {message.role === "mentor" && message.usage && (
                 <small className={styles.usage}>
                   {message.usage.model === "gpt-5.6-luna" ? "Luna" : message.usage.model === "central-question-bank" ? "中央題庫" : message.usage.model}
@@ -177,6 +291,7 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="輸入訊息"
             rows={1}
             aria-label="輸入訊息"
