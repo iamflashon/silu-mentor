@@ -12,6 +12,7 @@ export default function AnglePediaPage() {
       brand="AnglePedia 元照百科"
       symbol="元"
       logoSrc="/anglepedia-logo.png"
+      brandLogoSrc="/anglepedia-wordmark.png"
       greeting="法學百川，一搜盡覽"
       knowledgeScope="anglepedia"
     />

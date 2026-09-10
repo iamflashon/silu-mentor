@@ -25,6 +25,7 @@ type SimpleChatHomeProps = {
   brand?: string;
   symbol?: string;
   logoSrc?: string;
+  brandLogoSrc?: string;
   greeting?: string;
   knowledgeScope?: "all" | "anglepedia";
 };
@@ -130,7 +131,7 @@ function MarkdownMessage({ text }: { text: string }) {
   return <div className={styles.markdown}>{blocks}</div>;
 }
 
-export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", logoSrc, greeting = "有什麼我可以幫忙的？", knowledgeScope = "all" }: SimpleChatHomeProps) {
+export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", logoSrc, brandLogoSrc, greeting = "有什麼我可以幫忙的？", knowledgeScope = "all" }: SimpleChatHomeProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -246,8 +247,14 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
     <main className={styles.page}>
       <header className={styles.header}>
         <button className={styles.brand} type="button" onClick={startNewChat} aria-label="開始新對話">
-          {logoSrc ? <Image className={styles.brandLogo} src={logoSrc} width={38} height={38} alt="" aria-hidden="true" /> : <span aria-hidden="true">{symbol}</span>}
-          <strong>{brand}</strong>
+          {brandLogoSrc ? (
+            <Image className={styles.brandWordmark} src={brandLogoSrc} width={144} height={56} alt={brand} priority />
+          ) : (
+            <>
+              {logoSrc ? <Image className={styles.brandLogo} src={logoSrc} width={38} height={38} alt="" aria-hidden="true" /> : <span aria-hidden="true">{symbol}</span>}
+              <strong>{brand}</strong>
+            </>
+          )}
         </button>
         <button className={styles.newChat} type="button" onClick={startNewChat}>新對話</button>
       </header>
