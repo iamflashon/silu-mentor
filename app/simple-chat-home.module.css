@@ -63,8 +63,8 @@
   background: #fff;
 }
 .brandLogo { width: 38px; height: 38px; }
-.brandWordmark { width: auto; height: 45px; object-fit: contain; }
 .emptyLogo { width: 56px; height: 56px; border-radius: 14px; }
+.heroWordmark { width: min(210px, 70vw); height: auto; max-height: 82px; object-fit: contain; background: transparent; }
 .avatarLogo { width: 32px; height: 32px; border-radius: 9px; }
 
 .newChat {
@@ -276,7 +276,6 @@
 @media (max-width: 600px) {
   .header { height: 56px; padding: 0 13px; }
   .brand span { width: 31px; height: 31px; }
-  .brandWordmark { height: 40px; }
   .brand strong { font-size: 16px; }
   .conversation { width: calc(100% - 24px); padding: 56px 0 126px; }
   .hasMessages { padding-top: 78px; }
