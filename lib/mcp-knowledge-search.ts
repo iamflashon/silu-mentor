@@ -8,7 +8,7 @@ export type McpKnowledgeMatch = {
   sourceUrl: string;
 };
 
-export async function searchPublishedMcpKnowledge(query: string, limit = 6): Promise<McpKnowledgeMatch[]> {
+export async function searchPublishedMcpKnowledge(query: string, limit = 6, scope: "all" | "anglepedia" = "all"): Promise<McpKnowledgeMatch[]> {
   const compact = query.trim().replace(/\s+/g, "").slice(0, 120);
   if (compact.length < 2) return [];
   const rows = await mcpDatabase().prepare(`
@@ -22,14 +22,15 @@ export async function searchPublishedMcpKnowledge(query: string, limit = 6): Pro
   const items = (rows.results || []) as McpKnowledgeMatch[];
   return items.map((row: McpKnowledgeMatch) => {
     const haystack = `${row.category}${row.title}${row.content}`.replace(/\s+/g, "");
-    const score = grams.reduce((sum, gram) => sum + (haystack.includes(gram) ? 1 : 0), 0)
+    const angleBoost = scope === "anglepedia" && /元照|anglepedia/i.test(haystack) ? 100 : 0;
+    const baseScore = grams.reduce((sum, gram) => sum + (haystack.includes(gram) ? 1 : 0), 0)
       + (haystack.includes(compact) ? 30 : 0)
       + (compact.includes(row.title.replace(/\s+/g, "")) ? 20 : 0);
-    return { row, score };
-  }).filter(({ score }: { row: McpKnowledgeMatch; score: number }) => score > 0)
-    .sort((a: { row: McpKnowledgeMatch; score: number }, b: { row: McpKnowledgeMatch; score: number }) => b.score - a.score)
+    return { row, score: baseScore + angleBoost, baseScore };
+  }).filter(({ baseScore }: { row: McpKnowledgeMatch; score: number; baseScore: number }) => baseScore > 0)
+    .sort((a: { row: McpKnowledgeMatch; score: number; baseScore: number }, b: { row: McpKnowledgeMatch; score: number; baseScore: number }) => b.score - a.score)
     .slice(0, Math.max(1, Math.min(8, limit)))
-    .map(({ row }: { row: McpKnowledgeMatch; score: number }) => row);
+    .map(({ row }: { row: McpKnowledgeMatch; score: number; baseScore: number }) => row);
 }
 
 export function formatMcpKnowledgeEvidence(rows: McpKnowledgeMatch[]) {

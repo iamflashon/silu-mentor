@@ -178,7 +178,7 @@ export async function POST(request: Request) {
   if (!reply) return Response.json({ error: "模擬學生尚未具體回應所選選項，請再試一次" }, { status: 502 });
 
   const usage = readUsage(payload);
-  const estimatedCostUsd = (Math.max(0, usage.inputTokens - usage.cachedTokens) * 0.10 + usage.cachedTokens * 0.01 + usage.outputTokens * 0.60) / 1_000_000;
+  const estimatedCostUsd = (Math.max(0, usage.inputTokens - usage.cachedTokens) * 0.20 + usage.cachedTokens * 0.02 + usage.outputTokens * 1.20) / 1_000_000;
   try {
     const db = await getDb();
     await db.insert(usageLogs).values({

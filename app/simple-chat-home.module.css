@@ -121,9 +121,19 @@
   background: #f1f1f1;
 }
 
+.attachmentInMessage { display: block; margin-bottom: 4px; color: #687078; font-size: 12px; }
+
 .mentor > div:not(.thinking) {
   flex: 1;
   padding-top: 2px;
+}
+
+.usage {
+  display: block;
+  margin-top: 9px;
+  color: #8a8f96;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .avatar {
@@ -158,6 +168,11 @@
   box-shadow: 0 8px 28px rgba(0, 0, 0, .09);
 }
 
+.attachmentBar { display: flex; align-items: center; justify-content: space-between; width: min(746px, calc(100% - 34px)); margin: 0 auto 7px; padding: 8px 12px; border: 1px solid #d9e0e4; border-radius: 12px; color: #53606a; background: #fff; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.05); }
+.attachmentBar button { border: 0; color: #6d747a; background: transparent; font-size: 20px; cursor: pointer; }
+.attachmentError { color: #a23b36; }
+.fileInput { display: none; }
+
 .composer textarea {
   flex: 1;
   min-height: 28px;
@@ -175,7 +190,7 @@
 
 .composer textarea::placeholder { color: #8e8e8e; }
 
-.composer button {
+.composer .sendButton {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
@@ -189,11 +204,15 @@
   cursor: pointer;
 }
 
-.composer button:disabled {
+.composer .sendButton:disabled {
   color: #aaa;
   background: #ececec;
   cursor: default;
 }
+
+.composer .attachButton { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; color: #4f5961; background: transparent; font-size: 26px; line-height: 1; cursor: pointer; }
+.composer .attachButton:hover { background: #f1f2f3; }
+.composer .attachButton:disabled { opacity: .45; cursor: default; }
 
 .thinking {
   display: flex;

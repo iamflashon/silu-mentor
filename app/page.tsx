@@ -1444,5 +1444,5 @@ export function MainEntryGate() {
 }
 
 export default function HomePage() {
-  return <SimpleChatHome />;
+  return <SimpleChatHome brand="iBrain Pedia X 智學百科" greeting="今天想學什麼？" />;
 }

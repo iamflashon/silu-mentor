@@ -341,12 +341,15 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
   };
 }
 
-async function readExternalCatalogEvidence(query: string) {
+async function readExternalCatalogEvidence(query: string, scope: "all" | "anglepedia" = "all") {
   const [reviewed, catalog] = await Promise.all([
-    searchPublishedMcpKnowledge(query, 6),
-    searchExternalCatalog(query, 6),
+    searchPublishedMcpKnowledge(query, 6, scope),
+    searchExternalCatalog(query, scope === "anglepedia" ? 30 : 6),
   ]);
-  return `${formatMcpKnowledgeEvidence(reviewed)}${formatExternalCatalogEvidence(catalog)}`;
+  const prioritizedCatalog = scope === "anglepedia"
+    ? [...catalog].sort((a, b) => Number(/元照|anglepedia/i.test(`${b.source}${b.title}${b.parentTitle}`)) - Number(/元照|anglepedia/i.test(`${a.source}${a.title}${a.parentTitle}`))).slice(0, 6)
+    : catalog;
+  return `${formatMcpKnowledgeEvidence(reviewed)}${formatExternalCatalogEvidence(prioritizedCatalog)}`;
 }
 
 type OfficialCaseEvidence = {
@@ -513,6 +516,14 @@ const baseInstructions = `你是「司律備考」的 AI 學習教練，專門�
 26. 比較正犯、幫助犯與不罰時，應清楚交代使結論改變的事實節點與法律理由；「不可或缺」「離開現場」「著手時間」都只能作為判斷因素，不得未經涵攝直接等同犯罪支配、幫助因果或有效脫離。
 27. 回答正文不得輸出任何網址、網域名稱或 Markdown 連結。外網查證只在系統的「查證來源」欄顯示來源名稱，正文引用時只寫「依全國法規資料庫」或「依司法院資料」等可讀名稱。
 28. 司律首頁有明確服務範圍：法律學習、司律考試、真題／申論、讀書計畫、學習紀錄與本站功能操作。若學生詢問明顯無關的生活、天氣、旅遊、購物、娛樂、程式、一般醫療或其他非司律內容，請客氣、簡短地拒絕，不要回答該非法律問題，也不要為此搜尋外網。固定以類似「不好意思，我是司律備考的 AI 導師，主要協助法律學習與司律備考；這個問題和司律學習沒有直接關係，暫時無法協助。你可以改問法律概念、司律真題、申論、讀書計畫或平台操作。」回覆。若只是寒暄，可自然回應；若問題不明確，先以是否屬於司律學習判斷，不要過度拒絕。`;
+
+const centralTestInstructions = `你是 iBrain 的中央資料測試助理。現在是開放測試階段，不限制法律或任何特定考試領域。
+1. 使用繁體中文自然回答，不得因主題不是司律而拒答。
+2. 每一個資料搜尋、教材、期刊、課程、題庫或知識問題，都要先檢查本輪提供的中央資料與檔案搜尋結果。
+3. 有命中時，必須列出真實標題、資料分類、摘要與來源網址；只能依實際命中內容回答，不得補造資料。
+4. 沒有命中時，直接說「中央資料目前沒有找到」，並列出實際搜尋詞，不得假裝找到。
+5. 若要求考一題，只有真的取得完整題幹與 A、B、C、D 選項才能說已抽題，且必須在同一則回覆完整顯示題目；不得只說題目在卡片中。
+6. 目前固定使用 Luna，不自行切換其他模型。`;
 
 function sourceNameFromUrl(value: string) {
   const lower = value.toLowerCase();
@@ -828,9 +839,9 @@ async function findPublishedMcq(subject: string) {
 }
 
 const modelRates: Record<string, { input: number; cached: number; output: number }> = {
-  "gpt-5.6-luna": { input: 0.10, cached: 0.01, output: 0.60 },
-  "gpt-5.6-terra": { input: 1.00, cached: 0.10, output: 6.00 },
-  "gpt-5.6-sol": { input: 2.00, cached: 0.20, output: 10.00 },
+  "gpt-5.6-luna": { input: 0.20, cached: 0.02, output: 1.20 },
+  "gpt-5.6-terra": { input: 2.00, cached: 0.20, output: 12.00 },
+  "gpt-5.6-sol": { input: 4.00, cached: 0.40, output: 20.00 },
   "deepseek-v4-pro": { input: 0.435, cached: 0.003625, output: 0.87 },
 };
 
@@ -1053,7 +1064,7 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; assistantMode?: "advisor" | "coach"; teacherFeedback?: boolean; persistStudentMessage?: boolean; requestKey?:string; professionalVerification?: boolean };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; fileDataUrl?: string; fileName?: string; fileMimeType?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; assistantMode?: "advisor" | "coach"; teacherFeedback?: boolean; persistStudentMessage?: boolean; requestKey?:string; professionalVerification?: boolean; centralTestMode?: boolean; knowledgeScope?: "all" | "anglepedia" };
     const requestedMode = String(body.modelMode ?? "auto");
     const allowedModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     let modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "auto";
@@ -1068,13 +1079,15 @@ export async function POST(request: Request) {
         : (rawContext?.type === "my-course" || rawContext?.type === "public-course") && Number.isInteger(rawContext.resourceId)
           ? { type: rawContext.type, resourceId: rawContext.resourceId, episodeId: Number.isInteger(rawContext.episodeId) ? rawContext.episodeId : 0, resourceTitle: String(rawContext.resourceTitle || (rawContext.type === "public-course" ? "開放課" : "我的課")), episodeTitle: String(rawContext.episodeTitle || "目前這一集") }
           : { type: "home" };
+    const centralTestMode = context.type === "home" && body.centralTestMode === true;
+    const knowledgeScope = body.knowledgeScope === "anglepedia" ? "anglepedia" : "all";
     // 首頁一般教學維持 Luna；只有涉及程序適法性、法院准駁或裁判見解的
     // 問題才自動升級 Sol。這項判斷由後端完成，不依賴學生自行切換模型。
     const authorityReviewRequired = context.type === "home" && Boolean(latestStudent?.text) && requiresAuthorityReview(latestStudent?.text ?? "");
-    if (context.type === "home") modelMode = authorityReviewRequired ? "sol" : "luna";
+    if (context.type === "home") modelMode = centralTestMode ? "luna" : authorityReviewRequired ? "sol" : "luna";
     // 重新規劃計畫的提示可能包含「一試刷題」等學習目標，不能被首頁
     // 的一試抽題分流提前攔截；有 planningConstraint 時必須進入計畫流程。
-    if (context.type === "home" && latestStudent && !body.planningConstraint && shouldRefuseHomeQuery(latestStudent.text)) {
+    if (context.type === "home" && !centralTestMode && latestStudent && !body.planningConstraint && shouldRefuseHomeQuery(latestStudent.text)) {
       const reply = "不好意思，我是司律備考的 AI 導師，主要協助法律學習與司律備考；這個問題和司律學習沒有直接關係，暫時無法協助。你可以改問法律概念、司律真題、申論、讀書計畫或平台操作。";
       const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent.text, context);
       const db = await getDb();
@@ -1090,7 +1103,7 @@ export async function POST(request: Request) {
       const practiceQuestion = await findPublishedMcq(mcqSubject);
       const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent?.text ?? "一試真題練習", context);
       const reply = practiceQuestion
-        ? `已從「練真題」的已發布一試題庫抽出${mcqSubject ? `一題${mcqSubject}` : "一題"}真題。請直接在題目卡選 A、B、C 或 D；作答前不會顯示答案。`
+        ? `已從中央已發布一試題庫抽出${mcqSubject ? `一題${mcqSubject}` : "一題"}真題：\n\n${practiceQuestion.stem}\n\n${Object.entries(practiceQuestion.options).map(([key, value]) => `${key}. ${value}`).join("\n")}\n\n請直接回答 A、B、C 或 D；作答前不會顯示答案。`
         : `「練真題」目前沒有找到符合${mcqSubject ? `「${mcqSubject}」` : "條件"}且已發布、選項完整的一試真題。這是題庫篩選結果，不是教材搜尋結果。`;
       const db = await getDb();
       if (body.persistStudentMessage !== false && latestStudent?.text.trim()) {
@@ -1101,19 +1114,19 @@ export async function POST(request: Request) {
         : reply;
       await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: storedReply, source: practiceQuestion ? "真題庫" : null });
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
-      return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank" });
+      return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank", usage: { model: "central-question-bank", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
     }
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
     const aiGate = await prepareAiUse(request, "law");
     if (aiGate instanceof Response) return aiGate;
-    const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "") : "";
+    const externalCatalogEvidence = context.type === "home" ? await readExternalCatalogEvidence(latestStudent?.text ?? "", knowledgeScope) : "";
     const officialCaseEvidence = authorityReviewRequired ? await readOfficialCaseEvidence(latestStudent?.text ?? "") : [];
     const professionalVerificationRequested = context.type === "home" && body.professionalVerification === true;
     const cachedLegalVerification = authorityReviewRequired && !officialCaseEvidence.length && !professionalVerificationRequested
       ? await readLegalVerificationCache(latestStudent?.text ?? "")
       : null;
     const automaticAuthorityVerification = authorityReviewRequired && !officialCaseEvidence.length && !cachedLegalVerification;
-    const route = authorityReviewRequired
+    const route = centralTestMode ? null : authorityReviewRequired
       ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified")
       : modelMode === "auto" ? automaticRoute(latestStudent?.text ?? "", context, bookEvidence?.status === "verified") : null;
     if (route) modelMode = route.provider;
@@ -1139,7 +1152,12 @@ export async function POST(request: Request) {
     if (needsAnthropic && !anthropicKey) {
       return Response.json({ error: "ANTHROPIC_API_KEY 尚未設定於司律備考的伺服器環境" }, { status: 503 });
     }
-    const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/jpeg;base64,/.test(body.imageDataUrl) && body.imageDataUrl.length <= 4_500_000 ? body.imageDataUrl : "";
+    const imageDataUrl = typeof body.imageDataUrl === "string" && /^data:image\/(?:jpeg|png|webp);base64,/i.test(body.imageDataUrl) && body.imageDataUrl.length <= 5_700_000 ? body.imageDataUrl : "";
+    const safeFileName = String(body.fileName || "document").replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 120);
+    const safeFileMime = ["application/pdf", "text/plain", "text/markdown"].includes(String(body.fileMimeType)) ? String(body.fileMimeType) : "";
+    const fileDataUrl = typeof body.fileDataUrl === "string" && safeFileMime && /^data:(?:application\/pdf|text\/plain|text\/markdown)(?:;charset=[^;,]+)?;base64,/i.test(body.fileDataUrl) && body.fileDataUrl.length <= 11_200_000 ? body.fileDataUrl : "";
+    if (body.imageDataUrl && !imageDataUrl) return Response.json({ error: "圖片格式不支援或超過 4 MB。" }, { status: 400 });
+    if (body.fileDataUrl && !fileDataUrl) return Response.json({ error: "文件格式不支援或超過 8 MB。" }, { status: 400 });
     if (needsZai && imageDataUrl) {
       return Response.json({ error: "GLM 目前只測試文字對話；圖片題目請改選 Luna 或 Claude Sonnet。" }, { status: 400 });
     }
@@ -1263,7 +1281,9 @@ export async function POST(request: Request) {
         ? `${baseInstructions}\n\n這是獨立的法學教室試讀文章問答，不是首頁每日導師對話。只根據目前期數、文章標題、摘要、核心爭點與學生框選的文字回答。若試讀內容不足以確認全文脈絡，必須明確標示限制，不得補造作者主張、判決內容或文章結論；不得建立、修改或刪除行事曆。`
         : context.type === "my-course" || context.type === "public-course"
           ? `${baseInstructions}\n\n這是「${context.type === "public-course" ? "開放課" : "我的課"}」的課程提問，不是平台已上傳字幕的課程。平台沒有讀取 YouTube 影片聲音、畫面或 SRT；你只能依課程名稱、集數名稱、學生提供的截圖、學生自行輸入的文字，以及可靠的一般法律知識回答。絕對不要說你看過影片、聽過老師講解或知道該影片的特定內容。你正在接續同一段課程對話：必須先閱讀前面 AI 的回答與學生回覆，再直接承接學生現在的追問，不要重新開一個主題。若學生問的是老師在影片中的特定說法，而問題沒有提供原文、截圖或足夠描述，請明確請學生貼上老師說法或畫面後再判斷。回答聚焦學生當下問題，不要建立、修改或刪除行事曆。`
-      : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}${assistantModeInstruction}`) + teachingLevelInstruction;
+      : centralTestMode
+        ? `${centralTestInstructions}\n\n現在是台北時間 ${today}。本輪的唯一目的，是驗證中央資料能否被找到並忠實回答。${knowledgeScope === "anglepedia" ? "目前入口是「AnglePedia 元照百科」；必須優先列出元照／AnglePedia 命中資料，清楚標示元照命中與其他中央資料，不得把非元照來源冒充元照。" : "目前入口是「iBrain Pedia X 智學百科」，可搜尋全部中央資料。"}`
+        : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}${assistantModeInstruction}`) + teachingLevelInstruction;
     if (context.type === "home" && body.professionalVerification === true) {
       instructions += "\n\n【AI 專業法學查證】學生已主動確認使用本功能，本次必須搜尋外網後再回答。第一順位只採司法院、全國法規資料庫、憲法法庭、考選部及政府機關；必要時才補充大學、出版社或作者官方頁面。回答必須完成四件事：列明官方來源與資料日期、整理查證結果、對照平台教材指出一致／已修正／可能過時、轉成考試可用的爭點／法條／判準／答題提醒。清楚區分法源原文、作者主張與 AI 整理，不得用搜尋摘要冒充原文。";
     }
@@ -1330,7 +1350,7 @@ export async function POST(request: Request) {
       type: "file_search",
       vector_store_ids: [vectorStoreId],
       max_num_results: 8,
-      ...(context.type === "home" ? { filters: { type: "and", filters: [
+      ...(context.type === "home" && !centralTestMode ? { filters: { type: "and", filters: [
         { type: "eq", key: "exam_category", value: "law" },
         { type: "eq", key: "homepage_enabled", value: true },
       ] } } : {}),
@@ -1419,9 +1439,10 @@ export async function POST(request: Request) {
           instructions,
           input: modelMessages.map((message, index) => ({
             role: message.role === "mentor" ? "assistant" : "user",
-            content: imageDataUrl && message.role === "student" && index === modelMessages.length - 1 ? [
+            content: message.role === "student" && index === modelMessages.length - 1 && (imageDataUrl || fileDataUrl) ? [
               { type: "input_text", text: message.text },
-              { type: "input_image", image_url: imageDataUrl, detail: "high" },
+              ...(imageDataUrl ? [{ type: "input_image", image_url: imageDataUrl, detail: "high" }] : []),
+              ...(fileDataUrl ? [{ type: "input_file", file_data: fileDataUrl, filename: safeFileName }] : []),
             ] : message.text,
           })),
           ...(allowFileSearch ? { include: ["file_search_call.results"] } : {}),
