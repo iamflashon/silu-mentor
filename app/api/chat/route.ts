@@ -15,6 +15,7 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, judicialCases, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
+import { formatMcpKnowledgeEvidence, searchPublishedMcpKnowledge } from "../../../lib/mcp-knowledge-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
 import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
 import { recordPlatformUsage } from "../../../lib/platform-metering";
@@ -341,7 +342,11 @@ async function readBookTeachingEvidence(context: Extract<ChatContext, { type: "b
 }
 
 async function readExternalCatalogEvidence(query: string) {
-  return formatExternalCatalogEvidence(await searchExternalCatalog(query, 6));
+  const [reviewed, catalog] = await Promise.all([
+    searchPublishedMcpKnowledge(query, 6),
+    searchExternalCatalog(query, 6),
+  ]);
+  return `${formatMcpKnowledgeEvidence(reviewed)}${formatExternalCatalogEvidence(catalog)}`;
 }
 
 type OfficialCaseEvidence = {

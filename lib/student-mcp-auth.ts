@@ -10,6 +10,10 @@ export type McpIdentity = {
   name: string;
   role: string;
   scope: string;
+  mcpAccountId: string;
+  enterpriseId: string;
+  dailyCallLimit: number;
+  enterpriseMonthlyCallLimit: number;
 };
 
 export function mcpDatabase() {
@@ -85,17 +89,34 @@ export async function authenticateMcp(request: Request): Promise<McpIdentity | n
   const tokenHash = await sha256(token);
   const db = mcpDatabase();
   const row = await db.prepare(`
-    SELECT t.id AS tokenId,t.member_id AS memberId,t.scope,m.email,m.display_name AS name,m.role
+    SELECT t.id AS tokenId,t.member_id AS memberId,t.scope,m.email,m.display_name AS name,m.role,
+      a.id AS mcpAccountId,a.status AS mcpAccountStatus,a.daily_call_limit AS dailyCallLimit,
+      a.scopes_json AS accountScopes,a.enterprise_id AS enterpriseId,
+      e.status AS enterpriseStatus,e.monthly_call_limit AS enterpriseMonthlyCallLimit
     FROM mcp_oauth_tokens t
     INNER JOIN members m ON m.id=t.member_id
+    LEFT JOIN mcp_access_accounts a ON a.member_id=m.id OR lower(a.email)=lower(m.email)
+    LEFT JOIN mcp_enterprises e ON e.id=a.enterprise_id
     WHERE t.access_token_hash=? AND t.revoked_at IS NULL AND t.access_expires_at>unixepoch() AND m.status='active'
     LIMIT 1
   `).bind(tokenHash).first<Record<string, unknown>>();
-  if (!row) return null;
+  if (!row || !row.mcpAccountId) return null;
+  if (row.mcpAccountStatus !== "active") return null;
+  if (row.enterpriseId && row.enterpriseStatus !== "active") return null;
+  let accountScopes: readonly string[] = [];
+  try {
+    const parsed = JSON.parse(String(row.accountScopes || "[]"));
+    accountScopes = Array.isArray(parsed) ? parsed.map(String).filter((scope) => MCP_SCOPES.includes(scope as typeof MCP_SCOPES[number])) : [];
+  } catch { accountScopes = []; }
+  const tokenScopes = String(row.scope || "").split(/\s+/).filter(Boolean);
+  const effectiveScope = MCP_SCOPES.filter((scope) => tokenScopes.includes(scope) && accountScopes.includes(scope)).join(" ");
   await db.prepare("UPDATE mcp_oauth_tokens SET last_used_at=unixepoch() WHERE id=?").bind(String(row.tokenId)).run();
   return {
     tokenId: String(row.tokenId), memberId: Number(row.memberId), email: String(row.email),
-    name: String(row.name || ""), role: String(row.role || "student"), scope: String(row.scope || ""),
+    name: String(row.name || ""), role: String(row.role || "student"), scope: effectiveScope,
+    mcpAccountId: String(row.mcpAccountId || ""), enterpriseId: String(row.enterpriseId || ""),
+    dailyCallLimit: Math.max(0, Math.min(100000, Number(row.dailyCallLimit) || 0)),
+    enterpriseMonthlyCallLimit: row.enterpriseId ? Math.max(0, Math.min(10000000, Number(row.enterpriseMonthlyCallLimit) || 0)) : 0,
   };
 }
 

@@ -7,6 +7,7 @@ import { taipeiDate, taipeiGreeting } from "../lib/taipei-time";
 import { formatTwd } from "../lib/currency";
 import { coreExamPoints, type CoreExamPoint } from "../lib/core-exam-points";
 import { useSimulationToolsEnabled } from "../lib/use-simulation-tools";
+import SimpleChatHome from "./simple-chat-home";
 
 type ComparisonResponse = {
   id: number;
@@ -1323,7 +1324,7 @@ export function LawHome() {
   );
 }
 
-export default function MainEntryGate() {
+export function MainEntryGate() {
   type HomeCard = { id: "law" | "pengli" | "medtech" | "accounting"; enabled: boolean; order: number };
   const homeDefaults: HomeCard[] = [{ id: "pengli", enabled: true, order: 1 }, { id: "medtech", enabled: true, order: 2 }, { id: "accounting", enabled: true, order: 3 }, { id: "law", enabled: false, order: 4 }];
   const [homeCards, setHomeCards] = useState<HomeCard[] | null>(null);
@@ -1440,4 +1441,8 @@ export default function MainEntryGate() {
       </footer>
     </section>
   </main>;
+}
+
+export default function HomePage() {
+  return <SimpleChatHome />;
 }

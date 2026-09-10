@@ -1,6 +1,7 @@
 import { searchExternalCatalog } from "../../lib/external-catalog-search";
 import { recordPlatformUsage } from "../../lib/platform-metering";
-import { authenticateMcp, cleanText, corsHeaders, hasScope, mcpDailyCallLimit, mcpDatabase, unauthorizedMcp, type McpIdentity } from "../../lib/student-mcp-auth";
+import { searchPublishedMcpKnowledge } from "../../lib/mcp-knowledge-search";
+import { authenticateMcp, cleanText, corsHeaders, hasScope, mcpDatabase, unauthorizedMcp, type McpIdentity } from "../../lib/student-mcp-auth";
 
 type RpcRequest = { jsonrpc?: string; id?: string | number | null; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
 type ToolDefinition = { name: string; title: string; description: string; inputSchema: Record<string, unknown>; annotations: Record<string, boolean> };
@@ -42,9 +43,15 @@ function toolResult(data: unknown, isError = false) {
 }
 
 async function withinDailyLimit(identity: McpIdentity) {
-  const limit = mcpDailyCallLimit();
-  const row = await mcpDatabase().prepare(`SELECT COALESCE(SUM(call_count),0) AS calls FROM platform_usage_events WHERE user_key=? AND category='mcp' AND provider='iBrain Student MCP' AND created_at>=unixepoch('now','start of day')`).bind(identity.email).first<{ calls?: number }>();
-  return { allowed: Number(row?.calls || 0) < limit, limit };
+  const db = mcpDatabase();
+  const [daily, monthly] = await Promise.all([
+    db.prepare(`SELECT COALESCE(SUM(call_count),0) AS calls FROM platform_usage_events WHERE user_key=? AND category='mcp' AND provider='iBrain Student MCP' AND created_at>=unixepoch('now','start of day')`).bind(identity.email).first<{ calls?: number }>(),
+    identity.enterpriseId ? db.prepare(`SELECT COALESCE(SUM(p.call_count),0) AS calls FROM platform_usage_events p INNER JOIN mcp_access_accounts a ON lower(a.email)=lower(p.user_key) WHERE a.enterprise_id=? AND p.category='mcp' AND p.provider='iBrain Student MCP' AND p.created_at>=unixepoch('now','start of month')`).bind(identity.enterpriseId).first<{ calls?: number }>() : Promise.resolve(null),
+  ]);
+  const dailyCalls = Number(daily?.calls || 0);
+  const monthlyCalls = Number(monthly?.calls || 0);
+  const enterpriseAllowed = !identity.enterpriseId || monthlyCalls < identity.enterpriseMonthlyCallLimit;
+  return { allowed: dailyCalls < identity.dailyCallLimit && enterpriseAllowed, limit: identity.dailyCallLimit, enterpriseAllowed, enterpriseLimit: identity.enterpriseMonthlyCallLimit };
 }
 
 async function callTool(name: string, args: Record<string, unknown>, identity: McpIdentity) {
@@ -52,6 +59,7 @@ async function callTool(name: string, args: Record<string, unknown>, identity: M
   const requiredScope: "resources.read" | "progress.read" | "progress.write" = name === "search_gaodian_resources" ? "resources.read" : name === "get_exam_progress" ? "progress.read" : "progress.write";
   if (!hasScope(identity, requiredScope)) return toolResult({ error: "這次授權不包含此工具需要的權限。" }, true);
   const quota = await withinDailyLimit(identity);
+  if (!quota.enterpriseAllowed) return toolResult({ error: `所屬企業本月已達 ${quota.enterpriseLimit} 次 MCP 呼叫上限。` }, true);
   if (!quota.allowed) return toolResult({ error: `今天已達 ${quota.limit} 次 MCP 呼叫上限，請明天再試。` }, true);
   try {
     let data: unknown;
@@ -59,11 +67,13 @@ async function callTool(name: string, args: Record<string, unknown>, identity: M
       const query = cleanText(args.query, 120);
       const limit = Math.max(1, Math.min(8, Number(args.limit) || 5));
       if (query.length < 2) return toolResult({ error: "搜尋內容至少需要兩個字。" }, true);
-      const rows = await searchExternalCatalog(query, limit);
+      const [reviewed, catalog] = await Promise.all([searchPublishedMcpKnowledge(query, limit), searchExternalCatalog(query, limit)]);
+      const reviewedResults = reviewed.map((row) => ({ title: row.title, collection: row.category, parent_title: "MCP 已檢審資料", summary: row.content, url: row.sourceUrl, relevance_score: 100 }));
+      const rows = [...reviewedResults, ...catalog.map((row) => ({ title: row.title, collection: row.source, parent_title: row.parentTitle, summary: row.summary, url: row.url, relevance_score: row.score }))].slice(0, limit);
       data = {
         query,
         count: rows.length,
-        results: rows.map((row) => ({ title: row.title, collection: row.source, parent_title: row.parentTitle, summary: row.summary, url: row.url, relevance_score: row.score })),
+        results: rows,
         guidance: rows.length ? "只能依以上命中資料推薦，請附上來源網址。" : "沒有找到已發布資源；請直接告知學生沒有命中，不要猜測教材名稱。",
       };
     } else if (name === "get_exam_progress") {

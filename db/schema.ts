@@ -2208,3 +2208,49 @@ export const legalResearchCharges = sqliteTable("legal_research_charges", {
   id: text("id").primaryKey(), caseId: text("case_id").notNull().references(() => legalResearchCases.id, { onDelete: "cascade" }),
   scopeHash: text("scope_hash").notNull(), units: integer("units").notNull(), description: text("description").notNull(), createdAt: integer("created_at").notNull(),
 }, (table) => [uniqueIndex("legal_research_charges_case_scope_unique").on(table.caseId, table.scopeHash), index("legal_research_charges_case_idx").on(table.caseId)]);
+
+export const mcpEnterprises = sqliteTable("mcp_enterprises", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  status: text("status").notNull().default("active"),
+  monthlyCallLimit: integer("monthly_call_limit").notNull().default(10000),
+  notes: text("notes").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [index("mcp_enterprises_status_idx").on(table.status)]);
+
+export const mcpAccessAccounts = sqliteTable("mcp_access_accounts", {
+  id: text("id").primaryKey(),
+  memberId: integer("member_id").references(() => members.id, { onDelete: "set null" }),
+  email: text("email").notNull().unique(),
+  displayName: text("display_name").notNull().default(""),
+  accountType: text("account_type").notNull().default("individual"),
+  enterpriseId: text("enterprise_id").references(() => mcpEnterprises.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("active"),
+  dailyCallLimit: integer("daily_call_limit").notNull().default(100),
+  scopesJson: text("scopes_json").notNull().default('["resources.read","progress.read"]'),
+  notes: text("notes").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  uniqueIndex("mcp_access_accounts_member_unique").on(table.memberId),
+  index("mcp_access_accounts_enterprise_status_idx").on(table.enterpriseId, table.status),
+]);
+
+export const mcpKnowledgeItems = sqliteTable("mcp_knowledge_items", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  category: text("category").notNull().default("一般"),
+  content: text("content").notNull(),
+  sourceUrl: text("source_url").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  reviewNote: text("review_note").notNull().default(""),
+  reviewedBy: text("reviewed_by").notNull().default(""),
+  reviewedAt: integer("reviewed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, (table) => [
+  index("mcp_knowledge_items_status_updated_idx").on(table.status, table.updatedAt),
+  index("mcp_knowledge_items_category_status_idx").on(table.category, table.status),
+]);
