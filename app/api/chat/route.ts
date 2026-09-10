@@ -17,6 +17,7 @@ import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
 import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
+import { recordPlatformUsage } from "../../../lib/platform-metering";
 
 type ChatProvider = "luna" | "sol" | "sonnet" | "deepseek" | "glm" | "glm52";
 type ChatModelMode = "auto" | ChatProvider | "compare-luna-sonnet" | "compare-luna-glm52" | "compare-luna-deepseek" | "compare-sonnet-deepseek" | "compare-luna-sonnet-deepseek";
@@ -1047,7 +1048,7 @@ async function getOrCreateSession(request: Request, requestedId: number | null, 
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; teacherFeedback?: boolean; persistStudentMessage?: boolean; requestKey?:string; professionalVerification?: boolean };
+    const body = await request.json() as { messages?: ClientMessage[]; sessionId?: number | null; imageDataUrl?: string; planningConstraint?: PlanningConstraint; context?: ChatContext; visibleStudentText?: string; modelMode?: string; teachingLevel?: TeachingLevel; assistantMode?: "advisor" | "coach"; teacherFeedback?: boolean; persistStudentMessage?: boolean; requestKey?:string; professionalVerification?: boolean };
     const requestedMode = String(body.modelMode ?? "auto");
     const allowedModes: ChatModelMode[] = ["auto", "luna", "sol", "sonnet", "deepseek", "glm", "glm52", "compare-luna-sonnet", "compare-luna-glm52", "compare-luna-deepseek", "compare-sonnet-deepseek", "compare-luna-sonnet-deepseek"];
     let modelMode: ChatModelMode = allowedModes.includes(requestedMode as ChatModelMode) ? requestedMode as ChatModelMode : "auto";
@@ -1248,13 +1249,16 @@ export async function POST(request: Request) {
     const teacherFeedbackInstruction = body.teacherFeedback && context.type === "book"
       ? "\n\n【追問後回饋並完成解題】AI 學霸剛剛已回答你上一個理解追問。先用一至三句指出已掌握之處與一個需要修正或補強之處；接著不要再提新問題，直接依老師原文整理完整解題架構，固定使用「爭點→判準→各說→評析→涵攝→明確結論」。結論必須寫出每位行為人的法條、罪名及未遂／間接正犯等犯罪型態。最後只銜接一句「接下來可進入模考擬答」，不得再出反事實題。"
       : "";
+    const assistantModeInstruction = context.type !== "home" ? "" : body.assistantMode === "advisor"
+      ? "\n\n【考試顧問模式】先確認學生的目標考試、程度、可用時間與弱點；需要推薦資源時，優先搜尋平台已授權或已匯入的高點教材、題庫、課程及老師資料。只推薦實際搜尋命中的資源，列出命中名稱、適用程度、使用順序與推薦理由；未命中時直接說目前資料庫沒有，不得虛構書名、老師、課程或內容。"
+      : "\n\n【陪考教練模式】承接學生既有進度，以一次一個可完成行動陪練；先確認今天完成狀態，再依弱點出題、追問或調整下一步。不要一次塞入過多任務；每輪結尾提供一個明確、短小且可立即完成的行動。";
     let instructions = (context.type === "book"
       ? `${baseInstructions}\n\n這是獨立的書籍章節教學，不是首頁每日導師對話。只依目前書籍、章節與本章對話接續教學；不要提及首頁、今日任務、昨日對話或讀書計畫，也不得建立、修改或刪除行事曆。${bookEvidenceInstruction}${bookFlowGuardInstruction}${teacherFeedbackInstruction}`
       : context.type === "magazine"
         ? `${baseInstructions}\n\n這是獨立的法學教室試讀文章問答，不是首頁每日導師對話。只根據目前期數、文章標題、摘要、核心爭點與學生框選的文字回答。若試讀內容不足以確認全文脈絡，必須明確標示限制，不得補造作者主張、判決內容或文章結論；不得建立、修改或刪除行事曆。`
         : context.type === "my-course" || context.type === "public-course"
           ? `${baseInstructions}\n\n這是「${context.type === "public-course" ? "開放課" : "我的課"}」的課程提問，不是平台已上傳字幕的課程。平台沒有讀取 YouTube 影片聲音、畫面或 SRT；你只能依課程名稱、集數名稱、學生提供的截圖、學生自行輸入的文字，以及可靠的一般法律知識回答。絕對不要說你看過影片、聽過老師講解或知道該影片的特定內容。你正在接續同一段課程對話：必須先閱讀前面 AI 的回答與學生回覆，再直接承接學生現在的追問，不要重新開一個主題。若學生問的是老師在影片中的特定說法，而問題沒有提供原文、截圖或足夠描述，請明確請學生貼上老師說法或畫面後再判斷。回答聚焦學生當下問題，不要建立、修改或刪除行事曆。`
-      : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}`) + teachingLevelInstruction;
+      : `${baseInstructions}\n\n現在是台北時間 ${today}，目前時段應使用「${taipeiGreeting()}」；所有「今天、明天、明年」都必須以台北時間換算，不得使用伺服器時區。\n${planContext}\n${recordContext}\n昨天的學習接續資料（僅供本日對話參考）：${yesterdayContext}\n你必須根據學生實際完成狀態、作答正誤、延誤與新弱點調整後續計畫；不要重複已完成任務。若有下次接續點，優先從該處接著教。學生若選擇「繼續昨天進度」，先簡短確認昨天完成／未完成，再從未完成項目或最後接續點開始；若選擇「開始今天新單元」，直接進入今日任務；若選擇「考考我昨天學習成效」，先出一個可直接回答的小問題，不要先公布答案。\n重要：學生詢問「今天的讀書計畫、目前計畫、接下來要做什麼」時，必須直接依上方任務與學習紀錄逐項回答，絕對不可呼叫 save_study_plan。只有學生明確說要建立、重排、修改或調整計畫時，才可寫入新計畫。\n重要：學生明確要求刪除、移除或清理行事曆任務時，必須使用 delete_study_tasks；若要求處理重複行程，使用 mode=duplicates，只刪除每組重複中的後續項目並保留最早的一項。沒有明確刪除要求時禁止刪除。${plannerRule}${assistantModeInstruction}`) + teachingLevelInstruction;
     if (context.type === "home" && body.professionalVerification === true) {
       instructions += "\n\n【AI 專業法學查證】學生已主動確認使用本功能，本次必須搜尋外網後再回答。第一順位只採司法院、全國法規資料庫、憲法法庭、考選部及政府機關；必要時才補充大學、出版社或作者官方頁面。回答必須完成四件事：列明官方來源與資料日期、整理查證結果、對照平台教材指出一致／已修正／可能過時、轉成考試可用的爭點／法條／判準／答題提醒。清楚區分法源原文、作者主張與 AI 整理，不得用搜尋摘要冒充原文。";
     }
@@ -1673,14 +1677,30 @@ export async function POST(request: Request) {
       const db = await getDb();
       for (const result of modelResults) {
         if (result.inputTokens || result.outputTokens || result.text) {
+          const usageSource = isComparison ? `AI 導師模型比較（${result.label}）` : context.type === "home" ? (body.assistantMode === "advisor" ? "考試顧問" : "陪考教練") : fromFiles ? "教材" : "AI 補充";
           await db.insert(usageLogs).values({
             model: result.model,
-            source: isComparison ? `AI 導師模型比較（${result.label}）` : fromFiles ? "教材" : "AI 補充",
+            source: usageSource,
             inputTokens: result.inputTokens,
             cachedTokens: result.cachedTokens,
             outputTokens: result.outputTokens,
             fileSearchCalls: result.provider === "luna" && searchedFiles ? 1 : 0,
             estimatedCostUsdMicros: Math.round(result.estimatedCostUsd * 1_000_000),
+          });
+          await recordPlatformUsage({
+            userKey: request.headers.get("oai-authenticated-user-email") ?? "anonymous",
+            category: "model",
+            provider: result.providerName,
+            resource: result.model,
+            source: usageSource,
+            requestKey: body.requestKey,
+            inputTokens: result.inputTokens,
+            cachedTokens: result.cachedTokens,
+            outputTokens: result.outputTokens,
+            estimatedCostUsdMicros: Math.round(result.estimatedCostUsd * 1_000_000),
+            durationMs: result.durationMs,
+            status: result.error ? "failed" : "success",
+            errorCode: result.error ? "MODEL_RESPONSE_ERROR" : "",
           });
         }
       }

@@ -42,3 +42,6 @@ next-env.d.ts
 /work/
 __pycache__/
 *.pyc
+
+# Licensed YuanZhao archive inputs and generated D1 import batches
+/apps/yuanzhao-legal-mcp/private-imports/

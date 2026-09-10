@@ -2029,6 +2029,148 @@ export const reviewRuns = sqliteTable("review_runs", {
     .$defaultFn(() => new Date()),
 });
 
+export const mcpServers = sqliteTable(
+  "mcp_servers",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    endpointUrl: text("endpoint_url").notNull().unique(),
+    authType: text("auth_type").notNull().default("none"),
+    secretEnvKey: text("secret_env_key").notNull().default(""),
+    status: text("status").notNull().default("active"),
+    allowedRolesJson: text("allowed_roles_json").notNull().default('["student","teacher","admin"]'),
+    monthlyBudgetUsdMicros: integer("monthly_budget_usd_micros").notNull().default(0),
+    defaultCreditCost: integer("default_credit_cost").notNull().default(1),
+    defaultCallCostUsdMicros: integer("default_call_cost_usd_micros").notNull().default(0),
+    timeoutMs: integer("timeout_ms").notNull().default(15000),
+    lastHealthStatus: text("last_health_status").notNull().default("untested"),
+    lastHealthMessage: text("last_health_message").notNull().default("尚未測試"),
+    lastHealthAt: integer("last_health_at", { mode: "timestamp" }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("mcp_servers_status_updated_idx").on(table.status, table.updatedAt),
+  ],
+);
+
+export const mcpToolPolicies = sqliteTable(
+  "mcp_tool_policies",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id").notNull().references(() => mcpServers.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    description: text("description").notNull().default(""),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    requireApproval: integer("require_approval", { mode: "boolean" }).notNull().default(false),
+    allowedRolesJson: text("allowed_roles_json").notNull().default('["student","teacher","admin"]'),
+    creditCost: integer("credit_cost").notNull().default(1),
+    callCostUsdMicros: integer("call_cost_usd_micros").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("mcp_tool_policies_server_tool_unique").on(table.serverId, table.toolName),
+    index("mcp_tool_policies_server_enabled_idx").on(table.serverId, table.enabled),
+  ],
+);
+
+export const platformUsageEvents = sqliteTable(
+  "platform_usage_events",
+  {
+    id: text("id").primaryKey(),
+    memberId: integer("member_id").references(() => members.id, { onDelete: "set null" }),
+    userKey: text("user_key").notNull().default("anonymous"),
+    category: text("category").notNull(),
+    provider: text("provider").notNull().default(""),
+    resource: text("resource").notNull(),
+    source: text("source").notNull().default(""),
+    requestKey: text("request_key").notNull().default(""),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    cachedTokens: integer("cached_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    callCount: integer("call_count").notNull().default(1),
+    creditDelta: integer("credit_delta").notNull().default(0),
+    estimatedCostUsdMicros: integer("estimated_cost_usd_micros").notNull().default(0),
+    durationMs: integer("duration_ms").notNull().default(0),
+    status: text("status").notNull().default("success"),
+    errorCode: text("error_code").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("platform_usage_events_created_idx").on(table.createdAt),
+    index("platform_usage_events_user_created_idx").on(table.userKey, table.createdAt),
+    index("platform_usage_events_category_resource_idx").on(table.category, table.resource),
+  ],
+);
+
+export const mcpOauthClients = sqliteTable("mcp_oauth_clients", {
+  clientId: text("client_id").primaryKey(),
+  clientName: text("client_name").notNull().default("ChatGPT"),
+  redirectUrisJson: text("redirect_uris_json").notNull().default("[]"),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const mcpOauthAuthorizationCodes = sqliteTable(
+  "mcp_oauth_authorization_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    clientId: text("client_id").notNull().references(() => mcpOauthClients.clientId, { onDelete: "cascade" }),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    redirectUri: text("redirect_uri").notNull(),
+    scope: text("scope").notNull().default("resources.read progress.read progress.write"),
+    codeChallenge: text("code_challenge").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    usedAt: integer("used_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("mcp_oauth_codes_client_expires_idx").on(table.clientId, table.expiresAt),
+    index("mcp_oauth_codes_member_created_idx").on(table.memberId, table.createdAt),
+  ],
+);
+
+export const mcpOauthTokens = sqliteTable(
+  "mcp_oauth_tokens",
+  {
+    id: text("id").primaryKey(),
+    accessTokenHash: text("access_token_hash").notNull().unique(),
+    refreshTokenHash: text("refresh_token_hash").notNull().unique(),
+    clientId: text("client_id").notNull().references(() => mcpOauthClients.clientId, { onDelete: "cascade" }),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull(),
+    accessExpiresAt: integer("access_expires_at", { mode: "timestamp" }).notNull(),
+    refreshExpiresAt: integer("refresh_expires_at", { mode: "timestamp" }).notNull(),
+    revokedAt: integer("revoked_at", { mode: "timestamp" }),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [
+    index("mcp_oauth_tokens_member_active_idx").on(table.memberId, table.revokedAt, table.accessExpiresAt),
+    index("mcp_oauth_tokens_client_created_idx").on(table.clientId, table.createdAt),
+  ],
+);
+
+export const mcpCoachCheckins = sqliteTable(
+  "mcp_coach_checkins",
+  {
+    id: text("id").primaryKey(),
+    memberId: integer("member_id").notNull().references(() => members.id, { onDelete: "cascade" }),
+    userKey: text("user_key").notNull(),
+    summary: text("summary").notNull(),
+    weakSpot: text("weak_spot").notNull().default(""),
+    nextAction: text("next_action").notNull().default(""),
+    completedTasks: integer("completed_tasks").notNull().default(0),
+    source: text("source").notNull().default("chatgpt_mcp"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (table) => [index("mcp_coach_checkins_member_created_idx").on(table.memberId, table.createdAt)],
+);
+
 export const legalResearchCases = sqliteTable("legal_research_cases", {
   id: text("id").primaryKey(), memberEmail: text("member_email").notNull(), title: text("title").notNull(),
   originalQuestion: text("original_question").notNull(), factsJson: text("facts_json").notNull().default("[]"),

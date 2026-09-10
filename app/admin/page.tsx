@@ -3699,6 +3699,7 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           <button className={activeTab === "judicial" ? "active" : ""} onClick={() => setActiveTab("judicial")}>司法院裁判</button>
         </nav>}
         {!independentMode && <section className="admin-platform-switcher" aria-label="平台管理入口">
+          <a href="/admin/ai-operations"><span className="data">AI</span><div><strong>AI／MCP 營運</strong><small>工具、付費與成本監控</small></div>→</a>
           <a href="/law"><span className="law">律</span><div><strong>司律備考</strong><small>進入法律學習平台</small></div>→</a>
           <a href="/medtech/admin"><span className="medtech">醫</span><div><strong>醫檢師管理</strong><small>題庫、語音與點數</small></div>→</a>
           <a href="/accounting/admin"><span className="accounting">會</span><div><strong>會計管理</strong><small>教材與課業答疑</small></div>→</a>
@@ -3721,6 +3722,9 @@ export default function AdminPage({ workspaceMode = "management", questionBankSe
           </a>
           <a href="/admin/ai-access">
             AI 方案與啟用碼
+          </a>
+          <a href="/admin/ai-operations">
+            AI／MCP 營運中心
           </a>
           <a href="/admin/portal-cards">
             首頁卡片管理

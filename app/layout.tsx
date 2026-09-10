@@ -8,10 +8,18 @@ import NavigationFeedback from "./navigation-feedback";
 import SimulationToolsVisibility from "./simulation-tools-visibility";
 import FrontendCostVisibility from "./frontend-cost-visibility";
 import SpecialtyHomeLink from "./specialty-home-link";
+import PwaRegistration from "./pwa-registration";
 
 export const metadata: Metadata = {
   title: { default: "iBrain AI 學習平台", template: "%s｜iBrain AI 學習平台" },
   description: "iBrain 各類科獨立的 AI 學習與測驗平台。",
+  applicationName: "iBrain AI",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "iBrain AI",
+    statusBarStyle: "black-translucent",
+  },
   other: {
     "codex-preview": "development",
   },
@@ -24,6 +32,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#143b59",
 };
 
 export default function RootLayout({
@@ -34,6 +44,7 @@ export default function RootLayout({
   return (
     <html lang="zh-Hant">
       <body className="antialiased">
+        <PwaRegistration />
         <SimulationToolsVisibility />
         <FrontendCostVisibility />
         <SpecialtyHomeLink />
