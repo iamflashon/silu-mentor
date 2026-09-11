@@ -15,7 +15,7 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, judicialCases, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
-import { fetchLatestAngleClassroomIssues, fetchLatestAngleLawJournalIssues, formatLatestAngleClassroomReply, formatLatestAngleLawJournalReply, isLatestAngleClassroomRequest, isLatestAngleLawJournalRequest, requestedLatestIssueCount } from "../../../lib/angle-magazine-latest";
+import { fetchLatestAngleClassroomIssues, fetchLatestAngleLawJournalIssues, formatAngleSeriesIndexReply, formatLatestAngleClassroomReply, formatLatestAngleLawJournalReply, isLatestAngleClassroomRequest, isLatestAngleLawJournalRequest, requestedAngleSeriesIndex, requestedLatestIssueCount } from "../../../lib/angle-magazine-latest";
 import { formatMcpKnowledgeEvidence, searchPublishedMcpKnowledge } from "../../../lib/mcp-knowledge-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
 import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
@@ -353,8 +353,30 @@ function isPublicHttpUrl(value: string) {
   }
 }
 
-function appendRecommendedLinks(reply: string, links: RecommendedLink[]) {
-  const unique = links.filter((link, index, all) => isPublicHttpUrl(link.url) && all.findIndex((candidate) => candidate.url === link.url) === index);
+function canonicalRecommendedUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.hostname === "angle.com.tw" || url.hostname === "www.angle.com.tw") {
+      url.protocol = "https:";
+      url.hostname = "www.angle.com.tw";
+    }
+    url.hash = "";
+    return url.toString().replace(/\/$/u, "");
+  } catch {
+    return value;
+  }
+}
+
+function appendRecommendedLinks(reply: string, links: RecommendedLink[], query: string) {
+  const compact = query.replace(/\s+/g, "");
+  const denied = [...compact.matchAll(/不要([^，。；,]+)/gu)].map((match) => match[1]);
+  const allowed = links.filter((link) => {
+    const label = `${link.title}${link.source}`.replace(/\s+/g, "");
+    return !denied.some((value) => label.includes(value) || value.includes(link.title.replace(/\s+/g, "")));
+  });
+  const unique = allowed
+    .map((link) => ({ ...link, url: canonicalRecommendedUrl(link.url) }))
+    .filter((link, index, all) => isPublicHttpUrl(link.url) && all.findIndex((candidate) => candidate.url === link.url) === index);
   const missing = unique.filter((link) => !reply.includes(link.url)).slice(0, 3);
   if (!missing.length) return reply;
   return `${reply.trim()}\n\n### 推薦連結\n${missing.map((link) => `- [${link.title}](${link.url}) — ${link.source}`).join("\n")}`;
@@ -1175,6 +1197,18 @@ export async function POST(request: Request) {
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
       return Response.json({ reply, sessionId: session.id, citationStatus, usage: { model: "official-live-index", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
     }
+    const angleSeriesIndex = latestStudent ? requestedAngleSeriesIndex(latestStudent.text) : null;
+    if (context.type === "home" && latestStudent && angleSeriesIndex) {
+      const reply = formatAngleSeriesIndexReply(angleSeriesIndex);
+      const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent.text, context);
+      const db = await getDb();
+      if (body.persistStudentMessage !== false && latestStudent.text.trim()) {
+        await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text.trim() });
+      }
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: reply, source: "元照官方歷期頁" });
+      await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      return Response.json({ reply, sessionId: session.id, citationStatus: "official_series_index", usage: { model: "official-series-index", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
+    }
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
     const aiGate = await prepareAiUse(request, "law");
     if (aiGate instanceof Response) return aiGate;
@@ -1593,7 +1627,7 @@ export async function POST(request: Request) {
     })).find(Boolean) ?? "";
     if (!reply) return Response.json({ error: zaiError || openAiError || deepSeekError || claudeError || "AI 未產生可顯示內容" }, { status: 502 });
     reply = centralTestMode
-      ? appendRecommendedLinks(reply, externalCatalogContext.recommendedLinks)
+      ? appendRecommendedLinks(reply, externalCatalogContext.recommendedLinks, latestStudent?.text ?? "")
       : hideExternalUrls(reply);
 
     const fileSearchConfirmedForBook = Boolean(

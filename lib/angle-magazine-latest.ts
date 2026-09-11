@@ -3,10 +3,18 @@ export type LatestAngleMagazineIssue = {
   title: string;
   publishDate: string;
   url: string;
+  availability: "published" | "upcoming";
 };
 
 const ANGLE_CLASSROOM_INDEX = "https://www.angle.com.tw/magazine/m_search.asp?KindID=12";
 const ANGLE_LAW_JOURNAL_INDEX = "https://www.angle.com.tw/magazine/m_search.asp?KindID=13";
+
+function normalizeAngleQuery(query: string) {
+  return query
+    .replace(/\s+/g, "")
+    .replace(/月[但單]/gu, "月旦")
+    .replace(/法學教[是式]/gu, "法學教室");
+}
 
 function cleanHtml(value: string) {
   return value
@@ -20,7 +28,7 @@ function cleanHtml(value: string) {
 }
 
 export function isLatestAngleClassroomRequest(query: string) {
-  const compact = query.replace(/\s+/g, "");
+  const compact = normalizeAngleQuery(query);
   const asksLatest = /最新|最近|近三|前三/u.test(compact);
   const asksClassroom = /法學教室/u.test(compact);
   const identifiesAngle = /月旦|元照|三份|三分|3份|三期|3期/u.test(compact);
@@ -28,12 +36,21 @@ export function isLatestAngleClassroomRequest(query: string) {
 }
 
 export function isLatestAngleLawJournalRequest(query: string) {
-  const compact = query.replace(/\s+/g, "");
+  const compact = normalizeAngleQuery(query);
   return /最新|最近|近三|前三/u.test(compact) && /月旦法學雜誌/u.test(compact);
 }
 
+export function requestedAngleSeriesIndex(query: string): "classroom" | "law-journal" | null {
+  const compact = normalizeAngleQuery(query);
+  if (!/找|查|搜尋|官網|歷期|索引/u.test(compact) || /第\d{1,4}期/u.test(compact)) return null;
+  const denied = [...compact.matchAll(/不要([^，。；,]+)/gu)].map((match) => match[1]);
+  if (compact.includes("月旦法學教室") && !denied.some((value) => value.includes("月旦法學教室"))) return "classroom";
+  if (compact.includes("月旦法學雜誌") && !denied.some((value) => value.includes("月旦法學雜誌"))) return "law-journal";
+  return null;
+}
+
 export function requestedLatestIssueCount(query: string) {
-  const compact = query.replace(/\s+/g, "");
+  const compact = normalizeAngleQuery(query);
   const arabic = compact.match(/(?:最新|最近|前|找)(\d{1,2})(?:份|期)/u)?.[1];
   if (arabic) return Math.min(10, Math.max(1, Number(arabic)));
   const chinese = compact.match(/(?:最新|最近|前|找)([一二三四五六七八九十])(?:份|分|期)/u)?.[1];
@@ -48,20 +65,29 @@ function parseLatestAngleIssues(html: string, seriesTitle: string, indexUrl: str
   const found = new Map<number, LatestAngleMagazineIssue>();
   const escapedTitle = seriesTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const linkPattern = new RegExp(`href=["']([^"']*m_single\\.asp\\?BKID=\\d+[^"']*)["'][^>]*>\\s*${escapedTitle}第\\s*(\\d+)\\s*期`, "gi");
-  for (const match of html.matchAll(linkPattern)) {
+  const matches = [...html.matchAll(linkPattern)];
+  const taipeiParts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const currentYearMonth = Number(`${taipeiParts.find((part) => part.type === "year")?.value ?? "0"}${taipeiParts.find((part) => part.type === "month")?.value ?? "00"}`);
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
     const issue = Number(match[2]);
     if (!Number.isInteger(issue) || found.has(issue)) continue;
-    const nearby = cleanHtml(html.slice(match.index ?? 0, (match.index ?? 0) + 1200));
+    const start = match.index ?? 0;
+    const end = matches[index + 1]?.index ?? Math.min(html.length, start + 1800);
+    const nearby = cleanHtml(html.slice(start, end));
     const date = nearby.match(/出刊日[^\d]*(\d{4})[年/]\s*(\d{1,2})/u);
+    const issueYearMonth = date ? Number(`${date[1]}${String(Number(date[2])).padStart(2, "0")}`) : 0;
+    const upcoming = /即將上市|預購/u.test(nearby) || (issueYearMonth > 0 && issueYearMonth > currentYearMonth);
     const url = new URL(match[1].replaceAll("&amp;", "&"), indexUrl).toString();
     found.set(issue, {
       issue,
       title: `${seriesTitle}第${issue}期`,
       publishDate: date ? `${date[1]}年${Number(date[2])}月` : "",
       url,
+      availability: upcoming ? "upcoming" : "published",
     });
   }
-  return [...found.values()].sort((a, b) => b.issue - a.issue).slice(0, limit);
+  return [...found.values()].filter((item) => item.availability === "published").sort((a, b) => b.issue - a.issue).slice(0, limit);
 }
 
 export function parseLatestAngleClassroomIssues(html: string, limit = 3) {
@@ -97,7 +123,13 @@ function formatLatestAngleReply(issues: LatestAngleMagazineIssue[], seriesTitle:
     item.publishDate ? `- 出刊日：${item.publishDate}` : "",
     "- 出版單位：元照出版公司",
   ].filter(Boolean).join("\n")).join("\n\n");
-  return `已找到《${seriesTitle}》最新${issues.length === 3 ? "三" : issues.length}期（依元照官方歷期頁的期號排序）：\n\n${rows}\n\n[查看《${seriesTitle}》全部歷期](${indexUrl})`;
+  return `已找到《${seriesTitle}》最新已出刊${issues.length === 3 ? "三" : issues.length}期（已排除「即將上市」項目，並依元照官方歷期頁的期號排序）：\n\n${rows}\n\n[查看《${seriesTitle}》全部歷期](${indexUrl})`;
+}
+
+export function formatAngleSeriesIndexReply(series: "classroom" | "law-journal") {
+  const seriesTitle = series === "classroom" ? "月旦法學教室" : "月旦法學雜誌";
+  const indexUrl = series === "classroom" ? ANGLE_CLASSROOM_INDEX : ANGLE_LAW_JOURNAL_INDEX;
+  return `已找到元照官方的《${seriesTitle}》歷期索引：\n\n- [查看《${seriesTitle}》全部歷期](${indexUrl})\n\n這是該刊專屬索引，不包含其他名稱相近的期刊。`;
 }
 
 export function formatLatestAngleClassroomReply(issues: LatestAngleMagazineIssue[]) {
