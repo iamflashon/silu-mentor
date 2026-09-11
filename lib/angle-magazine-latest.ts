@@ -43,9 +43,10 @@ export function isLatestAngleLawJournalRequest(query: string) {
 export function requestedAngleSeriesIndex(query: string): "classroom" | "law-journal" | null {
   const compact = normalizeAngleQuery(query);
   if (!/找|查|搜尋|官網|歷期|索引/u.test(compact) || /第\d{1,4}期/u.test(compact)) return null;
-  const denied = [...compact.matchAll(/不要([^，。；,]+)/gu)].map((match) => match[1]);
-  if (compact.includes("月旦法學教室") && !denied.some((value) => value.includes("月旦法學教室"))) return "classroom";
-  if (compact.includes("月旦法學雜誌") && !denied.some((value) => value.includes("月旦法學雜誌"))) return "law-journal";
+  const deniesClassroom = /不要《?月旦法學教室/u.test(compact);
+  const deniesLawJournal = /不要《?月旦法學雜誌/u.test(compact);
+  if (compact.includes("月旦法學教室") && !deniesClassroom) return "classroom";
+  if (compact.includes("月旦法學雜誌") && !deniesLawJournal) return "law-journal";
   return null;
 }
 
