@@ -6,6 +6,11 @@ export type LatestAngleMagazineIssue = {
   availability: "published" | "upcoming";
 };
 
+export type AngleIssueStatusRequest = {
+  issue: number;
+  series: "classroom" | "law-journal";
+};
+
 const ANGLE_CLASSROOM_INDEX = "https://www.angle.com.tw/magazine/m_search.asp?KindID=12";
 const ANGLE_LAW_JOURNAL_INDEX = "https://www.angle.com.tw/magazine/m_search.asp?KindID=13";
 
@@ -40,6 +45,16 @@ export function isLatestAngleLawJournalRequest(query: string) {
   return /最新|最近|近三|前三/u.test(compact) && /月旦法學雜誌/u.test(compact);
 }
 
+export function requestedAngleIssueStatus(query: string): AngleIssueStatusRequest | null {
+  const compact = normalizeAngleQuery(query);
+  if (!/已出刊|即將上市|上市|出刊|狀態/u.test(compact)) return null;
+  const issue = Number(compact.match(/第(\d{1,4})期/u)?.[1]);
+  if (!Number.isInteger(issue) || issue < 1) return null;
+  if (compact.includes("月旦法學教室")) return { issue, series: "classroom" };
+  if (compact.includes("月旦法學雜誌")) return { issue, series: "law-journal" };
+  return null;
+}
+
 export function requestedAngleSeriesIndex(query: string): "classroom" | "law-journal" | null {
   const compact = normalizeAngleQuery(query);
   if (!/找|查|搜尋|官網|歷期|索引/u.test(compact) || /第\d{1,4}期/u.test(compact)) return null;
@@ -62,7 +77,7 @@ export function requestedLatestIssueCount(query: string) {
   return 3;
 }
 
-function parseLatestAngleIssues(html: string, seriesTitle: string, indexUrl: string, limit: number): LatestAngleMagazineIssue[] {
+function parseLatestAngleIssues(html: string, seriesTitle: string, indexUrl: string, limit: number, includeUpcoming = false): LatestAngleMagazineIssue[] {
   const found = new Map<number, LatestAngleMagazineIssue>();
   const escapedTitle = seriesTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const linkPattern = new RegExp(`href=["']([^"']*m_single\\.asp\\?BKID=\\d+[^"']*)["'][^>]*>\\s*${escapedTitle}第\\s*(\\d+)\\s*期`, "gi");
@@ -88,7 +103,10 @@ function parseLatestAngleIssues(html: string, seriesTitle: string, indexUrl: str
       availability: upcoming ? "upcoming" : "published",
     });
   }
-  return [...found.values()].filter((item) => item.availability === "published").sort((a, b) => b.issue - a.issue).slice(0, limit);
+  return [...found.values()]
+    .filter((item) => includeUpcoming || item.availability === "published")
+    .sort((a, b) => b.issue - a.issue)
+    .slice(0, limit);
 }
 
 export function parseLatestAngleClassroomIssues(html: string, limit = 3) {
@@ -118,6 +136,19 @@ export function fetchLatestAngleLawJournalIssues(limit = 3) {
   return fetchLatestAngleIssues(ANGLE_LAW_JOURNAL_INDEX, "月旦法學雜誌", limit);
 }
 
+export async function fetchAngleIssueStatus(request: AngleIssueStatusRequest) {
+  const indexUrl = request.series === "classroom" ? ANGLE_CLASSROOM_INDEX : ANGLE_LAW_JOURNAL_INDEX;
+  const seriesTitle = request.series === "classroom" ? "月旦法學教室" : "月旦法學雜誌";
+  const response = await fetch(indexUrl, {
+    headers: { "user-agent": "AnglePedia/1.0", accept: "text/html,application/xhtml+xml" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error(`元照歷期頁回應 ${response.status}`);
+  const html = new TextDecoder("big5").decode(await response.arrayBuffer());
+  return parseLatestAngleIssues(html, seriesTitle, indexUrl, 100, true).find((item) => item.issue === request.issue) ?? null;
+}
+
 function formatLatestAngleReply(issues: LatestAngleMagazineIssue[], seriesTitle: string, indexUrl: string) {
   const rows = issues.map((item, index) => [
     `### ${index + 1}. [${item.title}](${item.url})`,
@@ -131,6 +162,12 @@ export function formatAngleSeriesIndexReply(series: "classroom" | "law-journal")
   const seriesTitle = series === "classroom" ? "月旦法學教室" : "月旦法學雜誌";
   const indexUrl = series === "classroom" ? ANGLE_CLASSROOM_INDEX : ANGLE_LAW_JOURNAL_INDEX;
   return `已找到元照官方的《${seriesTitle}》歷期索引：\n\n- [查看《${seriesTitle}》全部歷期](${indexUrl})\n\n這是該刊專屬索引，不包含其他名稱相近的期刊。`;
+}
+
+export function formatAngleIssueStatusReply(item: LatestAngleMagazineIssue) {
+  const status = item.availability === "upcoming" ? "即將上市，尚未列為已出刊" : "已出刊";
+  const date = item.publishDate ? `，官方頁標示出刊月份為 ${item.publishDate}` : "";
+  return `依元照官方歷期頁，《${item.title}》目前狀態是：**${status}**${date}。\n\n- [查看元照官方期刊頁](${item.url})`;
 }
 
 export function formatLatestAngleClassroomReply(issues: LatestAngleMagazineIssue[]) {

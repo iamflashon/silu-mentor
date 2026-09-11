@@ -15,7 +15,7 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, judicialCases, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
-import { fetchLatestAngleClassroomIssues, fetchLatestAngleLawJournalIssues, formatAngleSeriesIndexReply, formatLatestAngleClassroomReply, formatLatestAngleLawJournalReply, isLatestAngleClassroomRequest, isLatestAngleLawJournalRequest, requestedAngleSeriesIndex, requestedLatestIssueCount } from "../../../lib/angle-magazine-latest";
+import { fetchAngleIssueStatus, fetchLatestAngleClassroomIssues, fetchLatestAngleLawJournalIssues, formatAngleIssueStatusReply, formatAngleSeriesIndexReply, formatLatestAngleClassroomReply, formatLatestAngleLawJournalReply, isLatestAngleClassroomRequest, isLatestAngleLawJournalRequest, requestedAngleIssueStatus, requestedAngleSeriesIndex, requestedLatestIssueCount } from "../../../lib/angle-magazine-latest";
 import { formatMcpKnowledgeEvidence, searchPublishedMcpKnowledge } from "../../../lib/mcp-knowledge-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
 import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
@@ -372,11 +372,13 @@ function appendRecommendedLinks(reply: string, links: RecommendedLink[], query: 
   const denied = [...compact.matchAll(/不要([^，。；,]+)/gu)].map((match) => match[1]);
   const allowed = links.filter((link) => {
     const label = `${link.title}${link.source}`.replace(/\s+/g, "");
+    if (/ERICDATA/iu.test(compact) && !/ericdata\.com/iu.test(link.url)) return false;
+    if (/高點|知識達/u.test(compact) && !/(?:^|\/\/)(?:www\.)?get\.com\.tw(?:\/|$)/iu.test(link.url)) return false;
     return !denied.some((value) => label.includes(value) || value.includes(link.title.replace(/\s+/g, "")));
   });
   const unique = allowed
     .map((link) => ({ ...link, url: canonicalRecommendedUrl(link.url) }))
-    .filter((link, index, all) => isPublicHttpUrl(link.url) && all.findIndex((candidate) => candidate.url === link.url) === index);
+    .filter((link, index, all) => isPublicHttpUrl(link.url) && all.findIndex((candidate) => candidate.url === link.url || candidate.title.trim() === link.title.trim()) === index);
   const missing = unique.filter((link) => !reply.includes(link.url)).slice(0, 3);
   if (!missing.length) return reply;
   return `${reply.trim()}\n\n### 推薦連結\n${missing.map((link) => `- [${link.title}](${link.url}) — ${link.source}`).join("\n")}`;
@@ -1196,6 +1198,29 @@ export async function POST(request: Request) {
       await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: reply, source: "元照官方歷期頁" });
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
       return Response.json({ reply, sessionId: session.id, citationStatus, usage: { model: "official-live-index", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
+    }
+    const angleIssueStatus = latestStudent ? requestedAngleIssueStatus(latestStudent.text) : null;
+    if (context.type === "home" && latestStudent && angleIssueStatus) {
+      const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent.text, context);
+      const db = await getDb();
+      let reply: string;
+      let citationStatus = "official_issue_status";
+      try {
+        const issue = await fetchAngleIssueStatus(angleIssueStatus);
+        if (!issue) throw new Error("官方歷期頁未找到指定期數");
+        reply = formatAngleIssueStatusReply(issue);
+      } catch {
+        citationStatus = "official_issue_not_found";
+        const seriesTitle = angleIssueStatus.series === "classroom" ? "月旦法學教室" : "月旦法學雜誌";
+        const kindId = angleIssueStatus.series === "classroom" ? 12 : 13;
+        reply = `元照官方歷期頁目前沒有找到《${seriesTitle}》第${angleIssueStatus.issue}期的狀態，因此我不會猜測。你可以從[官方歷期頁](https://www.angle.com.tw/magazine/m_search.asp?KindID=${kindId})再次確認。`;
+      }
+      if (body.persistStudentMessage !== false && latestStudent.text.trim()) {
+        await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text.trim() });
+      }
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: reply, source: "元照官方歷期頁" });
+      await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      return Response.json({ reply, sessionId: session.id, citationStatus, usage: { model: "official-issue-status", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
     }
     const angleSeriesIndex = latestStudent ? requestedAngleSeriesIndex(latestStudent.text) : null;
     if (context.type === "home" && latestStudent && angleSeriesIndex) {
