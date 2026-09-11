@@ -83,6 +83,12 @@ export function requestedExcludedIssueNumbers(query: string) {
   const compact = normalizeAngleQuery(query);
   const issues = new Set<number>();
   for (const exclusion of compact.matchAll(/(?:不要|排除)([^。；;]+)/gu)) {
+    for (const range of exclusion[1].matchAll(/(?:第)?(\d{1,4})(?:到|至|[-~～])(?:第)?(\d{1,4})期/gu)) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      if (!Number.isInteger(start) || !Number.isInteger(end) || Math.abs(end - start) > 100) continue;
+      for (let issue = Math.min(start, end); issue <= Math.max(start, end); issue += 1) issues.add(issue);
+    }
     for (const match of exclusion[1].matchAll(/(?:第)?(\d{1,4})(?=期|[、,，及與和跟])/gu)) {
       const issue = Number(match[1]);
       if (Number.isInteger(issue) && issue > 0) issues.add(issue);
