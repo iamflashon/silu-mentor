@@ -57,11 +57,13 @@ export function rankExternalCatalogRows(rows: ExternalCatalogRow[], query: strin
   if (compact.length < 2) return [];
   const grams = queryGrams(query);
   const requestedIssue = compact.match(/第?\d{1,4}期/u)?.[0]?.replace(/^第/u, "") ?? "";
-  const requestedSeries = compact.includes("月旦法學教室") || (/元照/u.test(compact) && /法學教室/u.test(compact))
-    ? "月旦法學教室"
-    : "";
+  const requestedSeries = compact.includes("月旦法學雜誌")
+    ? "月旦法學雜誌"
+    : compact.includes("月旦法學教室") || (/元照/u.test(compact) && /法學教室/u.test(compact))
+      ? "月旦法學教室"
+      : "";
   const asksLatest = /最新|最近|近三|前三/u.test(compact);
-  const issueNumber = (row: ExternalCatalogRow) => Number(`${row.title}${row.parentTitle}${row.content}`.match(/月旦法學教室第\s*(\d+)\s*期/u)?.[1] ?? 0);
+  const issueNumber = (row: ExternalCatalogRow) => Number(`${row.title}${row.parentTitle}${row.content}`.match(new RegExp(`${requestedSeries || "月旦法學(?:教室|雜誌)"}第\\s*(\\d+)\\s*期`, "u"))?.[1] ?? 0);
   return rows.filter((row) => {
     if (!requestedSeries) return true;
     return `${row.source}${row.title}${row.parentTitle}${row.content}`.replace(/\s+/g, "").includes(requestedSeries);
