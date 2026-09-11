@@ -65,6 +65,8 @@
 .brandLogo { width: 38px; height: 38px; }
 .emptyLogo { width: 56px; height: 56px; border-radius: 14px; }
 .heroWordmark { width: min(168px, 56vw); height: auto; max-height: 66px; object-fit: contain; background: transparent; }
+.heroIdentity { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.heroIdentity strong { color: #24262a; font-size: clamp(21px, 3.5vw, 26px); font-weight: 750; letter-spacing: .02em; }
 .avatarLogo { width: 32px; height: 32px; border-radius: 9px; }
 
 .newChat {

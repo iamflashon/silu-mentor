@@ -27,13 +27,14 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
   const db = (env as unknown as { DB: D1Database }).DB;
   try {
-    const [knowledge, accounts, enterprises, usage] = await Promise.all([
+    const [knowledge, accounts, siteAccounts, enterprises, usage] = await Promise.all([
       db.prepare(`SELECT id,title,category,content,source_url AS sourceUrl,status,review_note AS reviewNote,reviewed_by AS reviewedBy,reviewed_at AS reviewedAt,updated_at AS updatedAt FROM mcp_knowledge_items ORDER BY updated_at DESC LIMIT 200`).all(),
       db.prepare(`SELECT a.id,a.email,a.display_name AS displayName,a.account_type AS accountType,a.enterprise_id AS enterpriseId,a.status,a.daily_call_limit AS dailyCallLimit,a.scopes_json AS scopesJson,a.notes,a.updated_at AS updatedAt,e.name AS enterpriseName,(SELECT COALESCE(SUM(p.call_count),0) FROM platform_usage_events p WHERE lower(p.user_key)=lower(a.email) AND p.category='mcp' AND p.created_at>=unixepoch('now','start of day')) AS todayCalls FROM mcp_access_accounts a LEFT JOIN mcp_enterprises e ON e.id=a.enterprise_id ORDER BY a.updated_at DESC LIMIT 300`).all(),
+      db.prepare(`SELECT a.id,a.member_id AS memberId,m.email,m.display_name AS displayName,a.status,a.created_at AS createdAt,a.updated_at AS updatedAt,m.last_seen_at AS lastSeenAt,(SELECT COALESCE(SUM(p.call_count),0) FROM platform_usage_events p WHERE lower(p.user_key)=lower(m.email) AND p.category='model' AND p.created_at>=unixepoch('now','start of day')) AS todayCalls FROM member_exam_access a INNER JOIN members m ON m.id=a.member_id WHERE a.exam_category='angle-pedia' ORDER BY COALESCE(m.last_seen_at,a.created_at) DESC LIMIT 300`).all(),
       db.prepare(`SELECT e.id,e.name,e.code,e.status,e.monthly_call_limit AS monthlyCallLimit,e.notes,e.updated_at AS updatedAt,COUNT(DISTINCT a.id) AS accountCount,COALESCE(SUM(CASE WHEN p.created_at>=unixepoch('now','start of month') THEN p.call_count ELSE 0 END),0) AS monthCalls FROM mcp_enterprises e LEFT JOIN mcp_access_accounts a ON a.enterprise_id=e.id LEFT JOIN platform_usage_events p ON lower(p.user_key)=lower(a.email) AND p.category='mcp' GROUP BY e.id ORDER BY e.updated_at DESC`).all(),
       db.prepare(`SELECT COUNT(*) AS calls,COUNT(DISTINCT user_key) AS activeUsers,COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0) AS failures FROM platform_usage_events WHERE category='mcp' AND created_at>=unixepoch()-2592000`).first(),
     ]);
-    return Response.json({ knowledge: knowledge.results, accounts: accounts.results, enterprises: enterprises.results, usage });
+    return Response.json({ knowledge: knowledge.results, accounts: accounts.results, siteAccounts: siteAccounts.results, enterprises: enterprises.results, usage });
   } catch (error) {
     return Response.json({ error: "MCP 獨立管控資料庫尚未完成更新", detail: error instanceof Error ? error.message : "database unavailable" }, { status: 503 });
   }
@@ -87,6 +88,16 @@ export async function POST(request: Request) {
       id, member?.id ?? null, accountEmail, displayName, accountType, enterpriseId, status(body.status, ["active", "pending", "paused"], "active"), limit(body.dailyCallLimit, 100, 100000), JSON.stringify(Array.isArray(body.scopes) ? body.scopes.filter((scope) => ["resources.read", "progress.read", "progress.write"].includes(String(scope))) : ["resources.read", "progress.read"]), text(body.notes, 2000),
     ).run();
     return Response.json({ saved: true, id });
+  }
+
+  if (action === "save_site_account") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id < 1) return Response.json({ error: "找不到網站測試會員" }, { status: 400 });
+    const accountStatus = status(body.status, ["active", "pending", "paused"], "pending");
+    const result = await db.prepare(`UPDATE member_exam_access SET status=?,updated_at=unixepoch() WHERE id=? AND exam_category='angle-pedia'`)
+      .bind(accountStatus, id)
+      .run();
+    return result.meta.changes ? Response.json({ saved: true, id }) : Response.json({ error: "找不到網站測試會員" }, { status: 404 });
   }
 
   return Response.json({ error: "不支援的操作" }, { status: 400 });

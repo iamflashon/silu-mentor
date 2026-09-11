@@ -15,6 +15,7 @@ export default function AnglePediaPage() {
       heroLogoSrc="/anglepedia-wordmark-transparent.png"
       greeting="法學百川，一搜盡覽"
       knowledgeScope="anglepedia"
+      endpoint="/api/anglepedia-chat"
     />
   );
 }

@@ -17,6 +17,8 @@ type Attachment = { name: string; type: string; size: number; dataUrl: string };
 type ChatResponse = {
   reply?: string;
   error?: string;
+  code?: string;
+  signIn?: string;
   sessionId?: number;
   usage?: ChatUsage;
 };
@@ -28,6 +30,7 @@ type SimpleChatHomeProps = {
   heroLogoSrc?: string;
   greeting?: string;
   knowledgeScope?: "all" | "anglepedia";
+  endpoint?: string;
 };
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
@@ -131,7 +134,7 @@ function MarkdownMessage({ text }: { text: string }) {
   return <div className={styles.markdown}>{blocks}</div>;
 }
 
-export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", logoSrc, heroLogoSrc, greeting = "有什麼我可以幫忙的？", knowledgeScope = "all" }: SimpleChatHomeProps) {
+export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", logoSrc, heroLogoSrc, greeting = "有什麼我可以幫忙的？", knowledgeScope = "all", endpoint = "/api/chat" }: SimpleChatHomeProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -155,7 +158,7 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
     setThinking(true);
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -177,7 +180,12 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
         throw new Error("請先登入後再開始對話。");
       }
       const result = await response.json() as ChatResponse;
-      if (!response.ok || !result.reply) throw new Error(result.error || "暫時無法取得回覆，請稍後再試。");
+      if (!response.ok || !result.reply) {
+        if (result.code === "SIGN_IN_REQUIRED" && result.signIn) {
+          throw new Error(`${result.error || "請先登入。"}\n\n[使用 ChatGPT 帳號登入](${result.signIn})`);
+        }
+        throw new Error(result.error || "暫時無法取得回覆，請稍後再試。");
+      }
       if (typeof result.sessionId === "number") setSessionId(result.sessionId);
       setMessages((current) => [...current, { role: "mentor", text: result.reply!, usage: result.usage }]);
     } catch (error) {
@@ -256,7 +264,7 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
       <section className={`${styles.conversation} ${messages.length ? styles.hasMessages : ""}`} aria-live="polite">
         {messages.length === 0 ? (
           <div className={styles.empty}>
-            {heroLogoSrc ? <Image className={styles.heroWordmark} src={heroLogoSrc} width={2048} height={768} alt={brand} priority /> : logoSrc ? <Image className={styles.emptyLogo} src={logoSrc} width={56} height={56} alt="" aria-hidden="true" /> : <span aria-hidden="true">{symbol}</span>}
+            {heroLogoSrc ? <Image className={styles.heroWordmark} src={heroLogoSrc} width={2048} height={768} alt={brand} priority /> : logoSrc ? <div className={styles.heroIdentity}><Image className={styles.emptyLogo} src={logoSrc} width={56} height={56} alt="" aria-hidden="true" /><strong>{brand}</strong></div> : <span aria-hidden="true">{symbol}</span>}
             <h1>{greeting}</h1>
           </div>
         ) : messages.map((message, index) => (

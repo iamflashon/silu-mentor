@@ -5,7 +5,7 @@
 .page > header strong, .page > header small { display: block; }
 .page > header small { margin-top: 2px; color: #72828a; font-size: 12px; }
 .page > header a { color: #345b6c; font-size: 14px; text-decoration: none; }
-.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-width: 1180px; margin: 28px auto 16px; }
+.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 1180px; margin: 28px auto 16px; }
 .summary article { padding: 18px; border: 1px solid #dce4e7; border-radius: 14px; background: #fff; }
 .summary b, .summary span { display: block; }
 .summary b { font-size: 26px; }
@@ -37,6 +37,7 @@
 .review { color: #916300; background: #fff0c7; }
 .draft { color: #65747b; background: #e9eef0; }
 .rejected { color: #a33a37; background: #fde4e2; }
+.accountMeta, .emptyHint { margin: 8px 0 18px; color: #6b7d85; font-size: 14px; line-height: 1.8; }
 @media (max-width: 760px) {
   .page { padding: 0 12px 36px; }
   .summary { grid-template-columns: 1fr 1fr; }
