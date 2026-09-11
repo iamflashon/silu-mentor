@@ -369,11 +369,13 @@ function canonicalRecommendedUrl(value: string) {
 
 function appendRecommendedLinks(reply: string, links: RecommendedLink[], query: string) {
   const compact = query.replace(/\s+/g, "");
+  const angleRequest = /元照|AnglePedia|月旦/u.test(compact);
   const denied = [...compact.matchAll(/不要([^，。；,]+)/gu)].map((match) => match[1]);
   const allowed = links.filter((link) => {
     const label = `${link.title}${link.source}`.replace(/\s+/g, "");
     if (/ERICDATA/iu.test(compact) && !/ericdata\.com/iu.test(link.url)) return false;
     if (/高點|知識達/u.test(compact) && !/(?:^|\/\/)(?:www\.)?get\.com\.tw(?:\/|$)/iu.test(link.url)) return false;
+    if (!angleRequest && !reply.includes(link.title.trim())) return false;
     return !denied.some((value) => label.includes(value) || value.includes(link.title.replace(/\s+/g, "")));
   });
   const unique = allowed
