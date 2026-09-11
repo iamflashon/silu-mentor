@@ -34,6 +34,7 @@ function cleanHtml(value: string) {
 
 export function isLatestAngleClassroomRequest(query: string) {
   const compact = normalizeAngleQuery(query);
+  if (/不要《?月旦法學教室/u.test(compact)) return false;
   const asksLatest = /最新|最近|近三|前三/u.test(compact);
   const asksClassroom = /法學教室/u.test(compact);
   const identifiesAngle = /月旦|元照|三份|三分|3份|三期|3期/u.test(compact);
@@ -42,6 +43,7 @@ export function isLatestAngleClassroomRequest(query: string) {
 
 export function isLatestAngleLawJournalRequest(query: string) {
   const compact = normalizeAngleQuery(query);
+  if (/不要《?月旦法學雜誌/u.test(compact)) return false;
   return /最新|最近|近三|前三/u.test(compact) && /月旦法學雜誌/u.test(compact);
 }
 
