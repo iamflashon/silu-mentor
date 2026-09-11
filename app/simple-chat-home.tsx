@@ -31,6 +31,8 @@ type SimpleChatHomeProps = {
   greeting?: string;
   knowledgeScope?: "all" | "anglepedia";
   endpoint?: string;
+  initialNotice?: string;
+  accessBlocked?: boolean;
 };
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
@@ -134,7 +136,7 @@ function MarkdownMessage({ text }: { text: string }) {
   return <div className={styles.markdown}>{blocks}</div>;
 }
 
-export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", logoSrc, heroLogoSrc, greeting = "有什麼我可以幫忙的？", knowledgeScope = "all", endpoint = "/api/chat" }: SimpleChatHomeProps) {
+export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智", logoSrc, heroLogoSrc, greeting = "有什麼我可以幫忙的？", knowledgeScope = "all", endpoint = "/api/chat", initialNotice = "", accessBlocked = false }: SimpleChatHomeProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -147,7 +149,7 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
   async function sendMessage(event?: FormEvent) {
     event?.preventDefault();
     const question = input.trim() || (attachment ? `請分析這份${attachment.type.startsWith("image/") ? "圖片" : "文件"}：${attachment.name}` : "");
-    if (!question || thinking) return;
+    if (!question || thinking || accessBlocked) return;
 
     const submittedAttachment = attachment;
     const nextMessages: ChatMessage[] = [...messages, { role: "student", text: question, attachmentName: submittedAttachment?.name }];
@@ -266,6 +268,7 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
           <div className={styles.empty}>
             {heroLogoSrc ? <Image className={styles.heroWordmark} src={heroLogoSrc} width={2048} height={768} alt={brand} priority /> : logoSrc ? <div className={styles.heroIdentity}><Image className={styles.emptyLogo} src={logoSrc} width={56} height={56} alt="" aria-hidden="true" /><strong>{brand}</strong></div> : <span aria-hidden="true">{symbol}</span>}
             <h1>{greeting}</h1>
+            {initialNotice && <p className={styles.accessNotice} role="status">{initialNotice}</p>}
           </div>
         ) : messages.map((message, index) => (
           <article className={`${styles.message} ${message.role === "student" ? styles.student : styles.mentor}`} key={`${message.role}-${index}`}>
@@ -294,7 +297,7 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
         {(attachment || attachmentError) && <div className={styles.attachmentBar}>{attachment ? <><span>{attachment.name} · {(attachment.size / 1024 / 1024).toFixed(1)} MB</span><button type="button" onClick={() => setAttachment(null)} aria-label="移除附件">×</button></> : <span className={styles.attachmentError}>{attachmentError}</span>}</div>}
         <form className={styles.composer} onSubmit={sendMessage}>
           <input ref={fileRef} className={styles.fileInput} type="file" accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,text/markdown,.md" onChange={selectFile} />
-          <button className={styles.attachButton} type="button" onClick={() => fileRef.current?.click()} disabled={thinking} aria-label="上傳圖片或文件">＋</button>
+          <button className={styles.attachButton} type="button" onClick={() => fileRef.current?.click()} disabled={thinking || accessBlocked} aria-label="上傳圖片或文件">＋</button>
           <textarea
             ref={inputRef}
             value={input}
@@ -302,10 +305,11 @@ export default function SimpleChatHome({ brand = "iBrain Pedia X", symbol = "智
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder="輸入訊息"
+            disabled={accessBlocked}
             rows={1}
             aria-label="輸入訊息"
           />
-          <button className={styles.sendButton} type="submit" disabled={(!input.trim() && !attachment) || thinking} aria-label="送出訊息">↑</button>
+          <button className={styles.sendButton} type="submit" disabled={(!input.trim() && !attachment) || thinking || accessBlocked} aria-label="送出訊息">↑</button>
         </form>
       </div>
     </main>

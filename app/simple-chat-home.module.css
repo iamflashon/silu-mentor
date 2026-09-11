@@ -107,6 +107,7 @@
   font-weight: 600;
   letter-spacing: -.02em;
 }
+.accessNotice { width: min(520px, calc(100vw - 48px)); margin: 14px 0 0; padding: 12px 15px; border: 1px solid #ead8ae; border-radius: 12px; color: #795a12; background: #fff9e8; font-size: 14px; line-height: 1.65; }
 
 .hasMessages { padding-top: 94px; }
 
