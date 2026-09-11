@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     }
     const id = text(body.id, 80) || crypto.randomUUID();
     await db.prepare(`INSERT INTO mcp_access_accounts (id,member_id,email,display_name,account_type,enterprise_id,status,daily_call_limit,scopes_json,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,unixepoch(),unixepoch()) ON CONFLICT(id) DO UPDATE SET member_id=excluded.member_id,email=excluded.email,display_name=excluded.display_name,account_type=excluded.account_type,enterprise_id=excluded.enterprise_id,status=excluded.status,daily_call_limit=excluded.daily_call_limit,scopes_json=excluded.scopes_json,notes=excluded.notes,updated_at=unixepoch()`).bind(
-      id, member?.id ?? null, accountEmail, displayName, accountType, enterpriseId, status(body.status, ["active", "paused"], "active"), limit(body.dailyCallLimit, 100, 100000), JSON.stringify(Array.isArray(body.scopes) ? body.scopes.filter((scope) => ["resources.read", "progress.read", "progress.write"].includes(String(scope))) : ["resources.read", "progress.read"]), text(body.notes, 2000),
+      id, member?.id ?? null, accountEmail, displayName, accountType, enterpriseId, status(body.status, ["active", "pending", "paused"], "active"), limit(body.dailyCallLimit, 100, 100000), JSON.stringify(Array.isArray(body.scopes) ? body.scopes.filter((scope) => ["resources.read", "progress.read", "progress.write"].includes(String(scope))) : ["resources.read", "progress.read"]), text(body.notes, 2000),
     ).run();
     return Response.json({ saved: true, id });
   }

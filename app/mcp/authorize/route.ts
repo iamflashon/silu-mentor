@@ -3,6 +3,11 @@ import { cleanText, htmlEscape, mcpDatabase, normalizeScope, randomToken, sha256
 
 type AuthParams = { clientId: string; redirectUri: string; state: string; scope: string; codeChallenge: string };
 
+const BETA_AUTO_LIMIT = 10;
+const BETA_DAILY_CALL_LIMIT = 50;
+const BETA_AUTO_ID_PREFIX = "beta_auto_";
+const BETA_WAIT_ID_PREFIX = "beta_wait_";
+
 const securityHeaders = (cookie?: string) => ({
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
@@ -40,6 +45,40 @@ function clientRedirect(redirectUri: string, values: Record<string, string>) {
   return Response.redirect(url, 302);
 }
 
+async function ensureBetaMcpAccess(request: Request) {
+  const email = authenticatedEmail(request);
+  if (!email) return { status: "anonymous" as const };
+  const db = mcpDatabase();
+  const displayName = email.split("@")[0] || email;
+  let member = await db.prepare("SELECT id,status FROM members WHERE lower(email)=? LIMIT 1").bind(email).first<{ id: number; status: string }>();
+  if (!member) {
+    await db.prepare(`INSERT INTO members (email,password_hash,display_name,role,can_admin,status,class_name,created_at,updated_at)
+      VALUES (?,?,?,'student',0,'active','MCP 首批測試',unixepoch(),unixepoch())
+      ON CONFLICT(email) DO NOTHING`).bind(email, `chatgpt$${crypto.randomUUID()}${crypto.randomUUID()}`, displayName).run();
+    member = await db.prepare("SELECT id,status FROM members WHERE lower(email)=? LIMIT 1").bind(email).first<{ id: number; status: string }>();
+  }
+  if (!member || member.status !== "active") return { status: "paused" as const };
+
+  await db.prepare("UPDATE mcp_access_accounts SET member_id=COALESCE(member_id,?),updated_at=unixepoch() WHERE lower(email)=?").bind(member.id, email).run();
+  let account = await db.prepare("SELECT status FROM mcp_access_accounts WHERE lower(email)=? LIMIT 1").bind(email).first<{ status: string }>();
+  if (!account) {
+    const autoId = `${BETA_AUTO_ID_PREFIX}${crypto.randomUUID().replaceAll("-", "")}`;
+    await db.prepare(`INSERT INTO mcp_access_accounts (id,member_id,email,display_name,account_type,enterprise_id,status,daily_call_limit,scopes_json,notes,created_at,updated_at)
+      SELECT ?,?,?,?,'individual',NULL,'active',?,'["resources.read"]','首批 10 名自動測試會員',unixepoch(),unixepoch()
+      WHERE (SELECT COUNT(*) FROM mcp_access_accounts WHERE id LIKE '${BETA_AUTO_ID_PREFIX}%') < ?
+      ON CONFLICT(email) DO NOTHING`).bind(autoId, member.id, email, displayName, BETA_DAILY_CALL_LIMIT, BETA_AUTO_LIMIT).run();
+    account = await db.prepare("SELECT status FROM mcp_access_accounts WHERE lower(email)=? LIMIT 1").bind(email).first<{ status: string }>();
+  }
+  if (!account) {
+    const waitId = `${BETA_WAIT_ID_PREFIX}${crypto.randomUUID().replaceAll("-", "")}`;
+    await db.prepare(`INSERT INTO mcp_access_accounts (id,member_id,email,display_name,account_type,enterprise_id,status,daily_call_limit,scopes_json,notes,created_at,updated_at)
+      VALUES (?,?,?,?,'individual',NULL,'pending',0,'["resources.read"]','首批測試名額已滿；等待管理員審核',unixepoch(),unixepoch())
+      ON CONFLICT(email) DO NOTHING`).bind(waitId, member.id, email, displayName).run();
+    account = await db.prepare("SELECT status FROM mcp_access_accounts WHERE lower(email)=? LIMIT 1").bind(email).first<{ status: string }>();
+  }
+  return { status: account?.status === "active" ? "active" as const : account?.status === "pending" ? "pending" as const : "paused" as const };
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const params = paramsFrom(url.searchParams);
@@ -51,6 +90,13 @@ export async function GET(request: Request) {
   if (!authenticatedEmail(request)) {
     const returnTo = `${url.pathname}${url.search}`;
     return Response.redirect(new URL(`/signin-with-chatgpt?return_to=${encodeURIComponent(returnTo)}`, url.origin), 302);
+  }
+  const betaAccess = await ensureBetaMcpAccess(request);
+  if (betaAccess.status === "pending") {
+    return page("首批測試名額已滿", "<h1>首批 10 名測試名額已滿</h1><p>你的帳號目前不在開放名單內，我們已替你登記測試申請。請等待管理員審核開通後，再回到 ChatGPT 重新連接。</p>", 403);
+  }
+  if (betaAccess.status === "paused") {
+    return page("帳號尚未開通", "<h1>帳號尚未開通</h1><p>這個帳號目前未啟用，請聯絡管理員。</p>", 403);
   }
   const auth = await requireMember(request);
   if ("error" in auth) return page("會員尚未開通", "<h1>會員尚未開通</h1><p>這個 ChatGPT 帳號還沒有平台權限，請聯絡管理員。</p>", 403);
