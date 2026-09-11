@@ -77,6 +77,15 @@ export function requestedLatestIssueCount(query: string) {
   return 3;
 }
 
+export function requestedExcludedIssueNumbers(query: string) {
+  const compact = normalizeAngleQuery(query);
+  return new Set(
+    [...compact.matchAll(/(?:不要|排除)(?:第)?(\d{1,4})期/gu)]
+      .map((match) => Number(match[1]))
+      .filter((issue) => Number.isInteger(issue) && issue > 0),
+  );
+}
+
 function parseLatestAngleIssues(html: string, seriesTitle: string, indexUrl: string, limit: number, includeUpcoming = false): LatestAngleMagazineIssue[] {
   const found = new Map<number, LatestAngleMagazineIssue>();
   const escapedTitle = seriesTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

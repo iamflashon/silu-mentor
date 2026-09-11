@@ -15,7 +15,7 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, judicialCases, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
-import { fetchAngleIssueStatus, fetchLatestAngleClassroomIssues, fetchLatestAngleLawJournalIssues, formatAngleIssueStatusReply, formatAngleSeriesIndexReply, formatLatestAngleClassroomReply, formatLatestAngleLawJournalReply, isLatestAngleClassroomRequest, isLatestAngleLawJournalRequest, requestedAngleIssueStatus, requestedAngleSeriesIndex, requestedLatestIssueCount } from "../../../lib/angle-magazine-latest";
+import { fetchAngleIssueStatus, fetchLatestAngleClassroomIssues, fetchLatestAngleLawJournalIssues, formatAngleIssueStatusReply, formatAngleSeriesIndexReply, formatLatestAngleClassroomReply, formatLatestAngleLawJournalReply, isLatestAngleClassroomRequest, isLatestAngleLawJournalRequest, requestedAngleIssueStatus, requestedAngleSeriesIndex, requestedExcludedIssueNumbers, requestedLatestIssueCount } from "../../../lib/angle-magazine-latest";
 import { formatMcpKnowledgeEvidence, searchPublishedMcpKnowledge } from "../../../lib/mcp-knowledge-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
 import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
@@ -1167,30 +1167,52 @@ export async function POST(request: Request) {
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
       return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank", usage: { model: "central-question-bank", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
     }
-    const latestAngleSeries = latestStudent && isLatestAngleClassroomRequest(latestStudent.text)
-      ? "classroom"
-      : latestStudent && isLatestAngleLawJournalRequest(latestStudent.text)
-        ? "law-journal"
-        : null;
+    const wantsLatestAngleClassroom = Boolean(latestStudent && isLatestAngleClassroomRequest(latestStudent.text));
+    const wantsLatestAngleLawJournal = Boolean(latestStudent && isLatestAngleLawJournalRequest(latestStudent.text));
+    const latestAngleSeries = wantsLatestAngleClassroom && wantsLatestAngleLawJournal
+      ? "both"
+      : wantsLatestAngleClassroom
+        ? "classroom"
+        : wantsLatestAngleLawJournal
+          ? "law-journal"
+          : null;
     if (context.type === "home" && latestStudent && latestAngleSeries) {
       const count = requestedLatestIssueCount(latestStudent.text);
+      const excludedIssues = requestedExcludedIssueNumbers(latestStudent.text);
+      const fetchCount = Math.min(20, count + excludedIssues.size);
       const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent.text, context);
       const db = await getDb();
       let reply: string;
       let citationStatus = "official_live_index";
       try {
-        const issues = latestAngleSeries === "classroom"
-          ? await fetchLatestAngleClassroomIssues(count)
-          : await fetchLatestAngleLawJournalIssues(count);
-        if (!issues.length) throw new Error("歷期頁未辨識到期刊");
-        reply = latestAngleSeries === "classroom"
-          ? formatLatestAngleClassroomReply(issues)
-          : formatLatestAngleLawJournalReply(issues);
+        if (latestAngleSeries === "both") {
+          const [classroomIssues, lawJournalIssues] = await Promise.all([
+            fetchLatestAngleClassroomIssues(fetchCount),
+            fetchLatestAngleLawJournalIssues(fetchCount),
+          ]);
+          const classroom = classroomIssues.filter((item) => !excludedIssues.has(item.issue)).slice(0, count);
+          const lawJournal = lawJournalIssues.filter((item) => !excludedIssues.has(item.issue)).slice(0, count);
+          if (!classroom.length || !lawJournal.length) throw new Error("歷期頁未辨識到完整雙刊資料");
+          reply = `## 月旦法學雜誌\n\n${formatLatestAngleLawJournalReply(lawJournal)}\n\n---\n\n## 月旦法學教室\n\n${formatLatestAngleClassroomReply(classroom)}`;
+        } else {
+          const fetchedIssues = latestAngleSeries === "classroom"
+            ? await fetchLatestAngleClassroomIssues(fetchCount)
+            : await fetchLatestAngleLawJournalIssues(fetchCount);
+          const issues = fetchedIssues.filter((item) => !excludedIssues.has(item.issue)).slice(0, count);
+          if (!issues.length) throw new Error("歷期頁未辨識到期刊");
+          reply = latestAngleSeries === "classroom"
+            ? formatLatestAngleClassroomReply(issues)
+            : formatLatestAngleLawJournalReply(issues);
+        }
       } catch {
         citationStatus = "official_index_unavailable";
-        const seriesTitle = latestAngleSeries === "classroom" ? "月旦法學教室" : "月旦法學雜誌";
-        const kindId = latestAngleSeries === "classroom" ? 12 : 13;
-        reply = `我目前無法即時讀取元照官方歷期頁，所以不會用舊資料冒充最新期數。你可以先從[《${seriesTitle}》官方歷期頁](https://www.angle.com.tw/magazine/m_search.asp?KindID=${kindId})查看；稍後再問一次，我會重新即時確認。`;
+        if (latestAngleSeries === "both") {
+          reply = "我目前無法完整讀取兩本期刊的官方歷期頁，因此不會用不完整資料冒充結果。請從[《月旦法學雜誌》官方歷期頁](https://www.angle.com.tw/magazine/m_search.asp?KindID=13)及[《月旦法學教室》官方歷期頁](https://www.angle.com.tw/magazine/m_search.asp?KindID=12)查看；稍後再問一次，我會重新即時確認。";
+        } else {
+          const seriesTitle = latestAngleSeries === "classroom" ? "月旦法學教室" : "月旦法學雜誌";
+          const kindId = latestAngleSeries === "classroom" ? 12 : 13;
+          reply = `我目前無法即時讀取元照官方歷期頁，所以不會用舊資料冒充最新期數。你可以先從[《${seriesTitle}》官方歷期頁](https://www.angle.com.tw/magazine/m_search.asp?KindID=${kindId})查看；稍後再問一次，我會重新即時確認。`;
+        }
       }
       if (body.persistStudentMessage !== false && latestStudent.text.trim()) {
         await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text.trim() });
