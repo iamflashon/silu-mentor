@@ -15,6 +15,7 @@ import { normalizeMcqOptions } from "../../../lib/exam-options";
 import { appSettings, chatComparisonResponses, chatComparisons, chatMessages, chatSessions, documents, examQuestions, judicialCases, learningResources, resourceSegments, studyPlans, studyRecords, studyTasks, usageLogs } from "../../../db/schema";
 import { compactConversation } from "../../../lib/input-budget";
 import { formatExternalCatalogEvidence, searchExternalCatalog } from "../../../lib/external-catalog-search";
+import { fetchLatestAngleClassroomIssues, formatLatestAngleClassroomReply, isLatestAngleClassroomRequest, requestedLatestIssueCount } from "../../../lib/angle-magazine-latest";
 import { formatMcpKnowledgeEvidence, searchPublishedMcpKnowledge } from "../../../lib/mcp-knowledge-search";
 import { documentDisplayTitle, documentDisplayTitleFromMetadata } from "../../../lib/document-title";
 import { coachWebSearchAvailable, finishAiCoachRound, finishAiUse, markCoachWebSearchUsed, prepareAiUse } from "../../../lib/ai-access-gate";
@@ -1141,6 +1142,27 @@ export async function POST(request: Request) {
       await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: storedReply, source: practiceQuestion ? "真題庫" : null });
       await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
       return Response.json({ reply, practiceQuestion, sessionId: session.id, citationStatus: "exam_bank", usage: { model: "central-question-bank", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
+    }
+    if (context.type === "home" && latestStudent && isLatestAngleClassroomRequest(latestStudent.text)) {
+      const count = requestedLatestIssueCount(latestStudent.text);
+      const session = await getOrCreateSession(request, Number(body.sessionId) || null, latestStudent.text, context);
+      const db = await getDb();
+      let reply: string;
+      let citationStatus = "official_live_index";
+      try {
+        const issues = await fetchLatestAngleClassroomIssues(count);
+        if (!issues.length) throw new Error("歷期頁未辨識到期刊");
+        reply = formatLatestAngleClassroomReply(issues);
+      } catch {
+        citationStatus = "official_index_unavailable";
+        reply = "我目前無法即時讀取元照官方歷期頁，所以不會用舊資料冒充最新期數。你可以先從[《月旦法學教室》官方歷期頁](https://www.angle.com.tw/magazine/m_search.asp?KindID=12)查看；稍後再問一次，我會重新即時確認。";
+      }
+      if (body.persistStudentMessage !== false && latestStudent.text.trim()) {
+        await db.insert(chatMessages).values({ sessionId: session.id, role: "student", text: latestStudent.text.trim() });
+      }
+      await db.insert(chatMessages).values({ sessionId: session.id, role: "mentor", text: reply, source: "元照官方歷期頁" });
+      await db.update(chatSessions).set({ updatedAt: new Date(), summary: reply, progressStatus: "active" }).where(eq(chatSessions.id, session.id));
+      return Response.json({ reply, sessionId: session.id, citationStatus, usage: { model: "official-live-index", inputTokens: 0, cachedTokens: 0, outputTokens: 0, estimatedCostUsd: 0 } });
     }
     const bookEvidence = context.type === "book" ? await readBookTeachingEvidence(context, latestStudent?.text ?? "") : null;
     const aiGate = await prepareAiUse(request, "law");
